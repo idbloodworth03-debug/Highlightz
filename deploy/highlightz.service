@@ -1,0 +1,24 @@
+[Unit]
+Description=Highlightz Stream Clipping Bot
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/highlightz
+ExecStart=/opt/highlightz/venv/bin/python -m src.main
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/highlightz/.env
+
+# Give FFmpeg enough time to buffer on shutdown
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=highlightz
+
+[Install]
+WantedBy=multi-user.target

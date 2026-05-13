@@ -1,0 +1,48 @@
+# Environment / secrets - NEVER commit these
+.env
+.env.local
+.env.production.local
+
+# Clips and generated video files
+clips/
+*.mp4
+*.ts
+*.m3u8
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Generated PDFs and utility scripts
+*.pdf
+generate_*.py
+
+# Local tool config
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp

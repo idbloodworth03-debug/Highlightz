@@ -1,0 +1,52 @@
+# Core async
+aiohttp
+websockets
+asyncio-mqtt
+
+# Stream handling
+streamlink
+ffmpeg-python
+
+# API clients
+twitchAPI
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# NLP / sentiment
+vaderSentiment
+
+# Queue & cache
+redis
+aioredis
+rq
+
+# Database (uncomment after installing PostgreSQL)
+# asyncpg
+# sqlalchemy[asyncio]
+# alembic
+# psycopg2-binary
+
+# Storage
+boto3
+google-cloud-storage
+
+# Web / dashboard API
+fastapi
+uvicorn[standard]
+python-multipart
+python-jose[cryptography]
+itsdangerous
+
+# Utilities
+pydantic
+pydantic-settings
+python-dotenv
+structlog
+tenacity
+httpx
+
+# Testing
+pytest
+pytest-asyncio
+pytest-mock
