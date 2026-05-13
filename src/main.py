@@ -126,6 +126,12 @@ async def run_clip_processor() -> None:
             break
         except Exception as exc:
             log.error("clip_processor_error", error=str(exc))
+            channel = job.channel if job else "unknown"
+            await dashboard_api.broadcast({
+                "event": "clip_error",
+                "channel": channel,
+                "error": str(exc),
+            })
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

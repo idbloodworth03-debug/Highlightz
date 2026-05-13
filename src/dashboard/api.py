@@ -285,7 +285,21 @@ async def logout(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "clips": len(_clips), "streams": len(_streams)}
+    from src.main import SHARED_BUFFERS
+    buffer_info = {}
+    for channel, buf in SHARED_BUFFERS.items():
+        segs = list(buf.buffer_dir.glob("seg*.ts")) if buf.buffer_dir.exists() else []
+        buffer_info[channel] = {
+            "running": buf._state.is_running,
+            "segments": len(segs),
+            "buffer_dir": str(buf.buffer_dir),
+        }
+    return {
+        "status": "ok",
+        "clips": len(_clips),
+        "streams": len(_streams),
+        "buffers": buffer_info,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -495,6 +509,7 @@ function connectWS() {
     if (msg.event === 'stream_removed') { delete streams[msg.channel]; renderStreams(); }
     if (msg.event === 'score_update') updateScore(msg.channel, msg.score, msg.breakdown);
     if (msg.event === 'profile_updated') updateProfilePanel(msg.profile);
+    if (msg.event === 'clip_error') toast('Clip error [' + msg.channel + ']: ' + msg.error, true);
   };
   ws.onclose = () => setTimeout(connectWS, 3000);
   setInterval(() => ws.readyState === 1 && ws.send('ping'), 30000);
@@ -700,11 +715,13 @@ async function forceClipFromInput() {
   await forceClip(ch);
 }
 
-function toast(msg) {
+function toast(msg, isError = false) {
   const t = document.getElementById('toast');
   t.textContent = msg;
+  t.style.background = isError ? '#eb0400' : '#bf94ff';
+  t.style.color = isError ? '#fff' : '#0e0e10';
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  setTimeout(() => t.classList.remove('show'), isError ? 6000 : 3000);
 }
 
 function updateProfilePanel(p) {

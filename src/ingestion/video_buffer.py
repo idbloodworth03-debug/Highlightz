@@ -175,8 +175,9 @@ class VideoBuffer:
             if not segments:
                 return -100.0
             latest = segments[-1]
+            null_dev = "NUL" if sys.platform == "win32" else "/dev/null"
             result = subprocess.run(
-                [settings.ffmpeg_path, "-i", str(latest), "-af", "volumedetect", "-f", "null", "NUL"],
+                [settings.ffmpeg_path, "-i", str(latest), "-af", "volumedetect", "-f", "null", null_dev],
                 capture_output=True, timeout=5,
             )
             for line in result.stderr.decode(errors="replace").splitlines():
