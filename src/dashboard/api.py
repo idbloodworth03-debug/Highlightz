@@ -495,7 +495,8 @@ let currentFilter = 'all';
 let ws;
 
 function connectWS() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${wsProtocol}//${location.host}/ws`);
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.event === 'clip_ready' || msg.event === 'clip_updated') {
