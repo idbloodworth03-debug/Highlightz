@@ -204,7 +204,7 @@ class StreamWorker:
             platform=self._config.platform_name,
             trigger_score=event.score,
             trigger_signals=[
-                {"type": str(s.type).split(".")[-1], "value": s.value, "metadata": s.metadata}
+                {"type": s.type.value, "value": s.value, "metadata": s.metadata}
                 for s in event.signals
             ],
             chat_snapshot=snapshot.messages[-30:] if snapshot else [],
@@ -216,7 +216,6 @@ class StreamWorker:
         await self._queue.push(job)
 
     async def _cleanup(self) -> None:
-        # Save final session watch time
         if self._profile and self._session_start:
             self._profile.total_watch_seconds += time.time() - self._session_start
             await profile_manager.save(self._profile)
@@ -228,6 +227,7 @@ class StreamWorker:
         if self._engine:
             self._engine.stop()
             self._engine = None
+        await self._platform.close()
 
     def stop(self) -> None:
         self._running = False

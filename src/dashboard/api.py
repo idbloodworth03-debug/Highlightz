@@ -71,8 +71,11 @@ def _load_clips() -> dict:
         return {}
 
 def _save_clips() -> None:
-    _CLIPS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _CLIPS_FILE.write_text(json.dumps(list(_clips.values())))
+    try:
+        _CLIPS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CLIPS_FILE.write_text(json.dumps(list(_clips.values())))
+    except Exception as exc:
+        log.error("save_clips_failed", error=str(exc))
 
 def _load_streams() -> dict:
     try:
@@ -81,8 +84,11 @@ def _load_streams() -> dict:
         return {}
 
 def _save_streams() -> None:
-    _STREAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _STREAMS_FILE.write_text(json.dumps(list(_streams.values())))
+    try:
+        _STREAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _STREAMS_FILE.write_text(json.dumps(list(_streams.values())))
+    except Exception as exc:
+        log.error("save_streams_failed", error=str(exc))
 
 _clips: dict[str, dict] = _load_clips()
 _streams: dict[str, dict] = _load_streams()
@@ -112,7 +118,8 @@ async def broadcast(event: dict) -> None:
     for ws in _ws_clients:
         try:
             await ws.send_text(json.dumps(event))
-        except Exception:
+        except Exception as exc:
+            log.debug("ws_send_failed", error=str(exc))
             dead.add(ws)
     _ws_clients.difference_update(dead)
 
@@ -246,8 +253,11 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/clip-file")
 async def serve_clip_file(path: str):
-    p = Path(path)
-    if not p.exists() or not p.suffix == ".mp4":
+    allowed_root = (Path(settings.local_storage_path) / "clips").resolve()
+    p = Path(path).resolve()
+    if not str(p).startswith(str(allowed_root)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not p.exists() or p.suffix != ".mp4":
         raise HTTPException(status_code=404, detail="Clip file not found")
     return FileResponse(str(p), media_type="video/mp4")
 

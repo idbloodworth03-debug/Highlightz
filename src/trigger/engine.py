@@ -49,6 +49,7 @@ class TriggerEngine:
         self._sub_raid_active: bool = False
         self._sub_raid_time: float = 0.0
         self._viewer_baseline: float = 0
+        self._viewer_current: float = 0
         self._viewer_samples: int = 0
 
     # ── Public API ────────────────────────────────────────────────────────
@@ -62,7 +63,8 @@ class TriggerEngine:
         self._sub_raid_time = time.time()
 
     def update_viewer_count(self, count: int) -> None:
-        """Update viewer count baseline using EMA (alpha=0.05)."""
+        """Update viewer count; track latest value and a slow EMA baseline."""
+        self._viewer_current = float(count)
         if self._viewer_samples == 0:
             self._viewer_baseline = float(count)
         else:
@@ -198,10 +200,10 @@ class TriggerEngine:
 
         # ── Viewer spike (0-1) ────────────────────────────────────────────
         if self._viewer_samples >= 5 and self._viewer_baseline > 0:
-            current_viewers = self._viewer_baseline  # last known value via EMA
-            viewer_score = min(current_viewers / self._viewer_baseline / 1.5, 1.0)
-            # Note: viewer_score reflects ratio deviation; meaningful only when
-            # update_viewer_count is called with a fresh live poll value before evaluate
+            # Score how far current count is above the slow baseline.
+            # 0% above = 0.0, 50% above = 1.0
+            spike_ratio = self._viewer_current / self._viewer_baseline
+            viewer_score = max(min((spike_ratio - 1.0) / 0.5, 1.0), 0.0)
         else:
             viewer_score = 0.0
         signals.append(Signal(

@@ -70,8 +70,8 @@ class TwitchPlatform(BasePlatform):
             platform="twitch",
             stream_url=stream_url,
             chat_channel_id=channel.lower(),
-            title=stream.get("title", "").encode("ascii", errors="ignore").decode(),
-            game=stream.get("game_name", "").encode("ascii", errors="ignore").decode(),
+            title=stream.get("title", ""),
+            game=stream.get("game_name", ""),
             viewer_count=stream.get("viewer_count", 0),
         )
 

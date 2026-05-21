@@ -115,6 +115,7 @@ async def run_clip_processor() -> None:
     processor = ClipProcessor(storage=storage, buffers=SHARED_BUFFERS)
     log.info("clip_processor_started")
     while True:
+        job = None
         try:
             job = await _queue.pop(timeout=5)
             if job is None:

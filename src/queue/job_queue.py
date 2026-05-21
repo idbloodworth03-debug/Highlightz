@@ -52,10 +52,14 @@ class JobQueue:
             await self._redis.close()
 
     async def push(self, job: ClipJob) -> None:
+        if not self._redis:
+            raise RuntimeError("JobQueue not connected — call connect() first")
         await self._redis.rpush(QUEUE_KEY, job.to_json())
         log.info("job_enqueued", clip_id=job.clip_id, channel=job.channel)
 
     async def pop(self, timeout: int = 5) -> ClipJob | None:
+        if not self._redis:
+            raise RuntimeError("JobQueue not connected — call connect() first")
         result = await self._redis.blpop(QUEUE_KEY, timeout=timeout)
         if result is None:
             return None
@@ -63,4 +67,6 @@ class JobQueue:
         return ClipJob.from_json(raw)
 
     async def queue_length(self) -> int:
+        if not self._redis:
+            return 0
         return await self._redis.llen(QUEUE_KEY)
