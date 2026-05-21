@@ -8,13 +8,6 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 
-HIGH_ENERGY_KEYWORDS = {
-    "clip", "clipit", "pogchamp", "pog", "poggers", "omegalul", "lul",
-    "holy", "insane", "wtf", "omg", "nooo", "noway", "no way", "lets go",
-    "letsgo", "gg", "rip", "ez", "clutch", "monkas", "pepega", "sadge",
-    "widepeeposad", "catjam", "hyperclap", "clap", "goat",
-}
-
 CLIP_TRIGGER_PHRASES = re.compile(
     r"\b(clip\s*it|someone\s*clip|clip\s*that|clip\s*this)\b", re.IGNORECASE
 )
@@ -34,10 +27,12 @@ class ChatMetrics:
     Sliding-window metrics tracker.
     Call `ingest(message)` for every incoming chat message.
     Call `snapshot()` to get current metrics for the trigger engine.
+    Pass `keywords` to use a channel-specific keyword set.
     """
 
-    def __init__(self, window_seconds: int = 15) -> None:
+    def __init__(self, window_seconds: int = 15, keywords: set[str] | None = None) -> None:
         self._window = window_seconds
+        self._keywords = keywords or set()
         self._timestamps: deque[float] = deque()
         self._messages: deque[str] = deque()
         self._keyword_counts: deque[int] = deque()
@@ -56,7 +51,7 @@ class ChatMetrics:
     def ingest(self, message: str) -> None:
         now = time.time()
         tokens = set(re.findall(r"\w+", message.lower()))
-        keyword_hit = int(bool(tokens & HIGH_ENERGY_KEYWORDS))
+        keyword_hit = int(bool(tokens & self._keywords))
         trigger_hit = int(bool(CLIP_TRIGGER_PHRASES.search(message)))
 
         self._timestamps.append(now)
@@ -99,7 +94,6 @@ class ChatMetrics:
         return self.current_velocity() / lt
 
     def _update_silence_tracking(self, now: float) -> None:
-        """Track periods where velocity drops below 0.25x long-term average."""
         lt = self.long_term_velocity()
         if lt == 0:
             return
@@ -107,30 +101,21 @@ class ChatMetrics:
         current = self.current_velocity()
 
         if current < threshold:
-            # Entering or continuing quiet period
             if not self._in_quiet:
                 self._in_quiet = True
                 self._quiet_start = now
         else:
-            # Velocity is back up
             if self._in_quiet:
                 self._in_quiet = False
                 self._quiet_duration = now - self._quiet_start
                 self._last_quiet_time = now
 
     def silence_burst_score(self) -> float:
-        """
-        Returns 0.0-1.0 indicating a silence-then-burst pattern.
-        1.0 if >= 4s of silence in last 30s AND current velocity >= 2x long-term avg.
-        0.5 if >= 2s of quiet followed by current spike.
-        0.0 otherwise.
-        """
         now = time.time()
         lt = self.long_term_velocity()
         if lt == 0:
             return 0.0
 
-        # Quiet period must have ended within the last 30 seconds
         time_since_quiet_ended = now - self._last_quiet_time
         if time_since_quiet_ended > 30 or self._last_quiet_time == 0.0:
             return 0.0

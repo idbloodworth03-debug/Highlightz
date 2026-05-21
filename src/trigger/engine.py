@@ -17,7 +17,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from config.settings import settings
 from .signals import Signal, SignalType, TriggerEvent
-from .rules import get_rules
+from .rules import get_rules, get_keywords
 from src.chat.metrics import ChatMetrics, ChatSnapshot
 
 log = structlog.get_logger(__name__)
@@ -40,7 +40,7 @@ class TriggerEngine:
         self.on_score = on_score
         self.profile = profile
         self.buffer = buffer
-        self._metrics = ChatMetrics()
+        self._metrics = ChatMetrics(keywords=get_keywords(channel))
         self._vader = SentimentIntensityAnalyzer()
         self._last_trigger: float = 0.0
         self._running = False
@@ -232,15 +232,17 @@ class TriggerEngine:
             SignalType.VIEWER_SPIKE: 10,
             SignalType.SILENCE_BURST: 10,
         }
-        # Apply per-signal learned multipliers from the streamer profile
+        rules = get_rules(self.channel)
+        # Apply channel rule overrides first, then adaptive profile multipliers on top
         weights = {}
         for sig_type, base in base_weights.items():
-            key = str(sig_type).split(".")[-1]   # e.g. "CHAT_VELOCITY"
-            multiplier = (
+            key = str(sig_type).split(".")[-1]
+            rule_mult = rules.signal_weights.get(key, 1.0)
+            profile_mult = (
                 self.profile.signal_weights.get(key, 1.0)
                 if self.profile else 1.0
             )
-            weights[sig_type] = base * multiplier
+            weights[sig_type] = base * rule_mult * profile_mult
 
         raw = sum(s.value * weights.get(s.type, 0) for s in signals)
         raw = min(raw, 100)
