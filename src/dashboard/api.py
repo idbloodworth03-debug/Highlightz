@@ -146,6 +146,14 @@ async def list_clips(status: str | None = None, channel: str | None = None):
     return clips
 
 
+@app.delete("/clips")
+async def clear_clips():
+    _clips.clear()
+    _save_clips()
+    await broadcast({"event": "clips_cleared"})
+    return {"status": "cleared"}
+
+
 @app.get("/clips/{clip_id}")
 async def get_clip(clip_id: str):
     clip = _clips.get(clip_id)
@@ -540,6 +548,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="clips-header">
       <span class="clips-title">Clips</span>
       <span class="hspacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="clearClips()" style="margin-right:8px">Clear All</button>
       <div class="filter-group">
         <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
         <button class="filter-btn" onclick="setFilter('pending',this)">Pending</button>
@@ -572,6 +581,7 @@ function connectWS() {
       renderClips();
       if (msg.event === 'clip_ready') toast('New clip from ' + msg.clip.channel);
     }
+    if (msg.event === 'clips_cleared') { allClips = {}; renderClips(); toast('All clips cleared'); }
     if (msg.event === 'stream_added' || msg.event === 'stream_updated') { streams[msg.stream.channel] = msg.stream; renderStreams(); }
     if (msg.event === 'stream_removed') { delete streams[msg.channel]; renderStreams(); }
     if (msg.event === 'score_update') updateScore(msg.channel, msg.score, msg.breakdown);
@@ -604,17 +614,12 @@ function renderClips() {
   clips.sort((a,b) => b.created_at - a.created_at);
   document.getElementById('clip-count').textContent = Object.keys(allClips).length + ' clips';
 
-  const existing = new Set([...grid.querySelectorAll('.clip-card')].map(el => el.dataset.id));
-  const incoming = new Set(clips.map(c => c.id));
-  grid.querySelectorAll('.clip-card').forEach(el => { if (!incoming.has(el.dataset.id)) el.remove(); });
+  grid.querySelectorAll('.clip-card').forEach(el => el.remove());
 
   if (!clips.length) { if(empty) empty.style.display = ''; return; }
   if(empty) empty.style.display = 'none';
 
-  clips.forEach(clip => {
-    if (existing.has(clip.id)) { updateCardStatus(grid.querySelector(`[data-id="${clip.id}"]`), clip); return; }
-    grid.insertAdjacentHTML('afterbegin', clipCard(clip));
-  });
+  clips.forEach(clip => grid.insertAdjacentHTML('beforeend', clipCard(clip)));
 }
 
 function scoreClass(s) { return s >= 75 ? 'high' : s >= 50 ? 'med' : 'low'; }
@@ -655,14 +660,6 @@ function actionButtons(c) {
   if (c.status !== 'pending') return `<span style="font-size:11px;color:var(--muted)">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>`;
   return `<button class="btn btn-green btn-sm" onclick="setStatus('${c.id}','approve')">Approve</button>
           <button class="btn btn-red btn-sm" onclick="setStatus('${c.id}','reject')">Reject</button>`;
-}
-
-function updateCardStatus(card, clip) {
-  if (!card) return;
-  const s = card.querySelector(`#status-${clip.id}`);
-  if (s) { s.className = 'status-pill ' + clip.status; s.textContent = clip.status; }
-  const a = card.querySelector(`#actions-${clip.id}`);
-  if (a) a.innerHTML = actionButtons(clip);
 }
 
 async function setStatus(id, action) {
@@ -754,6 +751,11 @@ async function addStream() {
   await fetch('/streams', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({channel:ch, platform:'twitch', preset})});
   document.getElementById('channel-input').value = '';
   toast('Now monitoring ' + ch);
+}
+
+async function clearClips() {
+  if (!confirm('Clear all clips? This cannot be undone.')) return;
+  await fetch('/clips', {method:'DELETE'});
 }
 
 async function removeStream(channel) {
