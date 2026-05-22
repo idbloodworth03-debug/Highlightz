@@ -37,7 +37,7 @@ app = FastAPI(title="Highlightz Dashboard", version="1.0.0")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS = {"/login", "/health", "/ws", "/favicon.ico"}
+_OPEN_PATHS = {"/login", "/health", "/ws", "/favicon.ico", "/logo.svg"}
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -321,6 +321,37 @@ async def health():
     }
 
 
+_LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0abfc"/>
+      <stop offset="100%" stop-color="#e879f9"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="11" fill="#0d0d18"/>
+  <rect x="8" y="8" width="8" height="32" rx="2" fill="url(#hg)"/>
+  <rect x="16" y="18" width="16" height="12" rx="2" fill="url(#hg)"/>
+  <rect x="32" y="8" width="8" height="12" rx="2" fill="url(#hg)"/>
+  <polygon points="32,22 42,30 32,38" fill="url(#pg)"/>
+</svg>"""
+
+
+@app.get("/logo.svg")
+async def logo_svg():
+    from fastapi.responses import Response
+    return Response(content=_LOGO_SVG, media_type="image/svg+xml")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/logo.svg")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return HTMLResponse(content=DASHBOARD_HTML)
@@ -332,12 +363,14 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #08080d; color: #e8e8f0; font-family: 'Inter', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
   .wrap { width: 360px; }
-  .logo { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #a78bfa, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .logo-area { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .logo { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #a78bfa, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; }
   .tagline { font-size: 13px; color: #6b6b80; margin-bottom: 36px; }
   .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 16px; padding: 32px; }
   label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #6b6b80; display: block; margin-bottom: 8px; }
@@ -350,7 +383,10 @@ LOGIN_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Highlightz</div>
+  <div class="logo-area">
+    <img src="/logo.svg" width="48" height="48" alt="Highlightz logo">
+    <div class="logo">Highlightz</div>
+  </div>
   <div class="tagline">AI-powered stream highlight detection</div>
   <div class="card">
     {error}
@@ -370,6 +406,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -514,6 +551,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <body>
 
 <header>
+  <img src="/logo.svg" width="28" height="28" alt="" style="border-radius:7px;flex-shrink:0">
   <span class="logo">Highlightz</span>
   <span class="hbadge live"><span class="dot"></span>Live</span>
   <span class="hbadge" id="clip-count">0 clips</span>
