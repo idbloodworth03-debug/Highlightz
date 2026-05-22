@@ -60,13 +60,15 @@ class ClipProcessor:
     @staticmethod
     async def _probe_duration(path: Path) -> float:
         try:
-            import subprocess
-            ffprobe = settings.ffmpeg_path.replace("ffmpeg.exe", "ffprobe.exe").replace("ffmpeg", "ffprobe")
-            result = subprocess.run(
-                [ffprobe, "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-                capture_output=True, timeout=10,
+            import shutil
+            ffprobe = shutil.which("ffprobe") or settings.ffmpeg_path.replace("ffmpeg.exe", "ffprobe.exe").replace("ffmpeg", "ffprobe")
+            proc = await asyncio.create_subprocess_exec(
+                ffprobe, "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            return float(result.stdout.decode().strip())
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+            return float(stdout.decode().strip())
         except Exception:
             return 0.0

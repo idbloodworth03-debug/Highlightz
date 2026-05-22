@@ -45,17 +45,25 @@ class JobQueue:
 
     async def connect(self) -> None:
         self._redis = await redis_from_url(settings.redis_url, decode_responses=True)
-        log.info("job_queue_connected", url=settings.redis_url)
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.redis_url)
+        log.info("job_queue_connected", host=parsed.hostname, port=parsed.port, db=parsed.path)
 
     async def close(self) -> None:
         if self._redis:
             await self._redis.close()
 
+    def _require_redis(self) -> None:
+        if self._redis is None:
+            raise RuntimeError("JobQueue.connect() has not been called")
+
     async def push(self, job: ClipJob) -> None:
+        self._require_redis()
         await self._redis.rpush(QUEUE_KEY, job.to_json())
         log.info("job_enqueued", clip_id=job.clip_id, channel=job.channel)
 
     async def pop(self, timeout: int = 5) -> ClipJob | None:
+        self._require_redis()
         result = await self._redis.blpop(QUEUE_KEY, timeout=timeout)
         if result is None:
             return None
@@ -63,4 +71,5 @@ class JobQueue:
         return ClipJob.from_json(raw)
 
     async def queue_length(self) -> int:
+        self._require_redis()
         return await self._redis.llen(QUEUE_KEY)

@@ -1,5 +1,12 @@
+import logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import Literal
+
+_log = logging.getLogger(__name__)
+
+_DEFAULT_SECRET = "change_me"
+_DEFAULT_PASSWORD = "highlightz"
 
 
 class Settings(BaseSettings):
@@ -12,9 +19,6 @@ class Settings(BaseSettings):
 
     # YouTube
     youtube_api_key: str = ""
-
-    # Database
-    database_url: str = "postgresql+asyncpg://superclip:password@localhost:5432/superclipbot"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -35,8 +39,9 @@ class Settings(BaseSettings):
 
     # App behaviour
     log_level: str = "INFO"
-    dashboard_secret_key: str = "change_me"
-    dashboard_password: str = "highlightz"
+    dashboard_secret_key: str = _DEFAULT_SECRET
+    dashboard_password: str = _DEFAULT_PASSWORD
+    dashboard_https_only: bool = False
     buffer_duration_seconds: int = 90
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
@@ -49,6 +54,14 @@ class Settings(BaseSettings):
     velocity_score_weight: float = 0.35
     sentiment_score_weight: float = 0.15
     audio_score_weight: float = 0.15
+
+    @model_validator(mode="after")
+    def warn_insecure_defaults(self) -> "Settings":
+        if self.dashboard_secret_key == _DEFAULT_SECRET:
+            _log.warning("SECURITY: DASHBOARD_SECRET_KEY is using the default value — set it in .env")
+        if self.dashboard_password == _DEFAULT_PASSWORD:
+            _log.warning("SECURITY: DASHBOARD_PASSWORD is using the default value — set it in .env")
+        return self
 
 
 settings = Settings()

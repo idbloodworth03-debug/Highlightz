@@ -5,7 +5,8 @@ Wants=redis-server.service
 
 [Service]
 Type=simple
-User=root
+User=highlightz
+Group=highlightz
 WorkingDirectory=/opt/highlightz
 ExecStart=/opt/highlightz/venv/bin/python -m src.main
 Restart=always
@@ -19,6 +20,12 @@ TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=highlightz
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/highlightz/clips
 
 [Install]
 WantedBy=multi-user.target

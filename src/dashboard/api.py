@@ -40,7 +40,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS = {"/login", "/health", "/ws", "/favicon.ico"}
+_OPEN_PATHS = {"/login", "/health", "/favicon.ico"}
 _STATIC_PREFIX = "/static"
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -49,7 +49,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in _OPEN_PATHS or path.startswith("/login") or path.startswith(_STATIC_PREFIX):
             return await call_next(request)
         if not request.session.get("auth"):
-            # API calls get 401; page requests get redirect to login
             if request.headers.get("accept", "").startswith("application/json"):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
@@ -57,14 +56,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 # Middleware order: SessionMiddleware runs first (parses cookie), then AuthMiddleware checks it
 app.add_middleware(AuthMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=settings.dashboard_secret_key, max_age=86400 * 30, https_only=False)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.dashboard_secret_key,
+    max_age=86400 * 30,
+    https_only=settings.dashboard_https_only,
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 from typing import Callable, Awaitable
@@ -72,7 +76,10 @@ from typing import Callable, Awaitable
 def _load_clips() -> dict:
     try:
         return {c["id"]: c for c in json.loads(_CLIPS_FILE.read_text())}
+    except FileNotFoundError:
+        return {}
     except Exception:
+        log.error("clips_file_load_failed", path=str(_CLIPS_FILE))
         return {}
 
 def _save_clips() -> None:
@@ -82,7 +89,10 @@ def _save_clips() -> None:
 def _load_streams() -> dict:
     try:
         return {s["channel"]: s for s in json.loads(_STREAMS_FILE.read_text())}
+    except FileNotFoundError:
+        return {}
     except Exception:
+        log.error("streams_file_load_failed", path=str(_STREAMS_FILE))
         return {}
 
 def _save_streams() -> None:
@@ -92,6 +102,7 @@ def _save_streams() -> None:
 _clips: dict[str, dict] = _load_clips()
 _streams: dict[str, dict] = _load_streams()
 _ws_clients: set[WebSocket] = set()
+_data_lock = asyncio.Lock()
 
 # Callbacks set by main.py after Redis is ready
 _publish_new_stream: Callable | None = None
@@ -125,8 +136,9 @@ async def broadcast(event: dict) -> None:
 # ── Called by clip processor when a clip is ready ────────────────────────────
 
 async def notify_clip_ready(clip: dict) -> None:
-    _clips[clip["id"]] = clip
-    _save_clips()
+    async with _data_lock:
+        _clips[clip["id"]] = clip
+        _save_clips()
     await broadcast({"event": "clip_ready", "clip": clip})
 
 
@@ -154,11 +166,12 @@ async def get_clip(clip_id: str):
 @app.post("/clips/{clip_id}/approve")
 async def approve_clip(clip_id: str):
     from src.profiles.manager import profile_manager
-    clip = _clips.get(clip_id)
-    if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
-    clip["status"] = "approved"
-    _save_clips()
+    async with _data_lock:
+        clip = _clips.get(clip_id)
+        if not clip:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        clip["status"] = "approved"
+        _save_clips()
     await broadcast({"event": "clip_updated", "clip": clip})
     profile = await profile_manager.get(clip["channel"])
     if profile:
@@ -171,11 +184,12 @@ async def approve_clip(clip_id: str):
 @app.post("/clips/{clip_id}/reject")
 async def reject_clip(clip_id: str):
     from src.profiles.manager import profile_manager
-    clip = _clips.get(clip_id)
-    if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
-    clip["status"] = "rejected"
-    _save_clips()
+    async with _data_lock:
+        clip = _clips.get(clip_id)
+        if not clip:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        clip["status"] = "rejected"
+        _save_clips()
     await broadcast({"event": "clip_updated", "clip": clip})
     profile = await profile_manager.get(clip["channel"])
     if profile:
@@ -214,11 +228,12 @@ async def list_streams():
 
 @app.post("/streams", status_code=201)
 async def add_stream(req: StreamRequest):
-    if req.channel in _streams:
-        raise HTTPException(status_code=409, detail="Stream already registered")
-    record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting"}
-    _streams[req.channel] = record
-    _save_streams()
+    async with _data_lock:
+        if req.channel in _streams:
+            raise HTTPException(status_code=409, detail="Stream already registered")
+        record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting"}
+        _streams[req.channel] = record
+        _save_streams()
     await broadcast({"event": "stream_added", "stream": record})
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, req.preset)
@@ -227,10 +242,11 @@ async def add_stream(req: StreamRequest):
 
 @app.delete("/streams/{channel}", status_code=204)
 async def remove_stream(channel: str):
-    if channel not in _streams:
-        raise HTTPException(status_code=404, detail="Stream not found")
-    del _streams[channel]
-    _save_streams()
+    async with _data_lock:
+        if channel not in _streams:
+            raise HTTPException(status_code=404, detail="Stream not found")
+        del _streams[channel]
+        _save_streams()
     await broadcast({"event": "stream_removed", "channel": channel})
     if _publish_remove_stream:
         await _publish_remove_stream(channel)
@@ -238,6 +254,9 @@ async def remove_stream(channel: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    if not ws.session.get("auth"):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     _ws_clients.add(ws)
     log.info("ws_client_connected", total=len(_ws_clients))
@@ -251,8 +270,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/clip-file")
 async def serve_clip_file(path: str):
-    p = Path(path)
-    if not p.exists() or not p.suffix == ".mp4":
+    clips_root = Path(settings.local_storage_path).resolve()
+    p = Path(path).resolve()
+    if not p.is_relative_to(clips_root) or p.suffix != ".mp4" or not p.exists():
         raise HTTPException(status_code=404, detail="Clip file not found")
     return FileResponse(str(p), media_type="video/mp4")
 
