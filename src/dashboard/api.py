@@ -310,7 +310,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   body { background: #0e0e10; color: #efeff1; font-family: Inter, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
   .card { background: #1f1f23; border: 1px solid #2d2d35; border-radius: 12px; padding: 40px; width: 340px; }
   .logo-wrap { display: flex; justify-content: center; margin-bottom: 20px; }
-  .logo-wrap img { height: 72px; width: auto; border-radius: 8px; }
+  .logo-wrap img { height: 120px; width: auto; }
   h1 { font-size: 24px; font-weight: 700; color: #bf94ff; margin-bottom: 4px; }
   .sub { font-size: 13px; color: #adadb8; margin-bottom: 28px; }
   label { font-size: 12px; color: #adadb8; display: block; margin-bottom: 6px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
@@ -347,7 +347,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0e0e10; color: #efeff1; font-family: Inter, system-ui, sans-serif; min-height: 100vh; }
   header { background: #1f1f23; border-bottom: 1px solid #2d2d35; padding: 10px 24px; display: flex; align-items: center; gap: 16px; }
-  header img { height: 36px; width: auto; border-radius: 4px; }
+  header img { height: 40px; width: auto; }
   header h1 { font-size: 18px; font-weight: 700; color: #bf94ff; }
   .badge { background: #26262c; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #adadb8; }
   .badge.live { background: #1a3a2a; color: #00c853; }
