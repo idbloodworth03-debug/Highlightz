@@ -40,6 +40,34 @@ GLOBAL_KEYWORDS = {
 
 STREAMER_KEYWORDS: dict[str, set] = {
 
+    # ── TheBurntPeanut (Variety / Comedy) ────────────────────────────────
+    # Comedic variety streamer — funny moments, reactions, chaotic energy
+    "theburntpeanut": {
+        # Reactions his chat floods with
+        "lmao", "lmaoo", "lmaooo", "lol", "loool", "haha", "hahaha",
+        "dead", "im dead", "imdead", "crying", "bro", "bruh", "brooo",
+        "no way", "noway", "what", "whatt", "whattt", "bro what",
+        "actual", "actually", "literally", "caught", "caught out",
+        "cooked", "cooked him", "cooked her", "gg", "rip",
+
+        # Hype / highlight reactions
+        "clip", "clip it", "clipit", "someone clip", "please clip",
+        "w", "w moment", "based", "not him", "not her", "not them",
+        "help", "helpp", "noooo", "nooo", "omg", "omfg",
+        "pog", "poggers", "pogchamp", "kekw", "lul", "omegalul",
+
+        # Comedy-specific
+        "ratio", "fell off", "fell off chat", "chat fell off",
+        "chat diff", "yap", "yapping", "yappin", "spit",
+        "real", "actually real", "he said", "she said", "they said",
+        "value", "no value", "unhinged", "wild", "crazy", "insane",
+
+        # Community feel
+        "peanut gang", "burntgang", "chat", "chat we",
+        "we cooked", "he cooked", "she cooked", "they cooked",
+        "vibes", "vibe check", "passed", "failed",
+    },
+
     # ── Jynxzi (Rainbow Six Siege) ────────────────────────────────────────
     # High-energy R6 FPS streamer — big reactions, clutch plays, rage moments
     "jynxzi": {
@@ -95,6 +123,22 @@ PRESETS: dict[str, ChannelRules] = {
 # Add a new entry here to tune any streamer. channel name must be lowercase.
 
 CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
+
+    "theburntpeanut": ChannelRules(
+        velocity_multiplier=2.5,        # variety chat needs a bigger spike to signal something real
+        trigger_threshold=52.0,         # lower threshold — comedy moments are frequent and short-lived
+        pre_roll=50,                    # catch the setup, not just the punchline
+        post_roll=15,                   # let the reaction breathe
+        cooldown_seconds=50,
+        extra_keywords=STREAMER_KEYWORDS["theburntpeanut"],
+        signal_weights={
+            "CHAT_VELOCITY": 1.4,       # chat explosions are the #1 signal for comedy
+            "KEYWORD": 1.5,             # comedy keywords are very reliable
+            "SENTIMENT": 1.3,           # positive/chaotic sentiment = funny moment
+            "AUDIO_SPIKE": 0.9,         # variety streams less audio-predictable
+            "SILENCE_BURST": 1.3,       # chat goes quiet then explodes = perfect comedy timing
+        },
+    ),
 
     "jynxzi": ChannelRules(
         velocity_multiplier=2.2,        # his chat moves fast, don't need huge spike
