@@ -1,15 +1,16 @@
+# -*- coding: utf-8 -*-
 """
 FastAPI dashboard: REST endpoints + WebSocket for real-time clip review.
 
 Endpoints:
-  GET  /clips          — list clips (filterable by status/channel)
-  GET  /clips/{id}     — single clip detail
+  GET  /clips          - list clips (filterable by status/channel)
+  GET  /clips/{id}     - single clip detail
   POST /clips/{id}/approve
   POST /clips/{id}/reject
-  GET  /streams        — list currently monitored streams
-  POST /streams        — register a new stream to watch
+  GET  /streams        - list currently monitored streams
+  POST /streams        - register a new stream to watch
   DELETE /streams/{channel}
-  WS   /ws             — real-time clip notifications
+  WS   /ws             - real-time clip notifications
 """
 
 import asyncio
@@ -548,7 +549,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
     <div class="clips-grid" id="clips-grid">
       <div id="clips-empty" style="grid-column:1/-1;padding:80px 0;text-align:center;color:var(--muted)">
-        <div style="font-size:36px;margin-bottom:14px;opacity:.3">◈</div>
+        <div style="font-size:36px;margin-bottom:14px;opacity:.3">*</div>
         <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Waiting for clips</div>
         <div style="font-size:13px">Add a live Twitch stream to start monitoring</div>
       </div>
@@ -681,7 +682,7 @@ function renderStreams() {
   arr.forEach(s => {
     if (existing.has(s.channel)) {
       const el = list.querySelector(`[data-channel="${s.channel}"] .stream-meta`);
-      if (el) el.innerHTML = statusDot(s.status) + s.platform + ' · ' + s.preset;
+      if (el) el.innerHTML = statusDot(s.status) + s.platform + ' - ' + s.preset;
       return;
     }
     list.querySelector('.empty-state')?.remove();
@@ -691,7 +692,7 @@ function renderStreams() {
       <div class="stream-card-top">
         <div style="min-width:0">
           <div class="stream-name">${s.channel}</div>
-          <div class="stream-meta">${statusDot(s.status)}${s.platform} · ${s.preset}</div>
+          <div class="stream-meta">${statusDot(s.status)}${s.platform} - ${s.preset}</div>
         </div>
         <div class="stream-actions">
           <button class="btn btn-orange btn-sm" onclick="forceClip('${s.channel}')">Test</button>
@@ -708,12 +709,12 @@ function renderStreams() {
       </div>
       <div class="profile-section" id="profile-${s.channel}">
         <div class="profile-grid">
-          <div class="profile-stat"><span class="profile-stat-label">Threshold</span><span class="profile-stat-val p-threshold">—</span></div>
-          <div class="profile-stat"><span class="profile-stat-label">Velocity</span><span class="profile-stat-val p-velocity">—</span></div>
-          <div class="profile-stat"><span class="profile-stat-label">Clips</span><span class="profile-stat-val p-clips">—</span></div>
-          <div class="profile-stat"><span class="profile-stat-label">Approval</span><span class="profile-stat-val p-approval">—</span></div>
+          <div class="profile-stat"><span class="profile-stat-label">Threshold</span><span class="profile-stat-val p-threshold">-</span></div>
+          <div class="profile-stat"><span class="profile-stat-label">Velocity</span><span class="profile-stat-val p-velocity">-</span></div>
+          <div class="profile-stat"><span class="profile-stat-label">Clips</span><span class="profile-stat-val p-clips">-</span></div>
+          <div class="profile-stat"><span class="profile-stat-label">Approval</span><span class="profile-stat-val p-approval">-</span></div>
         </div>
-        <div class="learn-badge p-learning">Learning baseline…</div>
+        <div class="learn-badge p-learning">Learning baseline...</div>
       </div>`;
     list.appendChild(div);
   });
@@ -763,7 +764,7 @@ async function removeStream(channel) {
 
 async function forceClip(channel) {
   const res = await fetch(`/streams/${channel}/force-clip`, {method:'POST'});
-  toast(res.ok ? 'Test clip queued for ' + channel : 'Stream not active — start monitoring first', !res.ok);
+  toast(res.ok ? 'Test clip queued for ' + channel : 'Stream not active - start monitoring first', !res.ok);
 }
 
 function toast(msg, isError = false) {
@@ -779,17 +780,17 @@ function toast(msg, isError = false) {
 function updateProfilePanel(p) {
   const panel = document.getElementById(`profile-${p.channel}`);
   if (!panel) return;
-  panel.querySelector('.p-threshold').textContent = p.trigger_threshold?.toFixed(1) ?? '—';
-  panel.querySelector('.p-velocity').textContent = p.avg_velocity > 0 ? p.avg_velocity.toFixed(2) + '/s' : '—';
+  panel.querySelector('.p-threshold').textContent = p.trigger_threshold?.toFixed(1) ?? '-';
+  panel.querySelector('.p-velocity').textContent = p.avg_velocity > 0 ? p.avg_velocity.toFixed(2) + '/s' : '-';
   panel.querySelector('.p-clips').textContent = p.total_clips ?? 0;
   const ar = p.approval_rate;
   const arEl = panel.querySelector('.p-approval');
-  arEl.textContent = p.total_clips > 0 ? Math.round(ar * 100) + '%' : '—';
+  arEl.textContent = p.total_clips > 0 ? Math.round(ar * 100) + '%' : '-';
   arEl.style.color = ar >= 0.7 ? 'var(--green)' : ar >= 0.4 ? 'var(--yellow)' : 'var(--red)';
   const learning = panel.querySelector('.p-learning');
   const samples = p.velocity_samples ?? 0;
-  if (samples >= 10) { learning.textContent = 'Calibrated · ' + samples + ' samples'; learning.style.color = 'var(--green)'; }
-  else { learning.textContent = 'Learning… ' + samples + '/10 samples'; learning.style.color = 'var(--accent-light)'; }
+  if (samples >= 10) { learning.textContent = 'Calibrated - ' + samples + ' samples'; learning.style.color = 'var(--green)'; }
+  else { learning.textContent = 'Learning... ' + samples + '/10 samples'; learning.style.color = 'var(--accent-light)'; }
 }
 
 async function loadProfiles() {
@@ -798,63 +799,6 @@ async function loadProfiles() {
 }
 
 loadInitial(); loadProfiles(); connectWS();
-</script>
-</body>
-</html>"""
-
-function toast(msg, isError = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.background = isError ? '#eb0400' : '#bf94ff';
-  t.style.color = isError ? '#fff' : '#0e0e10';
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), isError ? 6000 : 3000);
-}
-
-function updateProfilePanel(p) {
-  const panel = document.getElementById(`profile-${p.channel}`);
-  if (!panel) return;
-  panel.querySelector('.p-threshold').textContent = p.trigger_threshold?.toFixed(1) ?? '—';
-  panel.querySelector('.p-velocity').textContent = p.avg_velocity > 0 ? p.avg_velocity.toFixed(2) + ' msg/s' : '—';
-  panel.querySelector('.p-clips').textContent = p.total_clips ?? 0;
-  const ar = p.approval_rate;
-  const arEl = panel.querySelector('.p-approval');
-  arEl.textContent = p.total_clips > 0 ? Math.round(ar * 100) + '%' : '—';
-  arEl.style.color = ar >= 0.7 ? '#00c853' : ar >= 0.4 ? '#ffb300' : '#eb0400';
-
-  // Show learned signal weights when any have drifted from 1.0
-  const weightsEl = panel.querySelector('.p-weights');
-  const sw = p.signal_weights;
-  if (sw && p.total_clips > 0) {
-    const labels = {CHAT_VELOCITY:'Vel',AUDIO_SPIKE:'Audio',KEYWORD:'KW',SENTIMENT:'Sent',VIEWER_SPIKE:'View',SILENCE_BURST:'Sil'};
-    const chips = Object.entries(sw).map(([k, v]) => {
-      const color = v > 1.1 ? '#00c853' : v < 0.9 ? '#eb0400' : '#adadb8';
-      return `<span style="font-size:10px;background:#26262c;border-radius:3px;padding:2px 5px;color:${color}">${labels[k]||k}: ${v.toFixed(2)}</span>`;
-    }).join('');
-    weightsEl.innerHTML = '<div style="font-size:10px;color:#adadb8;margin-bottom:3px">Signal weights</div><div style="display:flex;flex-wrap:wrap;gap:3px">' + chips + '</div>';
-    weightsEl.style.display = '';
-  }
-
-  const learning = panel.querySelector('.p-learning');
-  const samples = p.velocity_samples ?? 0;
-  if (samples >= 10) {
-    learning.textContent = `Calibrated · ${samples} samples`;
-    learning.style.color = '#00c853';
-  } else {
-    learning.textContent = `Learning baseline... (${samples}/10 samples)`;
-    learning.style.color = '#bf94ff';
-  }
-}
-
-async function loadProfiles() {
-  const res = await fetch('/profiles');
-  const profiles = await res.json();
-  profiles.forEach(updateProfilePanel);
-}
-
-loadInitial();
-loadProfiles();
-connectWS();
 </script>
 </body>
 </html>"""
