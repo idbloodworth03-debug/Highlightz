@@ -425,8 +425,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   /* Clips panel */
   .clips-panel { display: flex; flex-direction: column; overflow: hidden; }
-  .clips-toolbar { padding: 16px 20px; border-bottom: 1px solid #2d2d35; display: flex; align-items: center; gap: 12px; }
-  .clips-toolbar h2 { font-size: 15px; font-weight: 700; flex: 1; }
+  .clips-toolbar { padding: 14px 20px 10px; border-bottom: 1px solid #2d2d35; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .toolbar-left { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .toolbar-left h2 { font-size: 15px; font-weight: 700; }
+  .pending-badge { background: #eb0400; color: #fff; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 700; display: none; }
+  .toolbar-filters { display: flex; gap: 8px; }
+  .toolbar-bulk { display: flex; gap: 8px; }
+  .bulk-btn { border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .approve-bulk { background: transparent; border: 1px solid #00c853; color: #00c853; }
+  .approve-bulk:hover { background: #00c85322; }
+  .reject-bulk { background: transparent; border: 1px solid #eb0400; color: #eb0400; }
+  .reject-bulk:hover { background: #eb040022; }
+  .clip-stats { width: 100%; font-size: 11px; color: #adadb8; padding-top: 6px; display: none; }
   .filter-btn { background: #26262c; border: 1px solid #3a3a44; border-radius: 20px; color: #adadb8; padding: 5px 14px; font-size: 12px; cursor: pointer; transition: all .15s; }
   .filter-btn.active, .filter-btn:hover { background: #bf94ff22; border-color: #bf94ff; color: #bf94ff; }
   .clips-grid { flex: 1; overflow-y: auto; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-content: start; }
@@ -499,11 +509,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   <div class="clips-panel">
     <div class="clips-toolbar">
-      <h2>Clips</h2>
-      <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
-      <button class="filter-btn" onclick="setFilter('pending', this)">Pending</button>
-      <button class="filter-btn" onclick="setFilter('approved', this)">Approved</button>
-      <button class="filter-btn" onclick="setFilter('rejected', this)">Rejected</button>
+      <div class="toolbar-left">
+        <h2>Clips</h2>
+        <span class="pending-badge" id="pending-badge"></span>
+      </div>
+      <div class="toolbar-filters">
+        <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+        <button class="filter-btn" onclick="setFilter('pending', this)">Pending</button>
+        <button class="filter-btn" onclick="setFilter('approved', this)">Approved</button>
+        <button class="filter-btn" onclick="setFilter('rejected', this)">Rejected</button>
+      </div>
+      <div class="toolbar-bulk">
+        <button class="bulk-btn approve-bulk" id="bulk-approve-btn" onclick="bulkApprove()" style="display:none">✓ Approve All Pending</button>
+        <button class="bulk-btn reject-bulk" id="bulk-reject-btn" onclick="bulkReject()" style="display:none">✗ Reject All Pending</button>
+      </div>
+      <div class="clip-stats" id="clip-stats"></div>
     </div>
     <div class="clips-grid" id="clips-grid">
       <div class="empty-state" id="clips-empty" style="grid-column:1/-1;padding:60px 0">
@@ -561,6 +581,57 @@ function setFilter(f, btn) {
   renderClips();
 }
 
+function updateStats() {
+  const all = Object.values(allClips);
+  const pending = all.filter(c => c.status === 'pending').length;
+  const approved = all.filter(c => c.status === 'approved').length;
+  const rejected = all.filter(c => c.status === 'rejected').length;
+  const reviewed = approved + rejected;
+  const rate = reviewed > 0 ? Math.round(approved / reviewed * 100) : null;
+
+  const badge = document.getElementById('pending-badge');
+  badge.textContent = pending + ' pending';
+  badge.style.display = pending > 0 ? '' : 'none';
+
+  const statsEl = document.getElementById('clip-stats');
+  if (all.length > 0) {
+    const parts = [];
+    if (rate !== null) parts.push(`${rate}% approval rate`);
+    if (approved > 0) parts.push(`${approved} approved`);
+    if (rejected > 0) parts.push(`${rejected} rejected`);
+    if (pending > 0) parts.push(`${pending} pending review`);
+    statsEl.textContent = parts.join(' · ');
+    statsEl.style.display = '';
+  } else {
+    statsEl.style.display = 'none';
+  }
+
+  document.getElementById('bulk-approve-btn').style.display = pending > 0 ? '' : 'none';
+  document.getElementById('bulk-reject-btn').style.display = pending > 0 ? '' : 'none';
+}
+
+async function bulkApprove() {
+  const pending = Object.values(allClips).filter(c => c.status === 'pending');
+  if (!pending.length) return;
+  if (!confirm(`Approve all ${pending.length} pending clips?`)) return;
+  await Promise.all(pending.map(c => fetch(`/clips/${c.id}/approve`, { method: 'POST' })));
+  const arr = await (await fetch('/clips')).json();
+  arr.forEach(c => allClips[c.id] = c);
+  renderClips();
+  toast(`Approved ${pending.length} clips`);
+}
+
+async function bulkReject() {
+  const pending = Object.values(allClips).filter(c => c.status === 'pending');
+  if (!pending.length) return;
+  if (!confirm(`Reject all ${pending.length} pending clips?`)) return;
+  await Promise.all(pending.map(c => fetch(`/clips/${c.id}/reject`, { method: 'POST' })));
+  const arr = await (await fetch('/clips')).json();
+  arr.forEach(c => allClips[c.id] = c);
+  renderClips();
+  toast(`Rejected ${pending.length} clips`);
+}
+
 function renderClips() {
   const grid = document.getElementById('clips-grid');
   const empty = document.getElementById('clips-empty');
@@ -569,6 +640,7 @@ function renderClips() {
   clips.sort((a,b) => b.created_at - a.created_at);
 
   document.getElementById('clip-count').textContent = Object.keys(allClips).length + ' clips';
+  updateStats();
 
   const existing = new Set([...grid.querySelectorAll('.clip-card')].map(el => el.dataset.id));
   const incoming = new Set(clips.map(c => c.id));
