@@ -18,9 +18,6 @@ from typing import Any
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
-_STREAMS_FILE = Path("clips/streams.json")
-_CLIPS_FILE = Path("clips/clips.json")
-
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +27,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 
 from config.settings import settings
+
+_STREAMS_FILE = Path(settings.local_storage_path) / "streams.json"
+_CLIPS_FILE = Path(settings.local_storage_path) / "clips.json"
 
 log = structlog.get_logger(__name__)
 
@@ -254,10 +254,10 @@ async def remove_stream(channel: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
     if not ws.session.get("auth"):
         await ws.close(code=1008)
         return
-    await ws.accept()
     _ws_clients.add(ws)
     log.info("ws_client_connected", total=len(_ws_clients))
     try:

@@ -14,7 +14,7 @@ from .profile import StreamerProfile
 log = structlog.get_logger(__name__)
 
 _PROFILES_DIR = Path(settings.local_storage_path) / "profiles"
-_SEED_DIR = Path("seed_profiles")
+_SEED_DIR = Path(__file__).parent.parent.parent / "seed_profiles"
 
 
 class ProfileManager:
