@@ -38,6 +38,8 @@ class ClipProcessor:
             chat_snapshot=job.chat_snapshot,
             stream_title=job.stream_title,
             game=job.game,
+            virality_score=job.virality_score,
+            clip_title=job.clip_title,
         )
 
         tmp_path = Path(settings.local_storage_path) / "tmp" / f"{meta.id}.mp4"

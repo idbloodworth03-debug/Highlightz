@@ -100,6 +100,8 @@ class TriggerEngine:
                 signals=signals,
                 pre_roll=rules.pre_roll,
                 post_roll=rules.post_roll,
+                virality_score=self._compute_virality_score(signals),
+                clip_title=self._generate_clip_title(signals),
             )
             log.info("trigger_fired", channel=self.channel, score=round(score, 1),
                      threshold=round(threshold, 1))
@@ -225,6 +227,56 @@ class TriggerEngine:
 
         return signals
 
+    def _compute_virality_score(self, signals: list[Signal]) -> float:
+        """
+        Estimate virality potential (0-100) independent of the trigger threshold.
+        Weights reflect research: silence-burst and loud audio are the top predictors.
+        """
+        val = {s.type: s.value for s in signals}
+        silence = val.get(SignalType.SILENCE_BURST, 0.0)
+        audio = val.get(SignalType.AUDIO_SPIKE, 0.0)
+        keyword = val.get(SignalType.KEYWORD, 0.0)
+        sentiment = val.get(SignalType.SENTIMENT, 0.0)
+        viewer = val.get(SignalType.VIEWER_SPIKE, 0.0)
+
+        score = (
+            silence * 30 +
+            audio * 25 +
+            ((keyword + sentiment) / 2) * 20 +
+            viewer * 15 +
+            val.get(SignalType.CHAT_VELOCITY, 0.0) * 10
+        )
+
+        # Sub/raid bonus
+        if self._sub_raid_active and (time.time() - self._sub_raid_time) < 30:
+            score += 5
+
+        return round(min(score, 100), 1)
+
+    def _generate_clip_title(self, signals: list[Signal]) -> str:
+        """Generate a punchy social-ready title based on the peak signal."""
+        val = {s.type: s.value for s in signals}
+        ranked = sorted(val.items(), key=lambda x: x[1], reverse=True)
+        peak, peak_val = ranked[0] if ranked else (None, 0.0)
+
+        if peak_val < 0.2:
+            return f"Clip from {self.channel}"
+
+        titles = {
+            SignalType.SILENCE_BURST: "Insane Moment",
+            SignalType.AUDIO_SPIKE: "Big Reaction",
+            SignalType.KEYWORD: "Chat Goes Wild",
+            SignalType.VIEWER_SPIKE: "Massive Pop-Off",
+            SignalType.SENTIMENT: "Pure Emotion",
+            SignalType.CHAT_VELOCITY: "Chat Explodes",
+        }
+        label = titles.get(peak, "Highlight")
+
+        if self._sub_raid_active and (time.time() - self._sub_raid_time) < 30:
+            label = "Sub/Raid Hype"
+
+        return f"{self.channel} — {label}"
+
     def _compute_score(self, signals: list[Signal]) -> float:
         base_weights = {
             SignalType.CHAT_VELOCITY: 40,
@@ -232,7 +284,7 @@ class TriggerEngine:
             SignalType.KEYWORD: 20,
             SignalType.SENTIMENT: 10,
             SignalType.VIEWER_SPIKE: 10,
-            SignalType.SILENCE_BURST: 10,
+            SignalType.SILENCE_BURST: 20,
         }
         # Apply per-signal learned multipliers from the streamer profile
         weights = {}

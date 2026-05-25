@@ -459,6 +459,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .clip-status.pending { background: #2a2a16; color: #ffb300; }
   .clip-status.approved { background: #1a3a2a; color: #00c853; }
   .clip-status.rejected { background: #3a1a1a; color: #eb0400; }
+  .virality-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+  .virality-badge.fire { background: #3a1e00; color: #ff7700; }
+  .virality-badge.hot { background: #2a2a00; color: #ffcc00; }
+  .virality-badge.cool { background: #1a1a2a; color: #8888cc; }
 
   .toast { position: fixed; bottom: 24px; right: 24px; background: #1f1f23; border: 1px solid #bf94ff55; border-radius: 8px; padding: 12px 18px; font-size: 13px; color: #efeff1; transform: translateY(80px); opacity: 0; transition: all .3s; z-index: 999; }
   .toast.show { transform: translateY(0); opacity: 1; }
@@ -663,6 +667,13 @@ function renderClips() {
 
 function scoreClass(s) { return s >= 75 ? 'high' : s >= 50 ? 'med' : 'low'; }
 
+function viralityBadge(v) {
+  if (!v) return '';
+  const tier = v >= 65 ? 'fire' : v >= 35 ? 'hot' : 'cool';
+  const icon = v >= 65 ? '🔥' : v >= 35 ? '⚡' : '○';
+  return `<span class="virality-badge ${tier}">${icon} ${Math.round(v)}% viral</span>`;
+}
+
 function clipCard(c) {
   const score = Math.round(c.trigger_score);
   const date = new Date(c.created_at * 1000).toLocaleTimeString();
@@ -670,6 +681,7 @@ function clipCard(c) {
   const media = c.storage_url && !c.storage_url.startsWith('http')
     ? `<video src="/clip-file?path=${encodeURIComponent(c.storage_url)}" controls></video>`
     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#3a3a44">▶ ${c.channel}</div>`;
+  const title = c.clip_title || c.stream_title || 'Live Stream';
 
   return `<div class="clip-card" data-id="${c.id}">
     <div class="clip-video">
@@ -678,11 +690,12 @@ function clipCard(c) {
     </div>
     <div class="clip-body">
       <div class="clip-channel">${c.channel}</div>
-      <div class="clip-title">${c.stream_title || 'Live Stream'}</div>
+      <div class="clip-title">${title}</div>
       <div class="clip-meta">
         <span class="clip-tag">${date}</span>
         ${dur ? `<span class="clip-tag">${dur}</span>` : ''}
         ${c.game ? `<span class="clip-tag">${c.game}</span>` : ''}
+        ${viralityBadge(c.virality_score)}
         <span class="clip-status ${c.status}" id="status-${c.id}">${c.status}</span>
       </div>
       <div class="clip-actions" id="actions-${c.id}">

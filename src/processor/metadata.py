@@ -18,6 +18,8 @@ class ClipMetadata:
     storage_url: str = ""
     duration_seconds: float = 0.0
     status: str = "pending"    # pending | approved | rejected | published
+    virality_score: float = 0.0
+    clip_title: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -33,4 +35,6 @@ class ClipMetadata:
             "storage_url": self.storage_url,
             "duration_seconds": self.duration_seconds,
             "status": self.status,
+            "virality_score": self.virality_score,
+            "clip_title": self.clip_title,
         }

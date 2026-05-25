@@ -30,3 +30,5 @@ class TriggerEvent:
     timestamp: float = field(default_factory=time.time)
     pre_roll: int = 30
     post_roll: int = 10
+    virality_score: float = 0.0
+    clip_title: str = ""

@@ -212,6 +212,8 @@ class StreamWorker:
             game=info.game if info else "",
             pre_roll=event.pre_roll,
             post_roll=event.post_roll,
+            virality_score=event.virality_score,
+            clip_title=event.clip_title,
         )
         await self._queue.push(job)
 
