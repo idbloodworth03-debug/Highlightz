@@ -1,0 +1,33 @@
+{
+  "channel": "ohnepixel",
+  "platform": "twitch",
+
+  "avg_velocity": 5.8,
+  "velocity_samples": 60,
+
+  "avg_sentiment": 0.35,
+  "sentiment_samples": 60,
+
+  "avg_keyword_rate": 0.18,
+  "keyword_samples": 60,
+
+  "trigger_threshold": 56.0,
+
+  "signal_weights": {
+    "CHAT_VELOCITY": 1.40,
+    "AUDIO_SPIKE": 1.50,
+    "KEYWORD": 1.15,
+    "SENTIMENT": 0.90,
+    "VIEWER_SPIKE": 0.85,
+    "SILENCE_BURST": 1.25
+  },
+
+  "total_clips": 0,
+  "approved_clips": 0,
+  "rejected_clips": 0,
+  "total_sessions": 0,
+  "total_watch_seconds": 0.0,
+
+  "created_at": 1779734337.0,
+  "last_seen": 1779734337.0
+}

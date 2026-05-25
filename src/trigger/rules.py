@@ -44,6 +44,16 @@ CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
         post_roll=15,
         cooldown_seconds=90,
     ),
+    # CS2 streamer — case openings, esports co-streams, skin analysis.
+    # Large audience (~29K avg), sharp silence->burst pattern on unbox reveals.
+    # Pre-seeded profile in seed_profiles/ohnepixel.json
+    "ohnepixel": ChannelRules(
+        velocity_multiplier=2.0,
+        trigger_threshold=56.0,
+        pre_roll=45,
+        post_roll=15,
+        cooldown_seconds=90,
+    ),
 }
 
 
