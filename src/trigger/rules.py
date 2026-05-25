@@ -32,7 +32,19 @@ PRESETS: dict[str, ChannelRules] = {
 }
 
 # Channel-specific overrides: channel_name -> ChannelRules
-CHANNEL_OVERRIDES: dict[str, ChannelRules] = {}
+# These govern cooldown, pre/post roll, and velocity multiplier.
+# trigger_threshold is overridden by the adaptive StreamerProfile once loaded.
+CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
+    # LoL streamer — loud/reactive, frequent short spikes, needs longer cooldown
+    # to avoid clipping every minor outburst. Pre-seeded profile in seed_profiles/dantes.json
+    "dantes": ChannelRules(
+        velocity_multiplier=2.2,
+        trigger_threshold=53.0,
+        pre_roll=45,
+        post_roll=15,
+        cooldown_seconds=90,
+    ),
+}
 
 
 def get_rules(channel: str) -> ChannelRules:

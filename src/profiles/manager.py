@@ -14,6 +14,7 @@ from .profile import StreamerProfile
 log = structlog.get_logger(__name__)
 
 _PROFILES_DIR = Path(settings.local_storage_path) / "profiles"
+_SEED_DIR = Path("seed_profiles")
 
 
 class ProfileManager:
@@ -25,12 +26,24 @@ class ProfileManager:
     def _path(self, channel: str) -> Path:
         return _PROFILES_DIR / f"{channel.lower()}.json"
 
+    def _seed_path(self, channel: str) -> Path:
+        return _SEED_DIR / f"{channel.lower()}.json"
+
     async def load(self, channel: str, platform: str = "twitch") -> StreamerProfile:
         async with self._lock:
             if channel in self._cache:
                 return self._cache[channel]
 
             path = self._path(channel)
+
+            # Auto-seed from seed_profiles/ if no runtime profile exists yet
+            if not path.exists():
+                seed = self._seed_path(channel)
+                if seed.exists():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(seed.read_text(encoding="utf-8"), encoding="utf-8")
+                    log.info("profile_seeded", channel=channel, seed=str(seed))
+
             if path.exists():
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))

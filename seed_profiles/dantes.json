@@ -1,0 +1,33 @@
+{
+  "channel": "dantes",
+  "platform": "twitch",
+
+  "avg_velocity": 3.2,
+  "velocity_samples": 60,
+
+  "avg_sentiment": 0.30,
+  "sentiment_samples": 60,
+
+  "avg_keyword_rate": 0.13,
+  "keyword_samples": 60,
+
+  "trigger_threshold": 53.0,
+
+  "signal_weights": {
+    "CHAT_VELOCITY": 1.35,
+    "AUDIO_SPIKE": 1.45,
+    "KEYWORD": 1.10,
+    "SENTIMENT": 0.85,
+    "VIEWER_SPIKE": 0.75,
+    "SILENCE_BURST": 0.65
+  },
+
+  "total_clips": 0,
+  "approved_clips": 0,
+  "rejected_clips": 0,
+  "total_sessions": 0,
+  "total_watch_seconds": 0.0,
+
+  "created_at": 1779733474.0,
+  "last_seen": 1779733474.0
+}
