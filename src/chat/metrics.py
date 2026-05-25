@@ -6,7 +6,7 @@ keyword hits, and a rolling average for spike detection.
 import time
 import re
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 HIGH_ENERGY_KEYWORDS = {
     "clip", "clipit", "pogchamp", "pog", "poggers", "omegalul", "lul",
@@ -36,7 +36,8 @@ class ChatMetrics:
     Call `snapshot()` to get current metrics for the trigger engine.
     """
 
-    def __init__(self, window_seconds: int = 15) -> None:
+    def __init__(self, window_seconds: int = 15, extra_keywords: frozenset | None = None) -> None:
+        self._keywords = HIGH_ENERGY_KEYWORDS | (extra_keywords or frozenset())
         self._window = window_seconds
         self._timestamps: deque[float] = deque()
         self._messages: deque[str] = deque()
@@ -56,7 +57,7 @@ class ChatMetrics:
     def ingest(self, message: str) -> None:
         now = time.time()
         tokens = set(re.findall(r"\w+", message.lower()))
-        keyword_hit = int(bool(tokens & HIGH_ENERGY_KEYWORDS))
+        keyword_hit = int(bool(tokens & self._keywords))
         trigger_hit = int(bool(CLIP_TRIGGER_PHRASES.search(message)))
 
         self._timestamps.append(now)
@@ -107,12 +108,10 @@ class ChatMetrics:
         current = self.current_velocity()
 
         if current < threshold:
-            # Entering or continuing quiet period
             if not self._in_quiet:
                 self._in_quiet = True
                 self._quiet_start = now
         else:
-            # Velocity is back up
             if self._in_quiet:
                 self._in_quiet = False
                 self._quiet_duration = now - self._quiet_start
@@ -130,7 +129,6 @@ class ChatMetrics:
         if lt == 0:
             return 0.0
 
-        # Quiet period must have ended within the last 30 seconds
         time_since_quiet_ended = now - self._last_quiet_time
         if time_since_quiet_ended > 30 or self._last_quiet_time == 0.0:
             return 0.0

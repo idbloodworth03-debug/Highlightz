@@ -40,7 +40,8 @@ class TriggerEngine:
         self.on_score = on_score
         self.profile = profile
         self.buffer = buffer
-        self._metrics = ChatMetrics()
+        _init_rules = get_rules(channel)
+        self._metrics = ChatMetrics(extra_keywords=_init_rules.extra_keywords)
         self._vader = SentimentIntensityAnalyzer()
         self._last_trigger: float = 0.0
         self._running = False
@@ -48,7 +49,8 @@ class TriggerEngine:
         self._audio_samples: int = 0
         self._sub_raid_active: bool = False
         self._sub_raid_time: float = 0.0
-        self._viewer_baseline: float = 0
+        self._viewer_current: float = 0.0
+        self._viewer_baseline: float = 0.0
         self._viewer_samples: int = 0
 
     # ── Public API ────────────────────────────────────────────────────────
@@ -62,7 +64,8 @@ class TriggerEngine:
         self._sub_raid_time = time.time()
 
     def update_viewer_count(self, count: int) -> None:
-        """Update viewer count baseline using EMA (alpha=0.05)."""
+        """Update viewer count. Tracks raw current value and slow EMA baseline separately."""
+        self._viewer_current = float(count)
         if self._viewer_samples == 0:
             self._viewer_baseline = float(count)
         else:
@@ -197,19 +200,18 @@ class TriggerEngine:
         ))
 
         # ── Viewer spike (0-1) ────────────────────────────────────────────
+        # Score 1.0 when current viewers are 1.5x the slow EMA baseline.
         if self._viewer_samples >= 5 and self._viewer_baseline > 0:
-            current_viewers = self._viewer_baseline  # last known value via EMA
-            viewer_score = min(current_viewers / self._viewer_baseline / 1.5, 1.0)
-            # Note: viewer_score reflects ratio deviation; meaningful only when
-            # update_viewer_count is called with a fresh live poll value before evaluate
+            spike_ratio = self._viewer_current / self._viewer_baseline
+            viewer_score = max(min((spike_ratio - 1.0) / 0.5, 1.0), 0.0)
         else:
             viewer_score = 0.0
         signals.append(Signal(
             type=SignalType.VIEWER_SPIKE,
             value=viewer_score,
             channel=self.channel,
-            metadata={"viewer_baseline": round(self._viewer_baseline, 0),
-                      "viewer_samples": self._viewer_samples},
+            metadata={"viewer_current": round(self._viewer_current, 0),
+                      "viewer_baseline": round(self._viewer_baseline, 0)},
         ))
 
         # ── Silence burst (0-1) ───────────────────────────────────────────

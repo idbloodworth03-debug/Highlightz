@@ -14,6 +14,7 @@ Endpoints:
 
 import asyncio
 import json
+import time
 from typing import Any
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
@@ -135,8 +136,18 @@ async def broadcast(event: dict) -> None:
 
 # ── Called by clip processor when a clip is ready ────────────────────────────
 
+_DEDUP_WINDOW = 45  # seconds — skip clip if same channel had one this recently
+
 async def notify_clip_ready(clip: dict) -> None:
     async with _data_lock:
+        channel = clip.get("channel")
+        clip_ts = clip.get("created_at", time.time())
+        for existing in _clips.values():
+            if (existing.get("channel") == channel
+                    and abs(existing.get("created_at", 0) - clip_ts) < _DEDUP_WINDOW):
+                log.info("clip_deduplicated", clip_id=clip["id"], channel=channel,
+                         duplicate_of=existing["id"])
+                return
         _clips[clip["id"]] = clip
         _save_clips()
     await broadcast({"event": "clip_ready", "clip": clip})
