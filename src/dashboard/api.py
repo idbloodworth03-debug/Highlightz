@@ -402,6 +402,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .btn.approve { background: #00c853; color: #000; }
   .btn.approve:hover { background: #00a844; }
   .btn.sm { padding: 5px 10px; font-size: 12px; }
+  .btn.ghost { background: transparent; border: 1px solid currentColor; opacity: 0.45; }
+  .btn.ghost:hover { opacity: 1; }
 
   .stream-list { flex: 1; overflow-y: auto; padding: 8px; }
   .stream-item { padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #26262c; }
@@ -706,10 +708,11 @@ function clipCard(c) {
 }
 
 function actionButtons(c) {
-  if (c.status === 'pending') return `
-    <button class="btn approve sm" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
-    <button class="btn danger sm" onclick="setStatus('${c.id}','reject')">✗ Reject</button>`;
-  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>`;
+  const approveGhost = c.status === 'rejected' ? ' ghost' : '';
+  const rejectGhost  = c.status === 'approved' ? ' ghost' : '';
+  return `
+    <button class="btn approve sm${approveGhost}" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
+    <button class="btn danger sm${rejectGhost}"  onclick="setStatus('${c.id}','reject')">✗ Reject</button>`;
 }
 
 function updateCardStatus(card, clip) {
