@@ -671,7 +671,13 @@ function renderClips() {
   const empty = document.getElementById('clips-empty');
   let clips = Object.values(allClips);
   if (currentFilter !== 'all') clips = clips.filter(c => c.status === currentFilter);
-  clips.sort((a,b) => b.created_at - a.created_at);
+
+  // Pending clips always first, then newest-first within each group
+  const sp = {pending: 0, approved: 1, rejected: 2};
+  clips.sort((a, b) => {
+    if (sp[a.status] !== sp[b.status]) return sp[a.status] - sp[b.status];
+    return b.created_at - a.created_at;
+  });
 
   document.getElementById('clip-count').textContent = Object.keys(allClips).length + ' clips';
   updateStats();
@@ -685,13 +691,21 @@ function renderClips() {
   if (clips.length === 0) { empty && (empty.style.display = ''); return; }
   empty && (empty.style.display = 'none');
 
+  // Update cards already in the DOM
   clips.forEach(clip => {
-    if (existing.has(clip.id) && incoming.has(clip.id)) {
+    if (existing.has(clip.id)) {
       const card = grid.querySelector(`[data-id="${clip.id}"]`);
       if (card) updateCardStatus(card, clip);
-      return;
     }
-    grid.insertAdjacentHTML('afterbegin', clipCard(clip));
+  });
+
+  // Insert new cards. afterbegin reverses insertion order, so iterate
+  // in reverse to preserve the sort (oldest/lowest-priority goes in first,
+  // newest/pending ends up at the top).
+  clips.slice().reverse().forEach(clip => {
+    if (!existing.has(clip.id)) {
+      grid.insertAdjacentHTML('afterbegin', clipCard(clip));
+    }
   });
 }
 
