@@ -454,7 +454,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .clip-title { font-size: 12px; color: #adadb8; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .clip-meta { display: flex; gap: 8px; margin-top: 8px; font-size: 11px; color: #adadb8; flex-wrap: wrap; }
   .clip-tag { background: #26262c; border-radius: 4px; padding: 2px 7px; }
-  .clip-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .clip-actions { display: flex; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
   .clip-status { display: inline-block; border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 600; }
   .clip-status.pending { background: #2a2a16; color: #ffb300; }
   .clip-status.approved { background: #1a3a2a; color: #00c853; }
@@ -734,6 +734,9 @@ function clipCard(c) {
     </div>
     <div class="clip-body">
       <div class="clip-channel">${c.channel}</div>
+      <div class="clip-actions" id="actions-${c.id}">
+        ${actionButtons(c)}
+      </div>
       <div class="clip-title">${title}</div>
       <div class="clip-meta">
         <span class="clip-tag">${date}</span>
@@ -741,9 +744,6 @@ function clipCard(c) {
         ${c.game ? `<span class="clip-tag">${c.game}</span>` : ''}
         ${viralityBadge(c.virality_score)}
         <span class="clip-status ${c.status}" id="status-${c.id}">${c.status}</span>
-      </div>
-      <div class="clip-actions" id="actions-${c.id}">
-        ${actionButtons(c)}
       </div>
     </div>
   </div>`;
