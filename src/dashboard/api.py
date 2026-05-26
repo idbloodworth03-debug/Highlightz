@@ -402,8 +402,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .btn.approve { background: #00c853; color: #000; }
   .btn.approve:hover { background: #00a844; }
   .btn.sm { padding: 5px 10px; font-size: 12px; }
-  .btn.ghost { background: transparent; border: 1px solid currentColor; opacity: 0.45; }
-  .btn.ghost:hover { opacity: 1; }
 
   .stream-list { flex: 1; overflow-y: auto; padding: 8px; }
   .stream-item { padding: 10px 12px; border-radius: 8px; margin-bottom: 6px; background: #26262c; }
@@ -685,7 +683,7 @@ function clipCard(c) {
     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#3a3a44">▶ ${c.channel}</div>`;
   const title = c.clip_title || c.stream_title || 'Live Stream';
 
-  return `<div class="clip-card" data-id="${c.id}">
+  return `<div class="clip-card" data-id="${c.id}" data-status="${c.status}">
     <div class="clip-video">
       ${media}
       <span class="clip-score ${scoreClass(c.trigger_score)}">${score}%</span>
@@ -708,18 +706,22 @@ function clipCard(c) {
 }
 
 function actionButtons(c) {
-  const approveGhost = c.status === 'rejected' ? ' ghost' : '';
-  const rejectGhost  = c.status === 'approved' ? ' ghost' : '';
-  return `
-    <button class="btn approve sm${approveGhost}" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
-    <button class="btn danger sm${rejectGhost}"  onclick="setStatus('${c.id}','reject')">✗ Reject</button>`;
+  if (c.status === 'pending') return `
+    <button class="btn approve sm" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
+    <button class="btn danger sm" onclick="setStatus('${c.id}','reject')">✗ Reject</button>`;
+  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>`;
 }
 
 function updateCardStatus(card, clip) {
   const s = card.querySelector(`#status-${clip.id}`);
   if (s) { s.className = 'clip-status ' + clip.status; s.textContent = clip.status; }
-  const a = card.querySelector(`#actions-${clip.id}`);
-  if (a) a.innerHTML = actionButtons(clip);
+  // Only rebuild action buttons when status changes — never touch a pending
+  // card's buttons mid-render so they can't vanish when new clips arrive.
+  if (card.dataset.status !== clip.status) {
+    card.dataset.status = clip.status;
+    const a = card.querySelector(`#actions-${clip.id}`);
+    if (a) a.innerHTML = actionButtons(clip);
+  }
 }
 
 async function setStatus(id, action) {
