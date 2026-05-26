@@ -105,6 +105,20 @@ _streams: dict[str, dict] = _load_streams()
 _ws_clients: set[WebSocket] = set()
 _data_lock = asyncio.Lock()
 
+
+def _delete_clip_file(clip: dict) -> None:
+    url = clip.get("storage_url", "")
+    if not url:
+        return
+    try:
+        clips_root = Path(settings.local_storage_path).resolve()
+        p = Path(url).resolve()
+        if p.is_relative_to(clips_root) and p.suffix == ".mp4" and p.exists():
+            p.unlink()
+            log.info("clip_file_deleted", path=str(p))
+    except Exception as exc:
+        log.warning("clip_file_delete_failed", path=url, error=str(exc))
+
 # Callbacks set by main.py after Redis is ready
 _publish_new_stream: Callable | None = None
 _publish_remove_stream: Callable | None = None
@@ -199,15 +213,30 @@ async def reject_clip(clip_id: str):
         clip = _clips.get(clip_id)
         if not clip:
             raise HTTPException(status_code=404, detail="Clip not found")
-        clip["status"] = "rejected"
+        del _clips[clip_id]
         _save_clips()
-    await broadcast({"event": "clip_updated", "clip": clip})
+    _delete_clip_file(clip)
+    await broadcast({"event": "clip_removed", "clip_id": clip_id})
     profile = await profile_manager.get(clip["channel"])
     if profile:
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
         await profile_manager.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()})
-    return clip
+    return {"status": "deleted", "clip_id": clip_id}
+
+
+@app.post("/clips/purge-rejected", status_code=200)
+async def purge_rejected():
+    """Delete all currently-rejected clips from disk and memory."""
+    async with _data_lock:
+        rejected = [c for c in _clips.values() if c.get("status") == "rejected"]
+        for clip in rejected:
+            del _clips[clip["id"]]
+            _delete_clip_file(clip)
+        _save_clips()
+    for clip in rejected:
+        await broadcast({"event": "clip_removed", "clip_id": clip["id"]})
+    return {"deleted": len(rejected)}
 
 
 @app.get("/profiles")
@@ -526,6 +555,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="toolbar-bulk">
         <button class="bulk-btn approve-bulk" id="bulk-approve-btn" onclick="bulkApprove()" style="display:none">✓ Approve All Pending</button>
         <button class="bulk-btn reject-bulk" id="bulk-reject-btn" onclick="bulkReject()" style="display:none">✗ Reject All Pending</button>
+        <button class="bulk-btn reject-bulk" id="purge-btn" onclick="purgeRejected()" style="display:none">🗑 Purge Rejected</button>
       </div>
       <div class="clip-stats" id="clip-stats"></div>
     </div>
@@ -561,6 +591,12 @@ function connectWS() {
     if (msg.event === 'clip_updated') {
       allClips[msg.clip.id] = msg.clip;
       updateOneCard(msg.clip);
+      updateStats();
+    }
+    if (msg.event === 'clip_removed') {
+      delete allClips[msg.clip_id];
+      const card = document.querySelector(`.clip-card[data-id="${msg.clip_id}"]`);
+      if (card) card.remove();
       updateStats();
     }
     if (msg.event === 'stream_added' || msg.event === 'stream_updated') {
@@ -642,6 +678,7 @@ function updateStats() {
 
   document.getElementById('bulk-approve-btn').style.display = pending > 0 ? '' : 'none';
   document.getElementById('bulk-reject-btn').style.display = pending > 0 ? '' : 'none';
+  document.getElementById('purge-btn').style.display = rejected > 0 ? '' : 'none';
 }
 
 async function bulkApprove() {
@@ -658,12 +695,29 @@ async function bulkApprove() {
 async function bulkReject() {
   const pending = Object.values(allClips).filter(c => c.status === 'pending');
   if (!pending.length) return;
-  if (!confirm(`Reject all ${pending.length} pending clips?`)) return;
+  if (!confirm(`Reject and delete all ${pending.length} pending clips?`)) return;
   await Promise.all(pending.map(c => fetch(`/clips/${c.id}/reject`, { method: 'POST' })));
-  const arr = await (await fetch('/clips')).json();
-  arr.forEach(c => allClips[c.id] = c);
-  renderClips();
-  toast(`Rejected ${pending.length} clips`);
+  pending.forEach(c => {
+    delete allClips[c.id];
+    const card = document.querySelector(`.clip-card[data-id="${c.id}"]`);
+    if (card) card.remove();
+  });
+  updateStats();
+  toast(`Deleted ${pending.length} clips`);
+}
+
+async function purgeRejected() {
+  const rejected = Object.values(allClips).filter(c => c.status === 'rejected');
+  if (!rejected.length) return;
+  if (!confirm(`Permanently delete all ${rejected.length} rejected clips and free up disk space?`)) return;
+  await fetch('/clips/purge-rejected', { method: 'POST' });
+  rejected.forEach(c => {
+    delete allClips[c.id];
+    const card = document.querySelector(`.clip-card[data-id="${c.id}"]`);
+    if (card) card.remove();
+  });
+  updateStats();
+  toast(`Purged ${rejected.length} rejected clips`);
 }
 
 function renderClips() {
@@ -769,11 +823,19 @@ function updateCardStatus(card, clip) {
 }
 
 async function setStatus(id, action) {
-  await fetch(`/clips/${id}/${action}`, { method: 'POST' });
-  const res = await fetch(`/clips/${id}`);
-  allClips[id] = await res.json();
-  updateOneCard(allClips[id]);
-  updateStats();
+  if (action === 'reject') {
+    await fetch(`/clips/${id}/reject`, { method: 'POST' });
+    delete allClips[id];
+    const card = document.querySelector(`.clip-card[data-id="${id}"]`);
+    if (card) card.remove();
+    updateStats();
+  } else {
+    await fetch(`/clips/${id}/approve`, { method: 'POST' });
+    const res = await fetch(`/clips/${id}`);
+    allClips[id] = await res.json();
+    updateOneCard(allClips[id]);
+    updateStats();
+  }
 }
 
 function renderStreams() {
