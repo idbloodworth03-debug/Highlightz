@@ -64,6 +64,27 @@ CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
             "s1mple", "niko", "ace", "unbox", "case", "key",
         }),
     ),
+    # R6S — loud reactive stream, massive viewership, rage/clutch clips dominate.
+    # Pre-seeded profile in seed_profiles/jynxzi.json
+    "jynxzi": ChannelRules(
+        velocity_multiplier=2.5,
+        trigger_threshold=51.0,
+        pre_roll=45,
+        post_roll=20,
+        cooldown_seconds=90,
+        extra_keywords=frozenset({
+            # R6S gameplay
+            "ace", "clutch", "wallbang", "headshot", "drone", "plant",
+            "defuser", "operator", "ranked", "siege", "r6",
+            # Operators
+            "jager", "ash", "thermite", "vigil", "valkyrie", "maestro",
+            "kapkan", "thorn", "nokk", "doc", "rook", "echo", "lion",
+            "finka", "frost", "buck", "twitch",
+            # Jynxzi chat slang / hype words
+            "mid", "cooked", "unreal", "diff", "widow", "cry",
+            "goated", "carried", "based", "no shot",
+        }),
+    ),
 }
 
 
