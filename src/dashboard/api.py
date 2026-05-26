@@ -552,10 +552,16 @@ function connectWS() {
   ws = new WebSocket(`${wsProto}://${location.host}/ws`);
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
-    if (msg.event === 'clip_ready' || msg.event === 'clip_updated') {
+    if (msg.event === 'clip_ready') {
       allClips[msg.clip.id] = msg.clip;
-      renderClips();
-      if (msg.event === 'clip_ready') toast('New clip from ' + msg.clip.channel);
+      prependClipCard(msg.clip);
+      updateStats();
+      toast('New clip from ' + msg.clip.channel);
+    }
+    if (msg.event === 'clip_updated') {
+      allClips[msg.clip.id] = msg.clip;
+      updateOneCard(msg.clip);
+      updateStats();
     }
     if (msg.event === 'stream_added' || msg.event === 'stream_updated') {
       streams[msg.stream.channel] = msg.stream; renderStreams();
@@ -566,6 +572,30 @@ function connectWS() {
   };
   ws.onclose = () => setTimeout(connectWS, 3000);
   setInterval(() => ws.readyState === 1 && ws.send('ping'), 30000);
+}
+
+// Add a single new clip card to the top of the grid — never re-renders existing cards.
+function prependClipCard(clip) {
+  const grid = document.getElementById('clips-grid');
+  if (grid.querySelector(`[data-id="${clip.id}"]`)) return; // already present
+  if (currentFilter !== 'all' && clip.status !== currentFilter) return; // filtered out
+  document.getElementById('clips-empty').style.display = 'none';
+  document.getElementById('clip-count').textContent = Object.keys(allClips).length + ' clips';
+  grid.insertAdjacentHTML('afterbegin', clipCard(clip));
+}
+
+// Update only the one card whose status just changed — never touches other cards.
+function updateOneCard(clip) {
+  const card = document.querySelector(`.clip-card[data-id="${clip.id}"]`);
+  if (!card) return;
+  const s = card.querySelector(`#status-${clip.id}`);
+  if (s) { s.className = 'clip-status ' + clip.status; s.textContent = clip.status; }
+  if (card.dataset.status !== clip.status) {
+    card.dataset.status = clip.status;
+    const a = card.querySelector(`#actions-${clip.id}`);
+    if (a) a.innerHTML = actionButtons(clip);
+    if (currentFilter !== 'all' && clip.status !== currentFilter) card.remove();
+  }
 }
 
 async function loadInitial() {
@@ -728,7 +758,8 @@ async function setStatus(id, action) {
   await fetch(`/clips/${id}/${action}`, { method: 'POST' });
   const res = await fetch(`/clips/${id}`);
   allClips[id] = await res.json();
-  renderClips();
+  updateOneCard(allClips[id]);
+  updateStats();
 }
 
 function renderStreams() {
