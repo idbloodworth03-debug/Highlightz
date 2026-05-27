@@ -53,6 +53,7 @@ class StreamWorker:
         self._engine: TriggerEngine | None = None
         self._profile: StreamerProfile | None = None
         self._session_start: float = 0.0
+        self._last_profile_save: float = 0.0
         self._tasks: list[asyncio.Task] = []
 
     async def start(self) -> None:
@@ -78,6 +79,7 @@ class StreamWorker:
     async def _run_session(self) -> None:
         channel = self._config.channel
         self._session_start = time.time()
+        self._last_profile_save = self._session_start
         self._profile.total_sessions += 1
         self._profile.last_seen = self._session_start
 
@@ -171,6 +173,7 @@ class StreamWorker:
             self._profile.update_keyword_rate(keyword_rate)
             self._profile.update_sentiment(avg_sentiment)
             self._profile.total_watch_seconds += interval
+            self._last_profile_save = time.time()
 
             await profile_manager.save(self._profile)
             from src.dashboard import api as dashboard_api
@@ -218,9 +221,9 @@ class StreamWorker:
         await self._queue.push(job)
 
     async def _cleanup(self) -> None:
-        # Save final session watch time
-        if self._profile and self._session_start:
-            self._profile.total_watch_seconds += time.time() - self._session_start
+        # Add only the time since the last profile loop save to avoid double-counting
+        if self._profile and self._last_profile_save:
+            self._profile.total_watch_seconds += time.time() - self._last_profile_save
             await profile_manager.save(self._profile)
 
         if self._buffer:

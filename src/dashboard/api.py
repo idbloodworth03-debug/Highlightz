@@ -225,19 +225,6 @@ async def reject_clip(clip_id: str):
     return {"status": "deleted", "clip_id": clip_id}
 
 
-@app.post("/clips/purge-rejected", status_code=200)
-async def purge_rejected():
-    """Delete all currently-rejected clips from disk and memory."""
-    async with _data_lock:
-        rejected = [c for c in _clips.values() if c.get("status") == "rejected"]
-        for clip in rejected:
-            del _clips[clip["id"]]
-            _delete_clip_file(clip)
-        _save_clips()
-    for clip in rejected:
-        await broadcast({"event": "clip_removed", "clip_id": clip["id"]})
-    return {"deleted": len(rejected)}
-
 
 @app.get("/profiles")
 async def list_profiles():
@@ -329,7 +316,8 @@ async def force_clip(channel: str):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
-    err_html = f'<p class="error">{error}</p>' if error else ""
+    import html as _html
+    err_html = f'<p class="error">{_html.escape(error)}</p>' if error else ""
     return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
 
 
@@ -555,7 +543,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="toolbar-bulk">
         <button class="bulk-btn approve-bulk" id="bulk-approve-btn" onclick="bulkApprove()" style="display:none">✓ Approve All Pending</button>
         <button class="bulk-btn reject-bulk" id="bulk-reject-btn" onclick="bulkReject()" style="display:none">✗ Reject All Pending</button>
-        <button class="bulk-btn reject-bulk" id="purge-btn" onclick="purgeRejected()" style="display:none">🗑 Purge Rejected</button>
       </div>
       <div class="clip-stats" id="clip-stats"></div>
     </div>
@@ -678,7 +665,6 @@ function updateStats() {
 
   document.getElementById('bulk-approve-btn').style.display = pending > 0 ? '' : 'none';
   document.getElementById('bulk-reject-btn').style.display = pending > 0 ? '' : 'none';
-  document.getElementById('purge-btn').style.display = rejected > 0 ? '' : 'none';
 }
 
 async function bulkApprove() {
@@ -706,19 +692,6 @@ async function bulkReject() {
   toast(`Deleted ${pending.length} clips`);
 }
 
-async function purgeRejected() {
-  const rejected = Object.values(allClips).filter(c => c.status === 'rejected');
-  if (!rejected.length) return;
-  if (!confirm(`Permanently delete all ${rejected.length} rejected clips and free up disk space?`)) return;
-  await fetch('/clips/purge-rejected', { method: 'POST' });
-  rejected.forEach(c => {
-    delete allClips[c.id];
-    const card = document.querySelector(`.clip-card[data-id="${c.id}"]`);
-    if (card) card.remove();
-  });
-  updateStats();
-  toast(`Purged ${rejected.length} rejected clips`);
-}
 
 function renderClips() {
   const grid = document.getElementById('clips-grid');

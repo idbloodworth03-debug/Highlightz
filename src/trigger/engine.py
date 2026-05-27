@@ -279,12 +279,12 @@ class TriggerEngine:
 
     def _compute_score(self, signals: list[Signal]) -> float:
         base_weights = {
-            SignalType.CHAT_VELOCITY: 40,
-            SignalType.AUDIO_SPIKE: 30,
-            SignalType.KEYWORD: 20,
-            SignalType.SENTIMENT: 10,
-            SignalType.VIEWER_SPIKE: 10,
-            SignalType.SILENCE_BURST: 20,
+            SignalType.CHAT_VELOCITY: 30,
+            SignalType.AUDIO_SPIKE: 25,
+            SignalType.KEYWORD: 15,
+            SignalType.SENTIMENT: 8,
+            SignalType.VIEWER_SPIKE: 7,
+            SignalType.SILENCE_BURST: 15,
         }
         # Apply per-signal learned multipliers from the streamer profile
         weights = {}
