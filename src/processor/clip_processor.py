@@ -51,13 +51,77 @@ class ClipProcessor:
             post_roll=job.post_roll,
         )
 
-        meta.duration_seconds = await self._probe_duration(tmp_path)
-        meta.storage_url = await self._storage.upload(tmp_path, meta.id)
+        trimmed_path = await self._trim_leading_silence(tmp_path)
+
+        meta.duration_seconds = await self._probe_duration(trimmed_path)
+        meta.storage_url = await self._storage.upload(trimmed_path, meta.id)
         meta.status = "pending"
 
-        tmp_path.unlink(missing_ok=True)
+        trimmed_path.unlink(missing_ok=True)
         log.info("clip_ready", clip_id=meta.id, url=meta.storage_url)
         return meta
+
+    @staticmethod
+    async def _trim_leading_silence(path: Path) -> Path:
+        """
+        Detect leading silence and re-cut the clip to start when audio kicks in.
+        Returns the original path (possibly replaced in-place) or a trimmed copy.
+        Skips trimming if leading silence is under 2s or detection fails.
+        """
+        import shutil
+        ffmpeg = settings.ffmpeg_path
+        MIN_TRIM = 2.0   # don't bother trimming less than 2s
+        MAX_TRIM = 35.0  # never cut more than 35s (keeps safety margin)
+
+        try:
+            # silencedetect: noise floor -45dB, min silence duration 0.3s
+            proc = await asyncio.create_subprocess_exec(
+                ffmpeg, "-i", str(path),
+                "-af", "silencedetect=n=-45dB:d=0.3",
+                "-f", "null", "-",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            output = stderr.decode(errors="replace")
+        except Exception as exc:
+            log.warning("silencedetect_failed", path=str(path), error=str(exc))
+            return path
+
+        # Parse first silence_end — that's when audio first appears
+        trim_start = 0.0
+        for line in output.splitlines():
+            if "silence_end" in line:
+                try:
+                    trim_start = float(line.split("silence_end:")[-1].strip().split()[0])
+                except ValueError:
+                    pass
+                break
+
+        if trim_start < MIN_TRIM or trim_start > MAX_TRIM:
+            return path
+
+        out_path = path.with_name(path.stem + "_trim.mp4")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                ffmpeg, "-y",
+                "-ss", str(trim_start),
+                "-i", str(path),
+                "-c", "copy",
+                str(out_path),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=60)
+            if proc.returncode == 0 and out_path.exists():
+                path.unlink(missing_ok=True)
+                log.info("silence_trimmed", trimmed_seconds=round(trim_start, 2), output=str(out_path))
+                return out_path
+        except Exception as exc:
+            log.warning("silence_trim_failed", path=str(path), error=str(exc))
+            out_path.unlink(missing_ok=True)
+
+        return path
 
     @staticmethod
     async def _probe_duration(path: Path) -> float:
