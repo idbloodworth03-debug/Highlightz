@@ -89,4 +89,4 @@ CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
 
 
 def get_rules(channel: str) -> ChannelRules:
-    return CHANNEL_OVERRIDES.get(channel, PRESETS["default"])
+    return CHANNEL_OVERRIDES.get(channel.lower(), PRESETS["default"])
