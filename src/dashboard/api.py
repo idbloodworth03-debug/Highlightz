@@ -102,7 +102,7 @@ def _save_streams() -> None:
 
 _clips: dict[str, dict] = _load_clips()
 _streams: dict[str, dict] = _load_streams()
-_ws_clients: set[WebSocket] = set()
+_ws_clients: dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
 _data_lock = asyncio.Lock()
 
 
@@ -138,14 +138,21 @@ def set_force_clip_callback(cb: Callable) -> None:
 
 # ── WebSocket broadcast helper ────────────────────────────────────────────────
 
-async def broadcast(event: dict) -> None:
+async def broadcast(event: dict, user_id: str | None = None) -> None:
+    """Broadcast to a specific user's WS clients, or all clients if user_id is None."""
+    if user_id:
+        targets = _ws_clients.get(user_id, set())
+    else:
+        targets = {ws for clients in _ws_clients.values() for ws in clients}
     dead = set()
-    for ws in _ws_clients:
+    for ws in targets:
         try:
             await ws.send_text(json.dumps(event))
         except Exception:
             dead.add(ws)
-    _ws_clients.difference_update(dead)
+    for ws in dead:
+        for clients in _ws_clients.values():
+            clients.discard(ws)
 
 
 # ── Called by clip processor when a clip is ready ────────────────────────────
@@ -177,14 +184,19 @@ async def notify_clip_ready(clip: dict) -> None:
 
         _clips[clip["id"]] = clip
         _save_clips()
-    await broadcast({"event": "clip_ready", "clip": clip})
+    await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip.get("user_id"))
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+def _current_user_id(request: Request) -> str:
+    return request.session.get("user_id", "__legacy__")
+
+
 @app.get("/clips")
-async def list_clips(status: str | None = None, channel: str | None = None):
-    clips = list(_clips.values())
+async def list_clips(request: Request, status: str | None = None, channel: str | None = None):
+    uid = _current_user_id(request)
+    clips = [c for c in _clips.values() if c.get("user_id", "__legacy__") == uid]
     if status:
         clips = [c for c in clips if c.get("status") == status]
     if channel:
@@ -194,30 +206,32 @@ async def list_clips(status: str | None = None, channel: str | None = None):
 
 
 @app.get("/clips/{clip_id}")
-async def get_clip(clip_id: str):
+async def get_clip(request: Request, clip_id: str):
+    uid = _current_user_id(request)
     clip = _clips.get(clip_id)
-    if not clip:
+    if not clip or clip.get("user_id", "__legacy__") != uid:
         raise HTTPException(status_code=404, detail="Clip not found")
     return clip
 
 
 @app.post("/clips/{clip_id}/approve")
-async def approve_clip(clip_id: str):
-    from src.profiles.manager import profile_manager
+async def approve_clip(request: Request, clip_id: str):
+    from src.profiles.manager import get_profile_manager
     from src.discord.notifier import post_clip as discord_post
+    uid = _current_user_id(request)
     async with _data_lock:
         clip = _clips.get(clip_id)
-        if not clip:
+        if not clip or clip.get("user_id", "__legacy__") != uid:
             raise HTTPException(status_code=404, detail="Clip not found")
         clip["status"] = "approved"
         _save_clips()
-    await broadcast({"event": "clip_updated", "clip": clip})
-    profile = await profile_manager.get(clip["channel"])
+    await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
+    pm = get_profile_manager(uid)
+    profile = await pm.get(clip["channel"])
     if profile:
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
-        await profile_manager.save(profile)
-        await broadcast({"event": "profile_updated", "profile": profile.to_dict()})
-    # Post to Discord if webhook is configured for this stream
+        await pm.save(profile)
+        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     stream = _streams.get(clip["channel"]) or _streams.get(clip["channel"].lower())
     webhook = stream.get("discord_webhook", "") if stream else ""
     if webhook:
@@ -226,21 +240,23 @@ async def approve_clip(clip_id: str):
 
 
 @app.post("/clips/{clip_id}/reject")
-async def reject_clip(clip_id: str):
-    from src.profiles.manager import profile_manager
+async def reject_clip(request: Request, clip_id: str):
+    from src.profiles.manager import get_profile_manager
+    uid = _current_user_id(request)
     async with _data_lock:
         clip = _clips.get(clip_id)
-        if not clip:
+        if not clip or clip.get("user_id", "__legacy__") != uid:
             raise HTTPException(status_code=404, detail="Clip not found")
         del _clips[clip_id]
         _save_clips()
     _delete_clip_file(clip)
-    await broadcast({"event": "clip_removed", "clip_id": clip_id})
-    profile = await profile_manager.get(clip["channel"])
+    await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+    pm = get_profile_manager(uid)
+    profile = await pm.get(clip["channel"])
     if profile:
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
-        await profile_manager.save(profile)
-        await broadcast({"event": "profile_updated", "profile": profile.to_dict()})
+        await pm.save(profile)
+        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     return {"status": "deleted", "clip_id": clip_id}
 
 
@@ -269,42 +285,53 @@ class StreamRequest(BaseModel):
 
 
 @app.get("/streams")
-async def list_streams():
-    return list(_streams.values())
+async def list_streams(request: Request):
+    uid = _current_user_id(request)
+    return [s for s in _streams.values() if s.get("user_id", "__legacy__") == uid]
 
 
 @app.post("/streams", status_code=201)
-async def add_stream(req: StreamRequest):
+async def add_stream(request: Request, req: StreamRequest):
+    uid = _current_user_id(request)
+    stream_key = f"{uid}:{req.channel}"
     async with _data_lock:
-        if req.channel in _streams:
+        if stream_key in _streams:
             raise HTTPException(status_code=409, detail="Stream already registered")
-        record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting", "discord_webhook": req.discord_webhook}
-        _streams[req.channel] = record
+        record = {
+            "channel": req.channel, "platform": req.platform, "preset": req.preset,
+            "status": "starting", "discord_webhook": req.discord_webhook,
+            "user_id": uid,
+        }
+        _streams[stream_key] = record
         _save_streams()
-    await broadcast({"event": "stream_added", "stream": record})
+    await broadcast({"event": "stream_added", "stream": record}, user_id=uid)
     if _publish_new_stream:
-        await _publish_new_stream(req.channel, req.platform, req.preset)
+        await _publish_new_stream(req.channel, req.platform, req.preset, uid)
     return record
 
 
 @app.patch("/streams/{channel}/webhook", status_code=200)
-async def set_stream_webhook(channel: str, body: dict):
+async def set_stream_webhook(request: Request, channel: str, body: dict):
+    uid = _current_user_id(request)
+    stream_key = f"{uid}:{channel}"
     async with _data_lock:
-        if channel not in _streams:
+        if stream_key not in _streams:
             raise HTTPException(status_code=404, detail="Stream not found")
-        _streams[channel]["discord_webhook"] = body.get("discord_webhook", "")
+        _streams[stream_key]["discord_webhook"] = body.get("discord_webhook", "")
         _save_streams()
-    return _streams[channel]
+    return _streams[stream_key]
 
 
 @app.delete("/streams/{channel}", status_code=204)
-async def remove_stream(channel: str):
+async def remove_stream(request: Request, channel: str):
+    uid = _current_user_id(request)
+    stream_key = f"{uid}:{channel}"
     async with _data_lock:
-        if channel not in _streams:
+        if stream_key not in _streams:
             raise HTTPException(status_code=404, detail="Stream not found")
-        del _streams[channel]
+        del _streams[stream_key]
         _save_streams()
-    await broadcast({"event": "stream_removed", "channel": channel})
+    await broadcast({"event": "stream_removed", "channel": channel}, user_id=uid)
     if _publish_remove_stream:
         await _publish_remove_stream(channel)
 
@@ -315,14 +342,15 @@ async def websocket_endpoint(ws: WebSocket):
     if not ws.session.get("auth"):
         await ws.close(code=1008)
         return
-    _ws_clients.add(ws)
-    log.info("ws_client_connected", total=len(_ws_clients))
+    uid = ws.session.get("user_id", "__legacy__")
+    _ws_clients.setdefault(uid, set()).add(ws)
+    log.info("ws_client_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     try:
         while True:
-            await ws.receive_text()   # keep connection alive; client pings
+            await ws.receive_text()
     except WebSocketDisconnect:
-        _ws_clients.discard(ws)
-        log.info("ws_client_disconnected", total=len(_ws_clients))
+        _ws_clients.get(uid, set()).discard(ws)
+        log.info("ws_client_disconnected", user=uid)
 
 
 @app.get("/clip-file")
@@ -352,12 +380,16 @@ async def login_page(error: str = ""):
 
 
 @app.post("/login")
-async def login(request: Request, password: str = Form(...)):
-    import secrets as _secrets
-    if _secrets.compare_digest(password, settings.dashboard_password):
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    from src.auth import users as user_store
+    user = user_store.get_by_username(username)
+    if user and user_store.verify(user, password):
         request.session["auth"] = True
+        request.session["user_id"] = user["id"]
+        request.session["username"] = user["username"]
+        request.session["is_admin"] = user.get("is_admin", False)
         return RedirectResponse("/", status_code=302)
-    return RedirectResponse("/login?error=Incorrect+password", status_code=302)
+    return RedirectResponse("/login?error=Incorrect+username+or+password", status_code=302)
 
 
 @app.get("/logout")
@@ -371,13 +403,38 @@ async def health():
     return {"status": "ok", "clips": len(_clips), "streams": len(_streams)}
 
 
+@app.post("/admin/users", status_code=201)
+async def create_user(request: Request, body: dict):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    from src.auth import users as user_store
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username and password required")
+    try:
+        user = user_store.create(username, password)
+        return {"id": user["id"], "username": user["username"]}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/admin/users")
+async def list_users(request: Request):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    from src.auth import users as user_store
+    return user_store.get_all()
+
+
 @app.get("/stats")
-async def get_stats():
+async def get_stats(request: Request):
     import time as _time
+    uid = _current_user_id(request)
     now = _time.time()
     week_ago = now - 7 * 86400
     channels: dict[str, dict] = {}
-    for clip in _clips.values():
+    for clip in [c for c in _clips.values() if c.get("user_id", "__legacy__") == uid]:
         ch = clip.get("channel", "unknown")
         if ch not in channels:
             channels[ch] = {
@@ -460,8 +517,10 @@ LOGIN_HTML = """<!DOCTYPE html>
   <p class="sub">Sign in to your dashboard</p>
   {error}
   <form method="POST" action="/login">
+    <label>Username</label>
+    <input type="text" name="username" autofocus placeholder="Enter your username" autocomplete="username">
     <label>Password</label>
-    <input type="password" name="password" autofocus placeholder="Enter your password">
+    <input type="password" name="password" placeholder="Enter your password" autocomplete="current-password">
     <button type="submit">Sign In</button>
   </form>
 </div>

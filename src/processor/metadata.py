@@ -21,6 +21,7 @@ class ClipMetadata:
     virality_score: float = 0.0
     clip_title: str = ""
     vertical_url: str = ""
+    user_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,4 +40,5 @@ class ClipMetadata:
             "virality_score": self.virality_score,
             "clip_title": self.clip_title,
             "vertical_url": self.vertical_url,
+            "user_id": self.user_id,
         }

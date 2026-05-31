@@ -35,7 +35,7 @@ _queue: JobQueue | None = None
 
 # ── Worker management ─────────────────────────────────────────────────────────
 
-async def spawn_worker(channel: str, platform_name: str) -> None:
+async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> None:
     if channel in _workers and not _workers[channel].done():
         log.warning("worker_already_running", channel=channel)
         return
@@ -52,7 +52,7 @@ async def spawn_worker(channel: str, platform_name: str) -> None:
         })
 
     worker = StreamWorker(
-        config=WorkerConfig(channel=channel, platform_name=platform_name),
+        config=WorkerConfig(channel=channel, platform_name=platform_name, user_id=user_id),
         platform=platform,
         queue=_queue,
         shared_buffers=SHARED_BUFFERS,
@@ -101,7 +101,8 @@ async def listen_for_new_streams(redis) -> None:
             payload = json.loads(message["data"])
             channel_name = message["channel"]
             if channel_name == "superclipbot:new_streams":
-                await spawn_worker(payload["channel"], payload.get("platform", "twitch"))
+                await spawn_worker(payload["channel"], payload.get("platform", "twitch"),
+                                   payload.get("user_id", ""))
             elif channel_name == "superclipbot:remove_streams":
                 await stop_worker(payload["channel"])
         except Exception as exc:
@@ -183,10 +184,10 @@ async def main() -> None:
     redis = await redis_from_url(settings.redis_url, decode_responses=True)
 
     # Give dashboard a publisher so adding/removing streams triggers workers
-    async def _publish_new_stream(channel: str, platform: str, preset: str) -> None:
+    async def _publish_new_stream(channel: str, platform: str, preset: str, user_id: str = "") -> None:
         await redis.publish(
             "superclipbot:new_streams",
-            json.dumps({"channel": channel, "platform": platform, "preset": preset}),
+            json.dumps({"channel": channel, "platform": platform, "preset": preset, "user_id": user_id}),
         )
 
     async def _publish_remove_stream(channel: str) -> None:
@@ -215,6 +216,10 @@ async def main() -> None:
 
     dashboard_api.set_force_clip_callback(_force_clip)
 
+    # Seed admin account from existing password if no users exist yet
+    from src.auth import users as user_store
+    user_store.ensure_admin_exists(settings.dashboard_password)
+
     tasks = [
         asyncio.create_task(run_dashboard(), name="dashboard"),
         asyncio.create_task(listen_for_new_streams(redis), name="stream-listener"),
@@ -224,7 +229,8 @@ async def main() -> None:
 
     # Restore streams that were running before the last shutdown
     for stream in list(dashboard_api._streams.values()):
-        await spawn_worker(stream["channel"], stream.get("platform", "twitch"))
+        await spawn_worker(stream["channel"], stream.get("platform", "twitch"),
+                           stream.get("user_id", ""))
 
     log.info("superclipbot_started", version="1.0.0")
     try:

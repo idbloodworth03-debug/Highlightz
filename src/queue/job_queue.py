@@ -32,6 +32,7 @@ class ClipJob:
     clip_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     virality_score: float = 0.0
     clip_title: str = ""
+    user_id: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))

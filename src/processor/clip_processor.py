@@ -40,6 +40,7 @@ class ClipProcessor:
             game=job.game,
             virality_score=job.virality_score,
             clip_title=job.clip_title,
+            user_id=job.user_id,
         )
 
         tmp_path = Path(settings.local_storage_path) / "tmp" / f"{meta.id}.mp4"

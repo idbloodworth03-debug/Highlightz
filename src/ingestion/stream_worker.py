@@ -18,7 +18,7 @@ from src.chat.platform.youtube_chat import YouTubeChatMonitor
 from src.trigger.engine import TriggerEngine
 from src.trigger.signals import TriggerEvent
 from src.queue.job_queue import JobQueue, ClipJob
-from src.profiles.manager import profile_manager
+from src.profiles.manager import get_profile_manager
 from src.profiles.profile import StreamerProfile
 
 log = structlog.get_logger(__name__)
@@ -31,6 +31,7 @@ PROFILE_UPDATE_INTERVAL_SLOW = 30  # seconds once calibrated
 class WorkerConfig:
     channel: str
     platform_name: str
+    user_id: str = ""
 
 
 class StreamWorker:
@@ -59,7 +60,8 @@ class StreamWorker:
 
     async def start(self) -> None:
         self._running = True
-        self._profile = await profile_manager.load(
+        _pm = get_profile_manager(self._config.user_id)
+        self._profile = await _pm.load(
             self._config.channel, self._config.platform_name
         )
         log.info("worker_starting", channel=self._config.channel,
@@ -209,7 +211,7 @@ class StreamWorker:
                              from_=round(current, 2), to=round(decayed, 2),
                              seed=seed_threshold)
 
-            await profile_manager.save(self._profile)
+            await get_profile_manager(self._config.user_id).save(self._profile)
             from src.dashboard import api as dashboard_api
             await dashboard_api.broadcast({
                 "event": "profile_updated",
@@ -251,6 +253,7 @@ class StreamWorker:
             post_roll=event.post_roll,
             virality_score=event.virality_score,
             clip_title=event.clip_title,
+            user_id=self._config.user_id,
         )
         await self._queue.push(job)
 
@@ -258,7 +261,7 @@ class StreamWorker:
         # Add only the time since the last profile loop save to avoid double-counting
         if self._profile and self._last_profile_save:
             self._profile.total_watch_seconds += time.time() - self._last_profile_save
-            await profile_manager.save(self._profile)
+            await get_profile_manager(self._config.user_id).save(self._profile)
 
         if self._buffer:
             await self._buffer.stop()
