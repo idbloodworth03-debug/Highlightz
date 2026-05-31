@@ -54,6 +54,7 @@ class StreamWorker:
         self._profile: StreamerProfile | None = None
         self._session_start: float = 0.0
         self._last_profile_save: float = 0.0
+        self._last_threshold_decay: float = 0.0
         self._tasks: list[asyncio.Task] = []
 
     async def start(self) -> None:
@@ -174,6 +175,22 @@ class StreamWorker:
             self._profile.update_sentiment(avg_sentiment)
             self._profile.total_watch_seconds += interval
             self._last_profile_save = time.time()
+
+            # Hourly threshold decay — nudge 10% back toward the channel's seed threshold
+            # so rejections can't permanently lock the threshold at its max.
+            if self._last_threshold_decay == 0.0:
+                self._last_threshold_decay = self._last_profile_save
+            elif self._last_profile_save - self._last_threshold_decay >= 3600:
+                from src.trigger.rules import get_rules
+                seed_threshold = get_rules(self._config.channel).trigger_threshold
+                current = self._profile.trigger_threshold
+                decayed = current + 0.1 * (seed_threshold - current)
+                self._profile.trigger_threshold = round(decayed, 2)
+                self._last_threshold_decay = self._last_profile_save
+                if abs(current - decayed) > 0.1:
+                    log.info("threshold_decayed", channel=self._config.channel,
+                             from_=round(current, 2), to=round(decayed, 2),
+                             seed=seed_threshold)
 
             await profile_manager.save(self._profile)
             from src.dashboard import api as dashboard_api
