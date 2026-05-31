@@ -191,6 +191,7 @@ async def get_clip(clip_id: str):
 @app.post("/clips/{clip_id}/approve")
 async def approve_clip(clip_id: str):
     from src.profiles.manager import profile_manager
+    from src.discord.notifier import post_clip as discord_post
     async with _data_lock:
         clip = _clips.get(clip_id)
         if not clip:
@@ -203,6 +204,11 @@ async def approve_clip(clip_id: str):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await profile_manager.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()})
+    # Post to Discord if webhook is configured for this stream
+    stream = _streams.get(clip["channel"]) or _streams.get(clip["channel"].lower())
+    webhook = stream.get("discord_webhook", "") if stream else ""
+    if webhook:
+        asyncio.create_task(discord_post(webhook, clip))
     return clip
 
 
@@ -246,6 +252,7 @@ class StreamRequest(BaseModel):
     channel: str
     platform: str = "twitch"
     preset: str = "default"
+    discord_webhook: str = ""
 
 
 @app.get("/streams")
@@ -258,13 +265,23 @@ async def add_stream(req: StreamRequest):
     async with _data_lock:
         if req.channel in _streams:
             raise HTTPException(status_code=409, detail="Stream already registered")
-        record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting"}
+        record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting", "discord_webhook": req.discord_webhook}
         _streams[req.channel] = record
         _save_streams()
     await broadcast({"event": "stream_added", "stream": record})
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, req.preset)
     return record
+
+
+@app.patch("/streams/{channel}/webhook", status_code=200)
+async def set_stream_webhook(channel: str, body: dict):
+    async with _data_lock:
+        if channel not in _streams:
+            raise HTTPException(status_code=404, detail="Stream not found")
+        _streams[channel]["discord_webhook"] = body.get("discord_webhook", "")
+        _save_streams()
+    return _streams[channel]
 
 
 @app.delete("/streams/{channel}", status_code=204)
@@ -512,6 +529,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </select>
         <button class="btn" onclick="addStream()">+</button>
       </div>
+      <input id="webhook-input" placeholder="Discord webhook URL (optional)" style="width:100%;background:#26262c;border:1px solid #3a3a44;border-radius:6px;color:#efeff1;padding:8px 10px;font-size:12px;outline:none;margin-top:6px;box-sizing:border-box;" onkeydown="if(event.key==='Enter')addStream()">
     </div>
     <div class="sidebar-section" style="flex:0 0 auto">
       <h2>Test Clip</h2>
@@ -851,6 +869,12 @@ function renderStreams() {
           <div class="profile-row"><span>Approval Rate</span><span class="p-approval">—</span></div>
           <div class="p-weights" style="margin-top:5px;display:none"></div>
           <div class="profile-learning p-learning">Learning baseline...</div>
+        </div>
+        <div class="webhook-row" style="margin-top:8px;display:flex;gap:6px">
+          <input class="webhook-input" placeholder="Discord webhook URL" value="${s.discord_webhook||''}"
+            style="flex:1;background:#1a1a1f;border:1px solid #3a3a44;border-radius:5px;color:#efeff1;padding:5px 8px;font-size:11px;outline:none;"
+            onkeydown="if(event.key==='Enter')saveWebhook('${s.channel}',this.value)">
+          <button class="btn sm" style="font-size:11px;padding:4px 8px;white-space:nowrap" onclick="saveWebhook('${s.channel}',this.previousElementSibling.value)">Save</button>
         </div>`;
       list.appendChild(div);
     } else {
@@ -890,9 +914,11 @@ function updateScore(channel, score, breakdown) {
 async function addStream() {
   const ch = document.getElementById('channel-input').value.trim();
   const preset = document.getElementById('preset-select').value;
+  const webhook = document.getElementById('webhook-input').value.trim();
   if (!ch) return;
-  await fetch('/streams', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({channel: ch, platform:'twitch', preset}) });
+  await fetch('/streams', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({channel: ch, platform:'twitch', preset, discord_webhook: webhook}) });
   document.getElementById('channel-input').value = '';
+  document.getElementById('webhook-input').value = '';
   toast('Monitoring ' + ch);
 }
 
@@ -900,6 +926,21 @@ async function removeStream(channel) {
   await fetch(`/streams/${channel}`, { method: 'DELETE' });
   delete streams[channel];
   renderStreams();
+}
+
+async function saveWebhook(channel, url) {
+  const res = await fetch(`/streams/${channel}/webhook`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({discord_webhook: url.trim()})
+  });
+  if (res.ok) {
+    const updated = await res.json();
+    streams[channel] = updated;
+    toast(url.trim() ? `Discord webhook saved for ${channel}` : `Webhook removed for ${channel}`);
+  } else {
+    toast('Failed to save webhook');
+  }
 }
 
 async function forceClip(channel) {
