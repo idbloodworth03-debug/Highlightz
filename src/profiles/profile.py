@@ -94,7 +94,7 @@ class StreamerProfile:
             self.trigger_threshold = max(30, self.trigger_threshold - 2)
         else:
             self.rejected_clips += 1
-            self.trigger_threshold = min(90, self.trigger_threshold + 3)
+            self.trigger_threshold = min(65, self.trigger_threshold + 1)
 
         # Nudge per-signal weights based on which signals were active.
         # Approved: signals that fired strongly get a weight boost (they predict good clips).
