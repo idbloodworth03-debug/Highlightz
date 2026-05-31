@@ -83,7 +83,8 @@ class TriggerEngine:
             return
 
         snapshot = self._metrics.snapshot()
-        signals = self._build_signals(snapshot, rules)
+        audio_db = await self.buffer.get_audio_level_db() if self.buffer else -100.0
+        signals = self._build_signals(snapshot, rules, audio_db)
         score = self._compute_score(signals)
 
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
@@ -118,7 +119,7 @@ class TriggerEngine:
 
     # ── Internal ─────────────────────────────────────────────────────────
 
-    def _build_signals(self, snapshot: ChatSnapshot, rules) -> list[Signal]:
+    def _build_signals(self, snapshot: ChatSnapshot, rules, audio_db: float = -100.0) -> list[Signal]:
         signals: list[Signal] = []
 
         # ── Chat velocity (0-1) ───────────────────────────────────────────
@@ -143,19 +144,15 @@ class TriggerEngine:
         ))
 
         # ── Audio loudness (0-1) ──────────────────────────────────────────
-        current_db = -100.0
-        if self.buffer is not None:
-            current_db = self.buffer.get_audio_level_db()
-            if current_db > -100:
-                if self._audio_samples == 0:
-                    self._audio_baseline_db = current_db
-                else:
-                    self._audio_baseline_db = 0.9 * self._audio_baseline_db + 0.1 * current_db
-                self._audio_samples += 1
-                db_diff = current_db - self._audio_baseline_db
-                audio_score = min(max(db_diff / 10.0, 0.0), 1.0)
+        current_db = audio_db
+        if current_db > -100:
+            if self._audio_samples == 0:
+                self._audio_baseline_db = current_db
             else:
-                audio_score = 0.0
+                self._audio_baseline_db = 0.9 * self._audio_baseline_db + 0.1 * current_db
+            self._audio_samples += 1
+            db_diff = current_db - self._audio_baseline_db
+            audio_score = min(max(db_diff / 10.0, 0.0), 1.0)
         else:
             audio_score = 0.0
         signals.append(Signal(

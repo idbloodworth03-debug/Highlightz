@@ -502,6 +502,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .toast.show { transform: translateY(0); opacity: 1; }
 
   ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #3a3a44; border-radius: 3px; }
+
+  @media (max-width: 768px) {
+    .app { flex-direction: column; }
+    aside { width: 100%; height: auto; border-right: none; border-bottom: 1px solid #2d2d35; padding: 12px; }
+    .sidebar-section { margin-bottom: 12px; }
+    .stream-list { max-height: 200px; overflow-y: auto; }
+    main { overflow: unset; }
+    .main-inner { padding: 12px; }
+    .clips-grid { grid-template-columns: 1fr; padding: 8px; gap: 12px; }
+    .toolbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+    .toolbar-filters { flex-wrap: wrap; gap: 4px; }
+    .toolbar-bulk { flex-wrap: wrap; gap: 4px; }
+    .clip-stats { width: 100%; }
+    .add-stream { flex-wrap: wrap; }
+    .add-stream input { min-width: 0; }
+  }
 </style>
 </head>
 <body>
@@ -608,6 +624,28 @@ function connectWS() {
       streams[msg.stream.channel] = msg.stream; renderStreams();
     }
     if (msg.event === 'stream_removed') { delete streams[msg.channel]; renderStreams(); }
+    if (msg.event === 'stream_status') {
+      if (streams[msg.channel]) { streams[msg.channel].status = msg.status; }
+      const card = document.querySelector(`.stream-item[data-channel="${msg.channel}"]`);
+      if (card) {
+        const s = card.querySelector('.s-status');
+        if (s) {
+          s.textContent = msg.status;
+          s.style.color = msg.status === 'live' ? '#00c853' : msg.status === 'reconnecting' ? '#ffb300' : '#adadb8';
+        }
+        const errEl = card.querySelector('.s-error');
+        if (errEl && msg.status === 'live') errEl.remove();
+      }
+    }
+    if (msg.event === 'stream_error') {
+      const card = document.querySelector(`.stream-item[data-channel="${msg.channel}"]`);
+      if (card) {
+        let errEl = card.querySelector('.s-error');
+        if (!errEl) { errEl = document.createElement('div'); errEl.className = 's-error'; card.appendChild(errEl); }
+        errEl.textContent = '⚠ ' + msg.error;
+        errEl.style.cssText = 'font-size:11px;color:#eb0400;margin-top:4px;word-break:break-word';
+      }
+    }
     if (msg.event === 'score_update') updateScore(msg.channel, msg.score, msg.breakdown);
     if (msg.event === 'profile_updated') updateProfilePanel(msg.profile);
   };
@@ -795,10 +833,14 @@ function clipCard(c) {
 }
 
 function actionButtons(c) {
+  const dl = c.storage_url && !c.storage_url.startsWith('http')
+    ? `<a href="/clip-file?path=${encodeURIComponent(c.storage_url)}" download="${(c.clip_title||'clip').replace(/[^a-z0-9]/gi,'_')}.mp4" class="btn sm" style="text-decoration:none">↓</a>`
+    : '';
   if (c.status === 'pending') return `
     <button class="btn approve sm" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
-    <button class="btn danger sm" onclick="setStatus('${c.id}','reject')">✗ Reject</button>`;
-  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>`;
+    <button class="btn danger sm" onclick="setStatus('${c.id}','reject')">✗ Reject</button>
+    ${dl}`;
+  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>${dl ? ' ' + dl : ''}`;
 }
 
 function updateCardStatus(card, clip) {

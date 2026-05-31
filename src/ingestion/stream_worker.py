@@ -73,8 +73,19 @@ class StreamWorker:
                 break
             except Exception as exc:
                 log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
+                from src.dashboard import api as dashboard_api
+                await dashboard_api.broadcast({
+                    "event": "stream_error",
+                    "channel": self._config.channel,
+                    "error": str(exc),
+                })
             if self._running:
                 log.info("worker_reconnecting", channel=self._config.channel, delay=30)
+                await dashboard_api.broadcast({
+                    "event": "stream_status",
+                    "channel": self._config.channel,
+                    "status": "reconnecting",
+                })
                 await asyncio.sleep(30)
 
     async def _run_session(self) -> None:
@@ -86,6 +97,12 @@ class StreamWorker:
 
         self._stream_info = await self._platform.get_stream_info(channel)
         log.info("stream_found", channel=channel, title=self._stream_info.title)
+        from src.dashboard import api as dashboard_api
+        await dashboard_api.broadcast({
+            "event": "stream_status",
+            "channel": channel,
+            "status": "live",
+        })
 
         self._buffer = VideoBuffer(channel, self._stream_info.stream_url)
         self._shared_buffers[channel] = self._buffer

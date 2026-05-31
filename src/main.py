@@ -130,6 +130,30 @@ async def run_clip_processor() -> None:
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+async def auto_delete_old_clips() -> None:
+    """Daily task: delete approved clips older than 30 days to free disk space."""
+    import time
+    MAX_AGE = 30 * 86400  # 30 days in seconds
+    while True:
+        await asyncio.sleep(86400)  # run once per day
+        try:
+            now = time.time()
+            to_delete = [
+                c for c in list(dashboard_api._clips.values())
+                if c.get("status") == "approved" and now - c.get("created_at", now) > MAX_AGE
+            ]
+            for clip in to_delete:
+                async with dashboard_api._data_lock:
+                    dashboard_api._clips.pop(clip["id"], None)
+                    dashboard_api._save_clips()
+                dashboard_api._delete_clip_file(clip)
+                await dashboard_api.broadcast({"event": "clip_removed", "clip_id": clip["id"]})
+            if to_delete:
+                log.info("auto_deleted_old_clips", count=len(to_delete))
+        except Exception as exc:
+            log.error("auto_delete_error", error=str(exc))
+
+
 async def run_dashboard() -> None:
     config = uvicorn.Config(
         dashboard_app,
@@ -195,6 +219,7 @@ async def main() -> None:
         asyncio.create_task(run_dashboard(), name="dashboard"),
         asyncio.create_task(listen_for_new_streams(redis), name="stream-listener"),
         asyncio.create_task(run_clip_processor(), name="clip-processor"),
+        asyncio.create_task(auto_delete_old_clips(), name="auto-delete"),
     ]
 
     # Restore streams that were running before the last shutdown

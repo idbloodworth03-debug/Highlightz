@@ -168,18 +168,21 @@ class VideoBuffer:
         log.info("clip_extracted", channel=self.channel, output=str(output_path))
         return output_path
 
-    def get_audio_level_db(self) -> float:
+    async def get_audio_level_db(self) -> float:
         """Return mean volume dBFS of the latest segment. Returns -100 on failure."""
         try:
             segments = sorted(self.buffer_dir.glob("seg*.ts"), key=lambda p: p.stat().st_mtime)
             if not segments:
                 return -100.0
             latest = segments[-1]
-            result = subprocess.run(
-                [settings.ffmpeg_path, "-i", str(latest), "-af", "volumedetect", "-f", "null", "NUL"],
-                capture_output=True, timeout=5,
+            proc = await asyncio.create_subprocess_exec(
+                settings.ffmpeg_path, "-i", str(latest),
+                "-af", "volumedetect", "-f", "null", "-",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            for line in result.stderr.decode(errors="replace").splitlines():
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+            for line in stderr.decode(errors="replace").splitlines():
                 if "mean_volume" in line:
                     return float(line.split("mean_volume:")[-1].strip().split()[0])
         except Exception:
