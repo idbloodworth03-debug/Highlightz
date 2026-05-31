@@ -151,6 +151,7 @@ async def broadcast(event: dict) -> None:
 # ── Called by clip processor when a clip is ready ────────────────────────────
 
 _DEDUP_WINDOW = 45  # seconds — skip clip if same channel had one this recently
+_MAX_PENDING_CLIPS = 75  # auto-drop oldest pending when limit reached
 
 async def notify_clip_ready(clip: dict) -> None:
     async with _data_lock:
@@ -162,6 +163,18 @@ async def notify_clip_ready(clip: dict) -> None:
                 log.info("clip_deduplicated", clip_id=clip["id"], channel=channel,
                          duplicate_of=existing["id"])
                 return
+
+        # Enforce pending clip cap — drop oldest pending if over limit
+        pending = sorted(
+            [c for c in _clips.values() if c.get("status") == "pending"],
+            key=lambda c: c.get("created_at", 0),
+        )
+        while len(pending) >= _MAX_PENDING_CLIPS:
+            oldest = pending.pop(0)
+            del _clips[oldest["id"]]
+            _delete_clip_file(oldest)
+            log.info("clip_cap_evicted", clip_id=oldest["id"], channel=oldest.get("channel"))
+
         _clips[clip["id"]] = clip
         _save_clips()
     await broadcast({"event": "clip_ready", "clip": clip})
@@ -358,6 +371,60 @@ async def health():
     return {"status": "ok", "clips": len(_clips), "streams": len(_streams)}
 
 
+@app.get("/stats")
+async def get_stats():
+    import time as _time
+    now = _time.time()
+    week_ago = now - 7 * 86400
+    channels: dict[str, dict] = {}
+    for clip in _clips.values():
+        ch = clip.get("channel", "unknown")
+        if ch not in channels:
+            channels[ch] = {
+                "channel": ch,
+                "total_clips": 0,
+                "clips_this_week": 0,
+                "approved": 0,
+                "pending": 0,
+                "avg_score": 0.0,
+                "avg_virality": 0.0,
+                "top_signal": {},
+                "_scores": [],
+                "_virality": [],
+                "_signals": {},
+            }
+        c = channels[ch]
+        c["total_clips"] += 1
+        if clip.get("created_at", 0) >= week_ago:
+            c["clips_this_week"] += 1
+        status = clip.get("status", "pending")
+        if status == "approved":
+            c["approved"] += 1
+        elif status == "pending":
+            c["pending"] += 1
+        c["_scores"].append(clip.get("trigger_score", 0.0))
+        c["_virality"].append(clip.get("virality_score", 0.0))
+        for sig in clip.get("trigger_signals", []):
+            stype = sig.get("type", "")
+            sval = float(sig.get("value", 0.0))
+            if stype:
+                c["_signals"][stype] = c["_signals"].get(stype, 0.0) + sval
+
+    result = []
+    for c in channels.values():
+        scores = c.pop("_scores")
+        virality = c.pop("_virality")
+        signals = c.pop("_signals")
+        c["avg_score"] = round(sum(scores) / len(scores), 1) if scores else 0.0
+        c["avg_virality"] = round(sum(virality) / len(virality), 1) if virality else 0.0
+        c["approval_rate"] = round(c["approved"] / c["total_clips"] * 100, 1) if c["total_clips"] else 0.0
+        c["top_signal"] = max(signals, key=signals.get) if signals else "—"
+        result.append(c)
+
+    result.sort(key=lambda x: x["total_clips"], reverse=True)
+    return result
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return HTMLResponse(content=DASHBOARD_HTML)
@@ -528,8 +595,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <span class="badge live"><span class="status-dot"></span>Connected</span>
   <span class="badge" id="clip-count">0 clips</span>
   <span class="badge" id="stream-count">0 streams</span>
-  <a href="/logout" style="margin-left:auto;font-size:12px;color:#adadb8;text-decoration:none;padding:5px 12px;background:#26262c;border-radius:6px;border:1px solid #3a3a44">Sign Out</a>
+  <button onclick="toggleStats()" style="margin-left:auto;font-size:12px;color:#adadb8;background:#26262c;border:1px solid #3a3a44;border-radius:6px;padding:5px 12px;cursor:pointer" id="stats-btn">📊 Stats</button>
+  <a href="/logout" style="font-size:12px;color:#adadb8;text-decoration:none;padding:5px 12px;background:#26262c;border-radius:6px;border:1px solid #3a3a44">Sign Out</a>
 </header>
+
+<!-- Stats overlay -->
+<div id="stats-overlay" style="display:none;position:fixed;inset:0;background:#0009;z-index:100;overflow-y:auto;padding:40px 20px">
+  <div style="max-width:900px;margin:0 auto;background:#1f1f23;border:1px solid #2d2d35;border-radius:12px;padding:28px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="font-size:18px;font-weight:700">📊 Usage Stats</h2>
+      <button onclick="toggleStats()" style="background:#26262c;border:1px solid #3a3a44;color:#efeff1;border-radius:6px;padding:5px 12px;cursor:pointer">✕ Close</button>
+    </div>
+    <div id="stats-body" style="color:#adadb8;font-size:13px">Loading...</div>
+  </div>
+</div>
 
 <main>
   <aside>
@@ -833,14 +912,18 @@ function clipCard(c) {
 }
 
 function actionButtons(c) {
+  const base = (c.clip_title||'clip').replace(/[^a-z0-9]/gi,'_');
   const dl = c.storage_url && !c.storage_url.startsWith('http')
-    ? `<a href="/clip-file?path=${encodeURIComponent(c.storage_url)}" download="${(c.clip_title||'clip').replace(/[^a-z0-9]/gi,'_')}.mp4" class="btn sm" style="text-decoration:none">↓</a>`
+    ? `<a href="/clip-file?path=${encodeURIComponent(c.storage_url)}" download="${base}.mp4" class="btn sm" style="text-decoration:none" title="Download 16:9">↓</a>`
+    : '';
+  const dlV = c.vertical_url && !c.vertical_url.startsWith('http')
+    ? `<a href="/clip-file?path=${encodeURIComponent(c.vertical_url)}" download="${base}_vertical.mp4" class="btn sm" style="text-decoration:none;background:#6441a5" title="Download 9:16 vertical">↕</a>`
     : '';
   if (c.status === 'pending') return `
     <button class="btn approve sm" onclick="setStatus('${c.id}','approve')">✓ Approve</button>
     <button class="btn danger sm" onclick="setStatus('${c.id}','reject')">✗ Reject</button>
-    ${dl}`;
-  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>${dl ? ' ' + dl : ''}`;
+    ${dl}${dlV}`;
+  return `<span style="font-size:12px;color:#adadb8">${c.status === 'approved' ? '✓ Approved' : '✗ Rejected'}</span>${dl ? ' ' + dl : ''}${dlV ? ' ' + dlV : ''}`;
 }
 
 function updateCardStatus(card, clip) {
@@ -1043,6 +1126,52 @@ async function loadProfiles() {
   const res = await fetch('/profiles');
   const profiles = await res.json();
   profiles.forEach(updateProfilePanel);
+}
+
+async function toggleStats() {
+  const overlay = document.getElementById('stats-overlay');
+  const visible = overlay.style.display !== 'none';
+  if (visible) { overlay.style.display = 'none'; return; }
+  overlay.style.display = 'block';
+  const body = document.getElementById('stats-body');
+  body.innerHTML = 'Loading...';
+  try {
+    const rows = await (await fetch('/stats')).json();
+    if (!rows.length) { body.innerHTML = '<p>No clips yet.</p>'; return; }
+    body.innerHTML = rows.map(r => `
+      <div style="background:#26262c;border-radius:8px;padding:16px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:15px;font-weight:700;color:#bf94ff">${r.channel}</span>
+          <span style="font-size:12px;color:#adadb8">${r.clips_this_week} clips this week</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;font-size:12px">
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Total Clips</div>
+            <div style="font-size:18px;font-weight:700;color:#efeff1">${r.total_clips}</div>
+          </div>
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Approval Rate</div>
+            <div style="font-size:18px;font-weight:700;color:${r.approval_rate>=60?'#00c853':r.approval_rate>=30?'#ffb300':'#eb0400'}">${r.approval_rate}%</div>
+          </div>
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Avg Score</div>
+            <div style="font-size:18px;font-weight:700;color:#efeff1">${r.avg_score}</div>
+          </div>
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Avg Virality</div>
+            <div style="font-size:18px;font-weight:700;color:#bf94ff">${r.avg_virality}</div>
+          </div>
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Pending Review</div>
+            <div style="font-size:18px;font-weight:700;color:#ffb300">${r.pending}</div>
+          </div>
+          <div style="background:#1f1f23;padding:10px;border-radius:6px">
+            <div style="color:#adadb8;margin-bottom:3px">Top Signal</div>
+            <div style="font-size:13px;font-weight:700;color:#efeff1">${r.top_signal}</div>
+          </div>
+        </div>
+      </div>`).join('');
+  } catch(e) { body.innerHTML = '<p style="color:#eb0400">Failed to load stats.</p>'; }
 }
 
 loadInitial();

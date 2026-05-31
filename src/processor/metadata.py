@@ -20,6 +20,7 @@ class ClipMetadata:
     status: str = "pending"    # pending | approved | rejected | published
     virality_score: float = 0.0
     clip_title: str = ""
+    vertical_url: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -37,4 +38,5 @@ class ClipMetadata:
             "status": self.status,
             "virality_score": self.virality_score,
             "clip_title": self.clip_title,
+            "vertical_url": self.vertical_url,
         }

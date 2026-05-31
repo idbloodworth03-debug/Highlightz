@@ -57,9 +57,45 @@ class ClipProcessor:
         meta.storage_url = await self._storage.upload(trimmed_path, meta.id)
         meta.status = "pending"
 
+        # Generate 9:16 vertical crop for TikTok/Shorts — fire and forget upload
+        vertical_path = await self._generate_vertical(trimmed_path, meta.id)
+        if vertical_path:
+            meta.vertical_url = await self._storage.upload(vertical_path, meta.id + "_vertical")
+            vertical_path.unlink(missing_ok=True)
+
         trimmed_path.unlink(missing_ok=True)
-        log.info("clip_ready", clip_id=meta.id, url=meta.storage_url)
+        log.info("clip_ready", clip_id=meta.id, url=meta.storage_url,
+                 vertical=bool(meta.vertical_url))
         return meta
+
+    @staticmethod
+    async def _generate_vertical(source: Path, clip_id: str) -> Path | None:
+        """
+        Crop the clip to 9:16 (center crop) and scale to 1080x1920 for TikTok/Shorts.
+        Returns path to vertical file, or None if it fails.
+        """
+        if not source.exists():
+            return None
+        out = source.parent / f"{clip_id}_vertical.mp4"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                settings.ffmpeg_path, "-y",
+                "-i", str(source),
+                "-vf", "crop=ih*9/16:ih,scale=1080:1920",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                str(out),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode == 0 and out.exists():
+                log.info("vertical_clip_generated", clip_id=clip_id)
+                return out
+        except Exception as exc:
+            log.warning("vertical_clip_failed", clip_id=clip_id, error=str(exc))
+            out.unlink(missing_ok=True)
+        return None
 
     @staticmethod
     async def _trim_leading_silence(path: Path) -> Path:
