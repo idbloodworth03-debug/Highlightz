@@ -486,10 +486,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #00c853; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  main { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 57px); }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 0; height: calc(100vh - 57px); }
 
   /* Sidebar */
-  aside { background: #1a1a1f; border-right: 1px solid #2d2d35; display: flex; flex-direction: column; overflow: hidden; }
+  aside { background: #1a1a1f; border-right: 1px solid #2d2d35; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+  .add-stream { flex-wrap: wrap; }
   .sidebar-section { padding: 16px; border-bottom: 1px solid #2d2d35; }
   .sidebar-section h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #adadb8; margin-bottom: 12px; }
   .add-stream { display: flex; gap: 8px; }
@@ -629,8 +630,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="sidebar-section" style="flex:0 0 auto">
       <h2>Test Clip</h2>
       <div class="add-stream">
-        <input id="force-channel-input" placeholder="channel name">
-        <button class="btn" onclick="forceClipFromInput()" style="background:#e05a00;white-space:nowrap">Force Clip</button>
+        <input id="force-channel-input" placeholder="channel name" style="min-width:0;flex:1">
+        <button class="btn" onclick="forceClipFromInput()" style="background:#e05a00;white-space:nowrap;flex-shrink:0">Force Clip</button>
       </div>
     </div>
     <div class="sidebar-section" style="flex:0 0 auto">
