@@ -61,16 +61,18 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
     )
 
     async def _run_and_update():
-        dashboard_api._streams[channel]["status"] = "live"
-        await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams[channel]})
+        stream_key = f"{user_id}:{channel}" if user_id else channel
+        if stream_key in dashboard_api._streams:
+            dashboard_api._streams[stream_key]["status"] = "live"
+            await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams[stream_key]})
         try:
             await worker.start()
         except Exception as exc:
             log.error("worker_crashed", channel=channel, error=str(exc))
         finally:
-            if channel in dashboard_api._streams:
-                dashboard_api._streams[channel]["status"] = "offline"
-                await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams.get(channel, {})})
+            if stream_key in dashboard_api._streams:
+                dashboard_api._streams[stream_key]["status"] = "offline"
+                await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams.get(stream_key, {})})
 
     task = asyncio.create_task(_run_and_update(), name=f"worker-{channel}")
     _workers[channel] = task

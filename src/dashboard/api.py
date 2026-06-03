@@ -90,7 +90,12 @@ def _save_clips() -> None:
 
 def _load_streams() -> dict:
     try:
-        return {s["channel"]: s for s in json.loads(_STREAMS_FILE.read_text())}
+        result = {}
+        for s in json.loads(_STREAMS_FILE.read_text()):
+            uid = s.get("user_id", "")
+            key = f"{uid}:{s['channel']}" if uid else s["channel"]
+            result[key] = s
+        return result
     except FileNotFoundError:
         return {}
     except Exception:
