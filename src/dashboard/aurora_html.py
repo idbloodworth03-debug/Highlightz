@@ -284,6 +284,68 @@ button{font-family:inherit;cursor:pointer}
   .rd-metrics{grid-template-columns:repeat(2,1fr)}
   .rd-modal-grid{grid-template-columns:1fr}
 }
+@media(max-width:700px){
+  /* Scrollable instead of fixed-height */
+  body{overflow:auto}
+  .rd-app{grid-template-columns:1fr;height:auto;min-height:100dvh}
+  .rd-frame{min-height:0;overflow:visible}
+  .rd-screen{overflow:visible;padding-bottom:70px}
+
+  /* Vertical nav → bottom tab bar */
+  .rd-nav{position:fixed;bottom:0;left:0;right:0;z-index:20;
+    flex-direction:row;height:58px;padding:0 4px;gap:0;
+    border-right:none;border-top:1px solid var(--hair);
+    justify-content:space-around;align-items:center}
+  .rd-nav .logo{display:none}
+  .rd-nav .sp{display:none}
+  .rd-navitem{flex:1;width:auto;height:50px;border-radius:12px;font-size:9px;gap:2px}
+
+  /* Frame: let grid rows auto-size for page scroll */
+  .rd-frame{grid-template-rows:56px auto}
+
+  /* Header */
+  .rd-header{padding:0 12px;gap:10px;height:56px}
+  .rd-header .htitle{font-size:15px}
+  .rd-header .hsub{display:none}
+  .rd-header .rd-live{display:none}
+
+  /* Review screen */
+  .rd-body{grid-template-columns:1fr;padding:12px;gap:12px;overflow:visible}
+  .rd-col{max-height:none}
+  .rd-main{gap:12px;overflow:visible}
+  .rd-stats{grid-template-columns:repeat(2,1fr);gap:8px}
+  .rd-stat{padding:12px 14px}
+  .rd-stat .v{font-size:22px}
+  .rd-toolbar{flex-wrap:wrap;gap:8px}
+  .rd-filters{margin-left:0;width:100%;justify-content:space-between}
+  .rd-filter{flex:1;text-align:center;padding:7px 6px}
+  .rd-grid{grid-template-columns:1fr;padding-right:0;overflow:visible}
+  .rd-clip{height:auto}
+
+  /* Streams screen */
+  .rd-streams-layout{grid-template-columns:1fr;padding:12px;gap:12px;overflow:visible}
+  .rd-chanlist{overflow-y:visible;max-height:none}
+  .rd-detail{overflow-y:visible}
+  .rd-metrics{grid-template-columns:repeat(2,1fr);gap:8px}
+  .rd-weight .wl{width:90px;font-size:11px}
+
+  /* Settings */
+  .rd-scroll{padding:12px}
+  .rd-settings{gap:12px}
+  .rd-preset-grid{grid-template-columns:1fr}
+  .rd-card{padding:16px}
+
+  /* Modal: full-screen sheet */
+  .rd-modal-bg{padding:0;align-items:flex-end}
+  .rd-modal{width:100%;max-height:92dvh;border-radius:22px 22px 0 0;overflow:hidden}
+  .rd-modal-media{padding-bottom:56.25%}
+  .rd-modal-body{padding:16px}
+  .rd-modal-grid{grid-template-columns:1fr;gap:16px}
+  .rd-modal-actions{flex-wrap:wrap}
+
+  /* Toast: above bottom nav */
+  .rd-toast{bottom:70px}
+}
 </style>
 </head>
 <body>
