@@ -381,16 +381,16 @@ async def login_page(error: str = ""):
 
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+async def login(request: Request, password: str = Form(...)):
     from src.auth import users as user_store
-    user = user_store.get_by_username(username)
-    if user and user_store.verify(user, password):
+    user = next((u for u in user_store._load() if user_store.verify(u, password)), None)
+    if user:
         request.session["auth"] = True
         request.session["user_id"] = user["id"]
         request.session["username"] = user["username"]
         request.session["is_admin"] = user.get("is_admin", False)
         return RedirectResponse("/", status_code=302)
-    return RedirectResponse("/login?error=Incorrect+username+or+password", status_code=302)
+    return RedirectResponse("/login?error=Incorrect+password", status_code=302)
 
 
 @app.get("/logout")
@@ -518,10 +518,8 @@ LOGIN_HTML = """<!DOCTYPE html>
   <p class="sub">Sign in to your dashboard</p>
   {error}
   <form method="POST" action="/login">
-    <label>Username</label>
-    <input type="text" name="username" autofocus placeholder="Enter your username" autocomplete="username">
     <label>Password</label>
-    <input type="password" name="password" placeholder="Enter your password" autocomplete="current-password">
+    <input type="password" name="password" autofocus placeholder="Enter your password" autocomplete="current-password">
     <button type="submit">Sign In</button>
   </form>
 </div>
