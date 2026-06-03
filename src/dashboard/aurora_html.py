@@ -176,8 +176,8 @@ button{font-family:inherit;cursor:pointer}
 .rd-nav{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 0;
   border-right:1px solid var(--hair);background:rgba(10,10,14,.5);
   -webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:6}
-.rd-nav .logo{margin-bottom:14px;display:flex}
-.rd-nav .logo img{height:30px;filter:drop-shadow(0 0 12px rgba(199,155,255,.55))}
+.rd-nav .logo{margin-bottom:18px;display:flex}
+.rd-nav .logo img{height:44px;filter:drop-shadow(0 0 12px rgba(199,155,255,.55))}
 .rd-navitem{width:56px;height:54px;border-radius:15px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:4px;background:transparent;border:none;
   color:var(--fg-3);font-size:9.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
