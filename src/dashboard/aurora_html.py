@@ -135,15 +135,16 @@ button{font-family:inherit;cursor:pointer}
 .rd-media{position:relative;width:100%;height:0;padding-bottom:56.25%;overflow:hidden}
 .rd-thumb{position:absolute;inset:0}
 .rd-thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55))}
-.rd-play{position:absolute;inset:0;display:grid;place-items:center}
+.rd-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55));pointer-events:none;z-index:1}
+.rd-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
 .rd-play .ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;padding-left:3px;
   background:rgba(20,12,30,.4);border:1.5px solid rgba(255,255,255,.85);color:#fff;backdrop-filter:blur(4px);transition:transform .2s,background .2s}
 .rd-clip:hover .rd-play .ring{transform:scale(1.08);background:var(--grad);border-color:transparent;box-shadow:var(--glow)}
-.rd-scorebadge{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:5px;
+.rd-scorebadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   font-size:12px;font-weight:700;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
   background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
 .rd-scorebadge .pip{width:6px;height:6px;border-radius:50%}
-.rd-dur{position:absolute;left:10px;bottom:10px;font-size:11px;font-weight:600;color:#fff;
+.rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
 .rd-clip-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -424,7 +425,9 @@ function RdClip({ clip, onApprove, onReject, onOpen, libraryMode }) {
   return (
     <div className="rd-clip">
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
-        <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>
+        {hasVideo
+          ? <video src={`/clip-file?path=${encodeURIComponent(clip.storage_url)}`} preload="metadata" muted playsInline style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
         {dur && <span className="rd-dur">{dur}</span>}
