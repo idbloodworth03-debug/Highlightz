@@ -102,7 +102,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-score-top .lbl{font-size:11px;color:var(--fg-2);font-weight:500}
 .rd-score-top .val{font-size:20px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
 .rd-track{height:8px;border-radius:var(--r-pill);background:rgba(255,255,255,.07);overflow:hidden;position:relative}
-.rd-fill{height:100%;border-radius:var(--r-pill);transition:width .5s cubic-bezier(.4,0,.2,1),background .4s;position:relative}
+.rd-fill{height:100%;border-radius:var(--r-pill);transition:background .6s;position:relative}
 .rd-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:14px;background:rgba(255,255,255,.5);filter:blur(5px);opacity:.7}
 .rd-sigs{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
 .rd-sig{font-size:10px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
@@ -424,8 +424,28 @@ function RdStat({ icon, k, v, sub, accent }) {
 }
 
 function RdStream({ s, scoreData, profile, onRemove, onForce }) {
-  const score = scoreData ? (scoreData.score||0) : 0;
+  const rawScore = scoreData ? (scoreData.score||0) : 0;
   const breakdown = scoreData ? (scoreData.breakdown||{}) : {};
+
+  // Smooth the bar via rAF easing — avoids jarring jumps on large WS updates
+  const [displayScore, setDisplayScore] = useState(rawScore);
+  const curRef = useRef(rawScore);
+  const tgtRef = useRef(rawScore);
+  const rafRef = useRef(null);
+  useEffect(() => {
+    tgtRef.current = rawScore;
+    const step = () => {
+      const d = tgtRef.current - curRef.current;
+      if (Math.abs(d) < 0.05) { curRef.current = tgtRef.current; setDisplayScore(tgtRef.current); return; }
+      curRef.current += d * 0.1;
+      setDisplayScore(curRef.current);
+      rafRef.current = requestAnimationFrame(step);
+    };
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [rawScore]);
+  const score = displayScore;
   const p = profile || {};
   const samples = p.velocity_samples||0;
   const statusColor = s.status==='live' ? 'var(--live)' : s.status==='reconnecting' ? 'var(--pending)' : 'var(--fg-2)';
