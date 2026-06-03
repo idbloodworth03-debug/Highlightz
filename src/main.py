@@ -30,6 +30,7 @@ SHARED_BUFFERS: dict[str, VideoBuffer] = {}
 PLATFORM_MAP = {"twitch": TwitchPlatform, "youtube": YouTubePlatform}
 
 _workers: dict[str, asyncio.Task] = {}
+_worker_instances: dict[str, "StreamWorker"] = {}
 _queue: JobQueue | None = None
 
 
@@ -73,18 +74,22 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
 
     task = asyncio.create_task(_run_and_update(), name=f"worker-{channel}")
     _workers[channel] = task
+    _worker_instances[channel] = worker
     log.info("worker_spawned", channel=channel, platform=platform_name)
 
 
 async def stop_worker(channel: str) -> None:
-    task = _workers.get(channel)
+    # Signal the worker to stop its reconnect loop before cancelling the task
+    worker = _worker_instances.pop(channel, None)
+    if worker:
+        worker.stop()
+    task = _workers.pop(channel, None)
     if task and not task.done():
         task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
-    _workers.pop(channel, None)
     SHARED_BUFFERS.pop(channel, None)
 
 

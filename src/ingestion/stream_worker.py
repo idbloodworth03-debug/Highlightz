@@ -258,7 +258,14 @@ class StreamWorker:
         await self._queue.push(job)
 
     async def _cleanup(self) -> None:
-        # Add only the time since the last profile loop save to avoid double-counting
+        # Cancel subtasks — guards against the case where CancelledError skips
+        # the normal pending-task teardown in _run_session's try block.
+        for t in self._tasks:
+            t.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks = []
+
         if self._profile and self._last_profile_save:
             self._profile.total_watch_seconds += time.time() - self._last_profile_save
             await get_profile_manager(self._config.user_id).save(self._profile)
