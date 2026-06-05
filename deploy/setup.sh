@@ -43,9 +43,13 @@ apt-get install -y -qq \
 
 echo "      Done."
 
-# ── App directory ─────────────────────────────────────────────────────────────
-echo "[2/7] Setting up app directory..."
+# ── Service user ──────────────────────────────────────────────────────────────
+echo "[2/7] Setting up app directory and service user..."
 APP_DIR="/opt/highlightz"
+# Dedicated unprivileged system user — the bot must NOT run as root.
+if ! id highlightz >/dev/null 2>&1; then
+    useradd --system --create-home --home-dir /home/highlightz --shell /usr/sbin/nologin highlightz
+fi
 mkdir -p "$APP_DIR/clips/profiles"
 mkdir -p "$APP_DIR/clips/clips"
 mkdir -p "$APP_DIR/clips/tmp"
@@ -88,13 +92,21 @@ echo "      Done."
 echo "[7/7] Checking .env..."
 if [ ! -f "$APP_DIR/.env" ]; then
     cp "$APP_DIR/deploy/env.production" "$APP_DIR/.env"
+    # Auto-generate a strong session secret so the app never ships with a default.
+    GENERATED_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    sed -i "s|^DASHBOARD_SECRET_KEY=.*|DASHBOARD_SECRET_KEY=${GENERATED_KEY}|" "$APP_DIR/.env"
     echo ""
-    echo "  !! .env file created from template."
-    echo "  !! Edit /opt/highlightz/.env with your API keys before starting."
+    echo "  !! .env file created from template (with a generated DASHBOARD_SECRET_KEY)."
+    echo "  !! Edit /opt/highlightz/.env: set DASHBOARD_PASSWORD and your API keys before starting."
     echo ""
 else
     echo "      .env already exists, skipping."
 fi
+
+# Secrets file must not be world-readable, and the service user owns the app.
+chmod 600 "$APP_DIR/.env"
+chown highlightz:highlightz "$APP_DIR/.env"
+chown -R highlightz:highlightz "$APP_DIR/clips"
 
 echo ""
 echo "========================================="

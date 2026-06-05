@@ -133,8 +133,8 @@ async def run_clip_processor() -> None:
 async def run_dashboard() -> None:
     config = uvicorn.Config(
         dashboard_app,
-        host="0.0.0.0",
-        port=8000,
+        host=settings.dashboard_host,
+        port=settings.dashboard_port,
         log_level="warning",
     )
     server = uvicorn.Server(config)
@@ -145,6 +145,9 @@ async def run_dashboard() -> None:
 
 async def main() -> None:
     global _queue
+
+    # Refuse to boot in production with placeholder secrets/passwords.
+    settings.validate_for_production()
 
     structlog.configure(
         processors=[

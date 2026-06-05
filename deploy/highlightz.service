@@ -5,7 +5,8 @@ Wants=redis-server.service
 
 [Service]
 Type=simple
-User=root
+User=highlightz
+Group=highlightz
 WorkingDirectory=/opt/highlightz
 ExecStart=/opt/highlightz/venv/bin/python -m src.main
 Restart=always
@@ -14,6 +15,13 @@ EnvironmentFile=/opt/highlightz/.env
 
 # Give FFmpeg enough time to buffer on shutdown
 TimeoutStopSec=30
+
+# Hardening: restrict what the service can touch on the host
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/highlightz/clips
 
 # Logging
 StandardOutput=journal

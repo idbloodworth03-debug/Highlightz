@@ -14,11 +14,20 @@ Endpoints:
 
 import asyncio
 import json
+import re
+import time
 from typing import Any
 from pathlib import Path
 
 _STREAMS_FILE = Path("clips/streams.json")
 _CLIPS_FILE = Path("clips/clips.json")
+
+# Twitch/YouTube channel handles: alphanumeric + underscore, max 25 chars.
+_CHANNEL_RE = re.compile(r"^[A-Za-z0-9_]{1,25}$")
+
+
+def _valid_channel(channel: str) -> bool:
+    return bool(_CHANNEL_RE.match(channel))
 
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form
@@ -52,15 +61,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 # Middleware order: SessionMiddleware runs first (parses cookie), then AuthMiddleware checks it
 app.add_middleware(AuthMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=settings.dashboard_secret_key, max_age=86400 * 30, https_only=False)
-
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    SessionMiddleware,
+    secret_key=settings.dashboard_secret_key,
+    max_age=86400 * 30,
+    https_only=settings.session_cookie_secure,
+    same_site="strict",
 )
+
+# CORS: the dashboard is served same-origin, so cross-origin access is opt-in
+# via an explicit allowlist. Never combine a wildcard origin with credentials.
+if settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 from typing import Callable, Awaitable
 
@@ -209,6 +227,10 @@ async def list_streams():
 
 @app.post("/streams", status_code=201)
 async def add_stream(req: StreamRequest):
+    if not _valid_channel(req.channel):
+        raise HTTPException(status_code=400, detail="Invalid channel name")
+    if req.platform not in ("twitch", "youtube"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
     if req.channel in _streams:
         raise HTTPException(status_code=409, detail="Stream already registered")
     record = {"channel": req.channel, "platform": req.platform, "preset": req.preset, "status": "starting"}
@@ -233,6 +255,11 @@ async def remove_stream(channel: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    # SessionMiddleware populates ws.session from the signed cookie. Require auth
+    # so broadcast events (clips, profiles, scores) aren't exposed to anonymous clients.
+    if not ws.session.get("auth"):
+        await ws.close(code=1008)  # policy violation
+        return
     await ws.accept()
     _ws_clients.add(ws)
     log.info("ws_client_connected", total=len(_ws_clients))
@@ -246,14 +273,22 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/clip-file")
 async def serve_clip_file(path: str):
-    p = Path(path)
-    if not p.exists() or not p.suffix == ".mp4":
+    # Containment check: only serve .mp4 files that resolve inside the clips root.
+    clips_root = (Path(settings.local_storage_path) / "clips").resolve()
+    try:
+        p = Path(path).resolve()
+        p.relative_to(clips_root)
+    except (ValueError, OSError):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if p.suffix != ".mp4" or not p.is_file():
         raise HTTPException(status_code=404, detail="Clip file not found")
     return FileResponse(str(p), media_type="video/mp4")
 
 
 @app.post("/streams/{channel}/force-clip")
 async def force_clip(channel: str):
+    if not _valid_channel(channel):
+        raise HTTPException(status_code=400, detail="Invalid channel name")
     if channel not in _streams:
         raise HTTPException(status_code=404, detail="Stream not registered")
     if not _force_clip_cb:
@@ -264,16 +299,39 @@ async def force_clip(channel: str):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
-    err_html = f'<p class="error">{error}</p>' if error else ""
+    import html
+    err_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
+
+
+# Simple in-memory brute-force throttle: per-IP sliding window of failed attempts.
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SECONDS = 300
+
+
+def _login_rate_limited(ip: str) -> bool:
+    now = time.time()
+    attempts = [t for t in _LOGIN_ATTEMPTS.get(ip, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _LOGIN_ATTEMPTS[ip] = attempts
+    return len(attempts) >= _LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_failure(ip: str) -> None:
+    _LOGIN_ATTEMPTS.setdefault(ip, []).append(time.time())
 
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
     import secrets as _secrets
+    ip = request.client.host if request.client else "unknown"
+    if _login_rate_limited(ip):
+        return RedirectResponse("/login?error=Too+many+attempts.+Try+again+later.", status_code=302)
     if _secrets.compare_digest(password, settings.dashboard_password):
+        _LOGIN_ATTEMPTS.pop(ip, None)
         request.session["auth"] = True
         return RedirectResponse("/", status_code=302)
+    _record_login_failure(ip)
     return RedirectResponse("/login?error=Incorrect+password", status_code=302)
 
 

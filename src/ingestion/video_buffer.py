@@ -7,6 +7,7 @@ When a clip is triggered, the relevant segments are concatenated into an MP4.
 """
 
 import asyncio
+import os
 import subprocess
 import sys
 import time
@@ -176,7 +177,7 @@ class VideoBuffer:
                 return -100.0
             latest = segments[-1]
             result = subprocess.run(
-                [settings.ffmpeg_path, "-i", str(latest), "-af", "volumedetect", "-f", "null", "NUL"],
+                [settings.ffmpeg_path, "-i", str(latest), "-af", "volumedetect", "-f", "null", os.devnull],
                 capture_output=True, timeout=5,
             )
             for line in result.stderr.decode(errors="replace").splitlines():
