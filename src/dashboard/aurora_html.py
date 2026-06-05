@@ -59,6 +59,12 @@ button{font-family:inherit;cursor:pointer}
 .rd-iconbtn:hover{color:var(--fg);background:rgba(255,255,255,.08)}
 .rd-avatar{width:38px;height:38px;border-radius:50%;background:var(--grad);display:grid;place-items:center;
   font-weight:700;font-size:14px;color:#14021c;border:none;box-shadow:var(--glow)}
+.rd-user-chip{display:flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;border-radius:999px;
+  background:rgba(255,255,255,.05);border:1px solid var(--hair)}
+.rd-user-chip img{width:32px;height:32px;border-radius:50%;object-fit:cover}
+.rd-user-chip .uc-init{width:32px;height:32px;border-radius:50%;background:var(--grad);display:grid;
+  place-items:center;font-weight:700;font-size:13px;color:#14021c}
+.rd-user-chip .uc-name{font-size:13px;font-weight:600;color:var(--fg-2)}
 .rd-body{display:grid;grid-template-columns:322px 1fr;gap:18px;padding:18px 22px;overflow:hidden;min-height:0}
 .rd-col{min-height:0;display:flex;flex-direction:column;gap:16px}
 .rd-rail{border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
@@ -853,6 +859,7 @@ function RdApp() {
   const [filter, setFilter] = useState('all');
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
+  const [me, setMe] = useState({username:'', avatar_url:''});
   const toastTimer = useRef(null);
 
   const flash = useCallback(msg => {
@@ -870,6 +877,7 @@ function RdApp() {
     fetch('/profiles').then(r=>r.json()).then(arr=>{
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
+    fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -961,7 +969,12 @@ function RdApp() {
           <div><div className="htitle">{HEAD[route][0]}</div><div className="hsub">{HEAD[route][1]}</div></div>
           <div className="spacer"/>
           <span className="rd-live"><span className="dot"/>Live</span>
-          <a href="/logout" className="rd-iconbtn" title="Sign out" style={{textDecoration:'none'}}><Icon name="logout" size={17}/></a>
+          <a href="/logout" className="rd-user-chip" title="Sign out" style={{textDecoration:'none'}}>
+            {me.avatar_url
+              ? <img src={me.avatar_url} alt={me.username}/>
+              : <span className="uc-init">{(me.username||'?')[0].toUpperCase()}</span>}
+            <span className="uc-name">{me.username||'Account'}</span>
+          </a>
         </header>
         <main className="rd-screen">{screen}</main>
       </div>

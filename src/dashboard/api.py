@@ -312,9 +312,20 @@ async def discord_callback(request: Request, code: str = "", state: str = "", er
     request.session["auth"]                = True
     request.session["user_id"]             = user["id"]
     request.session["username"]            = user["username"]
+    request.session["avatar_url"]          = user.get("avatar_url", "")
     request.session["is_admin"]            = user.get("is_admin", False)
     request.session["subscription_status"] = user.get("subscription_status", "none")
     return RedirectResponse("/")
+
+
+@app.get("/me")
+async def me(request: Request):
+    return {
+        "user_id":  request.session.get("user_id", ""),
+        "username": request.session.get("username", ""),
+        "avatar_url": request.session.get("avatar_url", ""),
+        "is_admin": request.session.get("is_admin", False),
+    }
 
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
