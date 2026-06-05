@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     clip_post_roll_seconds: int = 10
     max_concurrent_streams: int = 20
 
+    # Discord OAuth
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_redirect_uri: str = "http://localhost:8000/auth/discord/callback"
+
+    # Stripe billing
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_price_id: str = ""          # recurring Price ID from Stripe dashboard
+    stripe_webhook_secret: str = ""
+
     # Trigger thresholds
     chat_velocity_multiplier: float = 2.5
     trigger_score_threshold: float = 0.45

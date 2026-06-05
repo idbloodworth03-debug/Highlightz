@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import tempfile
 import time
 from typing import Any
@@ -45,18 +46,26 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS   = {"/login", "/health", "/favicon.ico"}
+_OPEN_PATHS    = {"/login", "/health", "/favicon.ico"}
+_AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path in _OPEN_PATHS or path == "/login" or path.startswith(_STATIC_PREFIX):
+        if (path in _OPEN_PATHS or path == "/login"
+                or path.startswith(_STATIC_PREFIX)
+                or any(path.startswith(p) for p in _AUTH_PREFIXES)):
             return await call_next(request)
         if not request.session.get("auth"):
             if request.headers.get("accept", "").startswith("application/json"):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
+        # Billing gate — redirect to paywall unless admin or active subscriber
+        if not request.session.get("is_admin") and request.session.get("subscription_status") not in ("active", "trialing"):
+            if not request.headers.get("accept", "").startswith("application/json"):
+                return RedirectResponse("/billing/paywall", status_code=302)
+            return JSONResponse({"detail": "Subscription required"}, status_code=402)
         return await call_next(request)
 
 # Middleware stack is LIFO — SessionMiddleware added last runs first,
@@ -259,6 +268,125 @@ def _current_user_id(request: Request) -> str:
     if not uid:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return uid
+
+# ── Discord OAuth ─────────────────────────────────────────────────────────────
+
+@app.get("/auth/discord")
+async def discord_login(request: Request):
+    """Redirect the browser to Discord's OAuth consent screen."""
+    from src.auth.discord_oauth import authorization_url
+    if not settings.discord_client_id:
+        raise HTTPException(status_code=503, detail="Discord OAuth not configured")
+    state = secrets.token_urlsafe(16)
+    request.session["oauth_state"] = state
+    return RedirectResponse(authorization_url(state))
+
+
+@app.get("/auth/discord/callback")
+async def discord_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """Handle Discord OAuth callback, create/find user, set session."""
+    from src.auth import discord_oauth, users as user_store
+    if error:
+        return RedirectResponse(f"/login?error={error}")
+    if state != request.session.pop("oauth_state", None):
+        return RedirectResponse("/login?error=Invalid+state")
+    try:
+        token = await discord_oauth.exchange_code(code)
+        duser = await discord_oauth.get_user(token)
+    except Exception as exc:
+        log.warning("discord_oauth_failed", error=str(exc))
+        return RedirectResponse("/login?error=Discord+login+failed")
+
+    user = user_store.upsert_discord_user(
+        discord_id=duser["id"],
+        username=duser["username"],
+        avatar_url=duser.get("avatar_url", ""),
+    )
+    request.session["auth"]                = True
+    request.session["user_id"]             = user["id"]
+    request.session["username"]            = user["username"]
+    request.session["is_admin"]            = user.get("is_admin", False)
+    request.session["subscription_status"] = user.get("subscription_status", "none")
+    return RedirectResponse("/")
+
+
+# ── Stripe billing ─────────────────────────────────────────────────────────────
+
+@app.get("/billing/paywall", response_class=HTMLResponse)
+async def paywall_page(request: Request):
+    uid      = request.session.get("user_id", "")
+    username = request.session.get("username", "")
+    return HTMLResponse(PAYWALL_HTML.replace("{username}", username))
+
+
+@app.get("/billing/checkout")
+async def billing_checkout(request: Request):
+    """Create a Stripe Checkout session and redirect the user there."""
+    from src.billing.stripe_billing import create_checkout_url
+    if not settings.stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    uid      = request.session.get("user_id", "")
+    username = request.session.get("username", "")
+    if not uid:
+        return RedirectResponse("/login")
+    url = await create_checkout_url(uid, username)
+    return RedirectResponse(url)
+
+
+@app.get("/billing/portal")
+async def billing_portal(request: Request):
+    """Open the Stripe Customer Portal so users can manage / cancel."""
+    from src.billing import stripe_billing
+    from src.auth import users as user_store
+    uid  = _current_user_id(request)
+    user = user_store.get_by_id(uid)
+    if not user or not user.get("stripe_customer_id"):
+        return RedirectResponse("/billing/checkout")
+    url = await stripe_billing.create_portal_url(user["stripe_customer_id"])
+    return RedirectResponse(url)
+
+
+@app.get("/billing/success", response_class=HTMLResponse)
+async def billing_success(request: Request, session_id: str = ""):
+    """Stripe redirects here after successful checkout."""
+    # Subscription status is updated by the webhook; refresh from DB.
+    from src.auth import users as user_store
+    uid  = request.session.get("user_id", "")
+    user = user_store.get_by_id(uid) if uid else None
+    if user:
+        request.session["subscription_status"] = user.get("subscription_status", "none")
+    return RedirectResponse("/")
+
+
+@app.get("/billing/cancel", response_class=HTMLResponse)
+async def billing_cancel(request: Request):
+    return RedirectResponse("/billing/paywall")
+
+
+@app.post("/billing/webhook")
+async def stripe_webhook(request: Request):
+    """Receive and process Stripe subscription lifecycle events."""
+    from src.billing.stripe_billing import handle_webhook_event, sync_subscription_event
+    from src.auth import users as user_store
+    if not settings.stripe_webhook_secret:
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+    payload    = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    try:
+        event = handle_webhook_event(payload, sig_header)
+    except Exception as exc:
+        log.warning("stripe_webhook_invalid", error=str(exc))
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    cust_id, user_id, status = sync_subscription_event(event)
+    if cust_id and status:
+        if user_id:
+            user_store.update_subscription(user_id, cust_id, status)
+        else:
+            user_store.update_subscription_by_customer(cust_id, status)
+        log.info("stripe_subscription_updated", customer=cust_id, status=status)
+    return {"received": True}
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -510,10 +638,11 @@ async def login(request: Request, password: str = Form(...)):
     user = next((u for u in user_store._load() if user_store.verify(u, password)), None)
     if user:
         _clear_login_rate(ip)
-        request.session["auth"]     = True
-        request.session["user_id"]  = user["id"]
-        request.session["username"] = user["username"]
-        request.session["is_admin"] = user.get("is_admin", False)
+        request.session["auth"]                = True
+        request.session["user_id"]             = user["id"]
+        request.session["username"]            = user["username"]
+        request.session["is_admin"]            = user.get("is_admin", False)
+        request.session["subscription_status"] = user.get("subscription_status", "none")
         return RedirectResponse("/", status_code=302)
     return RedirectResponse("/login?error=Incorrect+password", status_code=302)
 
@@ -614,32 +743,96 @@ LOGIN_HTML = """<!DOCTYPE html>
 <title>Highlightz - Sign In</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0e0e10; color: #efeff1; font-family: Inter, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .card { background: #1f1f23; border: 1px solid #2d2d35; border-radius: 12px; padding: 40px; width: 340px; }
-  .logo-wrap { display: flex; justify-content: center; margin-bottom: 20px; }
-  .logo-wrap img { height: 120px; width: auto; }
-  h1 { font-size: 24px; font-weight: 700; color: #bf94ff; margin-bottom: 4px; }
-  .sub { font-size: 13px; color: #adadb8; margin-bottom: 28px; }
-  label { font-size: 12px; color: #adadb8; display: block; margin-bottom: 6px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-  input { width: 100%; background: #26262c; border: 1px solid #3a3a44; border-radius: 6px; color: #efeff1; padding: 10px 12px; font-size: 14px; outline: none; margin-bottom: 16px; }
-  input:focus { border-color: #bf94ff; }
-  button { width: 100%; background: #bf94ff; color: #0e0e10; border: none; border-radius: 6px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; transition: background .15s; }
-  button:hover { background: #a970ff; }
-  .error { color: #eb0400; font-size: 12px; margin-bottom: 14px; background: #3a1a1a; padding: 8px 12px; border-radius: 6px; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
+  .logo-wrap img{height:80px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.5))}
+  h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
+  .sub{font-size:13px;color:#9c9caa;margin-bottom:30px}
+  .discord-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#5865f2;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
+  .discord-btn:hover{background:#4752c4}
+  .discord-btn svg{flex-shrink:0}
+  .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
+  label{font-size:12px;color:#9c9caa;display:block;margin-bottom:6px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+  input{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#f6f6f9;padding:11px 13px;font-size:14px;outline:none;margin-bottom:14px;transition:.18s}
+  input:focus{border-color:rgba(199,155,255,.5);box-shadow:0 0 0 4px rgba(168,85,247,.1)}
+  .pw-btn{width:100%;background:rgba(255,255,255,.06);color:#f6f6f9;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+  .pw-btn:hover{background:rgba(255,255,255,.1)}
+  .error{color:#ff5a78;font-size:12px;margin-bottom:14px;background:rgba(255,90,120,.12);padding:10px 13px;border-radius:10px;border:1px solid rgba(255,90,120,.25)}
+  .admin-toggle{font-size:11px;color:#5d5d6b;text-align:center;margin-top:18px;cursor:pointer;text-decoration:underline}
+  #admin-form{display:none;margin-top:16px}
 </style>
 </head>
 <body>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
-  <p class="sub">Sign in to your dashboard</p>
+  <p class="sub">Sign in to start clipping highlights</p>
   {error}
-  <form method="POST" action="/login">
-    <label>Password</label>
-    <input type="password" name="password" autofocus placeholder="Enter your password" autocomplete="current-password">
-    <button type="submit">Sign In</button>
-  </form>
+  <a href="/auth/discord" class="discord-btn">
+    <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="#fff"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+    Continue with Discord
+  </a>
+  <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
+  <div id="admin-form">
+    <div class="divider">admin access</div>
+    <form method="POST" action="/login">
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Admin password" autocomplete="current-password">
+      <button type="submit" class="pw-btn">Sign In</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>"""
+
+PAYWALL_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Highlightz - Subscribe</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 44px;max-width:440px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:20px}
+  .logo-wrap img{height:64px;filter:drop-shadow(0 0 14px rgba(199,155,255,.5))}
+  .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);color:#c79bff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:22px}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:10px}
+  .sub{font-size:14px;color:#9c9caa;margin-bottom:32px;line-height:1.6}
+  .features{text-align:left;margin-bottom:32px;display:flex;flex-direction:column;gap:10px}
+  .feat{display:flex;align-items:center;gap:12px;font-size:14px}
+  .feat .ic{width:24px;height:24px;border-radius:8px;background:rgba(199,155,255,.12);color:#c79bff;display:grid;place-items:center;flex-shrink:0;font-size:13px}
+  .cta{display:block;width:100%;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;transition:filter .15s;box-shadow:0 6px 24px -6px rgba(168,85,247,.6);margin-bottom:12px}
+  .cta:hover{filter:brightness(1.08)}
+  .manage{display:block;font-size:12px;color:#5d5d6b;text-align:center;margin-top:6px;text-decoration:none}
+  .manage:hover{color:#9c9caa}
+  .logout{display:block;font-size:12px;color:#5d5d6b;text-align:center;margin-top:16px;text-decoration:none}
+  .logout:hover{color:#9c9caa}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
+  <span class="badge">⚡ Highlightz Pro</span>
+  <h1>Never miss a clip again</h1>
+  <p class="sub">Hi {username} — activate your subscription to start automatically capturing your best streaming moments.</p>
+  <div class="features">
+    <div class="feat"><span class="ic">🎬</span>Automatic clip detection on any stream</div>
+    <div class="feat"><span class="ic">📊</span>Live trigger score analytics</div>
+    <div class="feat"><span class="ic">✂️</span>16:9 + 9:16 vertical crop export</div>
+    <div class="feat"><span class="ic">🔔</span>Discord notifications on approval</div>
+    <div class="feat"><span class="ic">🧠</span>Per-channel AI learning baseline</div>
+  </div>
+  <a href="/billing/checkout" class="cta">Start Subscription →</a>
+  <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
+  <a href="/logout" class="logout">Sign out</a>
 </div>
 </body>
 </html>"""
