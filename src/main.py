@@ -37,7 +37,8 @@ _queue: JobQueue | None = None
 # ── Worker management ─────────────────────────────────────────────────────────
 
 async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> None:
-    if channel in _workers and not _workers[channel].done():
+    worker_key = f"{user_id}:{channel}" if user_id else channel
+    if worker_key in _workers and not _workers[worker_key].done():
         log.warning("worker_already_running", channel=channel)
         return
 
@@ -50,7 +51,7 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
             "channel": ch,
             "score": score,
             "breakdown": breakdown,
-        })
+        }, user_id=user_id)
 
     worker = StreamWorker(
         config=WorkerConfig(channel=channel, platform_name=platform_name, user_id=user_id),
@@ -64,7 +65,10 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
         stream_key = f"{user_id}:{channel}" if user_id else channel
         if stream_key in dashboard_api._streams:
             dashboard_api._streams[stream_key]["status"] = "live"
-            await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams[stream_key]})
+            await dashboard_api.broadcast(
+                {"event": "stream_updated", "stream": dashboard_api._streams[stream_key]},
+                user_id=user_id,
+            )
         try:
             await worker.start()
         except Exception as exc:
@@ -72,20 +76,23 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
         finally:
             if stream_key in dashboard_api._streams:
                 dashboard_api._streams[stream_key]["status"] = "offline"
-                await dashboard_api.broadcast({"event": "stream_updated", "stream": dashboard_api._streams.get(stream_key, {})})
+                await dashboard_api.broadcast(
+                    {"event": "stream_updated", "stream": dashboard_api._streams.get(stream_key, {})},
+                    user_id=user_id,
+                )
 
-    task = asyncio.create_task(_run_and_update(), name=f"worker-{channel}")
-    _workers[channel] = task
-    _worker_instances[channel] = worker
+    task = asyncio.create_task(_run_and_update(), name=f"worker-{worker_key}")
+    _workers[worker_key] = task
+    _worker_instances[worker_key] = worker
     log.info("worker_spawned", channel=channel, platform=platform_name)
 
 
-async def stop_worker(channel: str) -> None:
-    # Signal the worker to stop its reconnect loop before cancelling the task
-    worker = _worker_instances.pop(channel, None)
+async def stop_worker(channel: str, user_id: str = "") -> None:
+    worker_key = f"{user_id}:{channel}" if user_id else channel
+    worker = _worker_instances.pop(worker_key, None)
     if worker:
         worker.stop()
-    task = _workers.pop(channel, None)
+    task = _workers.pop(worker_key, None)
     if task and not task.done():
         task.cancel()
         try:
@@ -111,7 +118,7 @@ async def listen_for_new_streams(redis) -> None:
                 await spawn_worker(payload["channel"], payload.get("platform", "twitch"),
                                    payload.get("user_id", ""))
             elif channel_name == "superclipbot:remove_streams":
-                await stop_worker(payload["channel"])
+                await stop_worker(payload["channel"], payload.get("user_id", ""))
         except Exception as exc:
             log.error("stream_registration_error", error=str(exc))
 
@@ -146,16 +153,23 @@ async def auto_delete_old_clips() -> None:
         await asyncio.sleep(86400)  # run once per day
         try:
             now = time.time()
-            to_delete = [
-                c for c in list(dashboard_api._clips.values())
-                if c.get("status") == "approved" and now - c.get("created_at", now) > MAX_AGE
-            ]
-            for clip in to_delete:
-                async with dashboard_api._data_lock:
+            # Identify and remove all stale clips under a single lock acquisition
+            async with dashboard_api._data_lock:
+                to_delete = [
+                    c for c in list(dashboard_api._clips.values())
+                    if c.get("status") == "approved" and now - c.get("created_at", now) > MAX_AGE
+                ]
+                for clip in to_delete:
                     dashboard_api._clips.pop(clip["id"], None)
+                if to_delete:
                     dashboard_api._save_clips()
+            # File deletion and broadcast outside the lock
+            for clip in to_delete:
                 dashboard_api._delete_clip_file(clip)
-                await dashboard_api.broadcast({"event": "clip_removed", "clip_id": clip["id"]})
+                await dashboard_api.broadcast(
+                    {"event": "clip_removed", "clip_id": clip["id"]},
+                    user_id=clip.get("user_id"),
+                )
             if to_delete:
                 log.info("auto_deleted_old_clips", count=len(to_delete))
         except Exception as exc:
@@ -197,10 +211,10 @@ async def main() -> None:
             json.dumps({"channel": channel, "platform": platform, "preset": preset, "user_id": user_id}),
         )
 
-    async def _publish_remove_stream(channel: str) -> None:
+    async def _publish_remove_stream(channel: str, user_id: str = "") -> None:
         await redis.publish(
             "superclipbot:remove_streams",
-            json.dumps({"channel": channel}),
+            json.dumps({"channel": channel, "user_id": user_id}),
         )
 
     dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)

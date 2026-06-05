@@ -80,14 +80,15 @@ class StreamWorker:
                     "event": "stream_error",
                     "channel": self._config.channel,
                     "error": str(exc),
-                })
+                }, user_id=self._config.user_id)
             if self._running:
                 log.info("worker_reconnecting", channel=self._config.channel, delay=30)
+                from src.dashboard import api as dashboard_api
                 await dashboard_api.broadcast({
                     "event": "stream_status",
                     "channel": self._config.channel,
                     "status": "reconnecting",
-                })
+                }, user_id=self._config.user_id)
                 await asyncio.sleep(30)
 
     async def _run_session(self) -> None:
@@ -104,7 +105,7 @@ class StreamWorker:
             "event": "stream_status",
             "channel": channel,
             "status": "live",
-        })
+        }, user_id=self._config.user_id)
 
         self._buffer = VideoBuffer(channel, self._stream_info.stream_url)
         self._shared_buffers[channel] = self._buffer
@@ -216,7 +217,7 @@ class StreamWorker:
             await dashboard_api.broadcast({
                 "event": "profile_updated",
                 "profile": self._profile.to_dict(),
-            })
+            }, user_id=self._config.user_id)
             log.debug("profile_updated", channel=self._config.channel,
                       avg_velocity=round(self._profile.avg_velocity, 3),
                       threshold=round(self._profile.trigger_threshold, 3),
