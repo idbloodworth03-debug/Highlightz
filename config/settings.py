@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # Discord OAuth
     discord_client_id: str = ""
     discord_client_secret: str = ""
-    discord_redirect_uri: str = "http://localhost:8000/auth/discord/callback"
+    discord_redirect_uri: str = "https://highlightz.app/auth/discord/callback"
 
     # Stripe billing
     stripe_secret_key: str = ""

@@ -22,7 +22,7 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
 async def create_checkout_url(user_id: str, username: str) -> str:
     """Create a Stripe Checkout session and return its URL."""
     client = _client()
-    base = settings.discord_redirect_uri.rsplit("/", 2)[0]  # derive base URL
+    base = "https://highlightz.app"
     session = client.checkout.sessions.create(params={
         "mode":                 "subscription",
         "payment_method_types": ["card"],
@@ -38,7 +38,7 @@ async def create_checkout_url(user_id: str, username: str) -> str:
 async def create_portal_url(customer_id: str) -> str:
     """Create a Stripe Customer Portal session and return its URL."""
     client = _client()
-    base = settings.discord_redirect_uri.rsplit("/", 2)[0]
+    base = "https://highlightz.app"
     session = client.billing_portal.sessions.create(params={
         "customer":   customer_id,
         "return_url": f"{base}/",
