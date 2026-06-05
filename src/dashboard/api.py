@@ -61,6 +61,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if request.headers.get("accept", "").startswith("application/json"):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
+        # Refresh is_admin and subscription_status from DB on every request
+        from src.auth import users as user_store
+        uid = request.session.get("user_id")
+        if uid:
+            db_user = user_store.get_by_id(uid)
+            if db_user:
+                request.session["is_admin"]            = db_user.get("is_admin", False)
+                request.session["subscription_status"] = db_user.get("subscription_status", "none")
         # Billing gate — redirect to paywall unless admin or active subscriber
         if not request.session.get("is_admin") and request.session.get("subscription_status") not in ("active", "trialing"):
             if not request.headers.get("accept", "").startswith("application/json"):
