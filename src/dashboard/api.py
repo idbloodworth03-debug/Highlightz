@@ -46,7 +46,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS    = {"/login", "/health", "/favicon.ico"}
+_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
