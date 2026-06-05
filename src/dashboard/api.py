@@ -77,7 +77,6 @@ app.add_middleware(
     max_age=86400 * 30,
     https_only=settings.dashboard_https_only,
     same_site="lax",
-    http_only=True,
 )
 app.add_middleware(
     CORSMiddleware,
