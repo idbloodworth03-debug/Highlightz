@@ -195,6 +195,38 @@ def _clear_login_rate(ip: str) -> None:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+async def _burn_watermark(source: Path) -> None:
+    """Burn a semi-transparent 'Highlightz' text watermark into the bottom-right corner."""
+    out = source.parent / (source.stem + "_wm.mp4")
+    vf = (
+        "drawtext=text='Highlightz'"
+        ":fontsize=28:fontcolor=white@0.45"
+        ":x=w-text_w-18:y=h-text_h-18"
+        ":shadowcolor=black@0.4:shadowx=1:shadowy=1"
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            settings.ffmpeg_path, "-y",
+            "-i", str(source),
+            "-vf", vf,
+            "-c:a", "copy",
+            str(out),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        if proc.returncode != 0 or not out.exists():
+            log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-300:])
+            out.unlink(missing_ok=True)
+            return
+        source.unlink(missing_ok=True)
+        out.rename(source)
+        log.info("watermark_applied", path=str(source))
+    except Exception as exc:
+        log.warning("watermark_error", error=str(exc))
+        out.unlink(missing_ok=True)
+
+
 def _delete_clip_file(clip: dict) -> None:
     url = clip.get("storage_url", "")
     if not url:
@@ -460,6 +492,21 @@ async def approve_clip(request: Request, clip_id: str):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+    # Burn watermark in background — doesn't block the approve response
+    storage_url = clip.get("storage_url", "")
+    if storage_url and not clip.get("watermarked"):
+        source = Path(storage_url)
+        if source.exists():
+            async def _wm_task():
+                await _burn_watermark(source)
+                async with _data_lock:
+                    if clip_id in _clips:
+                        _clips[clip_id]["watermarked"] = True
+                        _save_clips()
+            task = asyncio.create_task(_wm_task())
+            task.add_done_callback(
+                lambda t: t.exception() and log.warning("watermark_task_failed", exc=str(t.exception()))
+            )
     stream_key = f"{uid}:{clip['channel']}"
     stream     = _streams.get(stream_key)
     webhook    = stream.get("discord_webhook", "") if stream else ""
