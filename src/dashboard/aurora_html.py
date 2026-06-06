@@ -623,6 +623,8 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
   const [trimming, setTrimming] = useState(false);
   const [trimErr, setTrimErr] = useState('');
 
+  const isRendering = clip.caption_rendering || captioning;
+
   const renderCaption = async () => {
     if (!captionText.trim()) return;
     setCaptioning(true); setCaptionErr('');
@@ -633,17 +635,14 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
       });
       const d = await r.json().catch(()=>({}));
       if (!r.ok) { setCaptionErr(d.detail||'Render failed'); setCaptioning(false); }
-      // If status==='rendering', keep spinner up — WebSocket clip_updated will resolve it
+      // success: server returns {status:'rendering'} — WebSocket drives the rest
     } catch { setCaptionErr('Network error — try again'); setCaptioning(false); }
   };
 
-  // Stop spinner when WebSocket pushes the finished clip back
+  // Clear local spinner once WebSocket confirms render is done
   useEffect(()=>{
-    if(captioning && clip && !clip.caption_rendering && clip.caption){
-      setCaptioning(false);
-      onCaptionRendered&&onCaptionRendered(clip);
-    }
-  },[clip]);
+    if(captioning && !clip.caption_rendering){ setCaptioning(false); }
+  },[clip.caption_rendering]);
 
   const applyTrim = async () => {
     const start = parseSecs(trimStart);
@@ -755,10 +754,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
               {clip.caption && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
               {clip.status==='pending' && <div style={{color:'var(--pending)',fontSize:11,marginTop:4}}>Clip is still pending — you can add a caption now, just approve it when ready.</div>}
               <div style={{marginTop:10,display:'flex',gap:10}}>
-                <button className="rd-btn sm" onClick={renderCaption} disabled={captioning||!captionText.trim()} style={{minWidth:150}}>
-                  {captioning ? <><Spinner/>Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
+                <button className="rd-btn sm" onClick={renderCaption} disabled={isRendering||!captionText.trim()} style={{minWidth:150}}>
+                  {isRendering ? <><Spinner/>Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
                 </button>
-                {captionText && !captioning && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
+                {captionText && !isRendering && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
               </div>
             </div>
           </div>}
@@ -1041,7 +1040,11 @@ function RdApp() {
       ws.onmessage = e=>{
         const msg = JSON.parse(e.data);
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
-        else if(msg.event==='clip_updated'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));if(msg.clip&&!msg.clip.caption_rendering&&msg.clip.caption){flash('Caption burned in!');} }
+        else if(msg.event==='clip_updated'){
+          setClips(p=>({...p,[msg.clip.id]:msg.clip}));
+          setModalClip(prev=>prev&&prev.id===msg.clip.id?msg.clip:prev);
+          if(msg.clip&&!msg.clip.caption_rendering&&msg.clip.caption){flash('Caption burned in!');}
+        }
         else if(msg.event==='caption_failed'){flash('Caption failed — check server logs');}
         else if(msg.event==='clip_removed'){setClips(p=>{const n={...p};delete n[msg.clip_id];return n;});}
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
