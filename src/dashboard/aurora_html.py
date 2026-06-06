@@ -47,6 +47,7 @@ button{font-family:inherit;cursor:pointer}
   background:var(--live-soft);padding:6px 12px;border-radius:var(--r-pill);border:1px solid rgba(46,224,138,.25)}
 .rd-live .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:ping 2s infinite}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(46,224,138,.5)}70%{box-shadow:0 0 0 7px rgba(46,224,138,0)}100%{box-shadow:0 0 0 0 rgba(46,224,138,0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .rd-search{flex:1;max-width:420px;position:relative}
 .rd-search input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-pill);
   color:var(--fg);font-size:13px;padding:10px 14px 10px 38px;outline:none;transition:.18s}
@@ -278,6 +279,15 @@ button{font-family:inherit;cursor:pointer}
 .rd-sigbar .sf{height:100%;border-radius:99px;background:var(--grad)}
 .rd-modal-actions{display:flex;gap:10px;margin-top:8px}
 .rd-modal-actions .rd-btn{flex:1}
+.rd-caption-box{margin-top:18px;padding-top:16px;border-top:1px solid var(--hair)}
+.rd-caption-box textarea{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);
+  border-radius:10px;color:var(--fg);font-size:14px;padding:10px 12px;resize:vertical;
+  min-height:70px;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box}
+.rd-caption-box textarea:focus{border-color:var(--acc);background:rgba(255,255,255,.07)}
+.rd-caption-box textarea::placeholder{color:var(--fg-3)}
+.rd-caption-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.rd-caption-row .ck{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.rd-caption-row .cc{font-size:11px;color:var(--fg-3)}
 .rd-meta-row{display:flex;justify-content:space-between;font-size:13px;padding:9px 0;border-bottom:1px solid var(--hair)}
 .rd-meta-row:last-child{border-bottom:none}
 .rd-meta-row .mk{color:var(--fg-2)}
@@ -556,7 +566,7 @@ function RdToast({ msg }) {
   return <div className={'rd-toast'+(msg?' show':'')}><span className="ico"><Icon name="sparkles" size={13}/></span>{msg}</div>;
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject }) {
+function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
   if (!clip) return null;
   const score = Math.round(clip.trigger_score||0);
   const dur = fmtDur(clip.duration_seconds);
@@ -569,6 +579,35 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
     sigMap[k] = (s.value||0)*100;
   }
   const sigKeys = [['CHAT_VELOCITY','Chat velocity'],['KEYWORD','Keyword hits'],['SENTIMENT','Sentiment'],['AUDIO_SPIKE','Audio spike']];
+
+  const [captionText, setCaptionText] = useState(clip.caption||'');
+  const [rendering, setRendering] = useState(false);
+  const [captionErr, setCaptionErr] = useState('');
+
+  const renderCaption = async () => {
+    if (!captionText.trim()) return;
+    setRendering(true);
+    setCaptionErr('');
+    try {
+      const r = await fetch(`/clips/${clip.id}/caption`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({text: captionText.trim()}),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(()=>({}));
+        setCaptionErr(d.detail||'Render failed');
+      } else {
+        const updated = await r.json();
+        onCaptionRendered && onCaptionRendered(updated);
+        setCaptionErr('');
+      }
+    } catch {
+      setCaptionErr('Network error — try again');
+    }
+    setRendering(false);
+  };
+
   return (
     <div className="rd-modal-bg" onClick={onClose}>
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
@@ -609,6 +648,27 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
               </div>}
             </div>
           </div>
+          {hasVideo && <div className="rd-caption-box">
+            <div className="rd-caption-row">
+              <span className="ck">Caption</span>
+              <span className="cc">{captionText.length}/200</span>
+            </div>
+            <textarea
+              placeholder="Type your caption or title here… (press Enter for a new line)"
+              value={captionText}
+              maxLength={200}
+              onChange={e=>setCaptionText(e.target.value)}
+              disabled={rendering}
+            />
+            {captionErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{captionErr}</div>}
+            {clip.caption && !rendering && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
+            <div style={{marginTop:10,display:'flex',gap:10}}>
+              <button className="rd-btn sm" onClick={renderCaption} disabled={rendering||!captionText.trim()} style={{minWidth:140}}>
+                {rendering ? <><span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite',marginRight:6,verticalAlign:'middle'}}/> Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
+              </button>
+              {captionText && !rendering && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
+            </div>
+          </div>}
         </div>
       </div>
     </div>
@@ -979,7 +1039,9 @@ function RdApp() {
         <main className="rd-screen">{screen}</main>
       </div>
       <RdToast msg={toast}/>
-      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}/>
+      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
+        onCaptionRendered={updated=>{setClips(p=>({...p,[updated.id]:updated}));setModalClip(updated);flash('Caption burned in!');}}
+      />
     </div>
   );
 }

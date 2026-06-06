@@ -492,7 +492,71 @@ async def reject_clip(request: Request, clip_id: str):
     return {"status": "deleted", "clip_id": clip_id}
 
 
-@app.get("/profiles")
+@app.post("/clips/{clip_id}/caption")
+async def render_caption(request: Request, clip_id: str, body: dict):
+    uid = _current_user_id(request)
+    async with _data_lock:
+        clip = _clips.get(clip_id)
+        if not clip or clip.get("user_id") != uid:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        storage_url = clip.get("storage_url", "")
+        if not storage_url:
+            raise HTTPException(status_code=400, detail="Clip has no video file yet")
+
+    text = str(body.get("text", "")).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Caption text is required")
+    if len(text) > 200:
+        raise HTTPException(status_code=400, detail="Caption must be 200 characters or less")
+
+    source = Path(storage_url)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found on disk")
+
+    tmp_dir  = source.parent
+    tmp_txt  = tmp_dir / f"{clip_id}_caption.txt"
+    out_path = tmp_dir / f"{clip_id}_captioned.mp4"
+
+    try:
+        tmp_txt.write_text(text, encoding="utf-8")
+        vf = (
+            f"drawtext=textfile={tmp_txt}"
+            f":fontsize=44:fontcolor=white"
+            f":x=(w-text_w)/2:y=h-text_h-48"
+            f":box=1:boxcolor=black@0.55:boxborderw=14"
+            f":line_spacing=6"
+        )
+        proc = await asyncio.create_subprocess_exec(
+            settings.ffmpeg_path, "-y",
+            "-i", str(source),
+            "-vf", vf,
+            "-c:a", "copy",
+            str(out_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        if proc.returncode != 0 or not out_path.exists():
+            err = stderr.decode(errors="replace")[-400:]
+            log.warning("caption_render_failed", clip_id=clip_id, ffmpeg_err=err)
+            raise HTTPException(status_code=500, detail="Caption render failed — check FFmpeg logs")
+    finally:
+        tmp_txt.unlink(missing_ok=True)
+
+    # Replace original file with captioned version
+    source.unlink(missing_ok=True)
+    out_path.rename(source)
+    log.info("caption_rendered", clip_id=clip_id)
+
+    async with _data_lock:
+        if clip_id in _clips:
+            _clips[clip_id]["caption"] = text
+            _save_clips()
+    updated = _clips.get(clip_id, clip)
+    await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
+    return updated
+
+
 async def list_profiles(request: Request):
     from src.profiles.manager import get_profile_manager
     uid      = _current_user_id(request)
