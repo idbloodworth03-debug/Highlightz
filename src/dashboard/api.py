@@ -608,8 +608,8 @@ async def render_caption(request: Request, clip_id: str, body: dict):
                 f"drawtext=textfile={tmp_txt}"
                 f":fontfile={_FONT}"
                 f":fontsize=46:fontcolor=black"
-                f":x=(w-text_w)/2:y=h-text_h-48"
-                f":box=1:boxcolor=white:boxborderw=12"
+                f":x=(w-text_w)/2:y=48"
+                f":box=1:boxcolor=white:boxborderw=14"
             )
             ffmpeg_args = [
                 settings.ffmpeg_path, "-y",
@@ -655,6 +655,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
         async with _data_lock:
             if clip_id in _clips:
                 _clips[clip_id]["caption"] = text
+                _clips[clip_id]["caption_at"] = time.time()
                 _clips[clip_id].pop("caption_rendering", None)
                 _save_clips()
         updated = _clips.get(clip_id, clip)

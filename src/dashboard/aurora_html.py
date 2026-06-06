@@ -669,12 +669,18 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, capt
     setTrimming(false);
   };
 
+  // Add caption_at as a cache-buster so the browser re-fetches the file
+  // after captions are burned in (same path, different content).
+  const videoSrc = clip.storage_url
+    ? `/clip-file?path=${encodeURIComponent(clip.storage_url)}${clip.caption_at ? `&v=${Math.round(clip.caption_at)}` : ''}`
+    : '';
+
   return (
     <div className="rd-modal-bg" onClick={onClose}>
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
         <div className="rd-modal-media">
           {hasVideo
-            ? <video className="thumb" src={`/clip-file?path=${encodeURIComponent(clip.storage_url)}`} controls style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',background:'#000'}}/>
+            ? <video className="thumb" src={videoSrc} controls style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',background:'#000'}}/>
             : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:hasVideo?14:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
