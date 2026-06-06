@@ -279,15 +279,25 @@ button{font-family:inherit;cursor:pointer}
 .rd-sigbar .sf{height:100%;border-radius:99px;background:var(--grad)}
 .rd-modal-actions{display:flex;gap:10px;margin-top:8px}
 .rd-modal-actions .rd-btn{flex:1}
-.rd-caption-box{margin-top:18px;padding-top:16px;border-top:1px solid var(--hair)}
+.rd-modal-tabs{display:flex;gap:2px;padding:0 22px;border-bottom:1px solid var(--hair);background:rgba(0,0,0,.15)}
+.rd-modal-tab{padding:10px 18px;font-size:13px;font-weight:600;color:var(--fg-3);border:none;background:none;
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}
+.rd-modal-tab:hover{color:var(--fg-2)}
+.rd-modal-tab.active{color:var(--fg);border-bottom-color:var(--acc)}
+.rd-edit-section{margin-top:18px;padding-top:16px;border-top:1px solid var(--hair)}
+.rd-edit-section:first-child{margin-top:0;padding-top:0;border-top:none}
+.rd-edit-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:10px}
+.rd-edit-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rd-time-input{background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:8px;
+  color:var(--fg);font-size:14px;padding:8px 12px;width:90px;outline:none;font-family:monospace;text-align:center}
+.rd-time-input:focus{border-color:var(--acc);background:rgba(255,255,255,.08)}
+.rd-edit-hint{font-size:11px;color:var(--fg-3);margin-top:6px}
 .rd-caption-box textarea{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);
   border-radius:10px;color:var(--fg);font-size:14px;padding:10px 12px;resize:vertical;
   min-height:70px;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box}
 .rd-caption-box textarea:focus{border-color:var(--acc);background:rgba(255,255,255,.07)}
 .rd-caption-box textarea::placeholder{color:var(--fg-3)}
-.rd-caption-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.rd-caption-row .ck{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
-.rd-caption-row .cc{font-size:11px;color:var(--fg-3)}
+.rd-caption-charcount{font-size:11px;color:var(--fg-3);text-align:right;margin-top:4px}
 .rd-meta-row{display:flex;justify-content:space-between;font-size:13px;padding:9px 0;border-bottom:1px solid var(--hair)}
 .rd-meta-row:last-child{border-bottom:none}
 .rd-meta-row .mk{color:var(--fg-2)}
@@ -566,6 +576,25 @@ function RdToast({ msg }) {
   return <div className={'rd-toast'+(msg?' show':'')}><span className="ico"><Icon name="sparkles" size={13}/></span>{msg}</div>;
 }
 
+function Spinner() {
+  return <span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite',marginRight:6,verticalAlign:'middle'}}/>;
+}
+
+function fmtSecs(s) {
+  if (!s && s!==0) return '';
+  const m = Math.floor(s/60), sec = Math.floor(s%60);
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function parseSecs(str) {
+  str = (str||'').trim();
+  if (str.includes(':')) {
+    const [m,s] = str.split(':');
+    return parseInt(m||0,10)*60 + parseFloat(s||0);
+  }
+  return parseFloat(str)||0;
+}
+
 function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
   if (!clip) return null;
   const score = Math.round(clip.trigger_score||0);
@@ -573,6 +602,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
   const time = fmtTime(clip.created_at);
   const title = clip.clip_title||clip.stream_title||'Live Stream';
   const hasVideo = clip.storage_url && !clip.storage_url.startsWith('http');
+  const totalSecs = clip.duration_seconds||0;
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
     const k = (s.type||'').replace('SignalType.','');
@@ -580,32 +610,48 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
   }
   const sigKeys = [['CHAT_VELOCITY','Chat velocity'],['KEYWORD','Keyword hits'],['SENTIMENT','Sentiment'],['AUDIO_SPIKE','Audio spike']];
 
+  const [tab, setTab] = useState('info');
+
+  // Caption state
   const [captionText, setCaptionText] = useState(clip.caption||'');
-  const [rendering, setRendering] = useState(false);
+  const [captioning, setCaptioning] = useState(false);
   const [captionErr, setCaptionErr] = useState('');
+
+  // Trim state
+  const [trimStart, setTrimStart] = useState('0:00');
+  const [trimEnd, setTrimEnd] = useState(fmtSecs(totalSecs)||'');
+  const [trimming, setTrimming] = useState(false);
+  const [trimErr, setTrimErr] = useState('');
 
   const renderCaption = async () => {
     if (!captionText.trim()) return;
-    setRendering(true);
-    setCaptionErr('');
+    setCaptioning(true); setCaptionErr('');
     try {
       const r = await fetch(`/clips/${clip.id}/caption`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text: captionText.trim()}),
       });
-      if (!r.ok) {
-        const d = await r.json().catch(()=>({}));
-        setCaptionErr(d.detail||'Render failed');
-      } else {
-        const updated = await r.json();
-        onCaptionRendered && onCaptionRendered(updated);
-        setCaptionErr('');
-      }
-    } catch {
-      setCaptionErr('Network error — try again');
-    }
-    setRendering(false);
+      if (!r.ok) { const d=await r.json().catch(()=>({})); setCaptionErr(d.detail||'Render failed'); }
+      else { const u=await r.json(); onCaptionRendered&&onCaptionRendered(u); }
+    } catch { setCaptionErr('Network error — try again'); }
+    setCaptioning(false);
+  };
+
+  const applyTrim = async () => {
+    const start = parseSecs(trimStart);
+    const end   = parseSecs(trimEnd);
+    if (isNaN(start)||isNaN(end)||end<=start) { setTrimErr('End must be after start'); return; }
+    if ((end-start)<1) { setTrimErr('Must be at least 1 second'); return; }
+    setTrimming(true); setTrimErr('');
+    try {
+      const r = await fetch(`/clips/${clip.id}/trim`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({start, end}),
+      });
+      if (!r.ok) { const d=await r.json().catch(()=>({})); setTrimErr(d.detail||'Trim failed'); }
+      else { const u=await r.json(); onCaptionRendered&&onCaptionRendered(u); setTrimErr(''); }
+    } catch { setTrimErr('Network error — try again'); }
+    setTrimming(false);
   };
 
   return (
@@ -618,55 +664,93 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
           <button className="rd-modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:hasVideo?14:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         </div>
+
+        <div className="rd-modal-tabs">
+          <button className={'rd-modal-tab'+(tab==='info'?' active':'')} onClick={()=>setTab('info')}>Info</button>
+          {hasVideo && <button className={'rd-modal-tab'+(tab==='edit'?' active':'')} onClick={()=>setTab('edit')}>Edit Clip</button>}
+        </div>
+
         <div className="rd-modal-body">
-          <div className="rd-modal-head">
-            <span className="av">{initials(clip.channel)}</span>
-            <div style={{flex:1}}><h3>{title}</h3><div className="mt">{clip.channel} · {clip.game||'stream'} · {time}</div></div>
-            <span className={'rd-status '+clip.status}>{clip.status}</span>
-          </div>
-          <div className="rd-modal-grid">
-            <div>
-              <div className="rd-eyebrow" style={{marginBottom:14}}>Why it fired</div>
-              {sigKeys.map(([k,lbl])=>{
-                const v=sigMap[k]||0;
-                return <div className="rd-sigbar" key={k}>
-                  <div className="sh"><span className="sk">{lbl}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
-                  <div className="st"><div className="sf" style={{width:v+'%'}}/></div>
-                </div>;
-              })}
+          {tab==='info' && <>
+            <div className="rd-modal-head">
+              <span className="av">{initials(clip.channel)}</span>
+              <div style={{flex:1}}><h3>{title}</h3><div className="mt">{clip.channel} · {clip.game||'stream'} · {time}</div></div>
+              <span className={'rd-status '+clip.status}>{clip.status}</span>
             </div>
-            <div>
-              <div className="rd-eyebrow" style={{marginBottom:14}}>Details</div>
-              <div className="rd-meta-row"><span className="mk">Duration</span><span className="mv">{dur||'—'}</span></div>
-              <div className="rd-meta-row"><span className="mk">Platform</span><span className="mv" style={{textTransform:'capitalize'}}>{clip.platform}</span></div>
-              <div className="rd-meta-row"><span className="mk">Game</span><span className="mv">{clip.game||'—'}</span></div>
-              <div className="rd-meta-row"><span className="mk">Captured</span><span className="mv">{time}</span></div>
-              {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
-              {clip.status==='pending' && <div className="rd-modal-actions">
-                <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
-                <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
-              </div>}
+            <div className="rd-modal-grid">
+              <div>
+                <div className="rd-eyebrow" style={{marginBottom:14}}>Why it fired</div>
+                {sigKeys.map(([k,lbl])=>{
+                  const v=sigMap[k]||0;
+                  return <div className="rd-sigbar" key={k}>
+                    <div className="sh"><span className="sk">{lbl}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
+                    <div className="st"><div className="sf" style={{width:v+'%'}}/></div>
+                  </div>;
+                })}
+              </div>
+              <div>
+                <div className="rd-eyebrow" style={{marginBottom:14}}>Details</div>
+                <div className="rd-meta-row"><span className="mk">Duration</span><span className="mv">{dur||'—'}</span></div>
+                <div className="rd-meta-row"><span className="mk">Platform</span><span className="mv" style={{textTransform:'capitalize'}}>{clip.platform}</span></div>
+                <div className="rd-meta-row"><span className="mk">Game</span><span className="mv">{clip.game||'—'}</span></div>
+                <div className="rd-meta-row"><span className="mk">Captured</span><span className="mv">{time}</span></div>
+                {clip.caption && <div className="rd-meta-row"><span className="mk">Caption</span><span className="mv" style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{clip.caption}</span></div>}
+                {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
+                {clip.status==='pending' && <div className="rd-modal-actions">
+                  <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
+                  <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
+                </div>}
+              </div>
             </div>
-          </div>
-          {hasVideo && <div className="rd-caption-box">
-            <div className="rd-caption-row">
-              <span className="ck">Caption</span>
-              <span className="cc">{captionText.length}/200</span>
+          </>}
+
+          {tab==='edit' && hasVideo && <div style={{display:'flex',flexDirection:'column',gap:0}}>
+            {/* Trim section */}
+            <div className="rd-edit-section" style={{marginTop:0,paddingTop:0,borderTop:'none'}}>
+              <div className="rd-edit-label">Trim Clip</div>
+              <div className="rd-edit-row">
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:11,color:'var(--fg-3)'}}>Start</span>
+                  <input className="rd-time-input" value={trimStart} onChange={e=>setTrimStart(e.target.value)} disabled={trimming} placeholder="0:00"/>
+                </div>
+                <span style={{color:'var(--fg-3)',fontSize:18,marginTop:16}}>→</span>
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:11,color:'var(--fg-3)'}}>End</span>
+                  <input className="rd-time-input" value={trimEnd} onChange={e=>setTrimEnd(e.target.value)} disabled={trimming} placeholder={fmtSecs(totalSecs)}/>
+                </div>
+                <div style={{marginTop:16}}>
+                  <button className="rd-btn sm" onClick={applyTrim} disabled={trimming} style={{minWidth:110}}>
+                    {trimming ? <><Spinner/>Trimming…</> : <><Icon name="scissors" size={13}/>Apply Trim</>}
+                  </button>
+                </div>
+              </div>
+              {totalSecs>0 && <div className="rd-edit-hint">Current duration: {fmtDur(totalSecs)} — enter times as M:SS (e.g. 0:05 to 1:30)</div>}
+              {trimErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{trimErr}</div>}
             </div>
-            <textarea
-              placeholder="Type your caption or title here… (press Enter for a new line)"
-              value={captionText}
-              maxLength={200}
-              onChange={e=>setCaptionText(e.target.value)}
-              disabled={rendering}
-            />
-            {captionErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{captionErr}</div>}
-            {clip.caption && !rendering && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
-            <div style={{marginTop:10,display:'flex',gap:10}}>
-              <button className="rd-btn sm" onClick={renderCaption} disabled={rendering||!captionText.trim()} style={{minWidth:140}}>
-                {rendering ? <><span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite',marginRight:6,verticalAlign:'middle'}}/> Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
-              </button>
-              {captionText && !rendering && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
+
+            {/* Caption section */}
+            <div className="rd-edit-section">
+              <div className="rd-edit-label" style={{display:'flex',justifyContent:'space-between'}}>
+                <span>Caption / Title</span>
+                <span style={{fontWeight:400,letterSpacing:0,textTransform:'none',fontSize:11}}>{captionText.length}/200</span>
+              </div>
+              <div className="rd-caption-box" style={{marginTop:0,paddingTop:0,borderTop:'none'}}>
+                <textarea
+                  placeholder="Type your caption or title… (Enter for new line)"
+                  value={captionText}
+                  maxLength={200}
+                  onChange={e=>setCaptionText(e.target.value)}
+                  disabled={captioning}
+                />
+              </div>
+              {captionErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{captionErr}</div>}
+              {clip.caption && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
+              <div style={{marginTop:10,display:'flex',gap:10}}>
+                <button className="rd-btn sm" onClick={renderCaption} disabled={captioning||!captionText.trim()} style={{minWidth:150}}>
+                  {captioning ? <><Spinner/>Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
+                </button>
+                {captionText && !captioning && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
+              </div>
             </div>
           </div>}
         </div>

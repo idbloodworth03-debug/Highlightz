@@ -557,6 +557,68 @@ async def render_caption(request: Request, clip_id: str, body: dict):
     return updated
 
 
+@app.post("/clips/{clip_id}/trim")
+async def trim_clip(request: Request, clip_id: str, body: dict):
+    uid = _current_user_id(request)
+    async with _data_lock:
+        clip = _clips.get(clip_id)
+        if not clip or clip.get("user_id") != uid:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        storage_url = clip.get("storage_url", "")
+        if not storage_url:
+            raise HTTPException(status_code=400, detail="Clip has no video file yet")
+
+    try:
+        start = float(body.get("start", 0))
+        end   = float(body.get("end", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="start and end must be numbers")
+
+    if start < 0 or end <= 0 or end <= start:
+        raise HTTPException(status_code=400, detail="end must be greater than start, both non-negative")
+    if (end - start) < 1:
+        raise HTTPException(status_code=400, detail="Trimmed clip must be at least 1 second long")
+
+    source   = Path(storage_url)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found on disk")
+
+    out_path = source.parent / f"{clip_id}_trimmed.mp4"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            settings.ffmpeg_path, "-y",
+            "-i", str(source),
+            "-ss", str(start),
+            "-to", str(end),
+            "-c", "copy",
+            str(out_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0 or not out_path.exists():
+            err = stderr.decode(errors="replace")[-400:]
+            log.warning("trim_failed", clip_id=clip_id, ffmpeg_err=err)
+            raise HTTPException(status_code=500, detail="Trim failed — check FFmpeg logs")
+    except asyncio.TimeoutError:
+        out_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Trim timed out")
+
+    source.unlink(missing_ok=True)
+    out_path.rename(source)
+    log.info("clip_trimmed", clip_id=clip_id, start=start, end=end)
+
+    new_duration = end - start
+    async with _data_lock:
+        if clip_id in _clips:
+            _clips[clip_id]["duration_seconds"] = new_duration
+            _save_clips()
+    updated = _clips.get(clip_id, clip)
+    await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
+    return updated
+
+
+@app.get("/profiles")
 async def list_profiles(request: Request):
     from src.profiles.manager import get_profile_manager
     uid      = _current_user_id(request)
