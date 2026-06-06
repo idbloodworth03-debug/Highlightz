@@ -200,9 +200,9 @@ async def _burn_watermark(source: Path) -> None:
     out = source.parent / (source.stem + "_wm.mp4")
     vf = (
         "drawtext=text='Highlightz'"
-        ":fontsize=28:fontcolor=white@0.45"
+        ":fontsize=28:fontcolor=0xc79bff@0.55"
         ":x=w-text_w-18:y=h-text_h-18"
-        ":shadowcolor=black@0.4:shadowx=1:shadowy=1"
+        ":shadowcolor=0x2a0045@0.6:shadowx=2:shadowy=2"
     )
     try:
         proc = await asyncio.create_subprocess_exec(
