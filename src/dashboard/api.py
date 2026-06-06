@@ -169,11 +169,14 @@ def _load_streams() -> dict:
 def _save_streams() -> None:
     _atomic_write(_STREAMS_FILE, json.dumps(list(_streams.values())))
 
-_clips:      dict[str, dict]          = _load_clips()
-_streams:    dict[str, dict]          = _load_streams()
-_ws_clients: dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
+_clips:        dict[str, dict]           = _load_clips()
+_streams:      dict[str, dict]           = _load_streams()
+_ws_clients:   dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
+_cleanup_tasks: dict[str, asyncio.Task]  = {}  # user_id -> pending stream cleanup task
 _data_lock = asyncio.Lock()
 _ws_lock   = asyncio.Lock()
+
+_WS_CLEANUP_DELAY = 30  # seconds to wait after last WS disconnect before stopping workers
 
 # ── Login rate-limit ──────────────────────────────────────────────────────────
 # Simple in-process counter: IP → (attempts, window_start)
@@ -784,6 +787,25 @@ async def remove_stream(request: Request, channel: str):
         await _publish_remove_stream(channel, uid)
 
 
+async def _stop_user_streams(uid: str) -> None:
+    """Stop all stream workers for a user after the grace period."""
+    await asyncio.sleep(_WS_CLEANUP_DELAY)
+    # Re-check: user may have reconnected during the grace period
+    if _ws_clients.get(uid):
+        return
+    keys = [k for k in _streams if k.startswith(f"{uid}:")]
+    if not keys:
+        return
+    log.info("ws_cleanup_streams", user=uid, count=len(keys))
+    for key in keys:
+        stream = _streams.get(key)
+        if stream and _publish_remove_stream:
+            try:
+                await _publish_remove_stream(stream["channel"], uid)
+            except Exception as exc:
+                log.warning("ws_cleanup_remove_failed", channel=stream.get("channel"), error=str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
@@ -800,6 +822,10 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.close(code=1008)
             return
         bucket.add(ws)
+        # Cancel any pending stream cleanup — user is back
+        pending = _cleanup_tasks.pop(uid, None)
+        if pending:
+            pending.cancel()
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     try:
         while True:
@@ -809,6 +835,11 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         async with _ws_lock:
             _ws_clients.get(uid, set()).discard(ws)
+            # Schedule cleanup only when this was the last connection for this user
+            if not _ws_clients.get(uid):
+                task = asyncio.create_task(_stop_user_streams(uid))
+                _cleanup_tasks[uid] = task
+                task.add_done_callback(lambda t: _cleanup_tasks.pop(uid, None))
         log.info("ws_disconnected", user=uid)
 
 
