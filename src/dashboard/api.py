@@ -515,7 +515,11 @@ async def approve_clip(request: Request, clip_id: str):
                 async with _data_lock:
                     if clip_id in _clips:
                         _clips[clip_id]["watermarked"] = True
+                        _clips[clip_id]["watermarked_at"] = time.time()
                         _save_clips()
+                updated_wm = _clips.get(clip_id)
+                if updated_wm:
+                    await broadcast({"event": "clip_updated", "clip": updated_wm}, user_id=uid)
             task = asyncio.create_task(_wm_task())
             task.add_done_callback(
                 lambda t: t.exception() and log.warning("watermark_task_failed", exc=str(t.exception()))

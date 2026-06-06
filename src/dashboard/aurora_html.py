@@ -528,13 +528,15 @@ function RdClip({ clip, onApprove, onReject, onOpen, libraryMode }) {
   const hasVideo = clip.storage_url && !clip.storage_url.startsWith('http');
   const hasVertical = clip.vertical_url && !clip.vertical_url.startsWith('http');
   const base = title.replace(/[^a-z0-9]/gi,'_');
-  const dlHref = hasVideo ? `/clip-file?path=${encodeURIComponent(clip.storage_url)}` : '';
+  const editVer = Math.round(Math.max(clip.caption_at||0, clip.watermarked_at||0)) || 0;
+  const vParam = editVer ? `&v=${editVer}` : '';
+  const dlHref = hasVideo ? `/clip-file?path=${encodeURIComponent(clip.storage_url)}${vParam}` : '';
   const dlVHref = hasVertical ? `/clip-file?path=${encodeURIComponent(clip.vertical_url)}` : '';
   return (
     <div className="rd-clip">
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
         {hasVideo
-          ? <video src={`/clip-file?path=${encodeURIComponent(clip.storage_url)}`} preload="metadata" muted playsInline style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          ? <video src={`/clip-file?path=${encodeURIComponent(clip.storage_url)}${vParam}`} preload="metadata" muted playsInline style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
@@ -669,10 +671,11 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, capt
     setTrimming(false);
   };
 
-  // Add caption_at as a cache-buster so the browser re-fetches the file
-  // after captions are burned in (same path, different content).
+  // Use the most recent edit timestamp as a cache-buster so the browser
+  // re-fetches after captions or watermarks are burned into the file.
+  const editVer = Math.round(Math.max(clip.caption_at||0, clip.watermarked_at||0)) || 0;
   const videoSrc = clip.storage_url
-    ? `/clip-file?path=${encodeURIComponent(clip.storage_url)}${clip.caption_at ? `&v=${Math.round(clip.caption_at)}` : ''}`
+    ? `/clip-file?path=${encodeURIComponent(clip.storage_url)}${editVer ? `&v=${editVer}` : ''}`
     : '';
 
   return (
