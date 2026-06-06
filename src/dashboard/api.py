@@ -604,7 +604,6 @@ async def render_caption(request: Request, clip_id: str, body: dict):
             # scale=1280:-2 downsizes 1080p→720p before captioning (half the pixels,
             # ~3x faster encode on a single CPU) while keeping the caption legible.
             vf = (
-                "scale=1280:-2,"
                 f"drawtext=textfile={tmp_txt}"
                 f":fontfile={_FONT}"
                 f":fontsize=46:fontcolor=black"
@@ -616,7 +615,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
                 "-threads", "0",
                 "-i", str(source),
                 "-vf", vf,
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
                 "-c:a", "copy",
                 str(out_path),
             ]
