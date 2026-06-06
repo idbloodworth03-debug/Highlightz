@@ -557,6 +557,8 @@ async def render_caption(request: Request, clip_id: str, body: dict):
         storage_url = clip.get("storage_url", "")
         if not storage_url:
             raise HTTPException(status_code=400, detail="Clip has no video file yet")
+        if clip.get("caption_rendering"):
+            raise HTTPException(status_code=409, detail="Caption render already in progress")
 
     text = str(body.get("text", "")).strip()
     if not text:
@@ -568,51 +570,75 @@ async def render_caption(request: Request, clip_id: str, body: dict):
     if not source.exists():
         raise HTTPException(status_code=404, detail="Clip file not found on disk")
 
-    tmp_dir  = source.parent
-    tmp_txt  = tmp_dir / f"{clip_id}_caption.txt"
-    out_path = tmp_dir / f"{clip_id}_captioned.mp4"
-
-    try:
-        tmp_txt.write_text(text, encoding="utf-8")
-        vf = (
-            f"drawtext=textfile={tmp_txt}"
-            f":fontfile={_FONT}"
-            f":fontsize=46:fontcolor=black"
-            f":x=(w-text_w)/2:y=h-text_h-48"
-            f":box=1:boxcolor=white:boxborderw=12"
-            f":line_spacing=8"
-        )
-        proc = await asyncio.create_subprocess_exec(
-            settings.ffmpeg_path, "-y",
-            "-threads", "0",
-            "-i", str(source),
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-            "-c:a", "copy",
-            str(out_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-        err_txt = stderr.decode(errors="replace")
-        if proc.returncode != 0 or not out_path.exists():
-            log.warning("caption_render_failed", clip_id=clip_id, ffmpeg_err=err_txt[-600:])
-            raise HTTPException(status_code=500, detail="Caption render failed — check server logs")
-    finally:
-        tmp_txt.unlink(missing_ok=True)
-
-    # Replace original file with captioned version
-    source.unlink(missing_ok=True)
-    out_path.rename(source)
-    log.info("caption_rendered", clip_id=clip_id)
-
+    # Mark as rendering so the UI can show progress
     async with _data_lock:
         if clip_id in _clips:
-            _clips[clip_id]["caption"] = text
+            _clips[clip_id]["caption_rendering"] = True
             _save_clips()
-    updated = _clips.get(clip_id, clip)
-    await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
-    return updated
+    await broadcast({"event": "clip_updated", "clip": _clips.get(clip_id, clip)}, user_id=uid)
+    log.info("caption_render_start", clip_id=clip_id, source=str(source))
+
+    async def _do_render():
+        tmp_txt  = source.parent / f"{clip_id}_caption.txt"
+        out_path = source.parent / f"{clip_id}_captioned.mp4"
+        try:
+            tmp_txt.write_text(text, encoding="utf-8")
+            vf = (
+                f"drawtext=textfile={tmp_txt}"
+                f":fontfile={_FONT}"
+                f":fontsize=46:fontcolor=black"
+                f":x=(w-text_w)/2:y=h-text_h-48"
+                f":box=1:boxcolor=white:boxborderw=12"
+                f":line_spacing=8"
+            )
+            proc = await asyncio.create_subprocess_exec(
+                settings.ffmpeg_path, "-y",
+                "-threads", "0",
+                "-i", str(source),
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-c:a", "copy",
+                str(out_path),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            log.info("caption_ffmpeg_pid", clip_id=clip_id, pid=proc.pid)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            err_txt = stderr.decode(errors="replace")
+            if proc.returncode != 0 or not out_path.exists():
+                log.warning("caption_render_failed", clip_id=clip_id, returncode=proc.returncode, ffmpeg_err=err_txt[-800:])
+                async with _data_lock:
+                    if clip_id in _clips:
+                        _clips[clip_id].pop("caption_rendering", None)
+                        _save_clips()
+                await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": "Render failed — see server logs"}, user_id=uid)
+                return
+            source.unlink(missing_ok=True)
+            out_path.rename(source)
+            log.info("caption_rendered", clip_id=clip_id)
+        except Exception as exc:
+            log.warning("caption_render_error", clip_id=clip_id, error=str(exc))
+            out_path.unlink(missing_ok=True)
+            async with _data_lock:
+                if clip_id in _clips:
+                    _clips[clip_id].pop("caption_rendering", None)
+                    _save_clips()
+            await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": str(exc)}, user_id=uid)
+            return
+        finally:
+            tmp_txt.unlink(missing_ok=True)
+
+        async with _data_lock:
+            if clip_id in _clips:
+                _clips[clip_id]["caption"] = text
+                _clips[clip_id].pop("caption_rendering", None)
+                _save_clips()
+        updated = _clips.get(clip_id, clip)
+        await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
+
+    task = asyncio.create_task(_do_render())
+    task.add_done_callback(lambda t: t.exception() and log.warning("caption_task_exc", error=str(t.exception())))
+    return {"status": "rendering", "clip_id": clip_id}
 
 
 @app.post("/clips/{clip_id}/trim")

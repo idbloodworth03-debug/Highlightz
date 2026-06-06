@@ -631,11 +631,19 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text: captionText.trim()}),
       });
-      if (!r.ok) { const d=await r.json().catch(()=>({})); setCaptionErr(d.detail||'Render failed'); }
-      else { const u=await r.json(); onCaptionRendered&&onCaptionRendered(u); }
-    } catch { setCaptionErr('Network error — try again'); }
-    setCaptioning(false);
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok) { setCaptionErr(d.detail||'Render failed'); setCaptioning(false); }
+      // If status==='rendering', keep spinner up — WebSocket clip_updated will resolve it
+    } catch { setCaptionErr('Network error — try again'); setCaptioning(false); }
   };
+
+  // Stop spinner when WebSocket pushes the finished clip back
+  useEffect(()=>{
+    if(captioning && clip && !clip.caption_rendering && clip.caption){
+      setCaptioning(false);
+      onCaptionRendered&&onCaptionRendered(clip);
+    }
+  },[clip]);
 
   const applyTrim = async () => {
     const start = parseSecs(trimStart);
@@ -1033,7 +1041,8 @@ function RdApp() {
       ws.onmessage = e=>{
         const msg = JSON.parse(e.data);
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
-        else if(msg.event==='clip_updated'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));}
+        else if(msg.event==='clip_updated'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));if(msg.clip&&!msg.clip.caption_rendering&&msg.clip.caption){flash('Caption burned in!');} }
+        else if(msg.event==='caption_failed'){flash('Caption failed — check server logs');}
         else if(msg.event==='clip_removed'){setClips(p=>{const n={...p};delete n[msg.clip_id];return n;});}
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
