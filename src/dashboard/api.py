@@ -88,11 +88,24 @@ app.add_middleware(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["https://highlightz.app"],
+    allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "PATCH"],
     allow_headers=["Content-Type"],
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"]        = "DENY"
+        response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
+        if settings.dashboard_https_only:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 from typing import Callable
 
@@ -620,12 +633,16 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/clip-file")
 async def serve_clip_file(request: Request, path: str):
-    # Auth is enforced by AuthMiddleware; this just validates the path stays in-bounds.
-    _current_user_id(request)
+    uid        = _current_user_id(request)
     clips_root = Path(settings.local_storage_path).resolve()
     p          = Path(path).resolve()
     if not p.is_relative_to(clips_root) or p.suffix != ".mp4" or not p.exists():
         raise HTTPException(status_code=404, detail="Clip file not found")
+    # Verify the requesting user owns a clip that references this file
+    stem = p.stem
+    clip = _clips.get(stem)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=403, detail="Access denied")
     return FileResponse(str(p), media_type="video/mp4")
 
 
@@ -637,7 +654,7 @@ async def force_clip(request: Request, channel: str):
         raise HTTPException(status_code=404, detail="Stream not registered")
     if not _force_clip_cb:
         raise HTTPException(status_code=503, detail="Force clip not ready")
-    await _force_clip_cb(channel)
+    await _force_clip_cb(channel, uid)
     return {"status": "queued", "channel": channel}
 
 
@@ -659,6 +676,7 @@ async def login(request: Request, password: str = Form(...)):
         request.session["auth"]                = True
         request.session["user_id"]             = user["id"]
         request.session["username"]            = user["username"]
+        request.session["avatar_url"]          = user.get("avatar_url", "")
         request.session["is_admin"]            = user.get("is_admin", False)
         request.session["subscription_status"] = user.get("subscription_status", "none")
         return RedirectResponse("/", status_code=302)
@@ -676,17 +694,27 @@ async def health():
     return {"status": "ok"}
 
 
+def _require_admin(request: Request) -> None:
+    """Verify admin status against the DB, not just the session."""
+    from src.auth import users as user_store
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    if not db_user or not db_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+
 @app.post("/admin/users", status_code=201)
 async def create_user(request: Request, body: dict):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin only")
+    _require_admin(request)
     from src.auth import users as user_store
-    username = body.get("username", "").strip()
-    password = body.get("password", "").strip()
+    username   = body.get("username", "").strip()
+    password   = body.get("password", "").strip()
+    make_admin = bool(body.get("is_admin", False))
     if not username or not password:
         raise HTTPException(status_code=400, detail="username and password required")
     try:
-        user = user_store.create(username, password)
+        user = user_store.create(username, password, is_admin=make_admin)
+        log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=make_admin)
         return {"id": user["id"], "username": user["username"]}
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -694,8 +722,7 @@ async def create_user(request: Request, body: dict):
 
 @app.get("/admin/users")
 async def list_users(request: Request):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin only")
+    _require_admin(request)
     from src.auth import users as user_store
     return user_store.get_all()
 

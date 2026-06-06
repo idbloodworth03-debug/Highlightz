@@ -1,8 +1,11 @@
 """Discord OAuth2 helpers — authorization URL, code exchange, user fetch."""
 
+import re
 import urllib.parse
 import aiohttp
 from config.settings import settings
+
+_AVATAR_HASH_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 _AUTH_URL  = "https://discord.com/oauth2/authorize"
 _TOKEN_URL = "https://discord.com/api/oauth2/token"
@@ -45,7 +48,7 @@ async def get_user(access_token: str) -> dict:
             resp.raise_for_status()
             user = await resp.json()
     avatar_hash = user.get("avatar")
-    if avatar_hash:
+    if avatar_hash and _AVATAR_HASH_RE.match(str(avatar_hash)):
         avatar_url = f"{_CDN}/avatars/{user['id']}/{avatar_hash}.png?size=128"
     else:
         default_idx = (int(user["id"]) >> 22) % 6

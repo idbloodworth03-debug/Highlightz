@@ -219,9 +219,10 @@ async def main() -> None:
 
     dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)
 
-    async def _force_clip(channel: str) -> None:
+    async def _force_clip(channel: str, user_id: str = "") -> None:
         from src.queue.job_queue import ClipJob
-        stream = dashboard_api._streams.get(channel, {})
+        stream_key = f"{user_id}:{channel}" if user_id else channel
+        stream = dashboard_api._streams.get(stream_key, {})
         job = ClipJob(
             channel=channel,
             platform=stream.get("platform", "twitch"),
@@ -232,6 +233,7 @@ async def main() -> None:
             game="",
             pre_roll=60,
             post_roll=10,
+            user_id=user_id,
         )
         await _queue.push(job)
 
