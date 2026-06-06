@@ -574,10 +574,10 @@ async def render_caption(request: Request, clip_id: str, body: dict):
         vf = (
             f"drawtext=textfile={tmp_txt}"
             f":fontfile={_FONT}"
-            f":fontsize=44:fontcolor=white"
+            f":fontsize=46:fontcolor=black"
             f":x=(w-text_w)/2:y=h-text_h-48"
-            f":box=1:boxcolor=black@0.55:boxborderw=14"
-            f":line_spacing=6"
+            f":box=1:boxcolor=white:boxborderw=12"
+            f":line_spacing=8"
         )
         proc = await asyncio.create_subprocess_exec(
             settings.ffmpeg_path, "-y",
