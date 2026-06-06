@@ -595,7 +595,7 @@ function parseSecs(str) {
   return parseFloat(str)||0;
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
+function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, captionFailedId }) {
   if (!clip) return null;
   const score = Math.round(clip.trigger_score||0);
   const dur = fmtDur(clip.duration_seconds);
@@ -639,10 +639,18 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
     } catch { setCaptionErr('Network error — try again'); setCaptioning(false); }
   };
 
-  // Clear local spinner once WebSocket confirms render is done
+  // Clear spinner when backend confirms render done or failed
   useEffect(()=>{
     if(captioning && !clip.caption_rendering){ setCaptioning(false); }
   },[clip.caption_rendering]);
+
+  // Clear spinner and show inline error on caption_failed event
+  useEffect(()=>{
+    if(captionFailedId && captionFailedId===clip.id){
+      setCaptioning(false);
+      setCaptionErr('Caption failed — check server logs. Try again.');
+    }
+  },[captionFailedId]);
 
   const applyTrim = async () => {
     const start = parseSecs(trimStart);
@@ -1012,6 +1020,7 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
+  const [captionFailedId, setCaptionFailedId] = useState(null);
   const toastTimer = useRef(null);
 
   const flash = useCallback(msg => {
@@ -1045,7 +1054,7 @@ function RdApp() {
           setModalClip(prev=>prev&&prev.id===msg.clip.id?msg.clip:prev);
           if(msg.clip&&!msg.clip.caption_rendering&&msg.clip.caption){flash('Caption burned in!');}
         }
-        else if(msg.event==='caption_failed'){flash('Caption failed — check server logs');}
+        else if(msg.event==='caption_failed'){flash('Caption failed — check server logs');setCaptionFailedId(msg.clip_id);}
         else if(msg.event==='clip_removed'){setClips(p=>{const n={...p};delete n[msg.clip_id];return n;});}
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
@@ -1141,6 +1150,7 @@ function RdApp() {
       </div>
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
+        captionFailedId={captionFailedId}
         onCaptionRendered={updated=>{setClips(p=>({...p,[updated.id]:updated}));setModalClip(updated);flash('Caption burned in!');}}
       />
     </div>

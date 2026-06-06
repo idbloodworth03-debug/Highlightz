@@ -586,6 +586,19 @@ async def render_caption(request: Request, clip_id: str, body: dict):
     async def _do_render():
         tmp_txt  = source.parent / f"{clip_id}_caption.txt"
         out_path = source.parent / f"{clip_id}_captioned.mp4"
+
+        async def _fail(reason: str) -> None:
+            """Clear caption_rendering in both DB and frontend, then send failure event."""
+            async with _data_lock:
+                if clip_id in _clips:
+                    _clips[clip_id].pop("caption_rendering", None)
+                    _save_clips()
+            cleared = _clips.get(clip_id, clip)
+            # Send clip_updated first so the frontend clears the spinner,
+            # then send caption_failed so the UI can show the error message.
+            await broadcast({"event": "clip_updated", "clip": cleared}, user_id=uid)
+            await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": reason}, user_id=uid)
+
         try:
             tmp_txt.write_text(text, encoding="utf-8")
             vf = (
@@ -594,17 +607,20 @@ async def render_caption(request: Request, clip_id: str, body: dict):
                 f":fontsize=46:fontcolor=black"
                 f":x=(w-text_w)/2:y=h-text_h-48"
                 f":box=1:boxcolor=white:boxborderw=12"
-                f":line_spacing=8"
             )
+            ffmpeg_args = [
+                settings.ffmpeg_path, "-y",
+                "-threads", "0",
+                "-i", str(source),
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-c:a", "copy",
+                str(out_path),
+            ]
+            log.info("caption_ffmpeg_cmd", clip_id=clip_id, args=" ".join(ffmpeg_args))
             async with _ffmpeg_sem:
                 proc = await asyncio.create_subprocess_exec(
-                    settings.ffmpeg_path, "-y",
-                    "-threads", "0",
-                    "-i", str(source),
-                    "-vf", vf,
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                    "-c:a", "copy",
-                    str(out_path),
+                    *ffmpeg_args,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -612,24 +628,23 @@ async def render_caption(request: Request, clip_id: str, body: dict):
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             err_txt = stderr.decode(errors="replace")
             if proc.returncode != 0 or not out_path.exists():
-                log.warning("caption_render_failed", clip_id=clip_id, returncode=proc.returncode, ffmpeg_err=err_txt[-800:])
-                async with _data_lock:
-                    if clip_id in _clips:
-                        _clips[clip_id].pop("caption_rendering", None)
-                        _save_clips()
-                await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": "Render failed — see server logs"}, user_id=uid)
+                log.warning("caption_render_failed", clip_id=clip_id,
+                            returncode=proc.returncode, ffmpeg_err=err_txt[-1200:])
+                await _fail("Render failed — see server logs")
                 return
+            log.info("caption_ffmpeg_ok", clip_id=clip_id, stderr_tail=err_txt[-200:])
             source.unlink(missing_ok=True)
             out_path.rename(source)
             log.info("caption_rendered", clip_id=clip_id)
+        except asyncio.TimeoutError:
+            log.warning("caption_render_timeout", clip_id=clip_id)
+            out_path.unlink(missing_ok=True)
+            await _fail("Render timed out")
+            return
         except Exception as exc:
             log.warning("caption_render_error", clip_id=clip_id, error=str(exc))
             out_path.unlink(missing_ok=True)
-            async with _data_lock:
-                if clip_id in _clips:
-                    _clips[clip_id].pop("caption_rendering", None)
-                    _save_clips()
-            await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": str(exc)}, user_id=uid)
+            await _fail(str(exc))
             return
         finally:
             tmp_txt.unlink(missing_ok=True)
