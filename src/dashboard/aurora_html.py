@@ -745,6 +745,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered }) {
               </div>
               {captionErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{captionErr}</div>}
               {clip.caption && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
+              {clip.status==='pending' && <div style={{color:'var(--pending)',fontSize:11,marginTop:4}}>Clip is still pending — you can add a caption now, just approve it when ready.</div>}
               <div style={{marginTop:10,display:'flex',gap:10}}>
                 <button className="rd-btn sm" onClick={renderCaption} disabled={captioning||!captionText.trim()} style={{minWidth:150}}>
                   {captioning ? <><Spinner/>Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}

@@ -195,7 +195,7 @@ def _clear_login_rate(ip: str) -> None:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_FONT = str(Path(__file__).parent / "static" / "fonts" / "Anton-Regular.ttf")
 
 async def _burn_watermark(source: Path) -> None:
     """Burn a semi-transparent 'Highlightz' text watermark into the bottom-right corner."""
@@ -210,6 +210,7 @@ async def _burn_watermark(source: Path) -> None:
     try:
         proc = await asyncio.create_subprocess_exec(
             settings.ffmpeg_path, "-y",
+            "-threads", "0",
             "-i", str(source),
             "-vf", vf,
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
@@ -220,7 +221,7 @@ async def _burn_watermark(source: Path) -> None:
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
         if proc.returncode != 0 or not out.exists():
-            log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-300:])
+            log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-600:])
             out.unlink(missing_ok=True)
             return
         source.unlink(missing_ok=True)
@@ -580,6 +581,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
         )
         proc = await asyncio.create_subprocess_exec(
             settings.ffmpeg_path, "-y",
+            "-threads", "0",
             "-i", str(source),
             "-vf", vf,
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
@@ -589,10 +591,10 @@ async def render_caption(request: Request, clip_id: str, body: dict):
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        err_txt = stderr.decode(errors="replace")
         if proc.returncode != 0 or not out_path.exists():
-            err = stderr.decode(errors="replace")[-400:]
-            log.warning("caption_render_failed", clip_id=clip_id, ffmpeg_err=err)
-            raise HTTPException(status_code=500, detail="Caption render failed — check FFmpeg logs")
+            log.warning("caption_render_failed", clip_id=clip_id, ffmpeg_err=err_txt[-600:])
+            raise HTTPException(status_code=500, detail="Caption render failed — check server logs")
     finally:
         tmp_txt.unlink(missing_ok=True)
 
