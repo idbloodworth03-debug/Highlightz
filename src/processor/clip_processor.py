@@ -58,12 +58,6 @@ class ClipProcessor:
         meta.storage_url = await self._storage.upload(trimmed_path, meta.id)
         meta.status = "pending"
 
-        # Generate 9:16 vertical crop for TikTok/Shorts — fire and forget upload
-        vertical_path = await self._generate_vertical(trimmed_path, meta.id)
-        if vertical_path:
-            meta.vertical_url = await self._storage.upload(vertical_path, meta.id + "_vertical")
-            vertical_path.unlink(missing_ok=True)
-
         trimmed_path.unlink(missing_ok=True)
         log.info("clip_ready", clip_id=meta.id, url=meta.storage_url,
                  vertical=bool(meta.vertical_url))

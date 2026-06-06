@@ -198,6 +198,10 @@ def _clear_login_rate(ip: str) -> None:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+# Limit heavy FFmpeg re-encodes (caption, watermark, trim) to one at a time
+# so they don't compete with clip extraction on a single-core server.
+_ffmpeg_sem = asyncio.Semaphore(1)
+
 _FONT = str(Path(__file__).parent / "static" / "fonts" / "Anton-Regular.ttf")
 
 async def _burn_watermark(source: Path) -> None:
@@ -210,29 +214,30 @@ async def _burn_watermark(source: Path) -> None:
         ":x=w-text_w-18:y=h-text_h-18"
         ":shadowcolor=0x2a0045@0.6:shadowx=2:shadowy=2"
     )
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            settings.ffmpeg_path, "-y",
-            "-threads", "0",
-            "-i", str(source),
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-            "-c:a", "copy",
-            str(out),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-        if proc.returncode != 0 or not out.exists():
-            log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-600:])
+    async with _ffmpeg_sem:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                settings.ffmpeg_path, "-y",
+                "-threads", "0",
+                "-i", str(source),
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-c:a", "copy",
+                str(out),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode != 0 or not out.exists():
+                log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-600:])
+                out.unlink(missing_ok=True)
+                return
+            source.unlink(missing_ok=True)
+            out.rename(source)
+            log.info("watermark_applied", path=str(source))
+        except Exception as exc:
+            log.warning("watermark_error", error=str(exc))
             out.unlink(missing_ok=True)
-            return
-        source.unlink(missing_ok=True)
-        out.rename(source)
-        log.info("watermark_applied", path=str(source))
-    except Exception as exc:
-        log.warning("watermark_error", error=str(exc))
-        out.unlink(missing_ok=True)
 
 
 def _delete_clip_file(clip: dict) -> None:
@@ -591,19 +596,20 @@ async def render_caption(request: Request, clip_id: str, body: dict):
                 f":box=1:boxcolor=white:boxborderw=12"
                 f":line_spacing=8"
             )
-            proc = await asyncio.create_subprocess_exec(
-                settings.ffmpeg_path, "-y",
-                "-threads", "0",
-                "-i", str(source),
-                "-vf", vf,
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-c:a", "copy",
-                str(out_path),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            log.info("caption_ffmpeg_pid", clip_id=clip_id, pid=proc.pid)
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            async with _ffmpeg_sem:
+                proc = await asyncio.create_subprocess_exec(
+                    settings.ffmpeg_path, "-y",
+                    "-threads", "0",
+                    "-i", str(source),
+                    "-vf", vf,
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                    "-c:a", "copy",
+                    str(out_path),
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                log.info("caption_ffmpeg_pid", clip_id=clip_id, pid=proc.pid)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
             err_txt = stderr.decode(errors="replace")
             if proc.returncode != 0 or not out_path.exists():
                 log.warning("caption_render_failed", clip_id=clip_id, returncode=proc.returncode, ffmpeg_err=err_txt[-800:])
