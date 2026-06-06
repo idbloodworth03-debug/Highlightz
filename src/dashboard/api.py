@@ -195,11 +195,14 @@ def _clear_login_rate(ip: str) -> None:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
 async def _burn_watermark(source: Path) -> None:
     """Burn a semi-transparent 'Highlightz' text watermark into the bottom-right corner."""
     out = source.parent / (source.stem + "_wm.mp4")
     vf = (
         "drawtext=text='Highlightz'"
+        f":fontfile={_FONT}"
         ":fontsize=28:fontcolor=0xc79bff@0.55"
         ":x=w-text_w-18:y=h-text_h-18"
         ":shadowcolor=0x2a0045@0.6:shadowx=2:shadowy=2"
@@ -209,6 +212,7 @@ async def _burn_watermark(source: Path) -> None:
             settings.ffmpeg_path, "-y",
             "-i", str(source),
             "-vf", vf,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
             "-c:a", "copy",
             str(out),
             stdout=asyncio.subprocess.DEVNULL,
@@ -568,6 +572,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
         tmp_txt.write_text(text, encoding="utf-8")
         vf = (
             f"drawtext=textfile={tmp_txt}"
+            f":fontfile={_FONT}"
             f":fontsize=44:fontcolor=white"
             f":x=(w-text_w)/2:y=h-text_h-48"
             f":box=1:boxcolor=black@0.55:boxborderw=14"
@@ -577,6 +582,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
             settings.ffmpeg_path, "-y",
             "-i", str(source),
             "-vf", vf,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
             "-c:a", "copy",
             str(out_path),
             stdout=asyncio.subprocess.DEVNULL,
