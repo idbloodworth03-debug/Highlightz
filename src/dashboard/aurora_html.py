@@ -1055,14 +1055,18 @@ function RdApp() {
       const r=await fetch('/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel,platform:'twitch',preset,discord_webhook:webhook})});
       if(!r.ok){const e=await r.json();flash('Error: '+(e.detail||'failed'));return;}
       const s=await r.json();
-      setStreams(p=>({...p,[channel]:s}));
-      flash('Monitoring '+channel);
+      // Use s.channel (backend-normalised, lowercased) as the key so the
+      // subsequent WebSocket stream_added event doesn't create a duplicate entry.
+      setStreams(p=>({...p,[s.channel]:s}));
+      flash('Monitoring '+s.channel);
     }catch{flash('Failed to add stream');}
   };
   const removeStream = async(channel)=>{
     await fetch(`/streams/${encodeURIComponent(channel)}`,{method:'DELETE'});
-    setStreams(p=>{const n={...p};delete n[channel];return n;});
-    setScores(p=>{const n={...p};delete n[channel];return n;});
+    // Remove both the normalised key and any stale mixed-case key the user may
+    // have typed, so the card disappears immediately without a refresh.
+    setStreams(p=>{const n={...p};delete n[channel];delete n[channel.toLowerCase()];return n;});
+    setScores(p=>{const n={...p};delete n[channel];delete n[channel.toLowerCase()];return n;});
     flash('Removed '+channel);
   };
   const forceClip = async(channel)=>{
