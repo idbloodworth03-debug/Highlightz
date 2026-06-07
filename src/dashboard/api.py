@@ -46,7 +46,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico"}
+_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -934,6 +934,11 @@ async def force_clip(request: Request, channel: str):
     return {"status": "queued", "channel": channel}
 
 
+@app.get("/tos", response_class=HTMLResponse)
+async def tos_page():
+    return HTMLResponse(TOS_HTML)
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
     import html as _html
@@ -1085,6 +1090,8 @@ LOGIN_HTML = """<!DOCTYPE html>
   .error{color:#ff5a78;font-size:12px;margin-bottom:14px;background:rgba(255,90,120,.12);padding:10px 13px;border-radius:10px;border:1px solid rgba(255,90,120,.25)}
   .admin-toggle{font-size:11px;color:#5d5d6b;text-align:center;margin-top:18px;cursor:pointer;text-decoration:underline}
   #admin-form{display:none;margin-top:16px}
+  .footer{margin-top:28px;text-align:center;font-size:11px;color:#3d3d4a;line-height:1.7}
+  .footer a{color:#5d5d6b;text-decoration:none}.footer a:hover{color:#9c9caa}
 </style>
 </head>
 <body>
@@ -1106,6 +1113,10 @@ LOGIN_HTML = """<!DOCTYPE html>
       <button type="submit" class="pw-btn">Sign In</button>
     </form>
   </div>
+</div>
+<div class="footer">
+  &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
+  <a href="/tos">Terms of Service</a>
 </div>
 </body>
 </html>"""
@@ -1136,6 +1147,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
   .manage:hover{color:#9c9caa}
   .logout{display:block;font-size:12px;color:#5d5d6b;text-align:center;margin-top:16px;text-decoration:none}
   .logout:hover{color:#9c9caa}
+  .footer{margin-top:28px;text-align:center;font-size:11px;color:#3d3d4a;line-height:1.7}
+  .footer a{color:#5d5d6b;text-decoration:none}.footer a:hover{color:#9c9caa}
 </style>
 </head>
 <body>
@@ -1154,6 +1167,124 @@ PAYWALL_HTML = """<!DOCTYPE html>
   <a href="/billing/checkout" class="cta">Start Subscription →</a>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="/logout" class="logout">Sign out</a>
+</div>
+<div class="footer">
+  &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
+  <a href="/tos">Terms of Service</a>
+</div>
+</body>
+</html>"""
+
+TOS_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
+  .back:hover{color:#c79bff}
+  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
+  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
+  ul{padding-left:20px;margin-bottom:14px}
+  li{font-size:14px;color:#b8b8c8;margin-bottom:6px}
+  a{color:#c79bff;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
+  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/login" class="back">&#8592; Back to Highlightz</a>
+  <div class="logo">
+    <img src="/static/logo.jpg" alt="Highlightz">
+    <span>Highlightz</span>
+  </div>
+  <h1>Terms of Service</h1>
+  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+
+  <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
+
+  <h2>1. Description of Service</h2>
+  <p>Highlightz is a SaaS platform that monitors live streams on third-party platforms (including Twitch and YouTube), automatically detects highlight moments, and provides tools for clip review, editing, and export. The Service requires an active paid subscription to access core features.</p>
+
+  <h2>2. Eligibility</h2>
+  <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
+
+  <h2>3. Accounts</h2>
+  <p>You may sign in using your Discord account via OAuth2. You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
+
+  <h2>4. Subscriptions and Billing</h2>
+  <p>Access to the Service requires a paid subscription. Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
+  <ul>
+    <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
+    <li>We do not issue refunds for partial billing periods or unused time.</li>
+    <li>We reserve the right to change pricing with at least 14 days notice to your registered email address.</li>
+    <li>Failed payments may result in suspension or termination of your account.</li>
+  </ul>
+
+  <h2>5. Your Content</h2>
+  <p>You retain ownership of any video clips and content generated through the Service ("Your Content"). By using the Service you grant ANTI Technology LLC a limited, non-exclusive license to process, store, and display Your Content solely as necessary to operate and provide the Service.</p>
+  <p>You are solely responsible for ensuring that your use of third-party streaming platforms (Twitch, YouTube, etc.) and any content you clip complies with those platforms' terms of service and applicable copyright law. We do not monitor or review Your Content.</p>
+
+  <h2>6. Acceptable Use</h2>
+  <p>You agree not to use the Service to:</p>
+  <ul>
+    <li>Clip, store, or distribute content that infringes the intellectual property rights of others.</li>
+    <li>Monitor streams without authorization from the content creator where required.</li>
+    <li>Attempt to reverse-engineer, disassemble, or otherwise derive the source code of the Service.</li>
+    <li>Circumvent any security or access controls.</li>
+    <li>Use the Service for any unlawful purpose or in violation of any applicable law or regulation.</li>
+    <li>Resell, sublicense, or otherwise commercialize access to the Service without our written consent.</li>
+  </ul>
+  <p>We reserve the right to suspend or terminate your access immediately if we determine, in our sole discretion, that you have violated these Terms.</p>
+
+  <h2>7. Intellectual Property</h2>
+  <p>The Highlightz name, logo, software, branding, and all related materials are the exclusive property of ANTI Technology LLC and are protected by applicable intellectual property laws. Nothing in these Terms grants you any right to use our trademarks or branding without prior written consent.</p>
+  <p>Clips processed through the Service may include a "Highlightz" watermark. You may remove this watermark only through features explicitly provided within the Service.</p>
+
+  <h2>8. Third-Party Services</h2>
+  <p>The Service integrates with third-party platforms including Discord (authentication), Stripe (payments), Twitch, and YouTube. Your use of those platforms is governed by their respective terms of service. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
+
+  <h2>9. Data and Privacy</h2>
+  <p>We collect and process information necessary to operate the Service, including your Discord account information, payment information (processed by Stripe — we do not store card details), and clip metadata. We do not sell your personal data to third parties. By using the Service you consent to this processing.</p>
+
+  <h2>10. Disclaimers</h2>
+  <p>THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS.</p>
+
+  <h2>11. Limitation of Liability</h2>
+  <p>TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, ANTI TECHNOLOGY LLC AND ITS OFFICERS, EMPLOYEES, AND AGENTS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, OR GOODWILL, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF THE SERVICE, EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL LIABILITY TO YOU FOR ANY CLAIMS ARISING UNDER THESE TERMS SHALL NOT EXCEED THE AMOUNT YOU PAID TO US IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.</p>
+
+  <h2>12. Indemnification</h2>
+  <p>You agree to indemnify, defend, and hold harmless ANTI Technology LLC and its officers, employees, and agents from and against any claims, liabilities, damages, losses, and expenses (including reasonable legal fees) arising out of or related to your use of the Service, Your Content, or your violation of these Terms.</p>
+
+  <h2>13. Termination</h2>
+  <p>We may suspend or terminate your access to the Service at any time, with or without cause, with or without notice. Upon termination, your right to use the Service ceases immediately. Provisions that by their nature should survive termination (including sections 5, 7, 10, 11, and 12) shall survive.</p>
+
+  <h2>14. Changes to These Terms</h2>
+  <p>We may update these Terms from time to time. We will notify you of material changes by posting the updated Terms at this URL and updating the effective date. Your continued use of the Service after such changes constitutes acceptance of the updated Terms.</p>
+
+  <h2>15. Governing Law</h2>
+  <p>These Terms are governed by the laws of the United States and the state in which ANTI Technology LLC is incorporated, without regard to conflict of law principles. Any disputes shall be resolved in the courts of competent jurisdiction in that state.</p>
+
+  <h2>16. Contact</h2>
+  <p>Questions about these Terms? Contact us at:<br>
+  <strong>ANTI Technology LLC</strong><br>
+  Email: <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
+
+  <div class="divider"></div>
+  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
 </div>
 </body>
 </html>"""
