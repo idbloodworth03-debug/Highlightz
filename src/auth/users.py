@@ -139,6 +139,16 @@ def update_subscription_by_customer(customer_id: str, status: str) -> None:
     _save(users)
 
 
+def delete(user_id: str) -> bool:
+    """Remove a user by ID. Returns True if found and deleted."""
+    users = _load()
+    filtered = [u for u in users if u["id"] != user_id]
+    if len(filtered) == len(users):
+        return False
+    _save(filtered)
+    return True
+
+
 def ensure_admin_exists(admin_password: str) -> None:
     """On first boot, seed an admin account from the existing dashboard password."""
     if not _load():

@@ -46,7 +46,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos"}
+_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -379,11 +379,43 @@ async def discord_callback(request: Request, code: str = "", state: str = "", er
 @app.get("/me")
 async def me(request: Request):
     return {
-        "user_id":  request.session.get("user_id", ""),
-        "username": request.session.get("username", ""),
-        "avatar_url": request.session.get("avatar_url", ""),
-        "is_admin": request.session.get("is_admin", False),
+        "user_id":             request.session.get("user_id", ""),
+        "username":            request.session.get("username", ""),
+        "avatar_url":          request.session.get("avatar_url", ""),
+        "is_admin":            request.session.get("is_admin", False),
+        "subscription_status": request.session.get("subscription_status", "none"),
     }
+
+
+@app.delete("/account", status_code=200)
+async def delete_account(request: Request):
+    """Permanently delete the authenticated user's account and all associated data."""
+    uid = _current_user_id(request)
+    from src.auth import users as user_store
+
+    async with _data_lock:
+        user_clips  = [c for c in list(_clips.values()) if c.get("user_id") == uid]
+        stream_keys = [k for k in list(_streams.keys()) if k.startswith(f"{uid}:")]
+        for clip in user_clips:
+            del _clips[clip["id"]]
+            _delete_clip_file(clip)
+        for key in stream_keys:
+            del _streams[key]
+        _save_clips()
+        _save_streams()
+
+    if _publish_remove_stream:
+        for key in stream_keys:
+            channel = key.split(":", 1)[-1]
+            try:
+                await _publish_remove_stream(channel, uid)
+            except Exception:
+                pass
+
+    user_store.delete(uid)
+    request.session.clear()
+    log.info("account_deleted", user_id=uid)
+    return {"status": "deleted"}
 
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
@@ -939,6 +971,23 @@ async def tos_page():
     return HTMLResponse(TOS_HTML)
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page():
+    return HTMLResponse(PRIVACY_HTML)
+
+
+@app.get("/cookies", response_class=HTMLResponse)
+async def cookies_page():
+    return HTMLResponse(COOKIES_HTML)
+
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: Exception):
+    if request.headers.get("accept", "").startswith("application/json"):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return HTMLResponse(NOT_FOUND_HTML, status_code=404)
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
     import html as _html
@@ -1116,7 +1165,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 </div>
 <div class="footer">
   &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
-  <a href="/tos">Terms of Service</a>
+  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a>
 </div>
 </body>
 </html>"""
@@ -1170,7 +1219,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
 </div>
 <div class="footer">
   &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
-  <a href="/tos">Terms of Service</a>
+  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a>
 </div>
 </body>
 </html>"""
@@ -1285,6 +1334,204 @@ TOS_HTML = """<!DOCTYPE html>
 
   <div class="divider"></div>
   <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
+</div>
+</body>
+</html>"""
+
+PRIVACY_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
+  .back:hover{color:#c79bff}
+  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
+  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
+  ul{padding-left:20px;margin-bottom:14px}
+  li{font-size:14px;color:#b8b8c8;margin-bottom:6px}
+  a{color:#c79bff;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
+  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/login" class="back">&#8592; Back to Highlightz</a>
+  <div class="logo">
+    <img src="/static/logo.jpg" alt="Highlightz">
+    <span>Highlightz</span>
+  </div>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+
+  <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
+
+  <h2>1. Information We Collect</h2>
+  <p>We collect only what is necessary to operate the Service:</p>
+  <ul>
+    <li><strong>Account information</strong> — your Discord user ID, display name, and avatar URL, obtained when you sign in via Discord OAuth2.</li>
+    <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
+    <li><strong>Clip metadata</strong> — channel names, timestamps, trigger scores, and clip file paths associated with your account.</li>
+    <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
+    <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
+  </ul>
+
+  <h2>2. How We Use Your Information</h2>
+  <ul>
+    <li>To authenticate you and maintain your session.</li>
+    <li>To process payments and manage your subscription via Stripe.</li>
+    <li>To store, display, and deliver your clip files.</li>
+    <li>To send Discord webhook notifications you have configured.</li>
+    <li>To investigate security incidents and prevent abuse.</li>
+  </ul>
+
+  <h2>3. How We Share Your Information</h2>
+  <p>We do not sell your personal data. We share information only with the following third parties as necessary to operate the Service:</p>
+  <ul>
+    <li><strong>Discord</strong> — for authentication. Governed by Discord's Privacy Policy.</li>
+    <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
+    <li><strong>Twitch / YouTube</strong> — stream monitoring uses their public APIs. We do not share your personal data with these platforms.</li>
+  </ul>
+  <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
+
+  <h2>4. Data Retention</h2>
+  <p>We retain your account information and clip data for as long as your account is active. When you delete your account, we remove your user record, all associated clip files, and stream configurations. Log files may be retained for up to 90 days for security purposes.</p>
+
+  <h2>5. Your Rights</h2>
+  <p>You may request access to, correction of, or deletion of your personal data at any time by contacting us at <a href="mailto:support@highlightz.app">support@highlightz.app</a>, or by deleting your account directly from the Account settings page within the dashboard.</p>
+  <p>If you are in the European Economic Area (EEA) or United Kingdom, you have additional rights under GDPR/UK GDPR, including the right to data portability and the right to lodge a complaint with your local supervisory authority.</p>
+
+  <h2>6. Security</h2>
+  <p>We implement reasonable technical and organizational safeguards including session-based authentication, HTTPS-only transmission, and per-user data isolation. No system is perfectly secure; we encourage you to use a strong, unique password for your Discord account.</p>
+
+  <h2>7. Children</h2>
+  <p>The Service is not directed at persons under 18 years of age. We do not knowingly collect personal data from minors. If you believe a minor has provided us with data, contact us and we will delete it promptly.</p>
+
+  <h2>8. Changes to This Policy</h2>
+  <p>We may update this Privacy Policy from time to time. We will notify you of material changes by posting the updated policy at this URL and updating the effective date. Continued use of the Service after such changes constitutes acceptance.</p>
+
+  <h2>9. Contact</h2>
+  <p>Privacy questions or requests:<br>
+  <strong>ANTI Technology LLC</strong><br>
+  Email: <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
+
+  <div class="divider"></div>
+  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#5d5d6b">Terms of Service</a> &middot; <a href="/cookies" style="color:#5d5d6b">Cookie Policy</a></div>
+</div>
+</body>
+</html>"""
+
+COOKIES_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cookie Policy — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
+  .back:hover{color:#c79bff}
+  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
+  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px}
+  th{text-align:left;color:#5d5d6b;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
+  td{padding:10px 12px;color:#b8b8c8;border-bottom:1px solid rgba(255,255,255,.04)}
+  a{color:#c79bff;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
+  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/login" class="back">&#8592; Back to Highlightz</a>
+  <div class="logo">
+    <img src="/static/logo.jpg" alt="Highlightz">
+    <span>Highlightz</span>
+  </div>
+  <h1>Cookie Policy</h1>
+  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+
+  <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
+
+  <h2>What is a Cookie?</h2>
+  <p>A cookie is a small text file placed on your device by a website. Cookies help the site remember information about your visit so you don't have to re-enter it each time.</p>
+
+  <h2>Cookies We Use</h2>
+  <p>Highlightz uses a minimal number of cookies — only what is strictly necessary to operate the Service:</p>
+  <table>
+    <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
+    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. Contains an encrypted session identifier — no personal data is stored in the cookie itself.</td><td>7 days</td><td>Strictly necessary</td></tr>
+  </table>
+  <p>We do not use advertising cookies, tracking pixels, or third-party analytics cookies. We do not use Google Analytics or any equivalent service.</p>
+
+  <h2>Third-Party Cookies</h2>
+  <p>When you sign in via Discord, Discord may set cookies on their own domain as part of the OAuth2 flow. These are governed by <a href="https://discord.com/privacy" target="_blank" rel="noopener">Discord's Privacy Policy</a>. When you complete a payment via Stripe, Stripe may set cookies on their domain. These are governed by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>. We have no control over or access to these third-party cookies.</p>
+
+  <h2>Managing Cookies</h2>
+  <p>You can control cookies through your browser settings. Blocking or deleting the session cookie will sign you out of the Service and require you to sign in again on your next visit. Most browsers allow you to:</p>
+  <p>View and delete cookies · Block cookies from specific sites · Block all cookies · Delete all cookies when you close the browser</p>
+  <p>Refer to your browser's help documentation for instructions. Note that disabling strictly necessary cookies will prevent the Service from functioning.</p>
+
+  <h2>Changes to This Policy</h2>
+  <p>We may update this Cookie Policy from time to time. Material changes will be posted at this URL with an updated effective date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions? Contact us at <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
+
+  <div class="divider"></div>
+  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#5d5d6b">Terms of Service</a> &middot; <a href="/privacy" style="color:#5d5d6b">Privacy Policy</a></div>
+</div>
+</body>
+</html>"""
+
+NOT_FOUND_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>404 — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 30%,rgba(168,85,247,.18),transparent 60%)}
+  .wrap{padding:40px 24px}
+  .code{font-size:100px;font-weight:800;letter-spacing:-.05em;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1}
+  h1{font-size:22px;font-weight:700;margin:16px 0 8px;letter-spacing:-.02em}
+  p{font-size:14px;color:#9c9caa;margin-bottom:28px}
+  a{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:12px;padding:11px 20px;font-size:13px;font-weight:600;text-decoration:none;transition:.15s}
+  a:hover{background:rgba(255,255,255,.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="code">404</div>
+  <h1>Page not found</h1>
+  <p>The page you're looking for doesn't exist or was moved.</p>
+  <a href="/">&#8592; Back to dashboard</a>
 </div>
 </body>
 </html>"""

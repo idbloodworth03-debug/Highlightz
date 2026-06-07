@@ -411,6 +411,9 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></>,
     sliders: <><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></>,
     database: <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></>,
+    user: <><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+    card: <><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>,
+    trash: <><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -1024,8 +1027,111 @@ function SettingsScreen({ streams, onSaveWebhook }) {
   );
 }
 
-const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'settings',label:'Settings',icon:'cog'}];
-const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],settings:['Settings','Tune triggers, storage & workflow']};
+const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'}];
+const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & legal']};
+
+function AccountScreen({ me }) {
+  const [deleting, setDeleting]   = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [delErr, setDelErr]       = useState('');
+  const sub   = me.subscription_status || 'none';
+  const subLabel = {active:'Active',trialing:'Trial',canceled:'Canceled',past_due:'Past due',none:'No subscription'}[sub] || sub;
+  const subColor = (sub==='active'||sub==='trialing') ? 'var(--live)' : sub==='past_due' ? 'var(--pending)' : 'var(--fg-3)';
+  const isSubscribed = sub==='active'||sub==='trialing';
+
+  const deleteAccount = async () => {
+    setDeleting(true); setDelErr('');
+    try {
+      const r = await fetch('/account', {method:'DELETE'});
+      if (r.ok) { window.location.href='/login'; return; }
+      const d = await r.json().catch(()=>({}));
+      setDelErr(d.detail||'Delete failed — try again');
+    } catch { setDelErr('Network error — try again'); }
+    setDeleting(false);
+  };
+
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title"><h2>Account</h2></div>
+
+        {/* Subscription */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="card" size={15}/></span>Subscription</h3>
+          <div className="desc">Manage your Highlightz Pro plan.</div>
+          <div className="rd-field">
+            <div><div className="fl">Plan status</div></div>
+            <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
+          </div>
+          {isSubscribed && <div className="rd-field">
+            <div><div className="fl">Billing</div><div className="fd">Manage or cancel via Stripe portal</div></div>
+            <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
+          </div>}
+          {!isSubscribed && <div style={{marginTop:16}}>
+            <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Subscribe now
+            </a>
+          </div>}
+        </div>
+
+        {/* Profile */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="user" size={15}/></span>Profile</h3>
+          <div className="desc">Your Discord account linked to Highlightz.</div>
+          <div className="rd-field" style={{paddingTop:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:14}}>
+              {me.avatar_url
+                ? <img src={me.avatar_url} alt={me.username} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                : <span style={{width:44,height:44,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:16,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
+              <div>
+                <div style={{fontWeight:700,fontSize:15}}>{me.username||'—'}</div>
+                <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with Discord</div>
+              </div>
+            </div>
+            <a href="/logout" className="rd-btn sm danger" style={{textDecoration:'none',flexShrink:0}}>Sign out</a>
+          </div>
+        </div>
+
+        {/* Legal links */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="database" size={15}/></span>Legal</h3>
+          <div className="desc">Terms, privacy, and cookie information.</div>
+          {[['Terms of Service','/tos'],['Privacy Policy','/privacy'],['Cookie Policy','/cookies']].map(([lbl,href])=>(
+            <div key={href} className="rd-field">
+              <div className="fl">{lbl}</div>
+              <a href={href} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>View ↗</a>
+            </div>
+          ))}
+        </div>
+
+        {/* Danger zone */}
+        <div className="rd-card glass" style={{border:'1px solid rgba(255,90,120,.22)'}}>
+          <h3><span className="si" style={{background:'rgba(255,90,120,.14)',color:'var(--danger)'}}><Icon name="trash" size={15}/></span>Danger zone</h3>
+          <div className="desc">Permanently delete your account and all data — clips, streams, and settings. This cannot be undone.</div>
+          {isSubscribed && <div style={{fontSize:12,color:'var(--pending)',marginBottom:12,padding:'8px 12px',background:'rgba(255,194,92,.08)',borderRadius:10,border:'1px solid rgba(255,194,92,.2)'}}>
+            ⚠️ You have an active subscription. Cancel it via <a href="/billing/portal" style={{color:'var(--pending)'}}>Manage billing</a> before deleting your account so you are not charged again.
+          </div>}
+          {delErr && <div style={{fontSize:12,color:'var(--danger)',marginBottom:10}}>{delErr}</div>}
+          {!confirmDel
+            ? <button className="rd-btn danger" onClick={()=>setConfirmDel(true)}>Delete my account</button>
+            : <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{fontSize:13,color:'var(--danger)',fontWeight:600}}>This will delete all your clips, streams, and account data. Continue?</div>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                  <button className="rd-btn danger" onClick={deleteAccount} disabled={deleting} style={{flex:'1 1 auto'}}>
+                    {deleting ? 'Deleting…' : 'Yes, delete everything'}
+                  </button>
+                  <button className="rd-btn" onClick={()=>{setConfirmDel(false);setDelErr('');}} style={{flex:'0 0 auto'}}>Cancel</button>
+                </div>
+              </div>}
+        </div>
+
+        <div style={{textAlign:'center',fontSize:11,color:'var(--fg-3)',paddingBottom:24}}>
+          &copy; 2026 ANTI Technology LLC — All rights reserved.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function RdApp() {
   const [route, setRoute] = useState('review');
@@ -1133,6 +1239,7 @@ function RdApp() {
   if(route==='review') screen=<ReviewScreen {...{streams,scores,profiles,clips,filter,setFilter,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip}}/>;
+  else if(route==='account') screen=<AccountScreen me={me}/>;
   else screen=<SettingsScreen {...{streams,onSaveWebhook:saveWebhook}}/>;
 
   return (
@@ -1157,12 +1264,12 @@ function RdApp() {
           <div><div className="htitle">{HEAD[route][0]}</div><div className="hsub">{HEAD[route][1]}</div></div>
           <div className="spacer"/>
           <span className="rd-live"><span className="dot"/>Live</span>
-          <a href="/logout" className="rd-user-chip" title="Sign out" style={{textDecoration:'none'}}>
+          <button className="rd-user-chip" title="Account" style={{border:'none',cursor:'pointer'}} onClick={()=>setRoute('account')}>
             {me.avatar_url
               ? <img src={me.avatar_url} alt={me.username}/>
               : <span className="uc-init">{(me.username||'?')[0].toUpperCase()}</span>}
             <span className="uc-name">{me.username||'Account'}</span>
-          </a>
+          </button>
         </header>
         <main className="rd-screen">{screen}</main>
       </div>
