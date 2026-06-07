@@ -82,7 +82,7 @@ app.add_middleware(AuthMiddleware)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.dashboard_secret_key,
-    max_age=86400 * 30,
+    max_age=86400 * 7,
     https_only=settings.dashboard_https_only,
     same_site="lax",
 )
@@ -506,8 +506,12 @@ async def approve_clip(request: Request, clip_id: str):
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     # Burn watermark in background — doesn't block the approve response
-    storage_url = clip.get("storage_url", "")
-    if storage_url and not clip.get("watermarked"):
+    # Read storage_url inside a lock snapshot to avoid a race with deletion.
+    async with _data_lock:
+        snap = _clips.get(clip_id, {})
+        storage_url  = snap.get("storage_url", "")
+        already_done = snap.get("watermarked", False)
+    if storage_url and not already_done:
         source = Path(storage_url)
         if source.exists():
             async def _wm_task():
@@ -690,6 +694,9 @@ async def trim_clip(request: Request, clip_id: str, body: dict):
         raise HTTPException(status_code=400, detail="end must be greater than start, both non-negative")
     if (end - start) < 1:
         raise HTTPException(status_code=400, detail="Trimmed clip must be at least 1 second long")
+    clip_dur = clip.get("duration_seconds", 0)
+    if clip_dur > 0 and end > clip_dur + 1:
+        raise HTTPException(status_code=400, detail=f"end ({end}s) exceeds clip duration ({clip_dur:.1f}s)")
 
     source   = Path(storage_url)
     if not source.exists():
@@ -902,13 +909,16 @@ async def serve_clip_file(request: Request, path: str):
     uid        = _current_user_id(request)
     clips_root = Path(settings.local_storage_path).resolve()
     p          = Path(path).resolve()
-    if not p.is_relative_to(clips_root) or p.suffix != ".mp4" or not p.exists():
+    if not p.is_relative_to(clips_root) or p.suffix != ".mp4":
         raise HTTPException(status_code=404, detail="Clip file not found")
-    # Verify the requesting user owns a clip that references this file
-    stem = p.stem
-    clip = _clips.get(stem)
-    if not clip or clip.get("user_id") != uid:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Verify ownership inside the lock so deletion can't race the check.
+    async with _data_lock:
+        stem = p.stem
+        clip = _clips.get(stem)
+        if not clip or clip.get("user_id") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found")
     return FileResponse(str(p), media_type="video/mp4")
 
 

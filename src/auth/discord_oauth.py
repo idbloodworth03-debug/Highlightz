@@ -5,7 +5,7 @@ import urllib.parse
 import aiohttp
 from config.settings import settings
 
-_AVATAR_HASH_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+_AVATAR_HASH_RE = re.compile(r'^[a-f0-9]{32}$')
 
 _AUTH_URL  = "https://discord.com/oauth2/authorize"
 _TOKEN_URL = "https://discord.com/api/oauth2/token"
