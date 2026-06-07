@@ -365,12 +365,21 @@ button{font-family:inherit;cursor:pointer}
   .rd-modal-bg{padding:0;align-items:flex-end}
   .rd-modal{width:100%;max-height:92dvh;border-radius:22px 22px 0 0;overflow:hidden}
   .rd-modal-media{padding-bottom:56.25%}
-  .rd-modal-body{padding:16px}
+  .rd-modal-tabs{padding:0 16px}
+  .rd-modal-tab{padding:9px 12px;font-size:12px}
+  .rd-modal-body{flex:1;min-height:0;overflow-y:auto;padding:14px 16px}
   .rd-modal-grid{grid-template-columns:1fr;gap:16px}
   .rd-modal-actions{flex-wrap:wrap}
+  .rd-edit-section{margin-top:14px;padding-top:12px}
+  .rd-edit-row{gap:8px}
+  .rd-time-input{width:76px;font-size:13px}
+
+  /* Header: hide username text, just show avatar on narrow screens */
+  .rd-user-chip .uc-name{display:none}
+  .rd-user-chip{padding:2px;gap:0}
 
   /* Toast: above bottom nav */
-  .rd-toast{bottom:70px}
+  .rd-toast{bottom:70px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
 }
 </style>
 </head>
@@ -733,20 +742,20 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, capt
             <div className="rd-edit-section" style={{marginTop:0,paddingTop:0,borderTop:'none'}}>
               <div className="rd-edit-label">Trim Clip</div>
               <div className="rd-edit-row">
-                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:11,color:'var(--fg-3)'}}>Start</span>
-                  <input className="rd-time-input" value={trimStart} onChange={e=>setTrimStart(e.target.value)} disabled={trimming} placeholder="0:00"/>
+                <div style={{display:'flex',alignItems:'center',gap:8,flex:'0 0 auto'}}>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:11,color:'var(--fg-3)'}}>Start</span>
+                    <input className="rd-time-input" value={trimStart} onChange={e=>setTrimStart(e.target.value)} disabled={trimming} placeholder="0:00"/>
+                  </div>
+                  <span style={{color:'var(--fg-3)',fontSize:16,marginTop:16}}>→</span>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:11,color:'var(--fg-3)'}}>End</span>
+                    <input className="rd-time-input" value={trimEnd} onChange={e=>setTrimEnd(e.target.value)} disabled={trimming} placeholder={fmtSecs(totalSecs)}/>
+                  </div>
                 </div>
-                <span style={{color:'var(--fg-3)',fontSize:18,marginTop:16}}>→</span>
-                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:11,color:'var(--fg-3)'}}>End</span>
-                  <input className="rd-time-input" value={trimEnd} onChange={e=>setTrimEnd(e.target.value)} disabled={trimming} placeholder={fmtSecs(totalSecs)}/>
-                </div>
-                <div style={{marginTop:16}}>
-                  <button className="rd-btn sm" onClick={applyTrim} disabled={trimming} style={{minWidth:110}}>
-                    {trimming ? <><Spinner/>Trimming…</> : <><Icon name="scissors" size={13}/>Apply Trim</>}
-                  </button>
-                </div>
+                <button className="rd-btn sm" onClick={applyTrim} disabled={trimming} style={{minWidth:110,flex:'1 1 110px'}}>
+                  {trimming ? <><Spinner/>Trimming…</> : <><Icon name="scissors" size={13}/>Apply Trim</>}
+                </button>
               </div>
               {totalSecs>0 && <div className="rd-edit-hint">Current duration: {fmtDur(totalSecs)} — enter times as M:SS (e.g. 0:05 to 1:30)</div>}
               {trimErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{trimErr}</div>}
@@ -770,11 +779,11 @@ function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, capt
               {captionErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:6}}>{captionErr}</div>}
               {clip.caption && <div style={{color:'var(--fg-3)',fontSize:11,marginTop:4}}>Caption already burned in — rendering again will overwrite it.</div>}
               {clip.status==='pending' && <div style={{color:'var(--pending)',fontSize:11,marginTop:4}}>Clip is still pending — you can add a caption now, just approve it when ready.</div>}
-              <div style={{marginTop:10,display:'flex',gap:10}}>
-                <button className="rd-btn sm" onClick={renderCaption} disabled={isRendering||!captionText.trim()} style={{minWidth:150}}>
+              <div style={{marginTop:10,display:'flex',gap:10,flexWrap:'wrap'}}>
+                <button className="rd-btn sm" onClick={renderCaption} disabled={isRendering||!captionText.trim()} style={{minWidth:140,flex:'1 1 140px'}}>
                   {isRendering ? <><Spinner/>Rendering…</> : <><Icon name="type" size={13}/>Burn Caption In</>}
                 </button>
-                {captionText && !isRendering && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
+                {captionText && !isRendering && <button className="rd-btn sm" style={{background:'none',border:'1px solid var(--hair)',color:'var(--fg-3)',flex:'0 0 auto'}} onClick={()=>{setCaptionText('');setCaptionErr('');}}>Clear</button>}
               </div>
             </div>
           </div>}
