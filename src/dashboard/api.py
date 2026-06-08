@@ -238,9 +238,9 @@ async def _burn_watermark(source: Path) -> None:
     vf = (
         "drawtext=text='Highlightz'"
         f":fontfile={_FONT}"
-        ":fontsize=28:fontcolor=0xc79bff@0.55"
-        ":x=w-text_w-18:y=h-text_h-18"
-        ":shadowcolor=0x2a0045@0.6:shadowx=2:shadowy=2"
+        ":fontsize=42:fontcolor=0xc79bff@0.65"
+        ":x=w-text_w-22:y=h-text_h-22"
+        ":shadowcolor=0x2a0045@0.7:shadowx=3:shadowy=3"
     )
     async with _ffmpeg_sem:
         try:
@@ -679,9 +679,9 @@ async def render_caption(request: Request, clip_id: str, body: dict):
             vf = (
                 f"drawtext=textfile='{_ffmpeg_escape(str(tmp_txt))}'"
                 f":fontfile='{_ffmpeg_escape(str(_FONT))}'"
-                f":fontsize=46:fontcolor=black"
-                f":x=(w-text_w)/2:y=48"
-                f":box=1:boxcolor=white:boxborderw=14"
+                f":fontsize=62:fontcolor=black"
+                f":x=(w-text_w)/2:y=52"
+                f":box=1:boxcolor=white:boxborderw=18"
             )
             ffmpeg_args = [
                 settings.ffmpeg_path, "-y",
