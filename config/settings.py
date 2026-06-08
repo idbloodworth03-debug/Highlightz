@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     discord_client_id: str = ""
     discord_client_secret: str = ""
     discord_redirect_uri: str = "https://highlightz.app/auth/discord/callback"
+    admin_discord_id: str = ""          # Your Discord user ID — auto-grants admin on login
 
     # Stripe billing
     stripe_secret_key: str = ""

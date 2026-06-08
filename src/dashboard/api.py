@@ -362,10 +362,12 @@ async def discord_callback(request: Request, code: str = "", state: str = "", er
         log.warning("discord_oauth_failed", error=str(exc))
         return RedirectResponse("/login?error=Discord+login+failed")
 
+    is_owner = bool(settings.admin_discord_id and duser["id"] == settings.admin_discord_id)
     user = user_store.upsert_discord_user(
         discord_id=duser["id"],
         username=duser["username"],
         avatar_url=duser.get("avatar_url", ""),
+        is_admin=is_owner,
     )
     request.session["auth"]                = True
     request.session["user_id"]             = user["id"]
@@ -966,6 +968,69 @@ async def force_clip(request: Request, channel: str):
     return {"status": "queued", "channel": channel}
 
 
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    if not request.session.get("is_admin"):
+        return RedirectResponse("/")
+    return HTMLResponse(ADMIN_HTML)
+
+
+@app.get("/admin/users")
+async def admin_list_users(request: Request):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from src.auth import users as user_store
+    users = user_store.get_all()
+    # Attach stream count per user
+    for u in users:
+        uid = u["id"]
+        u["stream_count"] = sum(1 for s in _streams.values() if s.get("user_id") == uid)
+        u["clip_count"] = sum(1 for c in _clips.values() if c.get("user_id") == uid)
+    return users
+
+
+@app.post("/admin/users/{user_id}/grant")
+async def admin_grant_access(request: Request, user_id: str):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from src.auth import users as user_store
+    user_store.update_subscription(user_id, "", "active")
+    return {"ok": True}
+
+
+@app.post("/admin/users/{user_id}/revoke")
+async def admin_revoke_access(request: Request, user_id: str):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from src.auth import users as user_store
+    user_store.update_subscription(user_id, "", "inactive")
+    return {"ok": True}
+
+
+@app.delete("/admin/users/{user_id}")
+async def admin_delete_user(request: Request, user_id: str):
+    if not request.session.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    # Prevent deleting yourself
+    if user_id == request.session.get("user_id"):
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    from src.auth import users as user_store
+    await _stop_user_streams(user_id)
+    async with _data_lock:
+        to_delete = [c for c in list(_clips.values()) if c.get("user_id") == user_id]
+        for clip in to_delete:
+            _clips.pop(clip["id"], None)
+        _save_clips()
+    for clip in to_delete:
+        _delete_clip_file(clip)
+    stale = [k for k, s in _streams.items() if s.get("user_id") == user_id]
+    for k in stale:
+        _streams.pop(k, None)
+    _save_streams()
+    user_store.delete(user_id)
+    return {"ok": True}
+
+
 @app.get("/tos", response_class=HTMLResponse)
 async def tos_page():
     return HTMLResponse(TOS_HTML)
@@ -1504,6 +1569,185 @@ COOKIES_HTML = """<!DOCTYPE html>
   <div class="divider"></div>
   <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#5d5d6b">Terms of Service</a> &middot; <a href="/privacy" style="color:#5d5d6b">Privacy Policy</a></div>
 </div>
+</body>
+</html>"""
+
+ADMIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.13),transparent 60%)}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);position:sticky;top:0;z-index:10}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo img{height:30px;filter:drop-shadow(0 0 8px rgba(199,155,255,.5))}
+  .logo span{font-size:16px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  .badge{background:rgba(249,67,255,.15);border:1px solid rgba(249,67,255,.3);color:#f943ff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;letter-spacing:.08em;text-transform:uppercase}
+  .nav-link{font-size:13px;color:#5d5d6b;text-decoration:none;transition:.15s}
+  .nav-link:hover{color:#c79bff}
+  .wrap{max-width:1100px;margin:0 auto;padding:36px 24px}
+  h1{font-size:26px;font-weight:800;letter-spacing:-.03em;margin-bottom:6px}
+  .meta{font-size:13px;color:#5d5d6b;margin-bottom:32px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:36px}
+  .stat{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:20px;text-align:center}
+  .stat-val{font-size:32px;font-weight:800;letter-spacing:-.03em;color:#c79bff}
+  .stat-lbl{font-size:12px;color:#5d5d6b;margin-top:4px}
+  .section{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden;margin-bottom:28px}
+  .section-head{padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px;font-weight:700;color:#c79bff;letter-spacing:.04em;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11px;font-weight:700;color:#5d5d6b;text-transform:uppercase;letter-spacing:.06em;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.05)}
+  td{padding:13px 18px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;background:rgba(199,155,255,.15)}
+  .avatar-wrap{display:flex;align-items:center;gap:10px}
+  .username{font-weight:600}
+  .discord-id{font-size:11px;color:#5d5d6b;margin-top:2px;font-family:monospace}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;letter-spacing:.04em}
+  .pill-active{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);color:#34d399}
+  .pill-inactive{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
+  .pill-none{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#9c9caa}
+  .pill-admin{background:rgba(249,67,255,.12);border:1px solid rgba(249,67,255,.25);color:#f943ff}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;border:none;cursor:pointer;transition:.15s}
+  .btn-grant{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.25)}
+  .btn-grant:hover{background:rgba(52,211,153,.25)}
+  .btn-revoke{background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.2)}
+  .btn-revoke:hover{background:rgba(239,68,68,.22)}
+  .btn-delete{background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.15)}
+  .btn-delete:hover{background:rgba(239,68,68,.18)}
+  .empty{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
+  .loading{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
+  .toast{position:fixed;bottom:24px;right:24px;background:rgba(30,30,40,.95);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:999}
+  .toast.show{opacity:1;transform:none}
+  .toast.ok{border-color:rgba(52,211,153,.4);color:#34d399}
+  .toast.err{border-color:rgba(239,68,68,.4);color:#f87171}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">
+    <img src="/static/logo.jpg" alt="Highlightz">
+    <span>Highlightz</span>
+    <span class="badge">Admin</span>
+  </div>
+  <a href="/" class="nav-link">&#8592; Dashboard</a>
+</div>
+<div class="wrap">
+  <h1>Admin Panel</h1>
+  <p class="meta">User management and platform overview</p>
+  <div class="stats" id="stats">
+    <div class="stat"><div class="stat-val" id="s-total">—</div><div class="stat-lbl">Total Users</div></div>
+    <div class="stat"><div class="stat-val" id="s-active">—</div><div class="stat-lbl">Active Subscribers</div></div>
+    <div class="stat"><div class="stat-val" id="s-streams">—</div><div class="stat-lbl">Monitored Streams</div></div>
+    <div class="stat"><div class="stat-val" id="s-clips">—</div><div class="stat-lbl">Total Clips</div></div>
+  </div>
+  <div class="section">
+    <div class="section-head">Users</div>
+    <div id="table-wrap" class="loading">Loading...</div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const fmt = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'N/A';
+
+function pill(status, isAdmin) {
+  if (isAdmin) return '<span class="pill pill-admin">Admin</span>';
+  if (status === 'active' || status === 'trialing') return '<span class="pill pill-active">Active</span>';
+  if (status === 'inactive' || status === 'canceled') return '<span class="pill pill-inactive">Inactive</span>';
+  return '<span class="pill pill-none">No Sub</span>';
+}
+
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => el.className = 'toast', 2800);
+}
+
+async function api(url, method='GET') {
+  const r = await fetch(url, {method, credentials:'same-origin'});
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function grant(id, btn) {
+  try {
+    await api('/admin/users/' + id + '/grant', 'POST');
+    toast('Access granted');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
+async function revoke(id) {
+  if (!confirm('Revoke access for this user?')) return;
+  try {
+    await api('/admin/users/' + id + '/revoke', 'POST');
+    toast('Access revoked');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
+async function del(id, name) {
+  if (!confirm('Permanently delete ' + name + ' and all their data? This cannot be undone.')) return;
+  try {
+    await api('/admin/users/' + id, 'DELETE');
+    toast('User deleted');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
+async function load() {
+  const users = await api('/admin/users');
+  const total = users.length;
+  const active = users.filter(u => u.subscription_status === 'active' || u.subscription_status === 'trialing').length;
+  const streams = users.reduce((a,u) => a + (u.stream_count||0), 0);
+  const clips = users.reduce((a,u) => a + (u.clip_count||0), 0);
+  document.getElementById('s-total').textContent = total;
+  document.getElementById('s-active').textContent = active;
+  document.getElementById('s-streams').textContent = streams;
+  document.getElementById('s-clips').textContent = clips;
+
+  if (!users.length) {
+    document.getElementById('table-wrap').innerHTML = '<div class="empty">No users yet.</div>';
+    return;
+  }
+
+  const rows = users.map(u => {
+    const avatar = u.avatar_url
+      ? '<img class="avatar" src="' + u.avatar_url + '" alt="">'
+      : '<div class="avatar"></div>';
+    const sub = u.subscription_status || 'none';
+    const isAdmin = u.is_admin;
+    const canGrant = !isAdmin && sub !== 'active' && sub !== 'trialing';
+    const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
+    return '<tr>' +
+      '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + u.username + '</div>' +
+        '<div class="discord-id">' + (u.discord_id ? 'Discord: ' + u.discord_id : 'Password auth') + '</div></div></div></td>' +
+      '<td>' + pill(sub, isAdmin) + '</td>' +
+      '<td>' + (u.stream_count || 0) + '</td>' +
+      '<td>' + (u.clip_count || 0) + '</td>' +
+      '<td>' + fmt(u.created_at) + '</td>' +
+      '<td><div class="actions">' +
+        (canGrant ? '<button class="btn btn-grant" onclick="grant(' + JSON.stringify(u.id) + ')">Grant</button>' : '') +
+        (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + JSON.stringify(u.id) + ')">Revoke</button>' : '') +
+        (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + JSON.stringify(u.id) + ',' + JSON.stringify(u.username) + ')">Delete</button>' : '') +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+
+  document.getElementById('table-wrap').innerHTML =
+    '<table><thead><tr>' +
+    '<th>User</th><th>Status</th><th>Streams</th><th>Clips</th><th>Joined</th><th>Actions</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+load();
+</script>
 </body>
 </html>"""
 

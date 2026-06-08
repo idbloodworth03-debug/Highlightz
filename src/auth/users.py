@@ -91,13 +91,16 @@ def create(username: str, password: str, is_admin: bool = False) -> dict:
     return user
 
 
-def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "") -> dict:
+def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "", is_admin: bool = False) -> dict:
     """Find or create a user by Discord ID. Returns the public user dict (no secrets)."""
     users = _load()
     existing = next((u for u in users if u.get("discord_id") == discord_id), None)
     if existing:
         existing["username"]   = username
         existing["avatar_url"] = avatar_url
+        if is_admin:
+            existing["is_admin"] = True
+            existing["subscription_status"] = "active"
         _save(users)
         return {k: v for k, v in existing.items() if k not in ("password_hash", "salt")}
 
@@ -106,11 +109,11 @@ def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "") ->
         "username":             username,
         "password_hash":        None,
         "salt":                 None,
-        "is_admin":             False,
+        "is_admin":             is_admin,
         "discord_id":           discord_id,
         "avatar_url":           avatar_url,
         "stripe_customer_id":   None,
-        "subscription_status":  "none",
+        "subscription_status":  "active" if is_admin else "none",
         "created_at":           time.time(),
     }
     users.append(user)
