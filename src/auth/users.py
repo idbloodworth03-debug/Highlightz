@@ -38,6 +38,10 @@ def _save(users: list[dict]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
         os.replace(tmp, _USERS_FILE)
+        try:
+            os.chmod(_USERS_FILE, 0o600)
+        except OSError:
+            pass
     except Exception:
         try:
             os.unlink(tmp)
@@ -98,8 +102,8 @@ def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "", is
     if existing:
         existing["username"]   = username
         existing["avatar_url"] = avatar_url
+        existing["is_admin"] = is_admin
         if is_admin:
-            existing["is_admin"] = True
             existing["subscription_status"] = "active"
         _save(users)
         return {k: v for k, v in existing.items() if k not in ("password_hash", "salt")}
@@ -121,12 +125,13 @@ def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "", is
     return {k: v for k, v in user.items() if k not in ("password_hash", "salt")}
 
 
-def update_subscription(user_id: str, customer_id: str, status: str) -> None:
+def update_subscription(user_id: str, customer_id: str | None, status: str) -> None:
     """Called by Stripe webhook to sync subscription state by user ID."""
     users = _load()
     for u in users:
         if u["id"] == user_id:
-            u["stripe_customer_id"]  = customer_id
+            if customer_id:
+                u["stripe_customer_id"] = customer_id
             u["subscription_status"] = status
             break
     _save(users)
@@ -153,6 +158,8 @@ def delete(user_id: str) -> bool:
 
 
 def ensure_admin_exists(admin_password: str) -> None:
-    """On first boot, seed an admin account from the existing dashboard password."""
-    if not _load():
-        create("admin", admin_password, is_admin=True)
+    """On first boot or if no admin exists, seed an admin account."""
+    users = _load()
+    if not users or not any(u.get("is_admin") for u in users):
+        if not any(u["username"].lower() == "admin" for u in users):
+            create("admin", admin_password, is_admin=True)

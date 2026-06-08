@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     dashboard_secret_key: str = _DEFAULT_SECRET
     dashboard_password: str = _DEFAULT_PASSWORD
-    dashboard_https_only: bool = False
+    dashboard_https_only: bool = True
     buffer_duration_seconds: int = 90
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
@@ -69,10 +69,21 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def warn_insecure_defaults(self) -> "Settings":
+        import secrets as _secrets
         if self.dashboard_secret_key == _DEFAULT_SECRET:
-            _log.warning("SECURITY: DASHBOARD_SECRET_KEY is using the default value — set it in .env")
+            _log.critical(
+                "SECURITY: DASHBOARD_SECRET_KEY is using the default value. "
+                "Sessions are NOT secure. Set DASHBOARD_SECRET_KEY in .env: "
+                "python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+            # Generate ephemeral random key so at least cookie forgery is prevented
+            # at runtime (sessions won't persist across restarts)
+            object.__setattr__(self, "dashboard_secret_key", _secrets.token_hex(32))
         if self.dashboard_password == _DEFAULT_PASSWORD:
-            _log.warning("SECURITY: DASHBOARD_PASSWORD is using the default value — set it in .env")
+            _log.critical(
+                "SECURITY: DASHBOARD_PASSWORD is using the default value 'highlightz'. "
+                "Change it in .env immediately."
+            )
         return self
 
 

@@ -31,6 +31,12 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+try:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware as _ProxyHeadersMiddleware
+    _HAS_PROXY_HEADERS = True
+except ImportError:
+    _HAS_PROXY_HEADERS = False
+
 from config.settings import settings
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
@@ -101,11 +107,24 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"]        = "DENY"
         response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' https://unpkg.com 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+            "img-src 'self' https://cdn.discordapp.com data: blob:; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self' wss: ws:; "
+            "frame-ancestors 'none';"
+        )
         if settings.dashboard_https_only:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Trust X-Forwarded-For from local Nginx proxy only (added last = runs first due to LIFO)
+if _HAS_PROXY_HEADERS:
+    app.add_middleware(_ProxyHeadersMiddleware, trusted_hosts=["127.0.0.1", "::1"])
 
 from typing import Callable
 
@@ -186,6 +205,10 @@ _LOGIN_WINDOW       = 60  # seconds
 
 def _check_login_rate(ip: str) -> None:
     now = time.time()
+    # Purge entries older than the window to prevent unbounded growth
+    stale = [k for k, (count, ts) in list(_login_attempts.items()) if now - ts > _LOGIN_WINDOW]
+    for k in stale:
+        _login_attempts.pop(k, None)
     attempts, window_start = _login_attempts.get(ip, (0, now))
     if now - window_start > _LOGIN_WINDOW:
         attempts, window_start = 0, now
@@ -201,6 +224,11 @@ def _clear_login_rate(ip: str) -> None:
 # Limit heavy FFmpeg re-encodes (caption, watermark, trim) to one at a time
 # so they don't compete with clip extraction on a single-core server.
 _ffmpeg_sem = asyncio.Semaphore(1)
+
+
+def _ffmpeg_escape(s: str) -> str:
+    """Escape a string for safe use in an FFmpeg drawtext filter option value."""
+    return str(s).replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
 
 _FONT = str(Path(__file__).parent / "static" / "fonts" / "Anton-Regular.ttf")
 
@@ -352,15 +380,15 @@ async def discord_callback(request: Request, code: str = "", state: str = "", er
     """Handle Discord OAuth callback, create/find user, set session."""
     from src.auth import discord_oauth, users as user_store
     if error:
-        return RedirectResponse(f"/login?error={error}")
+        return RedirectResponse("/login?error=discord_failed")
     if state != request.session.pop("oauth_state", None):
-        return RedirectResponse("/login?error=Invalid+state")
+        return RedirectResponse("/login?error=invalid_state")
     try:
         token = await discord_oauth.exchange_code(code)
         duser = await discord_oauth.get_user(token)
     except Exception as exc:
         log.warning("discord_oauth_failed", error=str(exc))
-        return RedirectResponse("/login?error=Discord+login+failed")
+        return RedirectResponse("/login?error=discord_failed")
 
     is_owner = bool(settings.admin_discord_id and duser["id"] == settings.admin_discord_id)
     user = user_store.upsert_discord_user(
@@ -369,6 +397,8 @@ async def discord_callback(request: Request, code: str = "", state: str = "", er
         avatar_url=duser.get("avatar_url", ""),
         is_admin=is_owner,
     )
+    # Fix 10: clear any existing session before setting new auth data (session fixation)
+    request.session.clear()
     request.session["auth"]                = True
     request.session["user_id"]             = user["id"]
     request.session["username"]            = user["username"]
@@ -426,7 +456,8 @@ async def delete_account(request: Request):
 async def paywall_page(request: Request):
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
-    return HTMLResponse(PAYWALL_HTML.replace("{username}", username))
+    import html as _html
+    return HTMLResponse(PAYWALL_HTML.replace("{username}", _html.escape(username)))
 
 
 @app.get("/billing/checkout")
@@ -646,8 +677,8 @@ async def render_caption(request: Request, clip_id: str, body: dict):
             # scale=1280:-2 downsizes 1080p→720p before captioning (half the pixels,
             # ~3x faster encode on a single CPU) while keeping the caption legible.
             vf = (
-                f"drawtext=textfile={tmp_txt}"
-                f":fontfile={_FONT}"
+                f"drawtext=textfile='{_ffmpeg_escape(str(tmp_txt))}'"
+                f":fontfile='{_ffmpeg_escape(str(_FONT))}'"
                 f":fontsize=46:fontcolor=black"
                 f":x=(w-text_w)/2:y=48"
                 f":box=1:boxcolor=white:boxborderw=14"
@@ -839,6 +870,15 @@ async def add_stream(request: Request, req: StreamRequest):
     async with _data_lock:
         if stream_key in _streams:
             raise HTTPException(status_code=409, detail="Stream already registered")
+        MAX_STREAMS_PER_USER = 10
+        user_streams = [s for s in _streams.values() if s.get("user_id") == uid]
+        if len(user_streams) >= MAX_STREAMS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Stream limit reached ({MAX_STREAMS_PER_USER} max). Remove a stream to add a new one.",
+            )
+        if len(_streams) >= settings.max_concurrent_streams:
+            raise HTTPException(status_code=503, detail="Server stream capacity reached. Try again later.")
         record = {
             "channel":         req.channel,
             "platform":        req.platform,
@@ -970,15 +1010,16 @@ async def force_clip(request: Request, channel: str):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    if not request.session.get("is_admin"):
+    try:
+        _require_admin(request)
+    except HTTPException:
         return RedirectResponse("/")
     return HTMLResponse(ADMIN_HTML)
 
 
 @app.get("/admin/users")
 async def admin_list_users(request: Request):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin(request)
     from src.auth import users as user_store
     users = user_store.get_all()
     # Attach stream count per user
@@ -991,26 +1032,23 @@ async def admin_list_users(request: Request):
 
 @app.post("/admin/users/{user_id}/grant")
 async def admin_grant_access(request: Request, user_id: str):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin(request)
     from src.auth import users as user_store
-    user_store.update_subscription(user_id, "", "active")
+    user_store.update_subscription(user_id, None, "active")
     return {"ok": True}
 
 
 @app.post("/admin/users/{user_id}/revoke")
 async def admin_revoke_access(request: Request, user_id: str):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin(request)
     from src.auth import users as user_store
-    user_store.update_subscription(user_id, "", "inactive")
+    user_store.update_subscription(user_id, None, "inactive")
     return {"ok": True}
 
 
 @app.delete("/admin/users/{user_id}")
 async def admin_delete_user(request: Request, user_id: str):
-    if not request.session.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_admin(request)
     # Prevent deleting yourself
     if user_id == request.session.get("user_id"):
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
@@ -1053,10 +1091,18 @@ async def not_found_handler(request: Request, exc: Exception):
     return HTMLResponse(NOT_FOUND_HTML, status_code=404)
 
 
+_ERROR_MESSAGES = {
+    "discord_failed":    "Discord login failed. Please try again.",
+    "invalid_state":     "Login session expired. Please try again.",
+    "incorrect_password": "Incorrect password. Please try again.",
+    "account_deleted":   "Account deleted successfully.",
+}
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
-    import html as _html
-    err_html = f'<p class="error">{_html.escape(error)}</p>' if error else ""
+    err_msg = _ERROR_MESSAGES.get(error, "")
+    err_html = f'<p class="error">{err_msg}</p>' if err_msg else ""
     return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
 
 
@@ -1068,6 +1114,8 @@ async def login(request: Request, password: str = Form(...)):
     user = next((u for u in user_store._load() if user_store.verify(u, password)), None)
     if user:
         _clear_login_rate(ip)
+        # Fix 10: clear any existing session before setting new auth data (session fixation)
+        request.session.clear()
         request.session["auth"]                = True
         request.session["user_id"]             = user["id"]
         request.session["username"]            = user["username"]
@@ -1075,7 +1123,7 @@ async def login(request: Request, password: str = Form(...)):
         request.session["is_admin"]            = user.get("is_admin", False)
         request.session["subscription_status"] = user.get("subscription_status", "none")
         return RedirectResponse("/", status_code=302)
-    return RedirectResponse("/login?error=Incorrect+password", status_code=302)
+    return RedirectResponse("/login?error=incorrect_password", status_code=302)
 
 
 @app.get("/logout")
@@ -1653,6 +1701,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 <div class="toast" id="toast"></div>
 <script>
+function esc(s){const d=document.createElement('div');d.appendChild(document.createTextNode(String(s)));return d.innerHTML;}
 const fmt = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'N/A';
 
 function pill(status, isAdmin) {
@@ -1719,15 +1768,15 @@ async function load() {
 
   const rows = users.map(u => {
     const avatar = u.avatar_url
-      ? '<img class="avatar" src="' + u.avatar_url + '" alt="">'
+      ? '<img class="avatar" src="' + esc(u.avatar_url) + '" alt="">'
       : '<div class="avatar"></div>';
     const sub = u.subscription_status || 'none';
     const isAdmin = u.is_admin;
     const canGrant = !isAdmin && sub !== 'active' && sub !== 'trialing';
     const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
     return '<tr>' +
-      '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + u.username + '</div>' +
-        '<div class="discord-id">' + (u.discord_id ? 'Discord: ' + u.discord_id : 'Password auth') + '</div></div></div></td>' +
+      '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +
+        '<div class="discord-id">' + (u.discord_id ? 'Discord: ' + esc(u.discord_id) : 'Password auth') + '</div></div></div></td>' +
       '<td>' + pill(sub, isAdmin) + '</td>' +
       '<td>' + (u.stream_count || 0) + '</td>' +
       '<td>' + (u.clip_count || 0) + '</td>' +

@@ -50,7 +50,7 @@ class JobQueue:
         self._redis = await redis_from_url(settings.redis_url, decode_responses=True)
         from urllib.parse import urlparse
         parsed = urlparse(settings.redis_url)
-        log.info("job_queue_connected", host=parsed.hostname, port=parsed.port, db=parsed.path)
+        log.info("job_queue_connected", host=parsed.hostname, port=parsed.port, db=parsed.path.lstrip("/"))
 
     async def close(self) -> None:
         if self._redis:
