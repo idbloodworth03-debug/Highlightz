@@ -36,7 +36,7 @@ _queue: JobQueue | None = None
 
 # ── Worker management ─────────────────────────────────────────────────────────
 
-async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> None:
+async def spawn_worker(channel: str, platform_name: str, user_id: str = "", preset: str = "default") -> None:
     worker_key = f"{user_id}:{channel}" if user_id else channel
     if worker_key in _workers and not _workers[worker_key].done():
         log.warning("worker_already_running", channel=channel)
@@ -54,7 +54,7 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "") -> N
         }, user_id=user_id)
 
     worker = StreamWorker(
-        config=WorkerConfig(channel=channel, platform_name=platform_name, user_id=user_id),
+        config=WorkerConfig(channel=channel, platform_name=platform_name, user_id=user_id, preset=preset),
         platform=platform,
         queue=_queue,
         shared_buffers=SHARED_BUFFERS,
@@ -115,8 +115,12 @@ async def listen_for_new_streams(redis) -> None:
             payload = json.loads(message["data"])
             channel_name = message["channel"]
             if channel_name == "superclipbot:new_streams":
-                await spawn_worker(payload["channel"], payload.get("platform", "twitch"),
-                                   payload.get("user_id", ""))
+                await spawn_worker(
+                    payload["channel"],
+                    payload.get("platform", "twitch"),
+                    payload.get("user_id", ""),
+                    payload.get("preset", "default"),
+                )
             elif channel_name == "superclipbot:remove_streams":
                 await stop_worker(payload["channel"], payload.get("user_id", ""))
         except Exception as exc:

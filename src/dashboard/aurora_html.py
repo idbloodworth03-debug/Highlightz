@@ -242,7 +242,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-card h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
 .rd-card h3 .si{width:30px;height:30px;border-radius:9px;background:var(--grad-soft);color:var(--acc);display:grid;place-items:center}
 .rd-card .desc{font-size:12px;color:var(--fg-3);margin:6px 0 18px 40px}
-.rd-preset-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.rd-preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .rd-preset{border-radius:14px;padding:15px;border:1px solid var(--hair);background:rgba(255,255,255,.02)}
 .rd-preset .pn{font-weight:700;font-size:14px;text-transform:capitalize;display:flex;align-items:center;justify-content:space-between}
 .rd-preset .pn .badge2{font-size:10px;font-weight:700;color:var(--acc);background:var(--grad-soft);padding:3px 8px;border-radius:99px}
@@ -358,7 +358,7 @@ button{font-family:inherit;cursor:pointer}
   /* Settings */
   .rd-scroll{padding:12px}
   .rd-settings{gap:12px}
-  .rd-preset-grid{grid-template-columns:1fr}
+  .rd-preset-grid{grid-template-columns:1fr;gap:10px}
   .rd-card{padding:16px}
 
   /* Modal: full-screen sheet */
@@ -816,8 +816,15 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onA
           <div className="rd-addrow">
             <input className="rd-input" placeholder="channel name" value={ch} onChange={e=>setCh(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/>
             <select className="rd-select" value={preset} onChange={e=>setPreset(e.target.value)}>
-              <option value="default">Default</option><option value="fps">FPS</option>
-              <option value="chess">Chess</option><option value="irl">IRL</option>
+              <option value="default">Default</option>
+              <option value="small">Small streamer</option>
+              <option value="fps">FPS</option>
+              <option value="moba">MOBA</option>
+              <option value="chess">Chess / Strategy</option>
+              <option value="casino">Casino / Gambling</option>
+              <option value="irl">IRL / Outdoor</option>
+              <option value="variety">Variety / Just Chatting</option>
+              <option value="sports">Sports</option>
             </select>
           </div>
           <input className="rd-input" placeholder="Discord webhook (optional)" value={webhook}
@@ -979,10 +986,15 @@ function SettingsScreen({ streams, onSaveWebhook }) {
   const [stats, setStats] = useState(null);
   useEffect(()=>{ fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{}); },[]);
   const PRESETS=[
-    {name:'default',desc:'General streams (Just Chatting etc)'},
-    {name:'fps',desc:'FPS — fast reflexes, burst keywords'},
-    {name:'chess',desc:'Strategy — slower pace, crowd reactions'},
-    {name:'irl',desc:'IRL — crowd noise, event-based clips'},
+    {name:'default',     emoji:'🎯', desc:'General-purpose baseline. Good starting point for any stream you\'re not sure about.'},
+    {name:'small',       emoji:'🌱', desc:'Small / growing streamers (<1k viewers). Lower thresholds capture moments that bigger channels\' presets would miss.'},
+    {name:'fps',         emoji:'🎮', desc:'FPS games (Valorant, CS2, Warzone, Apex). Shorter pre-roll, fast-action keywords, tighter cooldown.'},
+    {name:'moba',        emoji:'⚔️', desc:'MOBAs (League of Legends, Dota 2, SMITE). Pentakill, teamfight, and outplay keywords tuned in.'},
+    {name:'chess',       emoji:'♟️', desc:'Chess & strategy games. Very sparse chat — only large eruptions fire. Cooldown extended to avoid duplicates.'},
+    {name:'casino',      emoji:'🎰', desc:'Casino, gambling & case openings. Sensitive to win/drop reactions; captures the moment and its aftermath.'},
+    {name:'irl',         emoji:'🌍', desc:'IRL / outdoor streams. Audio spikes and crowd reactions weighted higher than chat velocity.'},
+    {name:'variety',     emoji:'🎬', desc:'Just Chatting, reaction & variety content. Balanced settings with broad hype-word detection.'},
+    {name:'sports',      emoji:'🏆', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
   ];
   const streamsArr = Object.values(streams);
   return (
@@ -994,8 +1006,11 @@ function SettingsScreen({ streams, onSaveWebhook }) {
           <div className="desc">Select when adding a stream to tune signal sensitivity.</div>
           <div className="rd-preset-grid">
             {PRESETS.map(p=><div className="rd-preset" key={p.name}>
-              <div className="pn">{p.name}{p.name==='default'&&<span className="badge2">base</span>}</div>
-              <div className="pr"><span>{p.desc}</span></div>
+              <div className="pn">
+                <span>{p.emoji} {p.name}</span>
+                {p.name==='default'&&<span className="badge2">base</span>}
+              </div>
+              <div className="pr" style={{marginTop:8}}><span style={{color:'var(--fg-2)',fontSize:12,lineHeight:1.5}}>{p.desc}</span></div>
             </div>)}
           </div>
         </div>

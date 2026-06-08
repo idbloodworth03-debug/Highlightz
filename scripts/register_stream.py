@@ -26,7 +26,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Register a stream for SuperClipBot monitoring")
     parser.add_argument("--channel", required=True)
     parser.add_argument("--platform", default="twitch", choices=["twitch", "youtube"])
-    parser.add_argument("--preset", default="default", choices=["default", "chess", "fps", "irl"])
+    parser.add_argument("--preset", default="default",
+                        choices=["default", "small", "fps", "moba", "chess", "casino", "irl", "variety", "sports"])
     args = parser.parse_args()
 
     asyncio.run(register(args.channel, args.platform, args.preset))

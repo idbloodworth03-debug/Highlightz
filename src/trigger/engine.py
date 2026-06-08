@@ -34,13 +34,15 @@ class TriggerEngine:
         on_score: OnScore | None = None,
         profile=None,
         buffer=None,    # VideoBuffer | None
+        preset: str = "default",
     ) -> None:
         self.channel = channel
+        self.preset  = preset
         self.on_trigger = on_trigger
         self.on_score = on_score
         self.profile = profile
         self.buffer = buffer
-        _init_rules = get_rules(channel)
+        _init_rules = get_rules(channel, preset)
         self._metrics = ChatMetrics(extra_keywords=_init_rules.extra_keywords)
         self._vader = SentimentIntensityAnalyzer()
         self._last_trigger: float = 0.0
@@ -73,7 +75,7 @@ class TriggerEngine:
         self._viewer_samples += 1
 
     async def evaluate(self) -> None:
-        rules = get_rules(self.channel)
+        rules = get_rules(self.channel, self.preset)
         now = time.time()
 
         # Use profile's adaptive threshold if available

@@ -32,6 +32,7 @@ class WorkerConfig:
     channel: str
     platform_name: str
     user_id: str = ""
+    preset: str = "default"
 
 
 class StreamWorker:
@@ -117,6 +118,7 @@ class StreamWorker:
             on_score=self._on_score,
             profile=self._profile,
             buffer=self._buffer,
+            preset=self._config.preset,
         )
 
         chat_task = asyncio.create_task(self._run_chat(), name=f"chat-{channel}")
@@ -202,7 +204,7 @@ class StreamWorker:
                 self._last_threshold_decay = self._last_profile_save
             elif self._last_profile_save - self._last_threshold_decay >= 3600:
                 from src.trigger.rules import get_rules
-                seed_threshold = get_rules(self._config.channel).trigger_threshold
+                seed_threshold = get_rules(self._config.channel, self._config.preset).trigger_threshold
                 current = self._profile.trigger_threshold
                 decayed = current + 0.1 * (seed_threshold - current)
                 self._profile.trigger_threshold = round(decayed, 2)

@@ -131,7 +131,7 @@ def _atomic_write(path: Path, content: str) -> None:
 _CHANNEL_RE      = re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
 _WEBHOOK_RE      = re.compile(r'^https://discord(?:app)?\.com/api/webhooks/\d+/[\w\-]+$')
 _VALID_PLATFORMS = {"twitch", "youtube"}
-_VALID_PRESETS   = {"default", "fps", "chess", "irl"}
+_VALID_PRESETS   = {"default", "fps", "chess", "irl", "small", "variety", "moba", "casino", "sports"}
 
 def _validate_webhook(url: str) -> str:
     if url and not _WEBHOOK_RE.match(url):
