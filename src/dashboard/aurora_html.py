@@ -986,15 +986,15 @@ function SettingsScreen({ streams, onSaveWebhook }) {
   const [stats, setStats] = useState(null);
   useEffect(()=>{ fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{}); },[]);
   const PRESETS=[
-    {name:'default',     emoji:'🎯', desc:'General-purpose baseline. Good starting point for any stream you\'re not sure about.'},
-    {name:'small',       emoji:'🌱', desc:'Small / growing streamers (<1k viewers). Lower thresholds capture moments that bigger channels\' presets would miss.'},
-    {name:'fps',         emoji:'🎮', desc:'FPS games (Valorant, CS2, Warzone, Apex). Shorter pre-roll, fast-action keywords, tighter cooldown.'},
-    {name:'moba',        emoji:'⚔️', desc:'MOBAs (League of Legends, Dota 2, SMITE). Pentakill, teamfight, and outplay keywords tuned in.'},
-    {name:'chess',       emoji:'♟️', desc:'Chess & strategy games. Very sparse chat — only large eruptions fire. Cooldown extended to avoid duplicates.'},
-    {name:'casino',      emoji:'🎰', desc:'Casino, gambling & case openings. Sensitive to win/drop reactions; captures the moment and its aftermath.'},
-    {name:'irl',         emoji:'🌍', desc:'IRL / outdoor streams. Audio spikes and crowd reactions weighted higher than chat velocity.'},
-    {name:'variety',     emoji:'🎬', desc:'Just Chatting, reaction & variety content. Balanced settings with broad hype-word detection.'},
-    {name:'sports',      emoji:'🏆', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
+    {name:'default',  emoji:'🎯', desc:'General-purpose baseline. Good starting point for any stream type.'},
+    {name:'small',    emoji:'🌱', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
+    {name:'fps',      emoji:'🎮', desc:'FPS games (Valorant, CS2, Warzone, Apex). Shorter pre-roll, fast-action keywords, tighter cooldown.'},
+    {name:'moba',     emoji:'⚔',  desc:'MOBAs (League of Legends, Dota 2, SMITE). Pentakill, teamfight, and outplay keywords tuned in.'},
+    {name:'chess',    emoji:'♟',  desc:'Chess and strategy games. Very sparse chat — only large eruptions fire. Cooldown extended to avoid duplicates.'},
+    {name:'casino',   emoji:'🎰', desc:'Casino, gambling and case-opening streams. Sensitive to win reactions; captures the moment and its aftermath.'},
+    {name:'irl',      emoji:'🌍', desc:'IRL / outdoor streams. Audio spikes and crowd reactions weighted higher than chat velocity.'},
+    {name:'variety',  emoji:'🎬', desc:'Just Chatting, reaction and variety content. Balanced settings with broad hype-word detection.'},
+    {name:'sports',   emoji:'🏆', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
   ];
   const streamsArr = Object.values(streams);
   return (
