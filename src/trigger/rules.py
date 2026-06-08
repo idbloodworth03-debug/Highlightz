@@ -19,125 +19,172 @@ class ChannelRules:
 # Preset profiles for common content types
 PRESETS: dict[str, ChannelRules] = {
     # ── General / unknown ─────────────────────────────────────────────────────
-    "default": ChannelRules(),
-
-    # ── Small / growing streamers (< ~1 000 average viewers) ─────────────────
-    # Low absolute chat volume means spikes are smaller; lower multiplier and
-    # threshold ensure genuine moments still get captured.
-    "small": ChannelRules(
-        velocity_multiplier=1.5,
-        trigger_threshold=48.0,
-        pre_roll=50,
-        post_roll=20,
-        cooldown_seconds=45,
+    # Balanced defaults for unknown content. 40s pre-roll captures most action
+    # windows; 3-minute cooldown prevents clip flooding.
+    "default": ChannelRules(
+        velocity_multiplier=2.0,
+        trigger_threshold=58.0,
+        pre_roll=40,
+        post_roll=15,
+        cooldown_seconds=180,
         extra_keywords=frozenset({
-            "pog", "pogchamp", "clip it", "clip that", "lets go", "let's go",
+            "pog", "pogchamp", "clip it", "clip that", "lets go",
+            "hype", "insane", "crazy", "no way", "omg", "clutch",
+            "w", "based", "goated", "lol", "lmao",
+        }),
+    ),
+
+    # ── Small / growing streamers (< ~500 average viewers) ───────────────────
+    # Chat is sparse; genuine spikes are smaller in absolute terms.
+    # Low multiplier (1.3x) fires on modest relative spikes.
+    # 5-minute cooldown prevents over-clipping thin chat.
+    # Short 20s pre-roll avoids capturing dead air before the moment.
+    "small": ChannelRules(
+        velocity_multiplier=1.3,
+        trigger_threshold=42.0,
+        pre_roll=20,
+        post_roll=12,
+        cooldown_seconds=300,
+        extra_keywords=frozenset({
+            "pog", "pogchamp", "clip it", "clip that", "lets go",
             "hype", "insane", "crazy", "no way", "omg", "bro", "clutch",
-            "w", "l", "based", "goated",
+            "w", "l", "based", "goated", "underrated", "hidden gem",
+            "this guy", "holy", "actually", "bro what",
         }),
     ),
 
     # ── FPS games (Valorant, CS2, Warzone, Apex, Overwatch) ──────────────────
-    # Fast action windows — shorter pre-roll so the clip starts tight on the play.
+    # Chat peaks ~8s after the kill; spike is sharp and brief (15-30s window).
+    # 22s pre-roll captures the full play leading up to the clutch.
+    # 3-minute cooldown — major plays are at least a round apart.
     "fps": ChannelRules(
-        velocity_multiplier=2.5,
-        trigger_threshold=58.0,
-        pre_roll=35,
-        post_roll=15,
-        cooldown_seconds=50,
+        velocity_multiplier=2.0,
+        trigger_threshold=54.0,
+        pre_roll=22,
+        post_roll=12,
+        cooldown_seconds=180,
         extra_keywords=frozenset({
-            "ace", "clutch", "headshot", "spray", "one-tap", "noscope",
+            "ace", "clutch", "headshot", "spray", "one tap", "noscope",
             "no scope", "knife", "flick", "quickscope", "wallbang", "global",
             "ranked", "banger", "outplay", "diff", "goated", "cracked",
-            "insane", "highlight", "multikill",
+            "insane", "multikill", "spraydown", "deagle", "awp", "hs",
+            "top frag", "entry", "retake", "defuse", "eco", "force",
         }),
     ),
 
     # ── Strategy / chess / slow-paced games ──────────────────────────────────
-    # Very sparse chat — only genuine crowd eruptions should fire.
+    # Chat reacts within 1-3s of a blunder/brilliancy — quickest reaction of
+    # all genres. Very sparse baseline: need 4.5x spike to confirm a real event.
+    # 15s pre-roll is enough; 4-minute cooldown prevents multiple clips per game.
     "chess": ChannelRules(
-        velocity_multiplier=4.0,
-        trigger_threshold=65.0,
-        cooldown_seconds=90,
+        velocity_multiplier=4.5,
+        trigger_threshold=58.0,
+        pre_roll=15,
+        post_roll=15,
+        cooldown_seconds=240,
         extra_keywords=frozenset({
             "brilliancy", "blunder", "checkmate", "resign", "trap", "gambit",
             "sac", "sacrifice", "fork", "pin", "skewer", "en passant",
             "promotion", "immortal", "queen", "rook", "knight", "bishop",
-            "endgame", "opening", "theory",
+            "endgame", "opening", "theory", "brilliant", "inaccuracy",
+            "mistake", "0-1", "1-0", "draw", "stalemate", "zugzwang",
+            "desperado", "tactics", "puzzle",
         }),
     ),
 
     # ── IRL / outdoor / in-person streams ────────────────────────────────────
-    # Audio spikes (crowd, environment) matter more than chat velocity.
+    # Audio is the primary signal — crowd noise, altercations, surprises.
+    # Chat reacts 2-5s after the incident; spikes are sharp but brief.
+    # 20s pre-roll captures context; long 15-minute cooldown for organic pacing.
     "irl": ChannelRules(
-        velocity_multiplier=3.0,
-        trigger_threshold=55.0,
-        pre_roll=50,
-        post_roll=20,
-        cooldown_seconds=70,
+        velocity_multiplier=3.5,
+        trigger_threshold=52.0,
+        pre_roll=20,
+        post_roll=18,
+        cooldown_seconds=900,
         extra_keywords=frozenset({
             "omg", "no way", "crazy", "wild", "wtf", "based", "npc",
             "police", "fight", "interaction", "public", "street", "crowd",
-            "arrested", "security", "run", "clip this",
+            "arrested", "security", "run", "clip this", "bro what",
+            "call the cops", "they said", "unscripted", "real life",
+            "someone call", "what is happening", "oh my god",
         }),
     ),
 
     # ── Variety / Just Chatting / reaction streams ────────────────────────────
+    # Silence-burst is the top predictor here: the pause before a punchline.
+    # 10s pre-roll captures the setup; 10-minute cooldown for natural pacing.
     "variety": ChannelRules(
         velocity_multiplier=2.0,
-        trigger_threshold=55.0,
-        pre_roll=45,
-        post_roll=20,
-        cooldown_seconds=60,
+        trigger_threshold=52.0,
+        pre_roll=10,
+        post_roll=15,
+        cooldown_seconds=600,
         extra_keywords=frozenset({
             "lmao", "lmfao", "omg", "wtf", "no way", "pog", "hype",
             "clip it", "clip that", "based", "goated", "crazy", "wild",
             "ratio", "copium", "cope", "w", "l", "bro moment",
+            "chat moment", "the way he", "why is he", "actually said",
+            "i cant", "bruh", "sheesh", "unhinged",
         }),
     ),
 
     # ── MOBA games (League of Legends, Dota 2, SMITE, HotS) ─────────────────
+    # Teamfights build over 30-90s; chat peaks twice (engage + result).
+    # 38s pre-roll starts before the engage; 4-minute cooldown per objective.
     "moba": ChannelRules(
-        velocity_multiplier=2.8,
-        trigger_threshold=58.0,
-        pre_roll=35,
-        post_roll=20,
-        cooldown_seconds=50,
+        velocity_multiplier=2.5,
+        trigger_threshold=56.0,
+        pre_roll=38,
+        post_roll=18,
+        cooldown_seconds=240,
         extra_keywords=frozenset({
             "pentakill", "penta", "quadra", "triple kill", "ace", "baron",
             "dragon", "teamfight", "outplay", "diff", "inting", "gank",
             "smite", "engage", "wombo combo", "rampage", "mega kill",
-            "ultra kill", "divine rapier", "roshan",
+            "ultra kill", "divine rapier", "roshan", "nexus", "ancient",
+            "inhibitor", "ward", "vision", "courier", "buyback", "aegis",
+            "first blood", "shutdown", "stolen", "backdoor",
         }),
     ),
 
     # ── Casino / gambling / case opening streams ──────────────────────────────
+    # Wins are visible on screen; chat reacts within 3-5s.
+    # 18s pre-roll captures the spin/open; 3-minute cooldown prevents spam.
     "casino": ChannelRules(
-        velocity_multiplier=1.8,
-        trigger_threshold=50.0,
-        pre_roll=35,
-        post_roll=25,
-        cooldown_seconds=40,
+        velocity_multiplier=1.5,
+        trigger_threshold=46.0,
+        pre_roll=18,
+        post_roll=20,
+        cooldown_seconds=180,
         extra_keywords=frozenset({
             "jackpot", "big win", "massive win", "bonus", "retrigger",
             "max win", "bust", "profit", "rare", "covert", "contraband",
             "stattrak", "gem", "unbox", "case", "insane drop", "crazy drop",
-            "knife", "gloves", "fade", "doppler",
+            "knife", "gloves", "fade", "doppler", "x multiplier",
+            "feature", "free spins", "scatter", "wild", "rng",
+            "house edge", "all in", "up big", "down bad", "busted",
         }),
     ),
 
     # ── Sports watching / co-streams ─────────────────────────────────────────
+    # Goal/score chat spike is the sharpest of all genres (0-2s after event).
+    # 6s pre-roll only — anything longer captures dead play time.
+    # Post-roll 22s for celebrations; 10-minute cooldown by game pace.
     "sports": ChannelRules(
-        velocity_multiplier=1.8,
+        velocity_multiplier=3.5,
         trigger_threshold=50.0,
-        pre_roll=40,
-        post_roll=25,
-        cooldown_seconds=50,
+        pre_roll=6,
+        post_roll=22,
+        cooldown_seconds=600,
         extra_keywords=frozenset({
             "goal", "score", "touchdown", "home run", "three pointer",
             "slam dunk", "penalty", "foul", "offside", "red card",
             "yellow card", "hat trick", "mvp", "clutch", "overtime",
             "buzzer beater", "game winner", "playoff", "championship",
+            "golazo", "screamer", "howler", "og", "own goal",
+            "var", "checked", "disallowed", "injury time", "last minute",
+            "walk off", "pinch hit", "grand slam", "sack", "interception",
         }),
     ),
 }
