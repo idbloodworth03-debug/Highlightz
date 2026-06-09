@@ -564,7 +564,7 @@ function RdClip({ clip, onApprove, onReject, onOpen, libraryMode }) {
           {time && <span className="rd-tag">{time}</span>}
           {clip.game && <span className="rd-tag">{clip.game}</span>}
           {clip.virality_score>0 && <span className="rd-tag" style={{color:clip.virality_score>=65?'#ff7700':clip.virality_score>=35?'#ffcc00':'var(--fg-2)'}}>
-            {clip.virality_score>=65?'🔥':clip.virality_score>=35?'⚡':'○'} {Math.round(clip.virality_score)}%
+            {Math.round(clip.virality_score)}%
           </span>}
         </div>
         <div className="rd-clip-actions">
@@ -986,15 +986,15 @@ function SettingsScreen({ streams, onSaveWebhook }) {
   const [stats, setStats] = useState(null);
   useEffect(()=>{ fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{}); },[]);
   const PRESETS=[
-    {name:'default',  emoji:'🎯', desc:'General-purpose baseline. Good starting point for any stream type.'},
-    {name:'small',    emoji:'🌱', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
-    {name:'fps',      emoji:'🎮', desc:'FPS games (Valorant, CS2, Warzone, Apex). Shorter pre-roll, fast-action keywords, tighter cooldown.'},
-    {name:'moba',     emoji:'⚔',  desc:'MOBAs (League of Legends, Dota 2, SMITE). Pentakill, teamfight, and outplay keywords tuned in.'},
-    {name:'chess',    emoji:'♟',  desc:'Chess and strategy games. Very sparse chat — only large eruptions fire. Cooldown extended to avoid duplicates.'},
-    {name:'casino',   emoji:'🎰', desc:'Casino, gambling and case-opening streams. Sensitive to win reactions; captures the moment and its aftermath.'},
-    {name:'irl',      emoji:'🌍', desc:'IRL / outdoor streams. Audio spikes and crowd reactions weighted higher than chat velocity.'},
-    {name:'variety',  emoji:'🎬', desc:'Just Chatting, reaction and variety content. Balanced settings with broad hype-word detection.'},
-    {name:'sports',   emoji:'🏆', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
+    {name:'default',  emoji:'', desc:'General-purpose baseline. Good starting point for any stream type.'},
+    {name:'small',    emoji:'', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
+    {name:'fps',      emoji:'', desc:'FPS games (Valorant, CS2, Warzone, Apex). Shorter pre-roll, fast-action keywords, tighter cooldown.'},
+    {name:'moba',     emoji:'',  desc:'MOBAs (League of Legends, Dota 2, SMITE). Pentakill, teamfight, and outplay keywords tuned in.'},
+    {name:'chess',    emoji:'',  desc:'Chess and strategy games. Very sparse chat — only large eruptions fire. Cooldown extended to avoid duplicates.'},
+    {name:'casino',   emoji:'', desc:'Casino, gambling and case-opening streams. Sensitive to win reactions; captures the moment and its aftermath.'},
+    {name:'irl',      emoji:'', desc:'IRL / outdoor streams. Audio spikes and crowd reactions weighted higher than chat velocity.'},
+    {name:'variety',  emoji:'', desc:'Just Chatting, reaction and variety content. Balanced settings with broad hype-word detection.'},
+    {name:'sports',   emoji:'', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
   ];
   const streamsArr = Object.values(streams);
   return (
@@ -1007,7 +1007,7 @@ function SettingsScreen({ streams, onSaveWebhook }) {
           <div className="rd-preset-grid">
             {PRESETS.map(p=><div className="rd-preset" key={p.name}>
               <div className="pn">
-                <span>{p.emoji} {p.name}</span>
+                <span>{p.name}</span>
                 {p.name==='default'&&<span className="badge2">base</span>}
               </div>
               <div className="pr" style={{marginTop:8}}><span style={{color:'var(--fg-2)',fontSize:12,lineHeight:1.5}}>{p.desc}</span></div>
@@ -1124,7 +1124,7 @@ function AccountScreen({ me }) {
           <h3><span className="si" style={{background:'rgba(255,90,120,.14)',color:'var(--danger)'}}><Icon name="trash" size={15}/></span>Danger zone</h3>
           <div className="desc">Permanently delete your account and all data — clips, streams, and settings. This cannot be undone.</div>
           {isSubscribed && <div style={{fontSize:12,color:'var(--pending)',marginBottom:12,padding:'8px 12px',background:'rgba(255,194,92,.08)',borderRadius:10,border:'1px solid rgba(255,194,92,.2)'}}>
-            ⚠️ You have an active subscription. Cancel it via <a href="/billing/portal" style={{color:'var(--pending)'}}>Manage billing</a> before deleting your account so you are not charged again.
+            You have an active subscription. Cancel it via <a href="/billing/portal" style={{color:'var(--pending)'}}>Manage billing</a> before deleting your account so you are not charged again.
           </div>}
           {delErr && <div style={{fontSize:12,color:'var(--danger)',marginBottom:10}}>{delErr}</div>}
           {!confirmDel

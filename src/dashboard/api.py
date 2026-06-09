@@ -1316,15 +1316,15 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <body>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
-  <span class="badge">⚡ Highlightz Pro</span>
+  <span class="badge">Highlightz Pro</span>
   <h1>Never miss a clip again</h1>
   <p class="sub">Hi {username} — activate your subscription to start automatically capturing your best streaming moments.</p>
   <div class="features">
-    <div class="feat"><span class="ic">🎬</span>Automatic clip detection on any stream</div>
-    <div class="feat"><span class="ic">📊</span>Live trigger score analytics</div>
-    <div class="feat"><span class="ic">✂️</span>16:9 + 9:16 vertical crop export</div>
-    <div class="feat"><span class="ic">🔔</span>Discord notifications on approval</div>
-    <div class="feat"><span class="ic">🧠</span>Per-channel AI learning baseline</div>
+    <div class="feat"><span class="ic">›</span>Automatic clip detection on any stream</div>
+    <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
+    <div class="feat"><span class="ic">›</span>16:9 + 9:16 vertical crop export</div>
+    <div class="feat"><span class="ic">›</span>Discord notifications on approval</div>
+    <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
   <a href="/billing/checkout" class="cta">Start Subscription →</a>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
