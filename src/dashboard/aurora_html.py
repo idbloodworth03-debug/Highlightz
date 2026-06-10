@@ -532,7 +532,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   );
 }
 
-function RdClip({ clip, onApprove, onReject, onOpen, libraryMode }) {
+function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
   const score = Math.round(clip.trigger_score||0);
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
@@ -575,6 +575,7 @@ function RdClip({ clip, onApprove, onReject, onOpen, libraryMode }) {
           </> : libraryMode && clip.status==='approved' ? <>
             {dlHref && <a href={dlHref} download={base+'.mp4'} className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="download" size={13}/>Download</a>}
             {dlVHref && <a href={dlVHref} download={base+'_vertical.mp4'} className="rd-btn sm" style={{flex:'0 0 auto',textDecoration:'none',background:'rgba(100,65,165,.35)',color:'#c79bff',borderColor:'rgba(100,65,165,.5)'}} title="9:16 vertical" onClick={e=>e.stopPropagation()}><Icon name="sliders" size={13}/></a>}
+            {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(239,68,68,.1)',color:'var(--danger)',borderColor:'rgba(239,68,68,.2)'}} title="Delete clip" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
@@ -941,7 +942,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, onForce })
   );
 }
 
-function LibraryScreen({ clips, onOpen, onApprove, onReject }) {
+function LibraryScreen({ clips, onOpen, onApprove, onReject, onDelete }) {
   const [f, setF] = useState('all');
   const clipsArr = Object.values(clips)
     .filter(c=>f==='all'||c.status===f)
@@ -960,7 +961,7 @@ function LibraryScreen({ clips, onOpen, onApprove, onReject }) {
       {clipsArr.length===0
         ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>Clips you capture will be archived in the library.</div></div>
         : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
-            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onApprove={onApprove} onReject={onReject} libraryMode/>)}
+            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onApprove={onApprove} onReject={onReject} onDelete={onDelete} libraryMode/>)}
           </div>}
     </div>
   );
@@ -1242,6 +1243,12 @@ function RdApp() {
     await fetch(`/clips/${id}/reject`,{method:'POST'});
     setClips(p=>{const n={...p};delete n[id];return n;});
   };
+  const deleteClip = async(id)=>{
+    if(!confirm('Delete this clip? This cannot be undone.')) return;
+    await fetch(`/clips/${id}/reject`,{method:'POST'});
+    setClips(p=>{const n={...p};delete n[id];return n;});
+    flash('Clip deleted');
+  };
   const saveWebhook = async(channel,url)=>{
     const r=await fetch(`/streams/${encodeURIComponent(channel)}/webhook`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({discord_webhook:url.trim()})});
     if(r.ok){const s=await r.json();setStreams(p=>({...p,[channel]:s}));flash(url.trim()?`Webhook saved for ${channel}`:`Webhook removed for ${channel}`);}
@@ -1253,7 +1260,7 @@ function RdApp() {
   let screen;
   if(route==='review') screen=<ReviewScreen {...{streams,scores,profiles,clips,filter,setFilter,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
-  else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip}}/>;
+  else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else screen=<SettingsScreen {...{streams,onSaveWebhook:saveWebhook}}/>;
 
