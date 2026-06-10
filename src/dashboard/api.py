@@ -14,6 +14,7 @@ Endpoints:
 
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
@@ -35,7 +36,14 @@ try:
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware as _ProxyHeadersMiddleware
     _HAS_PROXY_HEADERS = True
 except ImportError:
+    # Without this, every request appears to come from the Nginx loopback IP,
+    # collapsing per-IP login rate-limiting into a single shared bucket.
     _HAS_PROXY_HEADERS = False
+    _log_boot = logging.getLogger(__name__)
+    _log_boot.critical(
+        "SECURITY: uvicorn ProxyHeadersMiddleware unavailable — real client IPs "
+        "will NOT be honored and login rate-limiting will be ineffective behind Nginx."
+    )
 
 from config.settings import settings
 from src.dashboard.aurora_html import DASHBOARD_HTML
@@ -152,6 +160,17 @@ _WEBHOOK_RE      = re.compile(r'^https://discord(?:app)?\.com/api/webhooks/\d+/[
 _VALID_PLATFORMS = {"twitch", "youtube"}
 _VALID_PRESETS   = {"default", "fps", "chess", "irl", "small", "variety", "moba", "casino", "sports"}
 
+
+def _clean_channel(channel: str) -> str:
+    """Validate and normalize a channel path parameter to match stored keys.
+
+    add_stream stores channels lowercased, so path-param routes must apply the
+    same regex + lowercasing or lookups silently miss (and malformed input is
+    rejected before it reaches the stream/clip pipeline)."""
+    if not _CHANNEL_RE.fullmatch(channel):
+        raise HTTPException(status_code=400, detail="Invalid channel name")
+    return channel.lower()
+
 def _validate_webhook(url: str) -> str:
     if url and not _WEBHOOK_RE.match(url):
         raise HTTPException(status_code=400, detail="Invalid Discord webhook URL")
@@ -218,6 +237,24 @@ def _check_login_rate(ip: str) -> None:
 
 def _clear_login_rate(ip: str) -> None:
     _login_attempts.pop(ip, None)
+
+# Per-user force-clip rate limit: each manual clip enqueues an FFmpeg extract,
+# so an unbounded loop is a CPU DoS on a single-core box.
+_force_clip_hits: dict[str, tuple[int, float]] = {}
+_FORCE_CLIP_MAX    = 6     # max manual clips per user per window
+_FORCE_CLIP_WINDOW = 60    # seconds
+
+def _check_force_clip_rate(uid: str) -> None:
+    now = time.time()
+    stale = [k for k, (count, ts) in list(_force_clip_hits.items()) if now - ts > _FORCE_CLIP_WINDOW]
+    for k in stale:
+        _force_clip_hits.pop(k, None)
+    attempts, window_start = _force_clip_hits.get(uid, (0, now))
+    if now - window_start > _FORCE_CLIP_WINDOW:
+        attempts, window_start = 0, now
+    if attempts >= _FORCE_CLIP_MAX:
+        raise HTTPException(status_code=429, detail="Too many manual clips — wait a moment")
+    _force_clip_hits[uid] = (attempts + 1, window_start)
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -898,6 +935,7 @@ async def add_stream(request: Request, req: StreamRequest):
 @app.patch("/streams/{channel}/webhook", status_code=200)
 async def set_stream_webhook(request: Request, channel: str, body: dict):
     uid        = _current_user_id(request)
+    channel    = _clean_channel(channel)
     stream_key = f"{uid}:{channel}"
     webhook    = _validate_webhook(str(body.get("discord_webhook", "")))
     async with _data_lock:
@@ -911,6 +949,7 @@ async def set_stream_webhook(request: Request, channel: str, body: dict):
 @app.delete("/streams/{channel}", status_code=204)
 async def remove_stream(request: Request, channel: str):
     uid        = _current_user_id(request)
+    channel    = _clean_channel(channel)
     stream_key = f"{uid}:{channel}"
     async with _data_lock:
         if stream_key not in _streams:
@@ -922,23 +961,28 @@ async def remove_stream(request: Request, channel: str):
         await _publish_remove_stream(channel, uid)
 
 
-async def _stop_user_streams(uid: str) -> None:
-    """Stop all stream workers for a user after the grace period."""
-    await asyncio.sleep(_WS_CLEANUP_DELAY)
-    # Re-check: user may have reconnected during the grace period
-    if _ws_clients.get(uid):
-        return
+async def _stop_user_streams_now(uid: str) -> None:
+    """Immediately stop all stream workers for a user (no grace period)."""
     keys = [k for k in _streams if k.startswith(f"{uid}:")]
     if not keys:
         return
-    log.info("ws_cleanup_streams", user=uid, count=len(keys))
+    log.info("stop_user_streams", user=uid, count=len(keys))
     for key in keys:
         stream = _streams.get(key)
         if stream and _publish_remove_stream:
             try:
                 await _publish_remove_stream(stream["channel"], uid)
             except Exception as exc:
-                log.warning("ws_cleanup_remove_failed", channel=stream.get("channel"), error=str(exc))
+                log.warning("stop_user_streams_failed", channel=stream.get("channel"), error=str(exc))
+
+
+async def _stop_user_streams(uid: str) -> None:
+    """Stop all stream workers for a user after the WS-disconnect grace period."""
+    await asyncio.sleep(_WS_CLEANUP_DELAY)
+    # Re-check: user may have reconnected during the grace period
+    if _ws_clients.get(uid):
+        return
+    await _stop_user_streams_now(uid)
 
 
 @app.websocket("/ws")
@@ -999,6 +1043,8 @@ async def serve_clip_file(request: Request, path: str):
 @app.post("/streams/{channel}/force-clip")
 async def force_clip(request: Request, channel: str):
     uid        = _current_user_id(request)
+    channel    = _clean_channel(channel)
+    _check_force_clip_rate(uid)
     stream_key = f"{uid}:{channel}"
     if stream_key not in _streams:
         raise HTTPException(status_code=404, detail="Stream not registered")
@@ -1053,7 +1099,7 @@ async def admin_delete_user(request: Request, user_id: str):
     if user_id == request.session.get("user_id"):
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     from src.auth import users as user_store
-    await _stop_user_streams(user_id)
+    await _stop_user_streams_now(user_id)
     async with _data_lock:
         to_delete = [c for c in list(_clips.values()) if c.get("user_id") == user_id]
         for clip in to_delete:

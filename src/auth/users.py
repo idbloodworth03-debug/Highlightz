@@ -158,7 +158,20 @@ def delete(user_id: str) -> bool:
 
 
 def ensure_admin_exists(admin_password: str) -> None:
-    """On first boot or if no admin exists, seed an admin account."""
+    """On first boot or if no admin exists, seed an admin account.
+
+    Refuses to seed an admin while the dashboard password is still the
+    insecure default — otherwise anyone could log in as admin/highlightz.
+    """
+    from config.settings import _DEFAULT_PASSWORD
+    import logging
+    if admin_password == _DEFAULT_PASSWORD:
+        logging.getLogger(__name__).critical(
+            "SECURITY: refusing to seed admin account because DASHBOARD_PASSWORD "
+            "is the default value. Set a strong DASHBOARD_PASSWORD in .env, then "
+            "restart so the admin account can be created."
+        )
+        return
     users = _load()
     if not users or not any(u.get("is_admin") for u in users):
         if not any(u["username"].lower() == "admin" for u in users):
