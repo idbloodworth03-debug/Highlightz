@@ -31,10 +31,16 @@ class ProfileManager:
         self._user_id = user_id
 
     def _path(self, channel: str) -> Path:
-        return self._profiles_dir / f"{channel.lower()}.json"
+        p = (self._profiles_dir / f"{channel.lower()}.json").resolve()
+        if not p.is_relative_to(self._profiles_dir.resolve()):
+            raise ValueError(f"Invalid channel for profile path: {channel!r}")
+        return p
 
     def _seed_path(self, channel: str) -> Path:
-        return _SEED_DIR / f"{channel.lower()}.json"
+        p = (_SEED_DIR / f"{channel.lower()}.json").resolve()
+        if not p.is_relative_to(_SEED_DIR.resolve()):
+            raise ValueError(f"Invalid channel for seed path: {channel!r}")
+        return p
 
     async def load(self, channel: str, platform: str = "twitch") -> StreamerProfile:
         async with self._lock:

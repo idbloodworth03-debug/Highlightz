@@ -244,6 +244,22 @@ _force_clip_hits: dict[str, tuple[int, float]] = {}
 _FORCE_CLIP_MAX    = 6     # max manual clips per user per window
 _FORCE_CLIP_WINDOW = 60    # seconds
 
+_trim_hits: dict[str, tuple[int, float]] = {}
+_TRIM_MAX    = 10   # max trim ops per user per window
+_TRIM_WINDOW = 60   # seconds
+
+def _check_trim_rate(uid: str) -> None:
+    now = time.time()
+    stale = [k for k, (count, ts) in list(_trim_hits.items()) if now - ts > _TRIM_WINDOW]
+    for k in stale:
+        _trim_hits.pop(k, None)
+    attempts, window_start = _trim_hits.get(uid, (0, now))
+    if now - window_start > _TRIM_WINDOW:
+        attempts, window_start = 0, now
+    if attempts >= _TRIM_MAX:
+        raise HTTPException(status_code=429, detail="Too many trim requests — wait a moment")
+    _trim_hits[uid] = (attempts + 1, window_start)
+
 def _check_force_clip_rate(uid: str) -> None:
     now = time.time()
     stale = [k for k, (count, ts) in list(_force_clip_hits.items()) if now - ts > _FORCE_CLIP_WINDOW]
@@ -778,6 +794,7 @@ async def render_caption(request: Request, clip_id: str, body: dict):
 @app.post("/clips/{clip_id}/trim")
 async def trim_clip(request: Request, clip_id: str, body: dict):
     uid = _current_user_id(request)
+    _check_trim_rate(uid)
     async with _data_lock:
         clip = _clips.get(clip_id)
         if not clip or clip.get("user_id") != uid:
@@ -785,6 +802,8 @@ async def trim_clip(request: Request, clip_id: str, body: dict):
         storage_url = clip.get("storage_url", "")
         if not storage_url:
             raise HTTPException(status_code=400, detail="Clip has no video file yet")
+        if clip.get("caption_rendering"):
+            raise HTTPException(status_code=409, detail="Caption render in progress — try again shortly")
 
     try:
         start = float(body.get("start", 0))
@@ -806,17 +825,18 @@ async def trim_clip(request: Request, clip_id: str, body: dict):
 
     out_path = source.parent / f"{clip_id}_trimmed.mp4"
     try:
-        proc = await asyncio.create_subprocess_exec(
-            settings.ffmpeg_path, "-y",
-            "-i", str(source),
-            "-ss", str(start),
-            "-to", str(end),
-            "-c", "copy",
-            str(out_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        async with _ffmpeg_sem:
+            proc = await asyncio.create_subprocess_exec(
+                settings.ffmpeg_path, "-y",
+                "-i", str(source),
+                "-ss", str(start),
+                "-to", str(end),
+                "-c", "copy",
+                str(out_path),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
         if proc.returncode != 0 or not out_path.exists():
             err = stderr.decode(errors="replace")[-400:]
             log.warning("trim_failed", clip_id=clip_id, ffmpeg_err=err)
@@ -1208,8 +1228,8 @@ async def create_user(request: Request, body: dict):
     make_admin = bool(body.get("is_admin", False))
     if not username or not password:
         raise HTTPException(status_code=400, detail="username and password required")
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if len(password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
     try:
         user = user_store.create(username, password, is_admin=make_admin)
         log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=make_admin)

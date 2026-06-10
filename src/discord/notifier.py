@@ -47,7 +47,7 @@ async def post_clip(webhook_url: str, clip: dict) -> None:
     storage_url = clip.get("storage_url", "")
     clip_id = clip.get("id", "")
 
-    clip_link = f"{_BASE_URL}/clip-file?path={storage_url}" if storage_url else None
+    clip_link = f"{_BASE_URL}/" if clip_id else None
 
     fields = [
         {"name": "Channel", "value": channel, "inline": True},
@@ -65,7 +65,7 @@ async def post_clip(webhook_url: str, clip: dict) -> None:
     }
     if clip_link:
         embed["url"] = clip_link
-        embed["description"] = f"[▶ Watch Clip]({clip_link})"
+        embed["description"] = f"[▶ View in Highlightz]({clip_link})"
 
     payload = {"embeds": [embed]}
 

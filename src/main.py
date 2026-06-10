@@ -115,10 +115,16 @@ async def listen_for_new_streams(redis) -> None:
             payload = json.loads(message["data"])
             channel_name = message["channel"]
             if channel_name == "superclipbot:new_streams":
+                msg_user_id = payload.get("user_id", "")
+                if msg_user_id:
+                    from src.auth import users as _user_store
+                    if not _user_store.get_by_id(msg_user_id):
+                        log.warning("stream_msg_unknown_user", user_id=msg_user_id)
+                        continue
                 await spawn_worker(
                     payload["channel"],
                     payload.get("platform", "twitch"),
-                    payload.get("user_id", ""),
+                    msg_user_id,
                     payload.get("preset", "default"),
                 )
             elif channel_name == "superclipbot:remove_streams":

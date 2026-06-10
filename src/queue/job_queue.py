@@ -88,6 +88,11 @@ class JobQueue:
         if not (0 <= job.post_roll <= 120):
             log.warning("job_queue_bad_post_roll", post_roll=job.post_roll)
             return None
+        for field in ("stream_title", "game", "clip_title"):
+            val = getattr(job, field, "")
+            if len(val) > 500:
+                log.warning("job_queue_field_too_long", field=field)
+                return None
         return job
 
     async def queue_length(self) -> int:
