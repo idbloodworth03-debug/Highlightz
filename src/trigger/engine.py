@@ -81,8 +81,7 @@ class TriggerEngine:
         # Use profile's adaptive threshold if available
         threshold = self.profile.trigger_threshold if self.profile else rules.trigger_threshold
 
-        if now - self._last_trigger < rules.cooldown_seconds:
-            return
+        in_cooldown = now - self._last_trigger < rules.cooldown_seconds
 
         snapshot = self._metrics.snapshot()
         audio_db = await self.buffer.get_audio_level_db() if self.buffer else -100.0
@@ -94,6 +93,9 @@ class TriggerEngine:
         if self.on_score:
             breakdown = {str(s.type).split(".")[-1]: round(s.value, 3) for s in signals}
             await self.on_score(self.channel, round(score, 1), breakdown)
+
+        if in_cooldown:
+            return
 
         if score >= threshold:
             self._last_trigger = now
