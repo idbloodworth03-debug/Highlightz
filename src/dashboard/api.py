@@ -1173,9 +1173,15 @@ async def login(request: Request, password: str = Form(...)):
     return RedirectResponse("/login?error=incorrect_password", status_code=302)
 
 
-@app.get("/logout")
+@app.post("/logout")
 async def logout(request: Request):
     request.session.clear()
+    return RedirectResponse("/login", status_code=302)
+
+
+@app.get("/logout")
+async def logout_get(request: Request):
+    # GET /logout is intentionally a no-op redirect — actual logout requires POST.
     return RedirectResponse("/login", status_code=302)
 
 
@@ -1202,6 +1208,8 @@ async def create_user(request: Request, body: dict):
     make_admin = bool(body.get("is_admin", False))
     if not username or not password:
         raise HTTPException(status_code=400, detail="username and password required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     try:
         user = user_store.create(username, password, is_admin=make_admin)
         log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=make_admin)
@@ -1210,11 +1218,6 @@ async def create_user(request: Request, body: dict):
         raise HTTPException(status_code=409, detail=str(e))
 
 
-@app.get("/admin/users")
-async def list_users(request: Request):
-    _require_admin(request)
-    from src.auth import users as user_store
-    return user_store.get_all()
 
 
 @app.get("/stats")

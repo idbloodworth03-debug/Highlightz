@@ -1104,7 +1104,7 @@ function AccountScreen({ me }) {
                 <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with Discord</div>
               </div>
             </div>
-            <a href="/logout" className="rd-btn sm danger" style={{textDecoration:'none',flexShrink:0}}>Sign out</a>
+            <button className="rd-btn sm danger" style={{flexShrink:0}} onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>Sign out</button>
           </div>
         </div>
 
@@ -1276,10 +1276,10 @@ function RdApp() {
           </button>
         ))}
         <span className="sp"/>
-        <a href="/logout" className="rd-navitem" style={{textDecoration:'none'}} title="Sign out">
+        <button className="rd-navitem" style={{background:'none',border:'none',cursor:'pointer',color:'inherit'}} title="Sign out" onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>
           <span className="ic"><Icon name="logout" size={18}/></span>
           <span>Out</span>
-        </a>
+        </button>
       </nav>
       <div className="rd-frame">
         <header className="rd-header">
