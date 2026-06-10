@@ -4,6 +4,7 @@ Producers (StreamWorker) push ClipJob dicts; workers pop and process them.
 """
 
 import json
+import re as _re
 import uuid
 import asyncio
 from redis.asyncio import Redis, from_url as redis_from_url
@@ -16,6 +17,8 @@ log = structlog.get_logger(__name__)
 
 QUEUE_KEY = "superclipbot:clip_jobs"
 PROCESSING_KEY = "superclipbot:processing"
+
+_CHANNEL_RE_Q = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
 
 
 @dataclass
@@ -71,7 +74,21 @@ class JobQueue:
         if result is None:
             return None
         _, raw = result
-        return ClipJob.from_json(raw)
+        try:
+            job = ClipJob.from_json(raw)
+        except Exception as exc:
+            log.warning("job_queue_invalid_job", error=str(exc))
+            return None
+        if not _CHANNEL_RE_Q.fullmatch(job.channel):
+            log.warning("job_queue_bad_channel", channel=job.channel)
+            return None
+        if not (0 <= job.pre_roll <= 300):
+            log.warning("job_queue_bad_pre_roll", pre_roll=job.pre_roll)
+            return None
+        if not (0 <= job.post_roll <= 120):
+            log.warning("job_queue_bad_post_roll", post_roll=job.post_roll)
+            return None
+        return job
 
     async def queue_length(self) -> int:
         self._require_redis()

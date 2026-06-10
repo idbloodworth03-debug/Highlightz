@@ -88,7 +88,7 @@ class ProfileManager:
                 profiles.append(StreamerProfile.from_dict(data))
             except Exception:
                 pass
-        return profiles
+        return profiles[:200]
 
 
 # Global profile manager (no user isolation) — kept for backwards compat

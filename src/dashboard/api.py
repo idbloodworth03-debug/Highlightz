@@ -850,6 +850,7 @@ async def list_profiles(request: Request):
 
 @app.get("/profiles/{channel}")
 async def get_profile(request: Request, channel: str):
+    channel = _clean_channel(channel)
     from src.profiles.manager import get_profile_manager
     uid     = _current_user_id(request)
     pm      = get_profile_manager(uid)

@@ -7,6 +7,7 @@ When a clip is triggered, the relevant segments are concatenated into an MP4.
 """
 
 import asyncio
+import re as _re
 import subprocess
 import sys
 import time
@@ -21,6 +22,8 @@ log = structlog.get_logger(__name__)
 
 SEGMENT_DURATION = 2  # seconds per .ts segment
 
+_CHAN_RE = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
+
 
 @dataclass
 class BufferState:
@@ -33,6 +36,8 @@ class BufferState:
 
 class VideoBuffer:
     def __init__(self, channel: str, stream_url: str) -> None:
+        if not _CHAN_RE.fullmatch(channel):
+            raise ValueError(f"Invalid channel name for VideoBuffer: {channel!r}")
         self.channel = channel
         self.stream_url = stream_url
         self.buffer_dir = Path(settings.local_storage_path) / "buffers" / channel
