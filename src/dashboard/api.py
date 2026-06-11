@@ -60,7 +60,8 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies"}
+_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
+                  "/opt-out", "/opt-out/confirm", "/opt-out/success"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -357,13 +358,15 @@ def _current_user_id(request: Request) -> str:
 # ── Twitch OAuth ──────────────────────────────────────────────────────────────
 
 @app.get("/auth/twitch")
-async def twitch_login(request: Request):
+async def twitch_login(request: Request, intent: str = ""):
     """Redirect the browser to Twitch's OAuth consent screen."""
     from src.auth.twitch_oauth import authorization_url
     if not settings.twitch_client_id:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
     state = secrets.token_urlsafe(16)
     request.session["oauth_state"] = state
+    if intent == "optout":
+        request.session["optout_intent"] = True
     return RedirectResponse(authorization_url(state))
 
 
@@ -381,6 +384,14 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     except Exception as exc:
         log.warning("twitch_oauth_failed", error=str(exc))
         return RedirectResponse("/login?error=twitch_failed")
+
+    # Opt-out flow: verify identity then redirect to confirmation page
+    if request.session.pop("optout_intent", False):
+        request.session["optout_twitch_id"]      = tuser["id"]
+        request.session["optout_twitch_login"]   = tuser["login"]
+        request.session["optout_display_name"]   = tuser.get("display_name") or tuser["login"]
+        request.session["optout_avatar"]         = tuser.get("avatar_url", "")
+        return RedirectResponse("/opt-out/confirm")
 
     is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
     user = user_store.upsert_twitch_user(
@@ -461,6 +472,79 @@ async def delete_account(request: Request):
     request.session.clear()
     log.info("account_deleted", user_id=uid)
     return {"status": "deleted"}
+
+
+# ── Streamer opt-out ──────────────────────────────────────────────────────────
+
+@app.get("/opt-out", response_class=HTMLResponse)
+async def optout_landing():
+    return HTMLResponse(_OPTOUT_LANDING_HTML)
+
+
+@app.get("/opt-out/confirm", response_class=HTMLResponse)
+async def optout_confirm_page(request: Request):
+    import html as _html
+    twitch_id    = request.session.get("optout_twitch_id")
+    twitch_login = request.session.get("optout_twitch_login", "")
+    display_name = request.session.get("optout_display_name", twitch_login)
+    avatar       = request.session.get("optout_avatar", "")
+    if not twitch_id:
+        return RedirectResponse("/opt-out")
+    avatar_section = (
+        f'<img class="avatar" src="{_html.escape(avatar)}" alt="">'
+        if avatar else
+        '<div class="avatar-placeholder">🎮</div>'
+    )
+    html_out = (
+        _OPTOUT_CONFIRM_HTML
+        .replace("{avatar_section}", avatar_section)
+        .replace("{display_name}",  _html.escape(display_name))
+        .replace("{twitch_login}",  _html.escape(twitch_login))
+    )
+    return HTMLResponse(html_out)
+
+
+@app.post("/opt-out/confirm")
+async def optout_confirm_submit(request: Request):
+    twitch_id    = request.session.pop("optout_twitch_id",    None)
+    twitch_login = request.session.pop("optout_twitch_login", None)
+    display_name = request.session.pop("optout_display_name", None)
+    request.session.pop("optout_avatar", None)
+    if not twitch_id or not twitch_login:
+        return RedirectResponse("/opt-out", status_code=302)
+    from src.auth.optout import opt_out
+    opt_out(twitch_id, twitch_login, display_name or twitch_login)
+    log.info("streamer_opted_out", twitch_id=twitch_id, login=twitch_login)
+    return RedirectResponse("/opt-out/success", status_code=302)
+
+
+@app.get("/opt-out/success", response_class=HTMLResponse)
+async def optout_success():
+    return HTMLResponse(_OPTOUT_SUCCESS_HTML)
+
+
+@app.get("/admin/optout", response_class=HTMLResponse)
+async def admin_optout_page(request: Request):
+    _require_admin(request)
+    return HTMLResponse(_ADMIN_OPTOUT_HTML)
+
+
+@app.get("/admin/optout/list")
+async def admin_optout_list(request: Request):
+    _require_admin(request)
+    from src.auth.optout import get_all
+    return get_all()
+
+
+@app.delete("/admin/optout/{twitch_id}")
+async def admin_optout_remove(request: Request, twitch_id: str):
+    _require_admin(request)
+    from src.auth.optout import remove_opt_out
+    removed = remove_opt_out(twitch_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Not found")
+    log.info("optout_removed_by_admin", twitch_id=twitch_id, by=request.session.get("user_id"))
+    return {"ok": True}
 
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
@@ -665,6 +749,9 @@ async def list_streams(request: Request):
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
+    from src.auth.optout import is_opted_out
+    if req.platform == "twitch" and is_opted_out(req.channel):
+        raise HTTPException(status_code=403, detail=f"{req.channel} has opted out of clipping on Highlightz")
     stream_key = f"{uid}:{req.channel}"
     async with _data_lock:
         if stream_key in _streams:
@@ -1093,7 +1180,8 @@ LOGIN_HTML = """<!DOCTYPE html>
 </div>
 <div class="footer">
   &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
-  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a>
+  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a><br>
+  <a href="/opt-out">Streamer Opt-Out</a>
 </div>
 </body>
 </html>"""
@@ -1523,6 +1611,11 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="section-head">Users</div>
     <div id="table-wrap" class="loading">Loading...</div>
   </div>
+  <div class="section" style="margin-top:16px">
+    <div class="section-head">Opt-Out Registry</div>
+    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Streamers who have verified and opted out of being clipped.</p>
+    <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -1665,5 +1758,166 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
   <p>The page you're looking for doesn't exist or was moved.</p>
   <a href="/">&#8592; Back to dashboard</a>
 </div>
+</body>
+</html>"""
+
+# ── Opt-out HTML ───────────────────────────────────────────────────────────────
+
+_OPTOUT_BASE_STYLE = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 500px at 50% 20%,rgba(168,85,247,.15),transparent 60%)}
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:40px 36px;max-width:480px;width:100%;text-align:center}
+.logo{font-size:22px;font-weight:800;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:28px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
+p{font-size:14px;color:#9c9caa;line-height:1.6;margin-bottom:20px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;transition:.15s}
+.btn-twitch{background:#9146ff;color:#fff}
+.btn-twitch:hover{background:#7c39d4}
+.btn-confirm{background:linear-gradient(135deg,#f943ff,#a855f7);color:#fff;width:100%;justify-content:center;font-size:15px;padding:14px}
+.btn-confirm:hover{opacity:.9}
+.btn-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#9c9caa;font-size:13px}
+.btn-back:hover{background:rgba(255,255,255,.1);color:#f6f6f9}
+.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 16px;display:block;border:2px solid rgba(168,85,247,.4)}
+.avatar-placeholder{width:72px;height:72px;border-radius:50%;background:rgba(168,85,247,.2);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:28px}
+.name{font-size:18px;font-weight:700;margin-bottom:4px}
+.handle{font-size:13px;color:#9c9caa;margin-bottom:24px}
+.warning{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:12px 16px;font-size:13px;color:#fca5a5;margin-bottom:24px;text-align:left}
+.success-icon{font-size:52px;margin-bottom:16px}
+.steps{text-align:left;margin-bottom:24px}
+.steps li{font-size:13px;color:#9c9caa;padding:5px 0;padding-left:20px;position:relative;line-height:1.5}
+.steps li::before{content:'✓';position:absolute;left:0;color:#a855f7}
+.divider{height:1px;background:rgba(255,255,255,.07);margin:20px 0}
+"""
+
+_OPTOUT_LANDING_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streamer Opt-Out — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>""" + _OPTOUT_BASE_STYLE + """</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Highlightz</div>
+  <h1>Streamer Opt-Out</h1>
+  <p>Highlightz lets users automatically create clips of live streams using Twitch's official Clips API. If you are a streamer and do not want your channel to be clipped through this platform, you can opt out below.</p>
+  <ul class="steps">
+    <li>Verify your identity by signing in with Twitch</li>
+    <li>Confirm your opt-out on the next screen</li>
+    <li>Your channel will be permanently blacklisted — no users will be able to add it</li>
+  </ul>
+  <div class="divider"></div>
+  <p style="font-size:13px;margin-bottom:20px">You must be the actual owner of the Twitch channel. We verify this through Twitch's official login — you cannot opt out someone else's channel.</p>
+  <a href="/auth/twitch?intent=optout" class="btn btn-twitch">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
+    Verify with Twitch
+  </a>
+  <div class="divider"></div>
+  <p style="font-size:12px;color:#6b6b7b;margin-bottom:0">Already a Highlightz user? <a href="/login" style="color:#a855f7;text-decoration:none">Log in here</a></p>
+</div>
+</body>
+</html>"""
+
+_OPTOUT_CONFIRM_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confirm Opt-Out — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>""" + _OPTOUT_BASE_STYLE + """</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Highlightz</div>
+  <h1>Confirm Opt-Out</h1>
+  <p>You are opting out the following channel:</p>
+  {avatar_section}
+  <div class="name">{display_name}</div>
+  <div class="handle">@{twitch_login}</div>
+  <div class="warning">
+    <strong>This is permanent.</strong> Once confirmed, no Highlightz user will be able to add <strong>@{twitch_login}</strong> as a monitored channel. Any existing monitoring will be blocked on the next attempt.
+  </div>
+  <form method="POST" action="/opt-out/confirm">
+    <button type="submit" class="btn btn-confirm">Yes, opt out @{twitch_login}</button>
+  </form>
+  <div style="margin-top:14px">
+    <a href="/opt-out" class="btn btn-back">Cancel</a>
+  </div>
+</div>
+</body>
+</html>"""
+
+_OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opted Out — Highlightz</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>""" + _OPTOUT_BASE_STYLE + """</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Highlightz</div>
+  <div class="success-icon">✅</div>
+  <h1>You've been opted out</h1>
+  <p>Your channel has been added to the Highlightz blacklist. No users on this platform will be able to monitor or clip your stream going forward.</p>
+  <p style="font-size:13px">If you change your mind in the future, contact <a href="mailto:support@highlightz.app" style="color:#a855f7;text-decoration:none">support@highlightz.app</a> to be removed.</p>
+</div>
+</body>
+</html>"""
+
+_ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opt-Out Registry — Highlightz Admin</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px}
+body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 0,rgba(168,85,247,.12),transparent 60%)}
+h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.sub{font-size:13px;color:#9c9caa;margin-bottom:24px}
+.back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#a855f7;text-decoration:none;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;color:#9c9caa;border-bottom:1px solid rgba(255,255,255,.08);font-weight:500}
+td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.02)}
+.btn-remove{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-remove:hover{background:rgba(239,68,68,.2)}
+.empty{color:#9c9caa;font-size:14px;padding:32px 0;text-align:center}
+.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:#f6f6f9;padding:12px 20px;border-radius:12px;font-size:13px;opacity:0;transition:.3s;z-index:9999}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<a href="/admin" class="back">&#8592; Admin panel</a>
+<h1>Streamer Opt-Out Registry</h1>
+<div class="sub">Streamers who have verified and opted out of being clipped on Highlightz.</div>
+<div id="wrap"><div class="empty">Loading...</div></div>
+<div class="toast" id="toast"></div>
+<script>
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
+async function api(url,method='GET'){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'}});if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.status)}return r.json()}
+function fmt(ts){if(!ts)return'—';return new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+async function remove(id,name){
+  if(!confirm('Remove @'+name+' from the opt-out list? They will be clippable again.'))return;
+  try{await api('/admin/optout/'+id,'DELETE');toast('@'+name+' removed');load()}
+  catch(e){toast('Error: '+e.message)}
+}
+async function load(){
+  const items=await api('/admin/optout/list');
+  if(!items.length){document.getElementById('wrap').innerHTML='<div class="empty">No streamers have opted out yet.</div>';return}
+  const rows=items.map(i=>'<tr><td><strong>'+i.display_name+'</strong><br><span style="color:#9c9caa;font-size:12px">@'+i.twitch_login+'</span></td><td style="color:#9c9caa">'+i.twitch_id+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
+  document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted Out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+load();
+</script>
 </body>
 </html>"""
