@@ -406,6 +406,9 @@ const initials   = s => (s||'').slice(0,2).toUpperCase();
 const fmtTime    = ts => ts ? new Date(ts*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : '';
 const fmtDur     = s  => s  ? Math.round(s)+'s' : '';
 const thumbFor   = ch => { let h=0; for(const c of (ch||'')) h=(h*31+c.charCodeAt(0))%360; return `linear-gradient(135deg,hsl(${h} 55% 22%),hsl(${(h+42)%360} 60% 11%))`; };
+// Twitch hands us a small ~480px preview; request a 1280x720 variant for crisp
+// cards. If that size 404s, the <img> onError falls back to the original URL.
+const hiResThumb = url => (url||'').replace(/-preview-\d+x\d+\./, '-preview-1280x720.');
 
 function RdScoreChart({ data }) {
   const w=600, h=150, pad=6;
@@ -519,7 +522,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
     <div className="rd-clip">
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
         {thumb
-          ? <img src={thumb} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          ? <img src={hiResThumb(thumb)} alt="" onError={e=>{if(e.target.src!==thumb)e.target.src=thumb;}} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
@@ -607,7 +610,7 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
           {embedSrc
             ? <iframe src={embedSrc} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : thumb
-              ? <><img src={thumb} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<a href={twHref} target="_blank" rel="noopener" className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></a>}</>
+              ? <><img src={hiResThumb(thumb)} alt="" onError={e=>{if(e.target.src!==thumb)e.target.src=thumb;}} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<a href={twHref} target="_blank" rel="noopener" className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></a>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
