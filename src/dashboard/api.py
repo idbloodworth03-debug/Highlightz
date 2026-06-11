@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -245,22 +245,6 @@ _force_clip_hits: dict[str, tuple[int, float]] = {}
 _FORCE_CLIP_MAX    = 6     # max manual clips per user per window
 _FORCE_CLIP_WINDOW = 60    # seconds
 
-_trim_hits: dict[str, tuple[int, float]] = {}
-_TRIM_MAX    = 10   # max trim ops per user per window
-_TRIM_WINDOW = 60   # seconds
-
-def _check_trim_rate(uid: str) -> None:
-    now = time.time()
-    stale = [k for k, (count, ts) in list(_trim_hits.items()) if now - ts > _TRIM_WINDOW]
-    for k in stale:
-        _trim_hits.pop(k, None)
-    attempts, window_start = _trim_hits.get(uid, (0, now))
-    if now - window_start > _TRIM_WINDOW:
-        attempts, window_start = 0, now
-    if attempts >= _TRIM_MAX:
-        raise HTTPException(status_code=429, detail="Too many trim requests — wait a moment")
-    _trim_hits[uid] = (attempts + 1, window_start)
-
 def _check_force_clip_rate(uid: str) -> None:
     now = time.time()
     stale = [k for k, (count, ts) in list(_force_clip_hits.items()) if now - ts > _FORCE_CLIP_WINDOW]
@@ -274,53 +258,6 @@ def _check_force_clip_rate(uid: str) -> None:
     _force_clip_hits[uid] = (attempts + 1, window_start)
 
 # ── Helper ────────────────────────────────────────────────────────────────────
-
-# Limit heavy FFmpeg re-encodes (caption, watermark, trim) to one at a time
-# so they don't compete with clip extraction on a single-core server.
-_ffmpeg_sem = asyncio.Semaphore(1)
-
-
-def _ffmpeg_escape(s: str) -> str:
-    """Escape a string for safe use in an FFmpeg drawtext filter option value."""
-    return str(s).replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
-
-_FONT = str(Path(__file__).parent / "static" / "fonts" / "Anton-Regular.ttf")
-
-async def _burn_watermark(source: Path) -> None:
-    """Burn a semi-transparent 'Highlightz' text watermark into the bottom-right corner."""
-    out = source.parent / (source.stem + "_wm.mp4")
-    vf = (
-        "drawtext=text='Highlightz'"
-        f":fontfile={_FONT}"
-        ":fontsize=42:fontcolor=0xc79bff@0.65"
-        ":x=w-text_w-22:y=h-text_h-22"
-        ":shadowcolor=0x2a0045@0.7:shadowx=3:shadowy=3"
-    )
-    async with _ffmpeg_sem:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                settings.ffmpeg_path, "-y",
-                "-threads", "0",
-                "-i", str(source),
-                "-vf", vf,
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-c:a", "copy",
-                str(out),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-            if proc.returncode != 0 or not out.exists():
-                log.warning("watermark_failed", ffmpeg_err=stderr.decode(errors="replace")[-600:])
-                out.unlink(missing_ok=True)
-                return
-            source.unlink(missing_ok=True)
-            out.rename(source)
-            log.info("watermark_applied", path=str(source))
-        except Exception as exc:
-            log.warning("watermark_error", error=str(exc))
-            out.unlink(missing_ok=True)
-
 
 def _delete_clip_file(clip: dict) -> None:
     url = clip.get("storage_url", "")
@@ -628,29 +565,6 @@ async def approve_clip(request: Request, clip_id: str):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
-    # Burn watermark in background — doesn't block the approve response
-    # Read storage_url inside a lock snapshot to avoid a race with deletion.
-    async with _data_lock:
-        snap = _clips.get(clip_id, {})
-        storage_url  = snap.get("storage_url", "")
-        already_done = snap.get("watermarked", False)
-    if storage_url and not already_done:
-        source = Path(storage_url)
-        if source.exists():
-            async def _wm_task():
-                await _burn_watermark(source)
-                async with _data_lock:
-                    if clip_id in _clips:
-                        _clips[clip_id]["watermarked"] = True
-                        _clips[clip_id]["watermarked_at"] = time.time()
-                        _save_clips()
-                updated_wm = _clips.get(clip_id)
-                if updated_wm:
-                    await broadcast({"event": "clip_updated", "clip": updated_wm}, user_id=uid)
-            task = asyncio.create_task(_wm_task())
-            task.add_done_callback(
-                lambda t: t.exception() and log.warning("watermark_task_failed", exc=str(t.exception()))
-            )
     stream_key = f"{uid}:{clip['channel']}"
     stream     = _streams.get(stream_key)
     webhook    = stream.get("discord_webhook", "") if stream else ""
@@ -683,185 +597,6 @@ async def reject_clip(request: Request, clip_id: str):
     return {"status": "deleted", "clip_id": clip_id}
 
 
-@app.post("/clips/{clip_id}/caption")
-async def render_caption(request: Request, clip_id: str, body: dict):
-    uid = _current_user_id(request)
-    async with _data_lock:
-        clip = _clips.get(clip_id)
-        if not clip or clip.get("user_id") != uid:
-            raise HTTPException(status_code=404, detail="Clip not found")
-        storage_url = clip.get("storage_url", "")
-        if not storage_url:
-            raise HTTPException(status_code=400, detail="Clip has no video file yet")
-        if clip.get("caption_rendering"):
-            raise HTTPException(status_code=409, detail="Caption render already in progress")
-
-    text = str(body.get("text", "")).strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Caption text is required")
-    if len(text) > 200:
-        raise HTTPException(status_code=400, detail="Caption must be 200 characters or less")
-
-    source = Path(storage_url)
-    if not source.exists():
-        raise HTTPException(status_code=404, detail="Clip file not found on disk")
-
-    # Mark as rendering so the UI can show progress
-    async with _data_lock:
-        if clip_id in _clips:
-            _clips[clip_id]["caption_rendering"] = True
-            _save_clips()
-    await broadcast({"event": "clip_updated", "clip": _clips.get(clip_id, clip)}, user_id=uid)
-    log.info("caption_render_start", clip_id=clip_id, source=str(source))
-
-    async def _do_render():
-        tmp_txt  = source.parent / f"{clip_id}_caption.txt"
-        out_path = source.parent / f"{clip_id}_captioned.mp4"
-
-        async def _fail(reason: str) -> None:
-            """Clear caption_rendering in both DB and frontend, then send failure event."""
-            async with _data_lock:
-                if clip_id in _clips:
-                    _clips[clip_id].pop("caption_rendering", None)
-                    _save_clips()
-            cleared = _clips.get(clip_id, clip)
-            # Send clip_updated first so the frontend clears the spinner,
-            # then send caption_failed so the UI can show the error message.
-            await broadcast({"event": "clip_updated", "clip": cleared}, user_id=uid)
-            await broadcast({"event": "caption_failed", "clip_id": clip_id, "detail": reason}, user_id=uid)
-
-        try:
-            tmp_txt.write_text(text, encoding="utf-8")
-            # scale=1280:-2 downsizes 1080p→720p before captioning (half the pixels,
-            # ~3x faster encode on a single CPU) while keeping the caption legible.
-            vf = (
-                f"drawtext=textfile='{_ffmpeg_escape(str(tmp_txt))}'"
-                f":fontfile='{_ffmpeg_escape(str(_FONT))}'"
-                f":fontsize=62:fontcolor=black"
-                f":x=(w-text_w)/2:y=52"
-                f":box=1:boxcolor=white:boxborderw=18"
-            )
-            ffmpeg_args = [
-                settings.ffmpeg_path, "-y",
-                "-threads", "0",
-                "-i", str(source),
-                "-vf", vf,
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                "-c:a", "copy",
-                str(out_path),
-            ]
-            log.info("caption_ffmpeg_cmd", clip_id=clip_id, args=" ".join(ffmpeg_args))
-            async with _ffmpeg_sem:
-                proc = await asyncio.create_subprocess_exec(
-                    *ffmpeg_args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                log.info("caption_ffmpeg_pid", clip_id=clip_id, pid=proc.pid)
-                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-            err_txt = stderr.decode(errors="replace")
-            if proc.returncode != 0 or not out_path.exists():
-                log.warning("caption_render_failed", clip_id=clip_id,
-                            returncode=proc.returncode, ffmpeg_err=err_txt[-1200:])
-                await _fail("Render failed — see server logs")
-                return
-            log.info("caption_ffmpeg_ok", clip_id=clip_id, stderr_tail=err_txt[-200:])
-            source.unlink(missing_ok=True)
-            out_path.rename(source)
-            log.info("caption_rendered", clip_id=clip_id)
-        except asyncio.TimeoutError:
-            log.warning("caption_render_timeout", clip_id=clip_id)
-            out_path.unlink(missing_ok=True)
-            await _fail("Render timed out")
-            return
-        except Exception as exc:
-            log.warning("caption_render_error", clip_id=clip_id, error=str(exc))
-            out_path.unlink(missing_ok=True)
-            await _fail(str(exc))
-            return
-        finally:
-            tmp_txt.unlink(missing_ok=True)
-
-        async with _data_lock:
-            if clip_id in _clips:
-                _clips[clip_id]["caption"] = text
-                _clips[clip_id]["caption_at"] = time.time()
-                _clips[clip_id].pop("caption_rendering", None)
-                _save_clips()
-        updated = _clips.get(clip_id, clip)
-        await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
-
-    task = asyncio.create_task(_do_render())
-    task.add_done_callback(lambda t: t.exception() and log.warning("caption_task_exc", error=str(t.exception())))
-    return {"status": "rendering", "clip_id": clip_id}
-
-
-@app.post("/clips/{clip_id}/trim")
-async def trim_clip(request: Request, clip_id: str, body: dict):
-    uid = _current_user_id(request)
-    _check_trim_rate(uid)
-    async with _data_lock:
-        clip = _clips.get(clip_id)
-        if not clip or clip.get("user_id") != uid:
-            raise HTTPException(status_code=404, detail="Clip not found")
-        storage_url = clip.get("storage_url", "")
-        if not storage_url:
-            raise HTTPException(status_code=400, detail="Clip has no video file yet")
-        if clip.get("caption_rendering"):
-            raise HTTPException(status_code=409, detail="Caption render in progress — try again shortly")
-
-    try:
-        start = float(body.get("start", 0))
-        end   = float(body.get("end", 0))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="start and end must be numbers")
-
-    if start < 0 or end <= 0 or end <= start:
-        raise HTTPException(status_code=400, detail="end must be greater than start, both non-negative")
-    if (end - start) < 1:
-        raise HTTPException(status_code=400, detail="Trimmed clip must be at least 1 second long")
-    clip_dur = clip.get("duration_seconds", 0)
-    if clip_dur > 0 and end > clip_dur + 1:
-        raise HTTPException(status_code=400, detail=f"end ({end}s) exceeds clip duration ({clip_dur:.1f}s)")
-
-    source   = Path(storage_url)
-    if not source.exists():
-        raise HTTPException(status_code=404, detail="Clip file not found on disk")
-
-    out_path = source.parent / f"{clip_id}_trimmed.mp4"
-    try:
-        async with _ffmpeg_sem:
-            proc = await asyncio.create_subprocess_exec(
-                settings.ffmpeg_path, "-y",
-                "-i", str(source),
-                "-ss", str(start),
-                "-to", str(end),
-                "-c", "copy",
-                str(out_path),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode != 0 or not out_path.exists():
-            err = stderr.decode(errors="replace")[-400:]
-            log.warning("trim_failed", clip_id=clip_id, ffmpeg_err=err)
-            raise HTTPException(status_code=500, detail="Trim failed — check FFmpeg logs")
-    except asyncio.TimeoutError:
-        out_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail="Trim timed out")
-
-    source.unlink(missing_ok=True)
-    out_path.rename(source)
-    log.info("clip_trimmed", clip_id=clip_id, start=start, end=end)
-
-    new_duration = end - start
-    async with _data_lock:
-        if clip_id in _clips:
-            _clips[clip_id]["duration_seconds"] = new_duration
-            _save_clips()
-    updated = _clips.get(clip_id, clip)
-    await broadcast({"event": "clip_updated", "clip": updated}, user_id=uid)
-    return updated
 
 
 @app.get("/profiles")
@@ -1046,24 +781,6 @@ async def websocket_endpoint(ws: WebSocket):
                 _cleanup_tasks[uid] = task
                 task.add_done_callback(lambda t: _cleanup_tasks.pop(uid, None))
         log.info("ws_disconnected", user=uid)
-
-
-@app.get("/clip-file")
-async def serve_clip_file(request: Request, path: str):
-    uid        = _current_user_id(request)
-    clips_root = Path(settings.local_storage_path).resolve()
-    p          = Path(path).resolve()
-    if not p.is_relative_to(clips_root) or p.suffix != ".mp4":
-        raise HTTPException(status_code=404, detail="Clip file not found")
-    # Verify ownership inside the lock so deletion can't race the check.
-    async with _data_lock:
-        stem = p.stem
-        clip = _clips.get(stem)
-        if not clip or clip.get("user_id") != uid:
-            raise HTTPException(status_code=403, detail="Access denied")
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="Clip file not found")
-    return FileResponse(str(p), media_type="video/mp4")
 
 
 @app.post("/streams/{channel}/force-clip")

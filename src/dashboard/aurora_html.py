@@ -279,25 +279,6 @@ button{font-family:inherit;cursor:pointer}
 .rd-sigbar .sf{height:100%;border-radius:99px;background:var(--grad)}
 .rd-modal-actions{display:flex;gap:10px;margin-top:8px}
 .rd-modal-actions .rd-btn{flex:1}
-.rd-modal-tabs{display:flex;gap:2px;padding:0 22px;border-bottom:1px solid var(--hair);background:rgba(0,0,0,.15)}
-.rd-modal-tab{padding:10px 18px;font-size:13px;font-weight:600;color:var(--fg-3);border:none;background:none;
-  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}
-.rd-modal-tab:hover{color:var(--fg-2)}
-.rd-modal-tab.active{color:var(--fg);border-bottom-color:var(--acc)}
-.rd-edit-section{margin-top:18px;padding-top:16px;border-top:1px solid var(--hair)}
-.rd-edit-section:first-child{margin-top:0;padding-top:0;border-top:none}
-.rd-edit-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:10px}
-.rd-edit-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.rd-time-input{background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:8px;
-  color:var(--fg);font-size:14px;padding:8px 12px;width:90px;outline:none;font-family:monospace;text-align:center}
-.rd-time-input:focus{border-color:var(--acc);background:rgba(255,255,255,.08)}
-.rd-edit-hint{font-size:11px;color:var(--fg-3);margin-top:6px}
-.rd-caption-box textarea{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);
-  border-radius:10px;color:var(--fg);font-size:14px;padding:10px 12px;resize:vertical;
-  min-height:70px;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box}
-.rd-caption-box textarea:focus{border-color:var(--acc);background:rgba(255,255,255,.07)}
-.rd-caption-box textarea::placeholder{color:var(--fg-3)}
-.rd-caption-charcount{font-size:11px;color:var(--fg-3);text-align:right;margin-top:4px}
 .rd-meta-row{display:flex;justify-content:space-between;font-size:13px;padding:9px 0;border-bottom:1px solid var(--hair)}
 .rd-meta-row:last-child{border-bottom:none}
 .rd-meta-row .mk{color:var(--fg-2)}
@@ -365,14 +346,9 @@ button{font-family:inherit;cursor:pointer}
   .rd-modal-bg{padding:0;align-items:flex-end}
   .rd-modal{width:100%;max-height:92dvh;border-radius:22px 22px 0 0;overflow:hidden}
   .rd-modal-media{padding-bottom:56.25%}
-  .rd-modal-tabs{padding:0 16px}
-  .rd-modal-tab{padding:9px 12px;font-size:12px}
   .rd-modal-body{flex:1;min-height:0;overflow-y:auto;padding:14px 16px}
   .rd-modal-grid{grid-template-columns:1fr;gap:16px}
   .rd-modal-actions{flex-wrap:wrap}
-  .rd-edit-section{margin-top:14px;padding-top:12px}
-  .rd-edit-row{gap:8px}
-  .rd-time-input{width:76px;font-size:13px}
 
   /* Header: hide username text, just show avatar on narrow screens */
   .rd-user-chip .uc-name{display:none}
@@ -604,7 +580,7 @@ function parseSecs(str) {
   return parseFloat(str)||0;
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject, onCaptionRendered, captionFailedId }) {
+function ClipModal({ clip, onClose, onApprove, onReject }) {
   if (!clip) return null;
   const score = Math.round(clip.trigger_score||0);
   const dur = fmtDur(clip.duration_seconds);
@@ -1037,7 +1013,6 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
-  const [captionFailedId, setCaptionFailedId] = useState(null);
   const toastTimer = useRef(null);
 
   const flash = useCallback(msg => {
@@ -1069,9 +1044,7 @@ function RdApp() {
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));
           setModalClip(prev=>prev&&prev.id===msg.clip.id?msg.clip:prev);
-          if(msg.clip&&!msg.clip.caption_rendering&&msg.clip.caption){flash('Caption burned in!');}
         }
-        else if(msg.event==='caption_failed'){flash('Caption failed — check server logs');setCaptionFailedId(msg.clip_id);}
         else if(msg.event==='clip_removed'){setClips(p=>{const n={...p};delete n[msg.clip_id];return n;});}
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
@@ -1173,10 +1146,7 @@ function RdApp() {
         <main className="rd-screen">{screen}</main>
       </div>
       <RdToast msg={toast}/>
-      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
-        captionFailedId={captionFailedId}
-        onCaptionRendered={updated=>{setClips(p=>({...p,[updated.id]:updated}));setModalClip(updated);flash('Caption burned in!');}}
-      />
+      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}/>
     </div>
   );
 }
