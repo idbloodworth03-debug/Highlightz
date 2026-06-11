@@ -48,6 +48,7 @@ class TriggerEngine:
         self._last_trigger: float = 0.0
         self._running = False
         self._audio_baseline_db: float = -30.0
+        self._audio_peak_db: float = -100.0
         self._audio_samples: int = 0
         self._sub_raid_active: bool = False
         self._sub_raid_time: float = 0.0
@@ -97,6 +98,7 @@ class TriggerEngine:
             audio_meta  = sig_meta.get("AUDIO_SPIKE", {})
             viewer_meta = sig_meta.get("VIEWER_SPIKE", {})
             breakdown["_audio_db"]      = round(audio_db, 1)
+            breakdown["_audio_peak_db"] = round(self._audio_peak_db, 1)
             breakdown["_audio_base_db"] = audio_meta.get("baseline_db", round(self._audio_baseline_db, 1))
             breakdown["_viewers"]       = int(viewer_meta.get("viewer_current", self._viewer_current))
             breakdown["_viewer_base"]   = int(viewer_meta.get("viewer_baseline", self._viewer_baseline))
@@ -161,14 +163,21 @@ class TriggerEngine:
         ))
 
         # ── Audio loudness (0-1) ──────────────────────────────────────────
+        # Uses a rolling peak (decays ~30s) vs a slow baseline (~60s EMA)
+        # so a loud moment from a few seconds ago still scores even after
+        # audio returns to normal (chat triggers lag the action by 2-8s).
         current_db = audio_db
         if current_db > -100:
+            # Peak: latch up instantly, decay slowly (~30s half-life at 1s ticks)
+            self._audio_peak_db = max(current_db, self._audio_peak_db * 0.977)
+            # Baseline: slow EMA (~60s time constant)
             if self._audio_samples == 0:
                 self._audio_baseline_db = current_db
+                self._audio_peak_db = current_db
             else:
-                self._audio_baseline_db = 0.9 * self._audio_baseline_db + 0.1 * current_db
+                self._audio_baseline_db = 0.983 * self._audio_baseline_db + 0.017 * current_db
             self._audio_samples += 1
-            db_diff = current_db - self._audio_baseline_db
+            db_diff = self._audio_peak_db - self._audio_baseline_db
             audio_score = min(max(db_diff / 10.0, 0.0), 1.0)
         else:
             audio_score = 0.0
@@ -176,7 +185,8 @@ class TriggerEngine:
             type=SignalType.AUDIO_SPIKE,
             value=audio_score,
             channel=self.channel,
-            metadata={"audio_db": round(current_db, 1),
+            metadata={"audio_db":   round(current_db, 1),
+                      "peak_db":    round(self._audio_peak_db, 1),
                       "baseline_db": round(self._audio_baseline_db, 1)},
         ))
 

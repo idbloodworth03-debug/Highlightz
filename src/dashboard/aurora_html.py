@@ -493,7 +493,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           return <span className="rd-sig" key={k} style={active?{background:'rgba(168,85,247,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
         })}</div>
         <div className="rd-sigs" style={{marginTop:4}}>{[
-          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>🎙 {breakdown._audio_db}dB (base {breakdown._audio_base_db}dB)</span>,
+          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>🎙 {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
           breakdown._viewers!=null&&<span className="rd-sig" key="vc" style={{color:'var(--fg-2)'}}>👁 {breakdown._viewers} viewers (base {breakdown._viewer_base})</span>,
         ].filter(Boolean)}</div>
       </div>
