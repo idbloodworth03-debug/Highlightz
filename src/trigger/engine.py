@@ -92,6 +92,14 @@ class TriggerEngine:
 
         if self.on_score:
             breakdown = {str(s.type).split(".")[-1]: round(s.value, 3) for s in signals}
+            # Attach raw measurements so the dashboard can show live dB / viewer counts
+            sig_meta = {str(s.type).split(".")[-1]: s.metadata for s in signals}
+            audio_meta  = sig_meta.get("AUDIO_SPIKE", {})
+            viewer_meta = sig_meta.get("VIEWER_SPIKE", {})
+            breakdown["_audio_db"]      = round(audio_db, 1)
+            breakdown["_audio_base_db"] = audio_meta.get("baseline_db", round(self._audio_baseline_db, 1))
+            breakdown["_viewers"]       = int(viewer_meta.get("viewer_current", self._viewer_current))
+            breakdown["_viewer_base"]   = int(viewer_meta.get("viewer_baseline", self._viewer_baseline))
             await self.on_score(self.channel, round(score, 1), breakdown)
 
         if in_cooldown:

@@ -488,7 +488,14 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           <span className="val" style={{color:scoreColor(score)}}>{score.toFixed(1)}</span>
         </div>
         <div className="rd-track"><div className="rd-fill" style={{width:score+'%',background:scoreFill(score)}}/></div>
-        <div className="rd-sigs">{Object.entries(breakdown).map(([k,v])=><span className="rd-sig" key={k}>{k.replace('SignalType.','')}: {typeof v==='number'?v.toFixed(2):v}</span>)}</div>
+        <div className="rd-sigs">{Object.entries(breakdown).filter(([k])=>!k.startsWith('_')).map(([k,v])=>{
+          const active=typeof v==='number'&&v>0.05;
+          return <span className="rd-sig" key={k} style={active?{background:'rgba(168,85,247,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
+        })}</div>
+        <div className="rd-sigs" style={{marginTop:4}}>{[
+          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>🎙 {breakdown._audio_db}dB (base {breakdown._audio_base_db}dB)</span>,
+          breakdown._viewers!=null&&<span className="rd-sig" key="vc" style={{color:'var(--fg-2)'}}>👁 {breakdown._viewers} viewers (base {breakdown._viewer_base})</span>,
+        ].filter(Boolean)}</div>
       </div>
       <div className="rd-profile">
         <div className="rd-pgrid">
