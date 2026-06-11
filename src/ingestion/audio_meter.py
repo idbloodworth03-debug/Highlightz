@@ -52,7 +52,6 @@ class AudioMeter:
             self._sl = await asyncio.create_subprocess_exec(
                 settings.streamlink_path,
                 "--stdout",
-                "--twitch-disable-ads",
                 "--loglevel", "warning",
                 self.stream_url,
                 "audio_only,worst",
