@@ -157,7 +157,6 @@ def _atomic_write(path: Path, content: str) -> None:
 # ── Input validation ──────────────────────────────────────────────────────────
 
 _CHANNEL_RE      = re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
-_WEBHOOK_RE      = re.compile(r'^https://discord(?:app)?\.com/api/webhooks/\d+/[\w\-]+$')
 _VALID_PLATFORMS = {"twitch", "youtube"}
 _VALID_PRESETS   = {"default", "fps", "chess", "irl", "small", "variety", "moba", "casino", "sports"}
 
@@ -171,11 +170,6 @@ def _clean_channel(channel: str) -> str:
     if not _CHANNEL_RE.fullmatch(channel):
         raise HTTPException(status_code=400, detail="Invalid channel name")
     return channel.lower()
-
-def _validate_webhook(url: str) -> str:
-    if url and not _WEBHOOK_RE.match(url):
-        raise HTTPException(status_code=400, detail="Invalid Discord webhook URL")
-    return url
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -550,7 +544,6 @@ async def get_clip(request: Request, clip_id: str):
 @app.post("/clips/{clip_id}/approve")
 async def approve_clip(request: Request, clip_id: str):
     from src.profiles.manager import get_profile_manager
-    from src.discord.notifier import post_clip as discord_post
     uid = _current_user_id(request)
     async with _data_lock:
         clip = _clips.get(clip_id)
@@ -565,14 +558,6 @@ async def approve_clip(request: Request, clip_id: str):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
-    stream_key = f"{uid}:{clip['channel']}"
-    stream     = _streams.get(stream_key)
-    webhook    = stream.get("discord_webhook", "") if stream else ""
-    if webhook:
-        task = asyncio.create_task(discord_post(webhook, clip))
-        task.add_done_callback(
-            lambda t: t.exception() and log.warning("discord_post_failed", exc=str(t.exception()))
-        )
     return clip
 
 
@@ -624,7 +609,6 @@ class StreamRequest(BaseModel):
     channel:         str = Field(min_length=1, max_length=64)
     platform:        str = "twitch"
     preset:          str = "default"
-    discord_webhook: str = ""
 
     @field_validator("channel")
     @classmethod
@@ -645,13 +629,6 @@ class StreamRequest(BaseModel):
     def valid_preset(cls, v: str) -> str:
         if v not in _VALID_PRESETS:
             raise ValueError(f"preset must be one of {_VALID_PRESETS}")
-        return v
-
-    @field_validator("discord_webhook")
-    @classmethod
-    def valid_webhook(cls, v: str) -> str:
-        if v and not _WEBHOOK_RE.match(v):
-            raise ValueError("Invalid Discord webhook URL")
         return v
 
 
@@ -682,7 +659,6 @@ async def add_stream(request: Request, req: StreamRequest):
             "platform":        req.platform,
             "preset":          req.preset,
             "status":          "starting",
-            "discord_webhook": req.discord_webhook,
             "user_id":         uid,
         }
         _streams[stream_key] = record
@@ -691,20 +667,6 @@ async def add_stream(request: Request, req: StreamRequest):
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, req.preset, uid)
     return record
-
-
-@app.patch("/streams/{channel}/webhook", status_code=200)
-async def set_stream_webhook(request: Request, channel: str, body: dict):
-    uid        = _current_user_id(request)
-    channel    = _clean_channel(channel)
-    stream_key = f"{uid}:{channel}"
-    webhook    = _validate_webhook(str(body.get("discord_webhook", "")))
-    async with _data_lock:
-        if stream_key not in _streams:
-            raise HTTPException(status_code=404, detail="Stream not found")
-        _streams[stream_key]["discord_webhook"] = webhook
-        _save_streams()
-    return _streams[stream_key]
 
 
 @app.delete("/streams/{channel}", status_code=204)
@@ -882,7 +844,6 @@ async def not_found_handler(request: Request, exc: Exception):
 
 _ERROR_MESSAGES = {
     "twitch_failed":     "Twitch login failed. Please try again.",
-    "discord_failed":    "Login failed. Please try again.",
     "invalid_state":     "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
     "account_deleted":   "Account deleted successfully.",
@@ -1116,7 +1077,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
     <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
     <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
     <div class="feat"><span class="ic">›</span>Instant clips created on Twitch under your account</div>
-    <div class="feat"><span class="ic">›</span>Discord notifications on approval</div>
+    <div class="feat"><span class="ic">›</span>Clip review queue with approve / reject</div>
     <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
   <a href="/billing/checkout" class="cta">Start Subscription →</a>
@@ -1216,7 +1177,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>The Highlightz name, logo, software, branding, and all related materials are the exclusive property of ANTI Technology LLC and are protected by applicable intellectual property laws. Nothing in these Terms grants you any right to use our trademarks or branding without prior written consent.</p>
 
   <h2>8. Third-Party Services</h2>
-  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation) and Stripe (payments), and may optionally deliver notifications to a Discord webhook you provide. Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a> and <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
+  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation) and Stripe (payments). Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a> and <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
 
   <h2>9. Data and Privacy</h2>
   <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), and clip metadata such as clip links and trigger scores. We do not store stream video. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
@@ -1308,7 +1269,6 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li>To create clips on your behalf via Twitch's Clips API when you or your trigger settings direct it.</li>
     <li>To process payments and manage your subscription via Stripe.</li>
     <li>To display your clip links and trigger analytics in your dashboard.</li>
-    <li>To send notifications to a Discord webhook if you have configured one.</li>
     <li>To investigate security incidents and prevent abuse.</li>
   </ul>
 
@@ -1317,7 +1277,6 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <ul>
     <li><strong>Twitch</strong> — for authentication and for creating clips on your behalf. Governed by Twitch's Privacy Notice.</li>
     <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
-    <li><strong>Discord</strong> — only if you configure a notification webhook. Governed by Discord's Privacy Policy.</li>
   </ul>
   <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
 
@@ -1458,7 +1417,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;background:rgba(199,155,255,.15)}
   .avatar-wrap{display:flex;align-items:center;gap:10px}
   .username{font-weight:600}
-  .discord-id{font-size:11px;color:#5d5d6b;margin-top:2px;font-family:monospace}
+  .account-id{font-size:11px;color:#5d5d6b;margin-top:2px;font-family:monospace}
   .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;letter-spacing:.04em}
   .pill-active{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);color:#34d399}
   .pill-inactive{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
@@ -1580,7 +1539,7 @@ async function load() {
     const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
     return '<tr>' +
       '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +
-        '<div class="discord-id">' + (u.discord_id ? 'Discord: ' + esc(u.discord_id) : 'Password auth') + '</div></div></div></td>' +
+        '<div class="account-id">' + (u.twitch_login ? 'Twitch: ' + esc(u.twitch_login) : 'Password auth') + '</div></div></div></td>' +
       '<td>' + pill(sub, isAdmin) + '</td>' +
       '<td>' + (u.stream_count || 0) + '</td>' +
       '<td>' + (u.clip_count || 0) + '</td>' +

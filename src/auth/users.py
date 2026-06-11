@@ -107,10 +107,6 @@ def get_by_username(username: str) -> dict | None:
     return next((u for u in _load() if u["username"].lower() == username.lower()), None)
 
 
-def get_by_discord_id(discord_id: str) -> dict | None:
-    return next((u for u in _load() if u.get("discord_id") == discord_id), None)
-
-
 def get_by_twitch_id(twitch_id: str) -> dict | None:
     return next((u for u in _load() if u.get("twitch_id") == twitch_id), None)
 
@@ -133,7 +129,6 @@ def create(username: str, password: str, is_admin: bool = False) -> dict:
         "password_hash":        dk,
         "salt":                 salt,
         "is_admin":             is_admin,
-        "discord_id":           None,
         "avatar_url":           "",
         "stripe_customer_id":   None,
         "subscription_status":  "active" if is_admin else "none",
@@ -142,36 +137,6 @@ def create(username: str, password: str, is_admin: bool = False) -> dict:
     users.append(user)
     _save(users)
     return user
-
-
-def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "", is_admin: bool = False) -> dict:
-    """Find or create a user by Discord ID. Returns the public user dict (no secrets)."""
-    users = _load()
-    existing = next((u for u in users if u.get("discord_id") == discord_id), None)
-    if existing:
-        existing["username"]   = username
-        existing["avatar_url"] = avatar_url
-        existing["is_admin"] = is_admin
-        if is_admin:
-            existing["subscription_status"] = "active"
-        _save(users)
-        return {k: v for k, v in existing.items() if k not in ("password_hash", "salt")}
-
-    user: dict = {
-        "id":                   secrets.token_urlsafe(16),
-        "username":             username,
-        "password_hash":        None,
-        "salt":                 None,
-        "is_admin":             is_admin,
-        "discord_id":           discord_id,
-        "avatar_url":           avatar_url,
-        "stripe_customer_id":   None,
-        "subscription_status":  "active" if is_admin else "none",
-        "created_at":           time.time(),
-    }
-    users.append(user)
-    _save(users)
-    return {k: v for k, v in user.items() if k not in ("password_hash", "salt")}
 
 
 def upsert_twitch_user(
@@ -215,7 +180,6 @@ def upsert_twitch_user(
         "is_admin":             is_admin,
         "twitch_id":            twitch_id,
         "twitch_login":         login,
-        "discord_id":           None,
         "avatar_url":           avatar_url,
         "tw_access":            enc_access,
         "tw_refresh":           enc_refresh,

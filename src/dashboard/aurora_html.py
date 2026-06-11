@@ -653,8 +653,7 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
 function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
-  const [webhook, setWebhook] = useState('');
-  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,webhook.trim());setCh('');setWebhook('');} };
+  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
@@ -681,8 +680,6 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onA
               <option value="sports">Sports</option>
             </select>
           </div>
-          <input className="rd-input" placeholder="Discord webhook (optional)" value={webhook}
-            onChange={e=>setWebhook(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} style={{fontSize:12}}/>
           <button className="rd-btn grad" onClick={add}><Icon name="plus" size={15}/>Monitor stream</button>
         </div>
         <div className="rd-rail glass" style={{flex:1,minHeight:0}}>
@@ -820,23 +817,7 @@ function LibraryScreen({ clips, onOpen, onApprove, onReject, onDelete }) {
   );
 }
 
-function WebhookRow({ stream, onSave }) {
-  const [url, setUrl] = useState(stream.discord_webhook||'');
-  useEffect(()=>setUrl(stream.discord_webhook||''),[stream.discord_webhook]);
-  return (
-    <div className="rd-field">
-      <div><div className="fl">{stream.channel}</div><div className="fd">{stream.platform} · {stream.preset}</div></div>
-      <div style={{display:'flex',gap:8,flex:1,maxWidth:340}}>
-        <input className="rd-input" value={url} onChange={e=>setUrl(e.target.value)}
-          placeholder="https://discord.com/api/webhooks/..." style={{flex:1,fontSize:12}}
-          onKeyDown={e=>e.key==='Enter'&&onSave(url)}/>
-        <button className="rd-btn sm" onClick={()=>onSave(url)}>Save</button>
-      </div>
-    </div>
-  );
-}
-
-function SettingsScreen({ streams, onSaveWebhook }) {
+function SettingsScreen({ streams }) {
   const [stats, setStats] = useState(null);
   useEffect(()=>{ fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{}); },[]);
   const PRESETS=[
@@ -868,11 +849,6 @@ function SettingsScreen({ streams, onSaveWebhook }) {
             </div>)}
           </div>
         </div>
-        {streamsArr.length>0 && <div className="rd-card glass">
-          <h3><span className="si"><Icon name="bell" size={15}/></span>Discord webhooks</h3>
-          <div className="desc">Get a notification when a clip is approved.</div>
-          {streamsArr.map(s=><WebhookRow key={s.channel} stream={s} onSave={url=>onSaveWebhook(s.channel,url)}/>)}
-        </div>}
         {stats&&stats.length>0 && <div className="rd-card glass">
           <h3><span className="si"><Icon name="trending" size={15}/></span>Usage stats</h3>
           <div className="desc">Clip performance per channel, all time.</div>
@@ -946,7 +922,7 @@ function AccountScreen({ me }) {
         {/* Profile */}
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="user" size={15}/></span>Profile</h3>
-          <div className="desc">Your Discord account linked to Highlightz.</div>
+          <div className="desc">Your Twitch account linked to Highlightz.</div>
           <div className="rd-field" style={{paddingTop:0}}>
             <div style={{display:'flex',alignItems:'center',gap:14}}>
               {me.avatar_url
@@ -954,7 +930,7 @@ function AccountScreen({ me }) {
                 : <span style={{width:44,height:44,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:16,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
               <div>
                 <div style={{fontWeight:700,fontSize:15}}>{me.username||'—'}</div>
-                <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with Discord</div>
+                <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with Twitch</div>
               </div>
             </div>
             <button className="rd-btn sm danger" style={{flexShrink:0}} onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>Sign out</button>
@@ -1062,9 +1038,9 @@ function RdApp() {
     return ()=>{clearInterval(ping);ws?.close();};
   },[flash]);
 
-  const addStream = async(channel,preset,webhook='')=>{
+  const addStream = async(channel,preset)=>{
     try{
-      const r=await fetch('/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel,platform:'twitch',preset,discord_webhook:webhook})});
+      const r=await fetch('/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel,platform:'twitch',preset})});
       if(!r.ok){const e=await r.json();flash('Error: '+(e.detail||'failed'));return;}
       const s=await r.json();
       // Use s.channel (backend-normalised, lowercased) as the key so the
@@ -1099,11 +1075,6 @@ function RdApp() {
     setClips(p=>{const n={...p};delete n[id];return n;});
     flash('Clip deleted');
   };
-  const saveWebhook = async(channel,url)=>{
-    const r=await fetch(`/streams/${encodeURIComponent(channel)}/webhook`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({discord_webhook:url.trim()})});
-    if(r.ok){const s=await r.json();setStreams(p=>({...p,[channel]:s}));flash(url.trim()?`Webhook saved for ${channel}`:`Webhook removed for ${channel}`);}
-    else flash('Failed to save webhook');
-  };
 
   const pending = Object.values(clips).filter(c=>c.status==='pending').length;
 
@@ -1112,7 +1083,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
-  else screen=<SettingsScreen {...{streams,onSaveWebhook:saveWebhook}}/>;
+  else screen=<SettingsScreen {...{streams}}/>;
 
   return (
     <div className="rd-app" id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
