@@ -11,6 +11,7 @@ old VideoBuffer, so it is a drop-in replacement for detection purposes.
 """
 
 import asyncio
+import os
 import re
 import structlog
 
@@ -45,7 +46,9 @@ class AudioMeter:
 
     async def _launch(self) -> None:
         """Spawn streamlink → ffmpeg pipeline and start reading ebur128 output."""
+        r_fd, w_fd = os.pipe()
         try:
+            # streamlink writes raw stream to the write end of an OS pipe
             self._sl = await asyncio.create_subprocess_exec(
                 settings.streamlink_path,
                 "--stdout",
@@ -53,19 +56,24 @@ class AudioMeter:
                 "--loglevel", "warning",
                 self.stream_url,
                 "audio_only,worst",
-                stdout=asyncio.subprocess.PIPE,
+                stdout=w_fd,
                 stderr=asyncio.subprocess.PIPE,
             )
+            os.close(w_fd)
+            w_fd = -1
+            # ffmpeg reads from the read end of the same pipe
             self._ff = await asyncio.create_subprocess_exec(
                 settings.ffmpeg_path,
                 "-hide_banner", "-nostats",
                 "-i", "pipe:0",
                 "-af", "ebur128=metadata=1",
                 "-f", "null", "-",
-                stdin=self._sl.stdout,
+                stdin=r_fd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
+            os.close(r_fd)
+            r_fd = -1
             self._reader = asyncio.create_task(
                 self._read_loop(), name=f"audiometer-reader-{self.channel}"
             )
@@ -73,6 +81,12 @@ class AudioMeter:
                 self._log_streamlink_stderr(), name=f"audiometer-sl-log-{self.channel}"
             )
         except Exception as exc:
+            for fd in (r_fd, w_fd):
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
             log.error("audio_meter_launch_failed", channel=self.channel, error=str(exc))
             await self._kill_procs()
 
