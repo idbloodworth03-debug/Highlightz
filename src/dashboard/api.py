@@ -835,6 +835,38 @@ async def admin_delete_user(request: Request, user_id: str):
     return {"ok": True}
 
 
+@app.post("/admin/users/{user_id}/stripe-sync")
+async def admin_stripe_sync(request: Request, user_id: str):
+    """Manually re-sync a user's Stripe subscription status from Stripe's API."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not settings.stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    user = user_store.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No Stripe customer ID linked to this user")
+    try:
+        import stripe
+        client = stripe.StripeClient(settings.stripe_secret_key)
+        subs = client.subscriptions.list(params={"customer": customer_id, "limit": 1})
+        items = subs.data if hasattr(subs, "data") else []
+        if not items:
+            return {"synced": False, "reason": "No subscriptions found for this customer"}
+        sub = items[0]
+        raw = sub.get("status", "") if isinstance(sub, dict) else sub.status
+        from src.billing.stripe_billing import ACTIVE_STATUSES
+        status = "active" if raw in ACTIVE_STATUSES else ("inactive" if raw in ("canceled", "unpaid", "incomplete_expired") else raw)
+        user_store.update_subscription(user_id, customer_id, status)
+        log.info("admin_stripe_sync", user_id=user_id, customer=customer_id, status=status)
+        return {"synced": True, "stripe_status": raw, "app_status": status}
+    except Exception as exc:
+        log.error("admin_stripe_sync_error", user_id=user_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Stripe error: {exc}")
+
+
 @app.get("/tos", response_class=HTMLResponse)
 async def tos_page():
     return HTMLResponse(TOS_HTML)
@@ -1534,6 +1566,14 @@ async function del(id, name) {
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
+async function stripeSync(id) {
+  try {
+    const r = await api('/admin/users/' + id + '/stripe-sync', 'POST');
+    toast(r.synced ? 'Synced: ' + r.app_status : 'No subscription found');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
 async function load() {
   const users = await api('/admin/users');
   const total = users.length;
@@ -1558,16 +1598,22 @@ async function load() {
     const isAdmin = u.is_admin;
     const canGrant = !isAdmin && sub !== 'active' && sub !== 'trialing';
     const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
+    const trialNote = sub === 'trialing' && u.trial_ends_at
+      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Trial ends ' + fmt(u.trial_ends_at) + '</div>' : '';
+    const stripeNote = u.stripe_customer_id
+      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Stripe: ' + esc(u.stripe_customer_id) + '</div>' : '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">No Stripe ID</div>';
     return '<tr>' +
       '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +
-        '<div class="account-id">' + (u.twitch_login ? 'Twitch: ' + esc(u.twitch_login) : 'Password auth') + '</div></div></div></td>' +
-      '<td>' + pill(sub, isAdmin) + '</td>' +
+        '<div class="account-id">' + (u.twitch_login ? 'Twitch: ' + esc(u.twitch_login) : 'Password auth') + '</div>' +
+        stripeNote + '</div></div></td>' +
+      '<td>' + pill(sub, isAdmin) + trialNote + '</td>' +
       '<td>' + (u.stream_count || 0) + '</td>' +
       '<td>' + (u.clip_count || 0) + '</td>' +
       '<td>' + fmt(u.created_at) + '</td>' +
       '<td><div class="actions">' +
         (canGrant ? '<button class="btn btn-grant" onclick="grant(' + JSON.stringify(u.id) + ')">Grant</button>' : '') +
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + JSON.stringify(u.id) + ')">Revoke</button>' : '') +
+        (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + JSON.stringify(u.id) + ')">Stripe Sync</button>' : '') +
         (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + JSON.stringify(u.id) + ',' + JSON.stringify(u.username) + ')">Delete</button>' : '') +
       '</div></td>' +
     '</tr>';

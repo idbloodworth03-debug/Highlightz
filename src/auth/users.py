@@ -8,8 +8,10 @@ Their Twitch access/refresh tokens are encrypted at rest.
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -65,24 +67,47 @@ def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     return dk.hex(), salt
 
 
+_ulog = logging.getLogger(__name__)
+
+_BACKUP_FILE = Path(settings.local_storage_path) / "users.json.bak"
+
+
 def _load() -> list[dict]:
-    try:
-        return json.loads(_USERS_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
+    for path in (_USERS_FILE, _BACKUP_FILE):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                if path == _BACKUP_FILE:
+                    _ulog.warning("users_loaded_from_backup", path=str(path))
+                return data
+        except FileNotFoundError:
+            continue
+        except json.JSONDecodeError as exc:
+            _ulog.error("users_json_corrupt", path=str(path), error=str(exc))
+            continue
+    return []
 
 
 def _save(users: list[dict]) -> None:
     _USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Write to temp file first, then atomically replace
     fd, tmp = tempfile.mkstemp(dir=_USERS_FILE.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
+        # Keep a one-step-behind backup before overwriting
+        if _USERS_FILE.exists():
+            try:
+                shutil.copy2(_USERS_FILE, _BACKUP_FILE)
+                os.chmod(_BACKUP_FILE, 0o600)
+            except OSError:
+                pass
         os.replace(tmp, _USERS_FILE)
         try:
             os.chmod(_USERS_FILE, 0o600)
         except OSError:
             pass
+        _ulog.debug("users_saved", count=len(users))
     except Exception:
         try:
             os.unlink(tmp)
