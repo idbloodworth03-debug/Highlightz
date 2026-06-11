@@ -1396,15 +1396,15 @@ PAYWALL_HTML = """<!DOCTYPE html>
   <h1>Never miss a clip again</h1>
   <p class="sub">Hi {username} — activate your subscription to start automatically capturing your best streaming moments.</p>
   <div class="features">
-    <div class="feat"><span class="ic">›</span>Automatic clip detection on any stream</div>
+    <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
     <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
-    <div class="feat"><span class="ic">›</span>16:9 + 9:16 vertical crop export</div>
+    <div class="feat"><span class="ic">›</span>Instant clips created on Twitch under your account</div>
     <div class="feat"><span class="ic">›</span>Discord notifications on approval</div>
     <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
   <a href="/billing/checkout" class="cta">Start Subscription →</a>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
-  <a href="/logout" class="logout">Sign out</a>
+  <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
 </div>
 <div class="footer">
   &copy; 2026 ANTI Technology LLC &mdash; All rights reserved.<br>
@@ -1450,18 +1450,18 @@ TOS_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
-  <p>Highlightz is a SaaS platform that monitors live streams on third-party platforms (including Twitch and YouTube), automatically detects highlight moments, and provides tools for clip review, editing, and export. The Service requires an active paid subscription to access core features.</p>
+  <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Highlightz does not record, copy, download, or re-host stream video. The Service requires an active paid subscription to access core features.</p>
 
   <h2>2. Eligibility</h2>
   <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
 
-  <h2>3. Accounts</h2>
-  <p>You may sign in using your Discord account via OAuth2. You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
+  <h2>3. Accounts and Twitch Authorization</h2>
+  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button. You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Subscriptions and Billing</h2>
   <p>Access to the Service requires a paid subscription. Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
@@ -1472,17 +1472,24 @@ TOS_HTML = """<!DOCTYPE html>
     <li>Failed payments may result in suspension or termination of your account.</li>
   </ul>
 
-  <h2>5. Your Content</h2>
-  <p>You retain ownership of any video clips and content generated through the Service ("Your Content"). By using the Service you grant ANTI Technology LLC a limited, non-exclusive license to process, store, and display Your Content solely as necessary to operate and provide the Service.</p>
-  <p>You are solely responsible for ensuring that your use of third-party streaming platforms (Twitch, YouTube, etc.) and any content you clip complies with those platforms' terms of service and applicable copyright law. We do not monitor or review Your Content.</p>
+  <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
+  <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct; it never records, stores, or re-hosts any stream video itself.</p>
+  <p>You acknowledge and agree that:</p>
+  <ul>
+    <li>Any clip you create may contain content owned by the broadcaster you clipped, by game publishers, by music rights holders, or by other third parties.</li>
+    <li><strong>You are solely and exclusively responsible for clipping, saving, sharing, downloading, exporting, posting, or otherwise distributing any clip of any streamer or channel</strong>, including streamers other than yourself, and for obtaining any permission or license required to do so.</li>
+    <li>You are solely responsible for complying with Twitch's Terms of Service, the Twitch Developer Services Agreement, the policies of any broadcaster you clip, and all applicable copyright, trademark, publicity, and other laws.</li>
+    <li>ANTI Technology LLC does not pre-screen, monitor, review, endorse, or control which channels you choose to monitor or clip, or what you do with the clips afterward, and assumes no liability for those choices.</li>
+  </ul>
+  <p>If a broadcaster, rights holder, platform, or any other party objects to a clip you created or how you used it, that dispute is between you and that party. You agree that ANTI Technology LLC bears no responsibility or liability for it.</p>
 
   <h2>6. Acceptable Use</h2>
   <p>You agree not to use the Service to:</p>
   <ul>
-    <li>Clip, store, or distribute content that infringes the intellectual property rights of others.</li>
-    <li>Monitor streams without authorization from the content creator where required.</li>
+    <li>Create, save, or distribute content that infringes the intellectual property, publicity, or other rights of any broadcaster or third party.</li>
+    <li>Clip or distribute content in violation of a broadcaster's stated wishes, Twitch's policies, or applicable law.</li>
     <li>Attempt to reverse-engineer, disassemble, or otherwise derive the source code of the Service.</li>
-    <li>Circumvent any security or access controls.</li>
+    <li>Circumvent any security or access controls, including those of Twitch.</li>
     <li>Use the Service for any unlawful purpose or in violation of any applicable law or regulation.</li>
     <li>Resell, sublicense, or otherwise commercialize access to the Service without our written consent.</li>
   </ul>
@@ -1490,13 +1497,12 @@ TOS_HTML = """<!DOCTYPE html>
 
   <h2>7. Intellectual Property</h2>
   <p>The Highlightz name, logo, software, branding, and all related materials are the exclusive property of ANTI Technology LLC and are protected by applicable intellectual property laws. Nothing in these Terms grants you any right to use our trademarks or branding without prior written consent.</p>
-  <p>Clips processed through the Service may include a "Highlightz" watermark. You may remove this watermark only through features explicitly provided within the Service.</p>
 
   <h2>8. Third-Party Services</h2>
-  <p>The Service integrates with third-party platforms including Discord (authentication), Stripe (payments), Twitch, and YouTube. Your use of those platforms is governed by their respective terms of service. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
+  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation) and Stripe (payments), and may optionally deliver notifications to a Discord webhook you provide. Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a> and <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
 
   <h2>9. Data and Privacy</h2>
-  <p>We collect and process information necessary to operate the Service, including your Discord account information, payment information (processed by Stripe — we do not store card details), and clip metadata. We do not sell your personal data to third parties. By using the Service you consent to this processing.</p>
+  <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), and clip metadata such as clip links and trigger scores. We do not store stream video. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
 
   <h2>10. Disclaimers</h2>
   <p>THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS.</p>
@@ -1505,7 +1511,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, ANTI TECHNOLOGY LLC AND ITS OFFICERS, EMPLOYEES, AND AGENTS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING LOSS OF PROFITS, DATA, OR GOODWILL, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF THE SERVICE, EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. OUR TOTAL LIABILITY TO YOU FOR ANY CLAIMS ARISING UNDER THESE TERMS SHALL NOT EXCEED THE AMOUNT YOU PAID TO US IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM.</p>
 
   <h2>12. Indemnification</h2>
-  <p>You agree to indemnify, defend, and hold harmless ANTI Technology LLC and its officers, employees, and agents from and against any claims, liabilities, damages, losses, and expenses (including reasonable legal fees) arising out of or related to your use of the Service, Your Content, or your violation of these Terms.</p>
+  <p>You agree to indemnify, defend, and hold harmless ANTI Technology LLC and its officers, employees, and agents from and against any claims, liabilities, damages, losses, and expenses (including reasonable legal fees) arising out of or related to your use of the Service; any clip you create, save, post, distribute, or monetize; any content of any streamer or third party that appears in a clip you create; or your violation of these Terms, of Twitch's terms or policies, or of any applicable copyright, trademark, publicity, or other law.</p>
 
   <h2>13. Termination</h2>
   <p>We may suspend or terminate your access to the Service at any time, with or without cause, with or without notice. Upon termination, your right to use the Service ceases immediately. Provisions that by their nature should survive termination (including sections 5, 7, 10, 11, and 12) shall survive.</p>
@@ -1564,16 +1570,17 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
   <h2>1. Information We Collect</h2>
   <p>We collect only what is necessary to operate the Service:</p>
   <ul>
-    <li><strong>Account information</strong> — your Discord user ID, display name, and avatar URL, obtained when you sign in via Discord OAuth2.</li>
+    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
+    <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, timestamps, trigger scores, and clip file paths associated with your account.</li>
+    <li><strong>Clip metadata</strong> — channel names, timestamps, trigger scores, and the Twitch clip links generated for your account. We do not store any stream video; clips are hosted by Twitch.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
   </ul>
@@ -1581,30 +1588,34 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <h2>2. How We Use Your Information</h2>
   <ul>
     <li>To authenticate you and maintain your session.</li>
+    <li>To create clips on your behalf via Twitch's Clips API when you or your trigger settings direct it.</li>
     <li>To process payments and manage your subscription via Stripe.</li>
-    <li>To store, display, and deliver your clip files.</li>
-    <li>To send Discord webhook notifications you have configured.</li>
+    <li>To display your clip links and trigger analytics in your dashboard.</li>
+    <li>To send notifications to a Discord webhook if you have configured one.</li>
     <li>To investigate security incidents and prevent abuse.</li>
   </ul>
 
   <h2>3. How We Share Your Information</h2>
   <p>We do not sell your personal data. We share information only with the following third parties as necessary to operate the Service:</p>
   <ul>
-    <li><strong>Discord</strong> — for authentication. Governed by Discord's Privacy Policy.</li>
+    <li><strong>Twitch</strong> — for authentication and for creating clips on your behalf. Governed by Twitch's Privacy Notice.</li>
     <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
-    <li><strong>Twitch / YouTube</strong> — stream monitoring uses their public APIs. We do not share your personal data with these platforms.</li>
+    <li><strong>Discord</strong> — only if you configure a notification webhook. Governed by Discord's Privacy Policy.</li>
   </ul>
   <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
 
   <h2>4. Data Retention</h2>
-  <p>We retain your account information and clip data for as long as your account is active. When you delete your account, we remove your user record, all associated clip files, and stream configurations. Log files may be retained for up to 90 days for security purposes.</p>
+  <p>We retain your account information, encrypted Twitch tokens, and clip metadata for as long as your account is active. When you delete your account, we remove your user record, encrypted tokens, clip metadata, and stream configurations. Clips you have already created remain hosted on Twitch under your Twitch account and are governed by Twitch; you can manage or delete them through Twitch. Log files may be retained for up to 90 days for security purposes.</p>
 
   <h2>5. Your Rights</h2>
   <p>You may request access to, correction of, or deletion of your personal data at any time by contacting us at <a href="mailto:support@highlightz.app">support@highlightz.app</a>, or by deleting your account directly from the Account settings page within the dashboard.</p>
   <p>If you are in the European Economic Area (EEA) or United Kingdom, you have additional rights under GDPR/UK GDPR, including the right to data portability and the right to lodge a complaint with your local supervisory authority.</p>
 
   <h2>6. Security</h2>
-  <p>We implement reasonable technical and organizational safeguards including session-based authentication, HTTPS-only transmission, and per-user data isolation. No system is perfectly secure; we encourage you to use a strong, unique password for your Discord account.</p>
+  <p>We implement reasonable technical and organizational safeguards including session-based authentication, HTTPS-only transmission, encryption of stored Twitch tokens at rest, and per-user data isolation. No system is perfectly secure; we encourage you to protect your Twitch account with a strong, unique password and two-factor authentication.</p>
+
+  <h2>6a. Clips and Streamer Content</h2>
+  <p>Clips you create through the Service are created with your Twitch account and are hosted by Twitch, not by us. You are solely responsible for the clips you create and for how you share or distribute them, including clips of streamers other than yourself. See Section 5 of our <a href="/tos">Terms of Service</a> for details on your responsibilities.</p>
 
   <h2>7. Children</h2>
   <p>The Service is not directed at persons under 18 years of age. We do not knowingly collect personal data from minors. If you believe a minor has provided us with data, contact us and we will delete it promptly.</p>
@@ -1661,7 +1672,7 @@ COOKIES_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: January 1, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
@@ -1677,7 +1688,7 @@ COOKIES_HTML = """<!DOCTYPE html>
   <p>We do not use advertising cookies, tracking pixels, or third-party analytics cookies. We do not use Google Analytics or any equivalent service.</p>
 
   <h2>Third-Party Cookies</h2>
-  <p>When you sign in via Discord, Discord may set cookies on their own domain as part of the OAuth2 flow. These are governed by <a href="https://discord.com/privacy" target="_blank" rel="noopener">Discord's Privacy Policy</a>. When you complete a payment via Stripe, Stripe may set cookies on their domain. These are governed by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>. We have no control over or access to these third-party cookies.</p>
+  <p>When you sign in via Twitch, Twitch may set cookies on their own domain as part of the OAuth2 flow. These are governed by <a href="https://www.twitch.tv/p/legal/privacy-notice/" target="_blank" rel="noopener">Twitch's Privacy Notice</a>. When you complete a payment via Stripe, Stripe may set cookies on their domain. These are governed by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>. We have no control over or access to these third-party cookies.</p>
 
   <h2>Managing Cookies</h2>
   <p>You can control cookies through your browser settings. Blocking or deleting the session cookie will sign you out of the Service and require you to sign in again on your next visit. Most browsers allow you to:</p>
