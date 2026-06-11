@@ -1,33 +1,26 @@
 """
-Clip processor: picks up a TriggerEvent, extracts the clip from the
-video buffer, attaches metadata, uploads to storage, and saves to DB.
+Clip processor: picks up a clip job and creates a clip on Twitch via the
+Helix Clips API using the requesting user's OAuth token. The clip is hosted by
+Twitch and attributed to the user — Highlightz never records or stores video.
 """
 
-import asyncio
-import time
 import structlog
-from pathlib import Path
 
-from config.settings import settings
-from src.trigger.signals import TriggerEvent
-from src.ingestion.video_buffer import VideoBuffer
-from src.output.storage import StorageBackend
 from src.queue.job_queue import ClipJob
+from src.auth import users as user_store
+from src.output import twitch_clips
 from .metadata import ClipMetadata
 
 log = structlog.get_logger(__name__)
 
 
 class ClipProcessor:
-    def __init__(self, storage: StorageBackend, buffers: dict[str, VideoBuffer]) -> None:
-        self._storage = storage
-        self._buffers = buffers    # channel -> VideoBuffer, managed by StreamWorker
+    def __init__(self, storage=None, buffers=None) -> None:
+        # storage/buffers kept for call-site compatibility; no longer used.
+        self._broadcaster_cache: dict[str, str] = {}
 
     async def process(self, job: ClipJob) -> ClipMetadata:
         channel = job.channel
-        buffer = self._buffers.get(channel)
-        if not buffer:
-            raise RuntimeError(f"No active buffer for channel '{channel}'")
 
         meta = ClipMetadata(
             id=job.clip_id,
@@ -43,129 +36,42 @@ class ClipProcessor:
             user_id=job.user_id,
         )
 
-        tmp_path = Path(settings.local_storage_path) / "tmp" / f"{meta.id}.mp4"
-        log.info("processing_clip", clip_id=meta.id, channel=channel)
+        if job.platform != "twitch":
+            raise RuntimeError(f"Clip creation only supports Twitch (got '{job.platform}')")
 
-        await buffer.extract_clip(
-            output_path=tmp_path,
-            pre_roll=job.pre_roll,
-            post_roll=job.post_roll,
-        )
+        token = await user_store.get_valid_twitch_token(job.user_id)
+        if not token:
+            raise RuntimeError(f"No valid Twitch token for user '{job.user_id}' — re-login required")
 
-        trimmed_path = await self._trim_leading_silence(tmp_path)
+        broadcaster_id = self._broadcaster_cache.get(channel)
+        if not broadcaster_id:
+            broadcaster_id = await twitch_clips.resolve_broadcaster_id(channel)
+            if not broadcaster_id:
+                raise RuntimeError(f"Could not resolve broadcaster id for '{channel}'")
+            self._broadcaster_cache[channel] = broadcaster_id
 
-        meta.duration_seconds = await self._probe_duration(trimmed_path)
-        meta.storage_url = await self._storage.upload(trimmed_path, meta.id)
+        log.info("creating_twitch_clip", clip_id=meta.id, channel=channel,
+                 broadcaster_id=broadcaster_id, user_id=job.user_id)
+
+        slug = await twitch_clips.create_clip(token, broadcaster_id)
+        if not slug:
+            raise RuntimeError(f"Twitch clip creation failed for '{channel}'")
+
+        clip = await twitch_clips.get_clip(slug)
+        if clip:
+            meta.twitch_clip_id   = clip.get("id", slug)
+            meta.twitch_url       = clip.get("url", f"https://clips.twitch.tv/{slug}")
+            meta.embed_url        = clip.get("embed_url", f"https://clips.twitch.tv/embed?clip={slug}")
+            meta.thumbnail_url    = clip.get("thumbnail_url", "")
+            meta.duration_seconds = float(clip.get("duration", 0.0) or 0.0)
+            if clip.get("title"):
+                meta.clip_title = meta.clip_title or clip["title"]
+        else:
+            # Clip was requested but not yet queryable — store the slug so links work.
+            meta.twitch_clip_id = slug
+            meta.twitch_url     = f"https://clips.twitch.tv/{slug}"
+            meta.embed_url      = f"https://clips.twitch.tv/embed?clip={slug}"
+
         meta.status = "pending"
-
-        trimmed_path.unlink(missing_ok=True)
-        log.info("clip_ready", clip_id=meta.id, url=meta.storage_url,
-                 vertical=bool(meta.vertical_url))
+        log.info("twitch_clip_ready", clip_id=meta.id, slug=slug, url=meta.twitch_url)
         return meta
-
-    @staticmethod
-    async def _generate_vertical(source: Path, clip_id: str) -> Path | None:
-        """
-        Crop the clip to 9:16 (center crop) and scale to 1080x1920 for TikTok/Shorts.
-        Returns path to vertical file, or None if it fails.
-        """
-        if not source.exists():
-            return None
-        out = source.parent / f"{clip_id}_vertical.mp4"
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                settings.ffmpeg_path, "-y",
-                "-i", str(source),
-                "-vf", "crop=ih*9/16:ih,scale=1080:1920",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
-                str(out),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=120)
-            if proc.returncode == 0 and out.exists():
-                log.info("vertical_clip_generated", clip_id=clip_id)
-                return out
-        except Exception as exc:
-            log.warning("vertical_clip_failed", clip_id=clip_id, error=str(exc))
-            out.unlink(missing_ok=True)
-        return None
-
-    @staticmethod
-    async def _trim_leading_silence(path: Path) -> Path:
-        """
-        Detect leading silence and re-cut the clip to start when audio kicks in.
-        Returns the original path (possibly replaced in-place) or a trimmed copy.
-        Skips trimming if leading silence is under 2s or detection fails.
-        """
-        import shutil
-        ffmpeg = settings.ffmpeg_path
-        MIN_TRIM = 2.0   # don't bother trimming less than 2s
-        MAX_TRIM = 35.0  # never cut more than 35s (keeps safety margin)
-
-        try:
-            # silencedetect: noise floor -45dB, min silence duration 0.3s
-            proc = await asyncio.create_subprocess_exec(
-                ffmpeg, "-i", str(path),
-                "-af", "silencedetect=n=-45dB:d=0.3",
-                "-f", "null", "-",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            output = stderr.decode(errors="replace")
-        except Exception as exc:
-            log.warning("silencedetect_failed", path=str(path), error=str(exc))
-            return path
-
-        # Parse first silence_end — that's when audio first appears
-        trim_start = 0.0
-        for line in output.splitlines():
-            if "silence_end" in line:
-                try:
-                    trim_start = float(line.split("silence_end:")[-1].strip().split()[0])
-                except ValueError:
-                    pass
-                break
-
-        if trim_start < MIN_TRIM or trim_start > MAX_TRIM:
-            return path
-
-        out_path = path.with_name(path.stem + "_trim.mp4")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                ffmpeg, "-y",
-                "-ss", str(trim_start),
-                "-i", str(path),
-                "-c", "copy",
-                str(out_path),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=60)
-            if proc.returncode == 0 and out_path.exists():
-                path.unlink(missing_ok=True)
-                log.info("silence_trimmed", trimmed_seconds=round(trim_start, 2), output=str(out_path))
-                return out_path
-        except Exception as exc:
-            log.warning("silence_trim_failed", path=str(path), error=str(exc))
-            out_path.unlink(missing_ok=True)
-
-        return path
-
-    @staticmethod
-    async def _probe_duration(path: Path) -> float:
-        try:
-            import shutil
-            ffprobe = shutil.which("ffprobe") or settings.ffmpeg_path.replace("ffmpeg.exe", "ffprobe.exe").replace("ffmpeg", "ffprobe")
-            proc = await asyncio.create_subprocess_exec(
-                ffprobe, "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-            return float(stdout.decode().strip())
-        except Exception:
-            return 0.0

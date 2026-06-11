@@ -119,9 +119,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "script-src 'self' https://unpkg.com 'unsafe-inline' 'unsafe-eval'; "
             "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
-            "img-src 'self' https://cdn.discordapp.com data: blob:; "
+            "img-src 'self' https: data: blob:; "
             "font-src 'self' https://fonts.gstatic.com; "
             "connect-src 'self' wss: ws:; "
+            "frame-src https://clips.twitch.tv https://player.twitch.tv; "
             "frame-ancestors 'none';"
         )
         if settings.dashboard_https_only:
@@ -415,42 +416,46 @@ def _current_user_id(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return uid
 
-# ── Discord OAuth ─────────────────────────────────────────────────────────────
+# ── Twitch OAuth ──────────────────────────────────────────────────────────────
 
-@app.get("/auth/discord")
-async def discord_login(request: Request):
-    """Redirect the browser to Discord's OAuth consent screen."""
-    from src.auth.discord_oauth import authorization_url
-    if not settings.discord_client_id:
-        raise HTTPException(status_code=503, detail="Discord OAuth not configured")
+@app.get("/auth/twitch")
+async def twitch_login(request: Request):
+    """Redirect the browser to Twitch's OAuth consent screen."""
+    from src.auth.twitch_oauth import authorization_url
+    if not settings.twitch_client_id:
+        raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
     state = secrets.token_urlsafe(16)
     request.session["oauth_state"] = state
     return RedirectResponse(authorization_url(state))
 
 
-@app.get("/auth/discord/callback")
-async def discord_callback(request: Request, code: str = "", state: str = "", error: str = ""):
-    """Handle Discord OAuth callback, create/find user, set session."""
-    from src.auth import discord_oauth, users as user_store
+@app.get("/auth/twitch/callback")
+async def twitch_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """Handle Twitch OAuth callback, create/find user, store tokens, set session."""
+    from src.auth import twitch_oauth, users as user_store
     if error:
-        return RedirectResponse("/login?error=discord_failed")
-    if state != request.session.pop("oauth_state", None):
+        return RedirectResponse("/login?error=twitch_failed")
+    if not code or state != request.session.pop("oauth_state", None):
         return RedirectResponse("/login?error=invalid_state")
     try:
-        token = await discord_oauth.exchange_code(code)
-        duser = await discord_oauth.get_user(token)
+        tokens = await twitch_oauth.exchange_code(code)
+        tuser  = await twitch_oauth.get_user(tokens["access_token"])
     except Exception as exc:
-        log.warning("discord_oauth_failed", error=str(exc))
-        return RedirectResponse("/login?error=discord_failed")
+        log.warning("twitch_oauth_failed", error=str(exc))
+        return RedirectResponse("/login?error=twitch_failed")
 
-    is_owner = bool(settings.admin_discord_id and duser["id"] == settings.admin_discord_id)
-    user = user_store.upsert_discord_user(
-        discord_id=duser["id"],
-        username=duser["username"],
-        avatar_url=duser.get("avatar_url", ""),
+    is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
+    user = user_store.upsert_twitch_user(
+        twitch_id=tuser["id"],
+        login=tuser["login"],
+        username=tuser["username"],
+        avatar_url=tuser.get("avatar_url", ""),
+        access_token=tokens.get("access_token", ""),
+        refresh_token=tokens.get("refresh_token", ""),
+        expires_in=tokens.get("expires_in", 0),
         is_admin=is_owner,
     )
-    # Fix 10: clear any existing session before setting new auth data (session fixation)
+    # Clear any existing session before setting new auth data (session fixation)
     request.session.clear()
     request.session["auth"]                = True
     request.session["user_id"]             = user["id"]
@@ -1159,7 +1164,8 @@ async def not_found_handler(request: Request, exc: Exception):
 
 
 _ERROR_MESSAGES = {
-    "discord_failed":    "Discord login failed. Please try again.",
+    "twitch_failed":     "Twitch login failed. Please try again.",
+    "discord_failed":    "Login failed. Please try again.",
     "invalid_state":     "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
     "account_deleted":   "Account deleted successfully.",
@@ -1309,9 +1315,9 @@ LOGIN_HTML = """<!DOCTYPE html>
   .logo-wrap img{height:80px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.5))}
   h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
   .sub{font-size:13px;color:#9c9caa;margin-bottom:30px}
-  .discord-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#5865f2;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
-  .discord-btn:hover{background:#4752c4}
-  .discord-btn svg{flex-shrink:0}
+  .twitch-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
+  .twitch-btn:hover{background:#772ce8}
+  .twitch-btn svg{flex-shrink:0}
   .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
   label{font-size:12px;color:#9c9caa;display:block;margin-bottom:6px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
@@ -1332,9 +1338,9 @@ LOGIN_HTML = """<!DOCTYPE html>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
   {error}
-  <a href="/auth/discord" class="discord-btn">
-    <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="#fff"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
-    Continue with Discord
+  <a href="/auth/twitch" class="twitch-btn">
+    <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
+    Continue with Twitch
   </a>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">

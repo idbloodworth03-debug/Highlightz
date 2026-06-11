@@ -19,14 +19,13 @@ from src.dashboard.api import app as dashboard_app
 from src.ingestion.stream_worker import StreamWorker, WorkerConfig
 from src.ingestion.platform.twitch import TwitchPlatform
 from src.ingestion.platform.youtube import YouTubePlatform
-from src.ingestion.video_buffer import VideoBuffer
 from src.queue.job_queue import JobQueue
 from src.processor.clip_processor import ClipProcessor
-from src.output.storage import build_storage
 
 log = structlog.get_logger(__name__)
 
-SHARED_BUFFERS: dict[str, VideoBuffer] = {}
+# channel -> AudioMeter (transient loudness probes; no media stored)
+SHARED_BUFFERS: dict = {}
 PLATFORM_MAP = {"twitch": TwitchPlatform, "youtube": YouTubePlatform}
 
 _workers: dict[str, asyncio.Task] = {}
@@ -136,8 +135,7 @@ async def listen_for_new_streams(redis) -> None:
 # ── Inline clip processor loop ────────────────────────────────────────────────
 
 async def run_clip_processor() -> None:
-    storage = build_storage()
-    processor = ClipProcessor(storage=storage, buffers=SHARED_BUFFERS)
+    processor = ClipProcessor()
     log.info("clip_processor_started")
     while True:
         try:
@@ -263,7 +261,7 @@ async def main() -> None:
     # Restore streams that were running before the last shutdown
     for stream in list(dashboard_api._streams.values()):
         await spawn_worker(stream["channel"], stream.get("platform", "twitch"),
-                           stream.get("user_id", ""))
+                           stream.get("user_id", ""), stream.get("preset", "default"))
 
     log.info("superclipbot_started", version="1.0.0")
     try:

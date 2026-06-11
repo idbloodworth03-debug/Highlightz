@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from config.settings import settings
-from src.ingestion.video_buffer import VideoBuffer
+from src.ingestion.audio_meter import AudioMeter
 from src.ingestion.platform.base import BasePlatform, StreamInfo
 from src.chat.platform.twitch_chat import TwitchChatMonitor
 from src.chat.platform.youtube_chat import YouTubeChatMonitor
@@ -41,7 +41,7 @@ class StreamWorker:
         config: WorkerConfig,
         platform: BasePlatform,
         queue: JobQueue,
-        shared_buffers: dict[str, VideoBuffer],
+        shared_buffers: dict,
         on_score: Callable | None = None,
     ) -> None:
         self._config = config
@@ -51,7 +51,7 @@ class StreamWorker:
         self._on_score = on_score
         self._running = False
         self._stream_info: StreamInfo | None = None
-        self._buffer: VideoBuffer | None = None
+        self._buffer: AudioMeter | None = None
         self._engine: TriggerEngine | None = None
         self._profile: StreamerProfile | None = None
         self._session_start: float = 0.0
@@ -108,9 +108,14 @@ class StreamWorker:
             "status": "live",
         }, user_id=self._config.user_id)
 
-        self._buffer = VideoBuffer(channel, self._stream_info.stream_url)
-        self._shared_buffers[channel] = self._buffer
-        await self._buffer.start()
+        # Audio-only loudness probe (no recording). Disabled if the operator
+        # turns off audio detection — the engine then runs chat-only.
+        if settings.enable_audio_detection:
+            self._buffer = AudioMeter(channel, self._stream_info.stream_url)
+            self._shared_buffers[channel] = self._buffer
+            await self._buffer.start()
+        else:
+            self._buffer = None
 
         self._engine = TriggerEngine(
             channel,

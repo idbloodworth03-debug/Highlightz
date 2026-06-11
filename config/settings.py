@@ -47,11 +47,19 @@ class Settings(BaseSettings):
     clip_post_roll_seconds: int = 10
     max_concurrent_streams: int = 20
 
-    # Discord OAuth
+    # Discord OAuth (legacy — login migrated to Twitch; kept only for the
+    # optional per-user clip-notification webhook feature)
     discord_client_id: str = ""
     discord_client_secret: str = ""
     discord_redirect_uri: str = "https://highlightz.app/auth/discord/callback"
-    admin_discord_id: str = ""          # Your Discord user ID — auto-grants admin on login
+    admin_discord_id: str = ""          # legacy — superseded by admin_twitch_id
+
+    # Twitch OAuth (primary login + per-user clip creation)
+    twitch_redirect_uri: str = "https://highlightz.app/auth/twitch/callback"
+    admin_twitch_id: str = ""           # Your Twitch user ID — auto-grants admin on login
+
+    # Detection
+    enable_audio_detection: bool = True  # pull audio-only feed for the audio-spike signal
 
     # Stripe billing
     stripe_secret_key: str = ""

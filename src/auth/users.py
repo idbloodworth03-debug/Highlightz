@@ -1,9 +1,11 @@
 """
 Lightweight user management — stored as JSON, no database required.
 Passwords hashed with PBKDF2-SHA256 + per-user salt.
-Discord OAuth users have no password — identified by discord_id.
+Twitch OAuth users have no password — identified by twitch_id.
+Their Twitch access/refresh tokens are encrypted at rest.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -15,6 +17,42 @@ from pathlib import Path
 from config.settings import settings
 
 _USERS_FILE = Path(settings.local_storage_path) / "users.json"
+
+
+# ── Token encryption ───────────────────────────────────────────────────────
+# Twitch OAuth tokens are encrypted at rest with a key derived from the
+# dashboard secret. If `cryptography` is unavailable, fall back to storing the
+# raw value (the users file is already chmod 0600).
+def _fernet():
+    try:
+        from cryptography.fernet import Fernet
+    except Exception:
+        return None
+    key = base64.urlsafe_b64encode(
+        hashlib.sha256(settings.dashboard_secret_key.encode()).digest()
+    )
+    return Fernet(key)
+
+
+def _encrypt(value: str) -> str:
+    if not value:
+        return ""
+    f = _fernet()
+    if f is None:
+        return value
+    return f.encrypt(value.encode()).decode()
+
+
+def _decrypt(value: str) -> str:
+    if not value:
+        return ""
+    f = _fernet()
+    if f is None:
+        return value
+    try:
+        return f.decrypt(value.encode()).decode()
+    except Exception:
+        return ""
 
 
 def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -50,8 +88,15 @@ def _save(users: list[dict]) -> None:
         raise
 
 
+_SECRET_FIELDS = ("password_hash", "salt", "tw_access", "tw_refresh")
+
+
+def _public(user: dict) -> dict:
+    return {k: v for k, v in user.items() if k not in _SECRET_FIELDS}
+
+
 def get_all() -> list[dict]:
-    return [{k: v for k, v in u.items() if k not in ("password_hash", "salt")} for u in _load()]
+    return [_public(u) for u in _load()]
 
 
 def get_by_id(user_id: str) -> dict | None:
@@ -64,6 +109,10 @@ def get_by_username(username: str) -> dict | None:
 
 def get_by_discord_id(discord_id: str) -> dict | None:
     return next((u for u in _load() if u.get("discord_id") == discord_id), None)
+
+
+def get_by_twitch_id(twitch_id: str) -> dict | None:
+    return next((u for u in _load() if u.get("twitch_id") == twitch_id), None)
 
 
 def verify(user: dict, password: str) -> bool:
@@ -123,6 +172,97 @@ def upsert_discord_user(discord_id: str, username: str, avatar_url: str = "", is
     users.append(user)
     _save(users)
     return {k: v for k, v in user.items() if k not in ("password_hash", "salt")}
+
+
+def upsert_twitch_user(
+    twitch_id: str,
+    login: str,
+    username: str,
+    avatar_url: str = "",
+    access_token: str = "",
+    refresh_token: str = "",
+    expires_in: int = 0,
+    is_admin: bool = False,
+) -> dict:
+    """Find or create a user by Twitch ID, storing encrypted OAuth tokens.
+
+    Returns the public user dict (no secrets)."""
+    users = _load()
+    expires_at = time.time() + max(int(expires_in) - 60, 0)  # refresh 60s early
+    enc_access  = _encrypt(access_token)
+    enc_refresh = _encrypt(refresh_token)
+
+    existing = next((u for u in users if u.get("twitch_id") == twitch_id), None)
+    if existing:
+        existing["username"]    = username
+        existing["twitch_login"] = login
+        existing["avatar_url"]  = avatar_url
+        existing["is_admin"]    = is_admin
+        if access_token:
+            existing["tw_access"]     = enc_access
+            existing["tw_refresh"]    = enc_refresh
+            existing["tw_expires_at"] = expires_at
+        if is_admin:
+            existing["subscription_status"] = "active"
+        _save(users)
+        return _public(existing)
+
+    user: dict = {
+        "id":                   secrets.token_urlsafe(16),
+        "username":             username,
+        "password_hash":        None,
+        "salt":                 None,
+        "is_admin":             is_admin,
+        "twitch_id":            twitch_id,
+        "twitch_login":         login,
+        "discord_id":           None,
+        "avatar_url":           avatar_url,
+        "tw_access":            enc_access,
+        "tw_refresh":           enc_refresh,
+        "tw_expires_at":        expires_at,
+        "stripe_customer_id":   None,
+        "subscription_status":  "active" if is_admin else "none",
+        "created_at":           time.time(),
+    }
+    users.append(user)
+    _save(users)
+    return _public(user)
+
+
+def _store_refreshed_tokens(user_id: str, access_token: str, refresh_token: str, expires_in: int) -> None:
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["tw_access"]     = _encrypt(access_token)
+            u["tw_refresh"]    = _encrypt(refresh_token)
+            u["tw_expires_at"] = time.time() + max(int(expires_in) - 60, 0)
+            break
+    _save(users)
+
+
+async def get_valid_twitch_token(user_id: str) -> str | None:
+    """Return a currently-valid Twitch access token for the user, refreshing
+    it via the stored refresh token if it has expired. Returns None if the user
+    has no linked Twitch account or the refresh fails."""
+    user = get_by_id(user_id)
+    if not user or not user.get("tw_access"):
+        return None
+
+    if time.time() < user.get("tw_expires_at", 0):
+        return _decrypt(user["tw_access"])
+
+    refresh = _decrypt(user.get("tw_refresh", ""))
+    if not refresh:
+        return None
+    from src.auth import twitch_oauth
+    try:
+        tokens = await twitch_oauth.refresh_access_token(refresh)
+    except Exception:
+        return None
+    access = tokens.get("access_token", "")
+    new_refresh = tokens.get("refresh_token", refresh)
+    _store_refreshed_tokens(user_id, access, new_refresh, tokens.get("expires_in", 0))
+    return access or None
 
 
 def update_subscription(user_id: str, customer_id: str | None, status: str) -> None:

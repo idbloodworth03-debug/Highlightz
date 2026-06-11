@@ -22,6 +22,11 @@ class ClipMetadata:
     clip_title: str = ""
     vertical_url: str = ""
     user_id: str = ""
+    # Twitch-hosted clip (Helix Clips API)
+    twitch_clip_id: str = ""
+    twitch_url: str = ""       # public watch page
+    embed_url: str = ""        # iframe embed URL
+    thumbnail_url: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,4 +46,8 @@ class ClipMetadata:
             "clip_title": self.clip_title,
             "vertical_url": self.vertical_url,
             "user_id": self.user_id,
+            "twitch_clip_id": self.twitch_clip_id,
+            "twitch_url": self.twitch_url,
+            "embed_url": self.embed_url,
+            "thumbnail_url": self.thumbnail_url,
         }
