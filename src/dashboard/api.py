@@ -867,8 +867,9 @@ _ERROR_MESSAGES = {
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(error: str = ""):
+    import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
-    err_html = f'<p class="error">{err_msg}</p>' if err_msg else ""
+    err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
     return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
 
 
@@ -918,20 +919,19 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Admin only")
 
 
+class _CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
+    password: str = Field(..., min_length=12, max_length=128)
+    is_admin: bool = False
+
+
 @app.post("/admin/users", status_code=201)
-async def create_user(request: Request, body: dict):
+async def create_user(request: Request, body: _CreateUserRequest):
     _require_admin(request)
     from src.auth import users as user_store
-    username   = body.get("username", "").strip()
-    password   = body.get("password", "").strip()
-    make_admin = bool(body.get("is_admin", False))
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="username and password required")
-    if len(password) < 12:
-        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
     try:
-        user = user_store.create(username, password, is_admin=make_admin)
-        log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=make_admin)
+        user = user_store.create(body.username, body.password, is_admin=body.is_admin)
+        log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=body.is_admin)
         return {"id": user["id"], "username": user["username"]}
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
