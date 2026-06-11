@@ -103,6 +103,11 @@ class TriggerEngine:
             await self.on_score(self.channel, round(score, 1), breakdown)
 
         if in_cooldown:
+            if score >= threshold:
+                secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))
+                log.info("trigger_suppressed_cooldown", channel=self.channel,
+                         score=round(score, 1), threshold=round(threshold, 1),
+                         cooldown_remaining_s=secs_left)
             return
 
         if score >= threshold:

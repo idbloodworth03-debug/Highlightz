@@ -142,13 +142,18 @@ async def run_clip_processor() -> None:
             job = await _queue.pop(timeout=5)
             if job is None:
                 continue
-            log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel)
+            log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
+                     user_id=job.user_id, platform=job.platform)
             meta = await processor.process(job)
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
         except Exception as exc:
-            log.error("clip_processor_error", error=str(exc))
+            import traceback as _tb
+            log.error("clip_processor_error", error=str(exc),
+                      channel=getattr(job, "channel", "?"),
+                      user_id=getattr(job, "user_id", "?"),
+                      traceback=_tb.format_exc())
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
