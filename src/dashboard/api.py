@@ -429,6 +429,10 @@ async def delete_account(request: Request):
     uid = _current_user_id(request)
     from src.auth import users as user_store
 
+    # Grab Stripe customer ID before deleting the record
+    db_user = user_store.get_by_id(uid)
+    stripe_customer_id = db_user.get("stripe_customer_id") if db_user else None
+
     async with _data_lock:
         user_clips  = [c for c in list(_clips.values()) if c.get("user_id") == uid]
         stream_keys = [k for k in list(_streams.keys()) if k.startswith(f"{uid}:")]
@@ -447,6 +451,11 @@ async def delete_account(request: Request):
                 await _publish_remove_stream(channel, uid)
             except Exception:
                 pass
+
+    # Cancel any active Stripe subscriptions so the user isn't charged after deletion
+    if stripe_customer_id and settings.stripe_secret_key:
+        from src.billing.stripe_billing import cancel_customer_subscriptions
+        await cancel_customer_subscriptions(stripe_customer_id)
 
     user_store.delete(uid)
     request.session.clear()

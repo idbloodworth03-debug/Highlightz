@@ -46,6 +46,27 @@ async def create_portal_url(customer_id: str) -> str:
     return session.url
 
 
+async def cancel_customer_subscriptions(customer_id: str) -> int:
+    """Cancel all active Stripe subscriptions for a customer. Returns count cancelled."""
+    if not settings.stripe_secret_key or not customer_id:
+        return 0
+    try:
+        client = _client()
+        subs = client.subscriptions.list(params={"customer": customer_id, "status": "active", "limit": 10})
+        items = subs.data if hasattr(subs, "data") else []
+        cancelled = 0
+        for sub in items:
+            sub_id = sub.get("id") if isinstance(sub, dict) else sub.id
+            client.subscriptions.cancel(sub_id)
+            cancelled += 1
+        if cancelled:
+            log.info("stripe_subscriptions_cancelled", customer=customer_id, count=cancelled)
+        return cancelled
+    except Exception as exc:
+        log.error("stripe_cancel_failed", customer=customer_id, error=str(exc))
+        return 0
+
+
 def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
     """Verify and parse a Stripe webhook event. Raises on invalid signature."""
     return stripe.Webhook.construct_event(
