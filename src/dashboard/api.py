@@ -75,15 +75,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if request.headers.get("accept", "").startswith("application/json"):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
-        # Refresh is_admin and subscription_status from DB on every request
+        # Refresh is_admin and subscription state from DB on every request
         from src.auth import users as user_store
         uid = request.session.get("user_id")
         if uid:
             db_user = user_store.get_by_id(uid)
             if db_user:
+                status        = db_user.get("subscription_status", "none")
+                trial_ends_at = db_user.get("trial_ends_at", 0)
+                # A trial that has run past its 7 days no longer grants access.
+                if status == "trialing" and time.time() >= trial_ends_at:
+                    status = "expired"
                 request.session["is_admin"]            = db_user.get("is_admin", False)
-                request.session["subscription_status"] = db_user.get("subscription_status", "none")
-        # Billing gate — redirect to paywall unless admin or active subscriber
+                request.session["subscription_status"] = status
+                request.session["trial_ends_at"]       = trial_ends_at
+        # Billing gate — redirect to paywall unless admin, active subscriber,
+        # or within an unexpired free trial.
         if not request.session.get("is_admin") and request.session.get("subscription_status") not in ("active", "trialing"):
             if not request.headers.get("accept", "").startswith("application/json"):
                 return RedirectResponse("/billing/paywall", status_code=302)
@@ -399,12 +406,20 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
 
 @app.get("/me")
 async def me(request: Request):
+    import math
+    trial_ends_at = request.session.get("trial_ends_at", 0) or 0
+    status        = request.session.get("subscription_status", "none")
+    trial_days_left = 0
+    if status == "trialing" and trial_ends_at:
+        trial_days_left = max(0, math.ceil((trial_ends_at - time.time()) / 86400))
     return {
         "user_id":             request.session.get("user_id", ""),
         "username":            request.session.get("username", ""),
         "avatar_url":          request.session.get("avatar_url", ""),
         "is_admin":            request.session.get("is_admin", False),
-        "subscription_status": request.session.get("subscription_status", "none"),
+        "subscription_status": status,
+        "trial_ends_at":       trial_ends_at,
+        "trial_days_left":     trial_days_left,
     }
 
 
@@ -992,7 +1007,10 @@ LOGIN_HTML = """<!DOCTYPE html>
   .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
   .logo-wrap img{height:80px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.5))}
   h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
-  .sub{font-size:13px;color:#9c9caa;margin-bottom:30px}
+  .sub{font-size:13px;color:#9c9caa;margin-bottom:18px}
+  .trial-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c79bff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;margin-bottom:22px}
+  .trial-pill .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
+  .trial-note{font-size:11px;color:#5d5d6b;text-align:center;margin-top:12px}
   .twitch-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
   .twitch-btn:hover{background:#772ce8}
   .twitch-btn svg{flex-shrink:0}
@@ -1015,11 +1033,13 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
+  <div class="trial-pill"><span class="dot"></span>7-day free trial — no credit card required</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
+  <p class="trial-note">Free for 7 days. Cancel anytime — we won't ask for a card to start.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -1071,8 +1091,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
   <span class="badge">Highlightz Pro</span>
-  <h1>Never miss a clip again</h1>
-  <p class="sub">Hi {username} — activate your subscription to start automatically capturing your best streaming moments.</p>
+  <h1>Your free trial has ended</h1>
+  <p class="sub">Hi {username} — your 7-day free trial is up. Subscribe to keep automatically capturing your best streaming moments.</p>
   <div class="features">
     <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
     <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
@@ -1141,8 +1161,9 @@ TOS_HTML = """<!DOCTYPE html>
   <h2>3. Accounts and Twitch Authorization</h2>
   <p>You sign in by authorizing the Service through your Twitch account via OAuth2. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button. You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
-  <h2>4. Subscriptions and Billing</h2>
-  <p>Access to the Service requires a paid subscription. Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
+  <h2>4. Free Trial and Subscriptions</h2>
+  <p>New accounts receive a 7-day free trial with full access to core features. No credit card or payment information is required to start the trial. At the end of the 7-day trial period, access to core features is suspended unless you start a paid subscription. We do not automatically charge you when the trial ends — you will only be billed if and when you choose to subscribe.</p>
+  <p>Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
   <ul>
     <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
     <li>We do not issue refunds for partial billing periods or unused time.</li>

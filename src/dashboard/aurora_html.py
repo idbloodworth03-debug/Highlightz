@@ -880,7 +880,10 @@ function AccountScreen({ me }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr]       = useState('');
   const sub   = me.subscription_status || 'none';
-  const subLabel = {active:'Active',trialing:'Trial',canceled:'Canceled',past_due:'Past due',none:'No subscription'}[sub] || sub;
+  const trialDays = me.trial_days_left || 0;
+  const isTrial = sub==='trialing';
+  const subLabel = isTrial ? `Free trial — ${trialDays} day${trialDays===1?'':'s'} left`
+    : ({active:'Active',canceled:'Canceled',past_due:'Past due',expired:'Trial ended',none:'No subscription'}[sub] || sub);
   const subColor = (sub==='active'||sub==='trialing') ? 'var(--live)' : sub==='past_due' ? 'var(--pending)' : 'var(--fg-3)';
   const isSubscribed = sub==='active'||sub==='trialing';
 
@@ -908,7 +911,13 @@ function AccountScreen({ me }) {
             <div><div className="fl">Plan status</div></div>
             <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
           </div>
-          {isSubscribed && <div className="rd-field">
+          {isTrial && <div className="rd-field">
+            <div><div className="fl">No card on file</div><div className="fd">Subscribe before your trial ends to keep access</div></div>
+            <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Subscribe
+            </a>
+          </div>}
+          {sub==='active' && <div className="rd-field">
             <div><div className="fl">Billing</div><div className="fd">Manage or cancel via Stripe portal</div></div>
             <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
           </div>}
@@ -1114,6 +1123,11 @@ function RdApp() {
             <span className="uc-name">{me.username||'Account'}</span>
           </button>
         </header>
+        {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c79bff',fontWeight:600}}>
+          <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. No card on file yet.</span>
+          <a href="/billing/checkout" style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Subscribe</a>
+        </div>}
         <main className="rd-screen">{screen}</main>
       </div>
       <RdToast msg={toast}/>

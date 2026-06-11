@@ -18,6 +18,9 @@ from config.settings import settings
 
 _USERS_FILE = Path(settings.local_storage_path) / "users.json"
 
+TRIAL_DAYS = 7
+_TRIAL_SECONDS = TRIAL_DAYS * 86400
+
 
 # ── Token encryption ───────────────────────────────────────────────────────
 # Twitch OAuth tokens are encrypted at rest with a key derived from the
@@ -172,6 +175,7 @@ def upsert_twitch_user(
         _save(users)
         return _public(existing)
 
+    now = time.time()
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -185,8 +189,10 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        "subscription_status":  "active" if is_admin else "none",
-        "created_at":           time.time(),
+        # New users start a 7-day free trial (no card required).
+        "subscription_status":  "active" if is_admin else "trialing",
+        "trial_ends_at":        0 if is_admin else (now + _TRIAL_SECONDS),
+        "created_at":           now,
     }
     users.append(user)
     _save(users)
