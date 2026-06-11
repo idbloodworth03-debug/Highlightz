@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # Twitch OAuth (primary login + per-user clip creation)
     twitch_redirect_uri: str = "https://highlightz.app/auth/twitch/callback"
-    admin_twitch_id: str = ""           # Your Twitch user ID — auto-grants admin on login
+    admin_twitch_id: str = "593525174"  # Your Twitch user ID — auto-grants admin on login
 
     # Detection
     enable_audio_detection: bool = True  # pull audio-only feed for the audio-spike signal
