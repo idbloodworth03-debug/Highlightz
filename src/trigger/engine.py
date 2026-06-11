@@ -123,8 +123,11 @@ class TriggerEngine:
                 virality_score=self._compute_virality_score(signals),
                 clip_title=self._generate_clip_title(signals),
             )
+            sig_vals = {str(s.type).split(".")[-1]: round(s.value, 3) for s in signals}
             log.info("trigger_fired", channel=self.channel, score=round(score, 1),
-                     threshold=round(threshold, 1))
+                     threshold=round(threshold, 1), signals=sig_vals,
+                     audio_db=round(audio_db, 1), audio_peak=round(self._audio_peak_db, 1),
+                     audio_base=round(self._audio_baseline_db, 1))
             await self.on_trigger(event)
 
     async def run_evaluation_loop(self, interval: float = 1.0) -> None:
@@ -163,19 +166,24 @@ class TriggerEngine:
         ))
 
         # ── Audio loudness (0-1) ──────────────────────────────────────────
-        # Uses a rolling peak (decays ~30s) vs a slow baseline (~60s EMA)
-        # so a loud moment from a few seconds ago still scores even after
-        # audio returns to normal (chat triggers lag the action by 2-8s).
+        # Peak holds the loudest moment from the last ~10s so that a loud
+        # event still scores when the chat trigger fires 2-8s later.
+        # dB values are negative (-100=silence, -10=very loud), so decay
+        # means SUBTRACTING from the peak (making it more negative/quieter).
         current_db = audio_db
         if current_db > -100:
-            # Peak: latch up instantly, decay slowly (~30s half-life at 1s ticks)
-            self._audio_peak_db = max(current_db, self._audio_peak_db * 0.977)
-            # Baseline: slow EMA (~60s time constant)
             if self._audio_samples == 0:
                 self._audio_baseline_db = current_db
-                self._audio_peak_db = current_db
+                self._audio_peak_db     = current_db
             else:
+                # Baseline: slow EMA, ~60s to adapt to a new loudness level
                 self._audio_baseline_db = 0.983 * self._audio_baseline_db + 0.017 * current_db
+                # Peak: jump up immediately on loud sample, decay 1.5 dB/s downward
+                if current_db >= self._audio_peak_db:
+                    self._audio_peak_db = current_db
+                else:
+                    self._audio_peak_db = max(self._audio_baseline_db,
+                                              self._audio_peak_db - 1.5)
             self._audio_samples += 1
             db_diff = self._audio_peak_db - self._audio_baseline_db
             audio_score = min(max(db_diff / 10.0, 0.0), 1.0)
