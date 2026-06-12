@@ -390,6 +390,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     user: <><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
     card: <><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>,
     trash: <><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></>,
+    chat: <><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -882,8 +883,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'}];
-const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & legal']};
+const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
+const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
 
 function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
@@ -997,6 +998,83 @@ function AccountScreen({ me }) {
   );
 }
 
+function FeedbackScreen() {
+  const CATEGORIES = ['General','Bug report','Feature request','Question'];
+  const [category, setCategory] = useState('General');
+  const [message, setMessage]   = useState('');
+  const [sending, setSending]   = useState(false);
+  const [sent, setSent]         = useState(false);
+  const [err, setErr]           = useState('');
+
+  const submit = async () => {
+    const msg = message.trim();
+    if (!msg) { setErr('Please enter a message.'); return; }
+    setSending(true); setErr('');
+    try {
+      const r = await fetch('/feedback', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ message: msg, category }),
+      });
+      if (!r.ok) { const d = await r.json().catch(()=>({})); setErr(d.detail||'Failed to send — try again.'); }
+      else { setSent(true); setMessage(''); }
+    } catch { setErr('Network error — try again.'); }
+    setSending(false);
+  };
+
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title"><h2>Feedback</h2></div>
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="chat" size={15}/></span>Send feedback</h3>
+          <div className="desc">Questions, suggestions, bug reports — we read everything.</div>
+          {sent ? (
+            <div style={{padding:'24px 0',textAlign:'center'}}>
+              <div style={{fontSize:32,marginBottom:12}}>✓</div>
+              <div style={{fontWeight:700,marginBottom:8}}>Thanks for your feedback!</div>
+              <div style={{fontSize:13,color:'var(--fg-3)',marginBottom:20}}>We'll review it shortly.</div>
+              <button className="rd-btn" onClick={()=>setSent(false)}>Send another</button>
+            </div>
+          ) : (
+            <>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Category</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {CATEGORIES.map(c=>(
+                    <button key={c} onClick={()=>setCategory(c)} style={{
+                      padding:'6px 14px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'.15s',
+                      background: category===c ? 'rgba(168,85,247,.2)' : 'rgba(255,255,255,.05)',
+                      borderColor: category===c ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.09)',
+                      color: category===c ? '#c79bff' : 'var(--fg-3)',
+                    }}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Message</div>
+                <textarea
+                  value={message}
+                  onChange={e=>setMessage(e.target.value)}
+                  placeholder="Tell us what's on your mind…"
+                  maxLength={2000}
+                  rows={6}
+                  style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.09)',borderRadius:12,color:'var(--fg)',padding:'12px 14px',fontSize:14,resize:'vertical',outline:'none',fontFamily:'inherit',lineHeight:1.6}}
+                />
+                <div style={{textAlign:'right',fontSize:11,color:'var(--fg-3)',marginTop:4}}>{message.length}/2000</div>
+              </div>
+              {err && <div style={{color:'var(--danger)',fontSize:13,marginBottom:12,padding:'8px 12px',background:'rgba(255,90,120,.08)',borderRadius:9,border:'1px solid rgba(255,90,120,.2)'}}>{err}</div>}
+              <button className="rd-btn grad" onClick={submit} disabled={sending} style={{opacity:sending?.6:1}}>
+                <Icon name="chat" size={14}/>{sending ? 'Sending…' : 'Send feedback'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RdApp() {
   const [route, setRoute] = useState('review');
   const [streams, setStreams] = useState({});
@@ -1102,6 +1180,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
+  else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
 
   return (

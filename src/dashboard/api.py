@@ -48,8 +48,9 @@ except ImportError:
 from config.settings import settings
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
-_STREAMS_FILE = Path(settings.local_storage_path) / "streams.json"
-_CLIPS_FILE   = Path(settings.local_storage_path) / "clips.json"
+_STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
+_CLIPS_FILE    = Path(settings.local_storage_path) / "clips.json"
+_FEEDBACK_FILE = Path(settings.local_storage_path) / "feedback.json"
 
 log = structlog.get_logger(__name__)
 
@@ -210,8 +211,21 @@ def _load_streams() -> dict:
 def _save_streams() -> None:
     _atomic_write(_STREAMS_FILE, json.dumps(list(_streams.values())))
 
+def _load_feedback() -> list:
+    try:
+        return json.loads(_FEEDBACK_FILE.read_text())
+    except FileNotFoundError:
+        return []
+    except Exception:
+        log.error("feedback_file_load_failed", path=str(_FEEDBACK_FILE))
+        return []
+
+def _save_feedback() -> None:
+    _atomic_write(_FEEDBACK_FILE, json.dumps(_feedback))
+
 _clips:        dict[str, dict]           = _load_clips()
 _streams:      dict[str, dict]           = _load_streams()
+_feedback:     list                      = _load_feedback()
 _ws_clients:   dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
 _cleanup_tasks: dict[str, asyncio.Task]  = {}  # user_id -> pending stream cleanup task
 _data_lock = asyncio.Lock()
@@ -523,6 +537,12 @@ async def optout_success():
     return HTMLResponse(_OPTOUT_SUCCESS_HTML)
 
 
+@app.get("/admin/feedback-page", response_class=HTMLResponse)
+async def admin_feedback_page(request: Request):
+    _require_admin(request)
+    return HTMLResponse(_ADMIN_FEEDBACK_HTML)
+
+
 @app.get("/admin/optout", response_class=HTMLResponse)
 async def admin_optout_page(request: Request):
     _require_admin(request)
@@ -545,6 +565,73 @@ async def admin_optout_remove(request: Request, twitch_id: str):
         raise HTTPException(status_code=404, detail="Not found")
     log.info("optout_removed_by_admin", twitch_id=twitch_id, by=request.session.get("user_id"))
     return {"ok": True}
+
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+
+class _FeedbackRequest(BaseModel):
+    message: str
+    category: str = "general"
+
+@app.post("/feedback", status_code=201)
+async def submit_feedback(request: Request, body: _FeedbackRequest):
+    uid      = _current_user_id(request)
+    username = request.session.get("username", "")
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message is required")
+    if len(msg) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (2000 chars max)")
+    category = body.category.strip()[:40] if body.category else "general"
+    import secrets as _sec
+    entry = {
+        "id":         _sec.token_urlsafe(12),
+        "user_id":    uid,
+        "username":   username,
+        "category":   category,
+        "message":    msg,
+        "created_at": time.time(),
+        "read":       False,
+    }
+    async with _data_lock:
+        _feedback.append(entry)
+        _save_feedback()
+    log.info("feedback_submitted", user_id=uid, username=username, category=category)
+    return {"ok": True}
+
+@app.get("/admin/feedback")
+async def admin_feedback_list(request: Request):
+    _require_admin(request)
+    return sorted(_feedback, key=lambda f: f["created_at"], reverse=True)
+
+@app.post("/admin/feedback/{feedback_id}/read")
+async def admin_feedback_mark_read(request: Request, feedback_id: str):
+    _require_admin(request)
+    async with _data_lock:
+        for f in _feedback:
+            if f["id"] == feedback_id:
+                f["read"] = True
+                _save_feedback()
+                return {"ok": True}
+    raise HTTPException(status_code=404, detail="Not found")
+
+@app.delete("/admin/feedback/{feedback_id}")
+async def admin_feedback_delete(request: Request, feedback_id: str):
+    _require_admin(request)
+    async with _data_lock:
+        idx = next((i for i, f in enumerate(_feedback) if f["id"] == feedback_id), None)
+        if idx is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        _feedback.pop(idx)
+        _save_feedback()
+    return {"ok": True}
+
+@app.get("/feedback/unread-count")
+async def feedback_unread_count(request: Request):
+    """Admin-only: number of unread feedback items (used for nav badge)."""
+    if not request.session.get("is_admin"):
+        return {"count": 0}
+    return {"count": sum(1 for f in _feedback if not f.get("read"))}
 
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
@@ -1615,6 +1702,13 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="section-head">Opt-Out Registry</div>
     <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Streamers who have verified and opted out of being clipped.</p>
     <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
+    <a href="/admin/feedback-page" id="feedback-link" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Feedback &#8594;</a>
+    <script>
+      fetch('/admin/feedback').then(r=>r.json()).then(fb=>{
+        const unread=fb.filter(f=>!f.read).length;
+        if(unread>0){const el=document.getElementById('feedback-link');if(el)el.textContent='View Feedback ('+unread+' new) →';}
+      }).catch(()=>{});
+    </script>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -1868,6 +1962,95 @@ _OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
   <p>Your channel has been added to the Highlightz blacklist. No users on this platform will be able to monitor or clip your stream going forward.</p>
   <p style="font-size:13px">If you change your mind in the future, contact <a href="mailto:support@highlightz.app" style="color:#a855f7;text-decoration:none">support@highlightz.app</a> to be removed.</p>
 </div>
+</body>
+</html>"""
+
+_ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Feedback — Highlightz Admin</title>
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.18),transparent 60%)}
+  .topbar{display:flex;align-items:center;gap:16px;margin-bottom:28px}
+  .back{color:#9c9caa;text-decoration:none;font-size:13px;font-weight:600}
+  .back:hover{color:#f6f6f9}
+  h1{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .badge{display:inline-flex;align-items:center;gap:5px;background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c79bff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px}
+  .empty{text-align:center;padding:64px 0;color:#5d5d6b;font-size:14px}
+  .fb-list{display:flex;flex-direction:column;gap:12px;max-width:820px}
+  .fb-item{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 20px;transition:border-color .15s}
+  .fb-item.unread{border-color:rgba(145,70,255,.4);background:rgba(145,70,255,.06)}
+  .fb-meta{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .fb-user{font-weight:700;font-size:14px;color:#f6f6f9}
+  .fb-cat{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:rgba(255,255,255,.07);color:#9c9caa;text-transform:capitalize}
+  .fb-time{font-size:11px;color:#5d5d6b;margin-left:auto}
+  .fb-msg{font-size:14px;color:#d4d4e0;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+  .fb-actions{display:flex;gap:8px;margin-top:12px}
+  .btn{padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-read{background:rgba(255,255,255,.07);color:#9c9caa}
+  .btn-read:hover{background:rgba(255,255,255,.12);color:#f6f6f9}
+  .btn-del{background:rgba(255,80,80,.12);color:#ff8080;border:1px solid rgba(255,80,80,.2)}
+  .btn-del:hover{background:rgba(255,80,80,.2)}
+  .new-dot{width:8px;height:8px;border-radius:50%;background:#a855f7;box-shadow:0 0 8px #a855f7;flex-shrink:0}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(255,255,255,.12);color:#f6f6f9;padding:10px 20px;border-radius:12px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/admin" class="back">&#8592; Admin panel</a>
+  <h1>User Feedback</h1>
+  <span class="badge" id="unread-badge" style="display:none"></span>
+</div>
+<div class="fb-list" id="list"><p class="empty">Loading…</p></div>
+<div class="toast" id="toast"></div>
+<script>
+  let items=[];
+  function fmt(ts){if(!ts)return '';const d=new Date(ts*1000);return d.toLocaleDateString()+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});}
+  async function api(url,method='GET'){const r=await fetch(url,{method});if(!r.ok)throw new Error(r.status);return r.json();}
+  function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
+  function render(){
+    const list=document.getElementById('list');
+    if(!items.length){list.innerHTML='<p class="empty">No feedback yet.</p>';return;}
+    const unread=items.filter(f=>!f.read).length;
+    const badge=document.getElementById('unread-badge');
+    if(unread>0){badge.textContent=unread+' unread';badge.style.display='inline-flex';}
+    else badge.style.display='none';
+    list.innerHTML=items.map(f=>`
+      <div class="fb-item${f.read?'':' unread'}" id="fb-${f.id}">
+        <div class="fb-meta">
+          ${f.read?'':'<span class="new-dot"></span>'}
+          <span class="fb-user">${esc(f.username||f.user_id)}</span>
+          <span class="fb-cat">${esc(f.category||'general')}</span>
+          <span class="fb-time">${fmt(f.created_at)}</span>
+        </div>
+        <div class="fb-msg">${esc(f.message)}</div>
+        <div class="fb-actions">
+          ${f.read?'':`<button class="btn btn-read" onclick="markRead('${f.id}')">Mark read</button>`}
+          <button class="btn btn-del" onclick="del('${f.id}')">Delete</button>
+        </div>
+      </div>`).join('');
+  }
+  function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+  async function markRead(id){
+    try{await api('/admin/feedback/'+id+'/read','POST');items.find(f=>f.id===id).read=true;render();toast('Marked as read');}
+    catch{toast('Error');}
+  }
+  async function del(id){
+    try{await api('/admin/feedback/'+id,'DELETE');items=items.filter(f=>f.id!==id);render();toast('Deleted');}
+    catch{toast('Error');}
+  }
+  async function load(){
+    try{items=await api('/admin/feedback');render();}
+    catch{document.getElementById('list').innerHTML='<p class="empty">Failed to load feedback.</p>';}
+  }
+  load();
+</script>
 </body>
 </html>"""
 
