@@ -47,9 +47,15 @@ class TriggerEngine:
         self._vader = SentimentIntensityAnalyzer()
         self._last_trigger: float = 0.0
         self._running = False
-        self._audio_baseline_db: float = -30.0
-        self._audio_peak_db: float = -100.0
-        self._audio_samples: int = 0
+        # If the profile already has calibrated audio data, start from there
+        # so the very first evaluation isn't falsely loud.
+        if profile and profile.audio_db_samples >= 30:
+            self._audio_baseline_db: float = profile.avg_audio_db
+            self._audio_samples: int = profile.audio_db_samples
+        else:
+            self._audio_baseline_db: float = -30.0
+            self._audio_samples: int = 0
+        self._audio_peak_db: float = self._audio_baseline_db
         self._sub_raid_active: bool = False
         self._sub_raid_time: float = 0.0
         self._viewer_current: float = 0.0
@@ -166,27 +172,37 @@ class TriggerEngine:
         ))
 
         # ── Audio loudness (0-1) ──────────────────────────────────────────
-        # Peak holds the loudest moment from the last ~10s so that a loud
-        # event still scores when the chat trigger fires 2-8s later.
-        # dB values are negative (-100=silence, -10=very loud), so decay
-        # means SUBTRACTING from the peak (making it more negative/quieter).
+        # Two phases:
+        #   Warmup (first 30 samples): fast EMA builds the baseline from the
+        #   streamer's actual audio, no scoring yet.  Skipped entirely when
+        #   the profile already has ≥30 samples from a previous session.
+        #   Scoring: peak vs slow-EMA baseline; 15 dB above baseline = 100%.
+        #   15 dB means something went from barely audible to a shout/explosion
+        #   — far enough that normal loudness variation never pins the bar.
+        _AUDIO_WARMUP = 30
+        _SPIKE_RANGE_DB = 15.0   # dB above baseline that maps to 1.0
         current_db = audio_db
         if current_db > -100:
-            if self._audio_samples == 0:
-                self._audio_baseline_db = current_db
-                self._audio_peak_db     = current_db
+            if self._audio_samples < _AUDIO_WARMUP:
+                # Fast EMA: settle on this streamer's normal level in ~10s
+                if self._audio_samples == 0:
+                    self._audio_baseline_db = current_db
+                else:
+                    self._audio_baseline_db = 0.7 * self._audio_baseline_db + 0.3 * current_db
+                self._audio_peak_db = self._audio_baseline_db
+                self._audio_samples += 1
+                audio_score = 0.0
             else:
-                # Baseline: slow EMA, ~60s to adapt to a new loudness level
+                # Slow EMA baseline (~60s time constant), rolling peak with decay
                 self._audio_baseline_db = 0.983 * self._audio_baseline_db + 0.017 * current_db
-                # Peak: jump up immediately on loud sample, decay 1.5 dB/s downward
                 if current_db >= self._audio_peak_db:
                     self._audio_peak_db = current_db
                 else:
                     self._audio_peak_db = max(self._audio_baseline_db,
                                               self._audio_peak_db - 1.5)
-            self._audio_samples += 1
-            db_diff = self._audio_peak_db - self._audio_baseline_db
-            audio_score = min(max(db_diff / 10.0, 0.0), 1.0)
+                self._audio_samples += 1
+                db_diff = self._audio_peak_db - self._audio_baseline_db
+                audio_score = min(max(db_diff / _SPIKE_RANGE_DB, 0.0), 1.0)
         else:
             audio_score = 0.0
         signals.append(Signal(

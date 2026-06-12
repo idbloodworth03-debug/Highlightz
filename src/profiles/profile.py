@@ -39,6 +39,10 @@ class StreamerProfile:
     avg_keyword_rate: float = 0.0   # keyword hits / total messages
     keyword_samples: int = 0
 
+    # ── Audio level baseline ──────────────────────────────────────────────
+    avg_audio_db: float = -30.0     # streamer's typical dBFS during normal content
+    audio_db_samples: int = 0
+
     # ── Adaptive trigger threshold ────────────────────────────────────────
     # Starts at global default; nudges down when clips get approved,
     # nudges up when clips get rejected (stays in [30, 90])
@@ -86,6 +90,15 @@ class StreamerProfile:
         else:
             self.avg_keyword_rate = (1 - self._EMA_ALPHA) * self.avg_keyword_rate + self._EMA_ALPHA * sample
         self.keyword_samples += 1
+
+    def update_audio_db(self, sample_db: float) -> None:
+        if sample_db <= -100.0:
+            return
+        if self.audio_db_samples == 0:
+            self.avg_audio_db = sample_db
+        else:
+            self.avg_audio_db = (1 - self._EMA_ALPHA) * self.avg_audio_db + self._EMA_ALPHA * sample_db
+        self.audio_db_samples += 1
 
     def record_clip(self, approved: bool, signals: list[dict] | None = None) -> None:
         self.total_clips += 1

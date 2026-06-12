@@ -200,6 +200,8 @@ class StreamWorker:
             self._profile.update_velocity(velocity)
             self._profile.update_keyword_rate(keyword_rate)
             self._profile.update_sentiment(avg_sentiment)
+            if self._engine and self._engine._audio_samples >= 30:
+                self._profile.update_audio_db(self._engine._audio_baseline_db)
             self._profile.total_watch_seconds += interval
             self._last_profile_save = time.time()
 
