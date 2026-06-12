@@ -62,25 +62,45 @@ async def resolve_broadcaster_id(login: str) -> str | None:
     return rows[0]["id"] if rows else None
 
 
-async def create_clip(user_token: str, broadcaster_id: str) -> str | None:
+async def create_clip(user_token: str, broadcaster_id: str,
+                      retries: int = 3, retry_delay: float = 5.0) -> str | None:
     """Create a clip on the broadcaster's live stream using the user's token.
-    Returns the clip slug, or None on failure."""
+    Returns the clip slug, or None on failure.
+
+    Twitch occasionally returns 'Failed to determine content classification'
+    for streamers who haven't set CCLs or on the first clip of a session.
+    We retry up to `retries` times before giving up.
+    """
     headers = {"Client-Id": settings.twitch_client_id, "Authorization": f"Bearer {user_token}"}
     async with aiohttp.ClientSession() as session:
-        async with session.post(f"{HELIX_BASE}/clips", headers=headers,
-                                params={"broadcaster_id": broadcaster_id}) as resp:
-            if resp.status == 202:
-                data = await resp.json()
-                rows = data.get("data", [])
-                if rows:
-                    slug = rows[0].get("id")
-                    log.info("twitch_clip_requested", slug=slug, broadcaster_id=broadcaster_id)
-                    return slug
+        for attempt in range(retries):
+            async with session.post(f"{HELIX_BASE}/clips", headers=headers,
+                                    params={"broadcaster_id": broadcaster_id}) as resp:
+                if resp.status == 202:
+                    data = await resp.json()
+                    rows = data.get("data", [])
+                    if rows:
+                        slug = rows[0].get("id")
+                        log.info("twitch_clip_requested", slug=slug,
+                                 broadcaster_id=broadcaster_id, attempt=attempt + 1)
+                        return slug
+                    return None
+
+                body = await resp.text()
+                is_ccl_error = "content classification" in body.lower()
+                if is_ccl_error and attempt < retries - 1:
+                    log.warning("twitch_clip_ccl_retry", broadcaster_id=broadcaster_id,
+                                attempt=attempt + 1, retrying_in=retry_delay)
+                    await asyncio.sleep(retry_delay)
+                    continue
+
+                level = log.warning if is_ccl_error else log.warning
+                level("twitch_clip_create_failed", status=resp.status,
+                      broadcaster_id=broadcaster_id, body=body[:300],
+                      hint="Streamer may need to set Content Classification Labels on their Twitch dashboard"
+                           if is_ccl_error else "")
                 return None
-            body = await resp.text()
-            log.warning("twitch_clip_create_failed", status=resp.status,
-                        broadcaster_id=broadcaster_id, body=body[:200])
-            return None
+    return None
 
 
 async def get_clip(slug: str, attempts: int = 8, delay: float = 2.0) -> dict | None:
