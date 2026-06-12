@@ -43,6 +43,10 @@ class StreamerProfile:
     avg_audio_db: float = -30.0     # streamer's typical dBFS during normal content
     audio_db_samples: int = 0
 
+    # ── Pre-flight research (existing Twitch clips, one-time seed) ────────
+    researched: bool = False              # research attempted (even if no clips found)
+    research_clips_per_day: float = 0.0   # how often this channel already gets clipped
+
     # ── Adaptive trigger threshold ────────────────────────────────────────
     # Starts at global default; nudges down when clips get approved,
     # nudges up when clips get rejected (stays in [30, 90])

@@ -65,6 +65,7 @@ class StreamWorker:
         self._profile = await _pm.load(
             self._config.channel, self._config.platform_name
         )
+        await self._research_if_new(_pm)
         log.info("worker_starting", channel=self._config.channel,
                  sessions=self._profile.total_sessions,
                  threshold=round(self._profile.trigger_threshold, 3))
@@ -91,6 +92,40 @@ class StreamWorker:
                     "status": "reconnecting",
                 }, user_id=self._config.user_id)
                 await asyncio.sleep(30)
+
+    async def _research_if_new(self, pm) -> None:
+        """One-time pre-flight research for channels we've never watched.
+
+        Looks at the channel's existing Twitch clips to seed a more accurate
+        starting threshold. Only runs for brand-new Twitch profiles that
+        haven't learned anything live yet; never overrides live learning."""
+        p = self._profile
+        if p.researched or self._config.platform_name != "twitch":
+            return
+        if p.total_sessions > 0 or p.total_clips > 0 or p.velocity_samples > 0:
+            # Already has live data — too late to seed, just mark done.
+            p.researched = True
+            await pm.save(p)
+            return
+        try:
+            from src.profiles.research import research_channel
+            stats = await research_channel(self._config.channel)
+        except Exception as exc:
+            log.warning("streamer_research_failed", channel=self._config.channel,
+                        error=str(exc))
+            return  # leave researched=False so we retry next session
+        p.researched = True
+        if stats:
+            p.research_clips_per_day = stats["clips_per_day"]
+            p.trigger_threshold = stats["suggested_threshold"]
+            log.info("streamer_research_applied", channel=self._config.channel,
+                     clips_per_day=stats["clips_per_day"],
+                     existing_clips=stats["clip_count"],
+                     median_views=stats["median_views"],
+                     seeded_threshold=stats["suggested_threshold"])
+        else:
+            log.info("streamer_research_no_clips", channel=self._config.channel)
+        await pm.save(p)
 
     async def _run_session(self) -> None:
         channel = self._config.channel

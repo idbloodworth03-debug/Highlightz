@@ -62,6 +62,27 @@ async def resolve_broadcaster_id(login: str) -> str | None:
     return rows[0]["id"] if rows else None
 
 
+async def get_recent_clips(broadcaster_id: str, days: int = 30, limit: int = 100) -> list[dict]:
+    """Fetch a channel's existing clips from the last `days` days (top by views).
+    Returns a list of clip dicts (view_count, created_at, duration, title…)."""
+    import datetime as _dt
+    started_at = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)) \
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    async with aiohttp.ClientSession() as session:
+        token = await _get_app_token(session)
+        headers = {"Client-Id": settings.twitch_client_id, "Authorization": f"Bearer {token}"}
+        async with session.get(f"{HELIX_BASE}/clips", headers=headers,
+                               params={"broadcaster_id": broadcaster_id,
+                                       "started_at": started_at,
+                                       "first": min(limit, 100)}) as resp:
+            if resp.status != 200:
+                log.warning("get_recent_clips_failed", broadcaster_id=broadcaster_id,
+                            status=resp.status)
+                return []
+            data = await resp.json()
+    return data.get("data", [])
+
+
 async def create_clip(user_token: str, broadcaster_id: str,
                       retries: int = 3, retry_delay: float = 5.0) -> str | None:
     """Create a clip on the broadcaster's live stream using the user's token.
