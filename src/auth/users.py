@@ -185,6 +185,7 @@ def upsert_twitch_user(
     enc_access  = _encrypt(access_token)
     enc_refresh = _encrypt(refresh_token)
 
+    now      = time.time()
     existing = next((u for u in users if u.get("twitch_id") == twitch_id), None)
     if existing:
         existing["username"]    = username
@@ -197,10 +198,14 @@ def upsert_twitch_user(
             existing["tw_expires_at"] = expires_at
         if is_admin:
             existing["subscription_status"] = "active"
+        elif existing.get("subscription_status") == "none" and not existing.get("trial_ends_at"):
+            # Account existed before trials were introduced (or was admin-created).
+            # Grant the 7-day free trial they never received — no card required.
+            existing["subscription_status"] = "trialing"
+            existing["trial_ends_at"]       = now + _TRIAL_SECONDS
         _save(users)
         return _public(existing)
 
-    now = time.time()
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
