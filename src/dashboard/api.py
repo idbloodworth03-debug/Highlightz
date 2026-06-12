@@ -1772,10 +1772,12 @@ async function stripeSync(id) {
 
 async function load() {
   const users = await api('/admin/users');
-  const total = users.length;
-  const active = users.filter(u => u.subscription_status === 'active' || u.subscription_status === 'trialing').length;
-  const streams = users.reduce((a,u) => a + (u.stream_count||0), 0);
-  const clips = users.reduce((a,u) => a + (u.clip_count||0), 0);
+  // Stats count real customers only — admin accounts are excluded
+  const customers = users.filter(u => !u.is_admin);
+  const total = customers.length;
+  const active = customers.filter(u => u.subscription_status === 'active' || u.subscription_status === 'trialing').length;
+  const streams = customers.reduce((a,u) => a + (u.stream_count||0), 0);
+  const clips = customers.reduce((a,u) => a + (u.clip_count||0), 0);
   document.getElementById('s-total').textContent = total;
   document.getElementById('s-active').textContent = active;
   document.getElementById('s-streams').textContent = streams;
