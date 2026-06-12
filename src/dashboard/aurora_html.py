@@ -1075,8 +1075,59 @@ function FeedbackScreen() {
   );
 }
 
+function WelcomeOverlay({ onClose }) {
+  const Step = ({n, title, body}) => (
+    <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
+      <span style={{width:28,height:28,borderRadius:9,background:'var(--grad-soft)',color:'var(--acc)',display:'grid',placeItems:'center',fontSize:13,fontWeight:800,flexShrink:0}}>{n}</span>
+      <div>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{title}</div>
+        <div style={{fontSize:13,color:'var(--fg-3)',lineHeight:1.6}}>{body}</div>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
+      <div className="glass" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
+          <img src="/static/logo.jpg" alt="Highlightz" style={{height:56,filter:'drop-shadow(0 0 14px rgba(199,155,255,.5))'}}/>
+        </div>
+        <h1 style={{fontSize:26,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
+        <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:26}}>
+          A tool that makes clipping easier. Highlightz watches your streams live and
+          captures the best moments automatically — so you never miss a highlight again.
+        </p>
+
+        <div style={{display:'flex',flexDirection:'column',gap:18,marginBottom:26}}>
+          <Step n="1" title="Add any live Twitch channel"
+            body="Monitor multiple streams at the same time — your own channel, streamers you clip for, or anyone live right now."/>
+          <Step n="2" title="A formula scores every second — not AI"
+            body="Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time."/>
+          <Step n="3" title="It adapts to every streamer"
+            body="The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger at the same fairness. The more it watches, the sharper it gets."/>
+          <Step n="4" title="Clips are created right on Twitch"
+            body="Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch, ready to share."/>
+          <Step n="5" title="You stay in control"
+            body="Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula tunes itself to your taste."/>
+        </div>
+
+        <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center',marginBottom:26}}>
+          {['Formula-based — not AI','Adapts to each streamer','Multiple streams at once','Fully connected to Twitch'].map(t=>(
+            <span key={t} style={{fontSize:12,fontWeight:600,padding:'6px 13px',borderRadius:99,background:'rgba(168,85,247,.12)',border:'1px solid rgba(168,85,247,.3)',color:'#c79bff'}}>{t}</span>
+          ))}
+        </div>
+
+        <button className="rd-btn grad" style={{width:'100%',justifyContent:'center',padding:'13px',fontSize:15}} onClick={onClose}>
+          <Icon name="zap" size={15}/>Start clipping
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RdApp() {
   const [route, setRoute] = useState('review');
+  const [welcome, setWelcome] = useState(()=>{ try { return !localStorage.getItem('hz_welcome_seen'); } catch { return false; } });
+  const dismissWelcome = () => { try { localStorage.setItem('hz_welcome_seen','1'); } catch {} setWelcome(false); };
   const [streams, setStreams] = useState({});
   const [scores, setScores] = useState({});
   const [profiles, setProfiles] = useState({});
@@ -1221,6 +1272,7 @@ function RdApp() {
       </div>
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}/>
+      {welcome && <WelcomeOverlay onClose={dismissWelcome}/>}
     </div>
   );
 }
