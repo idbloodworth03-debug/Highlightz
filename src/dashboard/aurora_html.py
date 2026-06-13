@@ -1178,6 +1178,7 @@ function RdApp() {
           setHistories(p=>{const h=[...(p[msg.channel]||[]),msg.score].slice(-40);return{...p,[msg.channel]:h};});
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
+        else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 1 hour of inactivity. Restart them from the Streams tab.');}
       };
       ws.onclose = ()=>setTimeout(connect,3000);
     };

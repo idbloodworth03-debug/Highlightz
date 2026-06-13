@@ -261,6 +261,7 @@ async def main() -> None:
         asyncio.create_task(listen_for_new_streams(redis), name="stream-listener"),
         asyncio.create_task(run_clip_processor(), name="clip-processor"),
         asyncio.create_task(auto_delete_old_clips(), name="auto-delete"),
+        asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
     ]
 
     # Restore streams that were running before the last shutdown

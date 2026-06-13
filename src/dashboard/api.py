@@ -94,6 +94,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.session["is_admin"]            = db_user.get("is_admin", False)
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
+                _user_last_active[uid] = time.time()
         # Billing gate — redirect to paywall unless admin, active subscriber,
         # or within an unexpired free trial.
         if not request.session.get("is_admin") and request.session.get("subscription_status") not in ("active", "trialing"):
@@ -235,6 +236,12 @@ _data_lock = asyncio.Lock()
 _ws_lock   = asyncio.Lock()
 
 _WS_CLEANUP_DELAY = 30  # seconds to wait after last WS disconnect before stopping workers
+
+# ── Idle stream reaper ────────────────────────────────────────────────────────
+# Track the last time each user made an authenticated request or sent a WS ping.
+# If a user has active streams but hasn't been seen in 1 hour, stop their workers.
+_user_last_active: dict[str, float] = {}
+_IDLE_STREAM_TIMEOUT = 3600  # 1 hour
 
 # ── Login rate-limit ──────────────────────────────────────────────────────────
 # Simple in-process counter: IP → (attempts, window_start)
@@ -923,6 +930,38 @@ async def _stop_user_streams(uid: str) -> None:
     await _stop_user_streams_now(uid)
 
 
+async def idle_stream_reaper() -> None:
+    """Background task: stop stream workers for users idle longer than 1 hour.
+
+    Runs every 5 minutes. Targets users who have active streams but haven't
+    made any authenticated request or sent any WebSocket message in the last hour.
+    Workers are stopped and the user gets a WebSocket notification so the UI can
+    show a 'streams paused due to inactivity' message if they come back.
+    """
+    while True:
+        await asyncio.sleep(300)  # check every 5 minutes
+        try:
+            now = time.time()
+            idle_users = [
+                uid for uid in list(_streams.keys())
+                if ":" in uid  # stream keys are "uid:channel"
+                # extract the user_id part
+                for uid in [uid.split(":", 1)[0]]
+                if uid and now - _user_last_active.get(uid, 0) > _IDLE_STREAM_TIMEOUT
+            ]
+            seen: set[str] = set()
+            for uid in idle_users:
+                if uid in seen:
+                    continue
+                seen.add(uid)
+                log.info("idle_stream_reaper_stopping", user=uid,
+                         idle_minutes=round((now - _user_last_active.get(uid, 0)) / 60))
+                await _stop_user_streams_now(uid)
+                await broadcast({"event": "streams_paused_idle"}, user_id=uid)
+        except Exception as exc:
+            log.error("idle_stream_reaper_error", error=str(exc))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
@@ -943,10 +982,12 @@ async def websocket_endpoint(ws: WebSocket):
         pending = _cleanup_tasks.pop(uid, None)
         if pending:
             pending.cancel()
+    _user_last_active[uid] = time.time()
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     try:
         while True:
             await ws.receive_text()
+            _user_last_active[uid] = time.time()
     except WebSocketDisconnect:
         pass
     finally:
