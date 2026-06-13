@@ -986,8 +986,12 @@ async def websocket_endpoint(ws: WebSocket):
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     try:
         while True:
+            # The browser auto-sends a 'ping' every 30s as a keepalive. That is
+            # NOT user activity, so we deliberately do NOT bump _user_last_active
+            # here — otherwise an abandoned-but-open tab would never go idle.
+            # Real activity (approving clips, navigating, etc.) bumps it via the
+            # authenticated HTTP requests in AuthMiddleware.
             await ws.receive_text()
-            _user_last_active[uid] = time.time()
     except WebSocketDisconnect:
         pass
     finally:
