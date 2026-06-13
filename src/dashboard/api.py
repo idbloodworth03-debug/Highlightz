@@ -2089,6 +2089,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 <div class="toast" id="toast"></div>
 <script>
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML}
 async function api(url,method='GET'){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'}});if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.status)}return r.json()}
 function fmt(ts){if(!ts)return'—';return new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
 async function remove(id,name){
@@ -2099,7 +2100,7 @@ async function remove(id,name){
 async function load(){
   const items=await api('/admin/optout/list');
   if(!items.length){document.getElementById('wrap').innerHTML='<div class="empty">No streamers have opted out yet.</div>';return}
-  const rows=items.map(i=>'<tr><td><strong>'+i.display_name+'</strong><br><span style="color:#9c9caa;font-size:12px">@'+i.twitch_login+'</span></td><td style="color:#9c9caa">'+i.twitch_id+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
+  const rows=items.map(i=>'<tr><td><strong>'+esc(i.display_name)+'</strong><br><span style="color:#9c9caa;font-size:12px">@'+esc(i.twitch_login)+'</span></td><td style="color:#9c9caa">'+esc(i.twitch_id)+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
   document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted Out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 load();
