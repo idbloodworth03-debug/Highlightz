@@ -88,6 +88,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 # A trial that has run past its 7 days no longer grants access.
                 if status == "trialing" and time.time() >= trial_ends_at:
                     status = "expired"
+                    # Persist the transition once so the DB reflects reality
+                    # (accurate admin stats; trial ledger already blocks re-grants).
+                    user_store.update_subscription(uid, db_user.get("stripe_customer_id"), "expired")
                 request.session["is_admin"]            = db_user.get("is_admin", False)
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
@@ -573,15 +576,26 @@ class _FeedbackRequest(BaseModel):
     message: str
     category: str = "general"
 
+_feedback_last_submit: dict[str, float] = {}  # user_id -> last submit time
+_FEEDBACK_COOLDOWN = 10  # seconds between submissions per user
+
 @app.post("/feedback", status_code=201)
 async def submit_feedback(request: Request, body: _FeedbackRequest):
     uid      = _current_user_id(request)
     username = request.session.get("username", "")
+    now = time.time()
+    last = _feedback_last_submit.get(uid, 0)
+    if now - last < _FEEDBACK_COOLDOWN:
+        raise HTTPException(status_code=429, detail="Please wait a moment before sending more feedback")
     msg = body.message.strip()
     if not msg:
         raise HTTPException(status_code=400, detail="Message is required")
     if len(msg) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (2000 chars max)")
+    # Cap total stored feedback per user to prevent unbounded disk growth
+    if sum(1 for f in _feedback if f.get("user_id") == uid) >= 200:
+        raise HTTPException(status_code=429, detail="Feedback limit reached — thank you, we have plenty from you!")
+    _feedback_last_submit[uid] = now
     category = body.category.strip()[:40] if body.category else "general"
     import secrets as _sec
     entry = {
@@ -629,7 +643,10 @@ async def admin_feedback_delete(request: Request, feedback_id: str):
 @app.get("/feedback/unread-count")
 async def feedback_unread_count(request: Request):
     """Admin-only: number of unread feedback items (used for nav badge)."""
-    if not request.session.get("is_admin"):
+    from src.auth import users as user_store
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    if not db_user or not db_user.get("is_admin"):
         return {"count": 0}
     return {"count": sum(1 for f in _feedback if not f.get("read"))}
 

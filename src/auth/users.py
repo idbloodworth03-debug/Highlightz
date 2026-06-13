@@ -71,6 +71,55 @@ _ulog = logging.getLogger(__name__)
 
 _BACKUP_FILE = Path(settings.local_storage_path) / "users.json.bak"
 
+# ── Trial ledger ────────────────────────────────────────────────────────────
+# A persistent record of every Twitch ID that has EVER started a free trial.
+# This deliberately survives account deletion so a user can't reset their trial
+# by deleting and re-creating their account (infinite-trial abuse).
+_TRIAL_LEDGER_FILE = Path(settings.local_storage_path) / "trial_claims.json"
+
+
+def _load_trial_ledger() -> set[str]:
+    try:
+        data = json.loads(_TRIAL_LEDGER_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return {str(x) for x in data}
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError as exc:
+        _ulog.error("trial_ledger_corrupt", error=str(exc))
+    return set()
+
+
+def has_claimed_trial(twitch_id: str) -> bool:
+    """True if this Twitch ID has ever been granted a free trial."""
+    return bool(twitch_id) and twitch_id in _load_trial_ledger()
+
+
+def _record_trial_claim(twitch_id: str) -> None:
+    """Persist that this Twitch ID has claimed its one-time trial."""
+    if not twitch_id:
+        return
+    ledger = _load_trial_ledger()
+    if twitch_id in ledger:
+        return
+    ledger.add(twitch_id)
+    _TRIAL_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=_TRIAL_LEDGER_FILE.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(sorted(ledger), f)
+        os.replace(tmp, _TRIAL_LEDGER_FILE)
+        try:
+            os.chmod(_TRIAL_LEDGER_FILE, 0o600)
+        except OSError:
+            pass
+    except Exception as exc:
+        _ulog.error("trial_ledger_save_failed", error=str(exc))
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
 
 def _load() -> list[dict]:
     for path in (_USERS_FILE, _BACKUP_FILE):
@@ -198,14 +247,20 @@ def upsert_twitch_user(
             existing["tw_expires_at"] = expires_at
         if is_admin:
             existing["subscription_status"] = "active"
-        elif existing.get("subscription_status") == "none" and not existing.get("trial_ends_at"):
-            # Account existed before trials were introduced (or was admin-created).
-            # Grant the 7-day free trial they never received — no card required.
+        elif (existing.get("subscription_status") == "none"
+              and not existing.get("trial_ends_at")
+              and not has_claimed_trial(twitch_id)):
+            # Account existed before trials were introduced (or was admin-created)
+            # and has never claimed a trial. Grant the one-time 7-day trial.
             existing["subscription_status"] = "trialing"
             existing["trial_ends_at"]       = now + _TRIAL_SECONDS
+            _record_trial_claim(twitch_id)
         _save(users)
         return _public(existing)
 
+    # Brand-new account. Grant a trial only if this Twitch ID has never had one
+    # — prevents resetting the trial via delete-and-recreate.
+    grant_trial = not is_admin and not has_claimed_trial(twitch_id)
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -219,13 +274,16 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        # New users start a 7-day free trial (no card required).
-        "subscription_status":  "active" if is_admin else "trialing",
-        "trial_ends_at":        0 if is_admin else (now + _TRIAL_SECONDS),
+        # New users get a one-time 7-day free trial (no card required).
+        # Returning users who already used their trial must subscribe.
+        "subscription_status":  "active" if is_admin else ("trialing" if grant_trial else "none"),
+        "trial_ends_at":        (now + _TRIAL_SECONDS) if grant_trial else 0,
         "created_at":           now,
     }
     users.append(user)
     _save(users)
+    if grant_trial:
+        _record_trial_claim(twitch_id)
     return _public(user)
 
 
