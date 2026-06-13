@@ -241,7 +241,7 @@ _WS_CLEANUP_DELAY = 30  # seconds to wait after last WS disconnect before stoppi
 # Track the last time each user made an authenticated request or sent a WS ping.
 # If a user has active streams but hasn't been seen in 1 hour, stop their workers.
 _user_last_active: dict[str, float] = {}
-_IDLE_STREAM_TIMEOUT = 3600  # 1 hour
+_IDLE_STREAM_TIMEOUT = 18000  # 5 hours
 
 # ── Login rate-limit ──────────────────────────────────────────────────────────
 # Simple in-process counter: IP → (attempts, window_start)
