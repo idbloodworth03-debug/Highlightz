@@ -2045,7 +2045,7 @@ async function viewUser(idx) {
           '<div class="clip-ch">' + esc(c.channel) + ' <span style="font-size:11px;color:#5d5d6b;font-weight:400">' + fmtTs(c.created_at) + '</span></div>' +
           (title ? '<div class="clip-title">' + esc(title) + '</div>' : '') +
         '</div>' +
-        '<div class="clip-score">Viral ' + Math.round((c.virality_score || 0) * 100) + '%</div>' +
+        '<div class="clip-score">Viral ' + Math.round(c.virality_score || 0) + '%</div>' +
         statusPill +
         link +
       '</div>';
