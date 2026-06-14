@@ -1413,7 +1413,75 @@ LANDING_HTML = """<!DOCTYPE html>
   .footer{border-top:1px solid rgba(255,255,255,.06);padding:36px 24px;text-align:center;font-size:12px;color:#3d3d4a;line-height:1.9}
   .footer a{color:#5d5d6b}.footer a:hover{color:#9c9caa}
   .footer .fl{margin-bottom:8px}
+  /* ── Product showcase mockups ── */
+  .shots-top{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:44px}
+  .shot-frame{background:rgba(13,13,18,.72);border:1px solid rgba(255,255,255,.09);border-radius:16px;overflow:hidden;box-shadow:0 26px 64px -26px rgba(0,0,0,.75)}
+  .shot-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}
+  .shot-bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .shot-bar .b1{background:#ff5f57}.shot-bar .b2{background:#febc2e}.shot-bar .b3{background:#28c840}
+  .shot-bar span{margin-left:8px;font-size:11px;color:#5d5d6b;font-weight:600}
+  .shot-inner{padding:18px}
+  .shot-cap{margin:16px 2px 0}
+  .shot-cap h3{font-size:16px;font-weight:700;margin-bottom:5px}
+  .shot-cap p{font-size:13.5px;color:#9c9caa;line-height:1.55}
+  /* mock: stream bubble */
+  .mk-stream{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:15px}
+  .mk-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .mk-nm{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .mk-nm .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
+  .mk-mt{display:flex;gap:6px;align-items:center;margin-top:7px;flex-wrap:wrap}
+  .mk-chip{font-size:10px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);padding:3px 8px;border-radius:99px}
+  .mk-live{font-size:10px;font-weight:700;color:#2ee08a}
+  .mk-acts{display:flex;gap:6px;flex-shrink:0}
+  .mk-clip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#c79bff;background:rgba(168,85,247,.14);border:1px solid rgba(168,85,247,.3);padding:5px 10px;border-radius:9px}
+  .mk-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#5d5d6b;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:13px}
+  .mk-scorewrap{margin-top:15px}
+  .mk-st{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .mk-sl{font-size:11px;font-weight:600;color:#9c9caa;letter-spacing:.04em;text-transform:uppercase}
+  .mk-sval{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .mk-track{height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+  .mk-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#a855f7,#f943ff)}
+  .mk-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .mk-sig{font-size:10.5px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);padding:4px 9px;border-radius:8px}
+  .mk-sig.on{background:rgba(168,85,247,.18);color:#f6f6f9;border-color:rgba(168,85,247,.3)}
+  .mk-prof{margin-top:15px;border-top:1px solid rgba(255,255,255,.06);padding-top:14px}
+  .mk-pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .mk-pc .k{font-size:9.5px;color:#5d5d6b;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .mk-pc .v{font-size:15px;font-weight:700;margin-top:3px}
+  .mk-pc .v small{font-size:9px;color:#5d5d6b;font-weight:500}
+  .mk-cal{display:flex;align-items:center;gap:7px;margin-top:14px;font-size:11.5px;font-weight:600;color:#2ee08a}
+  .mk-cal .ck{width:15px;height:15px;border-radius:5px;background:rgba(46,224,138,.16);display:grid;place-items:center;font-size:10px}
+  /* mock: clip detail */
+  .mk-media{position:relative;height:152px;border-radius:12px;overflow:hidden;display:grid;place-items:center;background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)}
+  .mk-play{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center}
+  .mk-badge{position:absolute;top:11px;right:11px;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;background:rgba(8,8,11,.72);border:1px solid rgba(255,255,255,.12);padding:5px 11px;border-radius:99px}
+  .mk-badge .pip{width:7px;height:7px;border-radius:50%}
+  .mk-dhead{display:flex;align-items:center;gap:11px;margin-top:16px}
+  .mk-av{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+  .mk-dhead h4{font-size:14px;font-weight:700}
+  .mk-dhead .mt{font-size:11.5px;color:#9c9caa;margin-top:2px}
+  .mk-status{font-size:10px;font-weight:700;text-transform:capitalize;padding:4px 10px;border-radius:99px;background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a;flex-shrink:0}
+  .mk-eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#c79bff;margin:18px 0 13px}
+  .mk-bar{margin-bottom:13px}
+  .mk-bh{display:flex;justify-content:space-between;margin-bottom:6px}
+  .mk-bk{font-size:12.5px;color:#d8d8e2;font-weight:500}
+  .mk-bv{font-size:12.5px;font-weight:700}
+  .mk-bt{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+  .mk-bf{height:100%;border-radius:99px;background:linear-gradient(90deg,#a855f7,#f943ff)}
+  /* mock: clip library */
+  .mk-lib{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+  .mk-card{border:1px solid rgba(255,255,255,.08);border-radius:13px;overflow:hidden;background:rgba(255,255,255,.025)}
+  .mk-cmedia{position:relative;height:100px;display:grid;place-items:center}
+  .mk-cbadge{position:absolute;top:9px;left:9px;font-size:10px;font-weight:700;background:rgba(8,8,11,.68);border:1px solid rgba(255,255,255,.12);padding:3px 9px;border-radius:99px}
+  .mk-cplay{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.28);display:grid;place-items:center}
+  .mk-cbody{padding:11px 12px 13px}
+  .mk-ctitle{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mk-cmeta{font-size:11px;color:#9c9caa;margin-top:5px;display:flex;justify-content:space-between;align-items:center}
+  .mk-cpill{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:99px;text-transform:capitalize}
+  .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
+  .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
   @media(max-width:680px){
+    .shots-top{grid-template-columns:1fr}
     .hero h1{font-size:40px}
     .hero p.lead{font-size:17px}
     h2.sec-title{font-size:27px}
@@ -1518,6 +1586,106 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </section>
 
+<!-- Product showcase -->
+<section class="wrap" id="product">
+  <h2 class="sec-title">See it in action</h2>
+  <p class="sec-sub">A clean, real-time dashboard that shows you exactly what's happening and why.</p>
+  <div class="shots-top">
+    <!-- Active stream bubble -->
+    <div class="shot">
+      <div class="shot-frame">
+        <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Monitoring</span></div>
+        <div class="shot-inner">
+          <div class="mk-stream">
+            <div class="mk-row">
+              <div>
+                <div class="mk-nm"><span class="pd"></span>shroud</div>
+                <div class="mk-mt"><span class="mk-chip">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
+              </div>
+              <div class="mk-acts">
+                <span class="mk-clip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
+                <span class="mk-x">&#215;</span>
+              </div>
+            </div>
+            <div class="mk-scorewrap">
+              <div class="mk-st"><span class="mk-sl">Trigger score</span><span class="mk-sval" style="color:#ffb03a">72.4</span></div>
+              <div class="mk-track"><div class="mk-fill" style="width:72%"></div></div>
+              <div class="mk-sigs">
+                <span class="mk-sig on">CHAT_VELOCITY: 0.81</span>
+                <span class="mk-sig on">AUDIO_SPIKE: 0.64</span>
+                <span class="mk-sig">KEYWORD: 0.30</span>
+                <span class="mk-sig">SENTIMENT: 0.12</span>
+              </div>
+            </div>
+            <div class="mk-prof">
+              <div class="mk-pgrid">
+                <div class="mk-pc"><div class="k">Threshold</div><div class="v">58</div></div>
+                <div class="mk-pc"><div class="k">Velocity</div><div class="v">4.2<small> m/s</small></div></div>
+                <div class="mk-pc"><div class="k">Clips</div><div class="v">37</div></div>
+                <div class="mk-pc"><div class="k">Approval</div><div class="v" style="color:#2ee08a">78%</div></div>
+              </div>
+              <div class="mk-cal"><span class="ck">&#10003;</span>Calibrated &middot; 142 samples</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="shot-cap"><h3>Live stream monitoring</h3><p>Each channel gets its own bubble with a live trigger score, the exact signals firing, and a learned profile that calibrates to that streamer.</p></div>
+    </div>
+
+    <!-- Clip score breakdown -->
+    <div class="shot">
+      <div class="shot-frame">
+        <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Clip detail</span></div>
+        <div class="shot-inner">
+          <div class="mk-media">
+            <div class="mk-play"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
+            <span class="mk-badge"><span class="pip" style="background:#2ee08a"></span>84% trigger</span>
+          </div>
+          <div class="mk-dhead">
+            <span class="mk-av">SH</span>
+            <div style="flex:1"><h4>Insane 1v5 clutch to win it</h4><div class="mt">shroud &middot; VALORANT &middot; 2m ago</div></div>
+            <span class="mk-status">approved</span>
+          </div>
+          <div class="mk-eyebrow">Why it fired</div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Chat velocity</span><span class="mk-bv" style="color:#2ee08a">88%</span></div><div class="mk-bt"><div class="mk-bf" style="width:88%"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Audio spike</span><span class="mk-bv" style="color:#ffb03a">73%</span></div><div class="mk-bt"><div class="mk-bf" style="width:73%"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Keyword hits</span><span class="mk-bv" style="color:#ffb03a">61%</span></div><div class="mk-bt"><div class="mk-bf" style="width:61%"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Sentiment</span><span class="mk-bv" style="color:#9c9caa">47%</span></div><div class="mk-bt"><div class="mk-bf" style="width:47%"></div></div></div>
+        </div>
+      </div>
+      <div class="shot-cap"><h3>Every clip, fully explained</h3><p>Open any clip to see the precise breakdown of which signals triggered it — no AI guesswork, just the numbers behind the moment.</p></div>
+    </div>
+  </div>
+
+  <!-- Clip library -->
+  <div class="shot" style="margin-top:20px">
+    <div class="shot-frame">
+      <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Clip library</span></div>
+      <div class="shot-inner">
+        <div class="mk-lib">
+          <div class="mk-card">
+            <div class="mk-cmedia" style="background:linear-gradient(135deg,#2a1840,#3a1a4d)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">96%</span></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Triple kill, no scope</div><div class="mk-cmeta"><span>shroud</span><span class="mk-cpill ok">approved</span></div></div>
+          </div>
+          <div class="mk-card">
+            <div class="mk-cmedia" style="background:linear-gradient(135deg,#3a1a4d,#1f1730)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">81%</span></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Chat absolutely loses it</div><div class="mk-cmeta"><span>pokimane</span><span class="mk-cpill pend">pending</span></div></div>
+          </div>
+          <div class="mk-card">
+            <div class="mk-cmedia" style="background:linear-gradient(135deg,#1f2a4d,#2a1840)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">74%</span></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Clutch ace, full team</div><div class="mk-cmeta"><span>tenz</span><span class="mk-cpill ok">approved</span></div></div>
+          </div>
+          <div class="mk-card">
+            <div class="mk-cmedia" style="background:linear-gradient(135deg,#33184a,#1a2440)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">68%</span></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Perfect comedic timing</div><div class="mk-cmeta"><span>ninja</span><span class="mk-cpill pend">pending</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="shot-cap"><h3>Your clip library</h3><p>Every captured moment in one place, scored and ready to review. Approve the keepers, reject the rest — the formula learns from every call.</p></div>
+  </div>
+</section>
+
 <!-- Not AI / formula -->
 <section class="wrap">
   <div class="glass formula">
@@ -1611,7 +1779,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <script>
 (function(){
   if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.final h2,.final p,.final .btn';
+  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.final h2,.final p,.final .btn';
   var els=[].slice.call(document.querySelectorAll(sel));
   els.forEach(function(el){el.classList.add('reveal');});
   // Gentle stagger for items sharing a grid/list
