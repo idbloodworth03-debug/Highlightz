@@ -1608,7 +1608,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
   .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
