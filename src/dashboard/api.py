@@ -1920,8 +1920,11 @@ async function stripeSync(id) {
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
+let _users = [];
+
 async function load() {
-  const users = await api('/admin/users');
+  _users = await api('/admin/users');
+  const users = _users;
   // Stats count real customers only — admin accounts are excluded
   const customers = users.filter(u => !u.is_admin);
   const total = customers.length;
@@ -1938,7 +1941,7 @@ async function load() {
     return;
   }
 
-  const rows = users.map(u => {
+  const rows = users.map((u, idx) => {
     const avatar = u.avatar_url
       ? '<img class="avatar" src="' + esc(u.avatar_url) + '" alt="">'
       : '<div class="avatar"></div>';
@@ -1959,7 +1962,7 @@ async function load() {
       '<td>' + (u.clip_count || 0) + '</td>' +
       '<td>' + fmt(u.created_at) + '</td>' +
       '<td><div class="actions">' +
-        '<button class="btn btn-details" onclick="viewUser(' + JSON.stringify(u.id) + ',' + JSON.stringify(u.username) + ')">Details</button>' +
+        '<button class="btn btn-details" onclick="viewUser(' + idx + ')">Details</button>' +
         (canGrant ? '<button class="btn btn-grant" onclick="grant(' + JSON.stringify(u.id) + ')">Grant</button>' : '') +
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + JSON.stringify(u.id) + ')">Revoke</button>' : '') +
         (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + JSON.stringify(u.id) + ')">Stripe Sync</button>' : '') +
@@ -1986,9 +1989,11 @@ function dotClass(status) {
   return 'dot dot-offline';
 }
 
-async function viewUser(uid, username) {
-  document.getElementById('modal-title').textContent = username;
-  document.getElementById('modal-sub').textContent = 'Streams & clips';
+async function viewUser(idx) {
+  const u = _users[idx];
+  const uid = u.id;
+  document.getElementById('modal-title').textContent = u.username;
+  document.getElementById('modal-sub').textContent = (u.twitch_login ? '@' + u.twitch_login + ' · ' : '') + 'Streams & clips';
   document.getElementById('modal-body').innerHTML = '<div class="loading">Loading...</div>';
   document.getElementById('modal-bg').classList.add('open');
 
