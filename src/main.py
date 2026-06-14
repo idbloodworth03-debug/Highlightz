@@ -62,12 +62,8 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "", pres
 
     async def _run_and_update():
         stream_key = f"{user_id}:{channel}" if user_id else channel
-        if stream_key in dashboard_api._streams:
-            dashboard_api._streams[stream_key]["status"] = "live"
-            await dashboard_api.broadcast(
-                {"event": "stream_updated", "stream": dashboard_api._streams[stream_key]},
-                user_id=user_id,
-            )
+        # Status transitions (starting → live → reconnecting → offline) are
+        # driven by the worker itself so _streams always reflects reality.
         try:
             await worker.start()
         except Exception as exc:

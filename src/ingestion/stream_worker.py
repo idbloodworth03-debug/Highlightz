@@ -86,6 +86,9 @@ class StreamWorker:
             if self._running:
                 log.info("worker_reconnecting", channel=self._config.channel, delay=30)
                 from src.dashboard import api as dashboard_api
+                _sk = f"{self._config.user_id}:{self._config.channel}" if self._config.user_id else self._config.channel
+                if _sk in dashboard_api._streams:
+                    dashboard_api._streams[_sk]["status"] = "reconnecting"
                 await dashboard_api.broadcast({
                     "event": "stream_status",
                     "channel": self._config.channel,
@@ -137,6 +140,9 @@ class StreamWorker:
         self._stream_info = await self._platform.get_stream_info(channel)
         log.info("stream_found", channel=channel, title=self._stream_info.title)
         from src.dashboard import api as dashboard_api
+        _sk = f"{self._config.user_id}:{channel}" if self._config.user_id else channel
+        if _sk in dashboard_api._streams:
+            dashboard_api._streams[_sk]["status"] = "live"
         await dashboard_api.broadcast({
             "event": "stream_status",
             "channel": channel,
