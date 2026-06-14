@@ -1423,6 +1423,18 @@ LANDING_HTML = """<!DOCTYPE html>
     .nav .nav-link.hide-sm{display:none}
     .formula{padding:34px 22px}
   }
+  /* Scroll-reveal + hero intro (motion-safe only) */
+  @media(prefers-reduced-motion:no-preference){
+    .reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)}
+    .reveal.in{opacity:1;transform:none}
+    .hero .eyebrow,.hero h1,.hero .lead,.hero-ctas,.hero-note,.pills{opacity:0;animation:heroIn .8s cubic-bezier(.16,1,.3,1) forwards}
+    .hero h1{animation-delay:.07s}
+    .hero .lead{animation-delay:.15s}
+    .hero-ctas{animation-delay:.23s}
+    .hero-note{animation-delay:.31s}
+    .pills{animation-delay:.39s}
+    @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+  }
 </style>
 </head>
 <body>
@@ -1596,6 +1608,26 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
   <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
+<script>
+(function(){
+  if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.final h2,.final p,.final .btn';
+  var els=[].slice.call(document.querySelectorAll(sel));
+  els.forEach(function(el){el.classList.add('reveal');});
+  // Gentle stagger for items sharing a grid/list
+  document.querySelectorAll('.who-grid,.steps,.feat-grid').forEach(function(group){
+    [].slice.call(group.children).forEach(function(child,i){
+      if(child.classList.contains('reveal')) child.style.transitionDelay=(i*0.08)+'s';
+    });
+  });
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}
+    });
+  },{threshold:0.12,rootMargin:'0px 0px -8% 0px'});
+  els.forEach(function(el){io.observe(el);});
+})();
+</script>
 </body>
 </html>"""
 
