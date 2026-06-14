@@ -1503,9 +1503,23 @@ LANDING_HTML = """<!DOCTYPE html>
     .pills{animation-delay:.39s}
     @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
   }
+  /* Animated background orbs */
+  .bg-orbs{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+  .bg-orb{position:absolute;border-radius:50%;filter:blur(130px);opacity:.13}
+  @media(prefers-reduced-motion:no-preference){
+    @keyframes orb1{0%{transform:translate(0,0) scale(1)}40%{transform:translate(60px,-50px) scale(1.07)}70%{transform:translate(-30px,70px) scale(.93)}100%{transform:translate(80px,30px) scale(1.1)}}
+    @keyframes orb2{0%{transform:translate(0,0) scale(1)}35%{transform:translate(-70px,40px) scale(1.05)}65%{transform:translate(50px,-60px) scale(.96)}100%{transform:translate(-40px,-20px) scale(1.06)}}
+    @keyframes orb3{0%{transform:translate(0,0) scale(1)}45%{transform:translate(40px,60px) scale(1.08)}75%{transform:translate(-60px,-30px) scale(.94)}100%{transform:translate(20px,-50px) scale(1.04)}}
+    @keyframes orb4{0%{transform:translate(0,0) scale(1)}30%{transform:translate(-50px,-70px) scale(1.06)}60%{transform:translate(70px,40px) scale(.92)}100%{transform:translate(30px,-60px) scale(1.09)}}
+    .bg-orb:nth-child(1){width:700px;height:700px;background:#a855f7;left:-12%;top:-18%;animation:orb1 24s ease-in-out infinite alternate}
+    .bg-orb:nth-child(2){width:580px;height:580px;background:#f943ff;right:-10%;top:15%;animation:orb2 20s ease-in-out infinite alternate;animation-delay:-8s}
+    .bg-orb:nth-child(3){width:640px;height:640px;background:#7c6bff;left:25%;bottom:-22%;animation:orb3 27s ease-in-out infinite alternate;animation-delay:-14s}
+    .bg-orb:nth-child(4){width:420px;height:420px;background:#c79bff;right:20%;top:52%;animation:orb4 18s ease-in-out infinite alternate;animation-delay:-5s}
+  }
 </style>
 </head>
 <body>
+<div class="bg-orbs" aria-hidden="true"><div class="bg-orb"></div><div class="bg-orb"></div><div class="bg-orb"></div><div class="bg-orb"></div></div>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-actions">
