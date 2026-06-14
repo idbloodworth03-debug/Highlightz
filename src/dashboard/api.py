@@ -1140,6 +1140,22 @@ async def admin_stripe_sync(request: Request, user_id: str):
         raise HTTPException(status_code=502, detail="Stripe API error — check server logs")
 
 
+@app.get("/admin/users/{user_id}/streams")
+async def admin_user_streams(request: Request, user_id: str):
+    """Admin: streams currently registered for a specific user."""
+    _require_admin(request)
+    return [s for s in _streams.values() if s.get("user_id") == user_id]
+
+
+@app.get("/admin/users/{user_id}/clips")
+async def admin_user_clips(request: Request, user_id: str):
+    """Admin: most recent clips for a specific user (capped at 100)."""
+    _require_admin(request)
+    clips = [c for c in _clips.values() if c.get("user_id") == user_id]
+    clips.sort(key=lambda c: c.get("created_at", 0), reverse=True)
+    return clips[:100]
+
+
 @app.get("/tos", response_class=HTMLResponse)
 async def tos_page():
     return HTMLResponse(TOS_HTML)
@@ -1758,12 +1774,41 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn-revoke:hover{background:rgba(239,68,68,.22)}
   .btn-delete{background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.15)}
   .btn-delete:hover{background:rgba(239,68,68,.18)}
+  .btn-details{background:rgba(199,155,255,.1);color:#c79bff;border:1px solid rgba(199,155,255,.2)}
+  .btn-details:hover{background:rgba(199,155,255,.2)}
   .empty{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
   .loading{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
   .toast{position:fixed;bottom:24px;right:24px;background:rgba(30,30,40,.95);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:999}
   .toast.show{opacity:1;transform:none}
   .toast.ok{border-color:rgba(52,211,153,.4);color:#34d399}
   .toast.err{border-color:rgba(239,68,68,.4);color:#f87171}
+  /* ── User detail modal ── */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.2s}
+  .modal-bg.open{opacity:1;pointer-events:all}
+  .modal{background:#111118;border:1px solid rgba(255,255,255,.1);border-radius:20px;width:100%;max-width:780px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid rgba(255,255,255,.07)}
+  .modal-title{font-size:15px;font-weight:700;color:#f6f6f9}
+  .modal-sub{font-size:12px;color:#5d5d6b;margin-top:2px}
+  .modal-close{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#9c9caa;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
+  .modal-close:hover{background:rgba(255,255,255,.12);color:#f6f6f9}
+  .modal-body{overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:24px}
+  .detail-section-head{font-size:11px;font-weight:700;color:#c79bff;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+  .stream-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .stream-name{font-size:14px;font-weight:700}
+  .stream-meta{font-size:12px;color:#9c9caa;margin-top:3px}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot-live{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.6)}
+  .dot-offline{background:#5d5d6b}
+  .dot-starting{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.5)}
+  .clip-row{display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+  .clip-row:last-child{border-bottom:none}
+  .clip-ch{font-weight:600}
+  .clip-title{font-size:12px;color:#9c9caa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+  .clip-score{font-size:12px;color:#c79bff;font-weight:700;white-space:nowrap}
+  .clip-link{font-size:12px;color:#7c6bff;text-decoration:none;white-space:nowrap}
+  .clip-link:hover{color:#c79bff}
+  .pill-pending{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
+  .pill-approved{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.2);color:#34d399}
 </style>
 </head>
 <body>
@@ -1801,10 +1846,25 @@ ADMIN_HTML = """<!DOCTYPE html>
     </script>
   </div>
 </div>
+<!-- User detail modal -->
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="modal-title">User Details</div>
+        <div class="modal-sub" id="modal-sub"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="modal-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 function esc(s){const d=document.createElement('div');d.appendChild(document.createTextNode(String(s)));return d.innerHTML;}
 const fmt = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'N/A';
+const fmtTs = ts => ts ? new Date(ts * 1000).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
 
 function pill(status, isAdmin) {
   if (isAdmin) return '<span class="pill pill-admin">Admin</span>';
@@ -1899,6 +1959,7 @@ async function load() {
       '<td>' + (u.clip_count || 0) + '</td>' +
       '<td>' + fmt(u.created_at) + '</td>' +
       '<td><div class="actions">' +
+        '<button class="btn btn-details" onclick="viewUser(' + JSON.stringify(u.id) + ',' + JSON.stringify(u.username) + ')">Details</button>' +
         (canGrant ? '<button class="btn btn-grant" onclick="grant(' + JSON.stringify(u.id) + ')">Grant</button>' : '') +
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + JSON.stringify(u.id) + ')">Revoke</button>' : '') +
         (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + JSON.stringify(u.id) + ')">Stripe Sync</button>' : '') +
@@ -1911,6 +1972,83 @@ async function load() {
     '<table><thead><tr>' +
     '<th>User</th><th>Status</th><th>Streams</th><th>Clips</th><th>Joined</th><th>Actions</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function closeModal() {
+  document.getElementById('modal-bg').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function dotClass(status) {
+  if (status === 'live') return 'dot dot-live';
+  if (status === 'starting' || status === 'reconnecting') return 'dot dot-starting';
+  return 'dot dot-offline';
+}
+
+async function viewUser(uid, username) {
+  document.getElementById('modal-title').textContent = username;
+  document.getElementById('modal-sub').textContent = 'Streams & clips';
+  document.getElementById('modal-body').innerHTML = '<div class="loading">Loading...</div>';
+  document.getElementById('modal-bg').classList.add('open');
+
+  const [streams, clips] = await Promise.all([
+    api('/admin/users/' + uid + '/streams').catch(() => []),
+    api('/admin/users/' + uid + '/clips').catch(() => []),
+  ]);
+
+  // ── Streams section ──
+  let streamsHtml = '<div><div class="detail-section-head">Monitored Streams (' + streams.length + ')</div>';
+  if (!streams.length) {
+    streamsHtml += '<div style="font-size:13px;color:#5d5d6b;padding:12px 0">No streams currently registered.</div>';
+  } else {
+    streamsHtml += streams.map(s => {
+      const status = s.status || 'offline';
+      return '<div class="stream-card">' +
+        '<div>' +
+          '<div class="stream-name">' + esc(s.channel) + '</div>' +
+          '<div class="stream-meta">' + esc(s.platform) + ' · preset: ' + esc(s.preset || 'default') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<div class="' + dotClass(status) + '"></div>' +
+          '<span style="font-size:12px;color:#9c9caa;text-transform:capitalize">' + esc(status) + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+  streamsHtml += '</div>';
+
+  // ── Clips section ──
+  let clipsHtml = '<div><div class="detail-section-head">Recent Clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>';
+  if (!clips.length) {
+    clipsHtml += '<div style="font-size:13px;color:#5d5d6b;padding:12px 0">No clips yet.</div>';
+  } else {
+    const pending   = clips.filter(c => c.status === 'pending').length;
+    const approved  = clips.filter(c => c.status === 'approved').length;
+    clipsHtml += '<div style="font-size:12px;color:#9c9caa;margin-bottom:12px">' +
+      approved + ' approved · ' + pending + ' pending</div>';
+    clipsHtml += clips.map(c => {
+      const statusPill = c.status === 'approved'
+        ? '<span class="pill pill-approved" style="font-size:10px;padding:2px 8px">Approved</span>'
+        : '<span class="pill pill-pending" style="font-size:10px;padding:2px 8px">Pending</span>';
+      const link = c.twitch_url
+        ? '<a class="clip-link" href="' + esc(c.twitch_url) + '" target="_blank" rel="noopener">Watch ↗</a>'
+        : '<span style="font-size:12px;color:#5d5d6b">No link</span>';
+      const title = c.clip_title || c.stream_title || '';
+      return '<div class="clip-row">' +
+        '<div>' +
+          '<div class="clip-ch">' + esc(c.channel) + ' <span style="font-size:11px;color:#5d5d6b;font-weight:400">' + fmtTs(c.created_at) + '</span></div>' +
+          (title ? '<div class="clip-title">' + esc(title) + '</div>' : '') +
+        '</div>' +
+        '<div class="clip-score">Score ' + Math.round((c.trigger_score || 0) * 100) + '%</div>' +
+        statusPill +
+        link +
+      '</div>';
+    }).join('');
+  }
+  clipsHtml += '</div>';
+
+  document.getElementById('modal-body').innerHTML = streamsHtml + clipsHtml;
 }
 
 load();
