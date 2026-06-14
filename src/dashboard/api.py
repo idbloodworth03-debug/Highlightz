@@ -1503,23 +1503,12 @@ LANDING_HTML = """<!DOCTYPE html>
     .pills{animation-delay:.39s}
     @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
   }
-  /* Animated background orbs */
-  .bg-orbs{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
-  .bg-orb{position:absolute;border-radius:50%;filter:blur(130px);opacity:.13}
-  @media(prefers-reduced-motion:no-preference){
-    @keyframes orb1{0%{transform:translate(0,0) scale(1)}40%{transform:translate(60px,-50px) scale(1.07)}70%{transform:translate(-30px,70px) scale(.93)}100%{transform:translate(80px,30px) scale(1.1)}}
-    @keyframes orb2{0%{transform:translate(0,0) scale(1)}35%{transform:translate(-70px,40px) scale(1.05)}65%{transform:translate(50px,-60px) scale(.96)}100%{transform:translate(-40px,-20px) scale(1.06)}}
-    @keyframes orb3{0%{transform:translate(0,0) scale(1)}45%{transform:translate(40px,60px) scale(1.08)}75%{transform:translate(-60px,-30px) scale(.94)}100%{transform:translate(20px,-50px) scale(1.04)}}
-    @keyframes orb4{0%{transform:translate(0,0) scale(1)}30%{transform:translate(-50px,-70px) scale(1.06)}60%{transform:translate(70px,40px) scale(.92)}100%{transform:translate(30px,-60px) scale(1.09)}}
-    .bg-orb:nth-child(1){width:700px;height:700px;background:#a855f7;left:-12%;top:-18%;animation:orb1 24s ease-in-out infinite alternate}
-    .bg-orb:nth-child(2){width:580px;height:580px;background:#f943ff;right:-10%;top:15%;animation:orb2 20s ease-in-out infinite alternate;animation-delay:-8s}
-    .bg-orb:nth-child(3){width:640px;height:640px;background:#7c6bff;left:25%;bottom:-22%;animation:orb3 27s ease-in-out infinite alternate;animation-delay:-14s}
-    .bg-orb:nth-child(4){width:420px;height:420px;background:#c79bff;right:20%;top:52%;animation:orb4 18s ease-in-out infinite alternate;animation-delay:-5s}
-  }
+  /* Live-signal background canvas */
+  #signal-bg{position:fixed;inset:0;z-index:-1;pointer-events:none;width:100%;height:100%;opacity:.9}
 </style>
 </head>
 <body>
-<div class="bg-orbs" aria-hidden="true"><div class="bg-orb"></div><div class="bg-orb"></div><div class="bg-orb"></div><div class="bg-orb"></div></div>
+<canvas id="signal-bg" aria-hidden="true"></canvas>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-actions">
@@ -1791,6 +1780,101 @@ LANDING_HTML = """<!DOCTYPE html>
   <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
+/* Live-signal background: a hype-score line that ticks along, spikes, and
+   drops a glowing clip marker at each peak — the product's core loop, drawn. */
+(function(){
+  var canvas=document.getElementById('signal-bg');
+  if(!canvas||!canvas.getContext) return;
+  var ctx=canvas.getContext('2d');
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+  var W=0,H=0,baseY=0,amp=0,nodes=0;
+  var STEP=8,SPEED=0.5;
+  var samples=[],markers=[],scroll=0,t=0,spike=null,nextSpikeAt=0;
+
+  function baseNoise(){
+    return 0.13*Math.sin(t*0.012)+0.08*Math.sin(t*0.029+1.3)
+          +0.05*Math.sin(t*0.061+2.1)+(Math.random()-0.5)*0.045;
+  }
+  function reset(){
+    W=window.innerWidth;H=window.innerHeight;
+    canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+    baseY=H*0.66;amp=Math.min(H*0.15,140);
+    nodes=Math.ceil(W/STEP)+4;
+    samples=[];markers=[];scroll=0;
+    for(var i=0;i<nodes;i++){t++;samples.push(baseNoise());}
+    nextSpikeAt=t+(reduce?9999999:90+Math.random()*120);
+    if(reduce){
+      // one calm static spike + marker, no animation
+      var mid=Math.floor(nodes*0.64);
+      for(var k=-7;k<=7;k++){var s=mid+k;if(s>=0&&s<nodes)samples[s]+=0.9*Math.exp(-Math.pow(k/3,2));}
+      markers.push({idx:mid,t0:0,still:true});
+    }
+  }
+  function step(){
+    scroll+=SPEED;
+    while(scroll>=STEP){
+      scroll-=STEP;t++;
+      if(!spike&&t>nextSpikeAt){
+        spike={i:0,len:13+Math.floor(Math.random()*9),mag:0.78+Math.random()*0.55};
+        nextSpikeAt=t+170+Math.random()*280;
+      }
+      var add=0,peak=false;
+      if(spike){
+        var c=spike.len/2;
+        add=spike.mag*Math.exp(-Math.pow((spike.i-c)/(spike.len*0.22),2));
+        if(spike.i===Math.round(c))peak=true;
+        if(++spike.i>spike.len)spike=null;
+      }
+      samples.push(baseNoise()+add);samples.shift();
+      for(var m=0;m<markers.length;m++)markers[m].idx--;
+      if(peak)markers.push({idx:nodes-1,t0:-1});
+      markers=markers.filter(function(mk){return mk.idx>=0;});
+    }
+  }
+  function draw(ts){
+    ctx.clearRect(0,0,W,H);
+    var i,x,y;
+    var line=ctx.createLinearGradient(0,0,W,0);
+    line.addColorStop(0,'#7c6bff');line.addColorStop(0.5,'#a855f7');line.addColorStop(1,'#f943ff');
+    // soft area fill under the line
+    ctx.beginPath();ctx.moveTo(-STEP,H);
+    for(i=0;i<nodes;i++){x=i*STEP-scroll;y=baseY-samples[i]*amp;ctx.lineTo(x,y);}
+    ctx.lineTo(W+STEP,H);ctx.closePath();
+    var fill=ctx.createLinearGradient(0,baseY-amp,0,H);
+    fill.addColorStop(0,'rgba(168,85,247,0.06)');fill.addColorStop(1,'rgba(168,85,247,0)');
+    ctx.fillStyle=fill;ctx.fill();
+    // the line itself
+    ctx.beginPath();
+    for(i=0;i<nodes;i++){x=i*STEP-scroll;y=baseY-samples[i]*amp;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+    ctx.lineJoin='round';ctx.lineWidth=2;ctx.strokeStyle=line;
+    ctx.globalAlpha=0.5;ctx.shadowColor='rgba(168,85,247,0.6)';ctx.shadowBlur=16;ctx.stroke();
+    ctx.shadowBlur=0;ctx.globalAlpha=1;
+    // clip markers
+    for(var k=0;k<markers.length;k++){
+      var mk=markers[k];if(mk.t0<0)mk.t0=ts;
+      var mx=mk.idx*STEP-scroll,my=baseY-samples[mk.idx]*amp;
+      var edge=Math.min(1,mx/W),fade=mx<60?mx/60:1;
+      // faint vertical tick down to baseline (a captured moment on the timeline)
+      ctx.globalAlpha=0.10*fade;ctx.strokeStyle='#c79bff';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(mx,my+5);ctx.lineTo(mx,baseY+amp*0.55);ctx.stroke();
+      // expanding pulse ring
+      if(!mk.still){
+        var ph=((ts-mk.t0)%1500)/1500;
+        ctx.globalAlpha=(1-ph)*0.45*fade;ctx.strokeStyle='#f943ff';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.arc(mx,my,3+ph*16,0,6.2832);ctx.stroke();
+      }
+      // core dot
+      ctx.globalAlpha=0.9*fade;ctx.fillStyle='#f943ff';ctx.shadowColor='#f943ff';ctx.shadowBlur=12;
+      ctx.beginPath();ctx.arc(mx,my,3,0,6.2832);ctx.fill();ctx.shadowBlur=0;
+    }
+    ctx.globalAlpha=1;
+  }
+  function frame(ts){step();draw(ts);requestAnimationFrame(frame);}
+  reset();
+  window.addEventListener('resize',function(){var p=dpr;reset();dpr=p;});
+  if(reduce){draw(0);}else{requestAnimationFrame(frame);}
+})();
 (function(){
   if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.final h2,.final p,.final .btn';
