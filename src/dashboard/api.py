@@ -74,6 +74,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 or any(path.startswith(p) for p in _AUTH_PREFIXES)):
             return await call_next(request)
         if not request.session.get("auth"):
+            # The root path is the public marketing landing page — let it through
+            # so visitors see it instead of being bounced straight to sign-in.
+            if path == "/":
+                return await call_next(request)
             if request.headers.get("accept", "").startswith("application/json"):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
@@ -1309,9 +1313,291 @@ async def get_stats(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    return HTMLResponse(content=DASHBOARD_HTML)
+async def dashboard(request: Request):
+    # Authenticated users reach this only after passing the auth + billing gate
+    # in AuthMiddleware, so they get the app. Everyone else sees the public
+    # marketing landing page.
+    if request.session.get("auth"):
+        return HTMLResponse(content=DASHBOARD_HTML)
+    return HTMLResponse(content=LANDING_HTML)
 
+
+LANDING_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Highlightz — Automatic Twitch clipping, made effortless</title>
+<meta name="description" content="Highlightz watches your live streams and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, fully connected to Twitch. 7-day free trial, no card required.">
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;z-index:-2;background:radial-gradient(800px 500px at 18% -8%,rgba(168,85,247,.22),transparent 60%),radial-gradient(700px 420px at 88% 4%,rgba(249,67,255,.13),transparent 55%),radial-gradient(700px 600px at 50% 110%,rgba(124,107,255,.12),transparent 60%)}
+  a{text-decoration:none;color:inherit}
+  .acc{color:#c79bff}
+  .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  /* Nav */
+  .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:16px 30px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(8,8,11,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+  .nav-logo{display:flex;align-items:center;gap:11px}
+  .nav-logo img{height:32px;filter:drop-shadow(0 0 9px rgba(199,155,255,.5))}
+  .nav-logo span{font-size:17px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  .nav-actions{display:flex;align-items:center;gap:10px}
+  .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s}
+  .nav-link:hover{color:#f6f6f9;background:rgba(255,255,255,.05)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;font-weight:700;cursor:pointer;border:none;transition:.16s;white-space:nowrap}
+  .btn-grad{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border-radius:12px;padding:11px 20px;font-size:14px;box-shadow:0 6px 24px -8px rgba(168,85,247,.7)}
+  .btn-grad:hover{filter:brightness(1.09);transform:translateY(-1px)}
+  .btn-ghost{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#f6f6f9;border-radius:12px;padding:12px 22px;font-size:14px}
+  .btn-ghost:hover{background:rgba(255,255,255,.09)}
+  .btn-lg{padding:15px 30px;font-size:15px;border-radius:13px}
+  /* Layout */
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  section{padding:84px 0}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
+  h2.sec-title{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:14px;line-height:1.15}
+  .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
+  /* Hero */
+  .hero{text-align:center;padding:78px 0 64px}
+  .hero h1{font-size:60px;font-weight:800;letter-spacing:-.04em;line-height:1.04;margin-bottom:22px}
+  .hero p.lead{font-size:19px;color:#b8b8c8;max-width:660px;margin:0 auto 34px;line-height:1.6}
+  .hero-ctas{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+  .hero-note{font-size:13px;color:#5d5d6b}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:38px}
+  .pill{font-size:13px;font-weight:600;padding:8px 16px;border-radius:99px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);color:#c79bff}
+  /* Glass card */
+  .glass{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:20px;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+  /* Who it's for */
+  .who-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:40px}
+  .who-card{padding:26px 24px}
+  .who-card .ic{width:42px;height:42px;border-radius:12px;background:rgba(168,85,247,.14);color:#c79bff;display:grid;place-items:center;font-size:21px;margin-bottom:16px}
+  .who-card h3{font-size:17px;font-weight:700;margin-bottom:7px}
+  .who-card p{font-size:14px;color:#9c9caa;line-height:1.6}
+  /* Steps */
+  .steps{display:flex;flex-direction:column;gap:16px;margin-top:44px}
+  .step{display:flex;gap:20px;align-items:flex-start;padding:24px 26px}
+  .step-n{flex-shrink:0;width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,rgba(249,67,255,.18),rgba(124,107,255,.18));border:1px solid rgba(168,85,247,.3);color:#c79bff;display:grid;place-items:center;font-size:18px;font-weight:800}
+  .step h3{font-size:18px;font-weight:700;margin-bottom:6px}
+  .step p{font-size:14.5px;color:#9c9caa;line-height:1.65}
+  /* Features */
+  .feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:44px}
+  .feat{padding:26px 24px}
+  .feat .ic{width:40px;height:40px;border-radius:11px;background:rgba(168,85,247,.13);color:#c79bff;display:grid;place-items:center;margin-bottom:15px}
+  .feat h3{font-size:16px;font-weight:700;margin-bottom:7px}
+  .feat p{font-size:14px;color:#9c9caa;line-height:1.6}
+  /* Formula / not AI section */
+  .formula{padding:46px 44px;text-align:center}
+  .formula h2{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:14px}
+  .formula p.lead{font-size:16px;color:#b8b8c8;max-width:680px;margin:0 auto 32px;line-height:1.65}
+  .signal-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .signal{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;padding:11px 18px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+  .signal .sd{width:9px;height:9px;border-radius:50%}
+  .plus{display:grid;place-items:center;color:#5d5d6b;font-size:18px;font-weight:700;padding:0 2px}
+  .formula-eq{margin-top:30px;font-size:15px;color:#c79bff;font-weight:700;letter-spacing:.01em}
+  /* Pricing */
+  .price-card{max-width:460px;margin:44px auto 0;padding:42px 40px;text-align:center}
+  .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:20px}
+  .price-amt{font-size:17px;color:#9c9caa;margin-bottom:6px}
+  .price-trial{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .price-sub{font-size:14px;color:#9c9caa;margin-bottom:28px}
+  .price-list{text-align:left;display:flex;flex-direction:column;gap:12px;margin-bottom:30px}
+  .price-list .li{display:flex;align-items:flex-start;gap:11px;font-size:14.5px;color:#d8d8e2}
+  .price-list .ck{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(52,211,153,.14);color:#34d399;display:grid;place-items:center;font-size:12px;font-weight:800;margin-top:1px}
+  /* Final CTA */
+  .final{text-align:center;padding:64px 0 90px}
+  .final h2{font-size:38px;font-weight:800;letter-spacing:-.03em;margin-bottom:16px;line-height:1.1}
+  .final p{font-size:17px;color:#9c9caa;max-width:540px;margin:0 auto 32px;line-height:1.6}
+  /* Footer */
+  .footer{border-top:1px solid rgba(255,255,255,.06);padding:36px 24px;text-align:center;font-size:12px;color:#3d3d4a;line-height:1.9}
+  .footer a{color:#5d5d6b}.footer a:hover{color:#9c9caa}
+  .footer .fl{margin-bottom:8px}
+  @media(max-width:680px){
+    .hero h1{font-size:40px}
+    .hero p.lead{font-size:17px}
+    h2.sec-title{font-size:27px}
+    .final h2{font-size:29px}
+    section{padding:60px 0}
+    .nav{padding:14px 18px}
+    .nav .nav-link.hide-sm{display:none}
+    .formula{padding:34px 22px}
+  }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
+  <div class="nav-actions">
+    <a href="#how" class="nav-link hide-sm">How it works</a>
+    <a href="#features" class="nav-link hide-sm">Features</a>
+    <a href="#pricing" class="nav-link hide-sm">Pricing</a>
+    <a href="/login" class="nav-link">Sign in</a>
+    <a href="/login" class="btn btn-grad">Start free</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="wrap hero">
+  <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
+  <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
+  <p class="lead">Highlightz watches your live streams in real time and captures the best moments automatically — so the clips are ready before you even finish your stream. It's a tool that makes clipping effortless.</p>
+  <div class="hero-ctas">
+    <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
+    <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+  </div>
+  <p class="hero-note">No credit card required &middot; Connect with Twitch in seconds</p>
+  <div class="pills">
+    <span class="pill">Formula-based — not AI</span>
+    <span class="pill">Adapts to each streamer</span>
+    <span class="pill">Multiple streams at once</span>
+    <span class="pill">Fully connected to Twitch</span>
+  </div>
+</header>
+
+<!-- Who it's for -->
+<section class="wrap" id="who">
+  <h2 class="sec-title">Built for anyone who clips</h2>
+  <p class="sec-sub">Whether you're growing your own channel or clipping for others, Highlightz does the watching so you can focus on the content.</p>
+  <div class="who-grid">
+    <div class="glass who-card">
+      <div class="ic">&#127908;</div>
+      <h3>Streamers</h3>
+      <p>Capture your own funniest, hypest, and most viral moments live — without breaking focus mid-stream to hit the clip button.</p>
+    </div>
+    <div class="glass who-card">
+      <div class="ic">&#9986;</div>
+      <h3>Clippers &amp; editors</h3>
+      <p>Monitor several channels at once and let the best moments surface themselves. Spend your time editing, not scrubbing VODs.</p>
+    </div>
+    <div class="glass who-card">
+      <div class="ic">&#128226;</div>
+      <h3>Community &amp; mod teams</h3>
+      <p>Keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="wrap" id="how">
+  <h2 class="sec-title">How it works</h2>
+  <p class="sec-sub">Five simple steps from "go live" to a polished clip in your review queue.</p>
+  <div class="steps">
+    <div class="glass step">
+      <div class="step-n">1</div>
+      <div><h3>Add any live Twitch channel</h3><p>Monitor multiple streams at the same time — your own channel, streamers you clip for, or anyone live right now. Add as many as you need and Highlightz watches them all in parallel.</p></div>
+    </div>
+    <div class="glass step">
+      <div class="step-n">2</div>
+      <div><h3>A formula scores every second — not AI</h3><p>Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time as the stream unfolds.</p></div>
+    </div>
+    <div class="glass step">
+      <div class="step-n">3</div>
+      <div><h3>It adapts to every streamer</h3><p>The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger with the same fairness. The more it watches a channel, the sharper its judgment becomes.</p></div>
+    </div>
+    <div class="glass step">
+      <div class="step-n">4</div>
+      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
+    </div>
+    <div class="glass step">
+      <div class="step-n">5</div>
+      <div><h3>You stay in control</h3><p>Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula quietly tunes itself to your taste with every decision you make.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- Not AI / formula -->
+<section class="wrap">
+  <div class="glass formula">
+    <div class="eyebrow" style="margin-bottom:18px">100% transparent</div>
+    <h2>A formula you can actually understand</h2>
+    <p class="lead">Highlightz isn't powered by AI guesswork. It's a clear, explainable formula that blends real signals from the stream into a single live score. Every trigger has a reason you can see.</p>
+    <div class="signal-row">
+      <div class="signal"><span class="sd" style="background:#f943ff"></span>Chat speed</div>
+      <div class="plus">+</div>
+      <div class="signal"><span class="sd" style="background:#a855f7"></span>Audio spikes</div>
+      <div class="plus">+</div>
+      <div class="signal"><span class="sd" style="background:#7c6bff"></span>Keywords</div>
+      <div class="plus">+</div>
+      <div class="signal"><span class="sd" style="background:#22c55e"></span>Viewer surges</div>
+      <div class="plus">+</div>
+      <div class="signal"><span class="sd" style="background:#ffcc00"></span>Hype moments</div>
+    </div>
+    <div class="formula-eq">= one live highlight score, adapting to each streamer</div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="wrap" id="features">
+  <h2 class="sec-title">Everything in the box</h2>
+  <p class="sec-sub">A complete clipping toolkit that runs while you do everything else.</p>
+  <div class="feat-grid">
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+      <h3>Real-time detection</h3>
+      <p>Streams are scored second by second, so highlights are caught the instant they happen — not hours later in a VOD.</p>
+    </div>
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+      <h3>Multiple streams at once</h3>
+      <p>Watch many channels simultaneously from one dashboard, each with its own independent learning profile.</p>
+    </div>
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></div>
+      <h3>Adaptive per-channel learning</h3>
+      <p>Each streamer gets a personalized baseline. Loud or quiet, fast chat or slow — it's always calibrated fairly.</p>
+    </div>
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg></div>
+      <h3>Approve / reject queue</h3>
+      <p>Review every clip in one place. Your decisions feed straight back into the formula, sharpening it over time.</p>
+    </div>
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div>
+      <h3>Live score analytics</h3>
+      <p>Watch the highlight score rise and fall in real time, with a clear breakdown of which signals are firing.</p>
+    </div>
+    <div class="glass feat">
+      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></div>
+      <h3>Clips stay on Twitch</h3>
+      <p>Everything is created through Twitch's official Clips API under your account. We never record or store video.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section class="wrap" id="pricing">
+  <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">Try everything free for 7 days. No credit card to start — we'll only ask if you decide to keep going.</p>
+  <div class="glass price-card">
+    <span class="price-badge">Highlightz Pro</span>
+    <div class="price-trial">7 days free</div>
+    <div class="price-sub">Full access, no credit card required</div>
+    <div class="price-list">
+      <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
+      <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
+      <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
+      <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
+      <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
+      <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
+    </div>
+    <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
+  </div>
+</section>
+
+<!-- Final CTA -->
+<section class="wrap final">
+  <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
+  <p>Connect your Twitch account and let Highlightz catch it for you — automatically, from the very first stream.</p>
+  <a href="/login" class="btn btn-grad btn-lg">Get started free</a>
+</section>
+
+<footer class="footer">
+  <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
+  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
+</footer>
+</body>
+</html>"""
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
