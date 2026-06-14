@@ -1461,17 +1461,17 @@ LANDING_HTML = """<!DOCTYPE html>
   <p class="sec-sub">Whether you're growing your own channel or clipping for others, Highlightz does the watching so you can focus on the content.</p>
   <div class="who-grid">
     <div class="glass who-card">
-      <div class="ic">&#127908;</div>
+      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg></div>
       <h3>Streamers</h3>
       <p>Capture your own funniest, hypest, and most viral moments live — without breaking focus mid-stream to hit the clip button.</p>
     </div>
     <div class="glass who-card">
-      <div class="ic">&#9986;</div>
+      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg></div>
       <h3>Clippers &amp; editors</h3>
       <p>Monitor several channels at once and let the best moments surface themselves. Spend your time editing, not scrubbing VODs.</p>
     </div>
     <div class="glass who-card">
-      <div class="ic">&#128226;</div>
+      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></div>
       <h3>Community &amp; mod teams</h3>
       <p>Keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
     </div>
