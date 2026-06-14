@@ -25,16 +25,19 @@ _TRIAL_SECONDS = TRIAL_DAYS * 86400
 
 
 # ── Token encryption ───────────────────────────────────────────────────────
-# Twitch OAuth tokens are encrypted at rest with a key derived from the
-# dashboard secret. If `cryptography` is unavailable, fall back to storing the
-# raw value (the users file is already chmod 0600).
+# Twitch OAuth tokens are encrypted at rest with a key derived from either
+# TOKEN_ENCRYPTION_KEY (dedicated, preferred) or the session secret (legacy).
+# If `cryptography` is unavailable, falls back to storing the raw value
+# (the users file is already chmod 0600).
 def _fernet():
     try:
         from cryptography.fernet import Fernet
     except Exception:
         return None
+    # Use a dedicated key if set so a leaked session secret can't decrypt tokens.
+    secret = settings.token_encryption_key or settings.dashboard_secret_key
     key = base64.urlsafe_b64encode(
-        hashlib.sha256(settings.dashboard_secret_key.encode()).digest()
+        hashlib.sha256(secret.encode()).digest()
     )
     return Fernet(key)
 

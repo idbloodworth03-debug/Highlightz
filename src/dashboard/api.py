@@ -91,6 +91,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     # Persist the transition once so the DB reflects reality
                     # (accurate admin stats; trial ledger already blocks re-grants).
                     user_store.update_subscription(uid, db_user.get("stripe_customer_id"), "expired")
+                    # Stop running streams immediately — don't wait for idle reaper.
+                    asyncio.create_task(_stop_user_streams_now(uid))
                 request.session["is_admin"]            = db_user.get("is_admin", False)
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
@@ -134,8 +136,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
             "img-src 'self' https: data: blob:; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "connect-src 'self' wss: ws:; "
-            "frame-src https://clips.twitch.tv https://player.twitch.tv; "
+            + ("connect-src 'self' wss:; " if settings.dashboard_https_only else "connect-src 'self' wss: ws:; ")
+            + "frame-src https://clips.twitch.tv https://player.twitch.tv; "
             "frame-ancestors 'none';"
         )
         if settings.dashboard_https_only:
@@ -516,7 +518,7 @@ async def optout_confirm_page(request: Request):
         return RedirectResponse("/opt-out")
     avatar_section = (
         f'<img class="avatar" src="{_html.escape(avatar)}" alt="">'
-        if avatar else
+        if avatar and avatar.startswith("https://") else
         '<div class="avatar-placeholder">🎮</div>'
     )
     html_out = (
@@ -603,7 +605,10 @@ async def submit_feedback(request: Request, body: _FeedbackRequest):
     if sum(1 for f in _feedback if f.get("user_id") == uid) >= 200:
         raise HTTPException(status_code=429, detail="Feedback limit reached — thank you, we have plenty from you!")
     _feedback_last_submit[uid] = now
-    category = body.category.strip()[:40] if body.category else "general"
+    _VALID_FEEDBACK_CATEGORIES = {"General", "Bug report", "Feature request", "Question"}
+    category = body.category.strip() if body.category else "General"
+    if category not in _VALID_FEEDBACK_CATEGORIES:
+        category = "General"
     import secrets as _sec
     entry = {
         "id":         _sec.token_urlsafe(12),
@@ -730,7 +735,17 @@ async def stripe_webhook(request: Request):
     cust_id, user_id, status = sync_subscription_event(event)
     if cust_id and status:
         if user_id:
-            user_store.update_subscription(user_id, cust_id, status)
+            # Cross-check: the metadata user_id must match the customer on record.
+            # Prevents a tampered metadata field from updating the wrong account.
+            db_user = user_store.get_by_id(user_id)
+            stored_cust = db_user.get("stripe_customer_id") if db_user else None
+            if stored_cust and stored_cust != cust_id:
+                log.warning("stripe_webhook_customer_mismatch",
+                            webhook_customer=cust_id, stored_customer=stored_cust,
+                            user_id=user_id)
+                user_store.update_subscription_by_customer(cust_id, status)
+            else:
+                user_store.update_subscription(user_id, cust_id, status)
         else:
             user_store.update_subscription_by_customer(cust_id, status)
         log.info("stripe_subscription_updated", customer=cust_id, status=status)
@@ -931,33 +946,36 @@ async def _stop_user_streams(uid: str) -> None:
 
 
 async def idle_stream_reaper() -> None:
-    """Background task: stop stream workers for users idle longer than 1 hour.
+    """Background task: stop stream workers for users idle longer than 5 hours.
 
     Runs every 5 minutes. Targets users who have active streams but haven't
-    made any authenticated request or sent any WebSocket message in the last hour.
-    Workers are stopped and the user gets a WebSocket notification so the UI can
-    show a 'streams paused due to inactivity' message if they come back.
+    made any authenticated request in the last 5 hours. Workers are stopped
+    and the user gets a WebSocket notification if they're still connected.
+
+    Users we haven't seen since startup (e.g., streams restored from disk on
+    restart) are treated as active right now — not idle — to prevent killing
+    all restored streams on the first reaper run after every restart.
     """
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
             now = time.time()
-            idle_users = [
-                uid for uid in list(_streams.keys())
-                if ":" in uid  # stream keys are "uid:channel"
-                # extract the user_id part
-                for uid in [uid.split(":", 1)[0]]
-                if uid and now - _user_last_active.get(uid, 0) > _IDLE_STREAM_TIMEOUT
-            ]
             seen: set[str] = set()
-            for uid in idle_users:
-                if uid in seen:
+            for stream_key in list(_streams.keys()):
+                if ":" not in stream_key:
                     continue
-                seen.add(uid)
-                log.info("idle_stream_reaper_stopping", user=uid,
-                         idle_minutes=round((now - _user_last_active.get(uid, 0)) / 60))
-                await _stop_user_streams_now(uid)
-                await broadcast({"event": "streams_paused_idle"}, user_id=uid)
+                uid = stream_key.split(":", 1)[0]
+                if not uid or uid in seen:
+                    continue
+                # If we've never seen this user (server just restarted and
+                # restored streams from disk), treat them as active right now.
+                last_active = _user_last_active.get(uid, now)
+                if now - last_active > _IDLE_STREAM_TIMEOUT:
+                    seen.add(uid)
+                    log.info("idle_stream_reaper_stopping", user=uid,
+                             idle_minutes=round((now - last_active) / 60))
+                    await _stop_user_streams_now(uid)
+                    await broadcast({"event": "streams_paused_idle"}, user_id=uid)
         except Exception as exc:
             log.error("idle_stream_reaper_error", error=str(exc))
 
@@ -970,6 +988,13 @@ async def websocket_endpoint(ws: WebSocket):
         return
     uid = ws.session.get("user_id")
     if not uid:
+        await ws.close(code=1008)
+        return
+    # Apply same billing gate as AuthMiddleware — expired/unpaid users cannot
+    # receive real-time events even if they hold a valid session cookie.
+    _ws_is_admin = ws.session.get("is_admin", False)
+    _ws_sub      = ws.session.get("subscription_status", "none")
+    if not _ws_is_admin and _ws_sub not in ("active", "trialing"):
         await ws.close(code=1008)
         return
     async with _ws_lock:
@@ -991,7 +1016,10 @@ async def websocket_endpoint(ws: WebSocket):
             # here — otherwise an abandoned-but-open tab would never go idle.
             # Real activity (approving clips, navigating, etc.) bumps it via the
             # authenticated HTTP requests in AuthMiddleware.
-            await ws.receive_text()
+            msg = await ws.receive_text()
+            if len(msg) > 256:
+                await ws.close(code=1009)  # 1009 = message too big
+                break
     except WebSocketDisconnect:
         pass
     finally:
@@ -1109,7 +1137,7 @@ async def admin_stripe_sync(request: Request, user_id: str):
         return {"synced": True, "stripe_status": raw, "app_status": status}
     except Exception as exc:
         log.error("admin_stripe_sync_error", user_id=user_id, error=str(exc))
-        raise HTTPException(status_code=502, detail=f"Stripe error: {exc}")
+        raise HTTPException(status_code=502, detail="Stripe API error — check server logs")
 
 
 @app.get("/tos", response_class=HTMLResponse)

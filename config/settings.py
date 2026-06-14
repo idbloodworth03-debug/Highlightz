@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     dashboard_secret_key: str = _DEFAULT_SECRET
     dashboard_password: str = _DEFAULT_PASSWORD
     dashboard_https_only: bool = True
+    # Separate key for Fernet-encrypting Twitch OAuth tokens at rest.
+    # Set TOKEN_ENCRYPTION_KEY in .env to a random 32-byte hex string so
+    # token encryption is independent of the session signing key.
+    # If unset, falls back to deriving from dashboard_secret_key (old behaviour).
+    token_encryption_key: str = ""
     buffer_duration_seconds: int = 90
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
