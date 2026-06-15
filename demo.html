@@ -397,7 +397,10 @@ var events=[
   }],
 
   // ── Cursor moves to Approve button ──
-  [16800,function(){moveCursor(460,615)}],
+  // Modal: 540px wide, centered → left edge at (1280-540)/2=370px
+  // Body padding 22px → button left edge at 392px, button width ~243px → center x≈514
+  // Modal top ≈ (720-558)/2=81px; actions start at 81+180+18+55+16+22+136+60+14=582px → center y≈598
+  [16800,function(){moveCursor(514,598)}],
 
   // ── Click Approve ──
   [17500,function(){
