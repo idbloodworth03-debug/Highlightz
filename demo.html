@@ -6,7 +6,8 @@
 <title>Highlightz Demo</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{width:1280px;height:720px;overflow:hidden;background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.5}
+html,body{width:100%;height:100%;overflow:hidden;background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.5}
+#demo-root{width:1280px;height:720px;position:absolute;top:0;left:0;transform-origin:0 0;overflow:hidden}
 body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   background:radial-gradient(700px 500px at 20% -5%,rgba(168,85,247,.18),transparent 60%),
              radial-gradient(600px 400px at 85% 10%,rgba(249,67,255,.10),transparent 55%),
@@ -144,6 +145,7 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 </head>
 <body>
 
+<div id="demo-root">
 <nav class="nav">
   <div class="nav-logo">
     <div class="mark">H</div>
@@ -223,6 +225,8 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
     </div>
   </div>
 </div>
+
+</div><!-- /demo-root -->
 
 <!-- Clip detail overlay -->
 <div class="detail-overlay" id="detail-overlay">
@@ -376,9 +380,11 @@ var events=[
     scoreTarget=0.1;
   }],
 
-  // ── Cursor appears bottom-right, moves toward clip card ──
-  [13600,function(){moveCursor(1100,520)}],
-  [14000,function(){moveCursor(980,198)}],
+  // ── Cursor appears then moves to clip card using real DOM position ──
+  [13600,function(){moveCursor(window.innerWidth*0.86,window.innerHeight*0.72)}],
+  [14000,function(){
+    if(newCard){var r=newCard.getBoundingClientRect();moveCursor(r.left+r.width/2,r.top+r.height/2);}
+  }],
 
   // ── Click clip card ──
   [14700,function(){
@@ -455,6 +461,15 @@ function animate(ts){
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
+
+// Scale #demo-root to fill the viewport
+function scaleRoot(){
+  var root=document.getElementById('demo-root');
+  var sx=window.innerWidth/1280, sy=window.innerHeight/720;
+  root.style.transform='scaleX('+sx+') scaleY('+sy+')';
+}
+scaleRoot();
+window.addEventListener('resize',scaleRoot);
 </script>
 </body>
 </html>
