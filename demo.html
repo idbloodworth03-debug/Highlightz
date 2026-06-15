@@ -388,19 +388,19 @@ var events=[
       // open detail
       addClass('detail-overlay','show');
       // stagger bars
-      setTimeout(function(){bkTargets[0]=92},200);
-      setTimeout(function(){bkTargets[1]=78},750);
-      setTimeout(function(){bkTargets[2]=65},1300);
-      setTimeout(function(){bkTargets[3]=95},1850);
-      setTimeout(function(){addClass('viral-score','show')},2600);
+      setTimeout(function(){bkTargets[0]=92},150);
+      setTimeout(function(){bkTargets[1]=78},400);
+      setTimeout(function(){bkTargets[2]=65},650);
+      setTimeout(function(){bkTargets[3]=95},900);
+      setTimeout(function(){addClass('viral-score','show')},1350);
     });
   }],
 
-  // ── Cursor moves to Approve button ── (~5s after detail opened = 14700+5000=19700)
-  [19800,function(){moveCursor(460,615)}],
+  // ── Cursor moves to Approve button ──
+  [16800,function(){moveCursor(460,615)}],
 
   // ── Click Approve ──
-  [20500,function(){
+  [17500,function(){
     var btn=el('btn-approve');
     btn.classList.add('pressing');
     clickCursor(function(){
@@ -418,14 +418,13 @@ var events=[
   }],
 
   // ── Close modal ──
-  [21400,function(){
+  [18400,function(){
     removeClass('detail-overlay','show');
-    // hide cursor off screen
     setTimeout(function(){moveCursor(-100,-100)},500);
   }],
 
   // ── Outro ──
-  [22400,function(){addClass('outro','show')}],
+  [19400,function(){addClass('outro','show')}],
 ];
 
 var startTime=null,fired=events.map(function(){return false});
@@ -444,7 +443,7 @@ function animate(ts){
 
   // breakdown bar lerps
   for(var i=0;i<4;i++){
-    bkCurrent[i]+=(bkTargets[i]-bkCurrent[i])*0.07;
+    bkCurrent[i]+=(bkTargets[i]-bkCurrent[i])*0.12;
     var v=Math.round(bkCurrent[i]);
     el('bf'+(i+1)).style.width=v+'%';
     el('bv'+(i+1)).textContent=v+'%';
