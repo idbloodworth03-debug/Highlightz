@@ -1198,6 +1198,13 @@ async def login_page(error: str = ""):
     return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
 
 
+@app.get("/demo", response_class=HTMLResponse)
+async def demo_page():
+    import pathlib
+    p = pathlib.Path(__file__).parent.parent.parent / "demo.html"
+    return HTMLResponse(p.read_text())
+
+
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
     from src.auth import users as user_store
