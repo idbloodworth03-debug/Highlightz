@@ -1,4 +1,5 @@
 import logging
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
 from typing import Literal
@@ -54,7 +55,8 @@ class Settings(BaseSettings):
 
     # Twitch OAuth (primary login + per-user clip creation)
     twitch_redirect_uri: str = "https://highlightz.app/auth/twitch/callback"
-    admin_twitch_id: str = "593525174"  # Your Twitch user ID — auto-grants admin on login
+    # Set ADMIN_TWITCH_ID in .env — do not hard-code a real ID in source.
+    admin_twitch_id: str = ""
 
     # Detection
     enable_audio_detection: bool = True  # pull audio-only feed for the audio-spike signal
@@ -82,13 +84,22 @@ class Settings(BaseSettings):
                 "Sessions are NOT secure. Set DASHBOARD_SECRET_KEY in .env: "
                 "python -c \"import secrets; print(secrets.token_hex(32))\""
             )
-            # Generate ephemeral random key so at least cookie forgery is prevented
-            # at runtime (sessions won't persist across restarts)
             object.__setattr__(self, "dashboard_secret_key", _secrets.token_hex(32))
         if self.dashboard_password == _DEFAULT_PASSWORD:
             _log.critical(
                 "SECURITY: DASHBOARD_PASSWORD is using the default value 'highlightz'. "
                 "Change it in .env immediately."
+            )
+        if not self.admin_twitch_id:
+            _log.warning(
+                "ADMIN_TWITCH_ID not set in .env — no Twitch account will be "
+                "auto-granted admin on login. Set ADMIN_TWITCH_ID=<your_twitch_id>."
+            )
+        # Resolve relative storage path to absolute so path-containment checks
+        # are stable regardless of the process working directory.
+        if not os.path.isabs(self.local_storage_path):
+            object.__setattr__(
+                self, "local_storage_path", os.path.abspath(self.local_storage_path)
             )
         return self
 

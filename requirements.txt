@@ -24,7 +24,6 @@ google-cloud-storage
 fastapi
 uvicorn[standard]
 python-multipart
-python-jose[cryptography]
 itsdangerous
 
 # Utilities

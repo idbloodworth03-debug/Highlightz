@@ -254,40 +254,43 @@ _IDLE_STREAM_TIMEOUT = 18000  # 5 hours
 _login_attempts: dict[str, tuple[int, float]] = {}
 _LOGIN_MAX_ATTEMPTS = 10
 _LOGIN_WINDOW       = 60  # seconds
+_login_rate_lock    = asyncio.Lock()
 
-def _check_login_rate(ip: str) -> None:
-    now = time.time()
-    # Purge entries older than the window to prevent unbounded growth
-    stale = [k for k, (count, ts) in list(_login_attempts.items()) if now - ts > _LOGIN_WINDOW]
-    for k in stale:
-        _login_attempts.pop(k, None)
-    attempts, window_start = _login_attempts.get(ip, (0, now))
-    if now - window_start > _LOGIN_WINDOW:
-        attempts, window_start = 0, now
-    if attempts >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="Too many login attempts — wait a minute")
-    _login_attempts[ip] = (attempts + 1, window_start)
+async def _check_login_rate(ip: str) -> None:
+    async with _login_rate_lock:
+        now = time.time()
+        stale = [k for k, (count, ts) in list(_login_attempts.items()) if now - ts > _LOGIN_WINDOW]
+        for k in stale:
+            _login_attempts.pop(k, None)
+        attempts, window_start = _login_attempts.get(ip, (0, now))
+        if now - window_start > _LOGIN_WINDOW:
+            attempts, window_start = 0, now
+        if attempts >= _LOGIN_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many login attempts — wait a minute")
+        _login_attempts[ip] = (attempts + 1, window_start)
 
-def _clear_login_rate(ip: str) -> None:
-    _login_attempts.pop(ip, None)
+async def _clear_login_rate(ip: str) -> None:
+    async with _login_rate_lock:
+        _login_attempts.pop(ip, None)
 
-# Per-user force-clip rate limit: each manual clip enqueues an FFmpeg extract,
-# so an unbounded loop is a CPU DoS on a single-core box.
+# Per-user force-clip rate limit
 _force_clip_hits: dict[str, tuple[int, float]] = {}
-_FORCE_CLIP_MAX    = 6     # max manual clips per user per window
-_FORCE_CLIP_WINDOW = 60    # seconds
+_FORCE_CLIP_MAX      = 6
+_FORCE_CLIP_WINDOW   = 60
+_force_clip_rate_lock = asyncio.Lock()
 
-def _check_force_clip_rate(uid: str) -> None:
-    now = time.time()
-    stale = [k for k, (count, ts) in list(_force_clip_hits.items()) if now - ts > _FORCE_CLIP_WINDOW]
-    for k in stale:
-        _force_clip_hits.pop(k, None)
-    attempts, window_start = _force_clip_hits.get(uid, (0, now))
-    if now - window_start > _FORCE_CLIP_WINDOW:
-        attempts, window_start = 0, now
-    if attempts >= _FORCE_CLIP_MAX:
-        raise HTTPException(status_code=429, detail="Too many manual clips — wait a moment")
-    _force_clip_hits[uid] = (attempts + 1, window_start)
+async def _check_force_clip_rate(uid: str) -> None:
+    async with _force_clip_rate_lock:
+        now = time.time()
+        stale = [k for k, (count, ts) in list(_force_clip_hits.items()) if now - ts > _FORCE_CLIP_WINDOW]
+        for k in stale:
+            _force_clip_hits.pop(k, None)
+        attempts, window_start = _force_clip_hits.get(uid, (0, now))
+        if now - window_start > _FORCE_CLIP_WINDOW:
+            attempts, window_start = 0, now
+        if attempts >= _FORCE_CLIP_MAX:
+            raise HTTPException(status_code=429, detail="Too many manual clips — wait a moment")
+        _force_clip_hits[uid] = (attempts + 1, window_start)
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -701,6 +704,9 @@ async def billing_portal(request: Request):
     if not user or not user.get("stripe_customer_id"):
         return RedirectResponse("/billing/checkout")
     url = await stripe_billing.create_portal_url(user["stripe_customer_id"])
+    if not url.startswith("https://billing.stripe.com/"):
+        log.error("stripe_portal_url_unexpected", url=url[:64])
+        raise HTTPException(status_code=502, detail="Unexpected billing portal URL")
     return RedirectResponse(url)
 
 
@@ -721,6 +727,12 @@ async def billing_cancel(request: Request):
     return RedirectResponse("/billing/paywall")
 
 
+# Stripe webhook idempotency: track processed event IDs for 10 minutes to
+# reject replays within Stripe's 5-minute signature tolerance window.
+_stripe_processed: dict[str, float] = {}
+_STRIPE_EVENT_TTL = 600
+
+
 @app.post("/billing/webhook")
 async def stripe_webhook(request: Request):
     """Receive and process Stripe subscription lifecycle events."""
@@ -735,6 +747,18 @@ async def stripe_webhook(request: Request):
     except Exception as exc:
         log.warning("stripe_webhook_invalid", error=str(exc))
         raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Reject duplicate deliveries within the TTL window
+    now = time.time()
+    stale = [k for k, ts in list(_stripe_processed.items()) if now - ts > _STRIPE_EVENT_TTL]
+    for k in stale:
+        _stripe_processed.pop(k, None)
+    event_id = event.get("id", "")
+    if event_id and event_id in _stripe_processed:
+        log.info("stripe_webhook_duplicate", event_id=event_id)
+        return {"received": True}
+    if event_id:
+        _stripe_processed[event_id] = now
 
     cust_id, user_id, status = sync_subscription_event(event)
     if cust_id and status:
@@ -994,10 +1018,16 @@ async def websocket_endpoint(ws: WebSocket):
     if not uid:
         await ws.close(code=1008)
         return
-    # Apply same billing gate as AuthMiddleware — expired/unpaid users cannot
-    # receive real-time events even if they hold a valid session cookie.
-    _ws_is_admin = ws.session.get("is_admin", False)
-    _ws_sub      = ws.session.get("subscription_status", "none")
+    # Re-validate subscription from DB, not the session cookie, so a subscription
+    # that expires mid-session is caught immediately rather than at next HTTP request.
+    from src.auth import users as _ws_user_store
+    _ws_db_user  = _ws_user_store.get_by_id(uid)
+    _ws_is_admin = _ws_db_user.get("is_admin", False) if _ws_db_user else False
+    _ws_sub      = _ws_db_user.get("subscription_status", "none") if _ws_db_user else "none"
+    if _ws_sub == "trialing" and _ws_db_user:
+        import time as _t
+        if _t.time() >= (_ws_db_user.get("trial_ends_at") or 0):
+            _ws_sub = "expired"
     if not _ws_is_admin and _ws_sub not in ("active", "trialing"):
         await ws.close(code=1008)
         return
@@ -1041,7 +1071,7 @@ async def websocket_endpoint(ws: WebSocket):
 async def force_clip(request: Request, channel: str):
     uid        = _current_user_id(request)
     channel    = _clean_channel(channel)
-    _check_force_clip_rate(uid)
+    await _check_force_clip_rate(uid)
     stream_key = f"{uid}:{channel}"
     if stream_key not in _streams:
         raise HTTPException(status_code=404, detail="Stream not registered")
@@ -1202,17 +1232,21 @@ async def login_page(error: str = ""):
 async def demo_page():
     import pathlib
     p = pathlib.Path(__file__).parent.parent.parent / "demo.html"
-    return HTMLResponse(p.read_text())
+    try:
+        return HTMLResponse(p.read_text())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Demo not found")
 
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
     from src.auth import users as user_store
     ip = request.client.host if request.client else "unknown"
-    _check_login_rate(ip)
-    user = next((u for u in user_store._load() if user_store.verify(u, password)), None)
+    await _check_login_rate(ip)
+    # Only scan users with a password hash (admins); Twitch OAuth users never match
+    user = next((u for u in user_store._load() if u.get("password_hash") and user_store.verify(u, password)), None)
     if user:
-        _clear_login_rate(ip)
+        await _clear_login_rate(ip)
         # Fix 10: clear any existing session before setting new auth data (session fixation)
         request.session.clear()
         request.session["auth"]                = True
@@ -1233,7 +1267,7 @@ async def logout(request: Request):
 
 @app.get("/logout")
 async def logout_get(request: Request):
-    # GET /logout is intentionally a no-op redirect — actual logout requires POST.
+    request.session.clear()
     return RedirectResponse("/login", status_code=302)
 
 

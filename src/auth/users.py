@@ -33,12 +33,16 @@ def _fernet():
     try:
         from cryptography.fernet import Fernet
     except Exception:
+        _ulog.warning("cryptography_unavailable", msg="Twitch tokens stored unencrypted — pip install cryptography")
         return None
-    # Use a dedicated key if set so a leaked session secret can't decrypt tokens.
+    if not settings.token_encryption_key:
+        _ulog.warning(
+            "TOKEN_ENCRYPTION_KEY_not_set",
+            msg="Falling back to session secret for token encryption. "
+                "Set TOKEN_ENCRYPTION_KEY in .env for stronger key isolation.",
+        )
     secret = settings.token_encryption_key or settings.dashboard_secret_key
-    key = base64.urlsafe_b64encode(
-        hashlib.sha256(secret.encode()).digest()
-    )
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
     return Fernet(key)
 
 
@@ -59,7 +63,9 @@ def _decrypt(value: str) -> str:
         return value
     try:
         return f.decrypt(value.encode()).decode()
-    except Exception:
+    except Exception as exc:
+        _ulog.warning("token_decrypt_failed", error=str(exc),
+                      msg="Possible key rotation — user will need to re-authenticate")
         return ""
 
 
@@ -150,8 +156,12 @@ def _save(users: list[dict]) -> None:
         # Keep a one-step-behind backup before overwriting
         if _USERS_FILE.exists():
             try:
-                shutil.copy2(_USERS_FILE, _BACKUP_FILE)
-                os.chmod(_BACKUP_FILE, 0o600)
+                # Write to a temp file first so the backup is never world-readable
+                fd2, tmp_bak = tempfile.mkstemp(dir=_USERS_FILE.parent, suffix=".bak.tmp")
+                os.close(fd2)
+                shutil.copyfile(_USERS_FILE, tmp_bak)
+                os.chmod(tmp_bak, 0o600)
+                os.replace(tmp_bak, _BACKUP_FILE)
             except OSError:
                 pass
         os.replace(tmp, _USERS_FILE)

@@ -87,21 +87,24 @@ class ProfileManager:
         return self._cache.get(channel)
 
     async def all_profiles(self) -> list[StreamerProfile]:
-        profiles = []
-        for path in self._profiles_dir.glob("*.json"):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                profiles.append(StreamerProfile.from_dict(data))
-            except Exception:
-                pass
-        return profiles[:200]
+        async with self._lock:
+            profiles = []
+            for path in self._profiles_dir.glob("*.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    profiles.append(StreamerProfile.from_dict(data))
+                except Exception:
+                    pass
+            return profiles[:200]
 
 
 # Global profile manager (no user isolation) — kept for backwards compat
 profile_manager = ProfileManager()
 
-# Per-user profile managers — keyed by user_id
+# Per-user profile managers — keyed by user_id.
+# Bounded to avoid unbounded growth on long-running servers with many users.
 _user_profile_managers: dict[str, ProfileManager] = {}
+_MAX_USER_MANAGERS = 500
 
 
 def get_profile_manager(user_id: str | None) -> ProfileManager:
@@ -109,5 +112,9 @@ def get_profile_manager(user_id: str | None) -> ProfileManager:
     if not user_id:
         return profile_manager
     if user_id not in _user_profile_managers:
+        if len(_user_profile_managers) >= _MAX_USER_MANAGERS:
+            # Evict the oldest entry (dict is insertion-ordered in Python 3.7+)
+            oldest = next(iter(_user_profile_managers))
+            del _user_profile_managers[oldest]
         _user_profile_managers[user_id] = ProfileManager(user_id=user_id)
     return _user_profile_managers[user_id]

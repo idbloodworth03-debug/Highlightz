@@ -82,6 +82,12 @@ class JobQueue:
         if not _CHANNEL_RE_Q.fullmatch(job.channel):
             log.warning("job_queue_bad_channel", channel=job.channel)
             return None
+        if job.platform not in ("twitch", "youtube"):
+            log.warning("job_queue_bad_platform", platform=job.platform)
+            return None
+        if not isinstance(job.trigger_score, (int, float)) or not (0.0 <= job.trigger_score <= 1.0):
+            log.warning("job_queue_bad_trigger_score", score=job.trigger_score)
+            return None
         if not (0 <= job.pre_roll <= 300):
             log.warning("job_queue_bad_pre_roll", pre_roll=job.pre_roll)
             return None
