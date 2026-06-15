@@ -7,65 +7,47 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:1280px;height:720px;overflow:hidden;background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.5}
-
-/* ── background glow ── */
 body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   background:radial-gradient(700px 500px at 20% -5%,rgba(168,85,247,.18),transparent 60%),
              radial-gradient(600px 400px at 85% 10%,rgba(249,67,255,.10),transparent 55%),
              radial-gradient(600px 600px at 50% 105%,rgba(124,107,255,.10),transparent 60%)}
-
-/* ── nav ── */
+/* nav */
 .nav{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;
   padding:14px 28px;border-bottom:1px solid rgba(255,255,255,.07);
   background:rgba(8,8,11,.55);backdrop-filter:blur(16px)}
 .nav-logo{display:flex;align-items:center;gap:10px}
 .nav-logo .mark{width:28px;height:28px;border-radius:8px;
   background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);
-  display:grid;place-items:center;font-size:13px;font-weight:900;color:#fff;flex-shrink:0}
+  display:grid;place-items:center;font-size:13px;font-weight:900;color:#fff}
 .nav-logo span{font-size:16px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
 .nav-right{display:flex;align-items:center;gap:10px}
-.nav-tag{font-size:11px;font-weight:700;color:#2ee08a;background:rgba(46,224,138,.1);
-  border:1px solid rgba(46,224,138,.25);padding:4px 10px;border-radius:99px}
-.nav-av{width:30px;height:30px;border-radius:9px;
-  background:linear-gradient(135deg,#f943ff,#a855f7);
-  display:grid;place-items:center;font-size:11px;font-weight:800;color:#fff}
-
-/* ── main layout ── */
-.layout{position:relative;z-index:1;display:grid;grid-template-columns:1fr 360px;gap:16px;
-  padding:18px 24px;height:calc(720px - 57px)}
-
-/* ── left panel ── */
+.nav-tag{font-size:11px;font-weight:700;color:#2ee08a;background:rgba(46,224,138,.1);border:1px solid rgba(46,224,138,.25);padding:4px 10px;border-radius:99px}
+.nav-av{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#f943ff,#a855f7);display:grid;place-items:center;font-size:11px;font-weight:800;color:#fff}
+/* layout */
+.layout{position:relative;z-index:1;display:grid;grid-template-columns:1fr 360px;gap:16px;padding:18px 24px;height:calc(720px - 57px)}
+/* left */
 .left-panel{display:flex;flex-direction:column;gap:14px;overflow:hidden}
 .panel-hd{display:flex;align-items:center;justify-content:space-between}
 .panel-hd h2{font-size:13px;font-weight:700;color:#9c9caa;letter-spacing:.06em;text-transform:uppercase}
 .live-count{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#2ee08a}
 .live-count .dot{width:7px;height:7px;border-radius:50%;background:#2ee08a;box-shadow:0 0 8px #2ee08a}
-
-/* ── stream card ── */
-.stream-card{background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.08);
-  border-radius:18px;padding:20px;transition:border-color .4s,box-shadow .4s;position:relative;overflow:hidden}
+/* stream card */
+.stream-card{background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:20px;transition:border-color .4s,box-shadow .4s;position:relative;overflow:hidden}
 .stream-card.firing{border-color:rgba(249,67,255,.6);box-shadow:0 0 40px -10px rgba(249,67,255,.35)}
-
 .sc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
-.sc-info{}
 .sc-name{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:800;margin-bottom:7px}
 .sc-status{width:9px;height:9px;border-radius:50%;background:#5d5d6b;transition:background .6s,box-shadow .6s}
 .sc-status.live{background:#2ee08a;box-shadow:0 0 10px #2ee08a}
 .sc-status.connecting{background:#fbbf24;box-shadow:0 0 10px rgba(251,191,36,.7);animation:pulse-y .9s ease-in-out infinite alternate}
 @keyframes pulse-y{from{opacity:.5}to{opacity:1}}
 .sc-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.sc-chip{font-size:11px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);padding:3px 9px;border-radius:99px}
+.sc-chip{font-size:11px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);padding:3px 9px;border-radius:99px}
 .sc-viewers{font-size:11px;font-weight:700;color:#c79bff;opacity:0;transition:opacity .6s}
 .sc-viewers.show{opacity:1}
 .sc-actions{display:flex;gap:8px;flex-shrink:0}
-.btn-clip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
-  color:#c79bff;background:rgba(168,85,247,.14);border:1px solid rgba(168,85,247,.3);
-  padding:7px 13px;border-radius:10px;cursor:pointer}
-.btn-x{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#5d5d6b;
-  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:14px}
-
-/* ── score section ── */
+.btn-clip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#c79bff;background:rgba(168,85,247,.14);border:1px solid rgba(168,85,247,.3);padding:7px 13px;border-radius:10px}
+.btn-x{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#5d5d6b;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:14px}
+/* score */
 .sc-score{opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s}
 .sc-score.show{opacity:1;transform:none}
 .score-hd{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
@@ -73,70 +55,41 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 .score-val{font-size:32px;font-weight:800;letter-spacing:-.03em;transition:color .3s}
 .score-val.high{color:#f943ff}
 .score-bar-wrap{height:10px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;position:relative;margin-bottom:6px}
-.score-bar-fill{height:100%;border-radius:99px;
-  background:linear-gradient(90deg,#7c6bff,#a855f7,#f943ff);
-  width:0%;transition:width .25s ease-out;position:relative}
-.score-bar-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;
-  background:rgba(255,255,255,.3);filter:blur(4px);opacity:0;transition:opacity .2s}
+.score-bar-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#7c6bff,#a855f7,#f943ff);width:0%;transition:width .25s ease-out;position:relative}
+.score-bar-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:rgba(255,255,255,.3);filter:blur(4px);opacity:0;transition:opacity .2s}
 .score-bar-fill.glow::after{opacity:1}
-.threshold-marker{position:absolute;top:-3px;bottom:-3px;width:2px;left:45%;
-  background:rgba(255,255,255,.25);border-radius:99px}
-.threshold-marker::after{content:'0.45';position:absolute;top:-18px;left:50%;transform:translateX(-50%);
-  font-size:9px;font-weight:700;color:rgba(255,255,255,.3)}
-
-/* ── signals ── */
+.threshold-marker{position:absolute;top:-3px;bottom:-3px;width:2px;left:45%;background:rgba(255,255,255,.25);border-radius:99px}
+.threshold-marker::after{content:'0.45';position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:700;color:rgba(255,255,255,.3)}
 .signals{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
-.sig{font-size:11px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.03);
-  border:1px solid rgba(255,255,255,.07);padding:5px 11px;border-radius:9px;
-  display:flex;align-items:center;gap:6px;transition:all .4s}
+.sig{font-size:11px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);padding:5px 11px;border-radius:9px;display:flex;align-items:center;gap:6px;transition:all .4s}
 .sig .sd{width:7px;height:7px;border-radius:50%;background:#3d3d4a;transition:background .4s,box-shadow .4s}
 .sig.on{color:#f6f6f9;background:rgba(168,85,247,.15);border-color:rgba(168,85,247,.35)}
 .sig.on .sd{background:#a855f7;box-shadow:0 0 8px rgba(168,85,247,.8)}
-
-/* ── profile strip ── */
-.sc-profile{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);
-  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
-  opacity:0;transition:opacity .5s}
+.sc-profile{margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);display:grid;grid-template-columns:repeat(4,1fr);gap:8px;opacity:0;transition:opacity .5s}
 .sc-profile.show{opacity:1}
 .pc .k{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#5d5d6b}
 .pc .v{font-size:14px;font-weight:700;margin-top:2px}
 .pc .v small{font-size:9px;color:#5d5d6b;font-weight:500}
-
-/* ── clip-fired banner ── */
-.fired-banner{position:absolute;top:0;left:0;right:0;
-  display:flex;align-items:center;justify-content:center;gap:12px;
-  padding:13px;background:linear-gradient(135deg,rgba(249,67,255,.25),rgba(168,85,247,.2));
-  border-bottom:1px solid rgba(249,67,255,.35);font-size:13px;font-weight:800;color:#fff;
-  transform:translateY(-100%);transition:transform .35s cubic-bezier(.16,1,.3,1)}
+.fired-banner{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:12px;padding:13px;background:linear-gradient(135deg,rgba(249,67,255,.25),rgba(168,85,247,.2));border-bottom:1px solid rgba(249,67,255,.35);font-size:13px;font-weight:800;color:#fff;transform:translateY(-100%);transition:transform .35s cubic-bezier(.16,1,.3,1)}
 .fired-banner.show{transform:none}
 .fired-banner .rec{width:10px;height:10px;border-radius:50%;background:#f943ff;box-shadow:0 0 12px #f943ff;animation:blink .5s ease-in-out infinite alternate}
 @keyframes blink{from{opacity:.4}to{opacity:1}}
-
-/* ── right panel: clip library ── */
+.info-strip{margin-top:auto;padding:14px 18px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:14px;font-size:12px;color:#5d5d6b;line-height:1.7}
+/* right panel */
 .right-panel{display:flex;flex-direction:column;gap:12px;overflow:hidden}
 .clips-hd{display:flex;align-items:center;justify-content:space-between}
 .clips-hd h2{font-size:13px;font-weight:700;color:#9c9caa;letter-spacing:.06em;text-transform:uppercase}
-.clip-count{font-size:11px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);padding:3px 9px;border-radius:99px;transition:all .3s}
+.clip-count{font-size:11px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);padding:3px 9px;border-radius:99px;transition:all .3s}
 .clip-count.bump{color:#c79bff;background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.3)}
 .clips-list{display:flex;flex-direction:column;gap:10px;overflow:hidden}
-
-/* ── clip card ── */
-.clip-card{background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.08);
-  border-radius:14px;overflow:hidden;transition:all .4s}
-.clip-card.new{border-color:rgba(249,67,255,.4);box-shadow:0 0 28px -8px rgba(249,67,255,.4);
-  animation:dropIn .55s cubic-bezier(.16,1,.3,1)}
+.clip-card{background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;transition:all .4s;cursor:pointer}
+.clip-card.new{border-color:rgba(249,67,255,.4);box-shadow:0 0 28px -8px rgba(249,67,255,.4);animation:dropIn .55s cubic-bezier(.16,1,.3,1)}
+.clip-card.hovered{border-color:rgba(199,155,255,.5);box-shadow:0 0 20px -8px rgba(168,85,247,.5);transform:translateY(-2px)}
 @keyframes dropIn{from{opacity:0;transform:translateY(-14px) scale(.97)}to{opacity:1;transform:none}}
-.clip-thumb{position:relative;height:88px;display:grid;place-items:center;
-  background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)}
-.clip-thumb .play{width:32px;height:32px;border-radius:50%;
-  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
-  display:grid;place-items:center;font-size:11px}
-.clip-thumb .cbadge{position:absolute;top:8px;left:8px;font-size:9.5px;font-weight:700;
-  background:rgba(8,8,11,.72);border:1px solid rgba(255,255,255,.12);padding:3px 8px;border-radius:99px;color:#9c9caa}
-.clip-thumb .viral{position:absolute;top:8px;right:8px;font-size:10px;font-weight:800;
-  color:#f943ff;background:rgba(249,67,255,.15);border:1px solid rgba(249,67,255,.3);
-  padding:3px 9px;border-radius:99px;display:flex;align-items:center;gap:4px}
+.clip-thumb{position:relative;height:88px;display:grid;place-items:center}
+.clip-thumb .play{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center;font-size:11px}
+.clip-thumb .cbadge{position:absolute;top:8px;left:8px;font-size:9.5px;font-weight:700;background:rgba(8,8,11,.72);border:1px solid rgba(255,255,255,.12);padding:3px 8px;border-radius:99px;color:#9c9caa}
+.clip-thumb .viral{position:absolute;top:8px;right:8px;font-size:10px;font-weight:800;color:#f943ff;background:rgba(249,67,255,.15);border:1px solid rgba(249,67,255,.3);padding:3px 9px;border-radius:99px}
 .clip-body{padding:10px 12px 12px}
 .clip-title{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
 .clip-meta{display:flex;align-items:center;justify-content:space-between}
@@ -144,30 +97,60 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 .cpill{font-size:9.5px;font-weight:700;padding:3px 9px;border-radius:99px;text-transform:capitalize}
 .cpill.pending{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
 .cpill.approved{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
-
-/* ── empty state ── */
-.empty-state{flex:1;display:grid;place-items:center;text-align:center;color:#3d3d4a;
-  border:1px dashed rgba(255,255,255,.07);border-radius:14px;font-size:13px;font-weight:600;padding:30px;
-  transition:opacity .4s}
+.empty-state{flex:1;display:grid;place-items:center;text-align:center;color:#3d3d4a;border:1px dashed rgba(255,255,255,.07);border-radius:14px;font-size:13px;font-weight:600;padding:30px;transition:opacity .4s}
 .empty-state.hide{opacity:0;pointer-events:none}
 
-/* ── outro overlay ── */
-.outro{position:fixed;inset:0;z-index:100;display:grid;place-items:center;
-  background:#08080b;opacity:0;pointer-events:none;transition:opacity .8s;text-align:center}
+/* ── clip detail overlay ── */
+.detail-overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.65);backdrop-filter:blur(6px);
+  opacity:0;pointer-events:none;transition:opacity .4s}
+.detail-overlay.show{opacity:1;pointer-events:all}
+.detail-modal{width:560px;background:rgba(16,16,22,.96);border:1px solid rgba(255,255,255,.1);border-radius:22px;overflow:hidden;
+  transform:translateY(20px) scale(.97);transition:transform .45s cubic-bezier(.16,1,.3,1)}
+.detail-overlay.show .detail-modal{transform:none}
+/* mock video */
+.d-video{position:relative;height:200px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)}
+.d-play{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center;font-size:16px}
+.d-badge{position:absolute;top:14px;right:14px;font-size:11px;font-weight:700;
+  background:rgba(8,8,11,.75);border:1px solid rgba(249,67,255,.4);color:#f943ff;
+  padding:5px 12px;border-radius:99px;display:flex;align-items:center;gap:6px}
+.d-badge .rec{width:7px;height:7px;border-radius:50%;background:#f943ff;box-shadow:0 0 8px #f943ff;animation:blink .5s ease-in-out infinite alternate}
+.d-body{padding:20px 24px 24px}
+.d-head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.d-av{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+.d-head h3{font-size:15px;font-weight:700;margin-bottom:3px}
+.d-head .dsub{font-size:12px;color:#9c9caa}
+.d-status{margin-left:auto;font-size:10px;font-weight:700;padding:5px 11px;border-radius:99px;background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
+/* breakdown bars */
+.breakdown-title{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9c9caa;margin-bottom:14px}
+.bk-row{margin-bottom:12px}
+.bk-hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.bk-name{font-size:13px;color:#d8d8e2;font-weight:500}
+.bk-weight{font-size:10px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.05);padding:2px 7px;border-radius:99px}
+.bk-val{font-size:13px;font-weight:800}
+.bk-track{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.bk-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#7c6bff,#a855f7,#f943ff);width:0%;transition:width .7s cubic-bezier(.16,1,.3,1)}
+/* virality total */
+.d-viral{display:flex;align-items:center;justify-content:space-between;margin-top:20px;padding-top:18px;border-top:1px solid rgba(255,255,255,.07)}
+.d-viral .lbl{font-size:13px;font-weight:700;color:#9c9caa}
+.d-viral .score{font-size:28px;font-weight:800;letter-spacing:-.03em;background:linear-gradient(135deg,#f943ff,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;opacity:0;transition:opacity .5s}
+.d-viral .score.show{opacity:1}
+/* action buttons */
+.d-actions{display:flex;gap:10px;margin-top:18px}
+.btn-approve{flex:1;padding:11px;border-radius:11px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+.btn-reject{flex:1;padding:11px;border-radius:11px;font-size:13px;font-weight:700;background:rgba(255,255,255,.05);color:#9c9caa;border:1px solid rgba(255,255,255,.1);cursor:pointer}
+
+/* outro */
+.outro{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:#08080b;opacity:0;pointer-events:none;transition:opacity .8s;text-align:center}
 .outro.show{opacity:1}
-.outro .mark{width:56px;height:56px;border-radius:16px;
-  background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);
-  display:grid;place-items:center;font-size:24px;font-weight:900;color:#fff;
-  margin:0 auto 18px;box-shadow:0 12px 40px -10px rgba(168,85,247,.7)}
-.outro h1{font-size:28px;font-weight:800;letter-spacing:-.03em;
-  background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.outro .mark{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);display:grid;place-items:center;font-size:24px;font-weight:900;color:#fff;margin:0 auto 18px;box-shadow:0 12px 40px -10px rgba(168,85,247,.7)}
+.outro h1{font-size:28px;font-weight:800;letter-spacing:-.03em;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .outro p{font-size:14px;color:#5d5d6b;margin-top:8px}
 </style>
 </head>
 <body>
 
-<!-- Nav -->
 <nav class="nav">
   <div class="nav-logo">
     <div class="mark">H</div>
@@ -175,37 +158,31 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   </div>
   <div class="nav-right">
     <div class="nav-tag">● Trial Active</div>
-    <div class="nav-av">XQ</div>
+    <div class="nav-av">JZ</div>
   </div>
 </nav>
 
-<!-- Layout -->
 <div class="layout">
-
-  <!-- Left: active streams -->
   <div class="left-panel">
     <div class="panel-hd">
       <h2>Active Streams</h2>
-      <div class="live-count"><span class="dot"></span><span id="live-n">1 Live</span></div>
+      <div class="live-count"><span class="dot"></span><span>1 Live</span></div>
     </div>
 
-    <!-- Stream card -->
     <div class="stream-card" id="scard">
-      <!-- Fired banner (hidden initially) -->
       <div class="fired-banner" id="fired-banner">
         <span class="rec"></span> CLIP CAPTURED
       </div>
-
       <div class="sc-top">
         <div class="sc-info">
           <div class="sc-name">
             <span class="sc-status connecting" id="sc-dot"></span>
-            xQcOW
+            Jynxzi
           </div>
           <div class="sc-meta">
             <span class="sc-chip" id="sc-game">Connecting…</span>
-            <span class="sc-chip" id="sc-time" style="opacity:0">2h 14m</span>
-            <span class="sc-viewers" id="sc-viewers">● 47,203 viewers</span>
+            <span class="sc-chip" id="sc-time" style="opacity:0">1h 42m</span>
+            <span class="sc-viewers" id="sc-viewers">● 82,411 viewers</span>
           </div>
         </div>
         <div class="sc-actions">
@@ -217,7 +194,6 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
         </div>
       </div>
 
-      <!-- Score section -->
       <div class="sc-score" id="sc-score">
         <div class="score-hd">
           <span class="score-lbl">Trigger Score</span>
@@ -227,7 +203,6 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
           <div class="score-bar-fill" id="score-bar"></div>
           <div class="threshold-marker"></div>
         </div>
-
         <div class="signals" id="signals">
           <div class="sig" id="sig-vel"><span class="sd"></span>Chat Velocity</div>
           <div class="sig" id="sig-kw"><span class="sd"></span>Keywords</div>
@@ -236,30 +211,90 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
         </div>
       </div>
 
-      <!-- Profile strip -->
       <div class="sc-profile" id="sc-profile">
-        <div class="pc"><div class="k">Avg Velocity</div><div class="v">2.4 <small>msg/s</small></div></div>
+        <div class="pc"><div class="k">Avg Velocity</div><div class="v">3.1 <small>msg/s</small></div></div>
         <div class="pc"><div class="k">Threshold</div><div class="v">0.45</div></div>
         <div class="pc"><div class="k">Clips Today</div><div class="v" id="clips-today">0</div></div>
-        <div class="pc"><div class="k">Uptime</div><div class="v">2h 14m</div></div>
+        <div class="pc"><div class="k">Uptime</div><div class="v">1h 42m</div></div>
       </div>
     </div>
 
-    <!-- Spacer instruction -->
-    <div style="margin-top:auto;padding:14px 18px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:14px;font-size:12px;color:#5d5d6b;line-height:1.7">
+    <div class="info-strip">
       <span style="color:#c79bff;font-weight:700">Formula-based detection</span> — not AI. Four weighted signals combine into a live trigger score. When the score crosses the threshold, a clip fires automatically.
     </div>
   </div>
 
-  <!-- Right: clip library -->
   <div class="right-panel">
     <div class="clips-hd">
       <h2>Clip Library</h2>
       <div class="clip-count" id="clip-count">0 clips</div>
     </div>
-
     <div class="clips-list" id="clips-list">
       <div class="empty-state" id="empty-state">Clips will appear here as they're captured</div>
+    </div>
+  </div>
+</div>
+
+<!-- Clip detail overlay -->
+<div class="detail-overlay" id="detail-overlay">
+  <div class="detail-modal">
+    <div class="d-video">
+      <div class="d-play">▶</div>
+      <div class="d-badge"><span class="rec"></span>Clip · 0:38</div>
+    </div>
+    <div class="d-body">
+      <div class="d-head">
+        <div class="d-av">JZ</div>
+        <div>
+          <h3>Jynxzi — Rainbow Six Siege</h3>
+          <div class="dsub">Captured 2s ago · Twitch</div>
+        </div>
+        <div class="d-status">Pending Review</div>
+      </div>
+
+      <div class="breakdown-title">Trigger Score Breakdown</div>
+
+      <div class="bk-row">
+        <div class="bk-hd">
+          <span class="bk-name">Chat Velocity</span>
+          <span class="bk-weight">35% weight</span>
+          <span class="bk-val" id="bv1" style="color:#a855f7">0%</span>
+        </div>
+        <div class="bk-track"><div class="bk-fill" id="bf1"></div></div>
+      </div>
+      <div class="bk-row">
+        <div class="bk-hd">
+          <span class="bk-name">Keyword Hits</span>
+          <span class="bk-weight">35% weight</span>
+          <span class="bk-val" id="bv2" style="color:#a855f7">0%</span>
+        </div>
+        <div class="bk-track"><div class="bk-fill" id="bf2"></div></div>
+      </div>
+      <div class="bk-row">
+        <div class="bk-hd">
+          <span class="bk-name">Sentiment</span>
+          <span class="bk-weight">15% weight</span>
+          <span class="bk-val" id="bv3" style="color:#a855f7">0%</span>
+        </div>
+        <div class="bk-track"><div class="bk-fill" id="bf3"></div></div>
+      </div>
+      <div class="bk-row">
+        <div class="bk-hd">
+          <span class="bk-name">Audio Spike</span>
+          <span class="bk-weight">15% weight</span>
+          <span class="bk-val" id="bv4" style="color:#a855f7">0%</span>
+        </div>
+        <div class="bk-track"><div class="bk-fill" id="bf4"></div></div>
+      </div>
+
+      <div class="d-viral">
+        <span class="lbl">Virality Score</span>
+        <span class="score" id="viral-score">87%</span>
+      </div>
+      <div class="d-actions">
+        <button class="btn-approve">✓ Approve</button>
+        <button class="btn-reject">Reject</button>
+      </div>
     </div>
   </div>
 </div>
@@ -274,22 +309,33 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 </div>
 
 <script>
-var scoreTarget = 0, scoreCurrent = 0, clipsTotal = 0;
-var clipData = [
-  {title:"xQcOW Just Chatting",time:"2h 14m",viral:73,status:"approved",bg:"linear-gradient(135deg,#1a2840,#1a3a4d)"},
-  {title:"xQcOW Minecraft Rage",time:"1h 58m",viral:81,status:"approved",bg:"linear-gradient(135deg,#2a1828,#3a1a2d)"},
-];
-
+var scoreTarget=0,scoreCurrent=0,clipsTotal=0;
 function el(id){return document.getElementById(id)}
-function addClass(id,cls){el(id)&&el(id).classList.add(cls)}
-function removeClass(id,cls){el(id)&&el(id).classList.remove(cls)}
+function addClass(id,cls){var e=el(id);if(e)e.classList.add(cls)}
+function removeClass(id,cls){var e=el(id);if(e)e.classList.remove(cls)}
 
-function setScore(v){
-  scoreTarget=v;
-  var pct=Math.min(v/1,1)*100;
+// Smoothly animate a breakdown bar + counter
+var bkTargets=[0,0,0,0];
+var bkCurrent=[0,0,0,0];
+var bkFinals=[92,78,68,95]; // final % values for each signal
+
+function animateBreakdown(){
+  bkTargets=bkFinals.slice();
 }
 
-function lerp(a,b,t){return a+(b-a)*t}
+var detailStarted=false;
+function openDetail(){
+  if(detailStarted)return;detailStarted=true;
+  addClass('detail-overlay','show');
+  // stagger each bar
+  var delays=[300,700,1100,1500];
+  bkFinals.forEach(function(v,i){
+    setTimeout(function(){
+      bkTargets[i]=v;
+    },delays[i]);
+  });
+  setTimeout(function(){addClass('viral-score','show')},2200);
+}
 
 function makeClipCard(d,isNew){
   var div=document.createElement('div');
@@ -303,38 +349,32 @@ function makeClipCard(d,isNew){
     '<div class="clip-body">'+
     '<div class="clip-title">'+d.title+'</div>'+
     '<div class="clip-meta">'+
-    '<span class="clip-ch">xQcOW · Twitch</span>'+
+    '<span class="clip-ch">Jynxzi · Twitch</span>'+
     '<span class="cpill '+d.status+'">'+d.status+'</span>'+
     '</div></div>';
+  if(isNew){
+    setTimeout(function(){div.classList.add('hovered')},500);
+    setTimeout(function(){div.classList.remove('hovered');openDetail()},1500);
+  }
   return div;
 }
 
-// ── Animation timeline ──
-var events = [
-  // t=1500: score section fades in
-  [1500, function(){addClass('sc-score','show')}],
-  // t=2200: status → LIVE
-  [2200, function(){
+var events=[
+  [1500,function(){addClass('sc-score','show')}],
+  [2200,function(){
     el('sc-dot').className='sc-status live';
-    el('sc-game').textContent='Just Chatting';
+    el('sc-game').textContent='Rainbow Six Siege';
     el('sc-time').style.opacity='1';
     addClass('sc-viewers','show');
     addClass('sc-profile','show');
   }],
-  // t=3200: profile strip + start climbing
-  [3200, function(){scoreTarget=0.14}],
-  // t=4800: chat velocity lights
-  [4800, function(){scoreTarget=0.34;addClass('sig-vel','on')}],
-  // t=6800: keywords light
-  [6800, function(){scoreTarget=0.53;addClass('sig-kw','on')}],
-  // t=8600: sentiment lights
-  [8600, function(){scoreTarget=0.69;addClass('sig-sent','on')}],
-  // t=10200: audio spike lights, score surges toward threshold
-  [10200, function(){addClass('sig-audio','on');scoreTarget=0.82}],
-  // t=11400: breach threshold, add glow to bar
-  [11400, function(){scoreTarget=0.91;addClass('score-bar','glow')}],
-  // t=12200: FIRED
-  [12200, function(){
+  [3200,function(){scoreTarget=0.14}],
+  [4800,function(){scoreTarget=0.34;addClass('sig-vel','on')}],
+  [6800,function(){scoreTarget=0.53;addClass('sig-kw','on')}],
+  [8600,function(){scoreTarget=0.69;addClass('sig-sent','on')}],
+  [10200,function(){addClass('sig-audio','on');scoreTarget=0.82}],
+  [11400,function(){scoreTarget=0.91;addClass('score-bar','glow')}],
+  [12200,function(){
     el('scard').classList.add('firing');
     addClass('fired-banner','show');
     el('score-val').classList.add('high');
@@ -343,34 +383,28 @@ var events = [
     el('clip-count').textContent=clipsTotal+' clip'+(clipsTotal!==1?'s':'');
     addClass('clip-count','bump');
     setTimeout(function(){removeClass('clip-count','bump')},600);
-    // drop new clip card in
-    var newCard=makeClipCard({title:'xQcOW Just Chatting',time:'2h 14m',viral:87,status:'pending',bg:'linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)'},true);
     var list=el('clips-list');
     var empty=el('empty-state');
     if(empty){empty.classList.add('hide');setTimeout(function(){if(empty.parentNode)empty.parentNode.removeChild(empty)},400)}
+    var newCard=makeClipCard({title:'Jynxzi — Rainbow Six Siege',time:'1h 42m',viral:87,status:'pending',bg:'linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)'},true);
     list.insertBefore(newCard,list.firstChild);
+    // seed older clips below
+    setTimeout(function(){
+      [{title:'Jynxzi clutch 1v5',time:'1h 18m',viral:73,status:'approved',bg:'linear-gradient(135deg,#1a2840,#1a3a4d)'},
+       {title:'Jynxzi reaction',time:'0h 55m',viral:61,status:'approved',bg:'linear-gradient(135deg,#2a1828,#3a1a2d)'}]
+      .forEach(function(d){list.appendChild(makeClipCard(d,false))});
+      clipsTotal+=2;el('clip-count').textContent=clipsTotal+' clips';
+    },600);
   }],
-  // t=13600: dismiss banner, settle score, seed prior clips
-  [13600, function(){
+  [13400,function(){
     removeClass('fired-banner','show');
     el('scard').classList.remove('firing');
     removeClass('score-bar','glow');
     scoreTarget=0.11;
-    // add the two "older" clips after a beat
-    setTimeout(function(){
-      var list=el('clips-list');
-      clipData.forEach(function(d){list.appendChild(makeClipCard(d,false))});
-      clipsTotal+=2;
-      el('clip-count').textContent=clipsTotal+' clips';
-    },500);
   }],
-  // t=15000: score climbs again for the second pass
-  [15000, function(){scoreTarget=0.28}],
-  [16200, function(){scoreTarget=0.46}],
-  [17400, function(){scoreTarget=0.63}],
-  [18400, function(){scoreTarget=0.79}],
-  // t=19500: outro fade
-  [19500, function(){addClass('outro','show')}],
+  // detail opens at ~13700 via the card hover animation (500ms hover + 1000ms delay = 13700+1500=~15200)
+  // outro after breakdown is fully shown
+  [28000,function(){addClass('outro','show')}],
 ];
 
 var startTime=null;
@@ -379,19 +413,23 @@ var fired=events.map(function(){return false});
 function animate(ts){
   if(!startTime)startTime=ts;
   var elapsed=ts-startTime;
+  events.forEach(function(ev,i){if(!fired[i]&&elapsed>=ev[0]){fired[i]=true;ev[1]()}});
 
-  // fire timeline events
-  events.forEach(function(ev,i){
-    if(!fired[i]&&elapsed>=ev[0]){fired[i]=true;ev[1]()}
-  });
-
-  // lerp score
-  scoreCurrent=lerp(scoreCurrent,scoreTarget,0.045);
+  // lerp main score
+  scoreCurrent+=(scoreTarget-scoreCurrent)*0.045;
   var pct=Math.min(scoreCurrent*100,100);
   el('score-bar').style.width=pct+'%';
   el('score-val').textContent=scoreCurrent.toFixed(2);
   if(scoreCurrent>=0.45)el('score-val').classList.add('high');
   else el('score-val').classList.remove('high');
+
+  // lerp breakdown bars
+  for(var i=0;i<4;i++){
+    bkCurrent[i]+=(bkTargets[i]-bkCurrent[i])*0.06;
+    var v=Math.round(bkCurrent[i]);
+    el('bf'+(i+1)).style.width=v+'%';
+    el('bv'+(i+1)).textContent=v+'%';
+  }
 
   requestAnimationFrame(animate);
 }
