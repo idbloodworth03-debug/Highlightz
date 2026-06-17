@@ -594,15 +594,18 @@ class _FeedbackRequest(BaseModel):
 
 _feedback_last_submit: dict[str, float] = {}  # user_id -> last submit time
 _FEEDBACK_COOLDOWN = 10  # seconds between submissions per user
+_feedback_rate_lock = asyncio.Lock()
 
 @app.post("/feedback", status_code=201)
 async def submit_feedback(request: Request, body: _FeedbackRequest):
     uid      = _current_user_id(request)
     username = request.session.get("username", "")
     now = time.time()
-    last = _feedback_last_submit.get(uid, 0)
-    if now - last < _FEEDBACK_COOLDOWN:
-        raise HTTPException(status_code=429, detail="Please wait a moment before sending more feedback")
+    async with _feedback_rate_lock:
+        last = _feedback_last_submit.get(uid, 0)
+        if now - last < _FEEDBACK_COOLDOWN:
+            raise HTTPException(status_code=429, detail="Please wait a moment before sending more feedback")
+        _feedback_last_submit[uid] = now
     msg = body.message.strip()
     if not msg:
         raise HTTPException(status_code=400, detail="Message is required")
@@ -611,7 +614,6 @@ async def submit_feedback(request: Request, body: _FeedbackRequest):
     # Cap total stored feedback per user to prevent unbounded disk growth
     if sum(1 for f in _feedback if f.get("user_id") == uid) >= 200:
         raise HTTPException(status_code=429, detail="Feedback limit reached — thank you, we have plenty from you!")
-    _feedback_last_submit[uid] = now
     _VALID_FEEDBACK_CATEGORIES = {"General", "Bug report", "Feature request", "Question"}
     category = body.category.strip() if body.category else "General"
     if category not in _VALID_FEEDBACK_CATEGORIES:
@@ -730,7 +732,8 @@ async def billing_cancel(request: Request):
 # Stripe webhook idempotency: track processed event IDs for 10 minutes to
 # reject replays within Stripe's 5-minute signature tolerance window.
 _stripe_processed: dict[str, float] = {}
-_STRIPE_EVENT_TTL = 600
+_STRIPE_EVENT_TTL  = 600
+_stripe_event_lock = asyncio.Lock()
 
 
 @app.post("/billing/webhook")
@@ -748,17 +751,18 @@ async def stripe_webhook(request: Request):
         log.warning("stripe_webhook_invalid", error=str(exc))
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Reject duplicate deliveries within the TTL window
+    # Reject duplicate deliveries — lock guards the check-then-insert atomically
     now = time.time()
-    stale = [k for k, ts in list(_stripe_processed.items()) if now - ts > _STRIPE_EVENT_TTL]
-    for k in stale:
-        _stripe_processed.pop(k, None)
     event_id = event.get("id", "")
-    if event_id and event_id in _stripe_processed:
-        log.info("stripe_webhook_duplicate", event_id=event_id)
-        return {"received": True}
-    if event_id:
-        _stripe_processed[event_id] = now
+    async with _stripe_event_lock:
+        stale = [k for k, ts in list(_stripe_processed.items()) if now - ts > _STRIPE_EVENT_TTL]
+        for k in stale:
+            _stripe_processed.pop(k, None)
+        if event_id and event_id in _stripe_processed:
+            log.info("stripe_webhook_duplicate", event_id=event_id)
+            return {"received": True}
+        if event_id:
+            _stripe_processed[event_id] = now
 
     cust_id, user_id, status = sync_subscription_event(event)
     if cust_id and status:
@@ -1267,6 +1271,9 @@ async def logout(request: Request):
 
 @app.get("/logout")
 async def logout_get(request: Request):
+    # GET /logout: clear session so browser bookmarks/links actually log users out.
+    # SameSite=lax already blocks cross-site form submissions; this endpoint only
+    # handles same-site GET navigation (e.g., bookmark, address bar).
     request.session.clear()
     return RedirectResponse("/login", status_code=302)
 

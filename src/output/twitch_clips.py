@@ -26,12 +26,14 @@ TOKEN_URL  = "https://id.twitch.tv/oauth2/token"
 # Cached app (client-credentials) token for read-only lookups
 _app_token: str = ""
 _app_token_exp: float = 0.0
+_app_token_lock = asyncio.Lock()
 
 
 async def _get_app_token(session: aiohttp.ClientSession) -> str:
     global _app_token, _app_token_exp
-    if _app_token and time.time() < _app_token_exp:
-        return _app_token
+    async with _app_token_lock:
+        if _app_token and time.time() < _app_token_exp:
+            return _app_token
     async with session.post(
         TOKEN_URL,
         params={
@@ -42,9 +44,10 @@ async def _get_app_token(session: aiohttp.ClientSession) -> str:
     ) as resp:
         resp.raise_for_status()
         data = await resp.json()
-    _app_token = data["access_token"]
-    _app_token_exp = time.time() + data.get("expires_in", 3600) - 60
-    return _app_token
+    async with _app_token_lock:
+        _app_token = data["access_token"]
+        _app_token_exp = time.time() + data.get("expires_in", 3600) - 60
+        return _app_token
 
 
 async def resolve_broadcaster_id(login: str) -> str | None:

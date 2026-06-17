@@ -81,7 +81,7 @@ class StreamWorker:
                 await dashboard_api.broadcast({
                     "event": "stream_error",
                     "channel": self._config.channel,
-                    "error": str(exc),
+                    "error": "Stream session ended unexpectedly. Reconnecting…",
                 }, user_id=self._config.user_id)
             if self._running:
                 log.info("worker_reconnecting", channel=self._config.channel, delay=30)

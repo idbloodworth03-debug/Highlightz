@@ -13,6 +13,9 @@ google-auth-oauthlib
 # NLP / sentiment
 vaderSentiment
 
+# Cryptography (Fernet token encryption)
+cryptography
+
 # Queue & cache
 redis
 

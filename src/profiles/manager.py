@@ -6,6 +6,8 @@ fresh from seed_profiles/ and stored under clips/profiles/{user_id}/.
 
 import json
 import asyncio
+import os
+import tempfile
 import structlog
 from pathlib import Path
 
@@ -78,10 +80,19 @@ class ProfileManager:
         async with self._lock:
             self._cache[profile.channel] = profile
             path = self._path(profile.channel)
-            path.write_text(
-                json.dumps(profile.to_dict(), indent=2),
-                encoding="utf-8",
-            )
+            data = json.dumps(profile.to_dict(), indent=2)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            try:
+                os.write(fd, data.encode("utf-8"))
+                os.close(fd)
+                os.replace(tmp, path)
+            except Exception:
+                os.close(fd)
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
     async def get(self, channel: str) -> StreamerProfile | None:
         return self._cache.get(channel)

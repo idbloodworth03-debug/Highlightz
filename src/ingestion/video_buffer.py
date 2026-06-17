@@ -60,6 +60,8 @@ class VideoBuffer:
         if not hls_url or result.returncode != 0:
             err = result.stderr.decode(errors="replace").strip()
             raise RuntimeError(f"streamlink failed: {err}")
+        if not hls_url.startswith("https://"):
+            raise RuntimeError(f"streamlink returned unexpected URL scheme for channel {self.channel!r}")
         log.info("hls_url_resolved", channel=self.channel)
         return hls_url
 

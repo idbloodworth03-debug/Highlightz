@@ -48,6 +48,9 @@ class ClipProcessor:
             broadcaster_id = await twitch_clips.resolve_broadcaster_id(channel)
             if not broadcaster_id:
                 raise RuntimeError(f"Could not resolve broadcaster id for '{channel}'")
+            if len(self._broadcaster_cache) >= 1000:
+                oldest = next(iter(self._broadcaster_cache))
+                del self._broadcaster_cache[oldest]
             self._broadcaster_cache[channel] = broadcaster_id
 
         log.info("creating_twitch_clip", clip_id=meta.id, channel=channel,
