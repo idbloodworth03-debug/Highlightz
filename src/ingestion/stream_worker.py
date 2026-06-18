@@ -328,6 +328,11 @@ class StreamWorker:
         if self._engine:
             self._engine.stop()
             self._engine = None
+        if self._platform:
+            try:
+                await self._platform.close()
+            except Exception as exc:
+                log.warning("platform_close_error", channel=self._config.channel, error=str(exc))
 
     def stop(self) -> None:
         self._running = False

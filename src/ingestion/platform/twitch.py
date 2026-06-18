@@ -55,6 +55,9 @@ class TwitchPlatform(BasePlatform):
             headers=self._headers(token),
             params={"user_login": channel},
         ) as resp:
+            if resp.status == 401:
+                self._token = None  # force refresh on next retry
+                resp.raise_for_status()
             resp.raise_for_status()
             data = await resp.json()
 

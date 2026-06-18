@@ -108,7 +108,10 @@ class TriggerEngine:
             breakdown["_audio_base_db"] = audio_meta.get("baseline_db", round(self._audio_baseline_db, 1))
             breakdown["_viewers"]       = int(viewer_meta.get("viewer_current", self._viewer_current))
             breakdown["_viewer_base"]   = int(viewer_meta.get("viewer_baseline", self._viewer_baseline))
-            await self.on_score(self.channel, round(score, 1), breakdown)
+            try:
+                await self.on_score(self.channel, round(score, 1), breakdown)
+            except Exception as exc:
+                log.warning("on_score_callback_error", channel=self.channel, error=str(exc))
 
         if in_cooldown:
             if score >= threshold:
@@ -134,12 +137,20 @@ class TriggerEngine:
                      threshold=round(threshold, 1), signals=sig_vals,
                      audio_db=round(audio_db, 1), audio_peak=round(self._audio_peak_db, 1),
                      audio_base=round(self._audio_baseline_db, 1))
-            await self.on_trigger(event)
+            try:
+                await self.on_trigger(event)
+            except Exception as exc:
+                log.error("on_trigger_callback_error", channel=self.channel, error=str(exc))
 
     async def run_evaluation_loop(self, interval: float = 1.0) -> None:
         self._running = True
         while self._running:
-            await self.evaluate()
+            try:
+                await self.evaluate()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.error("evaluate_error", channel=self.channel, error=str(exc))
             await asyncio.sleep(interval)
 
     def stop(self) -> None:

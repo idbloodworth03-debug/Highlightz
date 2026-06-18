@@ -134,21 +134,22 @@ async def run_clip_processor() -> None:
     processor = ClipProcessor()
     log.info("clip_processor_started")
     while True:
+        job = None
         try:
             job = await _queue.pop(timeout=5)
             if job is None:
                 continue
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform)
-            meta = await processor.process(job)
+            meta = await asyncio.wait_for(processor.process(job), timeout=120.0)
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
         except Exception as exc:
             import traceback as _tb
             log.error("clip_processor_error", error=str(exc),
-                      channel=getattr(job, "channel", "?"),
-                      user_id=getattr(job, "user_id", "?"),
+                      channel=getattr(job, "channel", "?") if job else "?",
+                      user_id=getattr(job, "user_id", "?") if job else "?",
                       traceback=_tb.format_exc())
 
 
@@ -271,9 +272,15 @@ async def main() -> None:
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        # Stop workers gracefully before cancelling their tasks
+        for w in list(_worker_instances.values()):
+            w.stop()
         for t in tasks:
             t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        worker_tasks = list(_workers.values())
+        await asyncio.gather(*tasks, *worker_tasks, return_exceptions=True)
+        _workers.clear()
+        _worker_instances.clear()
         await _queue.close()
         await redis.aclose()
         log.info("superclipbot_stopped")
