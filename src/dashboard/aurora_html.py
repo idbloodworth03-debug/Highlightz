@@ -893,8 +893,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'vod',label:'VOD',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
-const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],vod:['VOD Analysis','Scan old streams to find highlight moments'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
+const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'vod',label:'Past Streams',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
+const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],vod:['Past Streams','Scan finished streams to find highlight moments'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
 
 function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
@@ -1186,7 +1186,7 @@ function VodScreen({ clips }) {
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
-        <div className="rd-section-title"><h2>VOD Analysis</h2><span className="cnt">Scan old streams for highlights</span></div>
+        <div className="rd-section-title"><h2>Past Streams</h2><span className="cnt">Scan finished streams for highlights</span></div>
 
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="video" size={15}/></span>Analyze a VOD</h3>
