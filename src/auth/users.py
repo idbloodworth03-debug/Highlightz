@@ -348,14 +348,18 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
     _save(users)
 
 
-def update_subscription_by_customer(customer_id: str, status: str) -> None:
-    """Update subscription status when only the Stripe customer ID is known."""
+def update_subscription_by_customer(customer_id: str, status: str) -> str | None:
+    """Update subscription status when only the Stripe customer ID is known.
+    Returns the affected user's ID, or None if not found."""
     users = _load()
+    found_id = None
     for u in users:
         if u.get("stripe_customer_id") == customer_id:
             u["subscription_status"] = status
+            found_id = u["id"]
             break
     _save(users)
+    return found_id
 
 
 def delete(user_id: str) -> bool:

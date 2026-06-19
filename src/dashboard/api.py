@@ -445,6 +445,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     request.session["avatar_url"]          = user.get("avatar_url", "")
     request.session["is_admin"]            = user.get("is_admin", False)
     request.session["subscription_status"] = user.get("subscription_status", "none")
+    request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
     return RedirectResponse("/")
 
 
@@ -779,8 +780,11 @@ async def stripe_webhook(request: Request):
             else:
                 user_store.update_subscription(user_id, cust_id, status)
         else:
-            user_store.update_subscription_by_customer(cust_id, status)
+            user_id = user_store.update_subscription_by_customer(cust_id, status)
         log.info("stripe_subscription_updated", customer=cust_id, status=status)
+        # Kill active streams immediately when subscription lapses — don't wait for idle reaper.
+        if status not in ("active", "trialing") and user_id:
+            asyncio.create_task(_stop_user_streams_now(user_id))
     return {"received": True}
 
 
@@ -978,16 +982,12 @@ async def _stop_user_streams(uid: str) -> None:
 
 
 async def idle_stream_reaper() -> None:
-    """Background task: stop stream workers for users idle longer than 5 hours.
+    """Background task: stop stream workers for users idle longer than 5 hours,
+    and enforce subscription/trial expiry for any user with active streams.
 
-    Runs every 5 minutes. Targets users who have active streams but haven't
-    made any authenticated request in the last 5 hours. Workers are stopped
-    and the user gets a WebSocket notification if they're still connected.
-
-    Users we haven't seen since startup (e.g., streams restored from disk on
-    restart) are treated as active right now — not idle — to prevent killing
-    all restored streams on the first reaper run after every restart.
+    Runs every 5 minutes.
     """
+    from src.auth import users as _reaper_user_store
     while True:
         await asyncio.sleep(300)  # check every 5 minutes
         try:
@@ -999,11 +999,29 @@ async def idle_stream_reaper() -> None:
                 uid = stream_key.split(":", 1)[0]
                 if not uid or uid in seen:
                     continue
-                # If we've never seen this user (server just restarted and
-                # restored streams from disk), treat them as active right now.
+                seen.add(uid)
+
+                db_user = _reaper_user_store.get_by_id(uid)
+                if db_user:
+                    status = db_user.get("subscription_status", "none")
+                    trial_ends_at = db_user.get("trial_ends_at", 0)
+                    # Enforce trial expiry for users who never hit an HTTP endpoint
+                    if status == "trialing" and now >= trial_ends_at:
+                        _reaper_user_store.update_subscription(uid, db_user.get("stripe_customer_id"), "expired")
+                        log.info("reaper_trial_expired", user=uid)
+                        await _stop_user_streams_now(uid)
+                        await broadcast({"event": "subscription_expired"}, user_id=uid)
+                        continue
+                    # Kill streams for any lapsed subscription
+                    if status not in ("active", "trialing") and not db_user.get("is_admin"):
+                        log.info("reaper_subscription_lapsed", user=uid, status=status)
+                        await _stop_user_streams_now(uid)
+                        await broadcast({"event": "subscription_expired"}, user_id=uid)
+                        continue
+
+                # Idle timeout — stop if no HTTP activity in 5 hours
                 last_active = _user_last_active.get(uid, now)
                 if now - last_active > _IDLE_STREAM_TIMEOUT:
-                    seen.add(uid)
                     log.info("idle_stream_reaper_stopping", user=uid,
                              idle_minutes=round((now - last_active) / 60))
                     await _stop_user_streams_now(uid)
