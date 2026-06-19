@@ -468,13 +468,14 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   const p = profile || {};
   const samples = p.velocity_samples||0;
   const statusColor = s.status==='live' ? 'var(--live)' : s.status==='reconnecting' ? 'var(--pending)' : 'var(--fg-2)';
+  const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   return (
     <div className="rd-stream">
       <div className="rd-stream-top">
         <div>
-          <div className="nm"><span className="plat"/>{s.channel}</div>
+          <div className="nm"><span className="plat" style={{background:platColor,boxShadow:`0 0 8px ${platColor}`}}/>{s.channel}</div>
           <div className="mt">
-            <span className="rd-chip">{s.platform}</span>
+            <span className="rd-chip" style={s.platform==='kick'?{background:'rgba(83,252,24,.12)',color:'#53fc18',border:'1px solid rgba(83,252,24,.3)'}:{}}>{s.platform}</span>
             <span className="rd-chip">{s.preset}</span>
             <span style={{color:statusColor,fontWeight:600}}>{s.status}</span>
           </div>
@@ -665,7 +666,8 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
 function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
-  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset);setCh('');} };
+  const [platform, setPlatform] = useState('twitch');
+  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,platform);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
@@ -692,7 +694,11 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onA
               <option value="sports">Sports</option>
             </select>
           </div>
-          <button className="rd-btn grad" onClick={add}><Icon name="plus" size={15}/>Monitor stream</button>
+          <div style={{display:'flex',gap:6,marginTop:6}}>
+            <button onClick={()=>setPlatform('twitch')} style={{flex:1,padding:'6px 0',fontSize:12,fontWeight:700,borderRadius:8,border:'1px solid',cursor:'pointer',transition:'.15s',background:platform==='twitch'?'var(--acc)':'transparent',color:platform==='twitch'?'#0a0a0a':'var(--fg-2)',borderColor:platform==='twitch'?'var(--acc)':'var(--hair)'}}>Twitch</button>
+            <button onClick={()=>setPlatform('kick')} style={{flex:1,padding:'6px 0',fontSize:12,fontWeight:700,borderRadius:8,border:'1px solid',cursor:'pointer',transition:'.15s',background:platform==='kick'?'#53fc18':'transparent',color:platform==='kick'?'#0a0a0a':'var(--fg-2)',borderColor:platform==='kick'?'#53fc18':'var(--hair)'}}>Kick</button>
+          </div>
+          <button className="rd-btn grad" onClick={add} style={{marginTop:8}}><Icon name="plus" size={15}/>Monitor stream</button>
         </div>
         <div className="rd-rail glass" style={{flex:1,minHeight:0}}>
           <div className="rd-rail-head">
@@ -958,6 +964,13 @@ function AccountScreen({ me }) {
           </div>
         </div>
 
+        {/* Connected Platforms */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="link" size={15}/></span>Connected Platforms</h3>
+          <div className="desc">Link additional platforms to monitor streams and create clips.</div>
+          <KickConnect/>
+        </div>
+
         {/* Legal links */}
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="database" size={15}/></span>Legal</h3>
@@ -995,6 +1008,29 @@ function AccountScreen({ me }) {
           &copy; 2026 ANTI Technology LLC — All rights reserved.
         </div>
       </div>
+    </div>
+  );
+}
+
+function KickConnect() {
+  const [status, setStatus] = useState(null);
+  useEffect(()=>{
+    fetch('/auth/kick/status').then(r=>r.json()).then(setStatus).catch(()=>{});
+  },[]);
+  if(!status) return null;
+  return (
+    <div className="rd-field">
+      <div>
+        <div className="fl" style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{color:'#53fc18',fontWeight:800,fontSize:13}}>KICK</span>
+          {status.connected && <span style={{fontSize:11,color:'var(--fg-3)'}}>@{status.kick_slug}</span>}
+        </div>
+        <div className="fd">{status.connected ? 'Kick account linked — you can monitor Kick streams' : 'Connect your Kick account to monitor streams and create clips'}</div>
+      </div>
+      {status.connected
+        ? <span style={{fontSize:12,color:'var(--live)',fontWeight:600}}>✓ Connected</span>
+        : <a href="/auth/kick" className="rd-btn sm" style={{textDecoration:'none',background:'#53fc18',color:'#0a0a0a',fontWeight:700,border:'none'}}>Connect Kick</a>
+      }
     </div>
   );
 }
@@ -1188,9 +1224,9 @@ function RdApp() {
     return ()=>{clearInterval(ping);ws?.close();};
   },[flash]);
 
-  const addStream = async(channel,preset)=>{
+  const addStream = async(channel,preset,platform='twitch')=>{
     try{
-      const r=await fetch('/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel,platform:'twitch',preset})});
+      const r=await fetch('/streams',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel,platform,preset})});
       if(!r.ok){const e=await r.json();flash('Error: '+(e.detail||'failed'));return;}
       const s=await r.json();
       // Use s.channel (backend-normalised, lowercased) as the key so the

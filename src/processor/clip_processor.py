@@ -1,7 +1,8 @@
 """
-Clip processor: picks up a clip job and creates a clip on Twitch via the
-Helix Clips API using the requesting user's OAuth token. The clip is hosted by
-Twitch and attributed to the user — Highlightz never records or stores video.
+Clip processor: picks up a clip job and creates a clip on Twitch or Kick via
+their respective APIs using the requesting user's OAuth token. The clip is
+hosted by the platform and attributed to the user — Highlightz never records
+or stores video.
 """
 
 import structlog
@@ -36,9 +37,15 @@ class ClipProcessor:
             user_id=job.user_id,
         )
 
-        if job.platform != "twitch":
-            raise RuntimeError(f"Clip creation only supports Twitch (got '{job.platform}')")
+        if job.platform == "kick":
+            return await self._process_kick(job, meta, channel)
 
+        if job.platform != "twitch":
+            raise RuntimeError(f"Clip creation only supports Twitch and Kick (got '{job.platform}')")
+
+        return await self._process_twitch(job, meta, channel)
+
+    async def _process_twitch(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
         token = await user_store.get_valid_twitch_token(job.user_id)
         if not token:
             raise RuntimeError(f"No valid Twitch token for user '{job.user_id}' — re-login required")
@@ -77,4 +84,26 @@ class ClipProcessor:
 
         meta.status = "pending"
         log.info("twitch_clip_ready", clip_id=meta.id, slug=slug, url=meta.twitch_url)
+        return meta
+
+    async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
+        from src.output import kick_clips
+
+        token = await user_store.get_kick_token(job.user_id)
+        if not token:
+            raise RuntimeError(f"No valid Kick token for user '{job.user_id}' — re-link Kick account")
+
+        db_user = user_store.get_by_id(job.user_id)
+        kick_slug = db_user.get("kick_slug", channel) if db_user else channel
+
+        log.info("creating_kick_clip", clip_id=meta.id, channel=channel,
+                 kick_slug=kick_slug, user_id=job.user_id)
+
+        clip_url = await kick_clips.create_clip(token, kick_slug)
+        if not clip_url:
+            raise RuntimeError(f"Kick clip creation failed for '{channel}'")
+
+        meta.twitch_url = clip_url  # reuse field for clip URL
+        meta.status = "pending"
+        log.info("kick_clip_ready", clip_id=meta.id, url=clip_url)
         return meta

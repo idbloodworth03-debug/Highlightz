@@ -176,7 +176,7 @@ def _atomic_write(path: Path, content: str) -> None:
 # ── Input validation ──────────────────────────────────────────────────────────
 
 _CHANNEL_RE      = re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
-_VALID_PLATFORMS = {"twitch", "youtube"}
+_VALID_PLATFORMS = {"twitch", "kick"}
 _VALID_PRESETS   = {"default", "fps", "chess", "irl", "small", "variety", "moba", "casino", "sports"}
 
 
@@ -466,6 +466,60 @@ async def me(request: Request):
         "trial_ends_at":       trial_ends_at,
         "trial_days_left":     trial_days_left,
     }
+
+
+# ── Kick OAuth ────────────────────────────────────────────────────────────────
+
+@app.get("/auth/kick")
+async def kick_login(request: Request):
+    from src.auth.kick_oauth import authorization_url
+    if not settings.kick_client_id:
+        raise HTTPException(status_code=503, detail="Kick OAuth not configured")
+    state = secrets.token_urlsafe(16)
+    request.session["kick_oauth_state"] = state
+    return RedirectResponse(authorization_url(state))
+
+
+@app.get("/auth/kick/callback")
+async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    from src.auth import kick_oauth, users as user_store
+    if error:
+        return RedirectResponse("/?kick_error=1")
+    if not code or state != request.session.pop("kick_oauth_state", None):
+        return RedirectResponse("/?kick_error=1")
+    try:
+        tokens = await kick_oauth.exchange_code(code)
+        kick_user = await kick_oauth.get_user(tokens["access_token"])
+    except Exception as exc:
+        log.warning("kick_callback_failed", error=str(exc))
+        return RedirectResponse("/?kick_error=1")
+
+    uid = request.session.get("user_id")
+    if not uid:
+        return RedirectResponse("/login")
+
+    user_store.link_kick_to_user(
+        user_id=uid,
+        kick_id=str(kick_user["id"]),
+        username=kick_user.get("username", ""),
+        slug=kick_user.get("slug", kick_user.get("username", "")),
+        avatar_url=kick_user.get("avatar_url", ""),
+        access_token=tokens.get("access_token", ""),
+        refresh_token=tokens.get("refresh_token", ""),
+        expires_in=tokens.get("expires_in", 0),
+    )
+    return RedirectResponse("/")
+
+
+@app.get("/auth/kick/status")
+async def kick_status(request: Request):
+    """Returns whether the current user has a linked Kick account."""
+    from src.auth import users as user_store
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    connected = bool(db_user and db_user.get("kick_id"))
+    slug = db_user.get("kick_slug", "") if db_user else ""
+    return {"connected": connected, "kick_slug": slug}
 
 
 @app.delete("/account", status_code=200)

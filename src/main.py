@@ -19,6 +19,7 @@ from src.dashboard.api import app as dashboard_app
 from src.ingestion.stream_worker import StreamWorker, WorkerConfig
 from src.ingestion.platform.twitch import TwitchPlatform
 from src.ingestion.platform.youtube import YouTubePlatform
+from src.ingestion.platform.kick import KickPlatform
 from src.queue.job_queue import JobQueue
 from src.processor.clip_processor import ClipProcessor
 
@@ -26,7 +27,7 @@ log = structlog.get_logger(__name__)
 
 # channel -> AudioMeter (transient loudness probes; no media stored)
 SHARED_BUFFERS: dict = {}
-PLATFORM_MAP = {"twitch": TwitchPlatform, "youtube": YouTubePlatform}
+PLATFORM_MAP = {"twitch": TwitchPlatform, "youtube": YouTubePlatform, "kick": KickPlatform}
 
 _workers: dict[str, asyncio.Task] = {}
 _worker_instances: dict[str, "StreamWorker"] = {}

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Set ADMIN_TWITCH_ID in .env — do not hard-code a real ID in source.
     admin_twitch_id: str = ""
 
+    # Kick OAuth (secondary platform — link after Twitch login)
+    kick_client_id: str = ""
+    kick_client_secret: str = ""
+    kick_redirect_uri: str = "https://highlightz.app/auth/kick/callback"
+
     # Detection
     enable_audio_detection: bool = True  # pull audio-only feed for the audio-spike signal
 
