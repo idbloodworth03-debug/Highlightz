@@ -104,10 +104,11 @@ async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
     cursor: str | None   = None
     page   = 0
 
-    # GQL requires an auth token. Use whatever we have: user OAuth > app token > undefined.
-    if not auth_token:
-        auth_token = settings.twitch_oauth_token or ""
-    auth_header = f"OAuth {auth_token}" if auth_token else "undefined"
+    # Twitch GQL expects "OAuth <user_token>" for user tokens, or "undefined" for anonymous.
+    # The app token (Bearer/client-credentials) does NOT work with GQL.
+    # Prefer the configured user OAuth token from settings; fall back to "undefined".
+    user_token = settings.twitch_oauth_token or ""
+    auth_header = f"OAuth {user_token}" if user_token else "undefined"
 
     hdrs = {
         "Client-ID":     _GQL_CLIENT_ID,
@@ -268,7 +269,7 @@ async def run_vod_analysis(
             "duration": duration, "game": game, "thumbnail_url": thumb,
         })
 
-        messages = await fetch_vod_chat(vod_id, auth_token=token)
+        messages = await fetch_vod_chat(vod_id)
         if not messages:
             await on_error(
                 f"No chat messages found for VOD {vod_id}. "
