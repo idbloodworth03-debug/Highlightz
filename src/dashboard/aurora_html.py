@@ -133,7 +133,13 @@ button{font-family:inherit;cursor:pointer}
 .rd-stat.accent{background:var(--grad-soft);border-color:rgba(199,155,255,.22)}
 .rd-toolbar{display:flex;align-items:center;gap:12px}
 .rd-toolbar h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
-.rd-filters{display:flex;gap:6px;margin-left:auto;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
+.cull-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:260px;padding:16px;border-radius:12px;display:flex;flex-direction:column;gap:10px}
+.cull-row{display:flex;justify-content:space-between;align-items:baseline}
+.cull-lbl{font-size:12px;color:var(--fg-2);font-weight:600}
+.cull-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.cull-slider{width:100%;accent-color:var(--acc);cursor:pointer}
+.cull-preview{display:flex;justify-content:space-between;font-size:12px;font-weight:700}
+.rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;padding:7px 15px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
 .rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(168,85,247,.6)}
@@ -666,10 +672,45 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   );
 }
 
+function CullPanel({ clips, onDone }) {
+  const [thresh, setThresh] = React.useState(50);
+  const [busy, setBusy]     = React.useState(false);
+  const clipsArr = Object.values(clips);
+  const clipScore = c => parseFloat(c.score) || (parseFloat(c.trigger_score||0) * 100);
+  const keep   = clipsArr.filter(c => clipScore(c) >= thresh).length;
+  const remove = clipsArr.filter(c => clipScore(c) < thresh).length;
+  const run = async () => {
+    if (!remove) return;
+    setBusy(true);
+    await fetch('/clips/bulk-cull', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({min_score: thresh})});
+    setBusy(false);
+    onDone();
+  };
+  return (
+    <div className="cull-panel glass">
+      <div className="cull-row">
+        <span className="cull-lbl">Keep clips scoring above</span>
+        <span className="cull-val" style={{color:scoreColor(thresh)}}>{thresh}</span>
+      </div>
+      <input type="range" min="0" max="100" value={thresh} onChange={e=>setThresh(+e.target.value)} className="cull-slider"/>
+      <div className="cull-preview">
+        <span style={{color:'var(--live)'}}>✓ {keep} kept</span>
+        <span style={{color:'var(--danger)'}}>✕ {remove} removed</span>
+      </div>
+      {remove > 0
+        ? <button className="rd-btn danger sm" onClick={run} disabled={busy} style={{width:'100%',justifyContent:'center'}}>
+            {busy ? 'Removing…' : `Remove ${remove} clip${remove===1?'':'s'}`}
+          </button>
+        : <div style={{fontSize:12,color:'var(--fg-2)',textAlign:'center'}}>All clips meet this threshold</div>}
+    </div>
+  );
+}
+
 function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
   const [platform, setPlatform] = useState('twitch');
+  const [showCull, setShowCull] = useState(false);
   const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,platform);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
@@ -724,8 +765,18 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onA
         </div>
         <div className="rd-toolbar">
           <h2>Clip review</h2>
-          <div className="rd-filters">
-            {['all','pending','approved','rejected'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+          <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto'}}>
+            {clipsArr.length > 0 && (
+              <div style={{position:'relative'}}>
+                <button className={'rd-btn sm'+(showCull?' active':'')} onClick={()=>setShowCull(v=>!v)} style={{background:showCull?'rgba(168,85,247,.18)':'rgba(255,255,255,.06)',border:'1px solid',borderColor:showCull?'var(--acc)':'var(--hair)',color:showCull?'var(--acc)':'var(--fg-2)'}}>
+                  <Icon name="sparkles" size={13}/>Cull clips
+                </button>
+                {showCull && <CullPanel clips={clips} onDone={()=>setShowCull(false)}/>}
+              </div>
+            )}
+            <div className="rd-filters">
+              {['all','pending','approved','rejected'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+            </div>
           </div>
         </div>
         <div className="rd-grid">

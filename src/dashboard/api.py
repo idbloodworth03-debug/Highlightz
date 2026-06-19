@@ -906,9 +906,37 @@ async def reject_clip(request: Request, clip_id: str):
     return {"status": "deleted", "clip_id": clip_id}
 
 
+class BulkCullBody(BaseModel):
+    min_score: float = 50.0   # clips with score < this are removed
 
 
-@app.get("/profiles")
+@app.post("/clips/bulk-cull")
+async def bulk_cull_clips(request: Request, body: BulkCullBody):
+    """Remove all clips for the current user whose score is below min_score."""
+    uid = _current_user_id(request)
+    min_score = max(0.0, min(100.0, body.min_score))
+
+    to_remove = []
+    async with _data_lock:
+        for clip_id, clip in list(_clips.items()):
+            if clip.get("user_id") != uid:
+                continue
+            score = float(clip.get("score") or (clip.get("trigger_score", 0) * 100))
+            if score < min_score:
+                to_remove.append(clip_id)
+        for clip_id in to_remove:
+            _delete_clip_file(_clips.pop(clip_id))
+        if to_remove:
+            _save_clips()
+
+    for clip_id in to_remove:
+        await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+
+    log.info("bulk_cull", uid=uid, removed=len(to_remove), min_score=min_score)
+    return {"removed": len(to_remove), "min_score": min_score}
+
+
+
 async def list_profiles(request: Request):
     from src.profiles.manager import get_profile_manager
     uid      = _current_user_id(request)
