@@ -245,17 +245,20 @@ async def run_vod_analysis(
 
         rules = get_rules(chan, preset)
         # VOD replay uses only chat signals (velocity 30 + keyword 15 + sentiment 8).
-        # Max achievable score ≈ 66 vs 100 for live. Scale threshold to 40% of the
-        # live value so the same relative chat intensity fires in both modes.
-        threshold = rules.trigger_threshold * 0.40
+        # Max achievable VOD score ≈ 66 vs 100 for live. Scale threshold to 35% of
+        # the live value so a genuine 2× velocity spike reliably fires.
+        threshold = rules.trigger_threshold * 0.35
 
         WINDOW   = 15.0    # scoring window in seconds
         LT_WIN   = 300.0   # long-term baseline window
-        WARMUP   = 120.0   # skip scoring until baseline has 2 min of data
         COOLDOWN = 60.0    # min gap between moments
         STEP     = 1.0     # evaluation granularity
 
-        duration = max(duration, messages[-1]["offset"] + 30)
+        total_msgs = len(messages)
+        duration   = max(duration, messages[-1]["offset"] + 30)
+
+        log.info("vod_analysis_scanning", vod_id=vod_id, messages=total_msgs,
+                 duration_s=int(duration), threshold=round(threshold, 1))
 
         # Index messages into 1-second buckets for O(1) lookup
         msg_by_sec: dict[int, list[str]] = defaultdict(list)
@@ -267,8 +270,9 @@ async def run_vod_analysis(
 
         last_moment_offset = -9999.0
         moments: list[dict] = []
-        last_pct = -1.0
-        offset   = 0.0
+        last_pct   = -1.0
+        peak_score = 0.0   # track for diagnostics
+        offset     = 0.0
 
         while offset <= duration:
             sec = int(offset)
@@ -282,13 +286,22 @@ async def run_vod_analysis(
             while lt_deq and lt_deq[0][0] < offset - LT_WIN:
                 lt_deq.popleft()
 
-            if offset - last_moment_offset >= COOLDOWN and offset >= WARMUP:
+            # Only score once we have at least one full window of baseline data
+            # and at least 3 messages in the current window (avoids false positives
+            # in dead-chat periods).
+            if (offset - last_moment_offset >= COOLDOWN
+                    and offset >= WINDOW
+                    and len(recent_deq) >= 3
+                    and len(lt_deq) >= 10):
                 window_texts = [t for _, t in recent_deq]
-                # Use actual elapsed time for baseline so early-stream scores
-                # aren't inflated by dividing a small message count by 300.
+                # Use actual elapsed time so baseline isn't artificially low
+                # during the first 300 seconds.
                 lt_actual = min(offset, LT_WIN)
                 score, breakdown = _score_window(
                     window_texts, len(lt_deq), lt_actual, WINDOW, rules)
+
+                if score > peak_score:
+                    peak_score = score
 
                 if score >= threshold:
                     last_moment_offset = offset
@@ -328,6 +341,9 @@ async def run_vod_analysis(
 
             offset += STEP
 
+        log.info("vod_analysis_complete", vod_id=vod_id, moments=len(moments),
+                 peak_score=round(peak_score, 1), threshold=round(threshold, 1),
+                 total_messages=total_msgs)
         await on_done(moments)
 
     except asyncio.CancelledError:
