@@ -93,12 +93,17 @@ _GQL_CLIENT_ID  = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 _GQL_HASH       = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
 
 
-async def fetch_vod_chat(vod_id: str) -> list[dict]:
+async def fetch_vod_chat(
+    vod_id: str,
+    duration: float = 0.0,
+    on_progress=None,
+) -> list[dict]:
     """
     Fetch all VOD chat via Twitch GQL, paginating by contentOffsetSeconds.
     Cursor-based pagination is unreliable with this persisted query (the cursor
     field is not returned in edges and pageInfo has no endCursor), so we advance
     by re-requesting from the last message's timestamp and deduplicating.
+    on_progress(pct, data) is called with 5–50% during fetch if provided.
     """
     import aiohttp
     messages: list[dict] = []
@@ -111,6 +116,7 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
     }
 
     stuck_since: int | None = None  # offset where new_count first hit 0
+    last_reported_pct = 5.0
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -190,6 +196,15 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
             if page % 50 == 0:
                 log.info("vod_chat_progress", vod_id=vod_id, page=page,
                          messages=len(messages))
+
+            # Send fetch-phase progress: 5% → 50% proportional to VOD time covered
+            if on_progress and duration > 0:
+                fetch_pct = 5.0 + 45.0 * min(next_offset / duration, 1.0)
+                if fetch_pct - last_reported_pct >= 3.0:
+                    last_reported_pct = fetch_pct
+                    await on_progress(fetch_pct, {"phase": "fetch",
+                                                  "messages": len(messages)})
+
             await asyncio.sleep(0.05)
 
     log.info("vod_chat_fetched", vod_id=vod_id, pages=page + 1,
@@ -274,7 +289,9 @@ async def run_vod_analysis(
             "duration": duration, "game": game, "thumbnail_url": thumb,
         })
 
-        messages = await fetch_vod_chat(vod_id)
+        await on_progress(5.0, {"phase": "fetch", "messages": 0})
+        messages = await fetch_vod_chat(vod_id, duration=duration,
+                                        on_progress=on_progress)
         if not messages:
             await on_error(
                 f"No chat messages found for VOD {vod_id}. "
@@ -372,10 +389,11 @@ async def run_vod_analysis(
                     moments.append(moment)
                     await on_moment(moment)
 
-            pct = min(100.0, (offset / duration) * 100) if duration > 0 else 100.0
-            if pct - last_pct >= 5.0:
+            # Scoring occupies 50–100% of the progress bar
+            pct = 50.0 + (min(offset / duration, 1.0) * 50.0) if duration > 0 else 100.0
+            if pct - last_pct >= 3.0:
                 last_pct = pct
-                await on_progress(pct, {})
+                await on_progress(pct, {"phase": "score"})
                 await asyncio.sleep(0)  # yield event loop
 
             offset += STEP
