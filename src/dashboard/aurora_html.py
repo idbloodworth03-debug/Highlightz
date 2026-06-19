@@ -392,6 +392,9 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     card: <><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></>,
     trash: <><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></>,
     chat: <><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>,
+    video: <><path d="m22 8-6 4 6 4V8z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></>,
+    clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+    link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -890,8 +893,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
-const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
+const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'vod',label:'VOD',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
+const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],vod:['VOD Analysis','Scan old streams to find highlight moments'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
 
 function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
@@ -1112,6 +1115,205 @@ function FeedbackScreen() {
   );
 }
 
+function VodScreen({ clips }) {
+  const [url, setUrl]         = useState('');
+  const [preset, setPreset]   = useState('default');
+  const [jobs, setJobs]       = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [err, setErr]         = useState('');
+  const [activeJob, setActiveJob] = useState(null);
+  const jobRef = useRef({});
+
+  useEffect(()=>{
+    fetch('/vod/jobs').then(r=>r.ok?r.json():[]).then(j=>{ setJobs(j); j.forEach(jb=>{ jobRef.current[jb.id]=jb; }); }).catch(()=>{});
+  },[]);
+
+  // Listen for VOD events from the parent WebSocket
+  useEffect(()=>{
+    const handler = e => {
+      try {
+        const msg = JSON.parse(e.detail);
+        if(msg.event==='vod_progress'){
+          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,progress:msg.progress,...(msg.vod_title?{vod_title:msg.vod_title,channel:msg.channel,duration:msg.duration,game:msg.game}:{})}:j));
+        } else if(msg.event==='vod_moment'){
+          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,moments:[...(j.moments||[]),msg.moment]}:j));
+        } else if(msg.event==='vod_done'){
+          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,status:'done',progress:100}:j));
+          setScanning(false);
+        } else if(msg.event==='vod_error'){
+          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,status:'failed',error:msg.error}:j));
+          setErr(msg.error||'Analysis failed');
+          setScanning(false);
+        }
+      } catch {}
+    };
+    window.addEventListener('hz_ws', handler);
+    return ()=>window.removeEventListener('hz_ws', handler);
+  },[]);
+
+  const analyze = async () => {
+    const u = url.trim();
+    if(!u){setErr('Paste a Twitch VOD URL first');return;}
+    setErr(''); setScanning(true);
+    try {
+      const r = await fetch('/vod/analyze', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({vod_url:u, preset}),
+      });
+      if(!r.ok){ const d=await r.json().catch(()=>({})); setErr(d.detail||'Failed to start'); setScanning(false); return; }
+      const job = await r.json();
+      setJobs(prev=>[job,...prev]);
+      setActiveJob(job.id);
+      setUrl('');
+    } catch { setErr('Network error'); setScanning(false); }
+  };
+
+  const cancelJob = async (id) => {
+    await fetch(`/vod/jobs/${id}`,{method:'DELETE'});
+    setJobs(prev=>prev.filter(j=>j.id!==id));
+    if(activeJob===id){setActiveJob(null);setScanning(false);}
+  };
+
+  const fmtDuration = s => {
+    if(!s) return '';
+    const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+    return h>0?`${h}h ${m}m`:`${m}m`;
+  };
+
+  const shown = activeJob ? jobs.filter(j=>j.id===activeJob) : jobs;
+  const PRESETS=['default','fps','chess','irl','small','variety','moba','casino','sports'];
+
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title"><h2>VOD Analysis</h2><span className="cnt">Scan old streams for highlights</span></div>
+
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="video" size={15}/></span>Analyze a VOD</h3>
+          <div className="desc">Paste a Twitch VOD URL and the bot will scan the full chat replay to find highlight moments — no video download needed.</div>
+          <div style={{display:'flex',flexDirection:'column',gap:12,marginTop:4}}>
+            <input
+              className="rd-input"
+              placeholder="https://www.twitch.tv/videos/123456789"
+              value={url}
+              onChange={e=>setUrl(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&!scanning&&analyze()}
+              disabled={scanning}
+            />
+            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+              <select className="rd-select" style={{height:40}} value={preset} onChange={e=>setPreset(e.target.value)} disabled={scanning}>
+                {PRESETS.map(p=><option key={p} value={p}>{p[0].toUpperCase()+p.slice(1)}</option>)}
+              </select>
+              <button className="rd-btn grad" onClick={analyze} disabled={scanning} style={{opacity:scanning?.6:1}}>
+                {scanning?<><Spinner/>Scanning…</>:<><Icon name="zap" size={14}/>Scan VOD</>}
+              </button>
+              {jobs.length>1 && <button className="rd-btn sm" onClick={()=>setActiveJob(null)} style={{marginLeft:'auto'}}>
+                All scans ({jobs.length})
+              </button>}
+            </div>
+          </div>
+          {err && <div style={{marginTop:10,padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13}}>{err}</div>}
+          <div style={{marginTop:14,padding:'10px 13px',borderRadius:10,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>
+            <strong style={{color:'var(--fg-2)'}}>How it works:</strong> The bot downloads the full chat replay for the VOD, then scans it second-by-second using the same scoring engine as live monitoring — chat velocity, keywords, sentiment. When the score crosses the threshold, a moment is found. Each moment links directly to that exact timestamp in the VOD. Clips show up in your review queue automatically.
+          </div>
+        </div>
+
+        {shown.length>0 && shown.map(job=>(
+          <div key={job.id} className="rd-card glass">
+            <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:14}}>
+              {job.thumbnail_url
+                ? <img src={job.thumbnail_url} alt="" style={{width:80,height:45,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
+                : <div style={{width:80,height:45,borderRadius:8,background:'var(--grad-soft)',flexShrink:0,display:'grid',placeItems:'center'}}><Icon name="video" size={18} style={{color:'var(--acc)'}}/></div>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:3,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                  {job.vod_title||`VOD ${job.vod_id}`}
+                </div>
+                <div style={{fontSize:12,color:'var(--fg-2)',display:'flex',gap:10,flexWrap:'wrap'}}>
+                  {job.channel && <span>{job.channel}</span>}
+                  {job.game && <span>{job.game}</span>}
+                  {job.duration>0 && <span><Icon name="clock" size={11} style={{display:'inline',verticalAlign:'middle',marginRight:3}}/>{fmtDuration(job.duration)}</span>}
+                </div>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                {job.status==='running' && <button className="rd-btn sm danger" onClick={()=>cancelJob(job.id)}>Cancel</button>}
+                {job.status==='done' && <button className="rd-btn sm" onClick={()=>cancelJob(job.id)} title="Remove"><Icon name="trash" size={13}/></button>}
+              </div>
+            </div>
+
+            {job.status==='running' && (
+              <div style={{marginBottom:14}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--fg-2)',marginBottom:6}}>
+                  <span>Scanning chat…</span>
+                  <span style={{fontVariantNumeric:'tabular-nums'}}>{Math.round(job.progress||0)}%</span>
+                </div>
+                <div className="rd-track" style={{height:6}}>
+                  <div className="rd-fill" style={{width:(job.progress||0)+'%',background:'var(--grad)'}}/>
+                </div>
+              </div>
+            )}
+
+            {job.status==='failed' && (
+              <div style={{padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13,marginBottom:12}}>
+                {job.error||'Analysis failed'}
+              </div>
+            )}
+
+            {job.status==='done' && (
+              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'var(--live)',fontWeight:600,marginBottom:14}}>
+                <Icon name="check" size={14}/>
+                {(job.moments||[]).length===0
+                  ? 'No highlight moments found in this VOD.'
+                  : `Found ${(job.moments||[]).length} highlight moment${(job.moments||[]).length===1?'':'s'} — added to your review queue`}
+              </div>
+            )}
+
+            {(job.moments||[]).length>0 && (
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div className="rd-eyebrow" style={{marginBottom:4}}>Moments found · {(job.moments||[]).length}</div>
+                {(job.moments||[]).map(m=>{
+                  const sc = Math.round(m.score||0);
+                  return (
+                    <div key={m.id} style={{
+                      display:'flex',alignItems:'center',gap:12,padding:'10px 13px',
+                      borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',
+                    }}>
+                      <span style={{
+                        minWidth:36,height:36,borderRadius:10,
+                        background: sc>=75?'var(--live-soft)':sc>=50?'var(--pending-soft)':'var(--grad-soft)',
+                        color: sc>=75?'var(--live)':sc>=50?'var(--pending)':'var(--acc)',
+                        display:'grid',placeItems:'center',fontWeight:800,fontSize:13,flexShrink:0,
+                        fontVariantNumeric:'tabular-nums',
+                      }}>{sc}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13}}>{m.timestamp}</div>
+                        <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>
+                          {(m.trigger_signals||[]).filter(s=>s.value>0.1).map(s=>s.type.replace('CHAT_','').replace('_',' ')).join(' · ')}
+                        </div>
+                      </div>
+                      <a href={m.twitch_url} target="_blank" rel="noopener"
+                         className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}>
+                        <Icon name="play" size={12}/>Watch
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {jobs.length===0 && !scanning && (
+          <div className="rd-grid-empty" style={{paddingTop:40}}>
+            <div className="ic"><Icon name="video" size={42}/></div>
+            <div className="big">No VOD scans yet</div>
+            <div>Paste a Twitch VOD URL above to find highlight moments from any past stream.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WelcomeOverlay({ onClose }) {
   const Step = ({n, title, body}) => (
     <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
@@ -1216,6 +1418,10 @@ function RdApp() {
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
         else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 1 hour of inactivity. Restart them from the Streams tab.');}
+        // Forward VOD events to VodScreen via custom event
+        else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        }
       };
       ws.onclose = ()=>setTimeout(connect,3000);
     };
@@ -1268,6 +1474,7 @@ function RdApp() {
   if(route==='review') screen=<ReviewScreen {...{streams,scores,profiles,clips,filter,setFilter,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
+  else if(route==='vod') screen=<VodScreen clips={clips}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;

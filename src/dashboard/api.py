@@ -1084,6 +1084,139 @@ async def idle_stream_reaper() -> None:
             log.error("idle_stream_reaper_error", error=str(exc))
 
 
+# ── VOD analysis ─────────────────────────────────────────────────────────────
+
+_vod_jobs: dict[str, dict] = {}          # job_id -> job dict
+_vod_tasks: dict[str, asyncio.Task] = {} # job_id -> running task
+
+_VOD_RATE_LOCK  = asyncio.Lock()
+_vod_rate_hits: dict[str, tuple[int, float]] = {}
+_VOD_MAX        = 3    # max concurrent/recent jobs per user
+_VOD_WINDOW     = 300  # 5-minute window
+
+async def _check_vod_rate(uid: str) -> None:
+    async with _VOD_RATE_LOCK:
+        now = time.time()
+        stale = [k for k, (_, ts) in list(_vod_rate_hits.items()) if now - ts > _VOD_WINDOW]
+        for k in stale:
+            _vod_rate_hits.pop(k, None)
+        count, window_start = _vod_rate_hits.get(uid, (0, now))
+        if now - window_start > _VOD_WINDOW:
+            count, window_start = 0, now
+        if count >= _VOD_MAX:
+            raise HTTPException(status_code=429, detail="Too many VOD analyses — wait a few minutes")
+        _vod_rate_hits[uid] = (count + 1, window_start)
+
+
+class _VodRequest(BaseModel):
+    vod_url: str = Field(min_length=1, max_length=200)
+    preset:  str = "default"
+
+    @field_validator("preset")
+    @classmethod
+    def valid_preset(cls, v: str) -> str:
+        if v not in _VALID_PRESETS:
+            raise ValueError(f"preset must be one of {_VALID_PRESETS}")
+        return v
+
+
+@app.post("/vod/analyze", status_code=201)
+async def start_vod_analysis(request: Request, req: _VodRequest):
+    from src.vod.analyzer import parse_vod_id, run_vod_analysis
+    uid = _current_user_id(request)
+    await _check_vod_rate(uid)
+
+    vod_id = parse_vod_id(req.vod_url)
+    if not vod_id:
+        raise HTTPException(status_code=400, detail="Could not extract a valid VOD ID from the URL")
+
+    job_id = str(__import__("uuid").uuid4())
+    job = {
+        "id":          job_id,
+        "vod_id":      vod_id,
+        "vod_url":     req.vod_url,
+        "preset":      req.preset,
+        "user_id":     uid,
+        "status":      "running",
+        "progress":    0.0,
+        "moments":     [],
+        "error":       "",
+        "created_at":  time.time(),
+        "vod_title":   "",
+        "channel":     "",
+        "duration":    0.0,
+        "game":        "",
+        "thumbnail_url": "",
+    }
+    _vod_jobs[job_id] = job
+
+    async def _on_progress(pct: float, meta: dict) -> None:
+        job["progress"] = pct
+        if meta:
+            job.update({k: v for k, v in meta.items()
+                        if k in ("vod_title", "channel", "duration", "game", "thumbnail_url")})
+        await broadcast({"event": "vod_progress", "job_id": job_id,
+                         "progress": pct, **meta}, user_id=uid)
+
+    async def _on_moment(moment: dict) -> None:
+        job["moments"].append(moment)
+        # Also inject into the main clip queue so it appears in the review screen
+        async with _data_lock:
+            _clips[moment["id"]] = moment
+            _save_clips()
+        await broadcast({"event": "vod_moment", "job_id": job_id, "moment": moment}, user_id=uid)
+        await broadcast({"event": "clip_ready", "clip": moment}, user_id=uid)
+
+    async def _on_done(moments: list) -> None:
+        job["status"]   = "done"
+        job["progress"] = 100.0
+        await broadcast({"event": "vod_done", "job_id": job_id,
+                         "moment_count": len(moments)}, user_id=uid)
+        _vod_tasks.pop(job_id, None)
+
+    async def _on_error(msg: str) -> None:
+        job["status"] = "failed"
+        job["error"]  = msg
+        await broadcast({"event": "vod_error", "job_id": job_id, "error": msg}, user_id=uid)
+        _vod_tasks.pop(job_id, None)
+
+    task = asyncio.create_task(
+        run_vod_analysis(vod_id, "", req.preset, uid,
+                         _on_progress, _on_moment, _on_done, _on_error),
+        name=f"vod-{job_id[:8]}",
+    )
+    _vod_tasks[job_id] = task
+    log.info("vod_analysis_started", job_id=job_id, vod_id=vod_id, user_id=uid)
+    return job
+
+
+@app.get("/vod/jobs")
+async def list_vod_jobs(request: Request):
+    uid = _current_user_id(request)
+    return [j for j in _vod_jobs.values() if j.get("user_id") == uid]
+
+
+@app.get("/vod/jobs/{job_id}")
+async def get_vod_job(request: Request, job_id: str):
+    uid = _current_user_id(request)
+    job = _vod_jobs.get(job_id)
+    if not job or job.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.delete("/vod/jobs/{job_id}", status_code=204)
+async def cancel_vod_job(request: Request, job_id: str):
+    uid = _current_user_id(request)
+    job = _vod_jobs.get(job_id)
+    if not job or job.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Job not found")
+    task = _vod_tasks.pop(job_id, None)
+    if task and not task.done():
+        task.cancel()
+    _vod_jobs.pop(job_id, None)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
