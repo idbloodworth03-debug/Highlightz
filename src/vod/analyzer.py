@@ -104,15 +104,13 @@ async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
     cursor: str | None   = None
     page   = 0
 
+    # GQL chat replay works with Client-ID alone — no Authorization header needed or wanted.
+    # Sending any Authorization value (even a valid one) causes Twitch to apply
+    # stricter auth checks and reject requests with stale/app tokens.
     hdrs = {
         "Client-ID":    _GQL_CLIENT_ID,
         "Content-Type": "application/json",
     }
-    # Add OAuth only if the server has a user token configured.
-    # Sending "Authorization: undefined" (the literal string) breaks GQL.
-    user_token = settings.twitch_oauth_token or ""
-    if user_token:
-        hdrs["Authorization"] = f"OAuth {user_token}"
 
     async with aiohttp.ClientSession() as session:
         while True:
