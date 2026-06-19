@@ -135,9 +135,10 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
                 body = await resp.json()
 
             try:
-                comments_data = body[0]["data"]["video"]["comments"]
+                comments_data = body[0]["data"]["video"]["comments"] or {}
             except (IndexError, KeyError, TypeError) as exc:
-                log.warning("vod_gql_parse_error", vod_id=vod_id, error=str(exc))
+                log.warning("vod_gql_parse_error", vod_id=vod_id, error=str(exc),
+                            body=str(body)[:300])
                 break
 
             for edge in comments_data.get("edges", []):
