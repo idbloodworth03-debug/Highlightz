@@ -104,6 +104,7 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
     import aiohttp
     messages: list[dict] = []
     cursor: str | None   = None
+    page   = 0
     hdrs = {
         "Client-ID":    _GQL_CLIENT_ID,
         "Content-Type": "application/json",
@@ -141,7 +142,8 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
                             body=str(body)[:300])
                 break
 
-            for edge in comments_data.get("edges", []):
+            edges = comments_data.get("edges", [])
+            for edge in edges:
                 node   = edge.get("node", {})
                 offset = float(node.get("contentOffsetSeconds", 0))
                 author = (node.get("commenter") or {}).get("displayName", "")
@@ -149,10 +151,27 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
                 text   = "".join(f.get("text", "") for f in frags).strip()
                 if text:
                     messages.append({"offset": offset, "text": text, "author": author})
-                cursor = edge.get("cursor")
 
-            if not comments_data.get("pageInfo", {}).get("hasNextPage"):
+            page_info  = comments_data.get("pageInfo", {})
+            has_next   = page_info.get("hasNextPage", False)
+
+            if not has_next:
                 break
+
+            # Prefer pageInfo.endCursor; fall back to last edge's cursor.
+            # Never overwrite cursor with None — that would restart from offset 0.
+            new_cursor = page_info.get("endCursor")
+            if not new_cursor and edges:
+                new_cursor = edges[-1].get("cursor")
+            if not new_cursor or new_cursor == cursor:
+                log.warning("vod_gql_cursor_stalled", vod_id=vod_id, page=page)
+                break
+            cursor = new_cursor
+            page  += 1
+
+            if page % 50 == 0:
+                log.info("vod_chat_fetching", vod_id=vod_id, page=page,
+                         messages=len(messages))
             await asyncio.sleep(0.02)
 
     return sorted(messages, key=lambda m: m["offset"])
