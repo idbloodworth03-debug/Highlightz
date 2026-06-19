@@ -110,6 +110,8 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
         "Content-Type": "application/json",
     }
 
+    stuck_since: int | None = None  # offset where new_count first hit 0
+
     async with aiohttp.ClientSession() as session:
         while True:
             variables = {"videoID": vod_id, "contentOffsetSeconds": int(next_offset)}
@@ -142,6 +144,7 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
 
             edges = comments_data.get("edges") or []
             if not edges:
+                # Genuinely no more chat at or after this offset
                 break
 
             new_count   = 0
@@ -167,13 +170,23 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
                      from_offset=next_offset, last_offset=last_offset,
                      total=len(messages))
 
-            # Stop when no new messages found or offset didn't advance
-            if new_count == 0 or last_offset <= next_offset:
-                break
+            if new_count > 0 and last_offset > next_offset:
+                # Normal advance: move to last seen timestamp
+                stuck_since = None
+                next_offset = last_offset
+            else:
+                # Dense chat: all messages at this second already seen.
+                # Step forward 1 second and keep going.
+                if stuck_since is None:
+                    stuck_since = int(next_offset)
+                elif int(next_offset) - stuck_since >= 300:
+                    # 5 minutes of advancing with no new messages → end of chat
+                    log.info("vod_gql_chat_ended", vod_id=vod_id,
+                             offset=next_offset, stuck_since=stuck_since)
+                    break
+                next_offset = int(next_offset) + 1
 
-            next_offset = last_offset   # next page starts from last seen timestamp
             page += 1
-
             if page % 50 == 0:
                 log.info("vod_chat_progress", vod_id=vod_id, page=page,
                          messages=len(messages))
