@@ -170,17 +170,17 @@ async def fetch_vod_chat(vod_id: str) -> list[dict]:
                      from_offset=next_offset, last_offset=last_offset,
                      total=len(messages))
 
-            if new_count > 0 and last_offset > next_offset:
-                # Normal advance: move to last seen timestamp
+            if new_count > 0:
+                # Got new messages — always advance past this second
                 stuck_since = None
-                next_offset = last_offset
+                next_offset = int(last_offset) + 1
             else:
-                # Dense chat: all messages at this second already seen.
-                # Step forward 1 second and keep going.
+                # All messages at this offset already seen — step forward 1s.
+                # Track how long we've gone with zero new messages so we can
+                # stop at a genuine end-of-chat rather than looping forever.
                 if stuck_since is None:
                     stuck_since = int(next_offset)
                 elif int(next_offset) - stuck_since >= 300:
-                    # 5 minutes of advancing with no new messages → end of chat
                     log.info("vod_gql_chat_ended", vod_id=vod_id,
                              offset=next_offset, stuck_since=stuck_since)
                     break
