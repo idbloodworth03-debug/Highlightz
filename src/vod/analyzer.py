@@ -104,17 +104,15 @@ async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
     cursor: str | None   = None
     page   = 0
 
-    # Twitch GQL expects "OAuth <user_token>" for user tokens, or "undefined" for anonymous.
-    # The app token (Bearer/client-credentials) does NOT work with GQL.
-    # Prefer the configured user OAuth token from settings; fall back to "undefined".
-    user_token = settings.twitch_oauth_token or ""
-    auth_header = f"OAuth {user_token}" if user_token else "undefined"
-
     hdrs = {
-        "Client-ID":     _GQL_CLIENT_ID,
-        "Content-Type":  "application/json",
-        "Authorization": auth_header,
+        "Client-ID":    _GQL_CLIENT_ID,
+        "Content-Type": "application/json",
     }
+    # Add OAuth only if the server has a user token configured.
+    # Sending "Authorization: undefined" (the literal string) breaks GQL.
+    user_token = settings.twitch_oauth_token or ""
+    if user_token:
+        hdrs["Authorization"] = f"OAuth {user_token}"
 
     async with aiohttp.ClientSession() as session:
         while True:
