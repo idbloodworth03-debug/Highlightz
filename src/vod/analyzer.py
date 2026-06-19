@@ -93,21 +93,26 @@ _GQL_CLIENT_ID  = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 _GQL_HASH       = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
 
 
-async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
+async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
     """
     Fetch all VOD chat via Twitch's GQL persisted-query API.
-    This is the same endpoint used by yt-dlp, streamlink, and
-    TwitchDownloaderCLI — the only reliable way to retrieve VOD chat
-    since the v5 Kraken endpoint was shut down in 2023.
+    Requires an Authorization header — uses app token or user OAuth token.
     Returns a list sorted by offset ascending.
     """
     import aiohttp
     messages: list[dict] = []
     cursor: str | None   = None
     page   = 0
+
+    # GQL requires an auth token. Use whatever we have: user OAuth > app token > undefined.
+    if not auth_token:
+        auth_token = settings.twitch_oauth_token or ""
+    auth_header = f"OAuth {auth_token}" if auth_token else "undefined"
+
     hdrs = {
-        "Client-ID":    _GQL_CLIENT_ID,
-        "Content-Type": "application/json",
+        "Client-ID":     _GQL_CLIENT_ID,
+        "Content-Type":  "application/json",
+        "Authorization": auth_header,
     }
 
     async with aiohttp.ClientSession() as session:
@@ -130,8 +135,11 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
             }]
 
             async with session.post(_GQL_URL, headers=hdrs, json=payload) as resp:
-                if resp.status != 200:
-                    log.warning("vod_gql_failed", vod_id=vod_id, status=resp.status)
+                status = resp.status
+                if status != 200:
+                    raw = (await resp.text())[:300]
+                    log.warning("vod_gql_failed", vod_id=vod_id, status=status,
+                                page=page, body=raw)
                     break
                 body = await resp.json()
 
@@ -139,41 +147,47 @@ async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
                 comments_data = body[0]["data"]["video"]["comments"] or {}
             except (IndexError, KeyError, TypeError) as exc:
                 log.warning("vod_gql_parse_error", vod_id=vod_id, error=str(exc),
-                            body=str(body)[:300])
+                            body=str(body)[:500])
                 break
 
-            edges = comments_data.get("edges", [])
+            edges     = comments_data.get("edges") or []
+            page_info = comments_data.get("pageInfo") or {}
+            has_next  = page_info.get("hasNextPage", False)
+
             for edge in edges:
-                node   = edge.get("node", {})
+                node   = edge.get("node") or {}
                 offset = float(node.get("contentOffsetSeconds", 0))
                 author = (node.get("commenter") or {}).get("displayName", "")
-                frags  = (node.get("message") or {}).get("fragments", [])
+                frags  = (node.get("message") or {}).get("fragments") or []
                 text   = "".join(f.get("text", "") for f in frags).strip()
                 if text:
                     messages.append({"offset": offset, "text": text, "author": author})
 
-            page_info  = comments_data.get("pageInfo", {})
-            has_next   = page_info.get("hasNextPage", False)
+            log.info("vod_gql_page", vod_id=vod_id, page=page,
+                     edges=len(edges), has_next=has_next,
+                     total_so_far=len(messages),
+                     page_info=str(page_info)[:200])
 
-            if not has_next:
+            if not has_next or not edges:
                 break
 
-            # Prefer pageInfo.endCursor; fall back to last edge's cursor.
-            # Never overwrite cursor with None — that would restart from offset 0.
-            new_cursor = page_info.get("endCursor")
-            if not new_cursor and edges:
-                new_cursor = edges[-1].get("cursor")
+            # Primary: last edge's cursor (matches TwitchDownloaderCLI).
+            # Fallback: pageInfo.endCursor.
+            new_cursor = edges[-1].get("cursor") or page_info.get("endCursor")
             if not new_cursor or new_cursor == cursor:
-                log.warning("vod_gql_cursor_stalled", vod_id=vod_id, page=page)
+                log.warning("vod_gql_cursor_stalled", vod_id=vod_id, page=page,
+                            cursor=new_cursor)
                 break
             cursor = new_cursor
             page  += 1
 
             if page % 50 == 0:
-                log.info("vod_chat_fetching", vod_id=vod_id, page=page,
+                log.info("vod_chat_progress", vod_id=vod_id, page=page,
                          messages=len(messages))
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.05)
 
+    log.info("vod_chat_fetched", vod_id=vod_id, pages=page + 1,
+             total_messages=len(messages))
     return sorted(messages, key=lambda m: m["offset"])
 
 
@@ -254,7 +268,7 @@ async def run_vod_analysis(
             "duration": duration, "game": game, "thumbnail_url": thumb,
         })
 
-        messages = await fetch_vod_chat(vod_id)
+        messages = await fetch_vod_chat(vod_id, auth_token=token)
         if not messages:
             await on_error(
                 f"No chat messages found for VOD {vod_id}. "
