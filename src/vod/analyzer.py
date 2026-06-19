@@ -93,20 +93,18 @@ _GQL_CLIENT_ID  = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 _GQL_HASH       = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
 
 
-async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
+async def fetch_vod_chat(vod_id: str) -> list[dict]:
     """
-    Fetch all VOD chat via Twitch's GQL persisted-query API.
-    Requires an Authorization header — uses app token or user OAuth token.
-    Returns a list sorted by offset ascending.
+    Fetch all VOD chat via Twitch GQL, paginating by contentOffsetSeconds.
+    Cursor-based pagination is unreliable with this persisted query (the cursor
+    field is not returned in edges and pageInfo has no endCursor), so we advance
+    by re-requesting from the last message's timestamp and deduplicating.
     """
     import aiohttp
     messages: list[dict] = []
-    cursor: str | None   = None
-    page   = 0
-
-    # GQL chat replay works with Client-ID alone — no Authorization header needed or wanted.
-    # Sending any Authorization value (even a valid one) causes Twitch to apply
-    # stricter auth checks and reject requests with stale/app tokens.
+    seen:  set[tuple]    = set()   # (int_offset, text_prefix) dedup keys
+    next_offset          = 0
+    page                 = 0
     hdrs = {
         "Client-ID":    _GQL_CLIENT_ID,
         "Content-Type": "application/json",
@@ -114,12 +112,7 @@ async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
 
     async with aiohttp.ClientSession() as session:
         while True:
-            variables: dict = {"videoID": vod_id}
-            if cursor:
-                variables["cursor"] = cursor
-            else:
-                variables["contentOffsetSeconds"] = 0
-
+            variables = {"videoID": vod_id, "contentOffsetSeconds": int(next_offset)}
             payload = [{
                 "operationName": "VideoCommentsByOffsetOrCursor",
                 "variables":     variables,
@@ -144,39 +137,42 @@ async def fetch_vod_chat(vod_id: str, auth_token: str = "") -> list[dict]:
                 comments_data = body[0]["data"]["video"]["comments"] or {}
             except (IndexError, KeyError, TypeError) as exc:
                 log.warning("vod_gql_parse_error", vod_id=vod_id, error=str(exc),
-                            body=str(body)[:500])
+                            body=str(body)[:400])
                 break
 
-            edges     = comments_data.get("edges") or []
-            page_info = comments_data.get("pageInfo") or {}
-            has_next  = page_info.get("hasNextPage", False)
+            edges = comments_data.get("edges") or []
+            if not edges:
+                break
 
+            new_count   = 0
+            last_offset = next_offset
             for edge in edges:
                 node   = edge.get("node") or {}
                 offset = float(node.get("contentOffsetSeconds", 0))
                 author = (node.get("commenter") or {}).get("displayName", "")
                 frags  = (node.get("message") or {}).get("fragments") or []
                 text   = "".join(f.get("text", "") for f in frags).strip()
-                if text:
+                if not text:
+                    continue
+                key = (int(offset), text[:40])
+                if key not in seen:
+                    seen.add(key)
                     messages.append({"offset": offset, "text": text, "author": author})
+                    new_count += 1
+                if offset > last_offset:
+                    last_offset = offset
 
             log.info("vod_gql_page", vod_id=vod_id, page=page,
-                     edges=len(edges), has_next=has_next,
-                     total_so_far=len(messages),
-                     page_info=str(page_info)[:200])
+                     edges=len(edges), new=new_count,
+                     from_offset=next_offset, last_offset=last_offset,
+                     total=len(messages))
 
-            if not has_next or not edges:
+            # Stop when no new messages found or offset didn't advance
+            if new_count == 0 or last_offset <= next_offset:
                 break
 
-            # Primary: last edge's cursor (matches TwitchDownloaderCLI).
-            # Fallback: pageInfo.endCursor.
-            new_cursor = edges[-1].get("cursor") or page_info.get("endCursor")
-            if not new_cursor or new_cursor == cursor:
-                log.warning("vod_gql_cursor_stalled", vod_id=vod_id, page=page,
-                            cursor=new_cursor)
-                break
-            cursor = new_cursor
-            page  += 1
+            next_offset = last_offset   # next page starts from last seen timestamp
+            page += 1
 
             if page % 50 == 0:
                 log.info("vod_chat_progress", vod_id=vod_id, page=page,
