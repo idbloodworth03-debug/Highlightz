@@ -85,44 +85,75 @@ async def fetch_vod_info(vod_id: str, token: str) -> dict:
     }
 
 
-async def fetch_vod_chat(vod_id: str, token: str) -> list[dict]:
+_GQL_URL        = "https://gql.twitch.tv/gql"
+# Twitch's web-app client ID — used by every public Twitch VOD tool (yt-dlp,
+# streamlink, TwitchDownloaderCLI) since there's no official Helix endpoint
+# for VOD chat replay.
+_GQL_CLIENT_ID  = "kimne78kx3ncx6brgo4mv6wki5h1ko"
+_GQL_HASH       = "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+
+
+async def fetch_vod_chat(vod_id: str, _token: str = "") -> list[dict]:
     """
-    Fetch all VOD chat via Twitch's v5 comments endpoint.
-    Returns list sorted by offset_seconds ascending.
+    Fetch all VOD chat via Twitch's GQL persisted-query API.
+    This is the same endpoint used by yt-dlp, streamlink, and
+    TwitchDownloaderCLI — the only reliable way to retrieve VOD chat
+    since the v5 Kraken endpoint was shut down in 2023.
+    Returns a list sorted by offset ascending.
     """
     import aiohttp
     messages: list[dict] = []
-    cursor = None
+    cursor: str | None   = None
+    hdrs = {
+        "Client-ID":    _GQL_CLIENT_ID,
+        "Content-Type": "application/json",
+    }
+
     async with aiohttp.ClientSession() as session:
-        hdrs = {
-            "Client-ID":     settings.twitch_client_id,
-            "Authorization": f"Bearer {token}",
-            "Accept":        "application/vnd.twitchtv.v5+json",
-        }
         while True:
-            params: dict = {"limit": 100}
+            variables: dict = {"videoID": vod_id}
             if cursor:
-                params["cursor"] = cursor
+                variables["cursor"] = cursor
             else:
-                params["content_offset_seconds"] = 0
-            async with session.get(
-                f"https://api.twitch.tv/v5/videos/{vod_id}/comments",
-                headers=hdrs, params=params,
-            ) as resp:
+                variables["contentOffsetSeconds"] = 0
+
+            payload = [{
+                "operationName": "VideoCommentsByOffsetOrCursor",
+                "variables":     variables,
+                "extensions":    {
+                    "persistedQuery": {
+                        "version":    1,
+                        "sha256Hash": _GQL_HASH,
+                    }
+                },
+            }]
+
+            async with session.post(_GQL_URL, headers=hdrs, json=payload) as resp:
                 if resp.status != 200:
-                    log.warning("vod_chat_fetch_failed", vod_id=vod_id, status=resp.status)
+                    log.warning("vod_gql_failed", vod_id=vod_id, status=resp.status)
                     break
-                data = await resp.json()
-            for c in data.get("comments", []):
-                offset = float(c.get("content_offset_seconds", 0))
-                text   = c.get("message", {}).get("body", "")
-                author = c.get("commenter", {}).get("display_name", "")
+                body = await resp.json()
+
+            try:
+                comments_data = body[0]["data"]["video"]["comments"]
+            except (IndexError, KeyError, TypeError) as exc:
+                log.warning("vod_gql_parse_error", vod_id=vod_id, error=str(exc))
+                break
+
+            for edge in comments_data.get("edges", []):
+                node   = edge.get("node", {})
+                offset = float(node.get("contentOffsetSeconds", 0))
+                author = (node.get("commenter") or {}).get("displayName", "")
+                frags  = (node.get("message") or {}).get("fragments", [])
+                text   = "".join(f.get("text", "") for f in frags).strip()
                 if text:
                     messages.append({"offset": offset, "text": text, "author": author})
-            cursor = data.get("_next")
-            if not cursor:
+                cursor = edge.get("cursor")
+
+            if not comments_data.get("pageInfo", {}).get("hasNextPage"):
                 break
             await asyncio.sleep(0.02)
+
     return sorted(messages, key=lambda m: m["offset"])
 
 
@@ -203,13 +234,19 @@ async def run_vod_analysis(
             "duration": duration, "game": game, "thumbnail_url": thumb,
         })
 
-        messages = await fetch_vod_chat(vod_id, token)
+        messages = await fetch_vod_chat(vod_id)
         if not messages:
-            await on_done([])
+            await on_error(
+                f"No chat messages found for VOD {vod_id}. "
+                "The VOD may be subscriber-only, deleted, or too old."
+            )
             return
 
-        rules     = get_rules(chan, preset)
-        threshold = rules.trigger_threshold
+        rules = get_rules(chan, preset)
+        # VOD replay uses only chat signals (velocity 30 + keyword 15 + sentiment 8 = 53
+        # of the live engine's 100 total). Scale the threshold proportionally so the
+        # same relative chat intensity fires in both live and VOD modes.
+        threshold = rules.trigger_threshold * (53.0 / 100.0)
 
         WINDOW   = 15.0    # scoring window in seconds
         LT_WIN   = 300.0   # long-term baseline window
