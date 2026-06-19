@@ -244,13 +244,14 @@ async def run_vod_analysis(
             return
 
         rules = get_rules(chan, preset)
-        # VOD replay uses only chat signals (velocity 30 + keyword 15 + sentiment 8 = 53
-        # of the live engine's 100 total). Scale the threshold proportionally so the
-        # same relative chat intensity fires in both live and VOD modes.
-        threshold = rules.trigger_threshold * (53.0 / 100.0)
+        # VOD replay uses only chat signals (velocity 30 + keyword 15 + sentiment 8).
+        # Max achievable score ≈ 66 vs 100 for live. Scale threshold to 40% of the
+        # live value so the same relative chat intensity fires in both modes.
+        threshold = rules.trigger_threshold * 0.40
 
         WINDOW   = 15.0    # scoring window in seconds
         LT_WIN   = 300.0   # long-term baseline window
+        WARMUP   = 120.0   # skip scoring until baseline has 2 min of data
         COOLDOWN = 60.0    # min gap between moments
         STEP     = 1.0     # evaluation granularity
 
@@ -281,10 +282,13 @@ async def run_vod_analysis(
             while lt_deq and lt_deq[0][0] < offset - LT_WIN:
                 lt_deq.popleft()
 
-            if offset - last_moment_offset >= COOLDOWN and offset >= WINDOW:
+            if offset - last_moment_offset >= COOLDOWN and offset >= WARMUP:
                 window_texts = [t for _, t in recent_deq]
+                # Use actual elapsed time for baseline so early-stream scores
+                # aren't inflated by dividing a small message count by 300.
+                lt_actual = min(offset, LT_WIN)
                 score, breakdown = _score_window(
-                    window_texts, len(lt_deq), LT_WIN, WINDOW, rules)
+                    window_texts, len(lt_deq), lt_actual, WINDOW, rules)
 
                 if score >= threshold:
                     last_moment_offset = offset
