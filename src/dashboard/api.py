@@ -471,43 +471,60 @@ async def me(request: Request):
 # ── Kick OAuth ────────────────────────────────────────────────────────────────
 
 @app.get("/auth/kick")
-async def kick_login(request: Request):
+async def kick_login(request: Request, login: bool = False):
     from src.auth.kick_oauth import authorization_url
     if not settings.kick_client_id:
         raise HTTPException(status_code=503, detail="Kick OAuth not configured")
     state = secrets.token_urlsafe(16)
     request.session["kick_oauth_state"] = state
+    if login:
+        request.session["kick_login_flow"] = True
     return RedirectResponse(authorization_url(state))
 
 
 @app.get("/auth/kick/callback")
 async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     from src.auth import kick_oauth, users as user_store
+    login_flow = request.session.pop("kick_login_flow", False)
+    err_redirect = "/login?error=kick_failed" if login_flow else "/?kick_error=1"
+
     if error:
-        return RedirectResponse("/?kick_error=1")
+        return RedirectResponse(err_redirect)
     if not code or state != request.session.pop("kick_oauth_state", None):
-        return RedirectResponse("/?kick_error=1")
+        return RedirectResponse(err_redirect)
     try:
         tokens = await kick_oauth.exchange_code(code)
         kick_user = await kick_oauth.get_user(tokens["access_token"])
     except Exception as exc:
         log.warning("kick_callback_failed", error=str(exc))
-        return RedirectResponse("/?kick_error=1")
+        return RedirectResponse(err_redirect)
 
-    uid = request.session.get("user_id")
-    if not uid:
-        return RedirectResponse("/login")
-
-    user_store.link_kick_to_user(
-        user_id=uid,
-        kick_id=str(kick_user["id"]),
-        username=kick_user.get("username", ""),
-        slug=kick_user.get("slug", kick_user.get("username", "")),
-        avatar_url=kick_user.get("avatar_url", ""),
+    kick_id  = str(kick_user["id"])
+    username = kick_user.get("username", "")
+    slug     = kick_user.get("slug", username)
+    avatar   = kick_user.get("avatar_url", "")
+    token_kwargs = dict(
         access_token=tokens.get("access_token", ""),
         refresh_token=tokens.get("refresh_token", ""),
         expires_in=tokens.get("expires_in", 0),
     )
+
+    uid = request.session.get("user_id")
+    if uid:
+        # Already logged in — link Kick to existing account
+        user_store.link_kick_to_user(
+            user_id=uid, kick_id=kick_id, username=username,
+            slug=slug, avatar_url=avatar, **token_kwargs,
+        )
+    else:
+        # Login / sign-up via Kick
+        user = user_store.upsert_kick_user(
+            kick_id=kick_id, username=username, slug=slug,
+            avatar_url=avatar, **token_kwargs,
+        )
+        request.session["user_id"] = user["id"]
+        log.info("kick_login", kick_id=kick_id, username=username)
+
     return RedirectResponse("/")
 
 
@@ -1451,10 +1468,11 @@ async def not_found_handler(request: Request, exc: Exception):
 
 
 _ERROR_MESSAGES = {
-    "twitch_failed":     "Twitch login failed. Please try again.",
-    "invalid_state":     "Login session expired. Please try again.",
+    "twitch_failed":      "Twitch login failed. Please try again.",
+    "kick_failed":        "Kick login failed. Please try again.",
+    "invalid_state":      "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
-    "account_deleted":   "Account deleted successfully.",
+    "account_deleted":    "Account deleted successfully.",
 }
 
 
@@ -1463,7 +1481,14 @@ async def login_page(error: str = ""):
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
-    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
+    if settings.kick_client_id and settings.kick_client_secret:
+        kick_btn = '''<a href="/auth/kick?login=true" class="kick-btn">
+    <svg width="18" height="18" viewBox="0 0 100 100" fill="#0a0a0e"><rect x="10" y="10" width="22" height="80" rx="4"/><polygon points="32,50 70,10 95,10 57,50 95,90 70,90"/></svg>
+    Continue with Kick
+  </a>'''
+    else:
+        kick_btn = '<p class="kick-unavail">Kick sign-in coming soon</p>'
+    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html).replace("{kick_btn}", kick_btn))
 
 
 @app.get("/demo", response_class=HTMLResponse)
@@ -2104,6 +2129,12 @@ LOGIN_HTML = """<!DOCTYPE html>
   .twitch-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
   .twitch-btn:hover{background:#772ce8}
   .twitch-btn svg{flex-shrink:0}
+  .or-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
+  .kick-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#53fc18;color:#0a0a0e;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:filter .15s,transform .12s}
+  .kick-btn:hover{filter:brightness(1.08)}
+  .kick-btn:active{transform:scale(.98)}
+  .kick-unavail{font-size:12px;color:#3d3d4a;text-align:center;padding:13px;border:1px dashed rgba(83,252,24,.15);border-radius:12px}
   .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
   label{font-size:12px;color:#9c9caa;display:block;margin-bottom:6px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
@@ -2129,6 +2160,8 @@ LOGIN_HTML = """<!DOCTYPE html>
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
+  <div class="or-divider">or</div>
+  {kick_btn}
   <p class="trial-note">Free for 7 days. Cancel anytime — we won't ask for a card to start.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">

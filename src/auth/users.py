@@ -414,6 +414,67 @@ def link_kick_to_user(
     raise ValueError(f"User '{user_id}' not found")
 
 
+def upsert_kick_user(
+    kick_id: str,
+    username: str,
+    slug: str,
+    avatar_url: str = "",
+    access_token: str = "",
+    refresh_token: str = "",
+    expires_in: int = 0,
+) -> dict:
+    """Find or create a Highlightz account identified solely by Kick ID.
+
+    Used when a user signs in with Kick without a pre-existing Twitch account.
+    Returns the public user dict (no secrets).
+    """
+    users = _load()
+    expires_at = time.time() + max(int(expires_in) - 60, 0)
+    enc_access  = _encrypt(access_token)
+    enc_refresh = _encrypt(refresh_token)
+    now = time.time()
+
+    existing = next((u for u in users if u.get("kick_id") == kick_id), None)
+    if existing:
+        existing["kick_slug"]     = slug
+        existing["kick_username"] = username
+        if avatar_url:
+            existing["avatar_url"] = avatar_url
+        if access_token:
+            existing["kick_access"]     = enc_access
+            existing["kick_refresh"]    = enc_refresh
+            existing["kick_expires_at"] = expires_at
+        _save(users)
+        return _public(existing)
+
+    # Trial: use a prefixed key so Kick trials are tracked separately from Twitch trials
+    prefixed_id = f"kick:{kick_id}"
+    grant_trial = not has_claimed_trial(prefixed_id)
+    user: dict = {
+        "id":                   secrets.token_urlsafe(16),
+        "username":             username,
+        "password_hash":        None,
+        "salt":                 None,
+        "is_admin":             False,
+        "kick_id":              kick_id,
+        "kick_slug":            slug,
+        "kick_username":        username,
+        "avatar_url":           avatar_url,
+        "kick_access":          enc_access,
+        "kick_refresh":         enc_refresh,
+        "kick_expires_at":      expires_at,
+        "stripe_customer_id":   None,
+        "subscription_status":  "trialing" if grant_trial else "none",
+        "trial_ends_at":        (now + _TRIAL_SECONDS) if grant_trial else 0,
+        "created_at":           now,
+    }
+    users.append(user)
+    _save(users)
+    if grant_trial:
+        _record_trial_claim(prefixed_id)
+    return _public(user)
+
+
 def _store_refreshed_kick_tokens(user_id: str, access_token: str, refresh_token: str, expires_in: int) -> None:
     users = _load()
     for u in users:
