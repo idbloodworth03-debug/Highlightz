@@ -144,10 +144,12 @@ button{font-family:inherit;cursor:pointer}
 .cull-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .cull-slider{width:100%;accent-color:var(--acc);cursor:pointer}
 .cull-preview{display:flex;justify-content:space-between;font-size:12px;font-weight:700}
-.plat-switch{display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:3px}
-.plat-sw-btn{border:none;border-radius:99px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:.18s;background:transparent;color:var(--fg-2)}
-.plat-sw-btn.active-twitch{background:#9146ff;color:#fff;box-shadow:0 2px 10px -3px rgba(145,70,255,.7)}
-.plat-sw-btn.active-kick{background:#53fc18;color:#0a0a0e;box-shadow:0 2px 10px -3px rgba(83,252,24,.6)}
+.plat-switch{position:relative;display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:3px}
+.plat-sw-pill{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:99px;pointer-events:none;transition:transform .35s cubic-bezier(.34,1.4,.64,1),background .3s ease,box-shadow .3s ease}
+.plat-sw-pill.kick{transform:translateX(100%);background:#53fc18;box-shadow:0 2px 14px -3px rgba(83,252,24,.7)}
+.plat-sw-pill.twitch{transform:translateX(0);background:#9146ff;box-shadow:0 2px 14px -3px rgba(145,70,255,.7)}
+.plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:6px 16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color .25s ease}
+.plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
 .rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;padding:7px 15px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
@@ -1564,8 +1566,9 @@ function RdApp() {
           <div><div className="htitle">{HEAD[route][0]}</div><div className="hsub">{HEAD[route][1]}</div></div>
           <div className="spacer"/>
           <div className="plat-switch">
-            <button className={'plat-sw-btn'+(activePlatform==='twitch'?' active-twitch':'')} onClick={()=>switchPlatform('twitch')}>Twitch</button>
-            <button className={'plat-sw-btn'+(activePlatform==='kick'?' active-kick':'')} onClick={()=>switchPlatform('kick')}>Kick</button>
+            <div className={'plat-sw-pill '+(activePlatform==='kick'?'kick':'twitch')}/>
+            <button className={'plat-sw-btn '+(activePlatform==='twitch'?'sw-on-twitch':'sw-off')} onClick={()=>switchPlatform('twitch')}>Twitch</button>
+            <button className={'plat-sw-btn '+(activePlatform==='kick'?'sw-on-kick':'sw-off')} onClick={()=>switchPlatform('kick')}>Kick</button>
           </div>
           <span className="rd-live"><span className="dot"/>Live</span>
           <button className="rd-user-chip" title="Account" style={{border:'none',cursor:'pointer'}} onClick={()=>setRoute('account')}>
