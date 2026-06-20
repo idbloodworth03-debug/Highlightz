@@ -33,13 +33,11 @@ def _fernet():
     try:
         from cryptography.fernet import Fernet
     except Exception:
-        _ulog.warning("cryptography_unavailable", msg="Twitch tokens stored unencrypted — pip install cryptography")
+        _ulog.warning("cryptography_unavailable: tokens stored unencrypted — pip install cryptography")
         return None
     if not settings.token_encryption_key:
         _ulog.warning(
-            "TOKEN_ENCRYPTION_KEY_not_set",
-            msg="Falling back to session secret for token encryption. "
-                "Set TOKEN_ENCRYPTION_KEY in .env for stronger key isolation.",
+            "TOKEN_ENCRYPTION_KEY_not_set: falling back to session secret for token encryption"
         )
     secret = settings.token_encryption_key or settings.dashboard_secret_key
     key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
@@ -64,8 +62,7 @@ def _decrypt(value: str) -> str:
     try:
         return f.decrypt(value.encode()).decode()
     except Exception as exc:
-        _ulog.warning("token_decrypt_failed", error=str(exc),
-                      msg="Possible key rotation — user will need to re-authenticate")
+        _ulog.warning("token_decrypt_failed (possible key rotation): %s", exc)
         return ""
 
 
