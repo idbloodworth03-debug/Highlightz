@@ -476,10 +476,12 @@ async def kick_login(request: Request, login: bool = False):
     if not settings.kick_client_id:
         raise HTTPException(status_code=503, detail="Kick OAuth not configured")
     state = secrets.token_urlsafe(16)
-    request.session["kick_oauth_state"] = state
+    url, code_verifier = authorization_url(state)
+    request.session["kick_oauth_state"]    = state
+    request.session["kick_code_verifier"]  = code_verifier
     if login:
         request.session["kick_login_flow"] = True
-    return RedirectResponse(authorization_url(state))
+    return RedirectResponse(url)
 
 
 @app.get("/auth/kick/callback")
@@ -492,8 +494,9 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
         return RedirectResponse(err_redirect)
     if not code or state != request.session.pop("kick_oauth_state", None):
         return RedirectResponse(err_redirect)
+    code_verifier = request.session.pop("kick_code_verifier", "")
     try:
-        tokens = await kick_oauth.exchange_code(code)
+        tokens = await kick_oauth.exchange_code(code, code_verifier)
         kick_user = await kick_oauth.get_user(tokens["access_token"])
     except Exception as exc:
         log.warning("kick_callback_failed", error=str(exc))
