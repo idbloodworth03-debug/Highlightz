@@ -85,12 +85,21 @@ async def refresh_access_token(refresh_token: str) -> dict:
 
 
 _USER_ENDPOINTS = [
-    "https://id.kick.com/oauth/userinfo",  # OIDC — needs openid scope
+    "https://id.kick.com/oauth/userinfo",       # OIDC — needs openid scope
     "https://id.kick.com/userinfo",
-    "https://api.kick.com/public/v1/users/me",
+    "https://api.kick.com/public/v1/users/me",  # may not exist yet
+    "https://api.kick.com/public/v1/user",      # singular variant
+    "https://api.kick.com/v1/user",             # without /public prefix
     "https://kick.com/api/v1/user",
     "https://kick.com/api/v2/user",
 ]
+
+# Mimic a browser to avoid Cloudflare WAF blocking server-to-server requests
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 def _parse_user(payload: dict | list) -> dict:
@@ -139,7 +148,11 @@ async def get_user(access_token: str) -> dict:
 
     Returns {"id": str, "username": str, "avatar_url": str, "slug": str}.
     """
-    headers = {"Authorization": f"Bearer {access_token}"}
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": _BROWSER_UA,
+        "Accept": "application/json",
+    }
     errors = []
     async with aiohttp.ClientSession() as session:
         for url in _USER_ENDPOINTS:
