@@ -1462,6 +1462,17 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+    // Surface Kick OAuth results from redirect params
+    const _params = new URLSearchParams(location.search);
+    if (_params.get('kick_linked')) {
+      flash('Kick account connected successfully!');
+      setRoute('account');
+      history.replaceState(null,'',location.pathname);
+    } else if (_params.get('kick_error')) {
+      const detail = _params.get('kick_detail');
+      flash('Kick connection failed' + (detail ? ': ' + decodeURIComponent(detail) : ' — check server logs'));
+      history.replaceState(null,'',location.pathname);
+    }
   },[]);
 
   useEffect(()=>{

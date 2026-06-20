@@ -486,21 +486,38 @@ async def kick_login(request: Request, login: bool = False):
 
 @app.get("/auth/kick/callback")
 async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    import traceback, urllib.parse as _up
     from src.auth import kick_oauth, users as user_store
     login_flow = request.session.pop("kick_login_flow", False)
-    err_redirect = "/login?error=kick_failed" if login_flow else "/?kick_error=1"
+
+    def err_redirect(reason: str):
+        msg = _up.quote(reason, safe="")
+        if login_flow:
+            return RedirectResponse(f"/login?error=kick_failed&kick_detail={msg}")
+        return RedirectResponse(f"/?kick_error=1&kick_detail={msg}")
 
     if error:
-        return RedirectResponse(err_redirect)
-    if not code or state != request.session.pop("kick_oauth_state", None):
-        return RedirectResponse(err_redirect)
+        log.warning("kick_callback_oauth_error", error=error)
+        return err_redirect(f"Kick returned: {error}")
+    expected_state = request.session.pop("kick_oauth_state", None)
+    if not code or state != expected_state:
+        log.warning("kick_callback_state_mismatch",
+                    has_code=bool(code), got_state=state, expected=expected_state)
+        return err_redirect("Session expired or state mismatch — please try again")
     code_verifier = request.session.pop("kick_code_verifier", "")
+    if not code_verifier:
+        log.warning("kick_callback_no_verifier")
+        return err_redirect("PKCE verifier missing from session — please try again")
     try:
         tokens = await kick_oauth.exchange_code(code, code_verifier)
+    except Exception as exc:
+        log.error("kick_token_exchange_failed", error=str(exc), tb=traceback.format_exc())
+        return err_redirect(f"Token exchange failed: {exc}")
+    try:
         kick_user = await kick_oauth.get_user(tokens["access_token"])
     except Exception as exc:
-        log.warning("kick_callback_failed", error=str(exc))
-        return RedirectResponse(err_redirect)
+        log.error("kick_get_user_failed", error=str(exc), tb=traceback.format_exc())
+        return err_redirect(f"Could not fetch Kick user: {exc}")
 
     kick_id  = str(kick_user["id"])
     username = kick_user.get("username", "")
@@ -513,22 +530,27 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
     )
 
     uid = request.session.get("user_id")
-    if uid:
-        # Already logged in — link Kick to existing account
-        user_store.link_kick_to_user(
-            user_id=uid, kick_id=kick_id, username=username,
-            slug=slug, avatar_url=avatar, **token_kwargs,
-        )
-    else:
-        # Login / sign-up via Kick
-        user = user_store.upsert_kick_user(
-            kick_id=kick_id, username=username, slug=slug,
-            avatar_url=avatar, **token_kwargs,
-        )
-        request.session["user_id"] = user["id"]
-        log.info("kick_login", kick_id=kick_id, username=username)
-
-    return RedirectResponse("/")
+    try:
+        if uid:
+            # Already logged in — link Kick to existing account
+            user_store.link_kick_to_user(
+                user_id=uid, kick_id=kick_id, username=username,
+                slug=slug, avatar_url=avatar, **token_kwargs,
+            )
+            log.info("kick_linked", user_id=uid, kick_id=kick_id, username=username)
+            return RedirectResponse("/?kick_linked=1")
+        else:
+            # Login / sign-up via Kick
+            user = user_store.upsert_kick_user(
+                kick_id=kick_id, username=username, slug=slug,
+                avatar_url=avatar, **token_kwargs,
+            )
+            request.session["user_id"] = user["id"]
+            log.info("kick_login", kick_id=kick_id, username=username)
+            return RedirectResponse("/")
+    except Exception as exc:
+        log.error("kick_save_failed", error=str(exc))
+        return err_redirect(f"Could not save Kick account: {exc}")
 
 
 @app.get("/auth/kick/status")
