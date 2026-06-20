@@ -1609,8 +1609,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch clipping, made effortless</title>
-<meta name="description" content="Highlightz watches your live streams and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, fully connected to Twitch. 7-day free trial, no card required.">
+<title>Highlightz — Automatic Twitch &amp; Kick clipping, made effortless</title>
+<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, 7-day free trial, no card required.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -1801,19 +1801,19 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Hero -->
 <header class="wrap hero">
-  <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
+  <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch &amp; Kick</div>
   <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
-  <p class="lead">Highlightz watches your live streams in real time and captures the best moments automatically — so the clips are ready before you even finish your stream. It's a tool that makes clipping effortless.</p>
+  <p class="lead">Highlightz watches your live streams on Twitch and Kick in real time and captures the best moments automatically — so the clips are ready before you even finish your stream. Switch between platforms from one dashboard.</p>
   <div class="hero-ctas">
     <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
     <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
   </div>
-  <p class="hero-note">No credit card required &middot; Connect with Twitch in seconds</p>
+  <p class="hero-note">No credit card required &middot; Twitch &amp; Kick support</p>
   <div class="pills">
     <span class="pill">Formula-based — not AI</span>
     <span class="pill">Adapts to each streamer</span>
     <span class="pill">Multiple streams at once</span>
-    <span class="pill">Fully connected to Twitch</span>
+    <span class="pill">Twitch &amp; Kick</span>
   </div>
 </header>
 
@@ -1847,7 +1847,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="steps">
     <div class="glass step">
       <div class="step-n">1</div>
-      <div><h3>Add any live Twitch channel</h3><p>Monitor multiple streams at the same time — your own channel, streamers you clip for, or anyone live right now. Add as many as you need and Highlightz watches them all in parallel.</p></div>
+      <div><h3>Add any live Twitch or Kick channel</h3><p>Monitor multiple streams at the same time across both platforms — your own channel, streamers you clip for, or anyone live right now. Switch between Twitch and Kick with a single tap from the top of your dashboard.</p></div>
     </div>
     <div class="glass step">
       <div class="step-n">2</div>
@@ -1859,7 +1859,7 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="glass step">
       <div class="step-n">4</div>
-      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
+      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Kick streams are monitored the same way; highlights are queued to your review list. Highlightz never records or re-hosts video.</p></div>
     </div>
     <div class="glass step">
       <div class="step-n">5</div>
@@ -1882,7 +1882,7 @@ LANDING_HTML = """<!DOCTYPE html>
             <div class="mk-row">
               <div>
                 <div class="mk-nm"><span class="pd"></span>shroud</div>
-                <div class="mk-mt"><span class="mk-chip">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
+                <div class="mk-mt"><span class="mk-chip" style="color:#53fc18;border-color:rgba(83,252,24,.3)">kick</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
               </div>
               <div class="mk-acts">
                 <span class="mk-clip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
@@ -2021,8 +2021,8 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="glass feat">
       <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></div>
-      <h3>Clips stay on Twitch</h3>
-      <p>Everything is created through Twitch's official Clips API under your account. We never record or store video.</p>
+      <h3>Twitch &amp; Kick support</h3>
+      <p>Monitor channels on both platforms from one dashboard. Kick streams are detected via Kick's public API — no extra login required.</p>
     </div>
   </div>
 </section>
@@ -2041,6 +2041,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
       <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
       <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
+      <div class="li"><span class="ck">&#10003;</span>Twitch &amp; Kick stream monitoring</div>
       <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
     </div>
     <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
@@ -2050,7 +2051,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Final CTA -->
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
-  <p>Connect your Twitch account and let Highlightz catch it for you — automatically, from the very first stream.</p>
+  <p>Connect your Twitch account and start monitoring Twitch and Kick streams — Highlightz catches every highlight automatically, from the very first stream.</p>
   <a href="/login" class="btn btn-grad btn-lg">Get started free</a>
 </section>
 
@@ -2238,18 +2239,20 @@ TOS_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
-  <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Highlightz does not record, copy, download, or re-host stream video. The Service requires an active paid subscription to access core features.</p>
+  <p>Highlightz is a SaaS platform that monitors live streams on Twitch and Kick, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Kick stream monitoring uses only Kick's publicly accessible chat and stream-status data — no Kick account credentials are required. Highlightz does not record, copy, download, or re-host stream video from either platform. The Service requires an active paid subscription to access core features.</p>
 
   <h2>2. Eligibility</h2>
   <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
 
-  <h2>3. Accounts and Twitch Authorization</h2>
-  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button. You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
+  <h2>3. Accounts and Platform Authorization</h2>
+  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
+  <p>Kick stream monitoring does not require a Kick account. The Service reads only publicly available Kick chat messages and stream-status information — the same data accessible to any viewer — via Kick's public WebSocket and API. No Kick credentials are stored.</p>
+  <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Free Trial and Subscriptions</h2>
   <p>New accounts receive a 7-day free trial with full access to core features. No credit card or payment information is required to start the trial. At the end of the 7-day trial period, access to core features is suspended unless you start a paid subscription. We do not automatically charge you when the trial ends — you will only be billed if and when you choose to subscribe.</p>
@@ -2263,6 +2266,7 @@ TOS_HTML = """<!DOCTYPE html>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
   <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct; it never records, stores, or re-hosts any stream video itself.</p>
+  <p>When monitoring Kick channels, the Service reads publicly available chat and stream data only. Any highlight detected on a Kick stream is presented to you for review; clip creation remains your action and your responsibility. The same streamer-content responsibilities described below apply equally to channels on any supported platform.</p>
   <p>You acknowledge and agree that:</p>
   <ul>
     <li>Any clip you create may contain content owned by the broadcaster you clipped, by game publishers, by music rights holders, or by other third parties.</li>
@@ -2288,7 +2292,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>The Highlightz name, logo, software, branding, and all related materials are the exclusive property of ANTI Technology LLC and are protected by applicable intellectual property laws. Nothing in these Terms grants you any right to use our trademarks or branding without prior written consent.</p>
 
   <h2>8. Third-Party Services</h2>
-  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation) and Stripe (payments). Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a> and <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
+  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation), Kick (public stream and chat monitoring), and Stripe (payments). Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a>, the <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>, and the <a href="https://kick.com/terms-of-service">Kick Terms of Service</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
 
   <h2>9. Data and Privacy</h2>
   <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), and clip metadata such as clip links and trigger scores. We do not store stream video. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
@@ -2359,7 +2363,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
@@ -2368,8 +2372,9 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <ul>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
+    <li><strong>Kick public data</strong> — when you monitor a Kick channel, we read publicly available chat messages and live-stream status from Kick's public API and WebSocket. We do not collect or store any personal data about Kick viewers or streamers beyond the channel slug you enter. No Kick credentials are requested or stored.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, timestamps, trigger scores, and the Twitch clip links generated for your account. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. We do not store any stream video; clips are hosted by Twitch.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
   </ul>
@@ -2387,6 +2392,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <p>We do not sell your personal data. We share information only with the following third parties as necessary to operate the Service:</p>
   <ul>
     <li><strong>Twitch</strong> — for authentication and for creating clips on your behalf. Governed by Twitch's Privacy Notice.</li>
+    <li><strong>Kick</strong> — public chat and stream-status data is read from Kick's public API and WebSocket. We do not transmit any of your personal data to Kick. Governed by Kick's Privacy Policy.</li>
     <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
   </ul>
   <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
@@ -2459,7 +2465,7 @@ COOKIES_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: June 11, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
