@@ -1048,7 +1048,7 @@ function AccountScreen({ me }) {
                 : <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Not connected</div>}
             </div>
             {hasTwitch
-              ? <span style={{fontSize:12,color:'var(--live)',fontWeight:600,flexShrink:0}}>✓ Connected</span>
+              ? <span style={{fontSize:12,color:'#9147ff',fontWeight:600,flexShrink:0}}>✓ Connected</span>
               : <a href="/auth/twitch" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}>Connect</a>}
           </div>
 
