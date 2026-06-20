@@ -16,7 +16,7 @@ from config.settings import settings
 
 _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
-_USER_URL  = "https://api.kick.com/public/v1/users/me"
+_USER_URL  = "https://kick.com/api/v1/user"
 
 _SCOPES = "user:read channel:read events:subscribe"
 
@@ -83,32 +83,47 @@ async def refresh_access_token(refresh_token: str) -> dict:
             return await resp.json()
 
 
-async def get_user(access_token: str) -> dict:
-    """Fetch the authenticated Kick user via the public API.
+_USER_ENDPOINTS = [
+    "https://kick.com/api/v1/user",
+    "https://api.kick.com/public/v1/users/me",
+    "https://kick.com/api/v2/user",
+]
 
-    Returns {"id": str, "username": str, "avatar_url": str, "slug": str}.
-    """
-    headers = {"Authorization": f"Bearer {access_token}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(_USER_URL, headers=headers) as resp:
-            resp.raise_for_status()
-            payload = await resp.json()
 
-    # Public API wraps data in {"data": [...]}
+def _parse_user(payload: dict | list) -> dict:
+    """Normalise a Kick user payload from any endpoint variant."""
     if isinstance(payload, dict) and "data" in payload:
-        users = payload["data"]
-        u = users[0] if users else {}
+        data = payload["data"]
+        u = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
     elif isinstance(payload, list):
         u = payload[0] if payload else {}
     else:
         u = payload
-
-    if not u:
-        raise ValueError("Kick user endpoint returned no data")
-
     return {
         "id":         str(u.get("user_id", u.get("id", ""))),
         "username":   u.get("username", ""),
         "avatar_url": u.get("profile_pic", "") or u.get("avatar_url", ""),
         "slug":       u.get("slug", "") or u.get("username", ""),
     }
+
+
+async def get_user(access_token: str) -> dict:
+    """Fetch the authenticated Kick user, trying multiple endpoint variants.
+
+    Returns {"id": str, "username": str, "avatar_url": str, "slug": str}.
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    last_error = None
+    async with aiohttp.ClientSession() as session:
+        for url in _USER_ENDPOINTS:
+            try:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        payload = await resp.json()
+                        user = _parse_user(payload)
+                        if user["id"]:
+                            return user
+                    last_error = f"{url} → HTTP {resp.status}"
+            except Exception as exc:
+                last_error = f"{url} → {exc}"
+    raise ValueError(f"All Kick user endpoints failed. Last: {last_error}")
