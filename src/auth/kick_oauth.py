@@ -7,6 +7,7 @@ API server:   https://api.kick.com/public/v1
 
 import base64
 import hashlib
+import json
 import os
 import urllib.parse
 
@@ -84,8 +85,12 @@ async def refresh_access_token(refresh_token: str) -> dict:
 
 
 _USER_ENDPOINTS = [
-    "https://kick.com/api/v1/user",
+    # OIDC userinfo endpoints (most likely on their auth server)
+    "https://id.kick.com/oauth/userinfo",
+    "https://id.kick.com/userinfo",
+    # Public API variants
     "https://api.kick.com/public/v1/users/me",
+    "https://kick.com/api/v1/user",
     "https://kick.com/api/v2/user",
 ]
 
@@ -107,6 +112,30 @@ def _parse_user(payload: dict | list) -> dict:
     }
 
 
+def _decode_jwt_user(token: str) -> dict | None:
+    """Try to extract user info from a JWT access token payload.
+
+    Returns None if the token is not a JWT or doesn't contain usable claims.
+    No signature verification — we already trust the token came from Kick.
+    """
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        padding = 4 - len(parts[1]) % 4
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * padding))
+        uid  = str(payload.get("sub", payload.get("user_id", payload.get("id", ""))))
+        name = payload.get("username", payload.get("preferred_username", payload.get("name", "")))
+        return {
+            "id":         uid,
+            "username":   name,
+            "avatar_url": payload.get("avatar_url", payload.get("picture", "")),
+            "slug":       payload.get("slug", name),
+        }
+    except Exception:
+        return None
+
+
 async def get_user(access_token: str) -> dict:
     """Fetch the authenticated Kick user, trying multiple endpoint variants.
 
@@ -126,4 +155,8 @@ async def get_user(access_token: str) -> dict:
                     last_error = f"{url} → HTTP {resp.status}"
             except Exception as exc:
                 last_error = f"{url} → {exc}"
+    # Last resort: decode JWT payload to extract user claims
+    user = _decode_jwt_user(access_token)
+    if user and user["id"]:
+        return user
     raise ValueError(f"All Kick user endpoints failed. Last: {last_error}")
