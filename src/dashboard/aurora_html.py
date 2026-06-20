@@ -696,22 +696,33 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   );
 }
 
-function KickLinkModal({ onDismiss, showError }) {
+function KickLinkModal({ onDismiss, showError, oauthConfigured }) {
+  const KickK = ({size=38, color='#0a0a0e'}) => (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="10" width="22" height="80" rx="4"/>
+      <polygon points="32,50 70,10 95,10 57,50 95,90 70,90"/>
+    </svg>
+  );
   return (
     <div className="kick-link-bg" onClick={e=>{if(e.target===e.currentTarget)onDismiss();}}>
       <div className="kick-link-card">
-        <div className="kick-link-icon">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 2h2v20H2V2zm4 0h2v8.5L14.5 2H18l-7 9 7 11h-3.5L10 13.5l-2 2.5V22H6V2z"/></svg>
-        </div>
+        <div className="kick-link-icon"><KickK/></div>
         <div className="kick-link-title">Connect your Kick account</div>
-        <div className="kick-link-sub">Link your Kick account to start monitoring streams, auto-clipping highlights, and reviewing clips on the Kick side.</div>
-        {showError && <div className="kick-link-error">Something went wrong connecting to Kick. Please try again.</div>}
-        <a href="/auth/kick" style={{width:'100%',textDecoration:'none'}}>
-          <button className="kick-link-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h2v20H2V2zm4 0h2v8.5L14.5 2H18l-7 9 7 11h-3.5L10 13.5l-2 2.5V22H6V2z"/></svg>
-            Connect Kick
-          </button>
-        </a>
+        {oauthConfigured
+          ? <>
+              <div className="kick-link-sub">Link your Kick account to start monitoring streams, auto-clipping highlights, and reviewing clips on the Kick side.</div>
+              {showError && <div className="kick-link-error">Something went wrong connecting to Kick. Please try again.</div>}
+              <a href="/auth/kick" style={{width:'100%',textDecoration:'none'}}>
+                <button className="kick-link-btn">
+                  <KickK size={16} color="#0a0a0e"/>
+                  Connect Kick
+                </button>
+              </a>
+            </>
+          : <>
+              <div className="kick-link-sub">Kick OAuth credentials haven't been configured on this server yet. Add <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>KICK_CLIENT_ID</code> and <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>KICK_CLIENT_SECRET</code> to your <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>.env</code> file and restart.</div>
+            </>
+        }
         <button className="kick-link-dismiss" onClick={onDismiss}>Maybe later</button>
       </div>
     </div>
@@ -1470,9 +1481,10 @@ function RdApp() {
   const [clips, setClips] = useState({});
   const [filter, setFilter] = useState('all');
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
-  const [kickLinked, setKickLinked]   = useState(false);
-  const [showKickLink, setShowKickLink] = useState(false);
-  const [kickLinkError, setKickLinkError] = useState(false);
+  const [kickLinked, setKickLinked]         = useState(false);
+  const [kickOauthConfigured, setKickOauthConfigured] = useState(true);
+  const [showKickLink, setShowKickLink]     = useState(false);
+  const [kickLinkError, setKickLinkError]   = useState(false);
   const switchPlatform = p => {
     if (p === 'kick' && !kickLinked) { setShowKickLink(true); return; }
     setActivePlatform(p);
@@ -1501,6 +1513,7 @@ function RdApp() {
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
     fetch('/auth/kick/status').then(r=>r.json()).then(data=>{
       setKickLinked(!!data.connected);
+      setKickOauthConfigured(!!data.oauth_configured);
       const params = new URLSearchParams(location.search);
       if (params.get('kick_error')) {
         setKickLinkError(true);
@@ -1599,7 +1612,7 @@ function RdApp() {
 
   return (
     <div className={'rd-app'+(activePlatform==='kick'?' kick-theme':'')} id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
-      {showKickLink && <KickLinkModal showError={kickLinkError} onDismiss={()=>{setShowKickLink(false);setKickLinkError(false);}}/>}
+      {showKickLink && <KickLinkModal showError={kickLinkError} oauthConfigured={kickOauthConfigured} onDismiss={()=>{setShowKickLink(false);setKickLinkError(false);}}/>}
       <nav className="rd-nav">
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
         {NAV.map(n=>(

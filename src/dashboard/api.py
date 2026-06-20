@@ -519,7 +519,8 @@ async def kick_status(request: Request):
     db_user = user_store.get_by_id(uid) if uid else None
     connected = bool(db_user and db_user.get("kick_id"))
     slug = db_user.get("kick_slug", "") if db_user else ""
-    return {"connected": connected, "kick_slug": slug}
+    oauth_configured = bool(settings.kick_client_id and settings.kick_client_secret)
+    return {"connected": connected, "kick_slug": slug, "oauth_configured": oauth_configured}
 
 
 @app.delete("/account", status_code=200)
