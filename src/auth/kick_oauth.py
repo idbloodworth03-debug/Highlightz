@@ -19,7 +19,7 @@ _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
 _USER_URL  = "https://kick.com/api/v1/user"
 
-_SCOPES = "user:read channel:read events:subscribe"
+_SCOPES = "openid user:read channel:read events:subscribe"
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -85,10 +85,8 @@ async def refresh_access_token(refresh_token: str) -> dict:
 
 
 _USER_ENDPOINTS = [
-    # OIDC userinfo endpoints (most likely on their auth server)
-    "https://id.kick.com/oauth/userinfo",
+    "https://id.kick.com/oauth/userinfo",  # OIDC — needs openid scope
     "https://id.kick.com/userinfo",
-    # Public API variants
     "https://api.kick.com/public/v1/users/me",
     "https://kick.com/api/v1/user",
     "https://kick.com/api/v2/user",
