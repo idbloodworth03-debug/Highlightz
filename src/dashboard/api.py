@@ -510,14 +510,24 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
         return err_redirect("PKCE verifier missing from session — please try again")
     try:
         tokens = await kick_oauth.exchange_code(code, code_verifier)
+        log.info("kick_tokens_received", keys=list(tokens.keys()))
     except Exception as exc:
         log.error("kick_token_exchange_failed", error=str(exc), tb=traceback.format_exc())
         return err_redirect(f"Token exchange failed: {exc}")
-    try:
-        kick_user = await kick_oauth.get_user(tokens["access_token"])
-    except Exception as exc:
-        log.error("kick_get_user_failed", error=str(exc), tb=traceback.format_exc())
-        return err_redirect(f"Could not fetch Kick user: {exc}")
+    # Try id_token first (OIDC — has user claims baked in)
+    kick_user = None
+    if tokens.get("id_token"):
+        kick_user = kick_oauth._decode_jwt_user(tokens["id_token"])
+        if kick_user and kick_user.get("id"):
+            log.info("kick_user_from_id_token", username=kick_user.get("username"))
+        else:
+            kick_user = None
+    if not kick_user:
+        try:
+            kick_user = await kick_oauth.get_user(tokens["access_token"])
+        except Exception as exc:
+            log.error("kick_get_user_failed", error=str(exc), tb=traceback.format_exc())
+            return err_redirect(f"Could not fetch Kick user: {exc}")
 
     kick_id  = str(kick_user["id"])
     username = kick_user.get("username", "")

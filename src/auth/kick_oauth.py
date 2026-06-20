@@ -145,16 +145,19 @@ async def get_user(access_token: str) -> dict:
         for url in _USER_ENDPOINTS:
             try:
                 async with session.get(url, headers=headers) as resp:
+                    body = await resp.text()
                     if resp.status == 200:
-                        payload = await resp.json()
+                        payload = json.loads(body)
                         user = _parse_user(payload)
                         if user["id"]:
                             return user
-                    last_error = f"{url} → HTTP {resp.status}"
+                        last_error = f"{url} → 200 but no id in: {body[:200]}"
+                    else:
+                        last_error = f"{url} → HTTP {resp.status}: {body[:200]}"
             except Exception as exc:
                 last_error = f"{url} → {exc}"
     # Last resort: decode JWT payload to extract user claims
     user = _decode_jwt_user(access_token)
     if user and user["id"]:
         return user
-    raise ValueError(f"All Kick user endpoints failed. Last: {last_error}")
+    raise ValueError(f"All Kick user endpoints failed. Last error: {last_error}")
