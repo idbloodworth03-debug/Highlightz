@@ -510,7 +510,8 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
         return err_redirect("PKCE verifier missing from session — please try again")
     try:
         tokens = await kick_oauth.exchange_code(code, code_verifier)
-        log.info("kick_tokens_received", keys=list(tokens.keys()))
+        log.info("kick_tokens_received", keys=list(tokens.keys()),
+                 scope=tokens.get("scope", "MISSING"), token_type=tokens.get("token_type", "MISSING"))
     except Exception as exc:
         log.error("kick_token_exchange_failed", error=str(exc), tb=traceback.format_exc())
         return err_redirect(f"Token exchange failed: {exc}")

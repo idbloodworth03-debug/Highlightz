@@ -8,12 +8,15 @@ API server:   https://api.kick.com/public/v1
 import base64
 import hashlib
 import json
+import logging
 import os
 import urllib.parse
 
 import aiohttp
 
 from config.settings import settings
+
+log = logging.getLogger(__name__)
 
 _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
@@ -159,18 +162,22 @@ async def get_user(access_token: str) -> dict:
             try:
                 async with session.get(url, headers=headers) as resp:
                     body = await resp.text()
+                    summary = f"{url} → {resp.status}: {body[:200]}"
+                    log.info("kick_userinfo_attempt", url=url, status=resp.status, body=body[:200])
                     if resp.status == 200:
                         payload = json.loads(body)
                         user = _parse_user(payload)
                         if user["id"]:
                             return user
-                        errors.append(f"{url} → 200 no id: {body[:120]}")
+                        errors.append(f"{url} → 200 no id")
                     else:
-                        errors.append(f"{url} → {resp.status}: {body[:120]}")
+                        errors.append(f"{url} → {resp.status}")
             except Exception as exc:
+                log.info("kick_userinfo_attempt", url=url, error=str(exc))
                 errors.append(f"{url} → {exc}")
     # Last resort: decode JWT payload to extract user claims
     user = _decode_jwt_user(access_token)
     if user and user["id"]:
         return user
-    raise ValueError("All Kick user endpoints failed:\n" + "\n".join(errors))
+    short = " | ".join(errors)
+    raise ValueError(f"All Kick user endpoints failed: {short}")
