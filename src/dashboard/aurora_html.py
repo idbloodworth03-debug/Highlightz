@@ -84,6 +84,11 @@ button{font-family:inherit;cursor:pointer}
   display:inline-flex;align-items:center;justify-content:center;gap:7px;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:.18s;white-space:nowrap}
 .rd-btn:hover{background:rgba(255,255,255,.1)}
+.kick-theme{--acc:#53fc18;--acc-2:#39b515;--grad:linear-gradient(135deg,#53fc18 0%,#39b515 100%);--grad-soft:linear-gradient(135deg,rgba(83,252,24,.14),rgba(57,181,21,.10));--glow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.4)}
+.kick-theme .rd-btn.grad{box-shadow:0 6px 18px -6px rgba(83,252,24,.5)}
+.kick-theme .rd-filter.active{box-shadow:0 4px 14px -4px rgba(83,252,24,.5)}
+.kick-theme .rd-navitem.active::before{background:rgba(83,252,24,.1)}
+.kick-theme .rd-navitem.active .ic{color:#53fc18}
 .rd-btn.grad{background:var(--grad);border:none;color:#fff;box-shadow:0 6px 18px -6px rgba(168,85,247,.6)}
 .rd-btn.grad:hover{filter:brightness(1.08);box-shadow:0 8px 24px -6px rgba(168,85,247,.75)}
 .rd-btn.live{background:var(--live);color:#052012;border:none}
@@ -139,6 +144,10 @@ button{font-family:inherit;cursor:pointer}
 .cull-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .cull-slider{width:100%;accent-color:var(--acc);cursor:pointer}
 .cull-preview{display:flex;justify-content:space-between;font-size:12px;font-weight:700}
+.plat-switch{display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:3px}
+.plat-sw-btn{border:none;border-radius:99px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:.18s;background:transparent;color:var(--fg-2)}
+.plat-sw-btn.active-twitch{background:#9146ff;color:#fff;box-shadow:0 2px 10px -3px rgba(145,70,255,.7)}
+.plat-sw-btn.active-kick{background:#53fc18;color:#0a0a0e;box-shadow:0 2px 10px -3px rgba(83,252,24,.6)}
 .rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;padding:7px 15px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
@@ -706,12 +715,11 @@ function CullPanel({ clips, onDone }) {
   );
 }
 
-function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
+function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, activePlatform, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
-  const [platform, setPlatform] = useState('twitch');
   const [showCull, setShowCull] = useState(false);
-  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,platform);setCh('');} };
+  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
@@ -738,9 +746,9 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, onA
               <option value="sports">Sports</option>
             </select>
           </div>
-          <div style={{display:'flex',gap:6,marginTop:6}}>
-            <button onClick={()=>setPlatform('twitch')} style={{flex:1,padding:'6px 0',fontSize:12,fontWeight:700,borderRadius:8,border:'1px solid',cursor:'pointer',transition:'.15s',background:platform==='twitch'?'var(--acc)':'transparent',color:platform==='twitch'?'#0a0a0a':'var(--fg-2)',borderColor:platform==='twitch'?'var(--acc)':'var(--hair)'}}>Twitch</button>
-            <button onClick={()=>setPlatform('kick')} style={{flex:1,padding:'6px 0',fontSize:12,fontWeight:700,borderRadius:8,border:'1px solid',cursor:'pointer',transition:'.15s',background:platform==='kick'?'#53fc18':'transparent',color:platform==='kick'?'#0a0a0a':'var(--fg-2)',borderColor:platform==='kick'?'#53fc18':'var(--hair)'}}>Kick</button>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginTop:6,padding:'5px 10px',borderRadius:8,background:'rgba(255,255,255,.04)',border:'1px solid var(--hair)'}}>
+            <span style={{width:7,height:7,borderRadius:'50%',background:'var(--acc)',boxShadow:'0 0 6px var(--acc)',flexShrink:0}}/>
+            <span style={{fontSize:12,fontWeight:600,color:'var(--fg-2)',textTransform:'capitalize'}}>{activePlatform}</span>
           </div>
           <button className="rd-btn grad" onClick={add} style={{marginTop:8}}><Icon name="plus" size={15}/>Monitor stream</button>
         </div>
@@ -1424,6 +1432,8 @@ function RdApp() {
   const [histories, setHistories] = useState({});
   const [clips, setClips] = useState({});
   const [filter, setFilter] = useState('all');
+  const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
+  const switchPlatform = p => { setActivePlatform(p); try{localStorage.setItem('hz_platform',p);}catch{} };
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
@@ -1519,19 +1529,21 @@ function RdApp() {
     flash('Clip deleted');
   };
 
-  const pending = Object.values(clips).filter(c=>c.status==='pending').length;
+  const platformStreams = Object.fromEntries(Object.entries(streams).filter(([,s])=>s.platform===activePlatform));
+  const platformClips   = Object.fromEntries(Object.entries(clips).filter(([,c])=>c.platform===activePlatform));
+  const pending = Object.values(platformClips).filter(c=>c.status==='pending').length;
 
   let screen;
-  if(route==='review') screen=<ReviewScreen {...{streams,scores,profiles,clips,filter,setFilter,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
-  else if(route==='streams') screen=<StreamsScreen {...{streams,scores,profiles,histories,clips,onForce:forceClip}}/>;
-  else if(route==='library') screen=<LibraryScreen {...{clips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
-  else if(route==='vod') screen=<VodScreen clips={clips}/>;
+  if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
+  else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
+  else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
+  else if(route==='vod') screen=<VodScreen clips={platformClips}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
 
   return (
-    <div className="rd-app" id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
+    <div className={'rd-app'+(activePlatform==='kick'?' kick-theme':'')} id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
       <nav className="rd-nav">
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
         {NAV.map(n=>(
@@ -1551,6 +1563,10 @@ function RdApp() {
         <header className="rd-header">
           <div><div className="htitle">{HEAD[route][0]}</div><div className="hsub">{HEAD[route][1]}</div></div>
           <div className="spacer"/>
+          <div className="plat-switch">
+            <button className={'plat-sw-btn'+(activePlatform==='twitch'?' active-twitch':'')} onClick={()=>switchPlatform('twitch')}>Twitch</button>
+            <button className={'plat-sw-btn'+(activePlatform==='kick'?' active-kick':'')} onClick={()=>switchPlatform('kick')}>Kick</button>
+          </div>
           <span className="rd-live"><span className="dot"/>Live</span>
           <button className="rd-user-chip" title="Account" style={{border:'none',cursor:'pointer'}} onClick={()=>setRoute('account')}>
             {me.avatar_url
