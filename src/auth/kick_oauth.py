@@ -140,7 +140,7 @@ async def get_user(access_token: str) -> dict:
     Returns {"id": str, "username": str, "avatar_url": str, "slug": str}.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    last_error = None
+    errors = []
     async with aiohttp.ClientSession() as session:
         for url in _USER_ENDPOINTS:
             try:
@@ -151,13 +151,13 @@ async def get_user(access_token: str) -> dict:
                         user = _parse_user(payload)
                         if user["id"]:
                             return user
-                        last_error = f"{url} → 200 but no id in: {body[:200]}"
+                        errors.append(f"{url} → 200 no id: {body[:120]}")
                     else:
-                        last_error = f"{url} → HTTP {resp.status}: {body[:200]}"
+                        errors.append(f"{url} → {resp.status}: {body[:120]}")
             except Exception as exc:
-                last_error = f"{url} → {exc}"
+                errors.append(f"{url} → {exc}")
     # Last resort: decode JWT payload to extract user claims
     user = _decode_jwt_user(access_token)
     if user and user["id"]:
         return user
-    raise ValueError(f"All Kick user endpoints failed. Last error: {last_error}")
+    raise ValueError("All Kick user endpoints failed:\n" + "\n".join(errors))
