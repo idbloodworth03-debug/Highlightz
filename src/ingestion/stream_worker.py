@@ -23,7 +23,7 @@ from src.profiles.profile import StreamerProfile
 
 log = structlog.get_logger(__name__)
 
-PROFILE_UPDATE_INTERVAL_FAST = 5   # seconds during learning phase (<30 samples)
+PROFILE_UPDATE_INTERVAL_FAST = 3   # seconds during calibration (first 100 samples = ~5 min)
 PROFILE_UPDATE_INTERVAL_SLOW = 30  # seconds once calibrated
 
 
@@ -120,12 +120,24 @@ class StreamWorker:
         p.researched = True
         if stats:
             p.research_clips_per_day = stats["clips_per_day"]
-            p.trigger_threshold = stats["suggested_threshold"]
+            p.trigger_threshold      = stats["suggested_threshold"]
+
+            # Pre-seed velocity baseline so the spike detector has a
+            # non-zero reference on the very first live evaluation.
+            # Inject several synthetic samples so the EMA stabilises
+            # quickly rather than starting from a single cold reading.
+            est_vel = stats["estimated_velocity"]
+            for _ in range(20):
+                p.update_velocity(est_vel)
+
             log.info("streamer_research_applied", channel=self._config.channel,
                      clips_per_day=stats["clips_per_day"],
+                     span_days=stats.get("span_days"),
                      existing_clips=stats["clip_count"],
                      median_views=stats["median_views"],
-                     seeded_threshold=stats["suggested_threshold"])
+                     p90_views=stats.get("p90_views"),
+                     seeded_threshold=stats["suggested_threshold"],
+                     seeded_velocity=est_vel)
         else:
             log.info("streamer_research_no_clips", channel=self._config.channel)
         await pm.save(p)
@@ -222,7 +234,7 @@ class StreamWorker:
         while self._running:
             interval = (
                 PROFILE_UPDATE_INTERVAL_FAST
-                if self._profile.velocity_samples < 30
+                if not self._profile.is_calibrated
                 else PROFILE_UPDATE_INTERVAL_SLOW
             )
             await asyncio.sleep(interval)
@@ -241,6 +253,7 @@ class StreamWorker:
             else:
                 avg_sentiment = 0.0
 
+            was_calibrated = self._profile.is_calibrated
             self._profile.update_velocity(velocity)
             self._profile.update_keyword_rate(keyword_rate)
             self._profile.update_sentiment(avg_sentiment)
@@ -248,6 +261,18 @@ class StreamWorker:
                 self._profile.update_audio_db(self._engine._audio_baseline_db)
             self._profile.total_watch_seconds += interval
             self._last_profile_save = time.time()
+
+            if not was_calibrated:
+                pct = round(self._profile.calibration_pct, 0)
+                if self._profile.is_calibrated:
+                    log.info("channel_calibrated", channel=self._config.channel,
+                             samples=self._profile.velocity_samples,
+                             avg_velocity=round(self._profile.avg_velocity, 3),
+                             threshold=round(self._profile.trigger_threshold, 2))
+                elif self._profile.velocity_samples % 20 == 0:
+                    log.info("calibrating", channel=self._config.channel,
+                             pct=pct, samples=self._profile.velocity_samples,
+                             avg_velocity=round(self._profile.avg_velocity, 3))
 
             # Hourly threshold decay — nudge 10% back toward the channel's seed threshold
             # so rejections can't permanently lock the threshold at its max.

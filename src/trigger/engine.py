@@ -113,6 +113,18 @@ class TriggerEngine:
             except Exception as exc:
                 log.warning("on_score_callback_error", channel=self.channel, error=str(exc))
 
+        # Calibration gate: suppress all triggers until the profile baseline is
+        # established from enough live observation samples. This prevents the engine
+        # from firing on the first velocity blip before it knows what "normal" looks like.
+        if self.profile and not self.profile.is_calibrated:
+            pct = round(self.profile.calibration_pct, 0)
+            if score >= threshold:
+                log.info("trigger_suppressed_calibrating", channel=self.channel,
+                         score=round(score, 1), calibration_pct=pct,
+                         samples=self.profile.velocity_samples,
+                         target=self.profile.calibration_target)
+            return
+
         if in_cooldown:
             if score >= threshold:
                 secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))

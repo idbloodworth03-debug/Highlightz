@@ -47,6 +47,11 @@ class StreamerProfile:
     researched: bool = False              # research attempted (even if no clips found)
     research_clips_per_day: float = 0.0   # how often this channel already gets clipped
 
+    # ── Calibration gate ─────────────────────────────────────────────────
+    # No clips fire until we've collected this many velocity samples.
+    # At 3s fast intervals → 100 samples = 5 minutes of silent observation.
+    calibration_target: int = 100
+
     # ── Adaptive trigger threshold ────────────────────────────────────────
     # Starts at global default; nudges down when clips get approved,
     # nudges up when clips get rejected (stays in [30, 90])
@@ -129,6 +134,15 @@ class StreamerProfile:
                     self.signal_weights[key] = max(_WEIGHT_MIN, self.signal_weights[key] - delta)
 
     @property
+    def is_calibrated(self) -> bool:
+        """True once enough baseline samples exist to trust the trigger."""
+        return self.velocity_samples >= self.calibration_target
+
+    @property
+    def calibration_pct(self) -> float:
+        return min(100.0, self.velocity_samples / self.calibration_target * 100)
+
+    @property
     def approval_rate(self) -> float:
         if self.total_clips == 0:
             return 0.0
@@ -148,8 +162,10 @@ class StreamerProfile:
     def to_dict(self) -> dict:
         d = asdict(self)
         d.pop("_EMA_ALPHA", None)
-        d["approval_rate"] = round(self.approval_rate, 3)
+        d["approval_rate"]           = round(self.approval_rate, 3)
         d["velocity_spike_multiplier"] = round(self.velocity_spike_multiplier, 2)
+        d["is_calibrated"]            = self.is_calibrated
+        d["calibration_pct"]          = round(self.calibration_pct, 1)
         # Round signal weights for cleaner display
         d["signal_weights"] = {k: round(v, 3) for k, v in self.signal_weights.items()}
         return d
