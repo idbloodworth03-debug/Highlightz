@@ -151,18 +151,6 @@ button{font-family:inherit;cursor:pointer}
 .plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color .25s ease,transform .12s ease;-webkit-tap-highlight-color:transparent}
 .plat-sw-btn:active{transform:scale(.93)}
 .plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
-.kick-link-bg{position:fixed;inset:0;background:rgba(5,4,8,.78);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);z-index:70;display:grid;place-items:center;padding:24px;animation:fadein .18s ease}
-.kick-link-card{width:min(420px,100%);border-radius:22px;background:rgba(16,14,22,.95);border:1px solid rgba(83,252,24,.22);box-shadow:0 0 0 1px rgba(83,252,24,.08),0 24px 60px -12px rgba(0,0,0,.8);padding:32px 28px;display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center}
-.kick-link-icon{width:72px;height:72px;border-radius:22px;background:linear-gradient(135deg,#53fc18 0%,#39b515 100%);display:grid;place-items:center;box-shadow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.5)}
-.kick-link-icon svg{width:38px;height:38px;fill:#0a0a0e}
-.kick-link-title{font-size:20px;font-weight:800;letter-spacing:-.03em;color:#fff}
-.kick-link-sub{font-size:13px;color:var(--fg-2);line-height:1.6;max-width:320px}
-.kick-link-btn{display:flex;align-items:center;gap:8px;width:100%;justify-content:center;padding:13px 20px;border-radius:12px;border:none;background:linear-gradient(135deg,#53fc18 0%,#39b515 100%);color:#0a0a0e;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 6px 18px -6px rgba(83,252,24,.6);transition:transform .12s ease,box-shadow .12s ease}
-.kick-link-btn:hover{transform:translateY(-1px);box-shadow:0 10px 24px -6px rgba(83,252,24,.7)}
-.kick-link-btn:active{transform:scale(.97)}
-.kick-link-dismiss{background:none;border:none;color:var(--fg-3);font-size:13px;cursor:pointer;padding:4px 8px;border-radius:8px;transition:color .15s}
-.kick-link-dismiss:hover{color:var(--fg)}
-.kick-link-error{font-size:12px;color:#ff6b6b;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.25);border-radius:8px;padding:8px 12px;width:100%;box-sizing:border-box}
 .rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;padding:7px 15px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
@@ -696,38 +684,6 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   );
 }
 
-function KickLinkModal({ onDismiss, showError, oauthConfigured }) {
-  const KickK = ({size=38, color='#0a0a0e'}) => (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill={color} xmlns="http://www.w3.org/2000/svg">
-      <rect x="10" y="10" width="22" height="80" rx="4"/>
-      <polygon points="32,50 70,10 95,10 57,50 95,90 70,90"/>
-    </svg>
-  );
-  return (
-    <div className="kick-link-bg" onClick={e=>{if(e.target===e.currentTarget)onDismiss();}}>
-      <div className="kick-link-card">
-        <div className="kick-link-icon"><KickK/></div>
-        <div className="kick-link-title">Connect your Kick account</div>
-        {oauthConfigured
-          ? <>
-              <div className="kick-link-sub">Link your Kick account to start monitoring streams, auto-clipping highlights, and reviewing clips on the Kick side.</div>
-              {showError && <div className="kick-link-error">Something went wrong connecting to Kick. Please try again.</div>}
-              <a href="/auth/kick" style={{width:'100%',textDecoration:'none'}}>
-                <button className="kick-link-btn">
-                  <KickK size={16} color="#0a0a0e"/>
-                  Connect Kick
-                </button>
-              </a>
-            </>
-          : <>
-              <div className="kick-link-sub">Kick OAuth credentials haven't been configured on this server yet. Add <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>KICK_CLIENT_ID</code> and <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>KICK_CLIENT_SECRET</code> to your <code style={{background:'rgba(255,255,255,.08)',padding:'2px 6px',borderRadius:4}}>.env</code> file and restart.</div>
-            </>
-        }
-        <button className="kick-link-dismiss" onClick={onDismiss}>Maybe later</button>
-      </div>
-    </div>
-  );
-}
 
 function CullPanel({ clips, onDone }) {
   const [thresh, setThresh] = React.useState(50);
@@ -1481,12 +1437,7 @@ function RdApp() {
   const [clips, setClips] = useState({});
   const [filter, setFilter] = useState('all');
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
-  const [kickLinked, setKickLinked]         = useState(false);
-  const [kickOauthConfigured, setKickOauthConfigured] = useState(true);
-  const [showKickLink, setShowKickLink]     = useState(false);
-  const [kickLinkError, setKickLinkError]   = useState(false);
   const switchPlatform = p => {
-    if (p === 'kick' && !kickLinked) { setShowKickLink(true); return; }
     setActivePlatform(p);
     try{localStorage.setItem('hz_platform',p);}catch{}
   };
@@ -1511,18 +1462,6 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
-    fetch('/auth/kick/status').then(r=>r.json()).then(data=>{
-      setKickLinked(!!data.connected);
-      setKickOauthConfigured(!!data.oauth_configured);
-      const params = new URLSearchParams(location.search);
-      if (params.get('kick_error')) {
-        setKickLinkError(true);
-        setShowKickLink(true);
-        history.replaceState(null,'',location.pathname);
-      } else if (data.connected && localStorage.getItem('hz_platform')==='kick') {
-        setActivePlatform('kick');
-      }
-    }).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -1612,7 +1551,7 @@ function RdApp() {
 
   return (
     <div className={'rd-app'+(activePlatform==='kick'?' kick-theme':'')} id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
-      {showKickLink && <KickLinkModal showError={kickLinkError} oauthConfigured={kickOauthConfigured} onDismiss={()=>{setShowKickLink(false);setKickLinkError(false);}}/>}
+
       <nav className="rd-nav">
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
         {NAV.map(n=>(
