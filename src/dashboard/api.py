@@ -452,19 +452,25 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
 @app.get("/me")
 async def me(request: Request):
     import math
+    from src.auth import users as user_store
     trial_ends_at = request.session.get("trial_ends_at", 0) or 0
     status        = request.session.get("subscription_status", "none")
     trial_days_left = 0
     if status == "trialing" and trial_ends_at:
         trial_days_left = max(0, math.ceil((trial_ends_at - time.time()) / 86400))
+    uid  = request.session.get("user_id", "")
+    user = user_store.get_by_id(uid) if uid else {}
     return {
-        "user_id":             request.session.get("user_id", ""),
+        "user_id":             uid,
         "username":            request.session.get("username", ""),
         "avatar_url":          request.session.get("avatar_url", ""),
         "is_admin":            request.session.get("is_admin", False),
         "subscription_status": status,
         "trial_ends_at":       trial_ends_at,
         "trial_days_left":     trial_days_left,
+        "twitch_login":        user.get("twitch_login") or user.get("twitch_display_name") or (request.session.get("username") if user.get("twitch_id") else None),
+        "kick_slug":           user.get("kick_slug") or "",
+        "kick_username":       user.get("kick_username") or "",
     }
 
 

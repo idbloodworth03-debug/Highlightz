@@ -963,13 +963,17 @@ function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr]       = useState('');
-  const sub   = me.subscription_status || 'none';
-  const trialDays = me.trial_days_left || 0;
-  const isTrial = sub==='trialing';
-  const subLabel = isTrial ? `Free trial — ${trialDays} day${trialDays===1?'':'s'} left`
+  const sub        = me.subscription_status || 'none';
+  const trialDays  = me.trial_days_left || 0;
+  const isTrial    = sub === 'trialing';
+  const subLabel   = isTrial ? `Free trial — ${trialDays} day${trialDays===1?'':'s'} left`
     : ({active:'Active',canceled:'Canceled',past_due:'Past due',expired:'Trial ended',none:'No subscription'}[sub] || sub);
-  const subColor = (sub==='active'||sub==='trialing') ? 'var(--live)' : sub==='past_due' ? 'var(--pending)' : 'var(--fg-3)';
+  const subColor   = (sub==='active'||sub==='trialing') ? 'var(--live)' : sub==='past_due' ? 'var(--pending)' : 'var(--fg-3)';
   const isSubscribed = sub==='active'||sub==='trialing';
+
+  const hasTwitch  = !!(me.twitch_login);
+  const hasKick    = !!(me.kick_slug);
+  const signedInWith = hasKick && !hasTwitch ? 'Kick' : 'Twitch';
 
   const deleteAccount = async () => {
     setDeleting(true); setDelErr('');
@@ -1005,36 +1009,64 @@ function AccountScreen({ me }) {
             <div><div className="fl">Billing</div><div className="fd">Manage or cancel via Stripe portal</div></div>
             <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
           </div>}
-          {!isSubscribed && <div style={{marginTop:16}}>
+          {!isSubscribed && sub!=='trialing' && <div style={{marginTop:16}}>
             <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Subscribe now
             </a>
           </div>}
         </div>
 
-        {/* Profile */}
+        {/* Profile & Connected Platforms */}
         <div className="rd-card glass">
-          <h3><span className="si"><Icon name="user" size={15}/></span>Profile</h3>
-          <div className="desc">Your Twitch account linked to Highlightz.</div>
-          <div className="rd-field" style={{paddingTop:0}}>
-            <div style={{display:'flex',alignItems:'center',gap:14}}>
-              {me.avatar_url
-                ? <img src={me.avatar_url} alt={me.username} style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
-                : <span style={{width:44,height:44,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:16,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
-              <div>
-                <div style={{fontWeight:700,fontSize:15}}>{me.username||'—'}</div>
-                <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with Twitch</div>
-              </div>
-            </div>
-            <button className="rd-btn sm danger" style={{flexShrink:0}} onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>Sign out</button>
-          </div>
-        </div>
+          <h3><span className="si"><Icon name="user" size={15}/></span>Profile &amp; Platforms</h3>
+          <div className="desc">Your account and connected streaming platforms.</div>
 
-        {/* Connected Platforms */}
-        <div className="rd-card glass">
-          <h3><span className="si"><Icon name="link" size={15}/></span>Connected Platforms</h3>
-          <div className="desc">Link additional platforms to monitor streams and create clips.</div>
-          <KickConnect/>
+          {/* Avatar + display name + sign out */}
+          <div style={{display:'flex',alignItems:'center',gap:14,padding:'12px 0 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+            {me.avatar_url
+              ? <img src={me.avatar_url} alt={me.username} style={{width:48,height:48,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+              : <span style={{width:48,height:48,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:18,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:15,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{me.username||'—'}</div>
+              <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with {signedInWith}</div>
+            </div>
+            <button className="rd-btn sm danger" style={{flexShrink:0}}
+              onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>
+              Sign out
+            </button>
+          </div>
+
+          {/* Twitch row */}
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 0',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+            <span style={{width:32,height:32,borderRadius:8,background:'rgba(145,71,255,.18)',display:'grid',placeItems:'center',flexShrink:0}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#9147ff"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
+            </span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:13}}>Twitch</div>
+              {hasTwitch
+                ? <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>@{me.twitch_login}</div>
+                : <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Not connected</div>}
+            </div>
+            {hasTwitch
+              ? <span style={{fontSize:12,color:'var(--live)',fontWeight:600,flexShrink:0}}>✓ Connected</span>
+              : <a href="/auth/twitch" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}>Connect</a>}
+          </div>
+
+          {/* Kick row */}
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 0 4px'}}>
+            <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
+            </span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:13}}>Kick</div>
+              {hasKick
+                ? <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>@{me.kick_slug}</div>
+                : <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Not connected</div>}
+            </div>
+            {hasKick
+              ? <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>✓ Connected</span>
+              : <a href="/auth/kick" className="rd-btn sm" style={{textDecoration:'none',background:'#53fc18',color:'#0a0a0a',fontWeight:700,border:'none',flexShrink:0}}>Connect</a>}
+          </div>
         </div>
 
         {/* Legal links */}
@@ -1074,29 +1106,6 @@ function AccountScreen({ me }) {
           &copy; 2026 ANTI Technology LLC — All rights reserved.
         </div>
       </div>
-    </div>
-  );
-}
-
-function KickConnect() {
-  const [status, setStatus] = useState(null);
-  useEffect(()=>{
-    fetch('/auth/kick/status').then(r=>r.json()).then(setStatus).catch(()=>{});
-  },[]);
-  if(!status) return null;
-  return (
-    <div className="rd-field">
-      <div>
-        <div className="fl" style={{display:'flex',alignItems:'center',gap:8}}>
-          <span style={{color:'#53fc18',fontWeight:800,fontSize:13}}>KICK</span>
-          {status.connected && <span style={{fontSize:11,color:'var(--fg-3)'}}>@{status.kick_slug}</span>}
-        </div>
-        <div className="fd">{status.connected ? 'Kick account linked — you can monitor Kick streams' : 'Connect your Kick account to monitor streams and create clips'}</div>
-      </div>
-      {status.connected
-        ? <span style={{fontSize:12,color:'var(--live)',fontWeight:600}}>✓ Connected</span>
-        : <a href="/auth/kick" className="rd-btn sm" style={{textDecoration:'none',background:'#53fc18',color:'#0a0a0a',fontWeight:700,border:'none'}}>Connect Kick</a>
-      }
     </div>
   );
 }
