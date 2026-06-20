@@ -13,7 +13,7 @@ _AUTH_URL  = "https://kick.com/oauth2/authorize"
 _TOKEN_URL = "https://kick.com/oauth2/token"
 _USER_URL  = "https://kick.com/api/v1/user"
 
-_SCOPES = "user:read channel:read channel:write chat:write events:subscribe"
+_SCOPES = "user:read channel:read events:subscribe"
 
 
 def authorization_url(state: str) -> str:
