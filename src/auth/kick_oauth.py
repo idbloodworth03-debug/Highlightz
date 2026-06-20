@@ -8,21 +8,21 @@ API server:   https://api.kick.com/public/v1
 import base64
 import hashlib
 import json
-import logging
 import os
 import urllib.parse
 
 import aiohttp
+import structlog
 
 from config.settings import settings
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
-_USER_URL  = "https://kick.com/api/v1/user"
 
-_SCOPES = "openid user:read channel:read events:subscribe"
+# Kick does not grant openid scope — exclude it so the token response scope matches
+_SCOPES = "user:read channel:read events:subscribe"
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -87,17 +87,18 @@ async def refresh_access_token(refresh_token: str) -> dict:
             return await resp.json()
 
 
+# api.kick.com endpoints tried in order; kick.com/* are kept as last resort
+# even though Cloudflare WAF may block server-to-server requests from DO IPs.
 _USER_ENDPOINTS = [
-    "https://id.kick.com/oauth/userinfo",       # OIDC — needs openid scope
-    "https://id.kick.com/userinfo",
-    "https://api.kick.com/public/v1/users/me",  # may not exist yet
-    "https://api.kick.com/public/v1/user",      # singular variant
-    "https://api.kick.com/v1/user",             # without /public prefix
-    "https://kick.com/api/v1/user",
+    "https://api.kick.com/public/v1/users/me",
+    "https://api.kick.com/public/v1/user",
+    "https://api.kick.com/v1/users/me",
+    "https://api.kick.com/v1/user",
     "https://kick.com/api/v2/user",
+    "https://kick.com/api/v1/user",
 ]
 
-# Mimic a browser to avoid Cloudflare WAF blocking server-to-server requests
+# Mimic a browser to reduce Cloudflare WAF rejection on kick.com endpoints
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -162,18 +163,17 @@ async def get_user(access_token: str) -> dict:
             try:
                 async with session.get(url, headers=headers) as resp:
                     body = await resp.text()
-                    summary = f"{url} → {resp.status}: {body[:200]}"
-                    log.info("kick_userinfo_attempt", url=url, status=resp.status, body=body[:200])
+                    log.info("kick_userinfo_attempt", url=url, status=resp.status, body=body[:300])
                     if resp.status == 200:
                         payload = json.loads(body)
                         user = _parse_user(payload)
                         if user["id"]:
                             return user
-                        errors.append(f"{url} → 200 no id")
+                        errors.append(f"{url} → 200 no id: {body[:80]}")
                     else:
                         errors.append(f"{url} → {resp.status}")
             except Exception as exc:
-                log.info("kick_userinfo_attempt", url=url, error=str(exc))
+                log.info("kick_userinfo_exc", url=url, error=str(exc))
                 errors.append(f"{url} → {exc}")
     # Last resort: decode JWT payload to extract user claims
     user = _decode_jwt_user(access_token)
