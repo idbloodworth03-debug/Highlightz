@@ -22,15 +22,14 @@ PRESETS: dict[str, ChannelRules] = {
     # Balanced defaults for unknown content. 40s pre-roll captures most action
     # windows; 3-minute cooldown prevents clip flooding.
     "default": ChannelRules(
-        velocity_multiplier=2.0,
-        trigger_threshold=58.0,
+        velocity_multiplier=2.5,
+        trigger_threshold=68.0,
         pre_roll=40,
         post_roll=15,
-        cooldown_seconds=180,
+        cooldown_seconds=240,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
-            "hype", "insane", "crazy", "no way", "omg", "clutch",
-            "w", "based", "goated", "lol", "lmao",
+            "hype", "insane", "no way", "clutch", "goated",
         }),
     ),
 
@@ -40,16 +39,14 @@ PRESETS: dict[str, ChannelRules] = {
     # 5-minute cooldown prevents over-clipping thin chat.
     # Short 20s pre-roll avoids capturing dead air before the moment.
     "small": ChannelRules(
-        velocity_multiplier=1.3,
-        trigger_threshold=42.0,
+        velocity_multiplier=1.6,
+        trigger_threshold=50.0,
         pre_roll=20,
         post_roll=12,
-        cooldown_seconds=300,
+        cooldown_seconds=360,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
-            "hype", "insane", "crazy", "no way", "omg", "bro", "clutch",
-            "w", "l", "based", "goated", "underrated", "hidden gem",
-            "this guy", "holy", "actually", "bro what",
+            "insane", "no way", "clutch", "goated", "holy",
         }),
     ),
 
@@ -58,17 +55,16 @@ PRESETS: dict[str, ChannelRules] = {
     # 22s pre-roll captures the full play leading up to the clutch.
     # 3-minute cooldown — major plays are at least a round apart.
     "fps": ChannelRules(
-        velocity_multiplier=2.0,
-        trigger_threshold=54.0,
+        velocity_multiplier=2.5,
+        trigger_threshold=65.0,
         pre_roll=22,
         post_roll=12,
-        cooldown_seconds=180,
+        cooldown_seconds=210,
         extra_keywords=frozenset({
-            "ace", "clutch", "headshot", "spray", "one tap", "noscope",
-            "no scope", "knife", "flick", "quickscope", "wallbang", "global",
-            "ranked", "banger", "outplay", "diff", "goated", "cracked",
-            "insane", "multikill", "spraydown", "deagle", "awp", "hs",
-            "top frag", "entry", "retake", "defuse", "eco", "force",
+            "ace", "clutch", "headshot", "one tap", "noscope",
+            "no scope", "flick", "quickscope", "wallbang",
+            "outplay", "cracked", "multikill", "spraydown", "awp",
+            "top frag", "retake", "defuse",
         }),
     ),
 
@@ -115,17 +111,14 @@ PRESETS: dict[str, ChannelRules] = {
     # Silence-burst is the top predictor here: the pause before a punchline.
     # 10s pre-roll captures the setup; 10-minute cooldown for natural pacing.
     "variety": ChannelRules(
-        velocity_multiplier=2.0,
-        trigger_threshold=52.0,
+        velocity_multiplier=2.5,
+        trigger_threshold=64.0,
         pre_roll=10,
         post_roll=15,
         cooldown_seconds=600,
         extra_keywords=frozenset({
-            "lmao", "lmfao", "omg", "wtf", "no way", "pog", "hype",
-            "clip it", "clip that", "based", "goated", "crazy", "wild",
-            "ratio", "copium", "cope", "w", "l", "bro moment",
-            "chat moment", "the way he", "why is he", "actually said",
-            "i cant", "bruh", "sheesh", "unhinged",
+            "omg", "no way", "pog", "clip it", "clip that",
+            "goated", "wild", "unhinged", "sheesh", "no shot",
         }),
     ),
 
@@ -133,11 +126,11 @@ PRESETS: dict[str, ChannelRules] = {
     # Teamfights build over 30-90s; chat peaks twice (engage + result).
     # 38s pre-roll starts before the engage; 4-minute cooldown per objective.
     "moba": ChannelRules(
-        velocity_multiplier=2.5,
-        trigger_threshold=56.0,
+        velocity_multiplier=2.8,
+        trigger_threshold=66.0,
         pre_roll=38,
         post_roll=18,
-        cooldown_seconds=240,
+        cooldown_seconds=300,
         extra_keywords=frozenset({
             "pentakill", "penta", "quadra", "triple kill", "ace", "baron",
             "dragon", "teamfight", "outplay", "diff", "inting", "gank",
@@ -152,8 +145,8 @@ PRESETS: dict[str, ChannelRules] = {
     # Wins are visible on screen; chat reacts within 3-5s.
     # 18s pre-roll captures the spin/open; 3-minute cooldown prevents spam.
     "casino": ChannelRules(
-        velocity_multiplier=1.5,
-        trigger_threshold=46.0,
+        velocity_multiplier=1.8,
+        trigger_threshold=56.0,
         pre_roll=18,
         post_roll=20,
         cooldown_seconds=180,
@@ -173,7 +166,7 @@ PRESETS: dict[str, ChannelRules] = {
     # Post-roll 22s for celebrations; 10-minute cooldown by game pace.
     "sports": ChannelRules(
         velocity_multiplier=3.5,
-        trigger_threshold=50.0,
+        trigger_threshold=62.0,
         pre_roll=6,
         post_roll=22,
         cooldown_seconds=600,

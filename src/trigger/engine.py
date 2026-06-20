@@ -358,10 +358,12 @@ class TriggerEngine:
         raw = sum(s.value * weights.get(s.type, 0) for s in signals)
         raw = min(raw, 100)
 
-        # Multiplier: x1.25 if 3 or more signals are active (value > 0.25)
-        active = sum(1 for s in signals if s.value > 0.25)
+        # Multiplier: x1.2 only when 3+ signals are genuinely strong (>0.5).
+        # Raising from >0.25 prevents keyword noise + any velocity blip from
+        # triggering the bonus on every moderately-active chat window.
+        active = sum(1 for s in signals if s.value > 0.5)
         if active >= 3:
-            raw *= 1.25
+            raw *= 1.2
 
         # Sub/raid flat bonus (+15 if fired within last 30s)
         if self._sub_raid_active and (time.time() - self._sub_raid_time) < 30:
