@@ -256,6 +256,25 @@ _LOGIN_MAX_ATTEMPTS = 10
 _LOGIN_WINDOW       = 60  # seconds
 _login_rate_lock    = asyncio.Lock()
 
+# Kick OAuth initiation rate limit (per IP)
+_kick_oauth_attempts: dict[str, tuple[int, float]] = {}
+_KICK_OAUTH_MAX    = 20
+_KICK_OAUTH_WINDOW = 60
+_kick_oauth_lock   = asyncio.Lock()
+
+async def _check_kick_oauth_rate(ip: str) -> None:
+    async with _kick_oauth_lock:
+        now = time.time()
+        stale = [k for k, (_, ts) in list(_kick_oauth_attempts.items()) if now - ts > _KICK_OAUTH_WINDOW]
+        for k in stale:
+            _kick_oauth_attempts.pop(k, None)
+        attempts, window_start = _kick_oauth_attempts.get(ip, (0, now))
+        if now - window_start > _KICK_OAUTH_WINDOW:
+            attempts, window_start = 0, now
+        if attempts >= _KICK_OAUTH_MAX:
+            raise HTTPException(status_code=429, detail="Too many requests — wait a minute")
+        _kick_oauth_attempts[ip] = (attempts + 1, window_start)
+
 async def _check_login_rate(ip: str) -> None:
     async with _login_rate_lock:
         now = time.time()
@@ -468,7 +487,7 @@ async def me(request: Request):
         "subscription_status": status,
         "trial_ends_at":       trial_ends_at,
         "trial_days_left":     trial_days_left,
-        "twitch_login":        user.get("twitch_login") or user.get("twitch_display_name") or (request.session.get("username") if user.get("twitch_id") else None),
+        "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
     }
@@ -479,6 +498,8 @@ async def me(request: Request):
 @app.get("/auth/kick")
 async def kick_login(request: Request, login: bool = False):
     from src.auth.kick_oauth import authorization_url
+    ip = request.client.host if request.client else "unknown"
+    await _check_kick_oauth_rate(ip)
     if not settings.kick_client_id:
         raise HTTPException(status_code=503, detail="Kick OAuth not configured")
     state = secrets.token_urlsafe(16)
@@ -494,10 +515,14 @@ async def kick_login(request: Request, login: bool = False):
 async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     import traceback, urllib.parse as _up
     from src.auth import kick_oauth, users as user_store
+    ip = request.client.host if request.client else "unknown"
+    await _check_kick_oauth_rate(ip)
     login_flow = request.session.pop("kick_login_flow", False)
 
     def err_redirect(reason: str):
-        msg = _up.quote(reason, safe="")
+        # Truncate to avoid leaking internal hostnames/stack details in URL/Referer
+        safe = reason[:120]
+        msg = _up.quote(safe, safe="")
         if login_flow:
             return RedirectResponse(f"/login?error=kick_failed&kick_detail={msg}")
         return RedirectResponse(f"/?kick_error=1&kick_detail={msg}")
@@ -562,7 +587,15 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
                 kick_id=kick_id, username=username, slug=slug,
                 avatar_url=avatar, **token_kwargs,
             )
-            request.session["user_id"] = user["id"]
+            # Clear existing session before writing (session fixation guard)
+            request.session.clear()
+            request.session["auth"]                = True
+            request.session["user_id"]             = user["id"]
+            request.session["username"]            = user.get("username", "")
+            request.session["avatar_url"]          = user.get("avatar_url", "")
+            request.session["is_admin"]            = user.get("is_admin", False)
+            request.session["subscription_status"] = user.get("subscription_status", "none")
+            request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
             log.info("kick_login", kick_id=kick_id, username=username)
             return RedirectResponse("/")
     except Exception as exc:

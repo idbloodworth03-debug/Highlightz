@@ -104,15 +104,18 @@ _BROWSER_UA = (
 )
 
 
-def _parse_user(payload: dict | list) -> dict:
-    """Normalise a Kick user payload from any endpoint variant."""
+def _unwrap_first(payload: dict | list) -> dict:
+    """Extract the first item from any Kick API envelope shape."""
     if isinstance(payload, dict) and "data" in payload:
         data = payload["data"]
-        u = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
-    elif isinstance(payload, list):
-        u = payload[0] if payload else {}
-    else:
-        u = payload
+        return data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
+    if isinstance(payload, list):
+        return payload[0] if payload else {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_user(payload: dict | list) -> dict:
+    u = _unwrap_first(payload)
     return {
         "id":         str(u.get("user_id", u.get("id", ""))),
         "username":   u.get("username", ""),
@@ -122,17 +125,9 @@ def _parse_user(payload: dict | list) -> dict:
 
 
 def _parse_channel_user(payload: dict | list) -> dict:
-    """Extract user identity from a Kick channel payload."""
-    if isinstance(payload, dict) and "data" in payload:
-        items = payload["data"]
-        ch = items[0] if isinstance(items, list) and items else (items if isinstance(items, dict) else {})
-    elif isinstance(payload, list):
-        ch = payload[0] if payload else {}
-    else:
-        ch = payload
-    # channel payloads nest user info under 'user' or expose broadcaster_user_id
-    u = ch.get("user", ch)
-    uid = str(ch.get("broadcaster_user_id", u.get("user_id", u.get("id", ""))))
+    ch = _unwrap_first(payload)
+    u   = ch.get("user", ch)
+    uid  = str(ch.get("broadcaster_user_id", u.get("user_id", u.get("id", ""))))
     name = ch.get("broadcaster_user_login", u.get("username", u.get("slug", "")))
     return {
         "id":         uid,
