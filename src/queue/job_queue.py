@@ -85,7 +85,8 @@ class JobQueue:
         if job.platform not in ("twitch", "kick"):
             log.warning("job_queue_bad_platform", platform=job.platform)
             return None
-        if not isinstance(job.trigger_score, (int, float)) or not (0.0 <= job.trigger_score <= 1.0):
+        # trigger_score is on a 0–100 scale (see TriggerEngine._compute_score)
+        if not isinstance(job.trigger_score, (int, float)) or not (0.0 <= job.trigger_score <= 100.0):
             log.warning("job_queue_bad_trigger_score", score=job.trigger_score)
             return None
         if not (0 <= job.pre_roll <= 300):
