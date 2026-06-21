@@ -956,8 +956,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'review',label:'Review',icon:'grid'},{id:'streams',label:'Streams',icon:'radio'},{id:'library',label:'Library',icon:'film'},{id:'vod',label:'Past Streams',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'},{id:'account',label:'Account',icon:'user'}];
-const HEAD={review:['Clip review','Approve highlights the moment they fire'],streams:['Streams','Live per-channel analytics & learning'],library:['Library','Every clip you have captured'],vod:['Past Streams','Scan finished streams to find highlight moments'],settings:['Settings','Tune triggers, storage & workflow'],feedback:['Feedback','Send us questions, suggestions, or bug reports'],account:['Account','Billing, profile & legal']};
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
