@@ -65,7 +65,7 @@ class TriggerEngine:
     # ── Public API ────────────────────────────────────────────────────────
 
     def ingest_chat(self, author: str, message: str) -> None:
-        self._metrics.ingest(message)
+        self._metrics.ingest(message, author=author)
 
     def notify_sub_raid(self) -> None:
         """Call when a sub, gifted sub, or raid event fires."""
@@ -94,6 +94,16 @@ class TriggerEngine:
         audio_db = await self.buffer.get_audio_level_db() if self.buffer else -100.0
         signals = self._build_signals(snapshot, rules, audio_db)
         score = self._compute_score(signals)
+
+        # Clip-it community trip-wire: 3+ unique users explicitly requesting a clip
+        # in the last 10s is treated as community consensus — raise score to at least 90
+        # so it overrides cooldown (emergency_threshold default = 85).
+        if snapshot.clip_it_unique_senders >= 3 and (not self.profile or self.profile.is_calibrated):
+            if score < 90.0:
+                log.info("clip_it_tripwire", channel=self.channel,
+                         unique_senders=snapshot.clip_it_unique_senders,
+                         score_before=round(score, 1))
+                score = 90.0
 
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
@@ -145,11 +155,20 @@ class TriggerEngine:
 
         if score >= threshold:
             self._last_trigger = now
+
+            # Chat lag correction: chat reactions trail the on-screen event by ~2s.
+            # When chat velocity is stronger than audio, extend pre_roll by 2s so
+            # the clip captures the moment that caused the spike rather than starting
+            # at the peak of chat activity.
+            chat_val = next((s.value for s in signals if s.type == SignalType.CHAT_VELOCITY), 0.0)
+            audio_val = next((s.value for s in signals if s.type == SignalType.AUDIO_SPIKE), 0.0)
+            lag_offset = 2 if chat_val > audio_val else 0
+
             event = TriggerEvent(
                 channel=self.channel,
                 score=score,
                 signals=signals,
-                pre_roll=rules.pre_roll,
+                pre_roll=rules.pre_roll + lag_offset,
                 post_roll=rules.post_roll,
                 virality_score=self._compute_virality_score(signals),
                 clip_title=self._generate_clip_title(signals),
@@ -184,6 +203,11 @@ class TriggerEngine:
         signals: list[Signal] = []
 
         # ── Chat velocity (0-1) ───────────────────────────────────────────
+        # Uses raw velocity for the spike_ratio so it stays consistent with
+        # the calibrated avg_velocity baseline, then applies two boosts:
+        #   1. Emote weight boost — when hype emotes (PogChamp/KEKW/etc.) dominate,
+        #      weighted_velocity > velocity; the ratio amplifies the score by up to +30%.
+        #   2. Unique sender diversity boost — more distinct users = more organic; up to +20%.
         current_velocity = snapshot.velocity
         if self.profile and self.profile.avg_velocity > 0 and self.profile.velocity_samples >= 10:
             spike_ratio = current_velocity / self.profile.avg_velocity
@@ -193,15 +217,48 @@ class TriggerEngine:
             spike_multiplier = rules.velocity_multiplier
 
         velocity_score = min(spike_ratio / spike_multiplier, 1.0)
+
+        # Emote weight boost (max +30%): when weighted_velocity > raw velocity,
+        # the chat is heavy with hype emotes
+        if snapshot.velocity > 0 and snapshot.weighted_velocity > snapshot.velocity:
+            emote_ratio = snapshot.weighted_velocity / snapshot.velocity
+            emote_boost = min((emote_ratio - 1.0) / 1.5, 0.30)
+            velocity_score = min(velocity_score * (1.0 + emote_boost), 1.0)
+
+        # Unique sender diversity boost (max +20%): 5 → no boost, 20+ → full +20%
+        if snapshot.unique_senders >= 5:
+            diversity_boost = min((snapshot.unique_senders - 5) / 75, 0.20)
+            velocity_score = min(velocity_score * (1.0 + diversity_boost), 1.0)
+
         signals.append(Signal(
             type=SignalType.CHAT_VELOCITY,
             value=velocity_score,
             channel=self.channel,
             metadata={
                 "velocity": round(current_velocity, 2),
+                "weighted_velocity": round(snapshot.weighted_velocity, 2),
                 "spike_ratio": round(spike_ratio, 2),
+                "unique_senders": snapshot.unique_senders,
                 "baseline": round(self.profile.avg_velocity, 2) if self.profile else 0,
             },
+        ))
+
+        # ── Emote homogeneity / crowdspeak (0-1) ─────────────────────────
+        # Fires when >50% of chat messages in the window are the same single emote.
+        # 50% → score 0.0 (ramp starts), 70% → score 0.5, 100% → score 1.0.
+        homogeneity = snapshot.emote_homogeneity
+        if homogeneity >= 0.7:
+            homo_score = 0.5 + (homogeneity - 0.7) / 0.6   # 0.7→0.5, 1.0→1.0
+        elif homogeneity >= 0.5:
+            homo_score = (homogeneity - 0.5) / 0.4          # 0.5→0.0, 0.7→0.5
+        else:
+            homo_score = 0.0
+        homo_score = min(homo_score, 1.0)
+        signals.append(Signal(
+            type=SignalType.EMOTE_HOMOGENEITY,
+            value=homo_score,
+            channel=self.channel,
+            metadata={"homogeneity": round(homogeneity, 3)},
         ))
 
         # ── Audio loudness (0-1) ──────────────────────────────────────────
@@ -311,21 +368,24 @@ class TriggerEngine:
     def _compute_virality_score(self, signals: list[Signal]) -> float:
         """
         Estimate virality potential (0-100) independent of the trigger threshold.
-        Weights reflect research: silence-burst and loud audio are the top predictors.
+        Crowdspeak (emote homogeneity) is weighted highly — synchronized emote spam
+        is one of the strongest predictors of a shareable moment.
         """
         val = {s.type: s.value for s in signals}
-        silence = val.get(SignalType.SILENCE_BURST, 0.0)
-        audio = val.get(SignalType.AUDIO_SPIKE, 0.0)
-        keyword = val.get(SignalType.KEYWORD, 0.0)
+        silence   = val.get(SignalType.SILENCE_BURST, 0.0)
+        audio     = val.get(SignalType.AUDIO_SPIKE, 0.0)
+        keyword   = val.get(SignalType.KEYWORD, 0.0)
         sentiment = val.get(SignalType.SENTIMENT, 0.0)
-        viewer = val.get(SignalType.VIEWER_SPIKE, 0.0)
+        viewer    = val.get(SignalType.VIEWER_SPIKE, 0.0)
+        crowdspeak = val.get(SignalType.EMOTE_HOMOGENEITY, 0.0)
 
         score = (
-            silence * 30 +
-            audio * 25 +
-            ((keyword + sentiment) / 2) * 20 +
-            viewer * 15 +
-            val.get(SignalType.CHAT_VELOCITY, 0.0) * 10
+            silence    * 22 +
+            audio      * 20 +
+            crowdspeak * 20 +
+            ((keyword + sentiment) / 2) * 18 +
+            viewer     * 12 +
+            val.get(SignalType.CHAT_VELOCITY, 0.0) * 8
         )
 
         # Sub/raid bonus
@@ -344,12 +404,13 @@ class TriggerEngine:
             return f"Clip from {self.channel}"
 
         titles = {
-            SignalType.SILENCE_BURST: "Insane Moment",
-            SignalType.AUDIO_SPIKE: "Big Reaction",
-            SignalType.KEYWORD: "Chat Goes Wild",
-            SignalType.VIEWER_SPIKE: "Massive Pop-Off",
-            SignalType.SENTIMENT: "Pure Emotion",
-            SignalType.CHAT_VELOCITY: "Chat Explodes",
+            SignalType.SILENCE_BURST:     "Insane Moment",
+            SignalType.AUDIO_SPIKE:       "Big Reaction",
+            SignalType.KEYWORD:           "Chat Goes Wild",
+            SignalType.VIEWER_SPIKE:      "Massive Pop-Off",
+            SignalType.SENTIMENT:         "Pure Emotion",
+            SignalType.CHAT_VELOCITY:     "Chat Explodes",
+            SignalType.EMOTE_HOMOGENEITY: "Chat Spams",
         }
         label = titles.get(peak, "Highlight")
 
@@ -360,12 +421,13 @@ class TriggerEngine:
 
     def _compute_score(self, signals: list[Signal]) -> float:
         base_weights = {
-            SignalType.CHAT_VELOCITY: 30,
-            SignalType.AUDIO_SPIKE: 25,
-            SignalType.KEYWORD: 15,
-            SignalType.SENTIMENT: 8,
-            SignalType.VIEWER_SPIKE: 7,
-            SignalType.SILENCE_BURST: 15,
+            SignalType.CHAT_VELOCITY:    27,
+            SignalType.AUDIO_SPIKE:      24,
+            SignalType.KEYWORD:          13,
+            SignalType.SENTIMENT:         7,
+            SignalType.VIEWER_SPIKE:      7,
+            SignalType.SILENCE_BURST:    13,
+            SignalType.EMOTE_HOMOGENEITY: 9,   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile
         weights = {}

@@ -11,6 +11,7 @@ class SignalType(str, Enum):
     MANUAL = "manual"
     VIEWER_SPIKE = "viewer_spike"
     SILENCE_BURST = "silence_burst"
+    EMOTE_HOMOGENEITY = "emote_homogeneity"  # crowdspeak: >N% of chat is the same emote
 
 
 @dataclass
