@@ -126,12 +126,22 @@ class TriggerEngine:
             return
 
         if in_cooldown:
-            if score >= threshold:
-                secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))
+            secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))
+            if score >= rules.emergency_threshold:
+                # Score is exceptional — break the cooldown so a huge moment isn't
+                # missed just because a smaller clip fired recently.
+                log.info("trigger_cooldown_override", channel=self.channel,
+                         score=round(score, 1), threshold=round(threshold, 1),
+                         emergency_threshold=rules.emergency_threshold,
+                         cooldown_remaining_s=secs_left)
+                # Fall through to the fire block below
+            elif score >= threshold:
                 log.info("trigger_suppressed_cooldown", channel=self.channel,
                          score=round(score, 1), threshold=round(threshold, 1),
                          cooldown_remaining_s=secs_left)
-            return
+                return
+            else:
+                return
 
         if score >= threshold:
             self._last_trigger = now

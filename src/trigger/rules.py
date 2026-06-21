@@ -13,6 +13,9 @@ class ChannelRules:
     pre_roll: int = 45
     post_roll: int = 15
     cooldown_seconds: int = 60         # min seconds between clips
+    # Score must reach this to break cooldown early — avoids missing huge moments
+    # right after a smaller clip fires. Set to 101 to disable override entirely.
+    emergency_threshold: float = 85.0
     extra_keywords: frozenset = field(default_factory=frozenset)
 
 
