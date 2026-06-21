@@ -2768,35 +2768,39 @@ async function api(url, method='GET') {
   return r.json();
 }
 
-async function grant(id, btn) {
+async function grant(idx) {
+  const u = _users[idx]; if (!u) return;
   try {
-    await api('/admin/users/' + id + '/grant', 'POST');
+    await api('/admin/users/' + u.id + '/grant', 'POST');
     toast('Access granted');
     load();
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
-async function revoke(id) {
+async function revoke(idx) {
+  const u = _users[idx]; if (!u) return;
   if (!confirm('Revoke access for this user?')) return;
   try {
-    await api('/admin/users/' + id + '/revoke', 'POST');
+    await api('/admin/users/' + u.id + '/revoke', 'POST');
     toast('Access revoked');
     load();
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
-async function del(id, name) {
-  if (!confirm('Permanently delete ' + name + ' and all their data? This cannot be undone.')) return;
+async function del(idx) {
+  const u = _users[idx]; if (!u) return;
+  if (!confirm('Permanently delete ' + u.username + ' and all their data? This cannot be undone.')) return;
   try {
-    await api('/admin/users/' + id, 'DELETE');
+    await api('/admin/users/' + u.id, 'DELETE');
     toast('User deleted');
     load();
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
-async function stripeSync(id) {
+async function stripeSync(idx) {
+  const u = _users[idx]; if (!u) return;
   try {
-    const r = await api('/admin/users/' + id + '/stripe-sync', 'POST');
+    const r = await api('/admin/users/' + u.id + '/stripe-sync', 'POST');
     toast(r.synced ? 'Synced: ' + r.app_status : 'No subscription found');
     load();
   } catch(e) { toast('Error: ' + e.message, false); }
@@ -2845,10 +2849,10 @@ async function load() {
       '<td>' + fmt(u.created_at) + '</td>' +
       '<td><div class="actions">' +
         '<button class="btn btn-details" onclick="viewUser(' + idx + ')">Details</button>' +
-        (canGrant ? '<button class="btn btn-grant" onclick="grant(' + JSON.stringify(u.id) + ')">Grant</button>' : '') +
-        (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + JSON.stringify(u.id) + ')">Revoke</button>' : '') +
-        (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + JSON.stringify(u.id) + ')">Stripe Sync</button>' : '') +
-        (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + JSON.stringify(u.id) + ',' + JSON.stringify(u.username) + ')">Delete</button>' : '') +
+        (canGrant ? '<button class="btn btn-grant" onclick="grant(' + idx + ')">Grant</button>' : '') +
+        (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + idx + ')">Revoke</button>' : '') +
+        (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + idx + ')">Stripe Sync</button>' : '') +
+        (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + idx + ')">Delete</button>' : '') +
       '</div></td>' +
     '</tr>';
   }).join('');
