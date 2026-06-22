@@ -380,12 +380,12 @@ class TriggerEngine:
         crowdspeak = val.get(SignalType.EMOTE_HOMOGENEITY, 0.0)
 
         score = (
-            silence    * 22 +
-            audio      * 20 +
-            crowdspeak * 20 +
-            ((keyword + sentiment) / 2) * 18 +
+            audio      * 28 +   # loud = viral; crowd roar / stream reactions dominate
+            silence    * 20 +
+            crowdspeak * 18 +
+            ((keyword + sentiment) / 2) * 16 +
             viewer     * 12 +
-            val.get(SignalType.CHAT_VELOCITY, 0.0) * 8
+            val.get(SignalType.CHAT_VELOCITY, 0.0) * 6
         )
 
         # Sub/raid bonus
@@ -421,12 +421,12 @@ class TriggerEngine:
 
     def _compute_score(self, signals: list[Signal]) -> float:
         base_weights = {
-            SignalType.CHAT_VELOCITY:    27,
-            SignalType.AUDIO_SPIKE:      24,
-            SignalType.KEYWORD:          13,
-            SignalType.SENTIMENT:         7,
+            SignalType.CHAT_VELOCITY:    22,
+            SignalType.AUDIO_SPIKE:      38,   # loud audio is the strongest single predictor
+            SignalType.KEYWORD:          12,
+            SignalType.SENTIMENT:         5,
             SignalType.VIEWER_SPIKE:      7,
-            SignalType.SILENCE_BURST:    13,
+            SignalType.SILENCE_BURST:    12,
             SignalType.EMOTE_HOMOGENEITY: 9,   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile

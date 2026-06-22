@@ -237,17 +237,15 @@ _clips:        dict[str, dict]           = _load_clips()
 _streams:      dict[str, dict]           = _load_streams()
 _feedback:     list                      = _load_feedback()
 _ws_clients:   dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
-_cleanup_tasks: dict[str, asyncio.Task]  = {}  # user_id -> pending stream cleanup task
 _data_lock = asyncio.Lock()
 _ws_lock   = asyncio.Lock()
 
-_WS_CLEANUP_DELAY = 30  # seconds to wait after last WS disconnect before stopping workers
-
 # ── Idle stream reaper ────────────────────────────────────────────────────────
 # Track the last time each user made an authenticated request or sent a WS ping.
-# If a user has active streams but hasn't been seen in 1 hour, stop their workers.
+# Streams persist through browser closes — only the idle reaper or liveness
+# check stops them (not WebSocket disconnect).
 _user_last_active: dict[str, float] = {}
-_IDLE_STREAM_TIMEOUT = 18000  # 5 hours
+_IDLE_STREAM_TIMEOUT = 28800  # 8 hours
 
 # ── Login rate-limit ──────────────────────────────────────────────────────────
 # Simple in-process counter: IP → (attempts, window_start)
@@ -1014,7 +1012,7 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
         for clip_id, clip in list(_clips.items()):
             if clip.get("user_id") != uid:
                 continue
-            score = float(clip.get("score") or (clip.get("trigger_score", 0) * 100))
+            score = float(clip.get("score") or clip.get("trigger_score", 0))  # VOD clips store 'score'; live clips store 'trigger_score'
             if score < min_score:
                 to_remove.append(clip_id)
         for clip_id in to_remove:
@@ -1147,17 +1145,9 @@ async def _stop_user_streams_now(uid: str) -> None:
                 log.warning("stop_user_streams_failed", channel=stream.get("channel"), error=str(exc))
 
 
-async def _stop_user_streams(uid: str) -> None:
-    """Stop all stream workers for a user after the WS-disconnect grace period."""
-    await asyncio.sleep(_WS_CLEANUP_DELAY)
-    # Re-check: user may have reconnected during the grace period
-    if _ws_clients.get(uid):
-        return
-    await _stop_user_streams_now(uid)
-
 
 async def idle_stream_reaper() -> None:
-    """Background task: stop stream workers for users idle longer than 5 hours,
+    """Background task: stop stream workers for users idle longer than 8 hours,
     and enforce subscription/trial expiry for any user with active streams.
 
     Runs every 5 minutes.
@@ -1194,7 +1184,7 @@ async def idle_stream_reaper() -> None:
                         await broadcast({"event": "subscription_expired"}, user_id=uid)
                         continue
 
-                # Idle timeout — stop if no HTTP activity in 5 hours
+                # Idle timeout — stop if no HTTP activity in 8 hours
                 last_active = _user_last_active.get(uid, now)
                 if now - last_active > _IDLE_STREAM_TIMEOUT:
                     log.info("idle_stream_reaper_stopping", user=uid,
@@ -1367,10 +1357,6 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.close(code=1008)
             return
         bucket.add(ws)
-        # Cancel any pending stream cleanup — user is back
-        pending = _cleanup_tasks.pop(uid, None)
-        if pending:
-            pending.cancel()
     _user_last_active[uid] = time.time()
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     try:
@@ -1389,11 +1375,11 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         async with _ws_lock:
             _ws_clients.get(uid, set()).discard(ws)
-            # Schedule cleanup only when this was the last connection for this user
-            if not _ws_clients.get(uid):
-                task = asyncio.create_task(_stop_user_streams(uid))
-                _cleanup_tasks[uid] = task
-                task.add_done_callback(lambda t: _cleanup_tasks.pop(uid, None))
+            # Streams are NOT stopped on WebSocket disconnect — closing the browser
+            # tab should not kill a running stream. Streams continue until:
+            #   1. The live stream ends (liveness check in stream_worker)
+            #   2. The user manually removes the stream
+            #   3. The idle reaper fires after 8 hours of no HTTP activity
         log.info("ws_disconnected", user=uid)
 
 

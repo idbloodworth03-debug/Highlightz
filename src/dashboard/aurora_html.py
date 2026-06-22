@@ -375,6 +375,9 @@ button{font-family:inherit;cursor:pointer}
 
   /* Toast: above bottom nav */
   .rd-toast{bottom:70px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
+
+  /* Cull panel: fixed bottom sheet above nav bar so it can't overflow the right edge */
+  .cull-panel{position:fixed;bottom:66px;left:10px;right:10px;width:auto;top:auto;z-index:50}
 }
 </style>
 </head>
@@ -623,8 +626,10 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   const embed = clip.embed_url || '';
   const twHref = clip.twitch_url || '';
   const thumb = clip.thumbnail_url || '';
-  // Twitch requires a parent= param matching the embedding host.
-  const embedSrc = embed
+  // Twitch embeds require JS and don't work in many mobile browsers (Error #4000).
+  // On narrow screens fall back to thumbnail + direct link — same as when no embed_url exists.
+  const isMobile = window.innerWidth <= 700;
+  const embedSrc = embed && !isMobile
     ? embed + (embed.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
     : '';
   const sigMap = {};
@@ -689,7 +694,7 @@ function CullPanel({ clips, onDone }) {
   const [thresh, setThresh] = React.useState(50);
   const [busy, setBusy]     = React.useState(false);
   const clipsArr = Object.values(clips);
-  const clipScore = c => parseFloat(c.score) || (parseFloat(c.trigger_score||0) * 100);
+  const clipScore = c => parseFloat(c.score||0) || parseFloat(c.trigger_score||0);
   const keep   = clipsArr.filter(c => clipScore(c) >= thresh).length;
   const remove = clipsArr.filter(c => clipScore(c) < thresh).length;
   const run = async () => {
@@ -1505,7 +1510,7 @@ function RdApp() {
           setHistories(p=>{const h=[...(p[msg.channel]||[]),msg.score].slice(-40);return{...p,[msg.channel]:h};});
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
-        else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 1 hour of inactivity. Restart them from the Streams tab.');}
+        else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 8 hours of inactivity. Restart them from the Live Streams tab.');}
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));

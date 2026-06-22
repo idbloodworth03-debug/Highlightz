@@ -237,7 +237,7 @@ async def main() -> None:
         job = ClipJob(
             channel=channel,
             platform=stream.get("platform", "twitch"),
-            trigger_score=1.0,
+            trigger_score=100.0,
             trigger_signals=[{"type": "MANUAL", "value": 1.0, "metadata": {}}],
             chat_snapshot=[],
             stream_title=stream.get("channel", channel),

@@ -5,6 +5,7 @@ hosted by the platform and attributed to the user — Highlightz never records
 or stores video.
 """
 
+import asyncio
 import structlog
 
 from src.queue.job_queue import ClipJob
@@ -62,6 +63,16 @@ class ClipProcessor:
 
         log.info("creating_twitch_clip", clip_id=meta.id, channel=channel,
                  broadcaster_id=broadcaster_id, user_id=job.user_id)
+
+        # Wait for post_roll seconds before requesting the clip.
+        # Twitch's clip API captures roughly the last 60s of broadcast at call time,
+        # so delaying by post_roll ensures the "aftermath" (crowd reaction, celebration)
+        # is included in the clip rather than the clip ending right at the peak moment.
+        if job.post_roll > 0:
+            wait = min(job.post_roll, 30)
+            if job.post_roll > 30:
+                log.warning("post_roll_capped", requested=job.post_roll, actual=wait)
+            await asyncio.sleep(wait)
 
         slug = await twitch_clips.create_clip(token, broadcaster_id)
         if not slug:

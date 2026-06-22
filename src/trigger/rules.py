@@ -28,7 +28,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=2.5,
         trigger_threshold=68.0,
         pre_roll=40,
-        post_roll=15,
+        post_roll=25,
         cooldown_seconds=240,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
@@ -45,7 +45,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=1.6,
         trigger_threshold=50.0,
         pre_roll=20,
-        post_roll=12,
+        post_roll=22,
         cooldown_seconds=360,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
@@ -61,7 +61,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=2.5,
         trigger_threshold=65.0,
         pre_roll=22,
-        post_roll=12,
+        post_roll=22,
         cooldown_seconds=210,
         extra_keywords=frozenset({
             "ace", "clutch", "headshot", "one tap", "noscope",
@@ -79,7 +79,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=4.5,
         trigger_threshold=58.0,
         pre_roll=15,
-        post_roll=15,
+        post_roll=25,
         cooldown_seconds=240,
         extra_keywords=frozenset({
             "brilliancy", "blunder", "checkmate", "resign", "trap", "gambit",
@@ -99,7 +99,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=3.5,
         trigger_threshold=52.0,
         pre_roll=20,
-        post_roll=18,
+        post_roll=30,
         cooldown_seconds=900,
         extra_keywords=frozenset({
             "omg", "no way", "crazy", "wild", "wtf", "based", "npc",
@@ -117,7 +117,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=2.5,
         trigger_threshold=64.0,
         pre_roll=10,
-        post_roll=15,
+        post_roll=25,
         cooldown_seconds=600,
         extra_keywords=frozenset({
             "omg", "no way", "pog", "clip it", "clip that",
@@ -132,7 +132,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=2.8,
         trigger_threshold=66.0,
         pre_roll=38,
-        post_roll=18,
+        post_roll=28,
         cooldown_seconds=300,
         extra_keywords=frozenset({
             "pentakill", "penta", "quadra", "triple kill", "ace", "baron",
@@ -151,7 +151,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=1.8,
         trigger_threshold=56.0,
         pre_roll=18,
-        post_roll=20,
+        post_roll=30,
         cooldown_seconds=180,
         extra_keywords=frozenset({
             "jackpot", "big win", "massive win", "bonus", "retrigger",
@@ -171,7 +171,7 @@ PRESETS: dict[str, ChannelRules] = {
         velocity_multiplier=3.5,
         trigger_threshold=62.0,
         pre_roll=6,
-        post_roll=22,
+        post_roll=32,
         cooldown_seconds=600,
         extra_keywords=frozenset({
             "goal", "score", "touchdown", "home run", "three pointer",
@@ -194,7 +194,7 @@ CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
         velocity_multiplier=2.2,
         trigger_threshold=53.0,
         pre_roll=45,
-        post_roll=15,
+        post_roll=25,
         cooldown_seconds=90,
         extra_keywords=frozenset({
             "hecarim", "heca", "penta", "pentakill", "challenger",
@@ -208,7 +208,7 @@ CHANNEL_OVERRIDES: dict[str, ChannelRules] = {
         velocity_multiplier=2.0,
         trigger_threshold=56.0,
         pre_roll=45,
-        post_roll=15,
+        post_roll=25,
         cooldown_seconds=90,
         extra_keywords=frozenset({
             "knife", "karambit", "butterfly", "bayonet", "fade", "doppler",
