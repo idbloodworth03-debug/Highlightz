@@ -436,6 +436,23 @@ const thumbFor   = ch => { let h=0; for(const c of (ch||'')) h=(h*31+c.charCodeA
 // cards. If that size 404s, the <img> onError falls back to the original URL.
 const hiResThumb = url => (url||'').replace(/-preview-\d+x\d+\./, '-preview-1280x720.');
 
+// Thumbnail load failed. Freshly-created Twitch clips 404 until Twitch finishes
+// generating the preview frame (and the 1280x720 upscale may never exist), so we
+// step down: hi-res -> original -> gradient placeholder. We track progress on a
+// data attribute because e.target.src returns the *resolved* absolute URL, which
+// can differ from the stored URL by encoding and break a naive string compare.
+function thumbFallback(e, channel) {
+  const img = e.target;
+  const orig = img.getAttribute('data-orig') || '';
+  if (orig && img.getAttribute('data-tried') !== '1') {
+    img.setAttribute('data-tried', '1');
+    img.src = orig;
+    return;
+  }
+  img.style.display = 'none';
+  if (img.parentElement) img.parentElement.style.background = thumbFor(channel);
+}
+
 function RdScoreChart({ data }) {
   const w=600, h=150, pad=6;
   const d = data && data.length>1 ? data : [0,0];
@@ -556,7 +573,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
     <div className="rd-clip">
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
         {thumb
-          ? <img src={hiResThumb(thumb)} alt="" onError={e=>{if(e.target.src!==thumb)e.target.src=thumb;}} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          ? <img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
@@ -646,7 +663,7 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
           {embedSrc
             ? <iframe src={embedSrc} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : thumb
-              ? <><img src={hiResThumb(thumb)} alt="" onError={e=>{if(e.target.src!==thumb)e.target.src=thumb;}} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<a href={twHref} target="_blank" rel="noopener" className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></a>}</>
+              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<a href={twHref} target="_blank" rel="noopener" className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></a>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
@@ -1299,7 +1316,7 @@ function VodScreen({ clips }) {
           <div key={job.id} className="rd-card glass">
             <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:14}}>
               {job.thumbnail_url
-                ? <img src={job.thumbnail_url} alt="" style={{width:80,height:45,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
+                ? <img src={job.thumbnail_url} alt="" onError={e=>{e.target.style.display='none'}} style={{width:80,height:45,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
                 : <div style={{width:80,height:45,borderRadius:8,background:'var(--grad-soft)',flexShrink:0,display:'grid',placeItems:'center'}}><Icon name="video" size={18} style={{color:'var(--acc)'}}/></div>}
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:14,marginBottom:3,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
