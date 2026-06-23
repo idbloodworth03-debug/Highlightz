@@ -21,8 +21,10 @@ log = structlog.get_logger(__name__)
 _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
 
-# Kick does not grant openid scope — exclude it so the token response scope matches
-_SCOPES = "user:read channel:read events:subscribe"
+# clips:write is required for POST /public/v1/clips — without it the API returns
+# 403 and clip creation silently fails. channel:write covers future channel-level
+# actions. Users who linked before this scope was added must re-link their account.
+_SCOPES = "user:read channel:read channel:write clips:write events:subscribe"
 
 
 def _pkce_pair() -> tuple[str, str]:

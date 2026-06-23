@@ -99,6 +99,7 @@ class ClipProcessor:
 
     async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
         from src.output import kick_clips
+        from src.output.kick_clips import KickScopeError
 
         token = await user_store.get_kick_token(job.user_id)
         if not token:
@@ -110,7 +111,15 @@ class ClipProcessor:
         log.info("creating_kick_clip", clip_id=meta.id, channel=channel,
                  kick_slug=kick_slug, user_id=job.user_id)
 
-        clip_url = await kick_clips.create_clip(token, kick_slug)
+        try:
+            clip_url = await kick_clips.create_clip(token, kick_slug)
+        except KickScopeError as exc:
+            # Propagate with a user-friendly message so the dashboard can surface it
+            raise RuntimeError(
+                f"Kick clipping requires re-linking your Kick account to grant "
+                f"clip permissions. Go to Settings → Kick and re-link."
+            ) from exc
+
         if not clip_url:
             raise RuntimeError(f"Kick clip creation failed for '{channel}'")
 
