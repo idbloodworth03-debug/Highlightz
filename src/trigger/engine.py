@@ -238,12 +238,17 @@ class TriggerEngine:
             if self._last_score < peak_score * DECAY_FACTOR:
                 break
 
+        # Two-point guard: check after the sleep loop and again right before
+        # firing so a stop() that lands in that narrow window is caught.
         if not self._running:
             return
 
         log.info("trigger_clip_timing", channel=self.channel,
                  waited_secs=round(waited, 1), peak_score=round(peak_score, 1),
                  score_at_fire=round(self._last_score, 1))
+
+        if not self._running:
+            return
 
         event = TriggerEvent(
             channel=self.channel,

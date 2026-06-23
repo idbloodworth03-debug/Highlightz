@@ -369,6 +369,7 @@ async def run_vod_analysis(
         peak_score   = 0.0   # track for diagnostics
         offset       = 0.0
         score_timeline: dict[int, float] = {}   # second → score for end-offset detection
+        trigger_offsets: dict[str, int]  = {}   # moment_id → raw trigger offset (pre CHAT_LAG)
 
         while offset <= duration:
             sec = int(offset)
@@ -386,11 +387,10 @@ async def run_vod_analysis(
             while clip_it_deq and clip_it_deq[0][0] < offset - CLIP_IT_W:
                 clip_it_deq.popleft()
 
-            # Only score once we have at least one full window of baseline data
-            # and at least 3 messages in the current window (avoids false positives
-            # in dead-chat periods).
-            if (offset - last_moment_offset >= COOLDOWN
-                    and offset >= WINDOW
+            # Score every eligible second regardless of cooldown so score_timeline
+            # is fully populated — the post-scan end-offset pass needs scores for
+            # the seconds immediately after each trigger (which are in cooldown).
+            if (offset >= WINDOW
                     and len(recent_deq) >= 3
                     and len(lt_deq) >= 10):
                 window = [m for _, m in recent_deq]
@@ -406,17 +406,17 @@ async def run_vod_analysis(
 
                 score_timeline[sec] = score
 
-                if score >= threshold:
+                if score >= threshold and offset - last_moment_offset >= COOLDOWN:
                     last_moment_offset = offset
                     # Chat lag correction: chat trails the on-screen event, so seek
                     # the VOD link a couple seconds earlier than the chat spike.
                     link_offset = max(0.0, offset - CHAT_LAG)
                     ts = _fmt_offset(link_offset)
                     sig_list = [{"type": k, "value": v} for k, v in breakdown.items()]
+                    mid = str(uuid.uuid4())
                     moment = {
-                        "id":              str(uuid.uuid4()),
+                        "id":              mid,
                         "offset_seconds":  link_offset,
-                        "_trigger_offset": offset,  # raw offset (pre CHAT_LAG) for end detection
                         "timestamp":       ts,
                         "score":           round(score, 1),
                         "trigger_score":   round(score, 1),   # 0-100, same scale as live clips
@@ -437,6 +437,7 @@ async def run_vod_analysis(
                         "user_id":         user_id,
                         "is_vod_moment":   True,
                     }
+                    trigger_offsets[mid] = int(offset)  # stored separately, never in the clip dict
                     moments.append(moment)
                     await on_moment(moment)
 
@@ -454,7 +455,7 @@ async def run_vod_analysis(
         DECAY_FACTOR = 0.40
         MAX_LOOK_AHEAD = 60  # seconds
         for m in moments:
-            trig_sec = int(m.pop("_trigger_offset", m["offset_seconds"]))
+            trig_sec = trigger_offsets.get(m["id"], int(m["offset_seconds"]))
             peak_s   = m["score"]
             end_sec  = trig_sec  # default: excitement ends immediately at trigger
             for s in range(trig_sec, min(trig_sec + MAX_LOOK_AHEAD, int(duration) + 1)):

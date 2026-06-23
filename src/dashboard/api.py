@@ -1144,9 +1144,15 @@ async def _stop_user_streams_now(uid: str) -> None:
     if not keys:
         return
     log.info("stop_user_streams", user=uid, count=len(keys))
-    for key in keys:
-        stream = _streams.get(key)
-        if stream and _publish_remove_stream:
+    removed = []
+    async with _data_lock:
+        for key in keys:
+            stream = _streams.pop(key, None)
+            if stream:
+                removed.append(stream)
+        _save_streams()
+    if _publish_remove_stream:
+        for stream in removed:
             try:
                 await _publish_remove_stream(stream["channel"], uid)
             except Exception as exc:

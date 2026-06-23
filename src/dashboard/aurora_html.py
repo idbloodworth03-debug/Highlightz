@@ -1624,8 +1624,9 @@ function RdApp() {
   let screen;
   // Kick is temporarily closed off while automated clipping is built — show a
   // big "under construction" prompt for every platform-specific feature screen.
-  // Account / Settings / Feedback are global (not platform-scoped) and stay open.
-  if(activePlatform==='kick' && ['review','streams','library','vod'].includes(route)) screen=<UnderConstruction/>;
+  // Account and Feedback are global and stay open; Settings shows Twitch-only
+  // stats so it's also gated while Kick is under construction.
+  if(activePlatform==='kick' && ['review','streams','library','vod','settings'].includes(route)) screen=<UnderConstruction/>;
   else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
