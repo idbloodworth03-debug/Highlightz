@@ -563,7 +563,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
 }
 
 function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
-  const score = Math.round(clip.trigger_score||0);
+  const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
   const title = clip.clip_title||clip.stream_title||'Live Stream';
@@ -636,7 +636,7 @@ function parseSecs(str) {
 
 function ClipModal({ clip, onClose, onApprove, onReject }) {
   if (!clip) return null;
-  const score = Math.round(clip.trigger_score||0);
+  const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
   const title = clip.clip_title||clip.stream_title||'Live Stream';

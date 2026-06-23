@@ -18,6 +18,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from config.settings import settings
 from .signals import Signal, SignalType, TriggerEvent
 from .rules import get_rules
+from . import scoring
 from src.chat.metrics import ChatMetrics, ChatSnapshot
 
 log = structlog.get_logger(__name__)
@@ -98,12 +99,12 @@ class TriggerEngine:
         # Clip-it community trip-wire: 3+ unique users explicitly requesting a clip
         # in the last 10s is treated as community consensus — raise score to at least 90
         # so it overrides cooldown (emergency_threshold default = 85).
-        if snapshot.clip_it_unique_senders >= 3 and (not self.profile or self.profile.is_calibrated):
-            if score < 90.0:
+        if snapshot.clip_it_unique_senders >= scoring.CLIP_IT_MIN_SENDERS and (not self.profile or self.profile.is_calibrated):
+            if score < scoring.CLIP_IT_FLOOR:
                 log.info("clip_it_tripwire", channel=self.channel,
                          unique_senders=snapshot.clip_it_unique_senders,
                          score_before=round(score, 1))
-                score = 90.0
+                score = scoring.CLIP_IT_FLOOR
 
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
@@ -216,19 +217,10 @@ class TriggerEngine:
             spike_ratio = self._metrics.velocity_spike_ratio()
             spike_multiplier = rules.velocity_multiplier
 
-        velocity_score = min(spike_ratio / spike_multiplier, 1.0)
-
-        # Emote weight boost (max +30%): when weighted_velocity > raw velocity,
-        # the chat is heavy with hype emotes
-        if snapshot.velocity > 0 and snapshot.weighted_velocity > snapshot.velocity:
-            emote_ratio = snapshot.weighted_velocity / snapshot.velocity
-            emote_boost = min((emote_ratio - 1.0) / 1.5, 0.30)
-            velocity_score = min(velocity_score * (1.0 + emote_boost), 1.0)
-
-        # Unique sender diversity boost (max +20%): 5 → no boost, 20+ → full +20%
-        if snapshot.unique_senders >= 5:
-            diversity_boost = min((snapshot.unique_senders - 5) / 75, 0.20)
-            velocity_score = min(velocity_score * (1.0 + diversity_boost), 1.0)
+        velocity_score = scoring.velocity_score(
+            spike_ratio, spike_multiplier,
+            snapshot.velocity, snapshot.weighted_velocity, snapshot.unique_senders,
+        )
 
         signals.append(Signal(
             type=SignalType.CHAT_VELOCITY,
@@ -247,13 +239,7 @@ class TriggerEngine:
         # Fires when >50% of chat messages in the window are the same single emote.
         # 50% → score 0.0 (ramp starts), 70% → score 0.5, 100% → score 1.0.
         homogeneity = snapshot.emote_homogeneity
-        if homogeneity >= 0.7:
-            homo_score = 0.5 + (homogeneity - 0.7) / 0.6   # 0.7→0.5, 1.0→1.0
-        elif homogeneity >= 0.5:
-            homo_score = (homogeneity - 0.5) / 0.4          # 0.5→0.0, 0.7→0.5
-        else:
-            homo_score = 0.0
-        homo_score = min(homo_score, 1.0)
+        homo_score = scoring.emote_homogeneity_score(homogeneity)
         signals.append(Signal(
             type=SignalType.EMOTE_HOMOGENEITY,
             value=homo_score,
@@ -305,15 +291,14 @@ class TriggerEngine:
         ))
 
         # ── Keyword (0-1) ─────────────────────────────────────────────────
-        if snapshot.messages:
-            keyword_rate = snapshot.keyword_hits / len(snapshot.messages)
-            trigger_bonus = min(snapshot.trigger_phrases * 0.15, 0.3)
-            if self.profile and self.profile.avg_keyword_rate > 0 and self.profile.keyword_samples >= 10:
-                keyword_score = min((keyword_rate / max(self.profile.avg_keyword_rate, 0.01)) * 0.5 + trigger_bonus, 1.0)
-            else:
-                keyword_score = min(keyword_rate * 3 + trigger_bonus, 1.0)
-        else:
-            keyword_score = 0.0
+        kw_baseline = (
+            self.profile.avg_keyword_rate
+            if self.profile and self.profile.keyword_samples >= 10 else 0.0
+        )
+        keyword_score = scoring.keyword_score(
+            snapshot.keyword_hits, len(snapshot.messages),
+            snapshot.trigger_phrases, baseline_rate=kw_baseline,
+        )
         signals.append(Signal(
             type=SignalType.KEYWORD,
             value=keyword_score,
@@ -326,10 +311,11 @@ class TriggerEngine:
             recent = snapshot.messages[-20:]
             compounds = [abs(self._vader.polarity_scores(m)["compound"]) for m in recent]
             avg_compound = sum(compounds) / len(compounds)
-            if self.profile and self.profile.avg_sentiment > 0 and self.profile.sentiment_samples >= 10:
-                sentiment_score = min(avg_compound / max(self.profile.avg_sentiment, 0.01) * 0.5, 1.0)
-            else:
-                sentiment_score = min(avg_compound * 2.0, 1.0)
+            sent_baseline = (
+                self.profile.avg_sentiment
+                if self.profile and self.profile.sentiment_samples >= 10 else 0.0
+            )
+            sentiment_score = scoring.sentiment_score(avg_compound, baseline=sent_baseline)
         else:
             sentiment_score = 0.0
         signals.append(Signal(
@@ -420,14 +406,16 @@ class TriggerEngine:
         return f"{self.channel} — {label}"
 
     def _compute_score(self, signals: list[Signal]) -> float:
+        # Chat-signal weights come from the shared scoring module so live and VOD
+        # never drift; audio/viewer/silence are live-only and added on top.
         base_weights = {
-            SignalType.CHAT_VELOCITY:    22,
+            SignalType.CHAT_VELOCITY:    scoring.CHAT_WEIGHTS["CHAT_VELOCITY"],
             SignalType.AUDIO_SPIKE:      38,   # loud audio is the strongest single predictor
-            SignalType.KEYWORD:          12,
-            SignalType.SENTIMENT:         5,
+            SignalType.KEYWORD:          scoring.CHAT_WEIGHTS["KEYWORD"],
+            SignalType.SENTIMENT:        scoring.CHAT_WEIGHTS["SENTIMENT"],
             SignalType.VIEWER_SPIKE:      7,
             SignalType.SILENCE_BURST:    12,
-            SignalType.EMOTE_HOMOGENEITY: 9,   # crowdspeak — CHI 2017 validated
+            SignalType.EMOTE_HOMOGENEITY: scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile
         weights = {}
@@ -446,8 +434,8 @@ class TriggerEngine:
         # Raising from >0.25 prevents keyword noise + any velocity blip from
         # triggering the bonus on every moderately-active chat window.
         active = sum(1 for s in signals if s.value > 0.5)
-        if active >= 3:
-            raw *= 1.2
+        if active >= scoring.MULTI_SIGNAL_MIN_ACTIVE:
+            raw *= scoring.MULTI_SIGNAL_BONUS
 
         # Sub/raid flat bonus (+15 if fired within last 30s)
         if self._sub_raid_active and (time.time() - self._sub_raid_time) < 30:

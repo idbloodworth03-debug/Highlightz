@@ -19,8 +19,12 @@ from collections import defaultdict, deque
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from config.settings import settings
-from src.chat.metrics import HIGH_ENERGY_KEYWORDS, CLIP_TRIGGER_PHRASES
+from src.chat.metrics import (
+    HIGH_ENERGY_KEYWORDS, CLIP_TRIGGER_PHRASES,
+    emote_weight, emote_homogeneity_of,
+)
 from src.trigger.rules import get_rules
+from src.trigger import scoring
 
 log = structlog.get_logger(__name__)
 
@@ -216,44 +220,72 @@ _vader = SentimentIntensityAnalyzer()
 
 
 def _score_window(
-    window_texts: list[str],
+    window: list[dict],
     lt_count: int,
     lt_secs: float,
     window_secs: float,
+    clip_it_senders: int,
     rules,
 ) -> tuple[float, dict]:
     """
-    Score a sliding window of chat messages relative to a long-term baseline.
+    Score a sliding window of chat messages relative to a long-term baseline,
+    using the exact same chat-signal formula as the live trigger engine
+    (src/trigger/scoring.py): emote-weighted velocity, unique-sender diversity,
+    emote homogeneity (crowdspeak), keyword density, and sentiment.
+
+    `window` is a list of {"text", "author"} dicts. Audio / viewer / silence
+    signals don't exist for VOD replay, so only the chat signals contribute and
+    the caller scales the threshold to compensate for the missing headroom.
     Returns (score 0-100, breakdown dict).
     """
-    cur_vel   = len(window_texts) / max(window_secs, 1.0)
-    lt_vel    = lt_count / max(lt_secs, 1.0)
-    spike     = cur_vel / max(lt_vel, 0.01)
-    vel_score = min(spike / rules.velocity_multiplier, 1.0)
+    texts = [m["text"] for m in window]
+    msg_count = len(texts)
 
-    kw_hits      = sum(1 for m in window_texts
-                       if bool(set(_re.findall(r"\w+", m.lower())) & HIGH_ENERGY_KEYWORDS))
-    trigger_hits = sum(1 for m in window_texts if CLIP_TRIGGER_PHRASES.search(m))
-    kw_rate      = kw_hits / max(len(window_texts), 1)
-    kw_score     = min(kw_rate * 3 + min(trigger_hits * 0.15, 0.3), 1.0)
+    cur_vel = msg_count / max(window_secs, 1.0)
+    lt_vel  = lt_count / max(lt_secs, 1.0)
+    spike   = cur_vel / max(lt_vel, 0.01)
 
-    if window_texts:
-        recent   = window_texts[-20:]
-        compounds = [abs(_vader.polarity_scores(m)["compound"]) for m in recent]
-        sent_score = min((sum(compounds) / len(compounds)) * 2.0, 1.0)
+    weighted_vel   = sum(emote_weight(t) for t in texts) / max(window_secs, 1.0)
+    unique_senders = len({m["author"] for m in window if m["author"]})
+
+    vel_score = scoring.velocity_score(
+        spike, rules.velocity_multiplier, cur_vel, weighted_vel, unique_senders)
+    homo_score = scoring.emote_homogeneity_score(emote_homogeneity_of(texts))
+
+    kw_hits      = sum(1 for t in texts
+                       if bool(set(_re.findall(r"\w+", t.lower())) & HIGH_ENERGY_KEYWORDS))
+    trigger_hits = sum(1 for t in texts if CLIP_TRIGGER_PHRASES.search(t))
+    kw_score     = scoring.keyword_score(kw_hits, msg_count, trigger_hits)
+
+    if texts:
+        recent    = texts[-20:]
+        compounds = [abs(_vader.polarity_scores(t)["compound"]) for t in recent]
+        sent_score = scoring.sentiment_score(sum(compounds) / len(compounds))
     else:
         sent_score = 0.0
 
-    raw = vel_score * 30 + kw_score * 15 + sent_score * 8
-    active = sum(1 for v in (vel_score, kw_score, sent_score) if v > 0.25)
-    if active >= 2:
-        raw *= 1.25
+    W = scoring.CHAT_WEIGHTS
+    raw = (
+        vel_score  * W["CHAT_VELOCITY"] +
+        kw_score   * W["KEYWORD"] +
+        sent_score * W["SENTIMENT"] +
+        homo_score * W["EMOTE_HOMOGENEITY"]
+    )
+    active = sum(1 for v in (vel_score, kw_score, sent_score, homo_score) if v > 0.5)
+    if active >= scoring.MULTI_SIGNAL_MIN_ACTIVE:
+        raw *= scoring.MULTI_SIGNAL_BONUS
     score = min(raw, 100)
 
+    # Clip-it community trip-wire — same as live: enough unique users explicitly
+    # asking for a clip forces the score to the floor.
+    if clip_it_senders >= scoring.CLIP_IT_MIN_SENDERS:
+        score = max(score, scoring.CLIP_IT_FLOOR)
+
     return score, {
-        "CHAT_VELOCITY": round(vel_score, 3),
-        "KEYWORD":       round(kw_score, 3),
-        "SENTIMENT":     round(sent_score, 3),
+        "CHAT_VELOCITY":     round(vel_score, 3),
+        "KEYWORD":           round(kw_score, 3),
+        "SENTIMENT":         round(sent_score, 3),
+        "EMOTE_HOMOGENEITY": round(homo_score, 3),
     }
 
 
@@ -300,15 +332,19 @@ async def run_vod_analysis(
             return
 
         rules = get_rules(chan, preset)
-        # VOD replay uses only chat signals (velocity 30 + keyword 15 + sentiment 8).
-        # Max achievable VOD score ≈ 66 vs 100 for live. Scale threshold to 35% of
-        # the live value so a genuine 2× velocity spike reliably fires.
-        threshold = rules.trigger_threshold * 0.35
+        # VOD replay scores chat with the exact same formula as the live engine
+        # (src/trigger/scoring.py), but audio / viewer / silence can't be measured
+        # from a VOD, so the score tops out at the chat-weight ceiling (~48 vs 100
+        # for live). Scale the channel's live threshold down to ~30% so a genuine
+        # chat spike fires as readily on a VOD as it does live.
+        threshold = rules.trigger_threshold * 0.30
 
-        WINDOW   = 15.0    # scoring window in seconds
-        LT_WIN   = 300.0   # long-term baseline window
-        COOLDOWN = 60.0    # min gap between moments
-        STEP     = 1.0     # evaluation granularity
+        WINDOW    = 15.0    # scoring window in seconds
+        LT_WIN    = 300.0   # long-term baseline window
+        COOLDOWN  = 60.0    # min gap between moments
+        STEP      = 1.0     # evaluation granularity
+        CLIP_IT_W = 10.0    # clip-it trip-wire window (matches live _CLIP_IT_WINDOW)
+        CHAT_LAG  = 2.0     # chat trails the on-screen event by ~2s (live lag correction)
 
         total_msgs = len(messages)
         duration   = max(duration, messages[-1]["offset"] + 30)
@@ -316,13 +352,16 @@ async def run_vod_analysis(
         log.info("vod_analysis_scanning", vod_id=vod_id, messages=total_msgs,
                  duration_s=int(duration), threshold=round(threshold, 1))
 
-        # Index messages into 1-second buckets for O(1) lookup
-        msg_by_sec: dict[int, list[str]] = defaultdict(list)
+        # Index messages into 1-second buckets for O(1) lookup. Each entry keeps the
+        # author so weighted velocity, unique-sender diversity and the clip-it
+        # trip-wire can be computed exactly like the live path.
+        msg_by_sec: dict[int, list[dict]] = defaultdict(list)
         for m in messages:
-            msg_by_sec[int(m["offset"])].append(m["text"])
+            msg_by_sec[int(m["offset"])].append(m)
 
-        recent_deq: deque = deque()   # (offset, text) within WINDOW
-        lt_deq:     deque = deque()   # (offset, text) within LT_WIN
+        recent_deq:  deque = deque()   # (offset, msg) within WINDOW
+        lt_deq:      deque = deque()   # (offset, msg) within LT_WIN
+        clip_it_deq: deque = deque()   # (offset, author) of clip-it requests within CLIP_IT_W
 
         last_moment_offset = -9999.0
         moments: list[dict] = []
@@ -332,15 +371,19 @@ async def run_vod_analysis(
 
         while offset <= duration:
             sec = int(offset)
-            for text in msg_by_sec.get(sec, []):
-                recent_deq.append((offset, text))
-                lt_deq.append((offset, text))
+            for msg in msg_by_sec.get(sec, []):
+                recent_deq.append((offset, msg))
+                lt_deq.append((offset, msg))
+                if msg["author"] and CLIP_TRIGGER_PHRASES.search(msg["text"]):
+                    clip_it_deq.append((offset, msg["author"]))
 
             # Prune sliding windows
             while recent_deq and recent_deq[0][0] < offset - WINDOW:
                 recent_deq.popleft()
             while lt_deq and lt_deq[0][0] < offset - LT_WIN:
                 lt_deq.popleft()
+            while clip_it_deq and clip_it_deq[0][0] < offset - CLIP_IT_W:
+                clip_it_deq.popleft()
 
             # Only score once we have at least one full window of baseline data
             # and at least 3 messages in the current window (avoids false positives
@@ -349,26 +392,30 @@ async def run_vod_analysis(
                     and offset >= WINDOW
                     and len(recent_deq) >= 3
                     and len(lt_deq) >= 10):
-                window_texts = [t for _, t in recent_deq]
+                window = [m for _, m in recent_deq]
+                clip_it_senders = len({a for _, a in clip_it_deq})
                 # Use actual elapsed time so baseline isn't artificially low
                 # during the first 300 seconds.
                 lt_actual = min(offset, LT_WIN)
                 score, breakdown = _score_window(
-                    window_texts, len(lt_deq), lt_actual, WINDOW, rules)
+                    window, len(lt_deq), lt_actual, WINDOW, clip_it_senders, rules)
 
                 if score > peak_score:
                     peak_score = score
 
                 if score >= threshold:
                     last_moment_offset = offset
-                    ts = _fmt_offset(offset)
+                    # Chat lag correction: chat trails the on-screen event, so seek
+                    # the VOD link a couple seconds earlier than the chat spike.
+                    link_offset = max(0.0, offset - CHAT_LAG)
+                    ts = _fmt_offset(link_offset)
                     sig_list = [{"type": k, "value": v} for k, v in breakdown.items()]
                     moment = {
                         "id":              str(uuid.uuid4()),
-                        "offset_seconds":  offset,
+                        "offset_seconds":  link_offset,
                         "timestamp":       ts,
                         "score":           round(score, 1),
-                        "trigger_score":   round(score / 100, 3),
+                        "trigger_score":   round(score, 1),   # 0-100, same scale as live clips
                         "trigger_signals": sig_list,
                         "clip_title":      f"{chan} — {ts}",
                         "stream_title":    vod_title,

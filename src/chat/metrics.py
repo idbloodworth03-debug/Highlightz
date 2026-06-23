@@ -36,6 +36,33 @@ _SINGLE_TOKEN = re.compile(r"^\w+$")
 _CLIP_IT_WINDOW = 10.0
 
 
+def emote_weight(message: str) -> float:
+    """Weight a message for weighted velocity: single-token hype emotes count 2.5x."""
+    stripped = message.strip().lower()
+    if _SINGLE_TOKEN.match(stripped) and stripped in HYPE_EMOTES:
+        return HYPE_EMOTE_WEIGHT
+    return 1.0
+
+
+def emote_homogeneity_of(messages: list[str]) -> float:
+    """
+    Fraction of messages that are the single most-common single-token (emote).
+    Returns 0 when fewer than 4 single-token messages are present (avoids noise
+    on thin chat). Shared by live metrics and VOD replay so both measure
+    crowdspeak identically.
+    """
+    if not messages:
+        return 0.0
+    emote_tokens = [
+        m.strip().lower() for m in messages
+        if _SINGLE_TOKEN.match(m.strip())
+    ]
+    if len(emote_tokens) < 4:
+        return 0.0
+    top_count = Counter(emote_tokens).most_common(1)[0][1]
+    return top_count / len(messages)
+
+
 @dataclass
 class ChatSnapshot:
     timestamp: float
@@ -86,11 +113,7 @@ class ChatMetrics:
         trigger_hit = int(bool(CLIP_TRIGGER_PHRASES.search(message)))
 
         # Emote weight: single-token hype emotes count 2.5x in weighted velocity
-        stripped = message.strip().lower()
-        if _SINGLE_TOKEN.match(stripped) and stripped in HYPE_EMOTES:
-            weight = HYPE_EMOTE_WEIGHT
-        else:
-            weight = 1.0
+        weight = emote_weight(message)
 
         self._timestamps.append(now)
         self._messages.append(message)
@@ -150,22 +173,8 @@ class ChatMetrics:
         return self.current_velocity() / lt
 
     def emote_homogeneity(self) -> float:
-        """
-        Fraction of messages in the window that are the single most-common
-        single-token (emote). Returns 0 when fewer than 4 emote messages are
-        present — avoids noise on thin chat.
-        """
-        msgs = list(self._messages)
-        if not msgs:
-            return 0.0
-        emote_tokens = [
-            m.strip().lower() for m in msgs
-            if _SINGLE_TOKEN.match(m.strip())
-        ]
-        if len(emote_tokens) < 4:
-            return 0.0
-        top_count = Counter(emote_tokens).most_common(1)[0][1]
-        return top_count / len(msgs)
+        """Fraction of the window that is the single most-common emote (crowdspeak)."""
+        return emote_homogeneity_of(list(self._messages))
 
     def _update_silence_tracking(self, now: float) -> None:
         """Track periods where velocity drops below 0.25x long-term average."""
