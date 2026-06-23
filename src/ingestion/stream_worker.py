@@ -364,5 +364,10 @@ class StreamWorker:
 
     def stop(self) -> None:
         self._running = False
+        # Stop the engine right away so any in-flight post-trigger monitor tasks
+        # are cancelled immediately — otherwise a removed stream can still push a
+        # clip seconds later (ghost stream).
+        if self._engine:
+            self._engine.stop()
         for t in self._tasks:
             t.cancel()

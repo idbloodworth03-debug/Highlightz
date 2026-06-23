@@ -63,6 +63,9 @@ class TriggerEngine:
         self._viewer_baseline: float = 0.0
         self._viewer_samples: int = 0
         self._last_score: float = 0.0  # updated each evaluation; read by monitoring tasks
+        # Detached post-trigger monitoring tasks (see _monitor_and_fire). Tracked so
+        # stop() can cancel them — otherwise a removed stream keeps firing clips.
+        self._monitor_tasks: set[asyncio.Task] = set()
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -180,10 +183,12 @@ class TriggerEngine:
             # small tail (TAIL_SECS) after the monitoring delay so the platform API
             # call happens at roughly trigger_time + watched + TAIL_SECS, and the
             # platform captures ~60 s ending at that point.
-            asyncio.create_task(
+            mon = asyncio.create_task(
                 self._monitor_and_fire(score, signals, rules, lag_offset),
                 name=f"monitor-{self.channel}-{int(now)}",
             )
+            self._monitor_tasks.add(mon)
+            mon.add_done_callback(self._monitor_tasks.discard)
 
     async def run_evaluation_loop(self, interval: float = 1.0) -> None:
         self._running = True
@@ -198,6 +203,11 @@ class TriggerEngine:
 
     def stop(self) -> None:
         self._running = False
+        # Cancel any in-flight post-trigger monitors so a removed stream can't
+        # push a clip after the worker is gone.
+        for t in list(self._monitor_tasks):
+            t.cancel()
+        self._monitor_tasks.clear()
 
     # ── Internal ─────────────────────────────────────────────────────────
 
