@@ -1418,7 +1418,28 @@ async def admin_page(request: Request):
     try:
         _require_admin(request)
     except HTTPException:
-        return RedirectResponse("/")
+        uid = request.session.get("user_id", "")
+        uname = request.session.get("username", uid or "unknown")
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><title>Admin — Not Authorized</title>
+            <style>body{{font-family:system-ui,sans-serif;background:#0a0a0e;color:#fff;display:flex;
+            align-items:center;justify-content:center;min-height:100vh;margin:0}}
+            .box{{text-align:center;max-width:520px;padding:40px}}
+            h1{{font-size:28px;margin-bottom:12px;color:#f87171}}
+            p{{color:#a0a0b0;line-height:1.6;margin-bottom:8px}}
+            code{{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:4px;font-size:13px}}
+            a{{color:#9146ff;text-decoration:none}}</style></head>
+            <body><div class="box">
+            <h1>403 — Not an admin</h1>
+            <p>Logged in as <code>{uname}</code>. This account does not have the admin flag set.</p>
+            <p>To grant yourself admin access, make sure <code>ADMIN_TWITCH_ID</code> in your
+            server environment matches your numeric Twitch user ID, then log out and log back in.</p>
+            <p>Alternatively, use the server CLI:<br>
+            <code>python -m src.auth.grant_admin &lt;username_or_user_id&gt;</code></p>
+            <p style="margin-top:24px"><a href="/">← Back to dashboard</a></p>
+            </div></body></html>""",
+            status_code=403,
+        )
     return HTMLResponse(ADMIN_HTML)
 
 

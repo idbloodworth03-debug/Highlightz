@@ -250,7 +250,10 @@ def upsert_twitch_user(
         existing["username"]    = username
         existing["twitch_login"] = login
         existing["avatar_url"]  = avatar_url
-        existing["is_admin"]    = is_admin
+        # Only elevate to admin — never downgrade. This prevents ADMIN_TWITCH_ID
+        # being unset (or wrong) from silently stripping admin on every Twitch login.
+        if is_admin:
+            existing["is_admin"] = True
         if access_token:
             existing["tw_access"]     = enc_access
             existing["tw_refresh"]    = enc_refresh
