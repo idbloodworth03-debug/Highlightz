@@ -127,19 +127,32 @@ async def create_clip(user_token: str, broadcaster_id: str,
     return None
 
 
-async def get_clip(slug: str, attempts: int = 8, delay: float = 2.0) -> dict | None:
+async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5) -> dict | None:
     """Poll Get Clips until the freshly-created clip is queryable.
-    Returns the clip object (url, embed_url, thumbnail_url, duration, title)."""
+    Returns the clip object (url, embed_url, thumbnail_url, duration, title), or
+    None if the clip never materialized (Twitch accepted the request but the
+    capture failed — e.g. the broadcast buffer was too short or VODs are off).
+
+    Twitch clip processing is asynchronous and commonly takes 20-40s after the
+    202, so we poll for ~50s before giving up. A clip that is never queryable
+    will show 'Clip is no longer available' on Twitch, so the caller MUST treat
+    a None return as a failure rather than fabricating a watch link.
+    """
     async with aiohttp.ClientSession() as session:
         token = await _get_app_token(session)
         headers = {"Client-Id": settings.twitch_client_id, "Authorization": f"Bearer {token}"}
-        for _ in range(attempts):
+        for attempt in range(attempts):
             async with session.get(f"{HELIX_BASE}/clips", headers=headers,
                                    params={"id": slug}) as resp:
                 if resp.status == 200:
                     rows = (await resp.json()).get("data", [])
-                    if rows:
+                    # A real clip always carries a url; require it before accepting.
+                    if rows and rows[0].get("url"):
+                        log.info("twitch_clip_ready_after", slug=slug,
+                                 seconds=round(attempt * delay, 1))
                         return rows[0]
             await asyncio.sleep(delay)
-    log.warning("twitch_clip_not_ready", slug=slug)
+    log.warning("twitch_clip_not_ready", slug=slug,
+                waited_seconds=round(attempts * delay, 1),
+                hint="Clip capture likely failed — broadcast buffer too short or VODs disabled")
     return None

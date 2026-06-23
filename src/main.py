@@ -142,7 +142,10 @@ async def run_clip_processor() -> None:
                 continue
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform)
-            meta = await asyncio.wait_for(processor.process(job), timeout=120.0)
+            # Budget: post_roll sleep (≤30s) + create_clip retries (≤15s) +
+            # get_clip polling (≤50s) + overhead. 180s leaves comfortable margin
+            # so a valid-but-slow clip isn't cut off mid-poll and lost.
+            meta = await asyncio.wait_for(processor.process(job), timeout=180.0)
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break

@@ -79,19 +79,24 @@ class ClipProcessor:
             raise RuntimeError(f"Twitch clip creation failed for '{channel}'")
 
         clip = await twitch_clips.get_clip(slug)
-        if clip:
-            meta.twitch_clip_id   = clip.get("id", slug)
-            meta.twitch_url       = clip.get("url", f"https://clips.twitch.tv/{slug}")
-            meta.embed_url        = clip.get("embed_url", f"https://clips.twitch.tv/embed?clip={slug}")
-            meta.thumbnail_url    = clip.get("thumbnail_url", "")
-            meta.duration_seconds = float(clip.get("duration", 0.0) or 0.0)
-            if clip.get("title"):
-                meta.clip_title = meta.clip_title or clip["title"]
-        else:
-            # Clip was requested but not yet queryable — store the slug so links work.
-            meta.twitch_clip_id = slug
-            meta.twitch_url     = f"https://clips.twitch.tv/{slug}"
-            meta.embed_url      = f"https://clips.twitch.tv/embed?clip={slug}"
+        if not clip:
+            # Twitch accepted the clip request (202) but the clip never became
+            # queryable — the capture failed (broadcast buffer too short, VODs
+            # disabled, etc.). Fabricating a clips.twitch.tv/{slug} link here just
+            # produces a "Clip is no longer available" page, so fail the job
+            # instead and let a future trigger try again.
+            raise RuntimeError(
+                f"Twitch clip '{slug}' for '{channel}' never finished processing — "
+                "capture failed (broadcast too short or VODs disabled on the channel)"
+            )
+
+        meta.twitch_clip_id   = clip.get("id", slug)
+        meta.twitch_url       = clip.get("url", f"https://clips.twitch.tv/{slug}")
+        meta.embed_url        = clip.get("embed_url", f"https://clips.twitch.tv/embed?clip={slug}")
+        meta.thumbnail_url    = clip.get("thumbnail_url", "")
+        meta.duration_seconds = float(clip.get("duration", 0.0) or 0.0)
+        if clip.get("title"):
+            meta.clip_title = meta.clip_title or clip["title"]
 
         meta.status = "pending"
         log.info("twitch_clip_ready", clip_id=meta.id, slug=slug, url=meta.twitch_url)
