@@ -21,10 +21,14 @@ log = structlog.get_logger(__name__)
 _AUTH_URL  = "https://id.kick.com/oauth/authorize"
 _TOKEN_URL = "https://id.kick.com/oauth/token"
 
-# clips:write is required for POST /public/v1/clips — without it the API returns
-# 403 and clip creation silently fails. channel:write covers future channel-level
-# actions. Users who linked before this scope was added must re-link their account.
-_SCOPES = "user:read channel:read channel:write clips:write events:subscribe"
+# Only scopes that actually exist in Kick's OAuth server may be requested —
+# id.kick.com/oauth/authorize rejects the WHOLE request with invalid_scope if any
+# unknown scope is present. Kick's published scope list (KickEngineering/KickDevDocs)
+# is: user:read, channel:read, channel:write, channel:rewards:read/write, chat:write,
+# streamkey:read, events:subscribe, moderation:*, kicks:read. There is NO clips scope
+# (Kick has no public clip-creation API), so requesting clips:write here previously
+# broke account linking entirely. Keep only the scopes we use.
+_SCOPES = "user:read channel:read channel:write events:subscribe"
 
 
 def _pkce_pair() -> tuple[str, str]:
