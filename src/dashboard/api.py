@@ -1084,6 +1084,14 @@ async def list_streams(request: Request):
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
+    # Kick is temporarily closed off while automated clipping is built — the public
+    # Kick API has no clip-creation endpoint, so block new Kick streams rather than
+    # silently failing to clip. (UI shows an "under construction" prompt to match.)
+    if req.platform == "kick":
+        raise HTTPException(
+            status_code=503,
+            detail="Kick support is under construction — automated Kick clipping is coming soon.",
+        )
     from src.auth.optout import is_opted_out
     if req.platform == "twitch" and is_opted_out(req.channel):
         raise HTTPException(status_code=403, detail=f"{req.channel} has opted out of clipping on Highlightz")

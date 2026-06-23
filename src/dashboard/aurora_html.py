@@ -1457,6 +1457,34 @@ function WelcomeOverlay({ onClose }) {
   );
 }
 
+function UnderConstruction() {
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                 textAlign:'center',minHeight:'70vh',padding:'40px 24px',gap:22}}>
+      <div style={{fontSize:88,lineHeight:1,filter:'drop-shadow(0 6px 18px rgba(83,252,24,.35))'}}>🚧</div>
+      <div style={{display:'inline-flex',alignItems:'center',gap:9,padding:'7px 16px',borderRadius:999,
+                   background:'rgba(83,252,24,.12)',border:'1px solid rgba(83,252,24,.35)',
+                   color:'#53fc18',fontWeight:800,fontSize:12.5,letterSpacing:'.14em',textTransform:'uppercase'}}>
+        <span style={{width:8,height:8,borderRadius:'50%',background:'#53fc18',boxShadow:'0 0 10px #53fc18'}}/>
+        Under Construction
+      </div>
+      <h1 style={{margin:0,fontSize:38,fontWeight:900,letterSpacing:'-.02em',
+                  background:'linear-gradient(135deg,#53fc18,#39b515)',
+                  WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
+        Kick is coming soon
+      </h1>
+      <p style={{margin:0,maxWidth:560,fontSize:15.5,lineHeight:1.6,color:'var(--fg-2)'}}>
+        We're building fully-automated Kick clipping to the same standard as our Twitch detection.
+        It isn't ready yet, so this section is temporarily closed off. In the meantime, switch back to
+        <b style={{color:'var(--fg)'}}> Twitch</b> to keep capturing highlights.
+      </p>
+      <p style={{margin:0,fontSize:13,color:'var(--fg-3)'}}>
+        Thanks for your patience — we'll flip this on the moment it's solid.
+      </p>
+    </div>
+  );
+}
+
 function RdApp() {
   const [route, setRoute] = useState('review');
   const [welcome, setWelcome] = useState(()=>{ try { return !localStorage.getItem('hz_welcome_seen'); } catch { return false; } });
@@ -1583,7 +1611,11 @@ function RdApp() {
   const pending = Object.values(platformClips).filter(c=>c.status==='pending').length;
 
   let screen;
-  if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
+  // Kick is temporarily closed off while automated clipping is built — show a
+  // big "under construction" prompt for every platform-specific feature screen.
+  // Account / Settings / Feedback are global (not platform-scoped) and stay open.
+  if(activePlatform==='kick' && ['review','streams','library','vod'].includes(route)) screen=<UnderConstruction/>;
+  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips}/>;
