@@ -365,9 +365,10 @@ async def run_vod_analysis(
 
         last_moment_offset = -9999.0
         moments: list[dict] = []
-        last_pct   = -1.0
-        peak_score = 0.0   # track for diagnostics
-        offset     = 0.0
+        last_pct     = -1.0
+        peak_score   = 0.0   # track for diagnostics
+        offset       = 0.0
+        score_timeline: dict[int, float] = {}   # second → score for end-offset detection
 
         while offset <= duration:
             sec = int(offset)
@@ -403,6 +404,8 @@ async def run_vod_analysis(
                 if score > peak_score:
                     peak_score = score
 
+                score_timeline[sec] = score
+
                 if score >= threshold:
                     last_moment_offset = offset
                     # Chat lag correction: chat trails the on-screen event, so seek
@@ -413,6 +416,7 @@ async def run_vod_analysis(
                     moment = {
                         "id":              str(uuid.uuid4()),
                         "offset_seconds":  link_offset,
+                        "_trigger_offset": offset,  # raw offset (pre CHAT_LAG) for end detection
                         "timestamp":       ts,
                         "score":           round(score, 1),
                         "trigger_score":   round(score, 1),   # 0-100, same scale as live clips
@@ -444,6 +448,24 @@ async def run_vod_analysis(
                 await asyncio.sleep(0)  # yield event loop
 
             offset += STEP
+
+        # Post-scan: find when excitement dulled for each moment (score < 40 % of peak).
+        # Uses the collected score_timeline so no extra API calls are needed.
+        DECAY_FACTOR = 0.40
+        MAX_LOOK_AHEAD = 60  # seconds
+        for m in moments:
+            trig_sec = int(m.pop("_trigger_offset", m["offset_seconds"]))
+            peak_s   = m["score"]
+            end_sec  = trig_sec  # default: excitement ends immediately at trigger
+            for s in range(trig_sec, min(trig_sec + MAX_LOOK_AHEAD, int(duration) + 1)):
+                if score_timeline.get(s, 0) >= peak_s * DECAY_FACTOR:
+                    end_sec = s
+                else:
+                    break
+            excitement_secs = max(1, end_sec - trig_sec)
+            m["end_offset_seconds"]       = max(0.0, end_sec - CHAT_LAG)
+            m["excitement_duration_seconds"] = excitement_secs
+            m["end_timestamp"]            = _fmt_offset(m["end_offset_seconds"])
 
         log.info("vod_analysis_complete", vod_id=vod_id, moments=len(moments),
                  peak_score=round(peak_score, 1), threshold=round(threshold, 1),

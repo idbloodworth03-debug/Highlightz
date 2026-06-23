@@ -65,12 +65,13 @@ class ClipProcessor:
                  broadcaster_id=broadcaster_id, user_id=job.user_id)
 
         # Wait for post_roll seconds before requesting the clip.
-        # Twitch's clip API captures roughly the last 60s of broadcast at call time,
-        # so delaying by post_roll ensures the "aftermath" (crowd reaction, celebration)
-        # is included in the clip rather than the clip ending right at the peak moment.
+        # Twitch's clip API captures roughly the last 60s of broadcast at call time.
+        # The trigger engine's monitoring task already waited for excitement to dull,
+        # so post_roll here is typically a small tail (≤5 s). Cap at 55 s to leave
+        # a 5 s pre-trigger window in the 60 s capture buffer.
         if job.post_roll > 0:
-            wait = min(job.post_roll, 30)
-            if job.post_roll > 30:
+            wait = min(job.post_roll, 55)
+            if job.post_roll > 55:
                 log.warning("post_roll_capped", requested=job.post_roll, actual=wait)
             await asyncio.sleep(wait)
 

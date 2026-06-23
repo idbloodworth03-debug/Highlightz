@@ -1281,6 +1281,14 @@ async def start_vod_analysis(request: Request, req: _VodRequest):
     async def _on_done(moments: list) -> None:
         job["status"]   = "done"
         job["progress"] = 100.0
+        # Back-fill excitement duration computed by the post-scan pass
+        async with _data_lock:
+            for m in moments:
+                if m["id"] in _clips:
+                    for field in ("end_offset_seconds", "excitement_duration_seconds", "end_timestamp"):
+                        if field in m:
+                            _clips[m["id"]][field] = m[field]
+            _save_clips()
         await broadcast({"event": "vod_done", "job_id": job_id,
                          "moment_count": len(moments)}, user_id=uid)
         _vod_tasks.pop(job_id, None)

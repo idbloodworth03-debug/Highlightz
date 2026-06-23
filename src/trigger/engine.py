@@ -62,6 +62,7 @@ class TriggerEngine:
         self._viewer_current: float = 0.0
         self._viewer_baseline: float = 0.0
         self._viewer_samples: int = 0
+        self._last_score: float = 0.0  # updated each evaluation; read by monitoring tasks
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ class TriggerEngine:
                          score_before=round(score, 1))
                 score = scoring.CLIP_IT_FLOOR
 
+        self._last_score = score
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
         if self.on_score:
@@ -165,24 +167,23 @@ class TriggerEngine:
             audio_val = next((s.value for s in signals if s.type == SignalType.AUDIO_SPIKE), 0.0)
             lag_offset = 2 if chat_val > audio_val else 0
 
-            event = TriggerEvent(
-                channel=self.channel,
-                score=score,
-                signals=signals,
-                pre_roll=rules.pre_roll + lag_offset,
-                post_roll=rules.post_roll,
-                virality_score=self._compute_virality_score(signals),
-                clip_title=self._generate_clip_title(signals),
-            )
             sig_vals = {str(s.type).split(".")[-1]: round(s.value, 3) for s in signals}
             log.info("trigger_fired", channel=self.channel, score=round(score, 1),
                      threshold=round(threshold, 1), signals=sig_vals,
                      audio_db=round(audio_db, 1), audio_peak=round(self._audio_peak_db, 1),
                      audio_base=round(self._audio_baseline_db, 1))
-            try:
-                await self.on_trigger(event)
-            except Exception as exc:
-                log.error("on_trigger_callback_error", channel=self.channel, error=str(exc))
+
+            # Don't push the clip job immediately. Instead, monitor the score for
+            # up to 52 s and fire the job only when excitement dulls (score < 40 %
+            # of peak). This makes the clip end at the natural end of the moment
+            # rather than cutting off mid-reaction. The processor still waits a
+            # small tail (TAIL_SECS) after the monitoring delay so the platform API
+            # call happens at roughly trigger_time + watched + TAIL_SECS, and the
+            # platform captures ~60 s ending at that point.
+            asyncio.create_task(
+                self._monitor_and_fire(score, signals, rules, lag_offset),
+                name=f"monitor-{self.channel}-{int(now)}",
+            )
 
     async def run_evaluation_loop(self, interval: float = 1.0) -> None:
         self._running = True
@@ -199,6 +200,54 @@ class TriggerEngine:
         self._running = False
 
     # ── Internal ─────────────────────────────────────────────────────────
+
+    async def _monitor_and_fire(
+        self,
+        peak_score: float,
+        signals: list,
+        rules,
+        lag_offset: int,
+    ) -> None:
+        """
+        After a trigger fires, poll _last_score (updated by the normal evaluation
+        loop every 1 s) until the excitement dulls: score drops below 40 % of the
+        peak, or 52 s elapse (Twitch captures the last ~60 s, so 52 s + TAIL_SECS
+        still leaves a small pre-trigger window).  Then push the clip job with a
+        short post_roll tail so the platform API is called at the natural end of
+        the moment.
+        """
+        DECAY_FACTOR  = 0.40   # "excitement dulled" threshold relative to peak
+        MAX_WAIT_SECS = 52.0   # hard cap — Twitch buffer is ~60 s
+        TAIL_SECS     = 5      # seconds to include after decay before calling API
+        INTERVAL      = 2.0
+
+        waited = 0.0
+        while self._running and waited < MAX_WAIT_SECS:
+            await asyncio.sleep(INTERVAL)
+            waited += INTERVAL
+            if self._last_score < peak_score * DECAY_FACTOR:
+                break
+
+        if not self._running:
+            return
+
+        log.info("trigger_clip_timing", channel=self.channel,
+                 waited_secs=round(waited, 1), peak_score=round(peak_score, 1),
+                 score_at_fire=round(self._last_score, 1))
+
+        event = TriggerEvent(
+            channel=self.channel,
+            score=peak_score,
+            signals=signals,
+            pre_roll=rules.pre_roll + lag_offset,
+            post_roll=TAIL_SECS,
+            virality_score=self._compute_virality_score(signals),
+            clip_title=self._generate_clip_title(signals),
+        )
+        try:
+            await self.on_trigger(event)
+        except Exception as exc:
+            log.error("on_trigger_callback_error", channel=self.channel, error=str(exc))
 
     def _build_signals(self, snapshot: ChatSnapshot, rules, audio_db: float = -100.0) -> list[Signal]:
         signals: list[Signal] = []
