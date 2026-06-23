@@ -745,14 +745,21 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
   const [showCull, setShowCull] = useState(false);
+  const [sortBy, setSortBy] = useState('newest');
   const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
   const streamsArr = Object.values(streams);
   const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
-  const shown = (filter==='all' ? clipsArr : clipsArr.filter(c=>c.status===filter))
-    .sort((a,b)=>{const sp={pending:0,approved:1,rejected:2};if(sp[a.status]!==sp[b.status])return sp[a.status]-sp[b.status];return(b.created_at||0)-(a.created_at||0);});
+  const filtered = filter==='all' ? clipsArr : clipsArr.filter(c=>c.status===filter);
+  const shown = [...filtered].sort((a,b)=>{
+    if(sortBy==='virality') return (b.virality_score||0)-(a.virality_score||0);
+    // default: pending first, then newest
+    const sp={pending:0,approved:1,rejected:2};
+    if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
+    return (b.created_at||0)-(a.created_at||0);
+  });
   return (
     <div className="rd-body" style={{flex:1}}>
       <aside className="rd-col" style={{minHeight:0}}>
@@ -810,6 +817,10 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
             )}
             <div className="rd-filters">
               {['all','pending','approved','rejected'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+            </div>
+            <div className="rd-filters">
+              <button className={'rd-filter'+(sortBy==='newest'?' active':'')} onClick={()=>setSortBy('newest')} title="Sort by date added"><Icon name="clock" size={12}/> Newest</button>
+              <button className={'rd-filter'+(sortBy==='virality'?' active':'')} onClick={()=>setSortBy('virality')} title="Sort by virality score"><Icon name="trending" size={12}/> Top Virality</button>
             </div>
           </div>
         </div>
