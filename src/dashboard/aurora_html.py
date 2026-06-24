@@ -649,6 +649,12 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   const embedSrc = embed && !isMobile
     ? embed + (embed.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
     : '';
+  // With no inline embed (mobile, or no embed_url) the clip can only play on
+  // Twitch — make the whole media area a tap target so it opens even when the
+  // thumbnail image is broken (the old absolutely-positioned play link was an
+  // unreliable hit target on mobile once the broken <img> collapsed).
+  const canLinkOut = !embedSrc && !!twHref;
+  const openClip = () => { if (twHref) window.open(twHref, '_blank', 'noopener'); };
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
     const k = (s.type||'').replace('SignalType.','');
@@ -659,13 +665,13 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   return (
     <div className="rd-modal-bg" onClick={onClose}>
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
-        <div className="rd-modal-media">
+        <div className="rd-modal-media" style={canLinkOut?{cursor:'pointer'}:undefined} onClick={canLinkOut?openClip:undefined}>
           {embedSrc
             ? <iframe src={embedSrc} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : thumb
-              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<a href={twHref} target="_blank" rel="noopener" className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></a>}</>
+              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
-          <button className="rd-modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
+          <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         </div>
 
