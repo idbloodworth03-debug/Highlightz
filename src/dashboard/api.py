@@ -2741,7 +2741,13 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="stat"><div class="stat-val" id="s-clips">—</div><div class="stat-lbl">Total Clips</div></div>
   </div>
   <div class="section">
-    <div class="section-head">Users</div>
+    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <span>Users</span>
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:#9c9caa;cursor:pointer">
+        <input type="checkbox" id="show-all-users" onchange="renderUsers()" style="cursor:pointer">
+        Show inactive users
+      </label>
+    </div>
     <div id="table-wrap" class="loading">Loading...</div>
   </div>
   <div class="section" style="margin-top:16px">
@@ -2837,6 +2843,12 @@ async function stripeSync(idx) {
 
 let _users = [];
 
+// A user counts as "active" if they have an active or trialing subscription.
+// Admins always show (it's the operator's own accounts).
+function isActiveUser(u) {
+  return u.is_admin || u.subscription_status === 'active' || u.subscription_status === 'trialing';
+}
+
 async function load() {
   _users = await api('/admin/users');
   const users = _users;
@@ -2851,12 +2863,28 @@ async function load() {
   document.getElementById('s-streams').textContent = streams;
   document.getElementById('s-clips').textContent = clips;
 
+  renderUsers();
+}
+
+function renderUsers() {
+  const users = _users || [];
+  const showAll = document.getElementById('show-all-users') && document.getElementById('show-all-users').checked;
+
   if (!users.length) {
     document.getElementById('table-wrap').innerHTML = '<div class="empty">No users yet.</div>';
     return;
   }
 
-  const rows = users.map((u, idx) => {
+  // Keep each row's index into the full _users array so grant/revoke/del/viewUser
+  // (which read _users[idx]) stay correct even when the list is filtered.
+  const visible = users.map((u, idx) => [u, idx]).filter(([u]) => showAll || isActiveUser(u));
+
+  if (!visible.length) {
+    document.getElementById('table-wrap').innerHTML = '<div class="empty">No active users. Tick &ldquo;Show inactive users&rdquo; to see everyone.</div>';
+    return;
+  }
+
+  const rows = visible.map(([u, idx]) => {
     const avatar = u.avatar_url
       ? '<img class="avatar" src="' + esc(u.avatar_url) + '" alt="">'
       : '<div class="avatar"></div>';
