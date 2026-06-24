@@ -42,6 +42,14 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "", pres
         log.warning("worker_already_running", channel=channel)
         return
 
+    # Kick is closed off ("under construction") — its public API has no clips
+    # endpoint and returns 401 on every channel lookup, so a Kick worker can only
+    # reconnect-loop and spam errors. Skip spawning entirely until Kick is live.
+    if platform_name == "kick":
+        log.info("kick_worker_skipped", channel=channel,
+                 reason="kick clipping closed off (under construction)")
+        return
+
     platform_cls = PLATFORM_MAP.get(platform_name, TwitchPlatform)
     platform = platform_cls()
 
