@@ -31,7 +31,7 @@ html,body{height:100%}
 body{font-family:var(--font);color:var(--fg);background:var(--rd-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font-family:inherit;cursor:pointer}
 ::selection{background:rgba(199,155,255,.3)}
-.rd-app{position:relative;height:100vh;display:grid;grid-template-columns:78px 1fr;isolation:isolate}
+.rd-app{position:relative;height:100vh;display:grid;grid-template-columns:104px 1fr;isolation:isolate}
 .rd-frame{display:grid;grid-template-rows:68px 1fr;min-height:0;overflow:hidden}
 .rd-screen{min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .rd-app::before{content:'';position:fixed;inset:0;z-index:-2;
@@ -204,12 +204,12 @@ button{font-family:inherit;cursor:pointer}
   -webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:6}
 .rd-nav .logo{margin-bottom:18px;display:flex}
 .rd-nav .logo img{height:44px;filter:drop-shadow(0 0 12px rgba(199,155,255,.55))}
-.rd-navitem{width:56px;height:54px;border-radius:15px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:4px;background:transparent;border:none;
-  color:var(--fg-3);font-size:9.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
+.rd-navitem{width:88px;height:64px;border-radius:16px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:5px;background:transparent;border:none;
+  color:var(--fg-3);font-size:11.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
 .rd-navitem:hover{color:var(--fg-2);background:rgba(255,255,255,.05)}
 .rd-navitem.active{color:#fff}
-.rd-navitem.active::before{content:'';position:absolute;inset:0;border-radius:15px;
+.rd-navitem.active::before{content:'';position:absolute;inset:0;border-radius:16px;
   background:var(--grad-soft);border:1px solid rgba(199,155,255,.3)}
 .rd-navitem.active .ic{color:var(--acc)}
 .rd-navitem .ic,.rd-navitem span{position:relative;z-index:1}
@@ -1649,7 +1649,7 @@ function RdApp() {
         {NAV.map(n=>(
           <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>setRoute(n.id)}>
             {n.id==='review'&&pending>0&&<span className="navbadge">{pending}</span>}
-            <span className="ic"><Icon name={n.icon} size={20}/></span>
+            <span className="ic"><Icon name={n.icon} size={22}/></span>
             <span>{n.label}</span>
           </button>
         ))}
