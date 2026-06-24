@@ -55,6 +55,38 @@ frontend's `subscription_expired` branch calls `refetchAll()` + shows a toast �
 a revoked user's tab updates instantly with no refresh. Mirror this shape for new
 mutations.
 
+## Audits are read-only until a finding is verified on the real target
+
+Investigating ("audit", "make sure X works", "why is Y broken") is **separate
+from changing code**. An audit produces a *diagnosis*, not a commit. Do not bundle
+speculative fixes into an audit. The discipline:
+
+1. **Verify the environment fact on the machine it applies to.** Production runs at
+   `/opt/highlightz` on a separate box; the dev container at `/home/user/Highlightz`
+   is **not** production. Never conclude "binary X is missing", "env var Y is unset",
+   or "the service is down" from the dev container — that says nothing about prod.
+   If a finding depends on the runtime environment, confirm it on prod (the user can
+   run a command) or label it explicitly as an *unverified assumption*.
+
+2. **Prove the regression before fixing it.** If something "worked yesterday", find
+   what actually changed (`git log`, the diff) and reason about whether that change
+   *can* produce the symptom. A change that only lowers a threshold cannot cause
+   *fewer* triggers — don't "fix" it. Match the mechanism to the symptom first.
+
+3. **Check the fix doesn't misfire on the normal path.** Before changing trigger /
+   scoring / clip code, ask: what does this condition do on a *healthy* stream?
+   Example of the trap: `audio_db <= -100` looks like "audio is dead", but
+   `_rms_db()` returns exactly `-100` for genuine silence on a working feed — so the
+   "fix" fires on every quiet moment. Trace the sentinel/edge values before relying
+   on them.
+
+4. **State blast radius and how it was verified in the commit.** For any trigger/clip
+   change: what it touches, why it can't reduce clips on a healthy stream, and how
+   you confirmed it (compiled, JSX-parsed, reproduced the bug, checked prod).
+
+When in doubt, hand the user a diagnostic command to run on production and wait for
+real output instead of changing code on an assumption.
+
 ## Other notes
 
 - Frontend is React via Babel-standalone embedded as a string in
