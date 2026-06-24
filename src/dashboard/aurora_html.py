@@ -822,7 +822,7 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
               </div>
             )}
             <div className="rd-filters">
-              {['all','pending','approved','rejected'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+              {['all','pending','approved'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
             </div>
             <div className="rd-filters">
               <button className={'rd-filter'+(sortBy==='newest'?' active':'')} onClick={()=>setSortBy('newest')} title="Sort by date added"><Icon name="clock" size={12}/> Newest</button>
