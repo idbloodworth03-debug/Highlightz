@@ -104,24 +104,6 @@ class TriggerEngine:
         signals = self._build_signals(snapshot, rules, audio_db)
         score = self._compute_score(signals)
 
-        # Audio-dead compensation: the audio signal carries weight 38 out of ~105
-        # total, so when it is permanently silent (ffmpeg/streamlink not installed,
-        # or the feed can't be probed) the raw score ceiling drops to ~67 — barely
-        # above the default threshold even with the multi-signal bonus. After the
-        # 30-sample warmup period, if audio is still at the silence floor, rescale
-        # the score linearly so the remaining signals span the full 0-100 range and
-        # a strong chat-only moment can still reach the threshold.
-        _AUDIO_WEIGHT  = 38.0
-        _TOTAL_WEIGHT  = 105.0  # approximate sum of all signal weights
-        _audio_dead = self._audio_samples >= 30 and audio_db <= -100.0
-        if _audio_dead:
-            _chat_max = _TOTAL_WEIGHT - _AUDIO_WEIGHT   # ≈ 67
-            score = min(score * (_TOTAL_WEIGHT / _chat_max), 100.0)
-            if self._audio_samples == 30:
-                log.warning("audio_unavailable_score_rescaled", channel=self.channel,
-                            hint="ffmpeg or streamlink may not be installed — audio signal "
-                                 "disabled; score is rescaled so chat-only moments can trigger")
-
         # Clip-it community trip-wire: 3+ unique users explicitly requesting a clip
         # in the last 10s is treated as community consensus — raise score to at least 90
         # so it overrides cooldown (emergency_threshold default = 85).
