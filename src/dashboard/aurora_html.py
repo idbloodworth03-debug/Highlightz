@@ -942,7 +942,18 @@ function LibraryScreen({ clips, onOpen, onApprove, onReject, onDelete }) {
 
 function SettingsScreen({ streams }) {
   const [stats, setStats] = useState(null);
-  useEffect(()=>{ fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{}); },[]);
+  useEffect(()=>{
+    const loadStats = ()=> fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{});
+    loadStats();
+    // Usage stats are derived from clips, so refresh them whenever a clip is
+    // created/approved/rejected (forwarded over the in-page hz_ws channel). Keeps
+    // approval rate, totals and "clips this week" live without a page refresh.
+    const onWs = e=>{ try{ const m=JSON.parse(e.detail);
+      if(['clip_ready','clip_updated','clip_removed'].includes(m.event)) loadStats();
+    }catch{} };
+    window.addEventListener('hz_ws', onWs);
+    return ()=>window.removeEventListener('hz_ws', onWs);
+  },[]);
   const PRESETS=[
     {name:'default',  emoji:'', desc:'General-purpose baseline. Good starting point for any stream type.'},
     {name:'small',    emoji:'', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
@@ -1528,7 +1539,11 @@ function RdApp() {
     toastTimer.current = setTimeout(()=>setToast(''), 3000);
   }, []);
 
-  useEffect(()=>{
+  // Single source of truth for loading all live state. Called once on mount and
+  // again on every WebSocket (re)connect so the UI fully self-heals after any
+  // disconnect (laptop sleep, network blip, server restart on deploy) without a
+  // manual page refresh — anything that changed during the gap is pulled fresh.
+  const refetchAll = useCallback(()=>{
     Promise.all([fetch('/clips').then(r=>r.json()), fetch('/streams').then(r=>r.json())])
       .then(([ca,sa])=>{
         setClips(Object.fromEntries(ca.map(c=>[c.id,c])));
@@ -1538,6 +1553,11 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+  },[]);
+  const wsBootstrapped = useRef(false);
+
+  useEffect(()=>{
+    refetchAll();
     // Surface Kick OAuth results from redirect params
     const _params = new URLSearchParams(location.search);
     if (_params.get('kick_linked')) {
@@ -1556,8 +1576,16 @@ function RdApp() {
     let ws;
     const connect = ()=>{
       ws = new WebSocket(`${proto}://${location.host}/ws`);
+      // The very first open is covered by the mount fetch; every open after that
+      // is a reconnect, so pull all state fresh to heal whatever was missed while
+      // the socket was down. No manual refresh ever needed.
+      ws.onopen = ()=>{ if(wsBootstrapped.current) refetchAll(); wsBootstrapped.current = true; };
       ws.onmessage = e=>{
         const msg = JSON.parse(e.data);
+        // Re-broadcast on the in-page channel so other screens (e.g. Settings
+        // usage stats) can react live to clip changes without their own socket.
+        if(['clip_ready','clip_updated','clip_removed'].includes(msg.event))
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));
@@ -1573,6 +1601,13 @@ function RdApp() {
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
         else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 8 hours of inactivity. Restart them from the Live Streams tab.');}
+        else if(msg.event==='subscription_expired'){
+          // Backend stopped this user's streams because their trial/subscription
+          // lapsed. Pull fresh state so the account screen and stream list reflect
+          // it live instead of waiting for a refresh.
+          refetchAll();
+          flash(msg.message||'Your subscription has expired — streams have been stopped.');
+        }
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));

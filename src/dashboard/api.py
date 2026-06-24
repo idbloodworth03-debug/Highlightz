@@ -1028,6 +1028,7 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
 
 
 
+@app.get("/profiles")
 async def list_profiles(request: Request):
     from src.profiles.manager import get_profile_manager
     uid      = _current_user_id(request)
@@ -1475,6 +1476,14 @@ async def admin_revoke_access(request: Request, user_id: str):
     _require_admin(request)
     from src.auth import users as user_store
     user_store.update_subscription(user_id, None, "inactive")
+    # Stop their streams immediately and tell any open session live, rather than
+    # waiting up to 5 min for the idle reaper to notice the lapsed subscription.
+    await _stop_user_streams_now(user_id)
+    await broadcast(
+        {"event": "subscription_expired",
+         "message": "Your access has been revoked — streams have been stopped."},
+        user_id=user_id,
+    )
     return {"ok": True}
 
 
