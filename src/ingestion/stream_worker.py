@@ -222,9 +222,24 @@ class StreamWorker:
         await monitor.run()
 
     async def _liveness_check(self) -> None:
+        _consecutive_errors = 0
         while self._running:
             await asyncio.sleep(60)
-            is_live = await self._platform.is_live(self._config.channel)
+            try:
+                is_live = await self._platform.is_live(self._config.channel)
+                _consecutive_errors = 0
+            except Exception as exc:
+                # Transient API / network error — don't kill the session for a
+                # single blip. Allow up to 3 consecutive failures before giving up
+                # so a brief Twitch outage doesn't restart every worker.
+                _consecutive_errors += 1
+                log.warning("liveness_check_error", channel=self._config.channel,
+                            error=str(exc), consecutive=_consecutive_errors)
+                if _consecutive_errors >= 3:
+                    log.error("liveness_check_failed_repeatedly", channel=self._config.channel,
+                              consecutive=_consecutive_errors)
+                    raise RuntimeError("liveness_check_failed") from exc
+                continue
             if not is_live:
                 log.info("stream_ended", channel=self._config.channel)
                 raise RuntimeError("stream_offline")
