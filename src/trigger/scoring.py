@@ -34,6 +34,19 @@ MULTI_SIGNAL_BONUS       = 1.2
 CLIP_IT_MIN_SENDERS = 3
 CLIP_IT_FLOOR       = 90.0
 
+# Dry-spell recalibration: streamers change activity within a single stream
+# (new game, a calmer just-chatting stretch, a different lobby), so a threshold
+# that was right an hour ago can go stale and stop clipping entirely. When a
+# *calibrated* channel goes this long with no trigger, nudge its trigger_threshold
+# down one step so the bar re-adapts to the new normal, then reset the clock and
+# repeat until a clip fires. This composes with — does not replace — accept/reject
+# learning (which still moves the threshold per clip) and the hourly decay back
+# toward the seed threshold (which pulls it up again once the lull ends). The
+# floor keeps a genuinely dead stream from loosening into clipping random noise.
+DRY_SPELL_SECS            = 600.0   # 10 min with no trigger → recalibrate
+DRY_SPELL_THRESHOLD_STEP  = 3.0     # lower trigger_threshold by this each dry cycle
+DRY_SPELL_THRESHOLD_FLOOR = 40.0    # dry-spell alone never lowers below this
+
 
 def velocity_score(
     spike_ratio: float,

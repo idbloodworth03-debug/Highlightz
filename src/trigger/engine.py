@@ -63,6 +63,10 @@ class TriggerEngine:
         self._viewer_baseline: float = 0.0
         self._viewer_samples: int = 0
         self._last_score: float = 0.0  # updated each evaluation; read by monitoring tasks
+        # Dry-spell clock: reference time used to detect "no clip in a long while".
+        # Anchored on the first calibrated evaluation and reset on every trigger fire
+        # and every dry-spell recalibration. See _maybe_recalibrate_dry_spell.
+        self._dry_anchor: float = 0.0
         # Detached post-trigger monitoring tasks (see _monitor_and_fire). Tracked so
         # stop() can cancel them — otherwise a removed stream keeps firing clips.
         self._monitor_tasks: set[asyncio.Task] = set()
@@ -141,6 +145,11 @@ class TriggerEngine:
                          target=self.profile.calibration_target)
             return
 
+        # Dry-spell recalibration: a calibrated channel that hasn't clipped in a
+        # long time has probably changed activity — loosen the bar a notch so the
+        # engine re-adapts instead of staying stuck on a stale threshold.
+        self._maybe_recalibrate_dry_spell(now)
+
         if in_cooldown:
             secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))
             if score >= rules.emergency_threshold:
@@ -161,6 +170,7 @@ class TriggerEngine:
 
         if score >= threshold:
             self._last_trigger = now
+            self._dry_anchor   = now   # a clip fired — restart the dry-spell clock
 
             # Chat lag correction: chat reactions trail the on-screen event by ~2s.
             # When chat velocity is stronger than audio, extend pre_roll by 2s so
@@ -210,6 +220,49 @@ class TriggerEngine:
         self._monitor_tasks.clear()
 
     # ── Internal ─────────────────────────────────────────────────────────
+
+    def _maybe_recalibrate_dry_spell(self, now: float) -> None:
+        """
+        Adapt to mid-stream activity changes. If a calibrated channel goes
+        DRY_SPELL_SECS with no trigger, the threshold has likely gone stale for
+        whatever the streamer is doing now (switched game, calmer segment, etc.),
+        so lower trigger_threshold one step and reset the clock. Repeats until a
+        clip fires. The mutation lands on the shared StreamerProfile, so the
+        worker's profile loop persists and broadcasts it on its next save.
+
+        Composes with the other threshold movers rather than overriding them:
+          - accept/reject (record_clip) still nudges per clip,
+          - the hourly decay still pulls back toward the seed threshold,
+          - this only ever lowers, and never below DRY_SPELL_THRESHOLD_FLOOR, so a
+            dead stream can't loosen into clipping random noise.
+        """
+        if self.profile is None:
+            return
+        # Anchor on the first calibrated tick (and for already-calibrated
+        # returning streamers) so a fresh session doesn't read as an instant dry
+        # spell off the cold _last_trigger == 0 reference.
+        if self._dry_anchor == 0.0:
+            self._dry_anchor = now
+            return
+        if now - self._dry_anchor < scoring.DRY_SPELL_SECS:
+            return
+
+        before = self.profile.trigger_threshold
+        target = max(scoring.DRY_SPELL_THRESHOLD_FLOOR,
+                     before - scoring.DRY_SPELL_THRESHOLD_STEP)
+        self._dry_anchor = now   # reset the clock either way so we re-check in 10 min
+
+        if target >= before:
+            # accept/reject learning already has it at/below the dry-spell floor —
+            # don't fight that by raising it; just keep watching.
+            return
+
+        self.profile.trigger_threshold = round(target, 2)
+        log.info("dry_spell_recalibrated", channel=self.channel,
+                 minutes_dry=round(scoring.DRY_SPELL_SECS / 60, 1),
+                 threshold_from=round(before, 1),
+                 threshold_to=round(target, 1),
+                 reason="no clip in a long while — streamer activity likely changed")
 
     async def _monitor_and_fire(
         self,
