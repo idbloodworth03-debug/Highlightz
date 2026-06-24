@@ -16,6 +16,12 @@ class ChannelRules:
     # Score must reach this to break cooldown early — avoids missing huge moments
     # right after a smaller clip fires. Set to 101 to disable override entirely.
     emergency_threshold: float = 85.0
+    # Floor on how often the emergency override itself may fire. Without this, a
+    # channel that parks ABOVE emergency_threshold (a long sustained hype segment)
+    # breaks cooldown on every 1s evaluation tick and enqueues ~1 clip/second of
+    # the same moment, flooding the queue. 60s ≈ the Twitch capture window, so
+    # back-to-back emergency clips don't overlap into near-duplicates.
+    emergency_cooldown_seconds: int = 60
     extra_keywords: frozenset = field(default_factory=frozenset)
 
 

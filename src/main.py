@@ -9,6 +9,7 @@ Runs concurrently:
 
 import asyncio
 import json
+import time
 import structlog
 import uvicorn
 from redis.asyncio import from_url as redis_from_url
@@ -139,6 +140,13 @@ async def listen_for_new_streams(redis) -> None:
 
 # ── Inline clip processor loop ────────────────────────────────────────────────
 
+# A clip job targets a specific moment that Twitch's capture buffer only holds
+# for ~60s. Past that the POST /clips either grabs the wrong window (still live)
+# or 404s "Channel offline." (stream ended). 90s gives the processor headroom for
+# normal jitter while guaranteeing a backlog can never replay stale moments.
+MAX_CLIP_JOB_AGE_SECS = 90.0
+
+
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
     log.info("clip_processor_started")
@@ -148,8 +156,16 @@ async def run_clip_processor() -> None:
             job = await _queue.pop(timeout=5)
             if job is None:
                 continue
+            age = time.time() - job.created_at
+            if age > MAX_CLIP_JOB_AGE_SECS:
+                # The moment is gone — clipping now would 404 (offline) or capture
+                # the wrong window. Drop it so the processor catches up to real time
+                # instead of grinding through a stale backlog.
+                log.warning("clip_job_stale_dropped", clip_id=job.clip_id,
+                            channel=job.channel, age_s=round(age, 1))
+                continue
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
-                     user_id=job.user_id, platform=job.platform)
+                     user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
             # Budget: post_roll sleep (≤30s) + create_clip retries (≤15s) +
             # get_clip polling (≤50s) + overhead. 180s leaves comfortable margin
             # so a valid-but-slow clip isn't cut off mid-poll and lost.

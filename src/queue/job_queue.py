@@ -5,6 +5,7 @@ Producers (StreamWorker) push ClipJob dicts; workers pop and process them.
 
 import json
 import re as _re
+import time
 import uuid
 import asyncio
 from redis.asyncio import Redis, from_url as redis_from_url
@@ -36,13 +37,24 @@ class ClipJob:
     virality_score: float = 0.0
     clip_title: str = ""
     user_id: str = ""
+    # Wall-clock time the moment was captured (enqueue time). The clip processor
+    # drops jobs older than the Twitch capture window — see MAX_CLIP_JOB_AGE_SECS
+    # in src/main.py — so a backlog can never drain stale moments into
+    # "Channel offline." 404s.
+    created_at: float = field(default_factory=lambda: time.time())
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
 
     @classmethod
     def from_json(cls, raw: str) -> "ClipJob":
-        return cls(**json.loads(raw))
+        data = json.loads(raw)
+        # Jobs enqueued before created_at existed have no timestamp. Treat them as
+        # epoch-old so the processor's staleness check drops them — on the first
+        # restart after deploy this clears any pre-existing backlog instead of
+        # replaying hours-old moments against now-offline channels.
+        data.setdefault("created_at", 0.0)
+        return cls(**data)
 
 
 class JobQueue:

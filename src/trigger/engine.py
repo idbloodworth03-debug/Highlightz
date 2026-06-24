@@ -152,12 +152,18 @@ class TriggerEngine:
 
         if in_cooldown:
             secs_left = int(rules.cooldown_seconds - (now - self._last_trigger))
-            if score >= rules.emergency_threshold:
-                # Score is exceptional — break the cooldown so a huge moment isn't
-                # missed just because a smaller clip fired recently.
+            since_last = now - self._last_trigger
+            # The override may break the normal cooldown, but it must still honor
+            # its own minimum spacing — otherwise a channel parked above
+            # emergency_threshold fires every tick and floods the clip queue with
+            # ~1 duplicate job/second of the same sustained moment.
+            if score >= rules.emergency_threshold and since_last >= rules.emergency_cooldown_seconds:
+                # Score is exceptional and enough time has passed since the last
+                # clip — break the normal cooldown so a huge moment isn't missed.
                 log.info("trigger_cooldown_override", channel=self.channel,
                          score=round(score, 1), threshold=round(threshold, 1),
                          emergency_threshold=rules.emergency_threshold,
+                         emergency_cooldown_s=rules.emergency_cooldown_seconds,
                          cooldown_remaining_s=secs_left)
                 # Fall through to the fire block below
             elif score >= threshold:
