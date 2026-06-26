@@ -164,11 +164,17 @@ async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5) -> dict | 
                                    params={"id": slug}) as resp:
                 if resp.status == 200:
                     rows = (await resp.json()).get("data", [])
-                    # A real clip always carries a url; require it before accepting.
-                    if rows and rows[0].get("url"):
+                    # Require url + thumbnail_url + duration>0: Twitch populates all
+                    # three only when the video is actually captured and playable.
+                    # A ghost clip (buffer too short, stream ended mid-capture) can
+                    # return a url while thumbnail_url is empty and duration is 0,
+                    # causing "Clip is no longer available" in the embed.
+                    c = rows[0] if rows else None
+                    if (c and c.get("url") and c.get("thumbnail_url")
+                            and float(c.get("duration") or 0) > 0):
                         log.info("twitch_clip_ready_after", slug=slug,
                                  seconds=round(attempt * delay, 1))
-                        return rows[0]
+                        return c
             await asyncio.sleep(delay)
     log.warning("twitch_clip_not_ready", slug=slug,
                 waited_seconds=round(attempts * delay, 1),
