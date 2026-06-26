@@ -382,6 +382,49 @@ async def run_vod_analysis(
         score_timeline: dict[int, float] = {}   # second → score for end-offset detection
         trigger_offsets: dict[str, int]  = {}   # moment_id → raw trigger offset (pre CHAT_LAG)
 
+        # Run-tracking: a "moment" is one contiguous stretch where score stays at
+        # or above threshold, emitted once at the stretch's peak. Without this a
+        # long sustained-hype segment fires a near-identical clip every COOLDOWN
+        # seconds (e.g. a 15-min run → 15 dupes with the same VOD thumbnail).
+        in_run         = False
+        run_peak_score = 0.0
+        run_peak_off   = 0.0
+        run_peak_bd: dict = {}
+
+        async def _emit_moment(peak_off: float, peak_sc: float, breakdown: dict) -> None:
+            # Chat lag correction: chat trails the on-screen event, so seek the
+            # VOD link a couple seconds earlier than the chat spike.
+            link_offset = max(0.0, peak_off - CHAT_LAG)
+            ts = _fmt_offset(link_offset)
+            sig_list = [{"type": k, "value": v} for k, v in breakdown.items()]
+            mid = str(uuid.uuid4())
+            moment = {
+                "id":              mid,
+                "offset_seconds":  link_offset,
+                "timestamp":       ts,
+                "score":           round(peak_sc, 1),
+                "trigger_score":   round(peak_sc, 1),   # 0-100, same scale as live clips
+                "trigger_signals": sig_list,
+                "clip_title":      f"{chan} — {ts}",
+                "stream_title":    vod_title,
+                "virality_score":  round(peak_sc * 0.7, 1),
+                "twitch_url":      f"https://www.twitch.tv/videos/{vod_id}?t={ts}",
+                "embed_url":       f"https://player.twitch.tv/?video={vod_id}&t={ts}",
+                "thumbnail_url":   thumb,
+                "channel":         chan,
+                "game":            game,
+                "platform":        "twitch",
+                "vod_id":          vod_id,
+                "vod_title":       vod_title,
+                "status":          "pending",
+                "created_at":      time.time(),
+                "user_id":         user_id,
+                "is_vod_moment":   True,
+            }
+            trigger_offsets[mid] = int(peak_off)  # stored separately, never in the clip dict
+            moments.append(moment)
+            await on_moment(moment)
+
         while offset <= duration:
             sec = int(offset)
             for msg in msg_by_sec.get(sec, []):
@@ -401,6 +444,7 @@ async def run_vod_analysis(
             # Score every eligible second regardless of cooldown so score_timeline
             # is fully populated — the post-scan end-offset pass needs scores for
             # the seconds immediately after each trigger (which are in cooldown).
+            score = None
             if (offset >= WINDOW
                     and len(recent_deq) >= 3
                     and len(lt_deq) >= 10):
@@ -430,40 +474,24 @@ async def run_vod_analysis(
 
                 score_timeline[sec] = score
 
-                if score >= threshold and offset - last_moment_offset >= COOLDOWN:
-                    last_moment_offset = offset
-                    # Chat lag correction: chat trails the on-screen event, so seek
-                    # the VOD link a couple seconds earlier than the chat spike.
-                    link_offset = max(0.0, offset - CHAT_LAG)
-                    ts = _fmt_offset(link_offset)
-                    sig_list = [{"type": k, "value": v} for k, v in breakdown.items()]
-                    mid = str(uuid.uuid4())
-                    moment = {
-                        "id":              mid,
-                        "offset_seconds":  link_offset,
-                        "timestamp":       ts,
-                        "score":           round(score, 1),
-                        "trigger_score":   round(score, 1),   # 0-100, same scale as live clips
-                        "trigger_signals": sig_list,
-                        "clip_title":      f"{chan} — {ts}",
-                        "stream_title":    vod_title,
-                        "virality_score":  round(score * 0.7, 1),
-                        "twitch_url":      f"https://www.twitch.tv/videos/{vod_id}?t={ts}",
-                        "embed_url":       f"https://player.twitch.tv/?video={vod_id}&t={ts}",
-                        "thumbnail_url":   thumb,
-                        "channel":         chan,
-                        "game":            game,
-                        "platform":        "twitch",
-                        "vod_id":          vod_id,
-                        "vod_title":       vod_title,
-                        "status":          "pending",
-                        "created_at":      time.time(),
-                        "user_id":         user_id,
-                        "is_vod_moment":   True,
-                    }
-                    trigger_offsets[mid] = int(offset)  # stored separately, never in the clip dict
-                    moments.append(moment)
-                    await on_moment(moment)
+            # One moment per contiguous above-threshold run, anchored at its peak.
+            # While the run holds, only track the peak; emit a single clip when the
+            # run ends (score drops below threshold, or chat goes quiet so this
+            # second is unscored). The COOLDOWN floor still separates back-to-back
+            # runs so a brief dip-and-recover can't double-clip the same moment.
+            if score is not None and score >= threshold:
+                if not in_run:
+                    in_run = True
+                    run_peak_score = -1.0
+                if score > run_peak_score:
+                    run_peak_score = score
+                    run_peak_off   = offset
+                    run_peak_bd    = breakdown
+            elif in_run:
+                in_run = False
+                if run_peak_off - last_moment_offset >= COOLDOWN:
+                    last_moment_offset = run_peak_off
+                    await _emit_moment(run_peak_off, run_peak_score, run_peak_bd)
 
             # Scoring occupies 50–100% of the progress bar
             pct = 50.0 + (min(offset / duration, 1.0) * 50.0) if duration > 0 else 100.0
@@ -473,6 +501,12 @@ async def run_vod_analysis(
                 await asyncio.sleep(0)  # yield event loop
 
             offset += STEP
+
+        # Flush a run still open at the final second (hype that ran to the end of
+        # the VOD) so its peak isn't lost.
+        if in_run and run_peak_off - last_moment_offset >= COOLDOWN:
+            last_moment_offset = run_peak_off
+            await _emit_moment(run_peak_off, run_peak_score, run_peak_bd)
 
         # Post-scan: find when excitement dulled for each moment (score < 40 % of peak).
         # Uses the collected score_timeline so no extra API calls are needed.
