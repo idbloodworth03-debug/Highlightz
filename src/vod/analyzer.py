@@ -345,14 +345,18 @@ async def run_vod_analysis(
         rules = get_rules(chan, preset)
         # VOD replay scores chat with the exact same formula as the live engine
         # (src/trigger/scoring.py), but audio / viewer / silence can't be measured
-        # from a VOD, so the score tops out at the chat-weight ceiling (~48 vs 100
-        # for live). Scale the channel's live threshold down to ~30% so a genuine
-        # chat spike fires as readily on a VOD as it does live.
-        threshold = rules.trigger_threshold * 0.30
+        # from a VOD. Live signal weights: chat=48, audio=38, viewer=7, silence=12.
+        # A live clip at threshold ~60 almost always needs audio + chat together —
+        # chat alone tops out at ~57 (with multi-signal bonus). Scaling to 0.30 set
+        # the VOD bar at ~18, low enough that any mildly active chat fired a moment
+        # every cooldown second, producing 15+ near-identical clips from one stream.
+        # 0.50 sets the bar at ~30, which only genuine chat-dominant spikes clear.
+        threshold = rules.trigger_threshold * 0.50
 
         WINDOW    = 15.0    # scoring window in seconds
         LT_WIN    = 300.0   # long-term baseline window
-        COOLDOWN  = 60.0    # min gap between moments
+        COOLDOWN  = 90.0    # min gap between moments (was 60s — raised to reduce
+                            # back-to-back clips from the same extended highlight)
         STEP      = 1.0     # evaluation granularity
         CLIP_IT_W = 10.0    # clip-it trip-wire window (matches live _CLIP_IT_WINDOW)
         CHAT_LAG  = 2.0     # chat trails the on-screen event by ~2s (live lag correction)
