@@ -226,12 +226,17 @@ def _score_window(
     window_secs: float,
     clip_it_senders: int,
     rules,
+    acceleration: float = 1.0,
 ) -> tuple[float, dict]:
     """
     Score a sliding window of chat messages relative to a long-term baseline,
     using the exact same chat-signal formula as the live trigger engine
     (src/trigger/scoring.py): emote-weighted velocity, unique-sender diversity,
-    emote homogeneity (crowdspeak), keyword density, and sentiment.
+    emote homogeneity (crowdspeak), keyword density, and sentiment — including
+    the v2 velocity boosts (chat acceleration + message-length collapse) so this
+    path stays in lockstep with the live engine. `acceleration` is the recent-vs-
+    older-half rate ratio for this window (mirrors ChatMetrics.velocity_acceleration);
+    avg message length is derived from the window here.
 
     `window` is a list of {"text", "author"} dicts. Audio / viewer / silence
     signals don't exist for VOD replay, so only the chat signals contribute and
@@ -248,8 +253,14 @@ def _score_window(
     weighted_vel   = sum(emote_weight(t) for t in texts) / max(window_secs, 1.0)
     unique_senders = len({m["author"] for m in window if m["author"]})
 
+    # Message-length collapse: short, frantic bursts during real hype. Mirrors
+    # ChatMetrics.avg_message_length (None when empty → no length boost).
+    avg_len = (sum(len(t) for t in texts) / len(texts)) if texts else None
+
     vel_score = scoring.velocity_score(
-        spike, rules.velocity_multiplier, cur_vel, weighted_vel, unique_senders)
+        spike, rules.velocity_multiplier, cur_vel, weighted_vel, unique_senders,
+        acceleration=acceleration,
+        avg_message_length=avg_len)
     homo_score = scoring.emote_homogeneity_score(emote_homogeneity_of(texts))
 
     kw_hits      = sum(1 for t in texts
@@ -398,8 +409,21 @@ async def run_vod_analysis(
                 # Use actual elapsed time so baseline isn't artificially low
                 # during the first 300 seconds.
                 lt_actual = min(offset, LT_WIN)
+                # Chat acceleration: recent-half vs older-half message rate within
+                # the window. Mirrors ChatMetrics.velocity_acceleration (neutral
+                # 1.0 on thin data) so VOD and live apply the identical v2 boost.
+                half  = WINDOW / 2.0
+                offs  = [o for o, _ in recent_deq]
+                if len(offs) >= 6:
+                    mid      = offset - half
+                    recent_n = sum(1 for o in offs if o >= mid)
+                    older_n  = len(offs) - recent_n
+                    accel    = (recent_n / half) / max(older_n / half, 1e-6) if older_n > 0 else 1.0
+                else:
+                    accel = 1.0
                 score, breakdown = _score_window(
-                    window, len(lt_deq), lt_actual, WINDOW, clip_it_senders, rules)
+                    window, len(lt_deq), lt_actual, WINDOW, clip_it_senders, rules,
+                    acceleration=accel)
 
                 if score > peak_score:
                     peak_score = score
