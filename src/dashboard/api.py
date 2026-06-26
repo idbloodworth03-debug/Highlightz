@@ -362,7 +362,7 @@ async def broadcast(event: dict, user_id: str | None = None) -> None:
 # ── Clip pipeline ─────────────────────────────────────────────────────────────
 
 _DEDUP_WINDOW    = 45   # seconds — skip clip if same channel+user had one recently
-_MAX_PENDING_CLIPS = 50 # per-user cap on pending clips
+_MAX_PENDING_CLIPS = 200 # per-user cap on pending clips
 
 async def notify_clip_ready(clip: dict) -> None:
     async with _data_lock:
