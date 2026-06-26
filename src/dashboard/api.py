@@ -385,15 +385,19 @@ async def notify_clip_ready(clip: dict) -> None:
              if c.get("status") == "pending" and c.get("user_id") == clip_uid],
             key=lambda c: c.get("created_at", 0),
         )
+        evicted = []
         while len(user_pending) >= _MAX_PENDING_CLIPS:
             oldest = user_pending.pop(0)
             del _clips[oldest["id"]]
             _delete_clip_file(oldest)
             log.info("clip_cap_evicted", clip_id=oldest["id"], channel=oldest.get("channel"))
+            evicted.append(oldest["id"])
 
         _clips[clip["id"]] = clip
         _save_clips()
 
+    for evicted_id in evicted:
+        await broadcast({"event": "clip_removed", "clip_id": evicted_id}, user_id=clip_uid)
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
 

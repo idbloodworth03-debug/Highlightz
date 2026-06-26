@@ -1646,6 +1646,7 @@ function RdApp() {
   const approveClip = async(id)=>{
     const r=await fetch(`/clips/${id}/approve`,{method:'POST'});
     if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));}
+    else{flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();}
   };
   const rejectClip = async(id)=>{
     await fetch(`/clips/${id}/reject`,{method:'POST'});
