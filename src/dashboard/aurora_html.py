@@ -453,11 +453,37 @@ function thumbFallback(e, channel) {
   if (img.parentElement) img.parentElement.style.background = thumbFor(channel);
 }
 
+// Catmull-Rom spline → cubic beziers: a smooth curve that still passes through
+// every point (honest data, just rounded instead of zig-zagged).
+function rdSmoothPath(pts){
+  if(pts.length<3){
+    return pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  }
+  const t=1/6;   // tension — standard Catmull-Rom factor, low overshoot
+  let dStr='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||p2;
+    const c1x=p1[0]+(p2[0]-p0[0])*t, c1y=p1[1]+(p2[1]-p0[1])*t;
+    const c2x=p2[0]-(p3[0]-p1[0])*t, c2y=p2[1]-(p3[1]-p1[1])*t;
+    dStr+=' C'+c1x.toFixed(1)+' '+c1y.toFixed(1)+' '+c2x.toFixed(1)+' '+c2y.toFixed(1)
+         +' '+p2[0].toFixed(1)+' '+p2[1].toFixed(1);
+  }
+  return dStr;
+}
+
 function RdScoreChart({ data }) {
   const w=600, h=150, pad=6;
-  const d = data && data.length>1 ? data : [0,0];
-  const pts = d.map((v,i)=>[pad+(i/(d.length-1))*(w-2*pad), h-pad-(v/100)*(h-2*pad)]);
-  const line = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  let d = data && data.length>1 ? data : [0,0];
+  // Light 3-point moving average to soften single-sample noise before plotting.
+  if(d.length>2){
+    d = d.map((v,i)=>{
+      const a=(i>0?d[i-1]:v), c=(i<d.length-1?d[i+1]:v);
+      return (a+v+c)/3;
+    });
+  }
+  const clamp=v=>Math.max(0,Math.min(100,v));
+  const pts = d.map((v,i)=>[pad+(i/(d.length-1))*(w-2*pad), h-pad-(clamp(v)/100)*(h-2*pad)]);
+  const line = rdSmoothPath(pts);
   const area = line+` L ${w-pad} ${h} L ${pad} ${h} Z`;
   const last = pts[pts.length-1];
   return (
