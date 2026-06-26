@@ -27,8 +27,9 @@ class StreamerProfile:
     channel: str
     platform: str = "twitch"
 
-    # ── Chat velocity baseline (rolling exponential average) ─────────────
+    # ── Chat velocity baseline (rolling exponential average + variance) ──
     avg_velocity: float = 0.0       # messages/sec during normal moments
+    var_velocity: float = 0.0       # EMA of squared deviation → rolling variance
     velocity_samples: int = 0
 
     # ── Sentiment baseline ────────────────────────────────────────────────
@@ -82,9 +83,18 @@ class StreamerProfile:
     def update_velocity(self, sample: float) -> None:
         if self.velocity_samples == 0 or self.avg_velocity == 0:
             self.avg_velocity = sample
+            self.var_velocity = 0.0
         else:
-            self.avg_velocity = (1 - self._EMA_ALPHA) * self.avg_velocity + self._EMA_ALPHA * sample
+            # Incremental EMA mean + variance (Finch 2009): update variance from
+            # the pre-update deviation so the two stay consistent.
+            diff = sample - self.avg_velocity
+            self.avg_velocity = self.avg_velocity + self._EMA_ALPHA * diff
+            self.var_velocity = (1 - self._EMA_ALPHA) * (self.var_velocity + self._EMA_ALPHA * diff * diff)
         self.velocity_samples += 1
+
+    @property
+    def velocity_std(self) -> float:
+        return self.var_velocity ** 0.5
 
     def update_sentiment(self, sample: float) -> None:
         if self.sentiment_samples == 0:
@@ -148,22 +158,33 @@ class StreamerProfile:
             return 0.0
         return self.approved_clips / self.total_clips
 
+    # Spike = this many rolling standard deviations above the rolling mean.
+    _SPIKE_SIGMA = 2.5
+
     @property
     def velocity_spike_multiplier(self) -> float:
         """
-        How many x above baseline counts as a spike.
-        Shrinks as we gather more data — starts conservative (3x) then
-        settles to ~2x once we know this channel's normal pace.
+        How many x above the rolling mean counts as a full spike. Once enough
+        samples exist this is derived from the channel's own variance — a spike
+        is _SPIKE_SIGMA standard deviations above the rolling mean, expressed as
+        a ratio (1 + Nσ/mean). A calm channel (low σ) trips on a smaller relative
+        jump; a chaotic channel (high σ) needs a bigger one. Clamped to [1.5, 4.0]
+        so near-zero variance can't make it hair-trigger and huge variance can't
+        make it un-clippable. Falls back to the old fixed ramp during cold-start.
         """
         if self.velocity_samples < 30:
             return 2.0
-        return max(1.5, 2.5 - (self.velocity_samples / 300))
+        if self.avg_velocity <= 0:
+            return max(1.5, 2.5 - (self.velocity_samples / 300))
+        sigma_ratio = 1.0 + self._SPIKE_SIGMA * (self.velocity_std / self.avg_velocity)
+        return max(1.5, min(sigma_ratio, 4.0))
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d.pop("_EMA_ALPHA", None)
         d["approval_rate"]           = round(self.approval_rate, 3)
         d["velocity_spike_multiplier"] = round(self.velocity_spike_multiplier, 2)
+        d["velocity_std"]              = round(self.velocity_std, 3)
         d["is_calibrated"]            = self.is_calibrated
         d["calibration_pct"]          = round(self.calibration_pct, 1)
         # Round signal weights for cleaner display

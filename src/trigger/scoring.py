@@ -48,19 +48,30 @@ DRY_SPELL_THRESHOLD_STEP  = 3.0     # lower trigger_threshold by this each dry c
 DRY_SPELL_THRESHOLD_FLOOR = 40.0    # dry-spell alone never lowers below this
 
 
+# Message-length collapse: mean message length (chars) at/below this during an
+# active window reads as frantic short-burst hype ("OMG", "LETSGO", emotes).
+LENGTH_COLLAPSE_CHARS = 12.0
+
+
 def velocity_score(
     spike_ratio: float,
     spike_multiplier: float,
     velocity: float,
     weighted_velocity: float,
     unique_senders: int,
+    acceleration: float = 1.0,
+    avg_message_length: float | None = None,
 ) -> float:
     """
-    Chat-velocity signal (0-1) with two boosts:
-      1. Emote weight boost (max +30%): when hype emotes dominate the window,
-         weighted_velocity > velocity and the ratio amplifies the score.
-      2. Unique sender diversity boost (max +20%): more distinct users = more
-         organic; ramps from 5 senders (no boost) to 20+ (full +20%).
+    Chat-velocity signal (0-1). Every adjustment is a *boost* — it can only
+    raise the score, never lower it — so adding them cannot reduce clips on a
+    healthy stream:
+      1. Emote weight boost (max +30%): hype emotes dominate the window.
+      2. Unique sender diversity boost (max +20%): more distinct users = organic.
+      3. Acceleration boost (max +15%): chat still speeding up (the ramp into a
+         peak) — catches the moment a beat earlier than absolute velocity.
+      4. Length-collapse boost (max +10%): messages go short and frantic during
+         real hype; only applies when chat is actually moving (score > 0).
     """
     score = min(spike_ratio / spike_multiplier, 1.0)
 
@@ -72,6 +83,16 @@ def velocity_score(
     if unique_senders >= 5:
         diversity_boost = min((unique_senders - 5) / 75, 0.20)
         score = min(score * (1.0 + diversity_boost), 1.0)
+
+    # Derivative of chat speed: ramp from 1.2x (no boost) to 2.0x (full +15%).
+    if acceleration > 1.2:
+        accel_boost = min((acceleration - 1.2) / 0.8, 1.0) * 0.15
+        score = min(score * (1.0 + accel_boost), 1.0)
+
+    # Length collapse: only meaningful while chat is actually moving.
+    if score > 0 and avg_message_length is not None and 0 < avg_message_length <= LENGTH_COLLAPSE_CHARS:
+        collapse_boost = min((LENGTH_COLLAPSE_CHARS - avg_message_length) / LENGTH_COLLAPSE_CHARS, 1.0) * 0.10
+        score = min(score * (1.0 + collapse_boost), 1.0)
 
     return score
 

@@ -111,6 +111,25 @@ async def create_clip(user_token: str, broadcaster_id: str,
                     return None
 
                 body = await resp.text()
+
+                # Rate limited: the Helix clip-create limit is global across all
+                # callers, so a busy moment can starve one channel. Back off and
+                # retry. Honor Ratelimit-Reset (Unix epoch) when present, else
+                # exponential backoff.
+                if resp.status == 429 and attempt < retries - 1:
+                    backoff = retry_delay * (2 ** attempt)   # 5s, 10s, 20s…
+                    reset = resp.headers.get("Ratelimit-Reset")
+                    if reset:
+                        try:
+                            backoff = max(0.0, float(reset) - time.time())
+                        except ValueError:
+                            pass
+                    backoff = min(max(backoff, 1.0), 30.0)   # clamp to [1s, 30s]
+                    log.warning("twitch_clip_rate_limited", broadcaster_id=broadcaster_id,
+                                attempt=attempt + 1, retrying_in=round(backoff, 1))
+                    await asyncio.sleep(backoff)
+                    continue
+
                 is_ccl_error = "content classification" in body.lower()
                 if is_ccl_error and attempt < retries - 1:
                     log.warning("twitch_clip_ccl_retry", broadcaster_id=broadcaster_id,
@@ -118,11 +137,10 @@ async def create_clip(user_token: str, broadcaster_id: str,
                     await asyncio.sleep(retry_delay)
                     continue
 
-                level = log.warning if is_ccl_error else log.warning
-                level("twitch_clip_create_failed", status=resp.status,
-                      broadcaster_id=broadcaster_id, body=body[:300],
-                      hint="Streamer may need to set Content Classification Labels on their Twitch dashboard"
-                           if is_ccl_error else "")
+                log.warning("twitch_clip_create_failed", status=resp.status,
+                            broadcaster_id=broadcaster_id, body=body[:300],
+                            hint="Streamer may need to set Content Classification Labels on their Twitch dashboard"
+                                 if is_ccl_error else "")
                 return None
     return None
 

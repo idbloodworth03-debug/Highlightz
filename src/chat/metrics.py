@@ -74,6 +74,8 @@ class ChatSnapshot:
     unique_senders: int         # distinct users in current window
     clip_it_unique_senders: int # distinct users who sent "clip it" in last 10s
     emote_homogeneity: float    # fraction of messages that are the single most-common emote [0,1]
+    velocity_acceleration: float = 1.0  # recent-half vs older-half chat rate (>1 = accelerating)
+    avg_message_length: float = 0.0     # mean message char length (collapses during frantic hype)
 
 
 class ChatMetrics:
@@ -172,6 +174,34 @@ class ChatMetrics:
             return 1.0
         return self.current_velocity() / lt
 
+    def velocity_acceleration(self) -> float:
+        """
+        Derivative of chat speed: rate in the recent half of the window vs the
+        older half. >1.0 means chat is still accelerating (the ramp *into* a
+        peak); ~1.0 steady; <1.0 decelerating (past the peak). Catches moments a
+        beat earlier than absolute velocity, which only crosses threshold once
+        the spike is already large. Returns 1.0 (neutral) on thin data.
+        """
+        if len(self._timestamps) < 6:
+            return 1.0
+        now = self._timestamps[-1]
+        half = self._window / 2.0
+        mid = now - half
+        recent = sum(1 for t in self._timestamps if t >= mid)
+        older  = len(self._timestamps) - recent
+        if older <= 0:
+            return 1.0
+        # Normalize both halves to per-second rates over the same span.
+        return (recent / half) / max(older / half, 1e-6)
+
+    def avg_message_length(self) -> float:
+        """Mean character length of messages in the window. Frantic real hype
+        collapses message length (short bursts: 'OMG', 'LETSGO', emotes), so a
+        low value alongside elevated velocity is a hype tell. 0.0 when empty."""
+        if not self._messages:
+            return 0.0
+        return sum(len(m) for m in self._messages) / len(self._messages)
+
     def emote_homogeneity(self) -> float:
         """Fraction of the window that is the single most-common emote (crowdspeak)."""
         return emote_homogeneity_of(list(self._messages))
@@ -235,4 +265,6 @@ class ChatMetrics:
             unique_senders=unique_senders,
             clip_it_unique_senders=clip_it_unique,
             emote_homogeneity=self.emote_homogeneity(),
+            velocity_acceleration=self.velocity_acceleration(),
+            avg_message_length=self.avg_message_length(),
         )

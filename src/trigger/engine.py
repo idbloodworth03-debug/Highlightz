@@ -63,6 +63,7 @@ class TriggerEngine:
         self._viewer_baseline: float = 0.0
         self._viewer_samples: int = 0
         self._last_score: float = 0.0  # updated each evaluation; read by monitoring tasks
+        self._last_signals: list = []  # latest built signals; read by _monitor_and_fire on a re-peak
         # Dry-spell clock: reference time used to detect "no clip in a long while".
         # Anchored on the first calibrated evaluation and reset on every trigger fire
         # and every dry-spell recalibration. See _maybe_recalibrate_dry_spell.
@@ -115,6 +116,7 @@ class TriggerEngine:
                 score = scoring.CLIP_IT_FLOOR
 
         self._last_score = score
+        self._last_signals = signals   # latest snapshot, read by _monitor_and_fire on a re-peak
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
         if self.on_score:
@@ -279,22 +281,50 @@ class TriggerEngine:
     ) -> None:
         """
         After a trigger fires, poll _last_score (updated by the normal evaluation
-        loop every 1 s) until the excitement dulls: score drops below 40 % of the
-        peak, or 52 s elapse (Twitch captures the last ~60 s, so 52 s + TAIL_SECS
-        still leaves a small pre-trigger window).  Then push the clip job with a
-        short post_roll tail so the platform API is called at the natural end of
-        the moment.
-        """
-        DECAY_FACTOR  = 0.40   # "excitement dulled" threshold relative to peak
-        MAX_WAIT_SECS = 52.0   # hard cap — Twitch buffer is ~60 s
-        TAIL_SECS     = 5      # seconds to include after decay before calling API
-        INTERVAL      = 2.0
+        loop every 1 s) and choose *when* to call Create Clip.
 
-        waited = 0.0
-        while self._running and waited < MAX_WAIT_SECS:
+        Window positioning (#1): Twitch publishes the last ~30 s of broadcast at
+        call time. The peak is ~now (trigger just fired), so to land that 30 s
+        window on the reaction — not the aftermath — we must call ~15–22 s after
+        the peak. MIN_WAIT keeps the reaction in frame; MAX_WAIT stops the window
+        drifting into aftermath. (Twitch exposes no API to set the published
+        sub-window, so call timing is the only lever.)
+
+        Double-peak (#3/#5): if the score re-accelerates past the tracked peak
+        before we commit, ride it — adopt the new peak, refresh the signals, and
+        extend the dwell — instead of firing on the first dip and getting the
+        bigger second peak blocked by cooldown.
+        """
+        DECAY_FACTOR   = 0.40   # "excitement dulled" relative to peak
+        MIN_WAIT_SECS  = 8.0    # always let the reaction play into the buffer
+        MAX_WAIT_SECS  = 18.0   # cap so the 30 s publish window stays on the moment
+        REACCEL_FACTOR = 1.10   # >10% above tracked peak = a genuine second peak
+        EXTEND_CAP     = 45.0   # absolute dwell ceiling (Twitch buffer ~60 s)
+        TAIL_SECS      = 5      # seconds to include after the decision before the API call
+        INTERVAL       = 2.0
+
+        waited   = 0.0
+        peak     = peak_score
+        deadline = MAX_WAIT_SECS
+        while self._running and waited < deadline:
             await asyncio.sleep(INTERVAL)
             waited += INTERVAL
-            if self._last_score < peak_score * DECAY_FACTOR:
+            cur = self._last_score
+
+            # Double-peak: a new, bigger surge — adopt it and extend the dwell so
+            # the clip rides the larger second peak.
+            if cur > peak * REACCEL_FACTOR:
+                peak = cur
+                if self._last_signals:
+                    signals = self._last_signals
+                deadline = min(EXTEND_CAP, waited + MAX_WAIT_SECS)
+                log.info("trigger_double_peak", channel=self.channel,
+                         new_peak=round(peak, 1), waited_secs=round(waited, 1))
+                continue
+
+            # Excitement has dulled and we've held long enough to capture the
+            # reaction — commit now.
+            if waited >= MIN_WAIT_SECS and cur < peak * DECAY_FACTOR:
                 break
 
         # Two-point guard: check after the sleep loop and again right before
@@ -303,7 +333,7 @@ class TriggerEngine:
             return
 
         log.info("trigger_clip_timing", channel=self.channel,
-                 waited_secs=round(waited, 1), peak_score=round(peak_score, 1),
+                 waited_secs=round(waited, 1), peak_score=round(peak, 1),
                  score_at_fire=round(self._last_score, 1))
 
         if not self._running:
@@ -311,7 +341,7 @@ class TriggerEngine:
 
         event = TriggerEvent(
             channel=self.channel,
-            score=peak_score,
+            score=peak,
             signals=signals,
             pre_roll=rules.pre_roll + lag_offset,
             post_roll=TAIL_SECS,
@@ -343,6 +373,8 @@ class TriggerEngine:
         velocity_score = scoring.velocity_score(
             spike_ratio, spike_multiplier,
             snapshot.velocity, snapshot.weighted_velocity, snapshot.unique_senders,
+            acceleration=snapshot.velocity_acceleration,
+            avg_message_length=snapshot.avg_message_length,
         )
 
         signals.append(Signal(
@@ -355,6 +387,8 @@ class TriggerEngine:
                 "spike_ratio": round(spike_ratio, 2),
                 "unique_senders": snapshot.unique_senders,
                 "baseline": round(self.profile.avg_velocity, 2) if self.profile else 0,
+                "acceleration": round(snapshot.velocity_acceleration, 2),
+                "avg_msg_len": round(snapshot.avg_message_length, 1),
             },
         ))
 
