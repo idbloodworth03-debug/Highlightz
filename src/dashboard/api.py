@@ -934,6 +934,15 @@ async def stripe_webhook(request: Request):
         # Kill active streams immediately when subscription lapses — don't wait for idle reaper.
         if status not in ("active", "trialing") and user_id:
             asyncio.create_task(_stop_user_streams_now(user_id))
+        elif status in ("active", "trialing") and user_id:
+            # Realtime contract: a trial→paid conversion (or a past_due→active
+            # recovery) must clear the paywall/trial banner in any open tab live,
+            # mirroring the subscription_expired broadcast on the lapse path.
+            await broadcast(
+                {"event": "subscription_active",
+                 "message": "Subscription active — you're all set."},
+                user_id=user_id,
+            )
     return {"received": True}
 
 
@@ -1472,6 +1481,12 @@ async def admin_grant_access(request: Request, user_id: str):
     _require_admin(request)
     from src.auth import users as user_store
     user_store.update_subscription(user_id, None, "active")
+    # Realtime: the granted user's open tab should clear the paywall/banner live.
+    await broadcast(
+        {"event": "subscription_active",
+         "message": "Access granted — your subscription is active."},
+        user_id=user_id,
+    )
     return {"ok": True}
 
 

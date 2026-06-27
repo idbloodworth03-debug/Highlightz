@@ -1636,6 +1636,12 @@ function RdApp() {
           refetchAll();
           flash(msg.message||'Your subscription has expired — streams have been stopped.');
         }
+        else if(msg.event==='subscription_active'){
+          // Trial→paid, past_due recovery, or admin grant — refresh so the trial
+          // banner / paywall clears and the account screen reflects access live.
+          refetchAll();
+          flash(msg.message||"Subscription active — you're all set.");
+        }
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
