@@ -2357,6 +2357,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
     <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
   <a href="/billing/checkout" class="cta">Start Subscription →</a>
+  <p class="sub" style="font-size:13px;margin-top:14px">Have a promo code? Enter it at checkout for 50% off your first month.</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
 </div>

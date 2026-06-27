@@ -1092,6 +1092,7 @@ function AccountScreen({ me }) {
               <Icon name="zap" size={14}/>Subscribe now
             </a>
           </div>}
+          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'#9c9caa'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
         </div>
 
         {/* Profile & Connected Platforms */}
@@ -1748,7 +1749,7 @@ function RdApp() {
         </header>
         {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c79bff',fontWeight:600}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
-          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. No card on file yet.</span>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. No card on file yet. <span style={{color:'#9c9caa',fontWeight:500}}>Got a promo code? 50% off your first month at checkout.</span></span>
           <a href="/billing/checkout" style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Subscribe</a>
         </div>}
         <main className="rd-screen">{screen}</main>
