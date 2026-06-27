@@ -7,6 +7,9 @@ customer and flips the user's subscription_status, so getting this mapping right
 is what makes a trial convert to paid (and a lapse revoke access).
 """
 
+import asyncio
+from unittest.mock import MagicMock, patch
+
 from src.billing import stripe_billing as sb
 
 
@@ -65,6 +68,21 @@ def test_non_subscription_event_is_ignored():
         "data": {"object": {"customer": "cus_x"}},
     })
     assert (cust, user, status) == (None, None, "")
+
+
+def test_checkout_enables_promotion_codes():
+    # The 50%-off-first-month promo is a Stripe Coupon + Promotion Code; checkout
+    # must opt in to the code box or users can never enter it. Lock the flag so a
+    # future edit can't silently drop it.
+    fake_client = MagicMock()
+    fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
+    with patch.object(sb, "_client", return_value=fake_client):
+        url = asyncio.run(sb.create_checkout_url("u_1", "alice"))
+    assert url == "https://checkout"
+    params = fake_client.checkout.sessions.create.call_args.kwargs["params"]
+    assert params["allow_promotion_codes"] is True
+    # The subscription must still carry user_id so the webhook can attribute it.
+    assert params["subscription_data"]["metadata"]["user_id"] == "u_1"
 
 
 def test_has_access_matches_active_statuses():

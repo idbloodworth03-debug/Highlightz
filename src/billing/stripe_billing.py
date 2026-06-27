@@ -31,6 +31,12 @@ async def create_checkout_url(user_id: str, username: str) -> str:
         "cancel_url":           f"{base}/billing/cancel",
         "metadata":             {"user_id": user_id, "username": username},
         "subscription_data":    {"metadata": {"user_id": user_id}},
+        # Show the "Add promotion code" box on the hosted checkout page. The
+        # actual discount (50% off first month) is a Coupon + Promotion Code
+        # created in the Stripe dashboard (duration: once). Stripe validates the
+        # code, enforces redemption limits/expiry, and applies it — no discount
+        # logic lives here.
+        "allow_promotion_codes": True,
     })
     return session.url
 
