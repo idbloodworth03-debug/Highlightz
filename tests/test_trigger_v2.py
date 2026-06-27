@@ -119,7 +119,7 @@ def test_avg_message_length_computed():
     assert snap.velocity_acceleration > 0
 
 
-# ── monitor: window timing + double-peak ───────────────────────────────────────
+# ── monitor: fire at the top of the trigger ────────────────────────────────────
 
 async def _run_monitor(initial_peak, scripted_scores):
     """Drive _monitor_and_fire with asyncio.sleep stubbed; each 'sleep' advances
@@ -145,18 +145,19 @@ async def _run_monitor(initial_peak, scripted_scores):
 
 
 @pytest.mark.asyncio
-async def test_double_peak_adopts_higher_peak():
-    # Peak starts 80; chat re-accelerates to 95 (>80*1.1) before decaying.
-    # The fired clip should carry the adopted higher peak, not the first one.
-    fired = await _run_monitor(80.0, [95.0, 95.0, 95.0, 30.0])
+async def test_crest_adopts_higher_peak_during_settle():
+    # During the short settle the score is still climbing to 95; the fired clip
+    # should carry the adopted crest, not the threshold-crossing value.
+    fired = await _run_monitor(80.0, [95.0, 95.0, 95.0])
     assert fired
     assert fired[0].score == 95.0
 
 
 @pytest.mark.asyncio
-async def test_no_early_fire_before_min_wait():
-    # Score collapses immediately, but MIN_WAIT (8s @ 2s interval = 4 ticks)
-    # must elapse before the decay-fire — so it can't commit on the first tick.
-    fired = await _run_monitor(80.0, [5.0, 5.0, 5.0, 5.0])
+async def test_fires_at_top_not_on_decay():
+    # The whole point: clip at the top of the trigger. Even though the score
+    # collapses right after the peak, we fire at the original peak after only the
+    # brief settle — we never wait for / fire on the downfall.
+    fired = await _run_monitor(80.0, [5.0, 5.0, 5.0])
     assert fired
-    assert fired[0].score == 80.0   # original peak, fired after MIN_WAIT
+    assert fired[0].score == 80.0

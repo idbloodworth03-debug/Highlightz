@@ -280,52 +280,38 @@ class TriggerEngine:
         lag_offset: int,
     ) -> None:
         """
-        After a trigger fires, poll _last_score (updated by the normal evaluation
-        loop every 1 s) and choose *when* to call Create Clip.
+        Fire the clip at the TOP of the trigger, not on the downfall.
 
-        Window positioning (#1): Twitch publishes the last ~30 s of broadcast at
-        call time. The peak is ~now (trigger just fired), so to land that 30 s
-        window on the reaction — not the aftermath — we must call ~15–22 s after
-        the peak. MIN_WAIT keeps the reaction in frame; MAX_WAIT stops the window
-        drifting into aftermath. (Twitch exposes no API to set the published
-        sub-window, so call timing is the only lever.)
+        Twitch captures the last ~30 s of broadcast at API-call time, so call
+        timing is what positions the moment in the clip. The trigger fires when
+        chat pops off, i.e. the on-screen moment is ~now — so calling right then
+        ends the 30 s window on the moment, keeping the build-up + payoff in
+        frame. The previous behavior waited for the score to decay (up to ~45 s),
+        which slid the window forward into the aftermath and produced flat clips.
 
-        Double-peak (#3/#5): if the score re-accelerates past the tracked peak
-        before we commit, ride it — adopt the new peak, refresh the signals, and
-        extend the dwell — instead of firing on the first dip and getting the
-        bigger second peak blocked by cooldown.
+        We now hold only a short SETTLE window — long enough for the reaction to
+        crest into Twitch's buffer and to capture the true local peak (the score
+        often climbs a beat past the threshold crossing) — then fire immediately.
+        We never wait for decay. If a higher crest lands inside the settle we
+        adopt it (and its fresher signals), but we do not chase a second peak for
+        tens of seconds; capping the wait is the whole point.
         """
-        DECAY_FACTOR   = 0.40   # "excitement dulled" relative to peak
-        MIN_WAIT_SECS  = 8.0    # always let the reaction play into the buffer
-        MAX_WAIT_SECS  = 18.0   # cap so the 30 s publish window stays on the moment
-        REACCEL_FACTOR = 1.10   # >10% above tracked peak = a genuine second peak
-        EXTEND_CAP     = 45.0   # absolute dwell ceiling (Twitch buffer ~60 s)
-        TAIL_SECS      = 5      # seconds to include after the decision before the API call
-        INTERVAL       = 2.0
+        SETTLE_SECS = 3.0    # brief hold to catch the crest; NOT a decay wait
+        TAIL_SECS   = 4      # small post-decision tail before the API call
+        INTERVAL    = 1.0
 
-        waited   = 0.0
-        peak     = peak_score
-        deadline = MAX_WAIT_SECS
-        while self._running and waited < deadline:
+        waited = 0.0
+        peak   = peak_score
+        while self._running and waited < SETTLE_SECS:
             await asyncio.sleep(INTERVAL)
             waited += INTERVAL
             cur = self._last_score
-
-            # Double-peak: a new, bigger surge — adopt it and extend the dwell so
-            # the clip rides the larger second peak.
-            if cur > peak * REACCEL_FACTOR:
+            # Track the crest only — adopt a higher peak (and its fresher signals)
+            # if the score is still climbing, so we clip the true top.
+            if cur > peak:
                 peak = cur
                 if self._last_signals:
                     signals = self._last_signals
-                deadline = min(EXTEND_CAP, waited + MAX_WAIT_SECS)
-                log.info("trigger_double_peak", channel=self.channel,
-                         new_peak=round(peak, 1), waited_secs=round(waited, 1))
-                continue
-
-            # Excitement has dulled and we've held long enough to capture the
-            # reaction — commit now.
-            if waited >= MIN_WAIT_SECS and cur < peak * DECAY_FACTOR:
-                break
 
         # Two-point guard: check after the sleep loop and again right before
         # firing so a stop() that lands in that narrow window is caught.
