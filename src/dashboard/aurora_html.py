@@ -701,6 +701,8 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         </div>
 
+        {embedSrc && twHref && <a href={twHref} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'9px 12px',fontSize:12.5,color:'#a5b4fc',textDecoration:'none',background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>Player not loading? Watch on Twitch ↗</a>}
+
         <div className="rd-modal-body">
           <div className="rd-modal-head">
             <span className="av">{initials(clip.channel)}</span>
