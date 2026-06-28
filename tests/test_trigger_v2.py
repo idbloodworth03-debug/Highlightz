@@ -103,6 +103,48 @@ def test_legacy_profile_without_variance_defaults_zero():
     assert restored.velocity_spike_multiplier >= 1.5
 
 
+# ── profile: spike-aware baseline (z-score influence) ──────────────────────────
+
+def test_sustained_spike_does_not_drag_baseline_to_hype_level():
+    # Calm baseline ~5, then a long pop-off at 50 (10x). The spike-aware update
+    # must keep the baseline an honest at-rest reference — nowhere near 50 — so
+    # the moment still reads as a clear spike for its whole duration.
+    p = StreamerProfile(channel="x")
+    for _ in range(60):
+        p.update_velocity(5.0)
+    for _ in range(20):
+        p.update_velocity(50.0)        # sustained hype
+    assert p.avg_velocity < 30.0       # did NOT climb to the hype level
+    # 50 still sits well above the (held-down) baseline → still reads as a spike.
+    assert 50.0 >= p.avg_velocity * p._SPIKE_RATIO
+
+
+def test_spike_aware_baseline_stays_below_naive_ema():
+    # Same input, but a plain EMA (full influence) would chase the spike up.
+    # The spike-aware baseline must end up substantially lower.
+    p = StreamerProfile(channel="x")
+    for _ in range(60):
+        p.update_velocity(5.0)
+    for _ in range(20):
+        p.update_velocity(50.0)
+    naive = 5.0
+    for _ in range(20):
+        naive += p._EMA_ALPHA * (50.0 - naive)   # plain EMA over the same burst
+    assert p.avg_velocity < naive * 0.6
+
+
+def test_quiet_readings_below_mean_still_update_fully():
+    # The clamp is upside-only: a genuine lull (below the mean) IS normal and
+    # must still pull the baseline down at the full rate.
+    p = StreamerProfile(channel="x")
+    for _ in range(60):
+        p.update_velocity(10.0)
+    before = p.avg_velocity
+    for _ in range(20):
+        p.update_velocity(2.0)
+    assert p.avg_velocity < before - 1.0   # baseline dropped meaningfully
+
+
 # ── metrics: derivative + length ───────────────────────────────────────────────
 
 def test_acceleration_neutral_on_thin_data():

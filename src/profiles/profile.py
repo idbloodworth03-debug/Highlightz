@@ -84,11 +84,33 @@ class StreamerProfile:
         if self.velocity_samples == 0 or self.avg_velocity == 0:
             self.avg_velocity = sample
             self.var_velocity = 0.0
+            self.velocity_samples += 1
+            return
+
+        # Spike-aware baseline ("influence"): once a real baseline exists, a
+        # reading far ABOVE the mean is a hype spike. Without protection, every
+        # sample — including the ones during a pop-off — feeds the rolling mean
+        # and variance, so a sustained hype run drags "normal" up to meet it and
+        # the detector goes quiet mid-moment.
+        #
+        # We gate the spike by RATIO to the mean (>= _SPIKE_RATIO×) rather than a
+        # z-score: the z-score's own denominator (the variance) gets inflated by
+        # the first spike, which then disengages the guard and lets the baseline
+        # chase the spike — a feedback trap. The ratio test depends only on the
+        # held-down mean, so it stays engaged for the whole spike. On a spike we
+        # nudge the mean only weakly and LEAVE THE VARIANCE UNTOUCHED, so the
+        # spread reflects calm variability (an honest at-rest reference). Quiet
+        # readings (below the mean) always update fully — a genuine lull IS normal.
+        diff = sample - self.avg_velocity
+        is_spike = (self.velocity_samples >= 30
+                    and self.avg_velocity > 0
+                    and sample >= self.avg_velocity * self._SPIKE_RATIO)
+        if is_spike:
+            self.avg_velocity += self._EMA_ALPHA * self._SPIKE_INFLUENCE * diff
         else:
             # Incremental EMA mean + variance (Finch 2009): update variance from
             # the pre-update deviation so the two stay consistent.
-            diff = sample - self.avg_velocity
-            self.avg_velocity = self.avg_velocity + self._EMA_ALPHA * diff
+            self.avg_velocity += self._EMA_ALPHA * diff
             self.var_velocity = (1 - self._EMA_ALPHA) * (self.var_velocity + self._EMA_ALPHA * diff * diff)
         self.velocity_samples += 1
 
@@ -160,6 +182,12 @@ class StreamerProfile:
 
     # Spike = this many rolling standard deviations above the rolling mean.
     _SPIKE_SIGMA = 2.5
+    # Baseline protection: a reading at/above this multiple of the current mean is
+    # treated as a hype spike and barely moves the baseline (see update_velocity).
+    _SPIKE_RATIO = 2.0
+    # How much a flagged spike is allowed to move the baseline mean (0 = not at
+    # all, 1 = same as a normal reading). Low so sustained hype can't inflate it.
+    _SPIKE_INFLUENCE = 0.15
 
     @property
     def velocity_spike_multiplier(self) -> float:
