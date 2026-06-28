@@ -987,7 +987,11 @@ async def approve_clip(request: Request, clip_id: str):
     training_log.log_outcome(clip, training_log.APPROVED)
     await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
     pm      = get_profile_manager(uid)
-    profile = await pm.get(clip["channel"])
+    # load() (not cache-only get()) so the approval is always recorded — even if
+    # the channel isn't currently being monitored (e.g. reviewing a clip after a
+    # deploy or once the stream ended). A cache-miss here used to silently drop
+    # the feedback, skewing learning toward rejections only.
+    profile = await pm.load(clip["channel"])
     if profile:
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
@@ -1010,7 +1014,9 @@ async def reject_clip(request: Request, clip_id: str):
     _delete_clip_file(clip)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
-    profile = await pm.get(clip["channel"])
+    # load() (not cache-only get()) so the rejection is always recorded, matching
+    # the approve path — see note there.
+    profile = await pm.load(clip["channel"])
     if profile:
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
