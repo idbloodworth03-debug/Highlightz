@@ -666,14 +666,20 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
   const title = clip.clip_title||clip.stream_title||'Live Stream';
+  const embed = clip.embed_url || '';
   const twHref = clip.twitch_url || '';
   const thumb = clip.thumbnail_url || '';
-  // We intentionally do NOT embed Twitch's inline player. Twitch gates mature-
-  // rated clips in the embed (and the clip's CCLs aren't visible to us), so the
-  // iframe renders "this clip is no longer available" even when the clip is
-  // perfectly fine and plays on Twitch. Instead we show the thumbnail and open
-  // the real clip on Twitch in one click, where it always plays.
-  const canLinkOut = !!twHref;
+  // Twitch embeds require JS and don't work in many mobile browsers (Error #4000).
+  // On narrow screens fall back to thumbnail + direct link — same as when no embed_url exists.
+  const isMobile = window.innerWidth <= 700;
+  const embedSrc = embed && !isMobile
+    ? embed + (embed.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
+    : '';
+  // With no inline embed (mobile, or no embed_url) the clip can only play on
+  // Twitch — make the whole media area a tap target so it opens even when the
+  // thumbnail image is broken (the old absolutely-positioned play link was an
+  // unreliable hit target on mobile once the broken <img> collapsed).
+  const canLinkOut = !embedSrc && !!twHref;
   const openClip = () => { if (twHref) window.open(twHref, '_blank', 'noopener'); };
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
@@ -686,14 +692,16 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
     <div className="rd-modal-bg" onClick={onClose}>
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
         <div className="rd-modal-media" style={canLinkOut?{cursor:'pointer'}:undefined} onClick={canLinkOut?openClip:undefined}>
-          {thumb
-            ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
-            : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
+          {embedSrc
+            ? <iframe src={embedSrc} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
+            : thumb
+              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
+              : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         </div>
 
-        {twHref && <a href={twHref} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'10px 12px',fontSize:13,fontWeight:600,color:'#a5b4fc',textDecoration:'none',background:'rgba(99,102,241,.12)',borderBottom:'1px solid rgba(255,255,255,.06)'}}><Icon name="play" size={13}/>Watch full clip on Twitch ↗</a>}
+        {embedSrc && twHref && <a href={twHref} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'9px 12px',fontSize:12.5,color:'#a5b4fc',textDecoration:'none',background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>Player not loading? Watch on Twitch ↗</a>}
 
         <div className="rd-modal-body">
           <div className="rd-modal-head">
