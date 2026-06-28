@@ -49,3 +49,24 @@ def test_approval_lowers_threshold_rejection_raises_it():
     p2 = StreamerProfile(channel="y", trigger_threshold=60.0)
     p2.record_clip(approved=False)
     assert p2.trigger_threshold > 60.0
+
+
+def test_heavy_rejection_can_climb_past_old_65_cap():
+    # The precision fix: a channel the user keeps rejecting must be able to get
+    # genuinely selective (old cap of 65 left hype-heavy channels over-firing).
+    from src.profiles.profile import StreamerProfile
+    p = StreamerProfile(channel="jynxzi", trigger_threshold=60.0)
+    for _ in range(100):
+        p.record_clip(approved=False)
+    assert p.trigger_threshold > 65.0          # no longer pinned at the old cap
+    assert p.trigger_threshold == 80.0         # climbs to the new ceiling
+    # ...and stays below the emergency-override threshold (85) by design.
+    assert p.trigger_threshold < 85.0
+
+
+def test_threshold_stays_within_bounds():
+    from src.profiles.profile import StreamerProfile
+    p = StreamerProfile(channel="z", trigger_threshold=60.0)
+    for _ in range(200):
+        p.record_clip(approved=True)           # approvals pull it down
+    assert p.trigger_threshold == 30.0         # floored, never below 30

@@ -21,6 +21,18 @@ _LEARN_RATE = 0.08   # per-clip nudge size
 _WEIGHT_MIN = 0.3
 _WEIGHT_MAX = 2.5
 
+# Adaptive trigger-threshold bounds + per-clip step sizes.
+# CEIL was 65, which on a hype-heavy channel still fires constantly — a user
+# rejecting almost everything could never make the bar selective enough. 80 lets
+# a persistently-rejected channel get genuinely picky (and stays below the
+# emergency-override threshold of 85). REJECT_STEP raised 1->2 so an over-firing
+# channel climbs at a usable pace. Over-suppression is bounded by the existing
+# dry-spell recalibration (no trigger for 10 min -> threshold eases back down).
+_THRESHOLD_FLOOR = 30.0
+_THRESHOLD_CEIL  = 80.0
+_APPROVE_STEP    = 2.0
+_REJECT_STEP     = 2.0
+
 
 @dataclass
 class StreamerProfile:
@@ -55,7 +67,7 @@ class StreamerProfile:
 
     # ── Adaptive trigger threshold ────────────────────────────────────────
     # Starts at global default; nudges down when clips get approved,
-    # nudges up when clips get rejected (stays in [30, 90])
+    # nudges up when clips get rejected (stays in [_THRESHOLD_FLOOR, _THRESHOLD_CEIL]).
     trigger_threshold: float = 60.0
 
     # ── Per-signal learned weight multipliers (1.0 = unchanged) ──────────
@@ -145,10 +157,10 @@ class StreamerProfile:
         self.total_clips += 1
         if approved:
             self.approved_clips += 1
-            self.trigger_threshold = max(30, self.trigger_threshold - 2)
+            self.trigger_threshold = max(_THRESHOLD_FLOOR, self.trigger_threshold - _APPROVE_STEP)
         else:
             self.rejected_clips += 1
-            self.trigger_threshold = min(65, self.trigger_threshold + 1)
+            self.trigger_threshold = min(_THRESHOLD_CEIL, self.trigger_threshold + _REJECT_STEP)
 
         # Nudge per-signal weights based on which signals were active.
         # Approved: signals that fired strongly get a weight boost (they predict good clips).
