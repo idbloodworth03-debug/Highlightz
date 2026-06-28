@@ -85,6 +85,36 @@ def test_checkout_enables_promotion_codes():
     assert params["subscription_data"]["metadata"]["user_id"] == "u_1"
 
 
+def _checkout_params(trial_days):
+    fake_client = MagicMock()
+    fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
+    with patch.object(sb, "_client", return_value=fake_client):
+        asyncio.run(sb.create_checkout_url("u_1", "alice", trial_days=trial_days))
+    return fake_client.checkout.sessions.create.call_args.kwargs["params"]
+
+
+def test_checkout_with_trial_sets_trial_period_and_requires_card():
+    p = _checkout_params(7)
+    assert p["subscription_data"]["trial_period_days"] == 7
+    # A card is always collected, even when starting a free trial.
+    assert p["payment_method_collection"] == "always"
+    assert p["payment_method_types"] == ["card"]
+
+
+def test_checkout_without_trial_charges_immediately():
+    # Returning users (already used their one trial) get no trial_period_days.
+    p = _checkout_params(0)
+    assert "trial_period_days" not in p["subscription_data"]
+    assert p["payment_method_collection"] == "always"
+
+
+def test_trial_claim_id_prefers_twitch_then_kick():
+    from src.auth import users
+    assert users.trial_claim_id({"twitch_id": "123"}) == "123"
+    assert users.trial_claim_id({"kick_id": "9"}) == "kick:9"
+    assert users.trial_claim_id({}) == ""
+
+
 def test_has_access_matches_active_statuses():
     assert sb.has_access("active", False) is True
     assert sb.has_access("trialing", False) is True

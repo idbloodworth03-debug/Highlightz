@@ -127,6 +127,23 @@ def _record_trial_claim(twitch_id: str) -> None:
             pass
 
 
+def trial_claim_id(user: dict) -> str:
+    """The identity key used in the trial ledger — one free trial per real
+    identity (Twitch id, else prefixed Kick id). Empty if neither is present."""
+    if not user:
+        return ""
+    if user.get("twitch_id"):
+        return str(user["twitch_id"])
+    if user.get("kick_id"):
+        return f"kick:{user['kick_id']}"
+    return ""
+
+
+def record_trial_claim(claim_id: str) -> None:
+    """Public wrapper: mark an identity as having used its one-time trial."""
+    _record_trial_claim(claim_id)
+
+
 def _load() -> list[dict]:
     for path in (_USERS_FILE, _BACKUP_FILE):
         try:
@@ -260,20 +277,14 @@ def upsert_twitch_user(
             existing["tw_expires_at"] = expires_at
         if is_admin:
             existing["subscription_status"] = "active"
-        elif (existing.get("subscription_status") == "none"
-              and not existing.get("trial_ends_at")
-              and not has_claimed_trial(twitch_id)):
-            # Account existed before trials were introduced (or was admin-created)
-            # and has never claimed a trial. Grant the one-time 7-day trial.
-            existing["subscription_status"] = "trialing"
-            existing["trial_ends_at"]       = now + _TRIAL_SECONDS
-            _record_trial_claim(twitch_id)
+        # Trials are now started through Stripe Checkout (card required), so we no
+        # longer grant a free, card-less app-managed trial on login.
         _save(users)
         return _public(existing)
 
-    # Brand-new account. Grant a trial only if this Twitch ID has never had one
-    # — prevents resetting the trial via delete-and-recreate.
-    grant_trial = not is_admin and not has_claimed_trial(twitch_id)
+    # Brand-new account. Trials are started via Stripe Checkout (card required),
+    # so a new account begins with no access and goes through the paywall →
+    # checkout, where it gets a 7-day Stripe trial if its identity hasn't used one.
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -287,16 +298,12 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        # New users get a one-time 7-day free trial (no card required).
-        # Returning users who already used their trial must subscribe.
-        "subscription_status":  "active" if is_admin else ("trialing" if grant_trial else "none"),
-        "trial_ends_at":        (now + _TRIAL_SECONDS) if grant_trial else 0,
+        "subscription_status":  "active" if is_admin else "none",
+        "trial_ends_at":        0,
         "created_at":           now,
     }
     users.append(user)
     _save(users)
-    if grant_trial:
-        _record_trial_claim(twitch_id)
     return _public(user)
 
 
@@ -447,9 +454,8 @@ def upsert_kick_user(
         _save(users)
         return _public(existing)
 
-    # Trial: use a prefixed key so Kick trials are tracked separately from Twitch trials
-    prefixed_id = f"kick:{kick_id}"
-    grant_trial = not has_claimed_trial(prefixed_id)
+    # Trials are started via Stripe Checkout (card required); a new account begins
+    # with no access and goes through the paywall → checkout.
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -464,14 +470,12 @@ def upsert_kick_user(
         "kick_refresh":         enc_refresh,
         "kick_expires_at":      expires_at,
         "stripe_customer_id":   None,
-        "subscription_status":  "trialing" if grant_trial else "none",
-        "trial_ends_at":        (now + _TRIAL_SECONDS) if grant_trial else 0,
+        "subscription_status":  "none",
+        "trial_ends_at":        0,
         "created_at":           now,
     }
     users.append(user)
     _save(users)
-    if grant_trial:
-        _record_trial_claim(prefixed_id)
     return _public(user)
 
 

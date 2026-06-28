@@ -838,15 +838,24 @@ async def paywall_page(request: Request):
 
 @app.get("/billing/checkout")
 async def billing_checkout(request: Request):
-    """Create a Stripe Checkout session and redirect the user there."""
+    """Create a Stripe Checkout session and redirect the user there.
+
+    First-time identities get a 7-day free trial (card still required, auto-
+    converts). Anyone who has already used their one trial is charged immediately.
+    """
     from src.billing.stripe_billing import create_checkout_url
+    from src.auth import users as user_store
     if not settings.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     if not uid:
         return RedirectResponse("/login")
-    url = await create_checkout_url(uid, username)
+    db_user  = user_store.get_by_id(uid)
+    claim_id = user_store.trial_claim_id(db_user) if db_user else ""
+    # One free trial per identity; returning users pay immediately.
+    trial_days = user_store.TRIAL_DAYS if (claim_id and not user_store.has_claimed_trial(claim_id)) else 0
+    url = await create_checkout_url(uid, username, trial_days=trial_days)
     return RedirectResponse(url)
 
 
@@ -939,6 +948,14 @@ async def stripe_webhook(request: Request):
         if status not in ("active", "trialing") and user_id:
             asyncio.create_task(_stop_user_streams_now(user_id))
         elif status in ("active", "trialing") and user_id:
+            # The user now has a real subscription (trial or paid) → burn their
+            # one-time trial claim so they can't get a second free trial later.
+            # Done here (not at checkout creation) so an abandoned checkout doesn't
+            # waste the trial.
+            db_user  = user_store.get_by_id(user_id)
+            claim_id = user_store.trial_claim_id(db_user) if db_user else ""
+            if claim_id:
+                user_store.record_trial_claim(claim_id)
             # Realtime contract: a trial→paid conversion (or a past_due→active
             # recovery) must clear the paywall/trial banner in any open tab live,
             # mirroring the subscription_expired broadcast on the lapse path.
@@ -1781,7 +1798,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch &amp; Kick clipping, made effortless</title>
-<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, 7-day free trial, no card required.">
+<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, 7-day free trial.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -1979,7 +1996,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
     <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
   </div>
-  <p class="hero-note">No credit card required &middot; Twitch &amp; Kick support</p>
+  <p class="hero-note">Cancel anytime &middot; Twitch &amp; Kick support</p>
   <div class="pills">
     <span class="pill">Formula-based — not AI</span>
     <span class="pill">Adapts to each streamer</span>
@@ -2201,11 +2218,11 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="wrap" id="pricing">
   <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">Try everything free for 7 days. No credit card to start — we'll only ask if you decide to keep going.</p>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">Try everything free for 7 days. Cancel anytime before the trial ends and you won't be charged.</p>
   <div class="glass price-card">
     <span class="price-badge">Highlightz Pro</span>
     <div class="price-trial">7 days free</div>
-    <div class="price-sub">Full access, no credit card required</div>
+    <div class="price-sub">Full access &middot; cancel anytime</div>
     <div class="price-list">
       <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
       <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
@@ -2300,7 +2317,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="trial-pill"><span class="dot"></span>7-day free trial — no credit card required</div>
+  <div class="trial-pill"><span class="dot"></span>7-day free trial — cancel anytime</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
@@ -2308,7 +2325,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   </a>
   <div class="or-divider">or</div>
   {kick_btn}
-  <p class="trial-note">Free for 7 days. Cancel anytime — we won't ask for a card to start.</p>
+  <p class="trial-note">Free for 7 days, then auto-renews monthly. Cancel anytime before it ends and you won't be charged.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -2361,8 +2378,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
   <span class="badge">Highlightz Pro</span>
-  <h1>Your free trial has ended</h1>
-  <p class="sub">Hi {username} — your 7-day free trial is up. Subscribe to keep automatically capturing your best streaming moments.</p>
+  <h1>Start your 7-day free trial</h1>
+  <p class="sub">Hi {username} — add a card to start capturing your best streaming moments. Free for 7 days, then it auto-renews monthly. Cancel anytime before the trial ends and you won't be charged.</p>
   <div class="features">
     <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
     <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
@@ -2370,8 +2387,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
     <div class="feat"><span class="ic">›</span>Clip review queue with approve / reject</div>
     <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
-  <a href="/billing/checkout" class="cta">Start Subscription →</a>
-  <p class="sub" style="font-size:13px;margin-top:14px">Have a promo code? Enter it at checkout for 50% off your first month.</p>
+  <a href="/billing/checkout" class="cta">Start free trial →</a>
+  <p class="sub" style="font-size:13px;margin-top:14px">Card required to start. Have a promo code? Enter it at checkout for 50% off your first month.</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
 </div>
@@ -2435,7 +2452,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Free Trial and Subscriptions</h2>
-  <p>New accounts receive a 7-day free trial with full access to core features. No credit card or payment information is required to start the trial. At the end of the 7-day trial period, access to core features is suspended unless you start a paid subscription. We do not automatically charge you when the trial ends — you will only be billed if and when you choose to subscribe.</p>
+  <p>New accounts may start a 7-day free trial with full access to core features. A valid payment method is required to begin the trial. Unless you cancel before the trial ends, your subscription will automatically convert to a paid plan and the payment method on file will be charged the then-current subscription fee, and on each renewal period thereafter, until you cancel. You can cancel at any time — including during the trial to avoid being charged — through the billing portal. The free trial is limited to one per person; accounts that have previously used a trial will be billed immediately upon subscribing.</p>
   <p>Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
   <ul>
     <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
