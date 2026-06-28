@@ -391,13 +391,17 @@ async def notify_clip_ready(clip: dict) -> None:
             del _clips[oldest["id"]]
             _delete_clip_file(oldest)
             log.info("clip_cap_evicted", clip_id=oldest["id"], channel=oldest.get("channel"))
-            evicted.append(oldest["id"])
+            evicted.append(oldest)
 
         _clips[clip["id"]] = clip
         _save_clips()
 
-    for evicted_id in evicted:
-        await broadcast({"event": "clip_removed", "clip_id": evicted_id}, user_id=clip_uid)
+    # A pending clip pushed out at the cap was never approved → weak negative for
+    # the training log (the user had it in their queue and didn't keep it).
+    from src.profiles import training_log
+    for ev in evicted:
+        training_log.log_outcome(ev, training_log.EXPIRED_UNREVIEWED)
+        await broadcast({"event": "clip_removed", "clip_id": ev["id"]}, user_id=clip_uid)
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
 
@@ -979,6 +983,8 @@ async def approve_clip(request: Request, clip_id: str):
             raise HTTPException(status_code=404, detail="Clip not found")
         clip["status"] = "approved"
         _save_clips()
+    from src.profiles import training_log
+    training_log.log_outcome(clip, training_log.APPROVED)
     await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
     pm      = get_profile_manager(uid)
     profile = await pm.get(clip["channel"])
@@ -999,6 +1005,8 @@ async def reject_clip(request: Request, clip_id: str):
             raise HTTPException(status_code=404, detail="Clip not found")
         del _clips[clip_id]
         _save_clips()
+    from src.profiles import training_log
+    training_log.log_outcome(clip, training_log.REJECTED)
     _delete_clip_file(clip)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
