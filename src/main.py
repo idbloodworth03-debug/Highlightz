@@ -179,6 +179,21 @@ async def run_clip_processor() -> None:
                       channel=getattr(job, "channel", "?") if job else "?",
                       user_id=getattr(job, "user_id", "?") if job else "?",
                       traceback=_tb.format_exc())
+            # Surface the failure to the user's open tab. Without this a triggered
+            # clip that fails to capture (ghost clip, rate-limit, token expiry)
+            # silently never appears, with no explanation — the realtime contract
+            # requires the user to learn about it live.
+            _uid = getattr(job, "user_id", "") if job else ""
+            if _uid:
+                _ch = getattr(job, "channel", "") or "your stream"
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": _ch,
+                         "message": f"A clip from {_ch} couldn't be captured — it'll try again on the next moment."},
+                        user_id=_uid,
+                    )
+                except Exception:
+                    pass
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -261,9 +276,24 @@ async def main() -> None:
         from src.queue.job_queue import ClipJob
         stream_key = f"{user_id}:{channel}" if user_id else channel
         stream = dashboard_api._streams.get(stream_key, {})
+        platform = stream.get("platform", "twitch")
+        # Only Twitch supports programmatic clip creation. Kick has no public clip
+        # API, so a Kick job would dead-end in the processor and fail silently —
+        # don't enqueue it; tell the user why instead.
+        if platform != "twitch":
+            if user_id:
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": channel,
+                         "message": "Manual clips are only available on Twitch right now."},
+                        user_id=user_id,
+                    )
+                except Exception:
+                    pass
+            return
         job = ClipJob(
             channel=channel,
-            platform=stream.get("platform", "twitch"),
+            platform=platform,
             trigger_score=100.0,
             trigger_signals=[{"type": "MANUAL", "value": 1.0, "metadata": {}}],
             chat_snapshot=[],

@@ -573,9 +573,15 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
             return err_redirect(f"Could not fetch Kick user: {exc}")
 
     kick_id  = str(kick_user["id"])
-    username = kick_user.get("username", "")
-    slug     = kick_user.get("slug", username)
+    username = (kick_user.get("username") or "").strip()
+    slug     = (kick_user.get("slug") or username).strip()
     avatar   = kick_user.get("avatar_url", "")
+    # Some Kick token/introspection payloads omit the username/slug. Refuse rather
+    # than persist a blank username (which overwrites good data and breaks clip
+    # logic keyed on kick_slug) — the user can retry the link.
+    if not username or not slug:
+        log.warning("kick_username_missing", kick_id=kick_id)
+        return err_redirect("Could not read your Kick username — please try linking again.")
     token_kwargs = dict(
         access_token=tokens.get("access_token", ""),
         refresh_token=tokens.get("refresh_token", ""),

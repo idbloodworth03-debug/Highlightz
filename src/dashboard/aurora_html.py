@@ -980,7 +980,9 @@ function SettingsScreen({ streams }) {
       if(['clip_ready','clip_updated','clip_removed'].includes(m.event)) loadStats();
     }catch{} };
     window.addEventListener('hz_ws', onWs);
-    return ()=>window.removeEventListener('hz_ws', onWs);
+    // Re-pull stats on WS reconnect/deploy so they self-heal instead of staling.
+    window.addEventListener('hz_refetch', loadStats);
+    return ()=>{ window.removeEventListener('hz_ws', onWs); window.removeEventListener('hz_refetch', loadStats); };
   },[]);
   const PRESETS=[
     {name:'default',  emoji:'', desc:'General-purpose baseline. Good starting point for any stream type.'},
@@ -1276,7 +1278,11 @@ function VodScreen({ clips }) {
   const jobRef = useRef({});
 
   useEffect(()=>{
-    fetch('/vod/jobs').then(r=>r.ok?r.json():[]).then(j=>{ setJobs(j); j.forEach(jb=>{ jobRef.current[jb.id]=jb; }); }).catch(()=>{});
+    const load = ()=>fetch('/vod/jobs').then(r=>r.ok?r.json():[]).then(j=>{ setJobs(j); j.forEach(jb=>{ jobRef.current[jb.id]=jb; }); }).catch(()=>{});
+    load();
+    // Re-pull on WS reconnect/deploy so an in-flight scan doesn't freeze stale.
+    window.addEventListener('hz_refetch', load);
+    return ()=>window.removeEventListener('hz_refetch', load);
   },[]);
 
   // Listen for VOD events from the parent WebSocket
@@ -1582,6 +1588,9 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+    // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
+    // so they self-heal on reconnect/deploy instead of going stale.
+    window.dispatchEvent(new CustomEvent('hz_refetch'));
   },[]);
   const wsBootstrapped = useRef(false);
 
@@ -1642,6 +1651,15 @@ function RdApp() {
           // banner / paywall clears and the account screen reflects access live.
           refetchAll();
           flash(msg.message||"Subscription active — you're all set.");
+        }
+        else if(msg.event==='clip_failed'){
+          // A triggered/forced clip failed to capture — tell the user instead of
+          // leaving them staring at a moment that never becomes a clip.
+          flash(msg.message||'A clip could not be captured.');
+        }
+        else if(msg.event==='stream_error'){
+          // A stream session hit an error and is reconnecting.
+          flash(msg.message||'A stream hit an error — reconnecting.');
         }
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
