@@ -508,6 +508,11 @@ async def kick_login(request: Request, login: bool = False):
     await _check_kick_oauth_rate(ip)
     if not settings.kick_client_id:
         raise HTTPException(status_code=503, detail="Kick OAuth not configured")
+    # Sign-in with Kick is disabled — Twitch is the only sign-in method. Kick may
+    # still be LINKED to an existing (Twitch-authenticated) account, so allow the
+    # flow only when the user is already logged in.
+    if login or not request.session.get("user_id"):
+        return RedirectResponse("/login")
     state = secrets.token_urlsafe(16)
     url, code_verifier = authorization_url(state)
     request.session["kick_oauth_state"]    = state
@@ -588,22 +593,12 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
             log.info("kick_linked", user_id=uid, kick_id=kick_id, username=username)
             return RedirectResponse("/?kick_linked=1")
         else:
-            # Login / sign-up via Kick
-            user = user_store.upsert_kick_user(
-                kick_id=kick_id, username=username, slug=slug,
-                avatar_url=avatar, **token_kwargs,
-            )
-            # Clear existing session before writing (session fixation guard)
-            request.session.clear()
-            request.session["auth"]                = True
-            request.session["user_id"]             = user["id"]
-            request.session["username"]            = user.get("username", "")
-            request.session["avatar_url"]          = user.get("avatar_url", "")
-            request.session["is_admin"]            = user.get("is_admin", False)
-            request.session["subscription_status"] = user.get("subscription_status", "none")
-            request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
-            log.info("kick_login", kick_id=kick_id, username=username)
-            return RedirectResponse("/")
+            # Sign-in / sign-up via Kick is disabled — Twitch is the only sign-in
+            # method. Reaching here without an existing session is a Kick sign-in
+            # attempt; refuse rather than create an account. (Linking, above, is
+            # still allowed for users already authenticated via Twitch.)
+            log.info("kick_signin_blocked", kick_id=kick_id)
+            return RedirectResponse("/login?error=kick_signin_disabled")
     except Exception as exc:
         log.error("kick_save_failed", error=str(exc))
         return err_redirect(f"Could not save Kick account: {exc}")
@@ -1633,6 +1628,7 @@ async def not_found_handler(request: Request, exc: Exception):
 _ERROR_MESSAGES = {
     "twitch_failed":      "Twitch login failed. Please try again.",
     "kick_failed":        "Kick login failed. Please try again.",
+    "kick_signin_disabled": "Sign in with Twitch. You can link a Kick account from Settings after signing in.",
     "invalid_state":      "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
     "account_deleted":    "Account deleted successfully.",
@@ -1644,14 +1640,8 @@ async def login_page(error: str = ""):
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
-    if settings.kick_client_id and settings.kick_client_secret:
-        kick_btn = '''<a href="/auth/kick?login=true" class="kick-btn">
-    <svg width="18" height="18" viewBox="0 0 100 100" fill="#0a0a0e"><rect x="10" y="10" width="22" height="80" rx="4"/><polygon points="32,50 70,10 95,10 57,50 95,90 70,90"/></svg>
-    Continue with Kick
-  </a>'''
-    else:
-        kick_btn = '<p class="kick-unavail">Kick sign-in coming soon</p>'
-    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html).replace("{kick_btn}", kick_btn))
+    # Sign-in is Twitch-only for now; the Kick sign-in button is removed.
+    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
 
 
 @app.get("/demo", response_class=HTMLResponse)
@@ -2323,8 +2313,6 @@ LOGIN_HTML = """<!DOCTYPE html>
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
-  <div class="or-divider">or</div>
-  {kick_btn}
   <p class="trial-note">Free for 7 days, then auto-renews monthly. Cancel anytime before it ends and you won't be charged.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
