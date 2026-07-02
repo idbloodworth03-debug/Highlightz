@@ -375,7 +375,76 @@ button{font-family:inherit;cursor:pointer}
 
   /* Toast: above bottom nav */
   .rd-toast{bottom:70px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
-
+}
+/* ═══ Aurora v2 — pure-CSS visual layer. Appended last so it wins at equal
+   specificity; NO markup/logic depends on it. Theme-aware: every accent is
+   derived from var(--acc)/var(--acc-2) via color-mix, so the (gated) kick
+   theme keeps working. Wrapped fallbacks degrade to the original look. ═══ */
+.rd-app::before{content:'';position:fixed;inset:0;z-index:-2;
+  background:
+    radial-gradient(1050px 560px at 15% -10%,rgba(168,85,247,.26),transparent 62%),
+    radial-gradient(860px 500px at 94% 2%,rgba(249,67,255,.16),transparent 58%),
+    radial-gradient(940px 720px at 55% 116%,rgba(124,107,255,.16),transparent 62%),
+    var(--rd-bg)}
+.rd-app::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:26px 26px;
+  -webkit-mask-image:radial-gradient(1000px 640px at 50% 0%,#000 20%,transparent 78%);
+  mask-image:radial-gradient(1000px 640px at 50% 0%,#000 20%,transparent 78%)}
+@supports (background:linear-gradient(#000,#000) padding-box) and (color:color-mix(in srgb,#000 50%,#fff)){
+  .glass{border-color:transparent;
+    background:linear-gradient(var(--panel),var(--panel)) padding-box,
+      linear-gradient(165deg,color-mix(in srgb,var(--acc-2) 34%,transparent),
+        rgba(255,255,255,.075) 30%,rgba(255,255,255,.06) 66%,
+        color-mix(in srgb,var(--acc) 26%,transparent)) border-box;
+    box-shadow:0 18px 44px -22px rgba(0,0,0,.6)}
+  .rd-modal{border-color:transparent;
+    background:linear-gradient(rgba(16,14,22,.94),rgba(16,14,22,.94)) padding-box,
+      linear-gradient(165deg,color-mix(in srgb,var(--acc-2) 45%,transparent),
+        rgba(255,255,255,.1) 34%,rgba(255,255,255,.08) 64%,
+        color-mix(in srgb,var(--acc) 34%,transparent)) border-box}
+  .rd-toast{border-color:transparent;
+    background:linear-gradient(rgba(18,14,24,.88),rgba(18,14,24,.88)) padding-box,
+      linear-gradient(120deg,color-mix(in srgb,var(--acc-2) 55%,transparent),
+        rgba(255,255,255,.14),color-mix(in srgb,var(--acc) 45%,transparent)) border-box}
+  .rd-navitem.active::before{border-color:transparent;
+    background:linear-gradient(var(--grad-soft)) padding-box,
+      linear-gradient(150deg,color-mix(in srgb,var(--acc) 55%,transparent),
+        rgba(255,255,255,.1) 45%,color-mix(in srgb,var(--acc-2) 40%,transparent)) border-box}
+}
+.rd-stat{isolation:isolate}
+.rd-stat::before{content:'';position:absolute;top:-34px;right:-34px;width:120px;height:120px;
+  border-radius:50%;z-index:-1;pointer-events:none;
+  background:radial-gradient(circle,color-mix(in srgb,var(--acc-2) 20%,transparent),transparent 70%)}
+.rd-btn.grad{position:relative;overflow:hidden}
+.rd-btn.grad::after{content:'';position:absolute;top:0;left:-80%;width:50%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);
+  transform:skewX(-20deg);transition:left .5s ease}
+.rd-btn.grad:hover::after{left:135%}
+.rd-clip:hover{box-shadow:0 26px 54px -20px rgba(0,0,0,.72),
+  0 0 44px -16px color-mix(in srgb,var(--acc-2) 55%,transparent)}
+.rd-chan.active,.rd-stream:hover{box-shadow:0 0 30px -14px color-mix(in srgb,var(--acc-2) 45%,transparent)}
+.rd-header{background:linear-gradient(180deg,rgba(12,11,17,.72),rgba(10,10,14,.5))}
+.rd-nav{background:linear-gradient(180deg,rgba(13,12,19,.66),rgba(10,10,14,.44))}
+.rd-navitem.active .ic{filter:drop-shadow(0 0 9px color-mix(in srgb,var(--acc) 75%,transparent))}
+::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--acc-2) 26%,rgba(255,255,255,.08));
+  border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--acc-2) 44%,rgba(255,255,255,.1));background-clip:padding-box}
+@media(prefers-reduced-motion:no-preference){
+  .rd-nav .logo img{animation:rdLogoGlow 4.5s ease-in-out infinite alternate}
+  @keyframes rdLogoGlow{from{filter:drop-shadow(0 0 9px rgba(199,155,255,.4))}
+    to{filter:drop-shadow(0 0 17px rgba(199,155,255,.75))}}
+  .rd-screen{animation:rdScreenIn .4s cubic-bezier(.16,1,.3,1)}
+  @keyframes rdScreenIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .rd-grid .rd-clip{animation:rdCardIn .5s cubic-bezier(.16,1,.3,1) backwards}
+  .rd-grid .rd-clip:nth-child(2){animation-delay:.05s}
+  .rd-grid .rd-clip:nth-child(3){animation-delay:.1s}
+  .rd-grid .rd-clip:nth-child(4){animation-delay:.15s}
+  .rd-grid .rd-clip:nth-child(5){animation-delay:.2s}
+  .rd-grid .rd-clip:nth-child(6){animation-delay:.25s}
+  @keyframes rdCardIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+}
+@media(max-width:700px){
   /* Cull panel: fixed bottom sheet above nav bar so it can't overflow the right edge */
   .cull-panel{position:fixed;bottom:66px;left:10px;right:10px;width:auto;top:auto;z-index:50}
 }
