@@ -16,6 +16,15 @@ import pytest
 from src.vod import analyzer
 
 
+@pytest.fixture(autouse=True)
+def no_profile(monkeypatch):
+    """Pin these tests to preset calibration: no profile file I/O, and the
+    threshold matches the pre-profile-aware behavior they were written for."""
+    async def _none(user_id, channel):
+        return None
+    monkeypatch.setattr(analyzer, "_load_profile", _none)
+
+
 _INFO = {
     "id": "1", "title": "T", "channel": "chan", "game": "G",
     "duration": 0.0, "thumbnail_url": "http://thumb", "url": "u",

@@ -219,6 +219,49 @@ async def fetch_vod_chat(
 _vader = SentimentIntensityAnalyzer()
 
 
+async def _load_profile(user_id: str, channel: str):
+    """The requesting user's learned profile for this channel — the same
+    threshold/spike calibration the live engine uses. None on any failure so a
+    VOD scan can never break on profile I/O."""
+    try:
+        from src.profiles.manager import get_profile_manager
+        pm = get_profile_manager(user_id)
+        return await pm.load(channel)
+    except Exception:
+        return None
+
+
+def _vod_threshold(profile, rules) -> tuple[float, float]:
+    """(score threshold, spike multiplier) for a VOD scan.
+
+    Uses the channel's LEARNED values when a profile exists — the user's
+    approve/reject history moves profile.trigger_threshold (e.g. a heavily-
+    rejected channel sits at 80), and calibration derives an adaptive spike
+    multiplier from the channel's own variance. The preset is only the
+    cold-start fallback. The ×0.50 scale maps the full-signal threshold
+    (chat=48 + audio=38 + viewer=7 + silence=12 ≈ 105 ceiling) onto VOD's
+    chat-only ceiling (~57 with the multi-signal bonus)."""
+    base = profile.trigger_threshold if profile is not None else rules.trigger_threshold
+    spike_mult = (
+        profile.velocity_spike_multiplier
+        if profile is not None and profile.velocity_samples >= 30
+        else rules.velocity_multiplier
+    )
+    return base * 0.50, spike_mult
+
+
+def _top_moments(moments: list[dict], duration_secs: float) -> list[dict]:
+    """Keep only the best moments of a scan: rank by score and cap at
+    ~3/hour (min 3, max 12), returned in chronological order. Emitting every
+    above-threshold run buries the good moments under mediocre ones — a
+    3-hour VOD should surface its highlights, not its entire pulse."""
+    cap = int(min(12, max(3, (duration_secs / 3600.0) * 3)))
+    if len(moments) <= cap:
+        return moments
+    best = sorted(moments, key=lambda m: m["score"], reverse=True)[:cap]
+    return sorted(best, key=lambda m: m["offset_seconds"])
+
+
 def _score_window(
     window: list[dict],
     lt_count: int,
@@ -227,6 +270,7 @@ def _score_window(
     clip_it_senders: int,
     rules,
     acceleration: float = 1.0,
+    spike_multiplier: float | None = None,
 ) -> tuple[float, dict]:
     """
     Score a sliding window of chat messages relative to a long-term baseline,
@@ -258,7 +302,8 @@ def _score_window(
     avg_len = (sum(len(t) for t in texts) / len(texts)) if texts else None
 
     vel_score = scoring.velocity_score(
-        spike, rules.velocity_multiplier, cur_vel, weighted_vel, unique_senders,
+        spike, spike_multiplier if spike_multiplier is not None else rules.velocity_multiplier,
+        cur_vel, weighted_vel, unique_senders,
         acceleration=acceleration,
         avg_message_length=avg_len)
     homo_score = scoring.emote_homogeneity_score(emote_homogeneity_of(texts))
@@ -343,15 +388,11 @@ async def run_vod_analysis(
             return
 
         rules = get_rules(chan, preset)
-        # VOD replay scores chat with the exact same formula as the live engine
-        # (src/trigger/scoring.py), but audio / viewer / silence can't be measured
-        # from a VOD. Live signal weights: chat=48, audio=38, viewer=7, silence=12.
-        # A live clip at threshold ~60 almost always needs audio + chat together —
-        # chat alone tops out at ~57 (with multi-signal bonus). Scaling to 0.30 set
-        # the VOD bar at ~18, low enough that any mildly active chat fired a moment
-        # every cooldown second, producing 15+ near-identical clips from one stream.
-        # 0.50 sets the bar at ~30, which only genuine chat-dominant spikes clear.
-        threshold = rules.trigger_threshold * 0.50
+        # Score with the channel's LEARNED calibration (same as live): the
+        # user's approve/reject history sets the threshold, and the profile's
+        # variance sets the spike multiplier. Preset values are cold-start only.
+        profile = await _load_profile(user_id, chan)
+        threshold, spike_mult = _vod_threshold(profile, rules)
 
         WINDOW    = 15.0    # scoring window in seconds
         LT_WIN    = 300.0   # long-term baseline window
@@ -365,7 +406,9 @@ async def run_vod_analysis(
         duration   = max(duration, messages[-1]["offset"] + 30)
 
         log.info("vod_analysis_scanning", vod_id=vod_id, messages=total_msgs,
-                 duration_s=int(duration), threshold=round(threshold, 1))
+                 duration_s=int(duration), threshold=round(threshold, 1),
+                 spike_multiplier=round(spike_mult, 2),
+                 calibration="profile" if profile is not None else "preset")
 
         # Index messages into 1-second buckets for O(1) lookup. Each entry keeps the
         # author so weighted velocity, unique-sender diversity and the clip-it
@@ -396,6 +439,10 @@ async def run_vod_analysis(
         run_peak_bd: dict = {}
 
         async def _emit_moment(peak_off: float, peak_sc: float, breakdown: dict) -> None:
+            # Collects a candidate moment. Emission to the user happens AFTER the
+            # scan, once _top_moments has ranked candidates and kept the best —
+            # otherwise mediocre above-threshold runs reach the queue before we
+            # know whether better ones exist later in the VOD.
             # Chat lag correction: chat trails the on-screen event, so seek the
             # VOD link a couple seconds earlier than the chat spike.
             link_offset = max(0.0, peak_off - CHAT_LAG)
@@ -427,7 +474,6 @@ async def run_vod_analysis(
             }
             trigger_offsets[mid] = int(peak_off)  # stored separately, never in the clip dict
             moments.append(moment)
-            await on_moment(moment)
 
         while offset <= duration:
             sec = int(offset)
@@ -471,7 +517,7 @@ async def run_vod_analysis(
                     accel = 1.0
                 score, breakdown = _score_window(
                     window, len(lt_deq), lt_actual, WINDOW, clip_it_senders, rules,
-                    acceleration=accel)
+                    acceleration=accel, spike_multiplier=spike_mult)
 
                 if score > peak_score:
                     peak_score = score
@@ -512,6 +558,14 @@ async def run_vod_analysis(
             last_moment_offset = run_peak_off
             await _emit_moment(run_peak_off, run_peak_score, run_peak_bd)
 
+        # Rank & trim: keep only the VOD's best moments (~3/hour, max 12) so the
+        # queue gets highlights, not the stream's entire pulse.
+        found_total = len(moments)
+        moments = _top_moments(moments, duration)
+        if found_total > len(moments):
+            log.info("vod_moments_trimmed", vod_id=vod_id,
+                     found=found_total, kept=len(moments))
+
         # Post-scan: find when excitement dulled for each moment (score < 40 % of peak).
         # Uses the collected score_timeline so no extra API calls are needed.
         DECAY_FACTOR = 0.40
@@ -530,7 +584,12 @@ async def run_vod_analysis(
             m["excitement_duration_seconds"] = excitement_secs
             m["end_timestamp"]            = _fmt_offset(m["end_offset_seconds"])
 
+        # Emit only the survivors (chronological), now fully annotated.
+        for m in moments:
+            await on_moment(m)
+
         log.info("vod_analysis_complete", vod_id=vod_id, moments=len(moments),
+                 found=found_total,
                  peak_score=round(peak_score, 1), threshold=round(threshold, 1),
                  total_messages=total_msgs)
         await on_done(moments)
