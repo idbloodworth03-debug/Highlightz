@@ -632,8 +632,8 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           return <span className="rd-sig" key={k} style={active?{background:'rgba(168,85,247,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
         })}</div>
         <div className="rd-sigs" style={{marginTop:4}}>{[
-          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>🎙 {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
-          breakdown._viewers!=null&&<span className="rd-sig" key="vc" style={{color:'var(--fg-2)'}}>👁 {breakdown._viewers} viewers (base {breakdown._viewer_base})</span>,
+          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>AUDIO {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
+          breakdown._viewers!=null&&<span className="rd-sig" key="vc" style={{color:'var(--fg-2)'}}>VIEWERS {breakdown._viewers} (base {breakdown._viewer_base})</span>,
         ].filter(Boolean)}</div>
       </div>
       <div className="rd-profile">
@@ -1593,7 +1593,9 @@ function UnderConstruction() {
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
                  textAlign:'center',minHeight:'70vh',padding:'40px 24px',gap:22}}>
-      <div style={{fontSize:88,lineHeight:1,filter:'drop-shadow(0 6px 18px rgba(83,252,24,.35))'}}>🚧</div>
+      <div style={{width:96,height:96,borderRadius:26,display:'grid',placeItems:'center',color:'#53fc18',
+                   background:'rgba(83,252,24,.1)',border:'1px solid rgba(83,252,24,.32)',
+                   boxShadow:'0 12px 40px -14px rgba(83,252,24,.45)'}}><Icon name="cog" size={44}/></div>
       <div style={{display:'inline-flex',alignItems:'center',gap:9,padding:'7px 16px',borderRadius:999,
                    background:'rgba(83,252,24,.12)',border:'1px solid rgba(83,252,24,.35)',
                    color:'#53fc18',fontWeight:800,fontSize:12.5,letterSpacing:'.14em',textTransform:'uppercase'}}>
