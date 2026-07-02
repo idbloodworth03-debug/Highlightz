@@ -1899,7 +1899,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .demo-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.06em;color:#ff5f6e;background:rgba(255,95,110,.1);border:1px solid rgba(255,95,110,.3);padding:4px 10px;border-radius:99px}
   .demo-live i{width:6px;height:6px;border-radius:50%;background:#ff5f6e;box-shadow:0 0 7px #ff5f6e;animation:blink 1.2s ease-in-out infinite}
   @keyframes blink{50%{opacity:.35}}
-  .demo-body{padding:15px 15px 14px;display:grid;grid-template-columns:1fr 152px;gap:12px}
+  .demo-body{padding:15px 15px 14px}
   .demo-main{min-width:0}
   .demo-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
   .demo-ch{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
@@ -1928,13 +1928,6 @@ LANDING_HTML = """<!DOCTYPE html>
   .dc-ok{display:none;color:#2ee08a;font-weight:700}
   .demo-clip.done .dc-spin{display:none}
   .demo-clip.done .dc-ok{display:inline-flex;align-items:center;gap:5px}
-  /* demo chat */
-  .demo-chat{display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
-  .chat-h{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5d5d6b;padding:8px 11px 7px;border-bottom:1px solid rgba(255,255,255,.05)}
-  .chat-f{flex:1;overflow:hidden;padding:7px 10px;display:flex;flex-direction:column;justify-content:flex-end;gap:4.5px;min-height:196px}
-  .cm{font-size:10.5px;line-height:1.35;color:#b8b8c8;word-break:break-word;animation:cmIn .18s ease-out}
-  .cm b{font-weight:700;margin-right:5px}
-  @keyframes cmIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
   .demo-cap{text-align:center;font-size:12px;color:#5d5d6b;margin-top:14px;position:relative;z-index:1}
   /* Stats band */
   .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:26px 0 0}
@@ -2084,8 +2077,6 @@ LANDING_HTML = """<!DOCTYPE html>
     .stats-band{grid-template-columns:1fr;gap:12px}
     .stat{padding:20px}
     .stat .n{font-size:32px}
-    .demo-body{grid-template-columns:1fr}
-    .demo-chat{display:none}
     .price-amt .num{font-size:54px}
   }
   /* Scroll-reveal + hero intro (motion-safe only) */
@@ -2120,7 +2111,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="hero-copy">
     <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch &amp; Kick</div>
     <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
-    <p class="lead">Highlightz watches your live streams in real time and captures the best moments automatically — the clip is on Twitch before chat stops spamming. You just approve the keepers.</p>
+    <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
       <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
@@ -2128,7 +2119,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <p class="hero-note">7 days free &middot; then <b>$15/month</b> &middot; cancel anytime</p>
     <div class="pills">
       <span class="pill">Formula-based — not AI</span>
-      <span class="pill">Adapts to each streamer</span>
+      <span class="pill">Works at any channel size</span>
       <span class="pill">Multiple streams at once</span>
     </div>
   </div>
@@ -2137,11 +2128,11 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="demo-wrap">
     <div class="demo" id="demo">
       <div class="demo-in">
-        <div class="demo-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Highlightz — watching jynxzi</span><span class="demo-live"><i></i>LIVE</span></div>
+        <div class="demo-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Highlightz — watching your stream</span><span class="demo-live"><i></i>LIVE</span></div>
         <div class="demo-body">
           <div class="demo-main">
             <div class="demo-head">
-              <div class="demo-ch"><span class="pd"></span>jynxzi</div>
+              <div class="demo-ch"><span class="pd"></span>your stream</div>
               <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
             </div>
             <div class="demo-chart">
@@ -2171,14 +2162,10 @@ LANDING_HTML = """<!DOCTYPE html>
             <div class="demo-clip show done" id="d-clip">
               <div class="dc-thumb"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
               <div class="dc-meta">
-                <div class="dc-t">jynxzi — Chat Explodes</div>
+                <div class="dc-t">Big Reaction — clipped automatically</div>
                 <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
               </div>
             </div>
-          </div>
-          <div class="demo-chat">
-            <div class="chat-h">Stream chat</div>
-            <div class="chat-f" id="d-chat"></div>
           </div>
         </div>
       </div>
@@ -2213,7 +2200,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <div class="glass who-card">
       <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg></div>
       <h3>Streamers</h3>
-      <p>Capture your own funniest, hypest, and most viral moments live — without breaking focus mid-stream to hit the clip button.</p>
+      <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips.</p>
     </div>
     <div class="glass who-card">
       <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg></div>
@@ -2269,7 +2256,7 @@ LANDING_HTML = """<!DOCTYPE html>
           <div class="mk-stream">
             <div class="mk-row">
               <div>
-                <div class="mk-nm"><span class="pd"></span>shroud</div>
+                <div class="mk-nm"><span class="pd"></span>novafps</div>
                 <div class="mk-mt"><span class="mk-chip" style="color:#53fc18;border-color:rgba(83,252,24,.3)">kick</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
               </div>
               <div class="mk-acts">
@@ -2312,8 +2299,8 @@ LANDING_HTML = """<!DOCTYPE html>
             <span class="mk-badge"><span class="pip" style="background:#2ee08a"></span>84% trigger</span>
           </div>
           <div class="mk-dhead">
-            <span class="mk-av">SH</span>
-            <div style="flex:1"><h4>Insane 1v5 clutch to win it</h4><div class="mt">shroud &middot; VALORANT &middot; 2m ago</div></div>
+            <span class="mk-av">NF</span>
+            <div style="flex:1"><h4>Insane 1v5 clutch to win it</h4><div class="mt">novafps &middot; VALORANT &middot; 2m ago</div></div>
             <span class="mk-status">approved</span>
           </div>
           <div class="mk-eyebrow">Why it fired</div>
@@ -2335,19 +2322,19 @@ LANDING_HTML = """<!DOCTYPE html>
         <div class="mk-lib">
           <div class="mk-card">
             <div class="mk-cmedia" style="background:linear-gradient(135deg,#2a1840,#3a1a4d)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">96%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Triple kill, no scope</div><div class="mk-cmeta"><span>shroud</span><span class="mk-cpill ok">approved</span></div></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Triple kill, no scope</div><div class="mk-cmeta"><span>novafps</span><span class="mk-cpill ok">approved</span></div></div>
           </div>
           <div class="mk-card">
             <div class="mk-cmedia" style="background:linear-gradient(135deg,#3a1a4d,#1f1730)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">81%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Chat absolutely loses it</div><div class="mk-cmeta"><span>pokimane</span><span class="mk-cpill pend">pending</span></div></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Unreal comeback round</div><div class="mk-cmeta"><span>peachy_kat</span><span class="mk-cpill pend">pending</span></div></div>
           </div>
           <div class="mk-card">
             <div class="mk-cmedia" style="background:linear-gradient(135deg,#1f2a4d,#2a1840)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">74%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Clutch ace, full team</div><div class="mk-cmeta"><span>tenz</span><span class="mk-cpill ok">approved</span></div></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Clutch ace, full team</div><div class="mk-cmeta"><span>drift_season</span><span class="mk-cpill ok">approved</span></div></div>
           </div>
           <div class="mk-card">
             <div class="mk-cmedia" style="background:linear-gradient(135deg,#33184a,#1a2440)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">68%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Perfect comedic timing</div><div class="mk-cmeta"><span>ninja</span><span class="mk-cpill pend">pending</span></div></div>
+            <div class="mk-cbody"><div class="mk-ctitle">Perfect comedic timing</div><div class="mk-cmeta"><span>moonvale</span><span class="mk-cpill pend">pending</span></div></div>
           </div>
         </div>
       </div>
@@ -2510,20 +2497,15 @@ LANDING_HTML = """<!DOCTYPE html>
   var line=document.getElementById('d-line'), area=document.getElementById('d-area');
   var dot=document.getElementById('d-dot'), badge=document.getElementById('d-badge');
   var scoreEl=document.getElementById('d-score'), clipCard=document.getElementById('d-clip');
-  var chatEl=document.getElementById('d-chat');
   var sigChat=document.getElementById('sig-chat'), sigAudio=document.getElementById('sig-audio'),
       sigKw=document.getElementById('sig-kw'), sigSent=document.getElementById('sig-sent');
   if(!demo||!line||reduce) return;   // static fired-state markup stays as-is
 
   var DUR=11000, WINDOW=8000, W=520, H=150, THRESH=60;
-  var calm=['nice shot','lol','what rank is this','gg','music playlist?','he is cracked','LOL','W stream','first time here this is fun','chat is comfy today','yo','that was clean'];
-  var hype=['CLIP IT','CLIP THAT','LETSGOOOO','NO WAY','POGGG','OMG OMG OMG','INSANE','???????','W W W W','HE DID IT','THAT WAS NUTS','CLIP IT NOW','BRO?????','NOOO WAY'];
-  var names=['kaivex','miloz','pix3l','dara','stormzy_','juno','tk_','ravena','blipp','ceezy','nova','wren'];
-  var colors=['#c79bff','#7cd7ff','#ffb03a','#2ee08a','#ff8ab5','#9adcff'];
 
   function yFor(s){ return 144 - s*1.32; }
 
-  var samples=[], lastSample=0, lastChat=0, fired=false, clipShown=false, clipDone=false, seed=7;
+  var samples=[], lastSample=0, fired=false, clipShown=false, clipDone=false, seed=7;
   function rnd(){ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }
 
   function scoreAt(t){
@@ -2536,23 +2518,6 @@ LANDING_HTML = """<!DOCTYPE html>
     return Math.max(6,Math.min(97,base+(rnd()*4-2)));
   }
 
-  function pushChat(t){
-    var isHype=t>=5050&&t<7900;
-    var gap=isHype?95:650+rnd()*450;
-    if(t-lastChat<gap) return;
-    lastChat=t;
-    var pool=isHype?hype:calm;
-    var d=document.createElement('div');
-    d.className='cm';
-    var b=document.createElement('b');
-    b.style.color=colors[Math.floor(rnd()*colors.length)];
-    b.textContent=names[Math.floor(rnd()*names.length)];
-    d.appendChild(b);
-    d.appendChild(document.createTextNode(pool[Math.floor(rnd()*pool.length)]));
-    chatEl.appendChild(d);
-    while(chatEl.children.length>18) chatEl.removeChild(chatEl.firstChild);
-  }
-
   function setSigs(t){
     var on1=t>=5350&&t<8600, on2=t>=5750&&t<8300, on3=t>=6050&&t<8000, on4=t>=6300&&t<7500;
     sigChat.classList.toggle('on',on1);
@@ -2562,11 +2527,10 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
   function reset(){
-    samples=[]; lastSample=0; lastChat=0; fired=false; clipShown=false; clipDone=false; seed=7;
+    samples=[]; lastSample=0; fired=false; clipShown=false; clipDone=false; seed=7;
     badge.classList.remove('on'); demo.classList.remove('hot');
     clipCard.classList.remove('show','done');
     dot.setAttribute('r','0');
-    while(chatEl.firstChild) chatEl.removeChild(chatEl.firstChild);
   }
   reset();
 
@@ -2608,7 +2572,6 @@ LANDING_HTML = """<!DOCTYPE html>
       }
       if(t>=10300){ badge.classList.remove('on'); demo.classList.remove('hot'); }
     }
-    pushChat(t);
     setSigs(t);
     requestAnimationFrame(frame);
   }
