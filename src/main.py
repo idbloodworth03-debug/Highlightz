@@ -198,6 +198,26 @@ async def run_clip_processor() -> None:
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+async def sweep_dead_clips_task() -> None:
+    """Periodic task: remove clips that were deleted on Twitch's side after we
+    captured them (some channels' mods mass-delete clips), so the review queue
+    and library never show dead 'clip is no longer available' links.
+    First pass shortly after boot, then every 6 hours."""
+    from src.output import twitch_clips
+    await asyncio.sleep(300)   # let startup settle; app token etc. ready
+    while True:
+        try:
+            removed = await dashboard_api.sweep_dead_twitch_clips(
+                twitch_clips.get_existing_clip_ids)
+            if removed:
+                log.info("dead_clip_sweep_done", removed=removed)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("dead_clip_sweep_error", error=str(exc))
+        await asyncio.sleep(6 * 3600)
+
+
 async def auto_delete_old_clips() -> None:
     """Daily task: delete approved clips older than 30 days to free disk space."""
     import time
@@ -316,6 +336,7 @@ async def main() -> None:
         asyncio.create_task(listen_for_new_streams(redis), name="stream-listener"),
         asyncio.create_task(run_clip_processor(), name="clip-processor"),
         asyncio.create_task(auto_delete_old_clips(), name="auto-delete"),
+        asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
     ]
 

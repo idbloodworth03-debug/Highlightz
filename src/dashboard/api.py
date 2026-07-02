@@ -406,6 +406,58 @@ def increment_clip_counter(n: int = 1) -> None:
     _clip_counter = get_clip_counter() + n
     _persist_clip_counter()
 
+
+# Clips younger than this are skipped by the dead-clip sweep — they were
+# verified queryable at creation, and this avoids any freshness edge case.
+_SWEEP_MIN_AGE_SECS = 900.0
+
+
+async def sweep_dead_twitch_clips(fetch_existing) -> int:
+    """Remove stored Twitch clips that were deleted on Twitch's side after
+    creation (broadcasters/mods can — and on some channels routinely do —
+    delete clips, leaving dead links in the review queue and library).
+
+    fetch_existing(slugs) -> set of ids Twitch still has, or None on lookup
+    failure. On None we remove NOTHING — unknown must never read as gone.
+    Returns the number of clips removed. The all-time clip counter is not
+    decremented (it counts captures, not survivors)."""
+    now = time.time()
+    async with _data_lock:
+        candidates = {
+            c["twitch_clip_id"]: c["id"]
+            for c in _clips.values()
+            if c.get("platform") == "twitch"
+            and not c.get("is_vod_moment")
+            and c.get("twitch_clip_id")
+            and now - c.get("created_at", now) > _SWEEP_MIN_AGE_SECS
+        }
+    if not candidates:
+        return 0
+
+    existing = await fetch_existing(list(candidates.keys()))
+    if existing is None:
+        log.warning("dead_clip_sweep_skipped", reason="existence lookup failed")
+        return 0
+
+    gone_ids = [cid for slug, cid in candidates.items() if slug not in existing]
+    removed = []
+    async with _data_lock:
+        for cid in gone_ids:
+            clip = _clips.pop(cid, None)
+            if clip:
+                removed.append(clip)
+        if removed:
+            _save_clips()
+    for clip in removed:
+        _delete_clip_file(clip)
+        await broadcast({"event": "clip_removed", "clip_id": clip["id"]},
+                        user_id=clip.get("user_id"))
+        log.info("dead_clip_removed", clip_id=clip["id"], channel=clip.get("channel"),
+                 slug=clip.get("twitch_clip_id"),
+                 reason="deleted on Twitch after creation")
+    return len(removed)
+
+
 async def notify_clip_ready(clip: dict) -> None:
     async with _data_lock:
         channel  = clip.get("channel")

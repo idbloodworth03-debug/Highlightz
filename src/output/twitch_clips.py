@@ -145,6 +145,35 @@ async def create_clip(user_token: str, broadcaster_id: str,
     return None
 
 
+async def get_existing_clip_ids(slugs: list[str]) -> set[str] | None:
+    """Which of these clip slugs does Twitch still have? Batched Get Clips
+    (up to 100 ids per request). Returns the set of ids present, or None if the
+    lookup failed — callers MUST treat None as 'unknown', never as 'all gone',
+    or an API blip would mass-delete healthy clips.
+
+    Broadcasters/mods can delete clips after creation (some channels mass-
+    delete), which leaves dead links in the review queue; this powers the sweep
+    that clears them."""
+    if not slugs:
+        return set()
+    found: set[str] = set()
+    async with aiohttp.ClientSession() as session:
+        token = await _get_app_token(session)
+        headers = {"Client-Id": settings.twitch_client_id, "Authorization": f"Bearer {token}"}
+        for i in range(0, len(slugs), 100):
+            chunk = slugs[i:i + 100]
+            params = [("id", s) for s in chunk]
+            async with session.get(f"{HELIX_BASE}/clips", headers=headers,
+                                   params=params) as resp:
+                if resp.status != 200:
+                    log.warning("clip_existence_check_failed", status=resp.status,
+                                chunk_size=len(chunk))
+                    return None
+                rows = (await resp.json()).get("data", [])
+            found |= {r.get("id") for r in rows if r.get("id")}
+    return found
+
+
 async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5) -> dict | None:
     """Poll Get Clips until the freshly-created clip is queryable.
     Returns the clip object (url, embed_url, thumbnail_url, duration, title), or
