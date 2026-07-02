@@ -776,7 +776,7 @@ async def optout_confirm_page(request: Request):
     avatar_section = (
         f'<img class="avatar" src="{_html.escape(avatar)}" alt="">'
         if avatar and avatar.startswith("https://") else
-        '<div class="avatar-placeholder">🎮</div>'
+        '<div class="avatar-placeholder"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c79bff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg></div>'
     )
     html_out = (
         _OPTOUT_CONFIRM_HTML
@@ -2215,7 +2215,7 @@ LANDING_HTML = """<!DOCTYPE html>
                 <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#a855f7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
                 <circle id="d-dot" cx="415" cy="17" r="4.5" fill="#f943ff" stroke="#0b0b10" stroke-width="2"/>
               </svg>
-              <span class="fired-badge on" id="d-badge">&#9889; TRIGGER FIRED</span>
+              <span class="fired-badge on" id="d-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>TRIGGER FIRED</span>
             </div>
             <div class="demo-sigs">
               <span class="dsig on" id="sig-chat">CHAT VELOCITY</span>
@@ -2474,7 +2474,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <div class="price-in">
       <span class="price-badge">Highlightz Pro</span>
       <div class="price-amt"><span class="cur">$</span><span class="num">15</span><span class="per">/month</span></div>
-      <div class="price-trialline">&#10024; First 7 days free</div>
+      <div class="price-trialline">First 7 days free</div>
       <div class="price-sub">Full access from day one. Auto-renews monthly after the trial &middot; cancel anytime.</div>
       <div class="price-list">
         <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
