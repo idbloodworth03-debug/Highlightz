@@ -1847,6 +1847,18 @@ LANDING_HTML = """<!DOCTYPE html>
 <title>Highlightz — Automatic Twitch clipping. $15/mo, 7 days free.</title>
 <meta name="description" content="Highlightz watches your live Twitch streams and clips the best moments automatically using a transparent scoring formula — not AI. 7-day free trial, then $15/month.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Highlightz">
+<meta property="og:url" content="https://highlightz.app/">
+<meta property="og:title" content="Highlightz — Never miss a highlight again">
+<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. 7-day free trial, then $15/month.">
+<meta property="og:image" content="https://highlightz.app/static/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Highlightz — Never miss a highlight again">
+<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. 7-day free trial, then $15/month.">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}

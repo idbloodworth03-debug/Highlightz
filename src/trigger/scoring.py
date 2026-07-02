@@ -43,9 +43,15 @@ CLIP_IT_FLOOR       = 90.0
 # learning (which still moves the threshold per clip) and the hourly decay back
 # toward the seed threshold (which pulls it up again once the lull ends). The
 # floor keeps a genuinely dead stream from loosening into clipping random noise.
-DRY_SPELL_SECS            = 600.0   # 10 min with no trigger → recalibrate
-DRY_SPELL_THRESHOLD_STEP  = 3.0     # lower trigger_threshold by this each dry cycle
-DRY_SPELL_THRESHOLD_FLOOR = 40.0    # dry-spell alone never lowers below this
+# Tuned after observing the tug-of-war on real channels: at -3/10min the
+# dry-spell overpowered reject feedback (+2/reject) and dragged busy channels to
+# the old floor of 40, where the bar is low enough that weak, marginal moments
+# fire constantly — the "clipping poorly" failure mode. A floor of 52 keeps a
+# recalibrated channel selective, and -2/15min lets the user's approve/reject
+# signal win the argument while still un-sticking a genuinely stale threshold.
+DRY_SPELL_SECS            = 900.0   # 15 min with no trigger → recalibrate
+DRY_SPELL_THRESHOLD_STEP  = 2.0     # lower trigger_threshold by this each dry cycle
+DRY_SPELL_THRESHOLD_FLOOR = 52.0    # dry-spell alone never lowers below this
 
 
 # Message-length collapse: mean message length (chars) at/below this during an

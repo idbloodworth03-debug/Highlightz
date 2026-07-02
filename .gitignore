@@ -46,3 +46,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+# State backups (src/maintenance/backup.py)
+backups/

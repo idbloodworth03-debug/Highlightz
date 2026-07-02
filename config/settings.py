@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     gcs_bucket: str = "superclipbot-clips"
     local_storage_path: str = "./clips"
 
+    # Off-site state backups (src/maintenance/backup.py). Local rotation always
+    # runs; upload happens only when a bucket is configured. Endpoint URL makes
+    # any S3-compatible store work (DigitalOcean Spaces:
+    # https://<region>.digitaloceanspaces.com; credentials via
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY above).
+    backup_s3_bucket: str = ""
+    backup_s3_endpoint: str = ""
+    backup_keep_local: int = 14     # newest N local archives kept by rotation
+
     # FFmpeg / streamlink
     ffmpeg_path: str = "ffmpeg"
     streamlink_path: str = "streamlink"
