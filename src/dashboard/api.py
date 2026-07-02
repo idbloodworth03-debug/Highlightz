@@ -1844,8 +1844,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch &amp; Kick clipping. $15/mo, 7 days free.</title>
-<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. 7-day free trial, then $15/month.">
+<title>Highlightz — Automatic Twitch clipping. $15/mo, 7 days free.</title>
+<meta name="description" content="Highlightz watches your live Twitch streams and clips the best moments automatically using a transparent scoring formula — not AI. 7-day free trial, then $15/month.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -2109,7 +2109,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Hero -->
 <header class="wrap hero">
   <div class="hero-copy">
-    <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch &amp; Kick</div>
+    <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
     <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
     <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
@@ -2222,7 +2222,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="steps">
     <div class="glass step">
       <div class="step-n">1</div>
-      <div><h3>Add any live Twitch or Kick channel</h3><p>Monitor multiple streams at the same time across both platforms — your own channel, streamers you clip for, or anyone live right now. Switch between Twitch and Kick with a single tap from the top of your dashboard.</p></div>
+      <div><h3>Add any live Twitch channel</h3><p>Your own channel, streamers you clip for, or anyone live right now — monitor multiple streams at the same time from one dashboard.</p></div>
     </div>
     <div class="glass step">
       <div class="step-n">2</div>
@@ -2234,7 +2234,7 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="glass step">
       <div class="step-n">4</div>
-      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Kick streams are monitored the same way; highlights are queued to your review list. Highlightz never records or re-hosts video.</p></div>
+      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
     </div>
     <div class="glass step">
       <div class="step-n">5</div>
@@ -2257,7 +2257,7 @@ LANDING_HTML = """<!DOCTYPE html>
             <div class="mk-row">
               <div>
                 <div class="mk-nm"><span class="pd"></span>novafps</div>
-                <div class="mk-mt"><span class="mk-chip" style="color:#53fc18;border-color:rgba(83,252,24,.3)">kick</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
+                <div class="mk-mt"><span class="mk-chip" style="color:#c79bff;border-color:rgba(168,85,247,.3)">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
               </div>
               <div class="mk-acts">
                 <span class="mk-clip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
@@ -2396,8 +2396,8 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="glass feat">
       <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></div>
-      <h3>Twitch &amp; Kick support</h3>
-      <p>Monitor channels on both platforms from one dashboard. Kick streams are detected via Kick's public API — no extra login required.</p>
+      <h3>Real Twitch clips, zero risk</h3>
+      <p>Every clip is created through Twitch's official API under your own account — hosted by Twitch, never recorded or re-hosted by us.</p>
     </div>
   </div>
 </section>
@@ -2418,7 +2418,7 @@ LANDING_HTML = """<!DOCTYPE html>
         <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
         <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
         <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
-        <div class="li"><span class="ck">&#10003;</span>Twitch &amp; Kick stream monitoring</div>
+        <div class="li"><span class="ck">&#10003;</span>VOD scanner — find highlights in past broadcasts</div>
         <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
       </div>
       <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
@@ -2430,7 +2430,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Final CTA -->
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
-  <p>Connect your Twitch account and start monitoring Twitch and Kick streams — Highlightz catches every highlight automatically, from the very first stream.</p>
+  <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
   <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
 </section>
 
@@ -2605,10 +2605,6 @@ LOGIN_HTML = """<!DOCTYPE html>
   .twitch-btn svg{flex-shrink:0}
   .or-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
-  .kick-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#53fc18;color:#0a0a0e;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:filter .15s,transform .12s}
-  .kick-btn:hover{filter:brightness(1.08)}
-  .kick-btn:active{transform:scale(.98)}
-  .kick-unavail{font-size:12px;color:#3d3d4a;text-align:center;padding:13px;border:1px dashed rgba(83,252,24,.15);border-radius:12px}
   .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
   label{font-size:12px;color:#9c9caa;display:block;margin-bottom:6px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
