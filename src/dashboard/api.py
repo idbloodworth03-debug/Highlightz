@@ -62,7 +62,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
-                  "/opt-out", "/opt-out/confirm", "/opt-out/success"}
+                  "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -364,6 +364,48 @@ async def broadcast(event: dict, user_id: str | None = None) -> None:
 _DEDUP_WINDOW    = 45   # seconds — skip clip if same channel+user had one recently
 _MAX_PENDING_CLIPS = 200 # per-user cap on pending clips
 
+# ── All-time clip counter (public, powers the landing-page ticker) ────────────
+# Monotonic count of every clip the system has ever captured (live + VOD moments,
+# regardless of later approve/reject/delete). Seeded once from historical data:
+# per-channel profile tallies + whatever is currently in the clip store.
+_CLIP_COUNTER_FILE = Path(settings.local_storage_path) / "clip_counter.json"
+_clip_counter: int | None = None   # lazy-loaded cache
+
+
+def _seed_clip_counter() -> int:
+    total = len(_clips)
+    profiles_dir = Path(settings.local_storage_path) / "profiles"
+    for pf in profiles_dir.glob("**/*.json"):
+        try:
+            total += int(json.loads(pf.read_text()).get("total_clips", 0) or 0)
+        except Exception:
+            continue
+    return total
+
+
+def get_clip_counter() -> int:
+    global _clip_counter
+    if _clip_counter is None:
+        try:
+            _clip_counter = int(json.loads(_CLIP_COUNTER_FILE.read_text())["total"])
+        except Exception:
+            _clip_counter = _seed_clip_counter()
+            _persist_clip_counter()
+    return _clip_counter
+
+
+def _persist_clip_counter() -> None:
+    try:
+        _atomic_write(_CLIP_COUNTER_FILE, json.dumps({"total": _clip_counter}))
+    except Exception as exc:  # a stats counter must never break the clip pipeline
+        log.warning("clip_counter_save_failed", error=str(exc))
+
+
+def increment_clip_counter(n: int = 1) -> None:
+    global _clip_counter
+    _clip_counter = get_clip_counter() + n
+    _persist_clip_counter()
+
 async def notify_clip_ready(clip: dict) -> None:
     async with _data_lock:
         channel  = clip.get("channel")
@@ -395,6 +437,7 @@ async def notify_clip_ready(clip: dict) -> None:
 
         _clips[clip["id"]] = clip
         _save_clips()
+        increment_clip_counter()
 
     # A pending clip pushed out at the cap was never approved → weak negative for
     # the training log (the user had it in their queue and didn't keep it).
@@ -1335,6 +1378,7 @@ async def start_vod_analysis(request: Request, req: _VodRequest):
         async with _data_lock:
             _clips[moment["id"]] = moment
             _save_clips()
+            increment_clip_counter()
         await broadcast({"event": "vod_moment", "job_id": job_id, "moment": moment}, user_id=uid)
         await broadcast({"event": "clip_ready", "clip": moment}, user_id=uid)
 
@@ -1788,19 +1832,27 @@ async def dashboard(request: Request):
     return HTMLResponse(content=LANDING_HTML)
 
 
+@app.get("/landing/stats")
+async def landing_stats():
+    """Public stats for the landing page (in _OPEN_PATHS — no auth).
+    Exposes only an aggregate count; nothing user-identifying."""
+    return {"clips_total": get_clip_counter()}
+
+
 LANDING_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch &amp; Kick clipping, made effortless</title>
-<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. Multiple streams at once, 7-day free trial.">
+<title>Highlightz — Automatic Twitch &amp; Kick clipping. $15/mo, 7 days free.</title>
+<meta name="description" content="Highlightz watches your live streams on Twitch and Kick and clips the best moments automatically using a transparent scoring formula — not AI. 7-day free trial, then $15/month.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden}
-  body::before{content:'';position:fixed;inset:0;z-index:-2;background:radial-gradient(800px 500px at 18% -8%,rgba(168,85,247,.22),transparent 60%),radial-gradient(700px 420px at 88% 4%,rgba(249,67,255,.13),transparent 55%),radial-gradient(700px 600px at 50% 110%,rgba(124,107,255,.12),transparent 60%)}
+  body::before{content:'';position:fixed;inset:0;z-index:-3;background:radial-gradient(900px 560px at 16% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(760px 460px at 88% 2%,rgba(249,67,255,.14),transparent 55%),radial-gradient(760px 640px at 50% 112%,rgba(124,107,255,.13),transparent 60%)}
+  body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);background-size:26px 26px;-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%);mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%)}
   a{text-decoration:none;color:inherit}
   .acc{color:#c79bff}
   .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
@@ -1810,34 +1862,92 @@ LANDING_HTML = """<!DOCTYPE html>
   .nav-logo img{height:32px;filter:drop-shadow(0 0 9px rgba(199,155,255,.5))}
   .nav-logo span{font-size:17px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
   .nav-actions{display:flex;align-items:center;gap:10px}
-  .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s}
+  .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s;white-space:nowrap}
   .nav-link:hover{color:#f6f6f9;background:rgba(255,255,255,.05)}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;font-weight:700;cursor:pointer;border:none;transition:.16s;white-space:nowrap}
-  .btn-grad{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border-radius:12px;padding:11px 20px;font-size:14px;box-shadow:0 6px 24px -8px rgba(168,85,247,.7)}
+  .btn-grad{position:relative;overflow:hidden;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border-radius:12px;padding:11px 20px;font-size:14px;box-shadow:0 6px 24px -8px rgba(168,85,247,.7)}
   .btn-grad:hover{filter:brightness(1.09);transform:translateY(-1px)}
+  .btn-grad::after{content:'';position:absolute;top:0;left:-70%;width:45%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);transform:skewX(-22deg)}
   .btn-ghost{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#f6f6f9;border-radius:12px;padding:12px 22px;font-size:14px}
   .btn-ghost:hover{background:rgba(255,255,255,.09)}
   .btn-lg{padding:15px 30px;font-size:15px;border-radius:13px}
   /* Layout */
-  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
   section{padding:84px 0}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
   .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
   h2.sec-title{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:14px;line-height:1.15}
   .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
   /* Hero */
-  .hero{text-align:center;padding:78px 0 64px}
-  .hero h1{font-size:60px;font-weight:800;letter-spacing:-.04em;line-height:1.04;margin-bottom:22px}
-  .hero p.lead{font-size:19px;color:#b8b8c8;max-width:660px;margin:0 auto 34px;line-height:1.6}
-  .hero-ctas{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding:74px 0 40px}
+  .hero-copy h1{font-size:54px;font-weight:800;letter-spacing:-.04em;line-height:1.04;margin-bottom:20px}
+  .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
+  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
   .hero-note{font-size:13px;color:#5d5d6b}
-  .pills{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:38px}
-  .pill{font-size:13px;font-weight:600;padding:8px 16px;border-radius:99px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);color:#c79bff}
+  .hero-note b{color:#9c9caa;font-weight:700}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px}
+  .pill{font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:99px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);color:#c79bff}
+  /* ── LIVE DEMO ── */
+  .demo-wrap{position:relative}
+  .demo-wrap::before{content:'';position:absolute;inset:-36px -30px;background:radial-gradient(60% 60% at 50% 42%,rgba(168,85,247,.28),transparent 70%);filter:blur(14px);z-index:0}
+  .demo{position:relative;z-index:1;border-radius:20px;padding:1px;background:linear-gradient(160deg,rgba(249,67,255,.55),rgba(255,255,255,.09) 30%,rgba(255,255,255,.07) 62%,rgba(124,107,255,.5));box-shadow:0 40px 90px -34px rgba(0,0,0,.85),0 0 70px -30px rgba(168,85,247,.55)}
+  .demo-in{border-radius:19px;background:rgba(11,11,16,.96);overflow:hidden}
+  .demo-bar{display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}
+  .demo-bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .demo-bar .b1{background:#ff5f57}.demo-bar .b2{background:#febc2e}.demo-bar .b3{background:#28c840}
+  .demo-bar span{margin-left:8px;font-size:11px;color:#5d5d6b;font-weight:600}
+  .demo-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.06em;color:#ff5f6e;background:rgba(255,95,110,.1);border:1px solid rgba(255,95,110,.3);padding:4px 10px;border-radius:99px}
+  .demo-live i{width:6px;height:6px;border-radius:50%;background:#ff5f6e;box-shadow:0 0 7px #ff5f6e;animation:blink 1.2s ease-in-out infinite}
+  @keyframes blink{50%{opacity:.35}}
+  .demo-body{padding:15px 15px 14px;display:grid;grid-template-columns:1fr 152px;gap:12px}
+  .demo-main{min-width:0}
+  .demo-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+  .demo-ch{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
+  .demo-ch .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
+  .demo-score{font-size:26px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .demo-score small{font-size:10.5px;font-weight:700;color:#5d5d6b;letter-spacing:.06em;text-transform:uppercase;margin-right:8px;vertical-align:3px}
+  .demo-chart{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
+  .demo-chart svg{display:block;width:100%;height:auto}
+  .fired-badge{position:absolute;top:9px;right:9px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:5px 11px;border-radius:99px;box-shadow:0 4px 18px -4px rgba(249,67,255,.8);opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s}
+  .fired-badge.on{opacity:1;transform:none}
+  .demo.hot .demo-in{box-shadow:inset 0 0 0 1px rgba(249,67,255,.35),inset 0 0 44px -18px rgba(249,67,255,.4)}
+  .demo-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .dsig{font-size:10px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);padding:4px 9px;border-radius:8px;transition:.25s;letter-spacing:.02em}
+  .dsig.on{background:rgba(168,85,247,.2);color:#f6f6f9;border-color:rgba(168,85,247,.45)}
+  /* demo clip card */
+  .demo-clip{margin-top:11px;display:flex;align-items:center;gap:11px;border:1px solid rgba(46,224,138,.0);background:rgba(255,255,255,.03);border-radius:12px;padding:9px 11px;opacity:0;transform:translateY(10px);transition:opacity .4s,transform .4s,border-color .4s}
+  .demo-clip.show{opacity:1;transform:none}
+  .demo-clip.done{border-color:rgba(46,224,138,.35)}
+  .dc-thumb{position:relative;width:64px;height:38px;border-radius:8px;flex-shrink:0;background:linear-gradient(135deg,#2a1840,#4a1a5d 52%,#1f1730);display:grid;place-items:center}
+  .dc-thumb svg{opacity:.9}
+  .dc-meta{flex:1;min-width:0}
+  .dc-t{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dc-s{font-size:11px;color:#9c9caa;margin-top:2px;display:flex;align-items:center;gap:6px}
+  .dc-spin{width:10px;height:10px;border:2px solid rgba(255,255,255,.2);border-top-color:#c79bff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .dc-ok{display:none;color:#2ee08a;font-weight:700}
+  .demo-clip.done .dc-spin{display:none}
+  .demo-clip.done .dc-ok{display:inline-flex;align-items:center;gap:5px}
+  /* demo chat */
+  .demo-chat{display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
+  .chat-h{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5d5d6b;padding:8px 11px 7px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .chat-f{flex:1;overflow:hidden;padding:7px 10px;display:flex;flex-direction:column;justify-content:flex-end;gap:4.5px;min-height:196px}
+  .cm{font-size:10.5px;line-height:1.35;color:#b8b8c8;word-break:break-word;animation:cmIn .18s ease-out}
+  .cm b{font-weight:700;margin-right:5px}
+  @keyframes cmIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .demo-cap{text-align:center;font-size:12px;color:#5d5d6b;margin-top:14px;position:relative;z-index:1}
+  /* Stats band */
+  .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:26px 0 0}
+  .stat{padding:26px 20px;text-align:center}
+  .stat .n{font-size:38px;font-weight:800;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:12.5px;color:#9c9caa;font-weight:600;margin-top:7px}
+  .stat .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ee08a;box-shadow:0 0 8px #2ee08a;margin-right:8px;vertical-align:4px}
   /* Glass card */
   .glass{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:20px;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
   /* Who it's for */
   .who-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:40px}
-  .who-card{padding:26px 24px}
+  .who-card{padding:26px 24px;transition:transform .25s,border-color .25s}
+  .who-card:hover{transform:translateY(-3px);border-color:rgba(168,85,247,.3)}
   .who-card .ic{width:42px;height:42px;border-radius:12px;background:rgba(168,85,247,.14);color:#c79bff;display:grid;place-items:center;font-size:21px;margin-bottom:16px}
   .who-card h3{font-size:17px;font-weight:700;margin-bottom:7px}
   .who-card p{font-size:14px;color:#9c9caa;line-height:1.6}
@@ -1849,11 +1959,12 @@ LANDING_HTML = """<!DOCTYPE html>
   .step p{font-size:14.5px;color:#9c9caa;line-height:1.65}
   /* Features */
   .feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:44px}
-  .feat{padding:26px 24px}
+  .feat{padding:26px 24px;transition:transform .25s,border-color .25s}
+  .feat:hover{transform:translateY(-3px);border-color:rgba(168,85,247,.3)}
   .feat .ic{width:40px;height:40px;border-radius:11px;background:rgba(168,85,247,.13);color:#c79bff;display:grid;place-items:center;margin-bottom:15px}
   .feat h3{font-size:16px;font-weight:700;margin-bottom:7px}
   .feat p{font-size:14px;color:#9c9caa;line-height:1.6}
-  /* Formula / not AI section */
+  /* Formula */
   .formula{padding:46px 44px;text-align:center}
   .formula h2{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:14px}
   .formula p.lead{font-size:16px;color:#b8b8c8;max-width:680px;margin:0 auto 32px;line-height:1.65}
@@ -1863,14 +1974,20 @@ LANDING_HTML = """<!DOCTYPE html>
   .plus{display:grid;place-items:center;color:#5d5d6b;font-size:18px;font-weight:700;padding:0 2px}
   .formula-eq{margin-top:30px;font-size:15px;color:#c79bff;font-weight:700;letter-spacing:.01em}
   /* Pricing */
-  .price-card{max-width:460px;margin:44px auto 0;padding:42px 40px;text-align:center}
-  .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:20px}
-  .price-amt{font-size:17px;color:#9c9caa;margin-bottom:6px}
-  .price-trial{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .price-sub{font-size:14px;color:#9c9caa;margin-bottom:28px}
+  .price-card{position:relative;max-width:470px;margin:44px auto 0;padding:1px;border-radius:22px;background:linear-gradient(160deg,rgba(249,67,255,.5),rgba(255,255,255,.09) 35%,rgba(255,255,255,.08) 65%,rgba(124,107,255,.45))}
+  .price-in{border-radius:21px;background:rgba(11,11,16,.94);padding:42px 40px;text-align:center}
+  .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:22px}
+  .price-amt{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px}
+  .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
+  .price-amt .num{font-size:64px;font-weight:800;letter-spacing:-.045em;line-height:1}
+  .price-amt .per{font-size:16px;color:#9c9caa;font-weight:600}
+  .price-trialline{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#2ee08a;background:rgba(46,224,138,.1);border:1px solid rgba(46,224,138,.3);padding:8px 16px;border-radius:99px;margin:14px 0 10px}
+  .price-sub{font-size:13.5px;color:#9c9caa;margin-bottom:26px;line-height:1.6}
   .price-list{text-align:left;display:flex;flex-direction:column;gap:12px;margin-bottom:30px}
   .price-list .li{display:flex;align-items:flex-start;gap:11px;font-size:14.5px;color:#d8d8e2}
   .price-list .ck{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(52,211,153,.14);color:#34d399;display:grid;place-items:center;font-size:12px;font-weight:800;margin-top:1px}
+  .price-promo{font-size:12.5px;color:#5d5d6b;margin-top:14px}
+  .price-promo b{color:#c79bff}
   /* Final CTA */
   .final{text-align:center;padding:64px 0 90px}
   .final h2{font-size:38px;font-weight:800;letter-spacing:-.03em;margin-bottom:16px;line-height:1.1}
@@ -1946,27 +2063,42 @@ LANDING_HTML = """<!DOCTYPE html>
   .mk-cpill{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:99px;text-transform:capitalize}
   .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
   .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
+  @media(max-width:960px){
+    .hero{grid-template-columns:1fr;gap:40px;padding-top:56px}
+    .hero-copy{text-align:center}
+    .hero-copy p.lead{margin-left:auto;margin-right:auto}
+    .hero-ctas,.pills{justify-content:center}
+  }
   @media(max-width:680px){
     .shots-top{grid-template-columns:1fr}
-    .hero h1{font-size:40px}
-    .hero p.lead{font-size:17px}
+    .hero-copy h1{font-size:38px}
+    .hero-copy p.lead{font-size:16.5px}
     h2.sec-title{font-size:27px}
     .final h2{font-size:29px}
     section{padding:60px 0}
-    .nav{padding:14px 18px}
+    .nav{padding:14px 14px}
+    .nav-actions{gap:4px}
+    .nav-logo span{display:none}
     .nav .nav-link.hide-sm{display:none}
     .formula{padding:34px 22px}
+    .stats-band{grid-template-columns:1fr;gap:12px}
+    .stat{padding:20px}
+    .stat .n{font-size:32px}
+    .demo-body{grid-template-columns:1fr}
+    .demo-chat{display:none}
+    .price-amt .num{font-size:54px}
   }
   /* Scroll-reveal + hero intro (motion-safe only) */
   @media(prefers-reduced-motion:no-preference){
     .reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)}
     .reveal.in{opacity:1;transform:none}
-    .hero .eyebrow,.hero h1,.hero .lead,.hero-ctas,.hero-note,.pills{opacity:0;animation:heroIn .8s cubic-bezier(.16,1,.3,1) forwards}
-    .hero h1{animation-delay:.07s}
-    .hero .lead{animation-delay:.15s}
+    .hero .eyebrow,.hero-copy h1,.hero-copy .lead,.hero-ctas,.hero-note,.pills{opacity:0;animation:heroIn .8s cubic-bezier(.16,1,.3,1) forwards}
+    .hero-copy h1{animation-delay:.07s}
+    .hero-copy .lead{animation-delay:.15s}
     .hero-ctas{animation-delay:.23s}
     .hero-note{animation-delay:.31s}
     .pills{animation-delay:.39s}
+    .demo-wrap{opacity:0;animation:heroIn .9s cubic-bezier(.16,1,.3,1) .2s forwards}
     @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
   }
 </style>
@@ -1985,21 +2117,93 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Hero -->
 <header class="wrap hero">
-  <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch &amp; Kick</div>
-  <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
-  <p class="lead">Highlightz watches your live streams on Twitch and Kick in real time and captures the best moments automatically — so the clips are ready before you even finish your stream. Switch between platforms from one dashboard.</p>
-  <div class="hero-ctas">
-    <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
-    <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+  <div class="hero-copy">
+    <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch &amp; Kick</div>
+    <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
+    <p class="lead">Highlightz watches your live streams in real time and captures the best moments automatically — the clip is on Twitch before chat stops spamming. You just approve the keepers.</p>
+    <div class="hero-ctas">
+      <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
+      <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+    </div>
+    <p class="hero-note">7 days free &middot; then <b>$15/month</b> &middot; cancel anytime</p>
+    <div class="pills">
+      <span class="pill">Formula-based — not AI</span>
+      <span class="pill">Adapts to each streamer</span>
+      <span class="pill">Multiple streams at once</span>
+    </div>
   </div>
-  <p class="hero-note">Cancel anytime &middot; Twitch &amp; Kick support</p>
-  <div class="pills">
-    <span class="pill">Formula-based — not AI</span>
-    <span class="pill">Adapts to each streamer</span>
-    <span class="pill">Multiple streams at once</span>
-    <span class="pill">Twitch &amp; Kick</span>
+
+  <!-- LIVE DEMO -->
+  <div class="demo-wrap">
+    <div class="demo" id="demo">
+      <div class="demo-in">
+        <div class="demo-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Highlightz — watching jynxzi</span><span class="demo-live"><i></i>LIVE</span></div>
+        <div class="demo-body">
+          <div class="demo-main">
+            <div class="demo-head">
+              <div class="demo-ch"><span class="pd"></span>jynxzi</div>
+              <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
+            </div>
+            <div class="demo-chart">
+              <svg viewBox="0 0 520 150" preserveAspectRatio="none" aria-label="Live trigger score chart">
+                <defs>
+                  <linearGradient id="dArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#a855f7" stop-opacity=".34"/>
+                    <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <line x1="0" y1="42" x2="520" y2="42" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
+                <line x1="0" y1="104" x2="520" y2="104" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
+                <line id="d-thresh" x1="0" y1="64.8" x2="520" y2="64.8" stroke="#5d5d6b" stroke-width="1" stroke-dasharray="5 5"/>
+                <text x="8" y="60" font-size="9" fill="#5d5d6b" font-family="Inter,system-ui,sans-serif" font-weight="600">trigger threshold</text>
+                <path id="d-area" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#dArea)"/>
+                <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#a855f7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                <circle id="d-dot" cx="415" cy="17" r="4.5" fill="#f943ff" stroke="#0b0b10" stroke-width="2"/>
+              </svg>
+              <span class="fired-badge on" id="d-badge">&#9889; TRIGGER FIRED</span>
+            </div>
+            <div class="demo-sigs">
+              <span class="dsig on" id="sig-chat">CHAT VELOCITY</span>
+              <span class="dsig on" id="sig-audio">AUDIO SPIKE</span>
+              <span class="dsig on" id="sig-kw">KEYWORDS</span>
+              <span class="dsig" id="sig-sent">SENTIMENT</span>
+            </div>
+            <div class="demo-clip show done" id="d-clip">
+              <div class="dc-thumb"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
+              <div class="dc-meta">
+                <div class="dc-t">jynxzi — Chat Explodes</div>
+                <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="demo-chat">
+            <div class="chat-h">Stream chat</div>
+            <div class="chat-f" id="d-chat"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-cap">Live demo — this is what a capture looks like, start to finish.</div>
   </div>
 </header>
+
+<!-- Stats band -->
+<div class="wrap">
+  <div class="stats-band">
+    <div class="glass stat" id="stat-clips" style="display:none">
+      <div class="n"><span class="live-dot"></span><span id="lp-count">0</span></div>
+      <div class="k">clips captured and counting</div>
+    </div>
+    <div class="glass stat">
+      <div class="n">7</div>
+      <div class="k">live signals blended into every score</div>
+    </div>
+    <div class="glass stat">
+      <div class="n">1s</div>
+      <div class="k">every second of your stream is scored</div>
+    </div>
+  </div>
+</div>
 
 <!-- Who it's for -->
 <section class="wrap" id="who">
@@ -2214,21 +2418,25 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="wrap" id="pricing">
   <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">Try everything free for 7 days. Cancel anytime before the trial ends and you won't be charged.</p>
-  <div class="glass price-card">
-    <span class="price-badge">Highlightz Pro</span>
-    <div class="price-trial">7 days free</div>
-    <div class="price-sub">Full access &middot; cancel anytime</div>
-    <div class="price-list">
-      <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
-      <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
-      <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
-      <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
-      <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
-      <div class="li"><span class="ck">&#10003;</span>Twitch &amp; Kick stream monitoring</div>
-      <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">One plan, everything included. Try it free for a week — cancel anytime before the trial ends and you won't be charged.</p>
+  <div class="price-card">
+    <div class="price-in">
+      <span class="price-badge">Highlightz Pro</span>
+      <div class="price-amt"><span class="cur">$</span><span class="num">15</span><span class="per">/month</span></div>
+      <div class="price-trialline">&#10024; First 7 days free</div>
+      <div class="price-sub">Full access from day one. Auto-renews monthly after the trial &middot; cancel anytime.</div>
+      <div class="price-list">
+        <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
+        <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
+        <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
+        <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
+        <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
+        <div class="li"><span class="ck">&#10003;</span>Twitch &amp; Kick stream monitoring</div>
+        <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
+      </div>
+      <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
+      <div class="price-promo">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
     </div>
-    <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
   </div>
 </section>
 
@@ -2236,7 +2444,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
   <p>Connect your Twitch account and start monitoring Twitch and Kick streams — Highlightz catches every highlight automatically, from the very first stream.</p>
-  <a href="/login" class="btn btn-grad btn-lg">Get started free</a>
+  <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
 </section>
 
 <footer class="footer">
@@ -2246,11 +2454,10 @@ LANDING_HTML = """<!DOCTYPE html>
 <script>
 (function(){
   if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.final h2,.final p,.final .btn';
+  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.stat,.final h2,.final p,.final .btn';
   var els=[].slice.call(document.querySelectorAll(sel));
   els.forEach(function(el){el.classList.add('reveal');});
-  // Gentle stagger for items sharing a grid/list
-  document.querySelectorAll('.who-grid,.steps,.feat-grid').forEach(function(group){
+  document.querySelectorAll('.who-grid,.steps,.feat-grid,.stats-band').forEach(function(group){
     [].slice.call(group.children).forEach(function(child,i){
       if(child.classList.contains('reveal')) child.style.transitionDelay=(i*0.08)+'s';
     });
@@ -2261,6 +2468,151 @@ LANDING_HTML = """<!DOCTYPE html>
     });
   },{threshold:0.12,rootMargin:'0px 0px -8% 0px'});
   els.forEach(function(el){io.observe(el);});
+})();
+
+/* ── Live clips counter ── */
+(function(){
+  var tile=document.getElementById('stat-clips'), el=document.getElementById('lp-count');
+  if(!tile||!el) return;
+  fetch('/landing/stats').then(function(r){return r.ok?r.json():null;}).then(function(d){
+    if(!d||typeof d.clips_total!=='number'||d.clips_total<=0) return;
+    tile.style.display='';
+    var target=d.clips_total;
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      el.textContent=target.toLocaleString('en-US'); return;
+    }
+    var started=null;
+    function tick(ts){
+      if(started===null) started=ts;
+      var p=Math.min((ts-started)/1400,1);
+      var eased=1-Math.pow(1-p,3);
+      el.textContent=Math.round(target*eased).toLocaleString('en-US');
+      if(p<1) requestAnimationFrame(tick);
+    }
+    // Start counting when the tile scrolls into view
+    if('IntersectionObserver' in window){
+      var io=new IntersectionObserver(function(es){
+        es.forEach(function(e){ if(e.isIntersecting){ requestAnimationFrame(tick); io.disconnect(); } });
+      },{threshold:0.4});
+      io.observe(tile);
+    } else { requestAnimationFrame(tick); }
+  }).catch(function(){});
+})();
+
+/* ── Hero live-capture demo ──
+   A scripted ~11s loop: calm chat + wandering score → chat floods → score
+   spikes past the threshold → TRIGGER badge + window glow → a clip card slides
+   in, spins, flips to "Clip ready". The markup ships the fired end-state, so
+   no-JS and reduced-motion visitors see the finished capture instead of motion. */
+(function(){
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var demo=document.getElementById('demo');
+  var line=document.getElementById('d-line'), area=document.getElementById('d-area');
+  var dot=document.getElementById('d-dot'), badge=document.getElementById('d-badge');
+  var scoreEl=document.getElementById('d-score'), clipCard=document.getElementById('d-clip');
+  var chatEl=document.getElementById('d-chat');
+  var sigChat=document.getElementById('sig-chat'), sigAudio=document.getElementById('sig-audio'),
+      sigKw=document.getElementById('sig-kw'), sigSent=document.getElementById('sig-sent');
+  if(!demo||!line||reduce) return;   // static fired-state markup stays as-is
+
+  var DUR=11000, WINDOW=8000, W=520, H=150, THRESH=60;
+  var calm=['nice shot','lol','what rank is this','gg','music playlist?','he is cracked','LOL','W stream','first time here this is fun','chat is comfy today','yo','that was clean'];
+  var hype=['CLIP IT','CLIP THAT','LETSGOOOO','NO WAY','POGGG','OMG OMG OMG','INSANE','???????','W W W W','HE DID IT','THAT WAS NUTS','CLIP IT NOW','BRO?????','NOOO WAY'];
+  var names=['kaivex','miloz','pix3l','dara','stormzy_','juno','tk_','ravena','blipp','ceezy','nova','wren'];
+  var colors=['#c79bff','#7cd7ff','#ffb03a','#2ee08a','#ff8ab5','#9adcff'];
+
+  function yFor(s){ return 144 - s*1.32; }
+
+  var samples=[], lastSample=0, lastChat=0, fired=false, clipShown=false, clipDone=false, seed=7;
+  function rnd(){ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }
+
+  function scoreAt(t){
+    var base;
+    if(t<5200)      base=26+6*Math.sin(t/900)+5*Math.sin(t/370);
+    else if(t<6400) { var p=(t-5200)/1200; var e=p*p*(3-2*p); base=30+e*62; }
+    else if(t<7600) base=92-3*Math.sin((t-6400)/300);
+    else if(t<9800) { var q=(t-7600)/2200; base=89-q*46; }
+    else            base=43-((t-9800)/1200)*12;
+    return Math.max(6,Math.min(97,base+(rnd()*4-2)));
+  }
+
+  function pushChat(t){
+    var isHype=t>=5050&&t<7900;
+    var gap=isHype?95:650+rnd()*450;
+    if(t-lastChat<gap) return;
+    lastChat=t;
+    var pool=isHype?hype:calm;
+    var d=document.createElement('div');
+    d.className='cm';
+    var b=document.createElement('b');
+    b.style.color=colors[Math.floor(rnd()*colors.length)];
+    b.textContent=names[Math.floor(rnd()*names.length)];
+    d.appendChild(b);
+    d.appendChild(document.createTextNode(pool[Math.floor(rnd()*pool.length)]));
+    chatEl.appendChild(d);
+    while(chatEl.children.length>18) chatEl.removeChild(chatEl.firstChild);
+  }
+
+  function setSigs(t){
+    var on1=t>=5350&&t<8600, on2=t>=5750&&t<8300, on3=t>=6050&&t<8000, on4=t>=6300&&t<7500;
+    sigChat.classList.toggle('on',on1);
+    sigAudio.classList.toggle('on',on2);
+    sigKw.classList.toggle('on',on3);
+    sigSent.classList.toggle('on',on4);
+  }
+
+  function reset(){
+    samples=[]; lastSample=0; lastChat=0; fired=false; clipShown=false; clipDone=false; seed=7;
+    badge.classList.remove('on'); demo.classList.remove('hot');
+    clipCard.classList.remove('show','done');
+    dot.setAttribute('r','0');
+    while(chatEl.firstChild) chatEl.removeChild(chatEl.firstChild);
+  }
+  reset();
+
+  var t0=null;
+  function frame(now){
+    if(t0===null) t0=now;
+    var t=(now-t0)%DUR;
+    if(t<lastSample){ reset(); }   // loop wrapped
+
+    if(t-lastSample>=70){
+      lastSample=t;
+      var s=scoreAt(t);
+      samples.push([t,s]);
+      while(samples.length&&samples[0][0]<t-WINDOW) samples.shift();
+      scoreEl.textContent=String(Math.round(s));
+
+      var d='',ax,ay;
+      for(var i=0;i<samples.length;i++){
+        ax=((samples[i][0]-(t-WINDOW))/WINDOW)*W;
+        ay=yFor(samples[i][1]);
+        d+=(i===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
+      }
+      if(samples.length){
+        line.setAttribute('d',d);
+        area.setAttribute('d',d+' L'+W+','+H+' L'+((samples[0][0]-(t-WINDOW))/WINDOW*W).toFixed(1)+','+H+' Z');
+        dot.setAttribute('cx',ax.toFixed(1)); dot.setAttribute('cy',ay.toFixed(1));
+      }
+
+      if(!fired&&s>=THRESH&&t>4000){
+        fired=true;
+        badge.classList.add('on'); demo.classList.add('hot');
+        dot.setAttribute('r','4.5');
+      }
+      if(fired&&!clipShown&&t>=7100){
+        clipShown=true; clipCard.classList.add('show');
+      }
+      if(clipShown&&!clipDone&&t>=8700){
+        clipDone=true; clipCard.classList.add('done');
+      }
+      if(t>=10300){ badge.classList.remove('on'); demo.classList.remove('hot'); }
+    }
+    pushChat(t);
+    setSigs(t);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 })();
 </script>
 </body>
