@@ -2219,7 +2219,9 @@ LANDING_HTML = """<!DOCTYPE html>
   .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
   .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
   @media(max-width:960px){
-    .hero{grid-template-columns:1fr;gap:40px;padding-top:56px}
+    .hero{grid-template-columns:minmax(0,1fr);gap:40px;padding-top:56px}
+    .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
+    .demo-head{flex-wrap:wrap;gap:4px 8px}
     .hero-copy{text-align:center}
     .hero-copy p.lead{margin-left:auto;margin-right:auto}
     .hero-ctas,.pills{justify-content:center}

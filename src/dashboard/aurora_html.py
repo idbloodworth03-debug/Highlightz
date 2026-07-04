@@ -485,6 +485,18 @@ button{font-family:inherit;cursor:pointer}
   .rd-nav{z-index:30}
   /* First-run welcome card: phone-comfortable padding */
   .wm-card{padding:26px 20px !important;border-radius:18px !important}
+  /* Toolbars: the two filter groups (status + sort) must wrap, not push wide */
+  .rd-toolbar>div{flex-wrap:wrap;min-width:0}
+  .rd-filters{width:auto;max-width:100%;flex-wrap:wrap}
+  .rd-filter{flex:1 1 auto}
+  .rd-section-title{flex-wrap:wrap}
+  /* Clip cards: a long channel name must truncate, not shove the status pill out */
+  .rd-clip-head{min-width:0}
+  .rd-clip-ch{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Stream detail header: long channel names wrap; Force clip stays on screen */
+  .rd-detail-head{flex-wrap:wrap}
+  .rd-detail-head>div{min-width:0}
+  .rd-detail-head h2{font-size:19px;word-break:break-word}
 }
 </style>
 </head>
