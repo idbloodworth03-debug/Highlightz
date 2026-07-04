@@ -108,6 +108,76 @@ def test_checkout_without_trial_charges_immediately():
     assert p["payment_method_collection"] == "always"
 
 
+def test_checkout_reuses_existing_stripe_customer():
+    # A re-subscribe must land on the SAME Stripe customer — a fresh customer
+    # per checkout orphans the old subscription (invisible, unkillable billing).
+    fake_client = MagicMock()
+    fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
+    with patch.object(sb, "_client", return_value=fake_client):
+        asyncio.run(sb.create_checkout_url("u_1", "alice", customer_id="cus_A"))
+    params = fake_client.checkout.sessions.create.call_args.kwargs["params"]
+    assert params["customer"] == "cus_A"
+    # And without a known customer, Stripe creates one (param absent).
+    fake_client.reset_mock()
+    with patch.object(sb, "_client", return_value=fake_client):
+        asyncio.run(sb.create_checkout_url("u_1", "alice"))
+    assert "customer" not in fake_client.checkout.sessions.create.call_args.kwargs["params"]
+
+
+def test_live_subscription_status_prefers_active_and_fails_open(monkeypatch):
+    monkeypatch.setattr(sb.settings, "stripe_secret_key", "sk_test")
+    fake_client = MagicMock()
+    fake_client.subscriptions.list.return_value = MagicMock(
+        data=[{"status": "canceled"}, {"status": "past_due"}, {"status": "active"}])
+    with patch.object(sb, "_client", return_value=fake_client):
+        assert asyncio.run(sb.live_subscription_status("cus_A")) == "active"
+    fake_client.subscriptions.list.return_value = MagicMock(data=[{"status": "canceled"}])
+    with patch.object(sb, "_client", return_value=fake_client):
+        assert asyncio.run(sb.live_subscription_status("cus_A")) is None
+    # Errors must fail OPEN (None) — a Stripe hiccup must never block checkout.
+    with patch.object(sb, "_client", side_effect=RuntimeError("boom")):
+        assert asyncio.run(sb.live_subscription_status("cus_A")) is None
+    assert asyncio.run(sb.live_subscription_status("")) is None
+
+
+def test_apply_subscription_event_mismatch_targets_customer_owner(monkeypatch):
+    # Stale-customer cancellation: metadata names user X, but X's stored customer
+    # is B != A. The event must NOT touch X (their B-subscription is healthy);
+    # it applies by customer and affects whoever owns A — here, nobody.
+    from src.dashboard import api
+    from src.auth import users as user_store
+    calls = {}
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": uid, "stripe_customer_id": "cus_B"})
+    monkeypatch.setattr(user_store, "update_subscription",
+                        lambda *a: calls.setdefault("by_user", []).append(a))
+    monkeypatch.setattr(user_store, "update_subscription_by_customer",
+                        lambda cust, status: calls.setdefault("by_cust", []).append((cust, status)) or None)
+    affected = api.apply_subscription_event("user_X", "cus_A", "inactive")
+    assert affected is None                    # nobody owns cus_A anymore
+    assert "by_user" not in calls              # user_X untouched
+    assert calls["by_cust"] == [("cus_A", "inactive")]
+    # Matching customer → normal per-user update, affected user returned.
+    calls.clear()
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": uid, "stripe_customer_id": "cus_A"})
+    assert api.apply_subscription_event("user_X", "cus_A", "active") == "user_X"
+    assert calls["by_user"] == [("user_X", "cus_A", "active")]
+
+
+def test_paywall_copy_is_honest_about_trial_eligibility():
+    from src.dashboard.api import _paywall_copy
+    fresh = _paywall_copy(True)
+    assert "7-day free trial" in fresh["headline"] and "won't be charged" in fresh["subline"]
+    returning = _paywall_copy(False)
+    assert "free trial" not in returning["cta"].lower()
+    assert "$15/month" in returning["cta"]
+    assert "already been used" in returning["subline"]
+    # Neither variant leaves template placeholders behind.
+    for c in (fresh, returning):
+        assert all("{" not in v for v in c.values())
+
+
 def test_trial_claim_id_prefers_twitch_then_kick():
     from src.auth import users
     assert users.trial_claim_id({"twitch_id": "123"}) == "123"

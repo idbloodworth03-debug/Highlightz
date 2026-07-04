@@ -19,20 +19,26 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
     return is_admin or subscription_status in ACTIVE_STATUSES
 
 
-async def create_checkout_url(user_id: str, username: str, trial_days: int = 0) -> str:
+async def create_checkout_url(user_id: str, username: str, trial_days: int = 0,
+                              customer_id: str | None = None) -> str:
     """Create a Stripe Checkout session and return its URL.
 
     A card is ALWAYS collected. When trial_days > 0 the subscription starts with
     that many days free (Stripe charges the card automatically when the trial
     ends unless the user cancels). trial_days == 0 charges immediately — used for
     returning users who have already used their one free trial.
+
+    When the user already has a Stripe customer, pass customer_id so the new
+    subscription lands on the SAME customer — otherwise every checkout mints a
+    fresh customer, and a re-subscribe orphans the old one (portal/cancel/sync
+    all key off the single stored id).
     """
     client = _client()
     base = "https://highlightz.app"
     sub_data: dict = {"metadata": {"user_id": user_id}}
     if trial_days > 0:
         sub_data["trial_period_days"] = trial_days
-    session = client.checkout.sessions.create(params={
+    params: dict = {
         "mode":                 "subscription",
         "payment_method_types": ["card"],
         "line_items":           [{"price": settings.stripe_price_id, "quantity": 1}],
@@ -48,8 +54,36 @@ async def create_checkout_url(user_id: str, username: str, trial_days: int = 0) 
         # code, enforces redemption limits/expiry, and applies it — no discount
         # logic lives here.
         "allow_promotion_codes": True,
-    })
+    }
+    if customer_id:
+        params["customer"] = customer_id
+    session = client.checkout.sessions.create(params=params)
     return session.url
+
+
+async def live_subscription_status(customer_id: str) -> str | None:
+    """Best-effort LIVE check of a customer's subscription state, for the
+    checkout guard: right after a payment there's a window where Stripe knows
+    the subscription exists but our webhook hasn't landed yet — opening another
+    checkout in that window mints a duplicate subscription. Returns the most
+    relevant status ('active' > 'trialing' > 'past_due') or None when the
+    customer has none / on any error (fail-open: never block checkout on a
+    Stripe hiccup)."""
+    if not (settings.stripe_secret_key and customer_id):
+        return None
+    try:
+        client = _client()
+        subs = client.subscriptions.list(params={"customer": customer_id,
+                                                 "status": "all", "limit": 10})
+        items = subs.data if hasattr(subs, "data") else []
+        statuses = {(s.get("status") if isinstance(s, dict) else s.status) for s in items}
+        for pref in ("active", "trialing", "past_due"):
+            if pref in statuses:
+                return pref
+        return None
+    except Exception as exc:
+        log.warning("stripe_live_status_failed", customer=customer_id, error=str(exc))
+        return None
 
 
 async def create_portal_url(customer_id: str) -> str:

@@ -408,7 +408,8 @@ button{font-family:inherit;cursor:pointer}
       linear-gradient(120deg,color-mix(in srgb,var(--acc-2) 55%,transparent),
         rgba(255,255,255,.14),color-mix(in srgb,var(--acc) 45%,transparent)) border-box}
   .rd-navitem.active::before{border-color:transparent;
-    background:linear-gradient(var(--grad-soft)) padding-box,
+    background:linear-gradient(135deg,color-mix(in srgb,var(--acc-2) 16%,transparent),
+        color-mix(in srgb,var(--acc) 11%,transparent)) padding-box,
       linear-gradient(150deg,color-mix(in srgb,var(--acc) 55%,transparent),
         rgba(255,255,255,.1) 45%,color-mix(in srgb,var(--acc-2) 40%,transparent)) border-box}
 }

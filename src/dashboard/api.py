@@ -95,8 +95,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     # Persist the transition once so the DB reflects reality
                     # (accurate admin stats; trial ledger already blocks re-grants).
                     user_store.update_subscription(uid, db_user.get("stripe_customer_id"), "expired")
-                    # Stop running streams immediately — don't wait for idle reaper.
+                    # Stop running streams immediately — don't wait for idle reaper —
+                    # and tell every open tab live (realtime contract): the requesting
+                    # tab learns via the paywall redirect, but other tabs/sockets
+                    # would otherwise keep showing running streams.
                     asyncio.create_task(_stop_user_streams_now(uid))
+                    asyncio.create_task(broadcast(
+                        {"event": "subscription_expired",
+                         "message": "Your free trial has ended — streams have been stopped."},
+                        user_id=uid,
+                    ))
                 request.session["is_admin"]            = db_user.get("is_admin", False)
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
@@ -924,12 +932,50 @@ async def feedback_unread_count(request: Request):
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
 
+def _paywall_copy(trial_available: bool) -> dict:
+    """Honest paywall copy: only promise '7 days free' to identities that can
+    actually get the trial — returning users are charged immediately, and
+    telling them otherwise is a chargeback waiting to happen."""
+    if trial_available:
+        return {
+            "headline": "Start your 7-day free trial",
+            "subline":  ("add a card to start capturing your best streaming moments. "
+                         "Free for 7 days, then it auto-renews monthly. Cancel anytime "
+                         "before the trial ends and you won't be charged."),
+            "cta":      "Start free trial &#8594;",
+            "note":     "Card required to start. Have a promo code? Enter it at checkout for 50% off your first month.",
+        }
+    return {
+        "headline": "Restart your subscription",
+        "subline":  ("welcome back. Your one-time free trial has already been used, so "
+                     "your subscription starts right away — $15/month, cancel anytime."),
+        "cta":      "Subscribe &middot; $15/month &#8594;",
+        "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
+    }
+
+
 @app.get("/billing/paywall", response_class=HTMLResponse)
 async def paywall_page(request: Request):
+    from src.auth import users as user_store
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
+    db_user  = user_store.get_by_id(uid) if uid else None
+    if db_user is None:
+        # Unknown/logged-out visitor: show the standard trial pitch — the
+        # checkout itself enforces trial eligibility either way.
+        trial_available = True
+    else:
+        claim_id = user_store.trial_claim_id(db_user)
+        trial_available = bool(claim_id) and not user_store.has_claimed_trial(claim_id)
+    copy = _paywall_copy(trial_available)
     import html as _html
-    return HTMLResponse(PAYWALL_HTML.replace("{username}", _html.escape(username)))
+    page = (PAYWALL_HTML
+            .replace("{username}", _html.escape(username))
+            .replace("{headline}", copy["headline"])
+            .replace("{subline}",  copy["subline"])
+            .replace("{cta_label}", copy["cta"])
+            .replace("{cta_note}",  copy["note"]))
+    return HTMLResponse(page)
 
 
 @app.get("/billing/checkout")
@@ -948,10 +994,32 @@ async def billing_checkout(request: Request):
     if not uid:
         return RedirectResponse("/login")
     db_user  = user_store.get_by_id(uid)
+    # Already subscribed (or mid webhook-latency after paying)? Never open a
+    # second checkout — that mints a second Stripe subscription the user can't
+    # see or cancel. Send them into the app instead.
+    if db_user and db_user.get("subscription_status") in ("active", "trialing"):
+        return RedirectResponse("/")
+    # Webhook-latency window: the user may have JUST paid (Stripe knows, our DB
+    # doesn't yet). Ask Stripe live before selling them a second subscription —
+    # and self-heal the DB so they get straight into the app.
+    stripe_customer = (db_user or {}).get("stripe_customer_id")
+    if stripe_customer:
+        from src.billing.stripe_billing import live_subscription_status
+        live = await live_subscription_status(stripe_customer)
+        if live in ("active", "trialing"):
+            user_store.update_subscription(uid, stripe_customer, "active")
+            return RedirectResponse("/")
+        if live == "past_due":
+            # They have a subscription in dunning — fixing the card in the
+            # portal is the right move, not stacking a new subscription.
+            return RedirectResponse("/billing/portal")
     claim_id = user_store.trial_claim_id(db_user) if db_user else ""
     # One free trial per identity; returning users pay immediately.
     trial_days = user_store.TRIAL_DAYS if (claim_id and not user_store.has_claimed_trial(claim_id)) else 0
-    url = await create_checkout_url(uid, username, trial_days=trial_days)
+    # Reuse the existing Stripe customer so a re-subscribe stays on one customer
+    # (portal / cancel-on-delete / admin sync all key off the stored id).
+    url = await create_checkout_url(
+        uid, username, trial_days=trial_days, customer_id=stripe_customer)
     return RedirectResponse(url)
 
 
@@ -1013,6 +1081,35 @@ async def stripe_webhook(request: Request):
     # Reject duplicate deliveries — lock guards the check-then-insert atomically
     now = time.time()
     event_id = event.get("id", "")
+    return await _process_stripe_event(event, now, event_id)
+
+
+def apply_subscription_event(user_id: str | None, cust_id: str, status: str) -> str | None:
+    """Apply a verified Stripe subscription event to the user store and return
+    the id of the user actually affected (None if no user matched).
+
+    Cross-check: metadata user_id must match that user's stored customer. On a
+    mismatch (stale/orphaned customer, or tampered metadata) the update is
+    applied strictly BY CUSTOMER, and the affected user is whoever owns that
+    customer — never the metadata user, whose current subscription may be
+    healthy and must not be touched."""
+    from src.auth import users as user_store
+    if user_id:
+        db_user = user_store.get_by_id(user_id)
+        stored_cust = db_user.get("stripe_customer_id") if db_user else None
+        if stored_cust and stored_cust != cust_id:
+            log.warning("stripe_webhook_customer_mismatch",
+                        webhook_customer=cust_id, stored_customer=stored_cust,
+                        metadata_user=user_id)
+            return user_store.update_subscription_by_customer(cust_id, status)
+        user_store.update_subscription(user_id, cust_id, status)
+        return user_id
+    return user_store.update_subscription_by_customer(cust_id, status)
+
+
+async def _process_stripe_event(event: dict, now: float, event_id: str):
+    from src.billing.stripe_billing import sync_subscription_event
+    from src.auth import users as user_store
     async with _stripe_event_lock:
         stale = [k for k, ts in list(_stripe_processed.items()) if now - ts > _STRIPE_EVENT_TTL]
         for k in stale:
@@ -1025,24 +1122,25 @@ async def stripe_webhook(request: Request):
 
     cust_id, user_id, status = sync_subscription_event(event)
     if cust_id and status:
-        if user_id:
-            # Cross-check: the metadata user_id must match the customer on record.
-            # Prevents a tampered metadata field from updating the wrong account.
-            db_user = user_store.get_by_id(user_id)
-            stored_cust = db_user.get("stripe_customer_id") if db_user else None
-            if stored_cust and stored_cust != cust_id:
-                log.warning("stripe_webhook_customer_mismatch",
-                            webhook_customer=cust_id, stored_customer=stored_cust,
-                            user_id=user_id)
-                user_store.update_subscription_by_customer(cust_id, status)
-            else:
-                user_store.update_subscription(user_id, cust_id, status)
-        else:
-            user_id = user_store.update_subscription_by_customer(cust_id, status)
-        log.info("stripe_subscription_updated", customer=cust_id, status=status)
-        # Kill active streams immediately when subscription lapses — don't wait for idle reaper.
+        # Resolve the user this event ACTUALLY affects. On a customer mismatch
+        # (metadata names user X but X's stored customer is different — e.g. a
+        # stale/orphaned subscription cancelling after the user re-subscribed
+        # under a new customer) we must NOT act on the metadata user: their
+        # current subscription is fine, and stopping their streams / changing
+        # their status would punish them for an old customer's lifecycle event.
+        user_id = apply_subscription_event(user_id, cust_id, status)
+        log.info("stripe_subscription_updated", customer=cust_id, status=status,
+                 affected_user=user_id or "none")
+        # Kill active streams immediately when subscription lapses — don't wait
+        # for idle reaper — and tell the open tab (realtime contract: the lapse
+        # must reach the user live, mirroring admin revoke).
         if status not in ("active", "trialing") and user_id:
             asyncio.create_task(_stop_user_streams_now(user_id))
+            await broadcast(
+                {"event": "subscription_expired",
+                 "message": "Your subscription has ended — streams have been stopped."},
+                user_id=user_id,
+            )
         elif status in ("active", "trialing") and user_id:
             # The user now has a real subscription (trial or paid) → burn their
             # one-time trial claim so they can't get a second free trial later.
@@ -2747,8 +2845,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
   <span class="badge">Highlightz Pro</span>
-  <h1>Start your 7-day free trial</h1>
-  <p class="sub">Hi {username} — add a card to start capturing your best streaming moments. Free for 7 days, then it auto-renews monthly. Cancel anytime before the trial ends and you won't be charged.</p>
+  <h1>{headline}</h1>
+  <p class="sub">Hi {username} — {subline}</p>
   <div class="features">
     <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
     <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
@@ -2756,8 +2854,8 @@ PAYWALL_HTML = """<!DOCTYPE html>
     <div class="feat"><span class="ic">›</span>Clip review queue with approve / reject</div>
     <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
   </div>
-  <a href="/billing/checkout" class="cta">Start free trial →</a>
-  <p class="sub" style="font-size:13px;margin-top:14px">Card required to start. Have a promo code? Enter it at checkout for 50% off your first month.</p>
+  <a href="/billing/checkout" class="cta">{cta_label}</a>
+  <p class="sub" style="font-size:13px;margin-top:14px">{cta_note}</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
 </div>

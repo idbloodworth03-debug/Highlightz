@@ -162,7 +162,11 @@ async def get_existing_clip_ids(slugs: list[str]) -> set[str] | None:
         headers = {"Client-Id": settings.twitch_client_id, "Authorization": f"Bearer {token}"}
         for i in range(0, len(slugs), 100):
             chunk = slugs[i:i + 100]
-            params = [("id", s) for s in chunk]
+            # Explicit first=100: if Helix ever applied its default page size
+            # (20) to id-queries, a truncated-but-200 response would make the
+            # sweep read up to 80 healthy clips as "deleted". Never rely on the
+            # default when the answer's completeness decides deletions.
+            params = [("id", s) for s in chunk] + [("first", "100")]
             async with session.get(f"{HELIX_BASE}/clips", headers=headers,
                                    params=params) as resp:
                 if resp.status != 200:
