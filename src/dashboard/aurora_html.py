@@ -448,6 +448,43 @@ button{font-family:inherit;cursor:pointer}
 @media(max-width:700px){
   /* Cull panel: fixed bottom sheet above nav bar so it can't overflow the right edge */
   .cull-panel{position:fixed;bottom:66px;left:10px;right:10px;width:auto;top:auto;z-index:50}
+
+  /* ── Mobile usability pass ──
+     Root cause of the old jank: several rows had an unshrinkable min-content
+     width (~439px) — header title+switch+live+avatar on one nowrap line, stat
+     tiles with nowrap labels, the toolbar — so the whole app laid out wider
+     than the phone and taps landed off-target. Kill each constraint. */
+  html,body{overflow-x:hidden}
+  /* Collapse the desktop sidebar track (the nav is a fixed bottom bar here) and
+     break min-content propagation: 1fr means minmax(auto,1fr), and 'auto' lets
+     any deep unwrappable row push the whole app wider than the phone. */
+  .rd-app{grid-template-columns:minmax(0,1fr)}
+  .rd-body{grid-template-columns:minmax(0,1fr)}
+  .rd-streams-layout{grid-template-columns:minmax(0,1fr)}
+  .rd-frame,.rd-screen,.rd-main,.rd-col,.rd-rail{min-width:0}
+  .rd-frame{grid-template-rows:auto 1fr}
+  .rd-header{flex-wrap:wrap;height:auto;min-height:0;padding:10px 12px;gap:8px 10px}
+  .rd-header>*{min-width:0}
+  .rd-header .htitle{font-size:16px}
+  .rd-header .hsub{display:none}
+  .plat-sw-btn{padding:7px 13px;font-size:11px}
+  .rd-live{font-size:11px;padding:5px 9px}
+  .rd-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .rd-stat{padding:12px 13px}
+  .rd-stat .k{white-space:normal;line-height:1.3}
+  .rd-stat .v{font-size:24px}
+  .rd-toolbar{flex-wrap:wrap;gap:8px}
+  .rd-addrow{flex-wrap:wrap}
+  .rd-addrow .rd-input{flex:1 1 100%}
+  .rd-addrow .rd-select{flex:1}
+  .rd-grid{grid-template-columns:1fr}
+  /* Scrolling content must never hide under the fixed bottom nav — including
+     the internally-scrolling stream-detail and channel-list columns */
+  .rd-body,.rd-scroll,.rd-streams-layout{padding-bottom:78px}
+  .rd-detail,.rd-chanlist{padding-bottom:84px}
+  .rd-nav{z-index:30}
+  /* First-run welcome card: phone-comfortable padding */
+  .wm-card{padding:26px 20px !important;border-radius:18px !important}
 }
 </style>
 </head>
@@ -1553,7 +1590,7 @@ function WelcomeOverlay({ onClose }) {
   );
   return (
     <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
-      <div className="glass" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
+      <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
           <img src="/static/logo.jpg" alt="Highlightz" style={{height:56,filter:'drop-shadow(0 0 14px rgba(199,155,255,.5))'}}/>
         </div>

@@ -2820,7 +2820,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
   .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 44px;max-width:440px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:20px}
@@ -2839,6 +2839,10 @@ PAYWALL_HTML = """<!DOCTYPE html>
   .logout:hover{color:#9c9caa}
   .footer{margin-top:28px;text-align:center;font-size:11px;color:#3d3d4a;line-height:1.7}
   .footer a{color:#5d5d6b;text-decoration:none}.footer a:hover{color:#9c9caa}
+@media(max-width:480px){
+  .card{padding:32px 22px;border-radius:18px}
+  h1{font-size:24px}
+}
 </style>
 </head>
 <body>
@@ -3540,7 +3544,7 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 30%,rgba(168,85,247,.18),transparent 60%)}
   .wrap{padding:40px 24px}
   .code{font-size:100px;font-weight:800;letter-spacing:-.05em;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1}
