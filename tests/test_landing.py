@@ -59,3 +59,33 @@ def test_landing_html_has_price_counter_and_demo():
     assert 'id="lp-count"' in html                   # live counter element
     assert "/landing/stats" in html                  # fed by the public endpoint
     assert 'id="demo"' in html and "TRIGGER FIRED" in html   # live capture demo
+
+
+def test_showcase_endpoint_public_and_curated(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "_SHOWCASE_FILE", tmp_path / "showcase.json")
+    assert "/landing/showcase" in api._OPEN_PATHS
+    assert api._load_showcase() == []                       # empty by default
+    clip = {"id": "c1", "clip_title": "T", "channel": "nova", "game": "VAL",
+            "twitch_url": "https://t", "thumbnail_url": "https://i",
+            "trigger_score": 91.4, "duration_seconds": 30, "user_id": "SECRET",
+            "chat_snapshot": ["private"], "status": "approved", "platform": "twitch"}
+    entry = api._showcase_entry(clip)
+    # Whitelist only — nothing user-identifying or internal leaks to the public page.
+    assert entry["score"] == 91 and entry["channel"] == "nova"
+    assert "user_id" not in entry and "chat_snapshot" not in entry and "status" not in entry
+    api._save_showcase([entry])
+    assert api._load_showcase() == [entry]
+
+
+def test_showcase_pruned_when_clip_dies(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "_SHOWCASE_FILE", tmp_path / "showcase.json")
+    api._save_showcase([{"id": "dead"}, {"id": "alive"}])
+    api.prune_showcase({"dead"})
+    assert [e["id"] for e in api._load_showcase()] == ["alive"]
+
+
+def test_landing_has_examples_section():
+    html = api.LANDING_HTML
+    assert 'id="examples"' in html and 'id="ex-grid"' in html
+    assert "/landing/showcase" in html
+    assert 'id="nav-examples"' in html          # nav tab, revealed when data exists

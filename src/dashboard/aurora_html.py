@@ -779,7 +779,7 @@ function parseSecs(str) {
   return parseFloat(str)||0;
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject }) {
+function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFeature }) {
   if (!clip) return null;
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
@@ -851,6 +851,14 @@ function ClipModal({ clip, onClose, onApprove, onReject }) {
                 <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
                 <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
               </div>}
+              {isAdmin && clip.status==='approved' && clip.platform==='twitch' && onFeature &&
+                <button className="rd-btn sm" style={{marginTop:10,width:'100%',justifyContent:'center',
+                    background:featured?'rgba(255,194,92,.14)':'rgba(168,85,247,.14)',
+                    border:featured?'1px solid rgba(255,194,92,.35)':'1px solid rgba(168,85,247,.35)',
+                    color:featured?'#ffc25c':'#c79bff'}}
+                  onClick={()=>onFeature(clip.id)}>
+                  <Icon name="sparkles" size={13}/>{featured?'Remove from landing page':'Feature on landing page'}
+                </button>}
             </div>
           </div>
         </div>
@@ -1687,6 +1695,7 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
+  const [featuredIds, setFeaturedIds] = useState([]);
   const toastTimer = useRef(null);
 
   const flash = useCallback(msg => {
@@ -1709,6 +1718,8 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+    // Which clips are featured on the landing page (admin curation state).
+    fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeaturedIds((d.clips||[]).map(c=>c.id))).catch(()=>{});
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
     // so they self-heal on reconnect/deploy instead of going stale.
     window.dispatchEvent(new CustomEvent('hz_refetch'));
@@ -1826,6 +1837,13 @@ function RdApp() {
     await fetch(`/clips/${id}/reject`,{method:'POST'});
     setClips(p=>{const n={...p};delete n[id];return n;});
   };
+  const toggleFeature = async(id)=>{
+    const r=await fetch(`/admin/showcase/${id}`,{method:'POST'});
+    if(!r.ok){flash('Could not update landing page examples');return;}
+    const d=await r.json();
+    setFeaturedIds(p=> d.featured ? [...p.filter(x=>x!==id),id] : p.filter(x=>x!==id));
+    flash(d.featured ? 'Added to the landing page examples' : 'Removed from the landing page examples');
+  };
   const deleteClip = async(id)=>{
     if(!confirm('Delete this clip? This cannot be undone.')) return;
     await fetch(`/clips/${id}/reject`,{method:'POST'});
@@ -1894,7 +1912,8 @@ function RdApp() {
         <main className="rd-screen">{screen}</main>
       </div>
       <RdToast msg={toast}/>
-      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}/>
+      <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
+        isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
       {welcome && <WelcomeOverlay onClose={dismissWelcome}/>}
     </div>
   );

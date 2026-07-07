@@ -62,7 +62,8 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
-                  "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats"}
+                  "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
+                  "/landing/showcase"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -415,6 +416,51 @@ def increment_clip_counter(n: int = 1) -> None:
     _persist_clip_counter()
 
 
+# ── Landing-page showcase (admin-curated example clips) ───────────────────────
+# The owner hand-picks approved clips to feature publicly on the landing page.
+# Curated (never automatic) so no other user's activity leaks, and only a
+# whitelisted subset of fields is exposed.
+_SHOWCASE_FILE = Path(settings.local_storage_path) / "showcase.json"
+_SHOWCASE_MAX  = 8
+
+
+def _load_showcase() -> list[dict]:
+    try:
+        data = json.loads(_SHOWCASE_FILE.read_text())
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_showcase(items: list[dict]) -> None:
+    _atomic_write(_SHOWCASE_FILE, json.dumps(items))
+
+
+def _showcase_entry(clip: dict) -> dict:
+    """Public-safe projection of a clip — nothing user-identifying beyond the
+    (public) Twitch channel the clip is from."""
+    return {
+        "id":            clip.get("id"),
+        "clip_title":    clip.get("clip_title") or clip.get("stream_title") or "Clip",
+        "channel":       clip.get("channel"),
+        "game":          clip.get("game") or "",
+        "twitch_url":    clip.get("twitch_url"),
+        "thumbnail_url": clip.get("thumbnail_url") or "",
+        "score":         round(float(clip.get("trigger_score") or clip.get("score") or 0)),
+        "duration_seconds": clip.get("duration_seconds") or 0,
+    }
+
+
+def prune_showcase(clip_ids: set[str]) -> None:
+    """Drop showcase entries whose clip was removed (e.g. deleted on Twitch by
+    the dead-clip sweep) so the landing page never advertises a dead link."""
+    items = _load_showcase()
+    kept  = [e for e in items if e.get("id") not in clip_ids]
+    if len(kept) != len(items):
+        _save_showcase(kept)
+        log.info("showcase_pruned", removed=len(items) - len(kept))
+
+
 # Clips younger than this are skipped by the dead-clip sweep — they were
 # verified queryable at creation, and this avoids any freshness edge case.
 _SWEEP_MIN_AGE_SECS = 900.0
@@ -463,6 +509,9 @@ async def sweep_dead_twitch_clips(fetch_existing) -> int:
         log.info("dead_clip_removed", clip_id=clip["id"], channel=clip.get("channel"),
                  slug=clip.get("twitch_clip_id"),
                  reason="deleted on Twitch after creation")
+    if removed:
+        # A featured example that died on Twitch must leave the landing page too.
+        prune_showcase({c["id"] for c in removed})
     return len(removed)
 
 
@@ -1989,6 +2038,35 @@ async def landing_stats():
     return {"clips_total": get_clip_counter()}
 
 
+@app.get("/landing/showcase")
+async def landing_showcase():
+    """Public, admin-curated example clips for the landing page (in _OPEN_PATHS).
+    Only whitelisted fields, only clips the owner explicitly featured."""
+    return {"clips": _load_showcase()}
+
+
+@app.post("/admin/showcase/{clip_id}")
+async def admin_toggle_showcase(request: Request, clip_id: str):
+    """Admin: toggle an approved clip in/out of the landing-page examples."""
+    _require_admin(request)
+    items = _load_showcase()
+    if any(e.get("id") == clip_id for e in items):
+        items = [e for e in items if e.get("id") != clip_id]
+        _save_showcase(items)
+        return {"featured": False, "count": len(items)}
+    clip = _clips.get(clip_id)
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if clip.get("status") != "approved":
+        raise HTTPException(status_code=400, detail="Only approved clips can be featured")
+    if clip.get("platform") != "twitch" or not clip.get("twitch_url"):
+        raise HTTPException(status_code=400, detail="Only Twitch clips can be featured")
+    items.append(_showcase_entry(clip))
+    items = items[-_SHOWCASE_MAX:]   # newest N stay
+    _save_showcase(items)
+    return {"featured": True, "count": len(items)}
+
+
 LANDING_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2218,6 +2296,23 @@ LANDING_HTML = """<!DOCTYPE html>
   .mk-cpill{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:99px;text-transform:capitalize}
   .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
   .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
+  /* Example clips (admin-curated showcase) */
+  .ex-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:44px}
+  .ex-card{display:block;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);transition:transform .22s,border-color .22s,box-shadow .22s;min-width:0}
+  .ex-card:hover{transform:translateY(-4px);border-color:rgba(168,85,247,.4);box-shadow:0 24px 50px -20px rgba(0,0,0,.7),0 0 40px -18px rgba(168,85,247,.5)}
+  .ex-media{position:relative;height:150px;background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730);overflow:hidden}
+  .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
+  .ex-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(0,0,0,.55))}
+  .ex-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
+  .ex-play span{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;padding-left:3px;background:rgba(20,12,30,.45);border:1.5px solid rgba(255,255,255,.85);color:#fff;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:.2s}
+  .ex-card:hover .ex-play span{background:linear-gradient(135deg,#f943ff,#a855f7);border-color:transparent}
+  .ex-badge{position:absolute;top:9px;right:9px;z-index:2;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#fff;background:rgba(8,8,11,.68);border:1px solid rgba(255,255,255,.14);padding:4px 9px;border-radius:99px}
+  .ex-badge i{width:6px;height:6px;border-radius:50%;background:#2ee08a;display:block}
+  .ex-body{padding:13px 14px 15px}
+  .ex-title{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ex-meta{font-size:11.5px;color:#9c9caa;margin-top:5px;display:flex;gap:6px;align-items:center;min-width:0}
+  .ex-meta b{color:#c79bff;font-weight:700}
+  .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   @media(max-width:960px){
     .hero{grid-template-columns:minmax(0,1fr);gap:40px;padding-top:56px}
     .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
@@ -2263,6 +2358,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-actions">
     <a href="#how" class="nav-link hide-sm">How it works</a>
+    <a href="#examples" class="nav-link hide-sm" id="nav-examples" style="display:none">Example clips</a>
     <a href="#features" class="nav-link hide-sm">Features</a>
     <a href="#pricing" class="nav-link hide-sm">Pricing</a>
     <a href="/login" class="nav-link">Sign in</a>
@@ -2355,6 +2451,13 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
   </div>
 </div>
+
+<!-- Example clips (admin-curated; hidden until the showcase has entries) -->
+<section class="wrap" id="examples" style="display:none">
+  <h2 class="sec-title">Real clips, caught automatically</h2>
+  <p class="sec-sub">Not a highlight reel we edited — these were clipped by the formula on live streams and approved in the review queue. Tap any of them to watch on Twitch.</p>
+  <div class="ex-grid" id="ex-grid"></div>
+</section>
 
 <!-- Who it's for -->
 <section class="wrap" id="who">
@@ -2647,6 +2750,48 @@ LANDING_HTML = """<!DOCTYPE html>
       },{threshold:0.4});
       io.observe(tile);
     } else { requestAnimationFrame(tick); }
+  }).catch(function(){});
+})();
+
+/* ── Example clips showcase ── */
+(function(){
+  var sec=document.getElementById('examples'), grid=document.getElementById('ex-grid'), nav=document.getElementById('nav-examples');
+  if(!sec||!grid) return;
+  fetch('/landing/showcase').then(function(r){return r.ok?r.json():null;}).then(function(d){
+    var clips=(d&&d.clips)||[];
+    if(!clips.length) return;
+    clips.forEach(function(c){
+      var a=document.createElement('a');
+      a.className='ex-card'; a.href=c.twitch_url||'#'; a.target='_blank'; a.rel='noopener';
+      var media=document.createElement('div'); media.className='ex-media';
+      if(c.thumbnail_url){
+        var img=document.createElement('img'); img.loading='lazy'; img.alt='';
+        img.src=c.thumbnail_url;
+        img.onerror=function(){ img.remove(); };
+        media.appendChild(img);
+      }
+      var play=document.createElement('div'); play.className='ex-play';
+      play.innerHTML='<span><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg></span>';
+      media.appendChild(play);
+      if(c.score>0){
+        var badge=document.createElement('span'); badge.className='ex-badge';
+        var dot=document.createElement('i'); badge.appendChild(dot);
+        badge.appendChild(document.createTextNode(c.score+'% trigger'));
+        media.appendChild(badge);
+      }
+      var body=document.createElement('div'); body.className='ex-body';
+      var title=document.createElement('div'); title.className='ex-title';
+      title.textContent=c.clip_title||'Clip';
+      var meta=document.createElement('div'); meta.className='ex-meta';
+      var ch=document.createElement('b'); ch.textContent=c.channel||'';
+      meta.appendChild(ch);
+      if(c.game){ var g=document.createElement('span'); g.textContent='\u00b7 '+c.game; meta.appendChild(g); }
+      body.appendChild(title); body.appendChild(meta);
+      a.appendChild(media); a.appendChild(body);
+      grid.appendChild(a);
+    });
+    sec.style.display='';
+    if(nav) nav.style.display='';
   }).catch(function(){});
 })();
 
