@@ -445,6 +445,7 @@ def _showcase_entry(clip: dict) -> dict:
         "channel":       clip.get("channel"),
         "game":          clip.get("game") or "",
         "twitch_url":    clip.get("twitch_url"),
+        "embed_url":     clip.get("embed_url") or "",
         "thumbnail_url": clip.get("thumbnail_url") or "",
         "score":         round(float(clip.get("trigger_score") or clip.get("score") or 0)),
         "duration_seconds": clip.get("duration_seconds") or 0,
@@ -2313,6 +2314,18 @@ LANDING_HTML = """<!DOCTYPE html>
   .ex-meta{font-size:11.5px;color:#9c9caa;margin-top:5px;display:flex;gap:6px;align-items:center;min-width:0}
   .ex-meta b{color:#c79bff;font-weight:700}
   .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Example-clip lightbox: watch inline, no redirect */
+  .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:22px}
+  .exl-bg{position:absolute;inset:0;background:rgba(5,4,8,.8);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+  .exl-card{position:relative;z-index:1;width:min(920px,100%);border-radius:18px;overflow:hidden;background:rgba(13,12,18,.98);border:1px solid rgba(255,255,255,.12);box-shadow:0 40px 90px -30px rgba(0,0,0,.9)}
+  .exl-frame{position:relative;width:100%;padding-bottom:56.25%;background:#000}
+  .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .exl-meta{display:flex;align-items:center;gap:12px;padding:13px 16px}
+  .exl-title{flex:1;min-width:0;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .exl-out{font-size:12.5px;font-weight:700;color:#a5b4fc;white-space:nowrap}
+  .exl-out:hover{color:#c7d2fe}
+  .exl-close{position:absolute;top:10px;right:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;background:rgba(8,8,11,.7);color:#fff;font-size:17px;line-height:1;display:grid;place-items:center}
+  .exl-close:hover{background:rgba(8,8,11,.95)}
   @media(max-width:960px){
     .hero{grid-template-columns:minmax(0,1fr);gap:40px;padding-top:56px}
     .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
@@ -2701,6 +2714,18 @@ LANDING_HTML = """<!DOCTYPE html>
   <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
 </section>
 
+<div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
+  <div class="exl-bg" id="exl-bg"></div>
+  <div class="exl-card">
+    <button class="exl-close" id="exl-close" aria-label="Close">&#215;</button>
+    <div class="exl-frame"><iframe id="exl-iframe" allowfullscreen scrolling="no" title="Clip player"></iframe></div>
+    <div class="exl-meta">
+      <div class="exl-title" id="exl-title"></div>
+      <a class="exl-out" id="exl-out" target="_blank" rel="noopener">Watch on Twitch &#8599;</a>
+    </div>
+  </div>
+</div>
+
 <footer class="footer">
   <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
   <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
@@ -2763,6 +2788,25 @@ LANDING_HTML = """<!DOCTYPE html>
     clips.forEach(function(c){
       var a=document.createElement('a');
       a.className='ex-card'; a.href=c.twitch_url||'#'; a.target='_blank'; a.rel='noopener';
+      a.addEventListener('click', function(ev){
+        // Inline player on desktop; small screens keep the direct Twitch link
+        // (Twitch's embed is unreliable in many mobile browsers).
+        if(window.innerWidth<=700) return;
+        var src=c.embed_url;
+        if(!src && c.twitch_url){
+          var m=/\/clip\/([^\/?#]+)/.exec(c.twitch_url);
+          if(m) src='https://clips.twitch.tv/embed?clip='+m[1];
+        }
+        if(!src) return;   // no way to embed — let the link do its thing
+        ev.preventDefault();
+        var lb=document.getElementById('exl');
+        var ifr=document.getElementById('exl-iframe');
+        document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' \u2014 '+(c.channel||'');
+        document.getElementById('exl-out').href=c.twitch_url||'#';
+        ifr.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+'&autoplay=true';
+        lb.style.display='';
+        document.body.style.overflow='hidden';
+      });
       var media=document.createElement('div'); media.className='ex-media';
       if(c.thumbnail_url){
         var img=document.createElement('img'); img.loading='lazy'; img.alt='';
@@ -2793,6 +2837,17 @@ LANDING_HTML = """<!DOCTYPE html>
     sec.style.display='';
     if(nav) nav.style.display='';
   }).catch(function(){});
+  function closeLb(){
+    var lb=document.getElementById('exl');
+    if(!lb||lb.style.display==='none') return;
+    lb.style.display='none';
+    document.getElementById('exl-iframe').src='about:blank';   // stop playback
+    document.body.style.overflow='';
+  }
+  var bg=document.getElementById('exl-bg'), x=document.getElementById('exl-close');
+  if(bg) bg.addEventListener('click', closeLb);
+  if(x) x.addEventListener('click', closeLb);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeLb(); });
 })();
 
 /* ── Hero live-capture demo ──

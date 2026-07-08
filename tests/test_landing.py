@@ -89,3 +89,21 @@ def test_landing_has_examples_section():
     assert 'id="examples"' in html and 'id="ex-grid"' in html
     assert "/landing/showcase" in html
     assert 'id="nav-examples"' in html          # nav tab, revealed when data exists
+
+
+def test_showcase_entry_carries_embed_url_for_inline_playback():
+    entry = api._showcase_entry({"id": "c", "clip_title": "T", "channel": "n",
+                                 "twitch_url": "https://t",
+                                 "embed_url": "https://clips.twitch.tv/embed?clip=Slug",
+                                 "trigger_score": 80})
+    assert entry["embed_url"] == "https://clips.twitch.tv/embed?clip=Slug"
+
+
+def test_landing_has_inline_clip_lightbox():
+    html = api.LANDING_HTML
+    # Visitors watch featured clips in-page (like the clip library), with a
+    # Twitch link as the escape hatch; playback stops on close.
+    assert 'id="exl"' in html and 'id="exl-iframe"' in html
+    assert 'id="exl-out"' in html
+    assert "about:blank" in html                 # close stops playback
+    assert "parent='+location.hostname" in html  # Twitch embed parent param
