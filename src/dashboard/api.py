@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -63,7 +63,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
-                  "/landing/showcase"}
+                  "/landing/showcase", "/robots.txt", "/sitemap.xml"}
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -2039,6 +2039,36 @@ async def landing_stats():
     return {"clips_total": get_clip_counter()}
 
 
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt():
+    """Crawler policy: index the public marketing/legal pages, keep the
+    app/auth/billing surface out of search results."""
+    return (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin\n"
+        "Disallow: /auth/\n"
+        "Disallow: /billing/\n"
+        "Disallow: /clips\n"
+        "Disallow: /streams\n"
+        "Disallow: /profiles\n"
+        "Disallow: /vod\n"
+        "Disallow: /me\n"
+        "Sitemap: https://highlightz.app/sitemap.xml\n"
+    )
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    pages = ["/", "/tos", "/privacy", "/cookies", "/opt-out"]
+    urls = "".join(
+        f"<url><loc>https://highlightz.app{p}</loc></url>" for p in pages)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+           + urls + "</urlset>")
+    return Response(content=xml, media_type="application/xml")
+
+
 @app.get("/landing/showcase")
 async def landing_showcase():
     """Public, admin-curated example clips for the landing page (in _OPEN_PATHS).
@@ -2073,9 +2103,12 @@ LANDING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch clipping. $15/mo, 7 days free.</title>
-<meta name="description" content="Highlightz watches your live Twitch streams and clips the best moments automatically using a transparent scoring formula — not AI. 7-day free trial, then $15/month.">
+<title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
+<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. 7-day free trial, then $15/month.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="canonical" href="https://highlightz.app/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
@@ -2377,6 +2410,9 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
   }
 </style>
+
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "Offer", "price": "15.00", "priceCurrency": "USD", "description": "7-day free trial, then $15/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time, each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does the free trial work?", "acceptedAnswer": {"@type": "Answer", "text": "You get 7 days of full access. A card is required to start, and unless you cancel before the trial ends, it converts to the $15/month plan automatically. Cancel anytime \u2014 during the trial or after \u2014 through the billing portal."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
 <nav class="nav">
@@ -3010,6 +3046,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz - Sign In</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
@@ -3078,6 +3115,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz - Subscribe</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">

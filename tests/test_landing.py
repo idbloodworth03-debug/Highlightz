@@ -117,3 +117,26 @@ def test_landing_has_faq_with_ten_items():
     assert "Is this AI?" in html and "transparent mathematical formula" in html
     assert "How does the free trial work?" in html and "$15/month" in html
     assert "roughly the last 30 seconds" in html   # no over-promising on length
+
+
+def test_seo_layer():
+    import json as _json, re as _re
+    html = api.LANDING_HTML
+    assert '<link rel="canonical" href="https://highlightz.app/">' in html
+    # JSON-LD blocks parse and carry the right types
+    blocks = _re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, _re.S)
+    types = set()
+    for b in blocks:
+        data = _json.loads(b)          # must be valid JSON
+        types.add(data.get("@type"))
+    assert types == {"SoftwareApplication", "FAQPage"}
+    faq = [_json.loads(b) for b in blocks if _json.loads(b)["@type"] == "FAQPage"][0]
+    assert len(faq["mainEntity"]) == 10
+    assert all("<" not in q["acceptedAnswer"]["text"] for q in faq["mainEntity"])  # plain text
+    # Crawler surface
+    assert "/robots.txt" in api._OPEN_PATHS and "/sitemap.xml" in api._OPEN_PATHS
+
+
+def test_login_and_paywall_are_noindex():
+    assert '<meta name="robots" content="noindex">' in api.LOGIN_HTML
+    assert '<meta name="robots" content="noindex">' in api.PAYWALL_HTML
