@@ -2113,14 +2113,14 @@ LANDING_HTML = """<!DOCTYPE html>
   .btn-ghost:hover{background:rgba(255,255,255,.09)}
   .btn-lg{padding:15px 30px;font-size:15px;border-radius:13px}
   /* Layout */
-  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
-  section{padding:84px 0}
+  .wrap{max-width:1120px;margin:0 auto;padding-left:24px;padding-right:24px}
+  section{padding-top:64px;padding-bottom:64px}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
   .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
   h2.sec-title{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:14px;line-height:1.15}
   .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
   /* Hero */
-  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding:74px 0 40px}
+  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:74px;padding-bottom:44px}
   .hero-copy h1{font-size:54px;font-weight:800;letter-spacing:-.04em;line-height:1.04;margin-bottom:20px}
   .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
   .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
@@ -2171,7 +2171,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .demo-clip.done .dc-ok{display:inline-flex;align-items:center;gap:5px}
   .demo-cap{text-align:center;font-size:12px;color:#5d5d6b;margin-top:14px;position:relative;z-index:1}
   /* Stats band */
-  .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:26px 0 0}
+  .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:34px 0 8px}
   .stat{padding:26px 20px;text-align:center}
   .stat .n{font-size:38px;font-weight:800;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
   .stat .k{font-size:12.5px;color:#9c9caa;font-weight:600;margin-top:7px}
@@ -2223,7 +2223,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-promo{font-size:12.5px;color:#5d5d6b;margin-top:14px}
   .price-promo b{color:#c79bff}
   /* Final CTA */
-  .final{text-align:center;padding:64px 0 90px}
+  .final{text-align:center;padding-top:56px;padding-bottom:90px}
   .final h2{font-size:38px;font-weight:800;letter-spacing:-.03em;margin-bottom:16px;line-height:1.1}
   .final p{font-size:17px;color:#9c9caa;max-width:540px;margin:0 auto 32px;line-height:1.6}
   /* Footer */
@@ -2327,7 +2327,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .exl-close{position:absolute;top:10px;right:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;background:rgba(8,8,11,.7);color:#fff;font-size:17px;line-height:1;display:grid;place-items:center}
   .exl-close:hover{background:rgba(8,8,11,.95)}
   @media(max-width:960px){
-    .hero{grid-template-columns:minmax(0,1fr);gap:40px;padding-top:56px}
+    .hero{grid-template-columns:minmax(0,1fr);gap:36px;padding-top:48px;padding-bottom:36px}
     .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
     .demo-head{flex-wrap:wrap;gap:4px 8px}
     .hero-copy{text-align:center}
@@ -2340,7 +2340,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .hero-copy p.lead{font-size:16.5px}
     h2.sec-title{font-size:27px}
     .final h2{font-size:29px}
-    section{padding:60px 0}
+    section{padding-top:44px;padding-bottom:44px}
     .nav{padding:14px 14px}
     .nav-actions{gap:4px}
     .nav-logo span{display:none}
