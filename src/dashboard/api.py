@@ -2326,6 +2326,18 @@ LANDING_HTML = """<!DOCTYPE html>
   .exl-out:hover{color:#c7d2fe}
   .exl-close{position:absolute;top:10px;right:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;background:rgba(8,8,11,.7);color:#fff;font-size:17px;line-height:1;display:grid;place-items:center}
   .exl-close:hover{background:rgba(8,8,11,.95)}
+  /* FAQ accordion */
+  .faq-list{max-width:760px;margin:44px auto 0;display:flex;flex-direction:column;gap:10px}
+  .faq-item{border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);overflow:hidden;transition:border-color .2s}
+  .faq-item[open]{border-color:rgba(168,85,247,.35)}
+  .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:16px 18px;font-size:15px;font-weight:700;-webkit-tap-highlight-color:transparent}
+  .faq-item summary::-webkit-details-marker{display:none}
+  .faq-item summary:hover{color:#fff}
+  .faq-q{flex:1;min-width:0}
+  .faq-c{flex-shrink:0;width:24px;height:24px;border-radius:8px;background:rgba(168,85,247,.14);color:#c79bff;display:grid;place-items:center;font-size:14px;font-weight:800;transition:transform .25s}
+  .faq-item[open] .faq-c{transform:rotate(45deg)}
+  .faq-a{padding:0 18px 17px;font-size:14px;color:#9c9caa;line-height:1.7;max-width:680px}
+  .faq-a b{color:#d8d8e2}
   @media(max-width:960px){
     .hero{grid-template-columns:minmax(0,1fr);gap:36px;padding-top:48px;padding-bottom:36px}
     .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
@@ -2374,6 +2386,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#examples" class="nav-link hide-sm" id="nav-examples" style="display:none">Example clips</a>
     <a href="#features" class="nav-link hide-sm">Features</a>
     <a href="#pricing" class="nav-link hide-sm">Pricing</a>
+    <a href="#faq" class="nav-link hide-sm">FAQ</a>
     <a href="/login" class="nav-link">Sign in</a>
     <a href="/login" class="btn btn-grad">Start free</a>
   </div>
@@ -2707,6 +2720,54 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </section>
 
+<!-- FAQ -->
+<section class="wrap" id="faq">
+  <h2 class="sec-title" style="text-align:center">Frequently asked questions</h2>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">Quick answers to the things people ask before starting.</p>
+  <div class="faq-list">
+    <details class="faq-item">
+      <summary><span class="faq-q">How does Highlightz know what to clip?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">It watches your stream's live signals — chat speed, audio spikes, keywords, viewer surges, and hype moments — and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against <b>your</b> normal, not someone else's. When the score crosses your channel's threshold, the clip fires.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Is this AI?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Do you record or store my stream?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API — the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Is this allowed on Twitch?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Yes — clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">How long are the clips?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Twitch clips capture roughly the last 30 seconds around the moment — our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Does it work for small channels?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Yes — this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Up to 10 at the same time, each with its own independent learning profile — your own channel, streamers you clip for, or anyone live right now.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">How does the free trial work?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">You get 7 days of full access. A card is required to start, and unless you cancel before the trial ends, it converts to the $15/month plan automatically. Cancel anytime — during the trial or after — through the billing portal.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Every clip lands in your review queue first — approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Do you support platforms other than Twitch?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Twitch is fully supported today. More platforms are on the roadmap — follow along in the app for updates.</div>
+    </details>
+  </div>
+</section>
+
 <!-- Final CTA -->
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
@@ -2733,10 +2794,10 @@ LANDING_HTML = """<!DOCTYPE html>
 <script>
 (function(){
   if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.stat,.final h2,.final p,.final .btn';
+  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.stat,.faq-item,.final h2,.final p,.final .btn';
   var els=[].slice.call(document.querySelectorAll(sel));
   els.forEach(function(el){el.classList.add('reveal');});
-  document.querySelectorAll('.who-grid,.steps,.feat-grid,.stats-band').forEach(function(group){
+  document.querySelectorAll('.who-grid,.steps,.feat-grid,.stats-band,.faq-list').forEach(function(group){
     [].slice.call(group.children).forEach(function(child,i){
       if(child.classList.contains('reveal')) child.style.transitionDelay=(i*0.08)+'s';
     });

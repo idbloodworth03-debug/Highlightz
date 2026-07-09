@@ -107,3 +107,13 @@ def test_landing_has_inline_clip_lightbox():
     assert 'id="exl-out"' in html
     assert "about:blank" in html                 # close stops playback
     assert "parent='+location.hostname" in html  # Twitch embed parent param
+
+
+def test_landing_has_faq_with_ten_items():
+    html = api.LANDING_HTML
+    assert 'id="faq"' in html
+    assert html.count('class="faq-item"') == 10
+    # A few key answers exist and stay honest
+    assert "Is this AI?" in html and "transparent mathematical formula" in html
+    assert "How does the free trial work?" in html and "$15/month" in html
+    assert "roughly the last 30 seconds" in html   # no over-promising on length
