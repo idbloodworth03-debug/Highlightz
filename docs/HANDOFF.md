@@ -1,163 +1,194 @@
 # Session handoff — project state & hard-won knowledge
 
-Read this before making changes. It captures decisions, constraints, and open
-threads from the July 2026 working sessions. `CLAUDE.md` has the binding
-engineering rules; this file is the context behind them.
+Read this before making changes. `CLAUDE.md` has the binding engineering
+rules; this file is the context behind them. Last updated: **2026-07-10**
+(landing type redesign, trial-system rework, full prod audit + hardening).
 
-## Production environment (facts, verified)
+## Production environment (facts, verified 2026-07-10)
 
 - Prod runs at `/opt/highlightz` on a DigitalOcean droplet (1vCPU/2GB,
   IP 137.184.24.121). Operator is **root** — never use sudo in commands.
 - Deploy: `cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/magical-feynman-7Sp19 && systemctl restart highlightz`
+  - **Deploys never run `pip install`** — adding a dependency to
+    requirements.txt requires a manual `venv/bin/pip install -r
+    requirements.txt` on the droplet, or prod crash-loops on ImportError.
 - Working branch: `claude/magical-feynman-7Sp19` (push here, never elsewhere).
 - Prod Python: `/opt/highlightz/venv/bin/python`.
-- DNS is on **DigitalOcean** (Namecheap is registrar only; there is no cPanel
-  hosting product despite what Namecheap's UI implies).
-- `ADMIN_TWITCH_ID` is **intentionally unset** — the owner declined setting it.
+- **Service runs as the unprivileged `highlightz` user** under the hardened
+  unit (`deploy/highlightz.service`: ProtectSystem=strict, NoNewPrivileges,
+  PrivateTmp, only `clips/` writable). **`.env` must stay
+  `640 root:highlightz`** — systemd reads EnvironmentFile as root, but
+  pydantic-settings ALSO opens `.env` from the process; a 600 root:root file
+  crash-loops the service (bit us live on 2026-07-10; runbook is in the
+  unit-file comments).
+- **Firewall**: ufw active, default-deny incoming, only 22/80/443 allowed.
+  Uvicorn additionally binds `127.0.0.1:8000` (DASHBOARD_HOST setting,
+  default 127.0.0.1; the Dockerfile overrides to 0.0.0.0 for port mappings).
+- **TLS**: certbot cert for highlightz.app; auto-renewal timer verified
+  active (fires twice daily).
+- **Backups**: nightly cron `10 4 * * *` → `src.maintenance.backup`
+  (installed + first archive verified 2026-07-10). **No off-site copy yet**
+  — set BACKUP_S3_BUCKET/BACKUP_S3_ENDPOINT + AWS keys (DO Space) in .env.
+- **Token encryption**: TOKEN_ENCRYPTION_KEY is set on prod; all 28 stored
+  OAuth token fields were rotated onto it with
+  `src.maintenance.rotate_token_key --apply` (2026-07-10). Session key and
+  token key are now independent — DASHBOARD_SECRET_KEY may be rotated
+  freely. Delete `clips/users.json.pre-rotation` (old-key snapshot) once
+  clipping is confirmed healthy for a few users.
+- ADMIN_TWITCH_ID intentionally unset — the owner declined setting it.
   Admin is granted via `python -m src.auth.grant_admin <username>`.
-- Google Search Console: domain property verified via DO TXT record;
-  `sitemap.xml` submitted and accepted (July 2026). Do not remove the TXT
-  record or the robots/sitemap endpoints.
+- DNS is on **DigitalOcean** (Namecheap is registrar only). Google Search
+  Console: domain property verified via DO TXT record; sitemap.xml submitted
+  and accepted. Do not remove the TXT record or robots/sitemap endpoints.
 
 ## Non-negotiable product constraints
 
-- **No video recording/re-hosting, ever.** Clips are real Twitch clips made via
-  the official Helix API with the user's own token; Twitch hosts everything.
-  This is the compliance moat — rejected repeatedly for both 60s clips and Kick.
-- **Twitch clips are ~30s, hard API limit.** No duration param exists on
-  Create Clip. The captured buffer is ~90s; the creator can extend to 60s only
-  in Twitch's browser editor (`edit_url`, currently discarded — storing it +
-  an "Extend to 60s" button was designed but not built).
-- **Twitch's embedded player gates mature channels for logged-out viewers**
-  (shows "clip is no longer available" even though the clip is fine). The
-  dashboard keeps the inline embed + a "Player not loading? Watch on Twitch"
-  fallback bar. The landing showcase uses thumbnails + lightbox embed with a
-  Watch-on-Twitch escape hatch; mobile links out (Twitch embeds break in many
-  mobile browsers — Error #4000).
-- **Broadcasters/mods delete clips** (caseoh_'s mods famously mass-delete).
-  A 6-hour dead-clip sweep (`sweep_dead_clips_task`) removes Twitch-deleted
-  clips and prunes the landing showcase. Fail-safe: a failed lookup deletes
-  NOTHING; `first=100` is set explicitly so pagination can't read as deletion.
-- **Kick:** no public clip-creation API exists (verified against KickDevDocs,
-  June 2026). Kick sign-in is disabled (Twitch is the only sign-in; Kick
-  *linking* for authenticated users still works). Kick UI is gated behind an
-  under-construction screen; all Kick mentions were scrubbed from marketing
-  pages. Hype Train/EventSub signals are unavailable to us (require the
-  broadcaster's own OAuth, which third-party clipping can't get).
+- **No video recording/re-hosting, ever.** Clips are real Twitch clips made
+  via the official Helix API with the user's own token; Twitch hosts
+  everything. This is the compliance moat — rejected repeatedly for both
+  60s clips and Kick.
+- Twitch clips are ~30s, hard API limit (no duration param on Create Clip).
+  Captured buffer ~90s; creators can extend to 60s only in Twitch's browser
+  editor (edit_url currently discarded — storing it + an "Extend to 60s"
+  button was designed but not built).
+- Twitch's embedded player gates mature channels for logged-out viewers
+  (shows "clip is no longer available" though the clip is fine). Dashboard
+  keeps the inline embed + "Watch on Twitch" fallback bar; landing showcase
+  uses thumbnails + lightbox with a Twitch escape hatch; mobile links out
+  (embeds break in many mobile browsers — Error #4000).
+- Broadcasters/mods delete clips. The 6-hour dead-clip sweep
+  (sweep_dead_clips_task) removes Twitch-deleted clips and prunes the
+  showcase. Fail-safe: a failed lookup deletes NOTHING; `first=100` is
+  explicit so pagination can't read as deletion.
+- Kick: no public clip-creation API (verified June 2026). Kick sign-in
+  disabled (Twitch is the only sign-in; Kick linking still works). Kick UI
+  gated behind under-construction screen; Kick scrubbed from marketing.
 
-## Billing (Stripe) — current design
+## Billing (Stripe) — current design (REWORKED 2026-07-10)
 
-- $15/month, 7-day free trial **with card required**
-  (`trial_period_days` + `payment_method_collection: always`), auto-converts.
-  One trial per identity via `trial_claims.json` ledger
-  (`trial_claim_id`: twitch_id, else `kick:<id>`); the claim is burned in the
-  webhook on activation so abandoned checkouts don't waste it.
-- Checkout guards (July audit): refuses already-active users, does a LIVE
-  Stripe subscription check for returning customers (closes the
-  webhook-latency double-subscription window; self-heals the DB when Stripe
-  says active), `past_due` routes to the portal, and the existing Stripe
-  customer is always reused (`customer_id` param).
-- Webhook: signature-verified, idempotent, and `apply_subscription_event`
-  resolves the ACTUAL affected user on customer mismatch (a stale customer's
-  cancellation must not kill the current subscription's streams).
-- Paywall copy is conditional: trial-eligible users see "7 days free";
-  returning users see "Restart your subscription — $15/month" (never promise
-  free days to someone who'll be charged).
-- Promo codes: `allow_promotion_codes` on checkout; 50%-off-first-month coupon
-  exists in Stripe. Planned streamer partnership: per-streamer code + $5/paid
-  signup (manual payout, Stripe redemption count is source of truth).
+- **$15/month, billed immediately. There is NO self-serve free trial.**
+  trial_period_days, the trial-claims ledger (`trial_claims.json` helpers),
+  and every "7 days free" promise were removed from checkout, landing,
+  login, paywall, TOS, FAQ, JSON-LD, and meta tags. The prod
+  trial_claims.json file is inert.
+- **Free access exists only as an admin-granted timed trial**: /admin panel
+  → "Trial…" dropdown per user (3d/1w/2w/1m/3m) → POST
+  `/admin/users/{id}/grant-trial {days:1..365}`. Sets app-managed
+  `subscription_status="trialing"` + `trial_ends_at`; **no Stripe
+  involvement**. Expiry rides the existing enforcement (auth middleware +
+  idle reaper): flips to 'expired', stops streams, broadcasts
+  subscription_expired live. Re-granting extends/replaces the window from
+  now. The grant broadcasts subscription_active so an open paywall tab
+  unlocks without refresh. Endpoint rejects admins and active subscribers.
+- Users on an admin trial CAN reach checkout to subscribe early — the
+  checkout guard hard-blocks only status "active"; the live-Stripe check
+  still prevents double subscriptions.
+- Paywall copy variants (`_paywall_copy`): new ("Get Highlightz Pro") /
+  returning ("Restart your subscription") / trial_ended ("Your free trial
+  has ended"). None promise free days — locked by tests.
+- Webhook: signature-verified, idempotent (TTL + lock), and
+  apply_subscription_event resolves the ACTUAL affected user on customer
+  mismatch. Checkout always reuses the stored Stripe customer.
+- Promo codes: allow_promotion_codes on; 50%-off-first-month coupon exists.
+  Planned streamer partnership: per-streamer code + $5/paid signup (manual
+  payout, Stripe redemption count is source of truth).
 
-## Trigger formula — state and history
+## Trigger formula — state and history (unchanged 2026-07-10)
 
-- **Clip timing: fire at the TOP of the trigger** (3s settle to catch the
-  crest, then immediately). The decay-wait/double-peak dwell (8–45s) produced
-  flat aftermath clips and was reverted. Do not reintroduce waiting-for-decay.
-- **Spike-aware baseline** (`profile.update_velocity`): readings ≥2× the mean
-  barely move the baseline (ratio gate, variance frozen during spikes) so
-  sustained hype can't become "normal". A z-score gate was tried and rejected
-  (feedback trap: the spike inflates the variance and disengages the gate).
-- **Threshold bounds:** approve −2 / reject +2, clamped [30, 80]; 80 stays
-  below the 85 emergency override. Dry-spell recalibration: −2 per 15 min of
-  no triggers, floor **52** (the old −3/10min floor-40 dragged busy channels
-  into junk-clip territory — the "clipping poorly" incident).
-- **Feedback loop:** approve/reject uses `pm.load()` (a cache-only `get()`
-  silently dropped most approvals for months — thresholds ratcheted up-only).
-  A one-time `reset_feedback` was run; `--raise-floor` mode lifts sub-52
-  thresholds without touching learning.
-- **Training log** (`clips/training_log.jsonl`): every clip outcome (approved /
-  rejected / expired_unreviewed) with its signal vector. Weight-learning ("#4")
-  is deliberately NOT built — it needs ~150 labeled examples with 60+ of each
-  class; check with the counter script before building. Do not fit weights on
-  esports-paper priors; this content mix (IRL/reaction) likely differs.
-- **VOD scanner:** profile-aware (learned threshold ×0.5, learned spike
-  multiplier) + top-K ranking (~3 moments/hour, max 12), moments emitted after
-  the scan completes. One-moment-per-contiguous-run dedup, 90s cooldown.
+- Clip at the TOP of the trigger (3s settle to catch the crest). The
+  decay-wait/double-peak dwell (8–45s) produced flat aftermath clips and was
+  reverted. Do not reintroduce waiting-for-decay.
+- Spike-aware baseline (profile.update_velocity): readings ≥2× mean barely
+  move the baseline (ratio gate, variance frozen during spikes). A z-score
+  gate was tried and rejected (feedback trap).
+- Threshold bounds: approve −2 / reject +2, clamped [30, 80]; 80 stays below
+  the 85 emergency override. Dry-spell recalibration: −2 per 15 min, floor
+  52 (the old −3/10min floor-40 caused the "clipping poorly" incident).
+- Feedback loop uses pm.load() (a cache-only get() silently dropped most
+  approvals for months — thresholds ratcheted up-only). reset_feedback has
+  --raise-floor mode.
+- Training log (clips/training_log.jsonl): every clip outcome with its
+  signal vector. Weight-learning ("#4") is deliberately NOT built — needs
+  ~150 labeled examples with 60+ of each class. Don't fit weights on
+  esports-paper priors.
+- VOD scanner: profile-aware (learned threshold ×0.5, learned spike
+  multiplier) + top-K (~3 moments/hour, max 12), one-moment-per-run dedup,
+  90s cooldown.
 
 ## Frontend / pages
 
-- Dashboard = one Babel-standalone React string in `aurora_html.py`. A JSX
-  error white-screens everything → ALWAYS extract the babel block and compile
-  with `@babel/preset-react` before pushing (see CLAUDE.md).
-- Landing page = `LANDING_HTML` string in `api.py`; the editable source of
-  truth during sessions was `scratchpad/landing_new.html` spliced in — but the
-  string in `api.py` is canonical. Plain string: no f-string/format braces.
-- Landing features: animated capture demo (no chat panel — reframed for small
-  streamers, "5 viewers or 50,000"), live clips counter
-  (`/landing/stats`, monotonic `clip_counter.json`), admin-curated example
-  clips (`/landing/showcase`, "Feature on landing page" button in the clip
-  modal, lightbox playback), FAQ (10 items, `<details>` accordion), $15
-  pricing with promo hint, og/twitter cards (`static/og-card.png`), JSON-LD
-  (SoftwareApplication + FAQPage — note: Google no longer renders FAQ rich
-  results for ordinary sites; markup kept for semantics). robots.txt +
-  sitemap.xml endpoints; login/paywall are noindex.
-- **CSS shorthand trap:** `.wrap` (class) beats `section` (type) on the
-  `padding` shorthand — sections use longhand padding now. Grid `1fr` means
-  `minmax(auto,1fr)`: min-content propagation made the app lay out 456px wide
-  on phones. Mobile fixes rely on `minmax(0,1fr)` + `min-width:0` chains.
-- Mobile was verified with an automated overflow scanner (every screen at
-  360px with hostile data — long channel names, many chips). Re-run the same
-  approach after layout changes.
+- Dashboard = one Babel-standalone React string in `aurora_html.py` —
+  no bundler. A JSX error white-screens everything → ALWAYS extract the
+  babel block and compile with @babel/preset-react before pushing.
+- Landing = LANDING_HTML string in `api.py` (plain string, no f-string
+  braces; the string in api.py is canonical).
+- **Typography (NEW 2026-07-10)**: Anton (display — 3D block-letter
+  extrusion via layered text-shadow; hollow neon accent words via
+  -webkit-text-stroke with an @supports fallback) + Sora (body, variable
+  weight). Self-hosted woff2 in `src/dashboard/static/fonts/` (preloaded,
+  font-display swap) — no Google Fonts requests. The og-card.png was
+  already made with Anton, so the site matches its own share card. Mobile
+  heading sizes retuned in the 680px media query. The tracked
+  Anton-Regular.ttf is the og-card source font — keep it.
+- CSS traps: `.wrap` (class) beats `section` (type) on the padding
+  shorthand — sections use longhand padding. Grid `1fr` means
+  minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.
+- Landing features: animated capture demo, live clips counter
+  (/landing/stats, monotonic clip_counter.json), admin-curated showcase
+  (/landing/showcase + lightbox), FAQ (10 items — "How does billing work?"
+  replaced the trial question), $15 pricing with promo hint, og/twitter
+  cards, JSON-LD (SoftwareApplication + FAQPage), robots.txt + sitemap.xml;
+  login/paywall are noindex.
 
 ## Verification workflow (what "done" means here)
 
-1. `python -m pytest tests/` — suite ~90 tests, all green.
-2. JSX: extract babel block → `babel.transformSync` with preset-react.
-3. Render in headless Chromium (Playwright, `executablePath:
-   '/opt/pw-browsers/chromium'`). unpkg/jsdelivr are BLOCKED by the sandbox
-   proxy — vendor React/ReactDOM/Babel from npm and rewrite the script tags in
-   a local copy. Stub API routes with fixture JSON; dismiss the first-run
-   welcome modal before interacting.
-4. TestClient smoke for endpoints (session-gated ones need real sessions —
-   test pure helpers instead).
-5. Real screenshots at 1440px and 360–390px, eyeballed, before any deploy
-   command is given. The owner expects zero post-deploy bugs.
+1. `python -m pytest tests/` — ~90 tests, all green.
+2. JSX: extract babel block → babel.transformSync with preset-react.
+3. Render in headless Chromium (Playwright, executablePath:
+   '/opt/pw-browsers/chromium'). unpkg/jsdelivr are BLOCKED by the sandbox
+   proxy — vendor React/ReactDOM/Babel locally. Stub API routes with fixture
+   JSON; register catch-all Playwright routes BEFORE specific ones (matching
+   is newest-first). Dismiss the first-run welcome modal before interacting.
+4. Real screenshots at 1440px and 360–390px, eyeballed, before any deploy
+   command is given. Known cosmetic: +6px scrollWidth at 360px from the hero
+   demo glow — pre-existing, clipped by body overflow-x:hidden.
 
 ## Maintenance commands (server)
 
 - Backup now: `venv/bin/python -m src.maintenance.backup`
-  (nightly cron: `10 4 * * * cd /opt/highlightz && venv/bin/python -m src.maintenance.backup >> backups/backup.log 2>&1`)
-  Off-site: set `BACKUP_S3_BUCKET`/`BACKUP_S3_ENDPOINT` + AWS keys.
+  (nightly cron installed: `10 4 * * *`, logs to backups/backup.log).
+- Token key rotation (already applied; keep for future rotations):
+  `venv/bin/python -m src.maintenance.rotate_token_key [--apply]` —
+  dry-run default, snapshots users.json, idempotent.
 - Threshold maintenance: `venv/bin/python -m src.profiles.reset_feedback`
-  (full reset, dry-run default) / `--raise-floor` (surgical) / `--apply`.
-- Data lives in `clips/` (users.json, clips.json, profiles/, trial_claims.json,
+  (dry-run default) / `--raise-floor` (surgical) / `--apply`.
+- Data lives in `clips/` (users.json, clips.json, profiles/,
   training_log.jsonl, clip_counter.json, showcase.json) — untouched by
-  `git reset --hard` deploys.
+  git reset deploys; owned by the `highlightz` user.
 
-## Open threads (as of 2026-07-10)
+## July 2026 audit — remaining open items
 
-1. **Prod config check never confirmed:** `TOKEN_ENCRYPTION_KEY` set +
-   `cryptography` installed + stable `DASHBOARD_SECRET_KEY`. If unset, OAuth
-   tokens are plaintext and/or break on every restart. HIGH priority.
-2. End-to-end **test-mode Stripe checkout** never confirmed on prod.
-3. Backup **cron** may not be installed yet; `--raise-floor` may not have been
-   run on prod.
-4. Queued nice-to-haves: Discord webhook notifications on clip_ready (top
-   retention idea), `edit_url` "Extend to 60s" button, per-promo-code signup
-   tracking in admin, first-run onboarding flow, trial-ending email.
-5. Audit leftovers (Medium/Low): orphaned blank Kick account in users.json;
-   `/auth/kick` 503s before redirect when unconfigured; VodScreen reconnect
-   duplicate moment (cosmetic); backup tar not atomic; reset_feedback ignores
-   unknown flags; counter seed double-counts reviewed clips; kick-theme keeps
-   purple auras.
-6. Streamer partnership: opener drafted (clips-first DM, free Pro + custom
-   code + $5/paid signup); target is a 300–1,000 viewer streamer.
+- **Off-site backup** (HIGH): local tar only today; set BACKUP_S3_* to a DO
+  Space — zero code changes needed.
+- Redis pub/sub listener has no reconnect: a Redis blip kills the listener
+  task → whole process exits → systemd restarts (~10s blip, sockets drop,
+  streams restore on boot). Clip processor retries connection errors with
+  no backoff (tight error-log loop during outages).
+- requirements.txt is fully unpinned; no CI runs the test suite.
+- Delete `clips/users.json.pre-rotation` once rotation is confirmed good.
+- Paywall feature list says "Per-channel AI learning baseline" — contradicts
+  the "not AI" branding (one-line fix).
+- Smaller leftovers: /auth/kick 503s before redirect when unconfigured;
+  orphaned blank Kick account in prod users.json; backup tar not written
+  atomically; counter seed double-counts reviewed clips; VodScreen reconnect
+  duplicate moment (cosmetic); nginx client_max_body_size 500M unnecessary;
+  PROCESSING_KEY dead constant in job_queue.py; end-to-end test-mode Stripe
+  checkout never confirmed on prod.
+
+## Queued nice-to-haves
+
+Discord webhook notifications on clip_ready (top retention idea), edit_url
+"Extend to 60s" button, per-promo-code signup tracking in admin, first-run
+onboarding flow, "trial ending soon" notice for admin-granted trials,
+streamer partnership (clips-first DM, free Pro + custom code + $5/paid
+signup; target a 300–1,000 viewer streamer).
