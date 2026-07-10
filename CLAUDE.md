@@ -1,5 +1,15 @@
 # Highlightz — engineering conventions
 
+## Start here every session
+
+**Read `docs/HANDOFF.md` before making changes.** It carries the project state,
+production facts (deploy command, branch, server layout), product constraints
+(Twitch API limits, no-video-hosting compliance model, Kick status), the
+billing/trigger-formula design decisions and their reasoning, the verification
+workflow expected before any deploy command, and the current open threads.
+Decisions recorded there were made deliberately with the owner — do not
+relitigate them from scratch.
+
 ## Realtime is mandatory: the UI must never need a manual refresh
 
 The dashboard is a long-lived single-page app. Users keep a tab open for hours
