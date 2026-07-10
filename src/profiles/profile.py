@@ -28,7 +28,12 @@ _WEIGHT_MAX = 2.5
 # emergency-override threshold of 85). REJECT_STEP raised 1->2 so an over-firing
 # channel climbs at a usable pace. Over-suppression is bounded by the existing
 # dry-spell recalibration (no trigger for 10 min -> threshold eases back down).
-_THRESHOLD_FLOOR = 30.0
+# Floor raised 30 → 50 (July 2026 training-log analysis, n=806): no approved
+# clip has ever scored below 60, so letting approvals drag a channel's bar
+# into the 30s only manufactures junk. 50 keeps approve-feedback meaningful
+# (it can still loosen a channel well below the 60 dry-spell floor) without
+# reaching score territory that has never produced a keeper.
+_THRESHOLD_FLOOR = 50.0
 _THRESHOLD_CEIL  = 80.0
 _APPROVE_STEP    = 2.0
 _REJECT_STEP     = 2.0

@@ -73,8 +73,9 @@ def test_dry_spell_never_lowers_below_floor():
     from src.profiles.profile import StreamerProfile
 
     async def _noop(_): pass
+    start = scoring.DRY_SPELL_THRESHOLD_FLOOR + 1   # one step lands on the floor
     eng = TriggerEngine("x", on_trigger=_noop,
-                        profile=StreamerProfile(channel="x", trigger_threshold=53.0))
+                        profile=StreamerProfile(channel="x", trigger_threshold=start))
     now = _t.time()
     eng._dry_anchor = now - scoring.DRY_SPELL_SECS - 1   # long dry spell elapsed
     eng._maybe_recalibrate_dry_spell(now)
@@ -83,6 +84,23 @@ def test_dry_spell_never_lowers_below_floor():
     eng._dry_anchor = now - scoring.DRY_SPELL_SECS - 1
     eng._maybe_recalibrate_dry_spell(now)
     assert eng.profile.trigger_threshold == scoring.DRY_SPELL_THRESHOLD_FLOOR
+
+
+def test_dry_spell_never_raises_a_threshold_already_below_floor():
+    # Approve-learning may legitimately hold a channel below the dry-spell
+    # floor; the dry spell must not fight that by raising it.
+    import time as _t
+    from src.trigger.engine import TriggerEngine
+    from src.profiles.profile import StreamerProfile
+
+    async def _noop(_): pass
+    below = scoring.DRY_SPELL_THRESHOLD_FLOOR - 7
+    eng = TriggerEngine("x", on_trigger=_noop,
+                        profile=StreamerProfile(channel="x", trigger_threshold=below))
+    now = _t.time()
+    eng._dry_anchor = now - scoring.DRY_SPELL_SECS - 1
+    eng._maybe_recalibrate_dry_spell(now)
+    assert eng.profile.trigger_threshold == below
 
 
 # ── Share card ─────────────────────────────────────────────────────────────────

@@ -556,7 +556,13 @@ class TriggerEngine:
             SignalType.AUDIO_SPIKE:      38,   # loud audio is the strongest single predictor
             SignalType.KEYWORD:          scoring.CHAT_WEIGHTS["KEYWORD"],
             SignalType.SENTIMENT:        scoring.CHAT_WEIGHTS["SENTIMENT"],
-            SignalType.VIEWER_SPIKE:      7,
+            # Raised 7 → 15 (July 2026 training-log analysis, n=806): the best
+            # outcome separator of all signals (AUC 0.73; approved-clip mean
+            # 0.63 vs 0.26 in junk) and viewer-led clips were approved at 10%
+            # — 4-5x the base rate. Together with the KEYWORD cut (12 → 4 in
+            # scoring.CHAT_WEIGHTS) the total weight pool stays at 105, so the
+            # overall score scale — and every learned threshold — is preserved.
+            SignalType.VIEWER_SPIKE:     15,
             SignalType.SILENCE_BURST:    12,
             SignalType.EMOTE_HOMOGENEITY: scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],   # crowdspeak — CHI 2017 validated
         }

@@ -93,7 +93,32 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
   Planned streamer partnership: per-streamer code + $5/paid signup (manual
   payout, Stripe redemption count is source of truth).
 
-## Trigger formula — state and history (unchanged 2026-07-10)
+## Trigger formula — state and history (RETUNED 2026-07-10, evidence-based)
+
+**First data-driven retune**, from `src.maintenance.analyze_training_log`
+run against prod's 806 labeled outcomes (17 approved / 724 rejected /
+65 expired; July was firing ~60 clips/day at 0.6% approval):
+
+- KEYWORD weight 12 → 4 (keyword-led clips went 0/91 approved, AUC 0.51).
+  VOD threshold scale retuned 0.50 → 0.42 to compensate (shared
+  CHAT_WEIGHTS shrink VOD's chat-only ceiling ~57.6 → ~48).
+- VIEWER_SPIKE weight 7 → 15 (best separator: AUC 0.73; viewer-led clips
+  approved at 10%, 4-5× base rate). Total weight pool stays 105 → score
+  scale and learned thresholds preserved.
+- Dry-spell floor 52 → 60 and adaptive-threshold floor 30 → 50 (no approved
+  clip has EVER scored below 60; keepers average 90.8; floor 60 would have
+  cut 82 junk clips with zero keeper loss).
+- Known-but-deferred (round 2, wants a month of post-retune data): audio &
+  velocity signals are SATURATED (junk-class means 0.86/0.84 — pinned near
+  max for everything that fires, AUC only 0.58/0.60). Real fix is widening
+  measurement ranges (e.g. audio 15 → ~20 dB), but that rescales every
+  learned threshold — bigger blast radius. EMOTE_HOMOGENEITY never fires in
+  practice (mean 0.001 — ramp may start too high); SILENCE_BURST near-inert.
+  Weight-learning proper still gated on positives (17 << 60 per class).
+- Rerun the analyzer anytime: `venv/bin/python -m
+  src.maintenance.analyze_training_log [--days N] [--channel X]`. Caveats:
+  dataset only contains FIRED moments (can't see misses), and labels are
+  the owner curating test channels (approve bar = showcase-worthy).
 
 - Clip at the TOP of the trigger (3s settle to catch the crest). The
   decay-wait/double-peak dwell (8–45s) produced flat aftermath clips and was
@@ -101,9 +126,10 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
 - Spike-aware baseline (profile.update_velocity): readings ≥2× mean barely
   move the baseline (ratio gate, variance frozen during spikes). A z-score
   gate was tried and rejected (feedback trap).
-- Threshold bounds: approve −2 / reject +2, clamped [30, 80]; 80 stays below
+- Threshold bounds: approve −2 / reject +2, clamped [50, 80]; 80 stays below
   the 85 emergency override. Dry-spell recalibration: −2 per 15 min, floor
-  52 (the old −3/10min floor-40 caused the "clipping poorly" incident).
+  60 (history: −3/10min floor-40 caused the "clipping poorly" incident;
+  floors raised 30→50 / 52→60 in the July 2026 data-driven retune).
 - Feedback loop uses pm.load() (a cache-only get() silently dropped most
   approvals for months — thresholds ratcheted up-only). reset_feedback has
   --raise-floor mode.

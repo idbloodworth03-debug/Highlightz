@@ -69,4 +69,7 @@ def test_threshold_stays_within_bounds():
     p = StreamerProfile(channel="z", trigger_threshold=60.0)
     for _ in range(200):
         p.record_clip(approved=True)           # approvals pull it down
-    assert p.trigger_threshold == 30.0         # floored, never below 30
+    # Floored at 50 (July 2026 training-log analysis: no approved clip has
+    # ever scored below 60 — approvals must not drag a channel into score
+    # territory that only produces junk).
+    assert p.trigger_threshold == 50.0

@@ -238,16 +238,20 @@ def _vod_threshold(profile, rules) -> tuple[float, float]:
     approve/reject history moves profile.trigger_threshold (e.g. a heavily-
     rejected channel sits at 80), and calibration derives an adaptive spike
     multiplier from the channel's own variance. The preset is only the
-    cold-start fallback. The ×0.50 scale maps the full-signal threshold
-    (chat=48 + audio=38 + viewer=7 + silence=12 ≈ 105 ceiling) onto VOD's
-    chat-only ceiling (~57 with the multi-signal bonus)."""
+    cold-start fallback. The ×0.42 scale maps the full-signal threshold
+    (chat=40 + audio=38 + viewer=15 + silence=12 ≈ 105 ceiling) onto VOD's
+    chat-only ceiling (~48 with the multi-signal bonus). Retuned 0.50 → 0.42
+    when the KEYWORD weight was cut 12 → 4 (July 2026 training-log analysis):
+    the cut shrank VOD's ceiling from ~57.6 to ~48 (-17%), so the old scale
+    would have made every VOD scan silently stricter; 0.50 × 48/57.6 ≈ 0.42
+    keeps VOD sensitivity equivalent to what it was before the reweighting."""
     base = profile.trigger_threshold if profile is not None else rules.trigger_threshold
     spike_mult = (
         profile.velocity_spike_multiplier
         if profile is not None and profile.velocity_samples >= 30
         else rules.velocity_multiplier
     )
-    return base * 0.50, spike_mult
+    return base * 0.42, spike_mult
 
 
 def _top_moments(moments: list[dict], duration_secs: float) -> list[dict]:

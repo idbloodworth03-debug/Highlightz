@@ -13,12 +13,18 @@ All functions are pure and return a 0.0-1.0 signal value.
 
 # Base per-signal weights for the chat signals, shared by live and VOD so the
 # relative contribution of each chat signal is identical on both paths. Live
-# also adds AUDIO_SPIKE (38), VIEWER_SPIKE (7) and SILENCE_BURST (12) which VOD
+# also adds AUDIO_SPIKE (38), VIEWER_SPIKE (15) and SILENCE_BURST (12) which VOD
 # cannot measure; the VOD threshold is scaled down to compensate for the missing
 # headroom rather than re-weighting the chat signals.
 CHAT_WEIGHTS = {
     "CHAT_VELOCITY":     22,
-    "KEYWORD":           12,
+    # Cut 12 → 4 (July 2026 training-log analysis, n=806): keyword-led clips
+    # went 0/91 approved and keyword AUC vs outcome was 0.51 (coin flip) — the
+    # keyword list predicts nothing for this content mix. Kept small (not 0)
+    # so it can still support a moment, but it can no longer lead one.
+    # Blast radius: this also lowers VOD's chat-only ceiling — the VOD
+    # threshold scale in src/vod/analyzer.py was retuned 0.50 → 0.42 to match.
+    "KEYWORD":            4,
     "SENTIMENT":          5,
     "EMOTE_HOMOGENEITY":  9,
 }
@@ -46,12 +52,16 @@ CLIP_IT_FLOOR       = 90.0
 # Tuned after observing the tug-of-war on real channels: at -3/10min the
 # dry-spell overpowered reject feedback (+2/reject) and dragged busy channels to
 # the old floor of 40, where the bar is low enough that weak, marginal moments
-# fire constantly — the "clipping poorly" failure mode. A floor of 52 keeps a
+# fire constantly — the "clipping poorly" failure mode. A floor of 52 kept a
 # recalibrated channel selective, and -2/15min lets the user's approve/reject
 # signal win the argument while still un-sticking a genuinely stale threshold.
+# Floor raised 52 → 60 (July 2026 training-log analysis, n=806): no approved
+# clip has ever scored below 60 (keepers average 90.8), and a floor of 60
+# would have suppressed 82 junk clips with zero keeper loss — below 60 the
+# formula demonstrably produces only rejects.
 DRY_SPELL_SECS            = 900.0   # 15 min with no trigger → recalibrate
 DRY_SPELL_THRESHOLD_STEP  = 2.0     # lower trigger_threshold by this each dry cycle
-DRY_SPELL_THRESHOLD_FLOOR = 52.0    # dry-spell alone never lowers below this
+DRY_SPELL_THRESHOLD_FLOOR = 60.0    # dry-spell alone never lowers below this
 
 
 # Message-length collapse: mean message length (chars) at/below this during an
