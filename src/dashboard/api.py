@@ -90,7 +90,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if db_user:
                 status        = db_user.get("subscription_status", "none")
                 trial_ends_at = db_user.get("trial_ends_at", 0)
-                # A trial that has run past its 7 days no longer grants access.
+                # A timed trial that has run past trial_ends_at no longer grants access.
                 if status == "trialing" and time.time() >= trial_ends_at:
                     status = "expired"
                     # Persist the transition once so the DB reflects reality
@@ -982,23 +982,31 @@ async def feedback_unread_count(request: Request):
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
 
-def _paywall_copy(trial_available: bool) -> dict:
-    """Honest paywall copy: only promise '7 days free' to identities that can
-    actually get the trial — returning users are charged immediately, and
-    telling them otherwise is a chargeback waiting to happen."""
-    if trial_available:
+def _paywall_copy(kind: str) -> dict:
+    """Honest paywall copy — there is no self-serve free trial anymore, so the
+    page never promises free days. Variants: 'trial_ended' for users whose
+    admin-granted trial ran out, 'returning' for past subscribers, 'new' for
+    everyone else."""
+    if kind == "trial_ended":
         return {
-            "headline": "Start your 7-day free trial",
-            "subline":  ("add a card to start capturing your best streaming moments. "
-                         "Free for 7 days, then it auto-renews monthly. Cancel anytime "
-                         "before the trial ends and you won't be charged."),
-            "cta":      "Start free trial &#8594;",
-            "note":     "Card required to start. Have a promo code? Enter it at checkout for 50% off your first month.",
+            "headline": "Your free trial has ended",
+            "subline":  ("hope you caught some great moments. Subscribe to keep the "
+                         "clips coming — $15/month, cancel anytime."),
+            "cta":      "Subscribe &middot; $15/month &#8594;",
+            "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
+        }
+    if kind == "returning":
+        return {
+            "headline": "Restart your subscription",
+            "subline":  ("welcome back. Your subscription starts right away — "
+                         "$15/month, cancel anytime."),
+            "cta":      "Subscribe &middot; $15/month &#8594;",
+            "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     return {
-        "headline": "Restart your subscription",
-        "subline":  ("welcome back. Your one-time free trial has already been used, so "
-                     "your subscription starts right away — $15/month, cancel anytime."),
+        "headline": "Get Highlightz Pro",
+        "subline":  ("start capturing your best streaming moments automatically — "
+                     "$15/month, cancel anytime."),
         "cta":      "Subscribe &middot; $15/month &#8594;",
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
@@ -1010,14 +1018,13 @@ async def paywall_page(request: Request):
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     db_user  = user_store.get_by_id(uid) if uid else None
-    if db_user is None:
-        # Unknown/logged-out visitor: show the standard trial pitch — the
-        # checkout itself enforces trial eligibility either way.
-        trial_available = True
+    if db_user and db_user.get("subscription_status") == "expired":
+        kind = "trial_ended"
+    elif db_user and db_user.get("stripe_customer_id"):
+        kind = "returning"
     else:
-        claim_id = user_store.trial_claim_id(db_user)
-        trial_available = bool(claim_id) and not user_store.has_claimed_trial(claim_id)
-    copy = _paywall_copy(trial_available)
+        kind = "new"
+    copy = _paywall_copy(kind)
     import html as _html
     page = (PAYWALL_HTML
             .replace("{username}", _html.escape(username))
@@ -1032,8 +1039,9 @@ async def paywall_page(request: Request):
 async def billing_checkout(request: Request):
     """Create a Stripe Checkout session and redirect the user there.
 
-    First-time identities get a 7-day free trial (card still required, auto-
-    converts). Anyone who has already used their one trial is charged immediately.
+    Billing starts immediately — no self-serve trial. A user on an app-managed
+    admin-granted trial (status 'trialing', no Stripe subscription) is allowed
+    through so they can subscribe before the trial runs out.
     """
     from src.billing.stripe_billing import create_checkout_url
     from src.auth import users as user_store
@@ -1046,8 +1054,10 @@ async def billing_checkout(request: Request):
     db_user  = user_store.get_by_id(uid)
     # Already subscribed (or mid webhook-latency after paying)? Never open a
     # second checkout — that mints a second Stripe subscription the user can't
-    # see or cancel. Send them into the app instead.
-    if db_user and db_user.get("subscription_status") in ("active", "trialing"):
+    # see or cancel. Send them into the app instead. ('trialing' is app-managed
+    # with no Stripe subscription behind it, so it may proceed to checkout —
+    # the live-status check below still catches any real Stripe subscription.)
+    if db_user and db_user.get("subscription_status") == "active":
         return RedirectResponse("/")
     # Webhook-latency window: the user may have JUST paid (Stripe knows, our DB
     # doesn't yet). Ask Stripe live before selling them a second subscription —
@@ -1063,13 +1073,9 @@ async def billing_checkout(request: Request):
             # They have a subscription in dunning — fixing the card in the
             # portal is the right move, not stacking a new subscription.
             return RedirectResponse("/billing/portal")
-    claim_id = user_store.trial_claim_id(db_user) if db_user else ""
-    # One free trial per identity; returning users pay immediately.
-    trial_days = user_store.TRIAL_DAYS if (claim_id and not user_store.has_claimed_trial(claim_id)) else 0
     # Reuse the existing Stripe customer so a re-subscribe stays on one customer
     # (portal / cancel-on-delete / admin sync all key off the stored id).
-    url = await create_checkout_url(
-        uid, username, trial_days=trial_days, customer_id=stripe_customer)
+    url = await create_checkout_url(uid, username, customer_id=stripe_customer)
     return RedirectResponse(url)
 
 
@@ -1159,7 +1165,6 @@ def apply_subscription_event(user_id: str | None, cust_id: str, status: str) -> 
 
 async def _process_stripe_event(event: dict, now: float, event_id: str):
     from src.billing.stripe_billing import sync_subscription_event
-    from src.auth import users as user_store
     async with _stripe_event_lock:
         stale = [k for k, ts in list(_stripe_processed.items()) if now - ts > _STRIPE_EVENT_TTL]
         for k in stale:
@@ -1192,17 +1197,9 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
-            # The user now has a real subscription (trial or paid) → burn their
-            # one-time trial claim so they can't get a second free trial later.
-            # Done here (not at checkout creation) so an abandoned checkout doesn't
-            # waste the trial.
-            db_user  = user_store.get_by_id(user_id)
-            claim_id = user_store.trial_claim_id(db_user) if db_user else ""
-            if claim_id:
-                user_store.record_trial_claim(claim_id)
-            # Realtime contract: a trial→paid conversion (or a past_due→active
-            # recovery) must clear the paywall/trial banner in any open tab live,
-            # mirroring the subscription_expired broadcast on the lapse path.
+            # Realtime contract: a new/recovered subscription must clear the
+            # paywall/trial banner in any open tab live, mirroring the
+            # subscription_expired broadcast on the lapse path.
             await broadcast(
                 {"event": "subscription_active",
                  "message": "Subscription active — you're all set."},
@@ -1766,6 +1763,39 @@ async def admin_grant_access(request: Request, user_id: str):
     return {"ok": True}
 
 
+class TrialGrantRequest(BaseModel):
+    days: int
+
+
+@app.post("/admin/users/{user_id}/grant-trial")
+async def admin_grant_trial(request: Request, user_id: str, body: TrialGrantRequest):
+    """Give a user timed free access (app-managed, no Stripe): status becomes
+    'trialing' with trial_ends_at now + N days. Expiry is enforced by the
+    existing middleware/reaper paths, which stop streams and notify live.
+    Granting again extends/replaces the current window."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not 1 <= body.days <= 365:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 365")
+    user = user_store.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_admin"):
+        raise HTTPException(status_code=400, detail="Admins already have full access")
+    if user.get("subscription_status") == "active":
+        raise HTTPException(status_code=400, detail="User already has an active subscription")
+    user_store.grant_trial(user_id, body.days)
+    log.info("admin_trial_granted", user_id=user_id, days=body.days,
+             by=request.session.get("user_id"))
+    # Realtime: the granted user's open tab should clear the paywall/banner live.
+    await broadcast(
+        {"event": "subscription_active",
+         "message": f"You've been given {body.days} day{'s' if body.days != 1 else ''} of free access."},
+        user_id=user_id,
+    )
+    return {"ok": True, "days": body.days}
+
+
 @app.post("/admin/users/{user_id}/revoke")
 async def admin_revoke_access(request: Request, user_id: str):
     _require_admin(request)
@@ -2104,7 +2134,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
-<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. 7-day free trial, then $15/month.">
+<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. $15/month, cancel anytime.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/anton-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -2113,13 +2143,13 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again">
-<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. 7-day free trial, then $15/month.">
+<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. $15/month, cancel anytime.">
 <meta property="og:image" content="https://highlightz.app/static/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. 7-day free trial, then $15/month.">
+<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. $15/month, cancel anytime.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
   /* Self-hosted type — no third-party font dependency */
@@ -2254,8 +2284,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
   .price-amt .num{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:74px;letter-spacing:.01em;line-height:1;color:#f6f2ff;text-shadow:0 2px 0 #44276a,0 4px 0 #38205a,0 6px 0 #2c1849,0 8px 0 #201138,0 14px 24px rgba(0,0,0,.55),0 20px 42px rgba(168,85,247,.26)}
   .price-amt .per{font-size:16px;color:#9c9caa;font-weight:600}
-  .price-trialline{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#2ee08a;background:rgba(46,224,138,.1);border:1px solid rgba(46,224,138,.3);padding:8px 16px;border-radius:99px;margin:14px 0 10px}
-  .price-sub{font-size:13.5px;color:#9c9caa;margin-bottom:26px;line-height:1.6}
+  .price-sub{font-size:13.5px;color:#9c9caa;margin:12px 0 26px;line-height:1.6}
   .price-list{text-align:left;display:flex;flex-direction:column;gap:12px;margin-bottom:30px}
   .price-list .li{display:flex;align-items:flex-start;gap:11px;font-size:14.5px;color:#d8d8e2}
   .price-list .ck{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(52,211,153,.14);color:#34d399;display:grid;place-items:center;font-size:12px;font-weight:800;margin-top:1px}
@@ -2419,8 +2448,8 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 </style>
 
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "Offer", "price": "15.00", "priceCurrency": "USD", "description": "7-day free trial, then $15/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time, each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does the free trial work?", "acceptedAnswer": {"@type": "Answer", "text": "You get 7 days of full access. A card is required to start, and unless you cancel before the trial ends, it converts to the $15/month plan automatically. Cancel anytime \u2014 during the trial or after \u2014 through the billing portal."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "Offer", "price": "15.00", "priceCurrency": "USD", "description": "$15/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time, each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "One plan: $15/month, everything included. It renews monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
 <nav class="nav">
@@ -2432,7 +2461,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#pricing" class="nav-link hide-sm">Pricing</a>
     <a href="#faq" class="nav-link hide-sm">FAQ</a>
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-grad">Start free</a>
+    <a href="/login" class="btn btn-grad">Get started</a>
   </div>
 </nav>
 
@@ -2443,10 +2472,10 @@ LANDING_HTML = """<!DOCTYPE html>
     <h1>Never miss a <span class="hollow">highlight</span> again.</h1>
     <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
-      <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
+      <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
       <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
     </div>
-    <p class="hero-note">7 days free &middot; then <b>$15/month</b> &middot; cancel anytime</p>
+    <p class="hero-note"><b>$15/month</b> &middot; cancel anytime</p>
     <div class="pills">
       <span class="pill">Formula-based — not AI</span>
       <span class="pill">Works at any channel size</span>
@@ -2742,13 +2771,12 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="wrap" id="pricing">
   <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">One plan, everything included. Try it free for a week — cancel anytime before the trial ends and you won't be charged.</p>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">One plan, everything included. No contracts, no tiers — cancel anytime.</p>
   <div class="price-card">
     <div class="price-in">
       <span class="price-badge">Highlightz Pro</span>
       <div class="price-amt"><span class="cur">$</span><span class="num">15</span><span class="per">/month</span></div>
-      <div class="price-trialline">First 7 days free</div>
-      <div class="price-sub">Full access from day one. Auto-renews monthly after the trial &middot; cancel anytime.</div>
+      <div class="price-sub">Full access from day one. Renews monthly &middot; cancel anytime.</div>
       <div class="price-list">
         <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
         <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
@@ -2758,7 +2786,7 @@ LANDING_HTML = """<!DOCTYPE html>
         <div class="li"><span class="ck">&#10003;</span>VOD scanner — find highlights in past broadcasts</div>
         <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
       </div>
-      <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Start free trial &#8594;</a>
+      <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Get started &#8594;</a>
       <div class="price-promo">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
     </div>
   </div>
@@ -2798,8 +2826,8 @@ LANDING_HTML = """<!DOCTYPE html>
       <div class="faq-a">Up to 10 at the same time, each with its own independent learning profile — your own channel, streamers you clip for, or anyone live right now.</div>
     </details>
     <details class="faq-item">
-      <summary><span class="faq-q">How does the free trial work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">You get 7 days of full access. A card is required to start, and unless you cancel before the trial ends, it converts to the $15/month plan automatically. Cancel anytime — during the trial or after — through the billing portal.</div>
+      <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">One plan: $15/month, everything included. It renews monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
@@ -2816,7 +2844,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="hollow">already happening.</span></h2>
   <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
-  <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
+  <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
 </section>
 
 <div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
@@ -3067,9 +3095,9 @@ LOGIN_HTML = """<!DOCTYPE html>
   .logo-wrap img{height:80px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.5))}
   h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
   .sub{font-size:13px;color:#9c9caa;margin-bottom:18px}
-  .trial-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c79bff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;margin-bottom:22px}
-  .trial-pill .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
-  .trial-note{font-size:11px;color:#5d5d6b;text-align:center;margin-top:12px}
+  .price-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c79bff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;margin-bottom:22px}
+  .price-pill .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
+  .price-note{font-size:11px;color:#5d5d6b;text-align:center;margin-top:12px}
   .twitch-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
   .twitch-btn:hover{background:#772ce8}
   .twitch-btn svg{flex-shrink:0}
@@ -3094,13 +3122,13 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="trial-pill"><span class="dot"></span>7-day free trial — cancel anytime</div>
+  <div class="price-pill"><span class="dot"></span>$15/month — cancel anytime</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
-  <p class="trial-note">Free for 7 days, then auto-renews monthly. Cancel anytime before it ends and you won't be charged.</p>
+  <p class="price-note">Renews monthly. Cancel anytime through the billing portal.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -3232,7 +3260,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Free Trial and Subscriptions</h2>
-  <p>New accounts may start a 7-day free trial with full access to core features. A valid payment method is required to begin the trial. Unless you cancel before the trial ends, your subscription will automatically convert to a paid plan and the payment method on file will be charged the then-current subscription fee, and on each renewal period thereafter, until you cancel. You can cancel at any time — including during the trial to avoid being charged — through the billing portal. The free trial is limited to one per person; accounts that have previously used a trial will be billed immediately upon subscribing.</p>
+  <p>Access to the Service requires a paid subscription, billed from the moment you subscribe. We may, at our sole discretion, grant individual accounts free promotional or trial access for a limited period. Promotional access requires no payment method, ends automatically at the end of its stated period without any charge, and does not convert into a paid subscription unless you subscribe yourself. We may modify or withdraw promotional access at any time.</p>
   <p>Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
   <ul>
     <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
@@ -3517,10 +3545,14 @@ ADMIN_HTML = """<!DOCTYPE html>
   .pill-inactive{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
   .pill-none{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#9c9caa}
   .pill-admin{background:rgba(249,67,255,.12);border:1px solid rgba(249,67,255,.25);color:#f943ff}
+  .pill-trial{background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:#c79bff}
   .actions{display:flex;gap:8px;flex-wrap:wrap}
   .btn{font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;border:none;cursor:pointer;transition:.15s}
   .btn-grant{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.25)}
   .btn-grant:hover{background:rgba(52,211,153,.25)}
+  .btn-trial{background:rgba(168,85,247,.15);color:#c79bff;border:1px solid rgba(168,85,247,.3);font-family:inherit}
+  .btn-trial:hover{background:rgba(168,85,247,.25)}
+  .btn-trial option{background:#16161c;color:#e8e8f0}
   .btn-revoke{background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.2)}
   .btn-revoke:hover{background:rgba(239,68,68,.22)}
   .btn-delete{background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.15)}
@@ -3625,7 +3657,8 @@ const fmtTs = ts => ts ? new Date(ts * 1000).toLocaleString('en-US', {month:'sho
 
 function pill(status, isAdmin) {
   if (isAdmin) return '<span class="pill pill-admin">Admin</span>';
-  if (status === 'active' || status === 'trialing') return '<span class="pill pill-active">Active</span>';
+  if (status === 'trialing') return '<span class="pill pill-trial">Trial</span>';
+  if (status === 'active') return '<span class="pill pill-active">Active</span>';
   if (status === 'inactive' || status === 'canceled') return '<span class="pill pill-inactive">Inactive</span>';
   return '<span class="pill pill-none">No Sub</span>';
 }
@@ -3648,6 +3681,24 @@ async function grant(idx) {
   try {
     await api('/admin/users/' + u.id + '/grant', 'POST');
     toast('Access granted');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
+async function grantTrial(idx, sel) {
+  const u = _users[idx]; if (!u) return;
+  const days = parseInt(sel.value, 10);
+  sel.value = '';                       // reset so the same option can be re-picked
+  if (!days) return;
+  if (!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
+  try {
+    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({days}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    toast('Trial granted — ' + days + ' days');
     load();
   } catch(e) { toast('Error: ' + e.message, false); }
 }
@@ -3732,6 +3783,9 @@ function renderUsers() {
     const isAdmin = u.is_admin;
     const canGrant = !isAdmin && sub !== 'active' && sub !== 'trialing';
     const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
+    // Timed trial: available for anyone without a paid subscription — including
+    // users already on a trial (granting again extends/replaces the window).
+    const canTrial = !isAdmin && sub !== 'active';
     const trialNote = sub === 'trialing' && u.trial_ends_at
       ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Trial ends ' + fmt(u.trial_ends_at) + '</div>' : '';
     const stripeNote = u.stripe_customer_id
@@ -3747,6 +3801,11 @@ function renderUsers() {
       '<td><div class="actions">' +
         '<button class="btn btn-details" onclick="viewUser(' + idx + ')">Details</button>' +
         (canGrant ? '<button class="btn btn-grant" onclick="grant(' + idx + ')">Grant</button>' : '') +
+        (canTrial ? '<select class="btn btn-trial" onchange="grantTrial(' + idx + ', this)">' +
+          '<option value="">' + (sub === 'trialing' ? 'Extend trial…' : 'Trial…') + '</option>' +
+          '<option value="3">3 days</option><option value="7">1 week</option>' +
+          '<option value="14">2 weeks</option><option value="30">1 month</option>' +
+          '<option value="90">3 months</option></select>' : '') +
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + idx + ')">Revoke</button>' : '') +
         (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + idx + ')">Stripe Sync</button>' : '') +
         (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + idx + ')">Delete</button>' : '') +

@@ -20,9 +20,6 @@ from config.settings import settings
 
 _USERS_FILE = Path(settings.local_storage_path) / "users.json"
 
-TRIAL_DAYS = 7
-_TRIAL_SECONDS = TRIAL_DAYS * 86400
-
 
 # ── Token encryption ───────────────────────────────────────────────────────
 # Twitch OAuth tokens are encrypted at rest with a key derived from either
@@ -76,73 +73,6 @@ def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
 _ulog = logging.getLogger(__name__)
 
 _BACKUP_FILE = Path(settings.local_storage_path) / "users.json.bak"
-
-# ── Trial ledger ────────────────────────────────────────────────────────────
-# A persistent record of every Twitch ID that has EVER started a free trial.
-# This deliberately survives account deletion so a user can't reset their trial
-# by deleting and re-creating their account (infinite-trial abuse).
-_TRIAL_LEDGER_FILE = Path(settings.local_storage_path) / "trial_claims.json"
-
-
-def _load_trial_ledger() -> set[str]:
-    try:
-        data = json.loads(_TRIAL_LEDGER_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return {str(x) for x in data}
-    except FileNotFoundError:
-        pass
-    except json.JSONDecodeError as exc:
-        _ulog.error("trial_ledger_corrupt", error=str(exc))
-    return set()
-
-
-def has_claimed_trial(twitch_id: str) -> bool:
-    """True if this Twitch ID has ever been granted a free trial."""
-    return bool(twitch_id) and twitch_id in _load_trial_ledger()
-
-
-def _record_trial_claim(twitch_id: str) -> None:
-    """Persist that this Twitch ID has claimed its one-time trial."""
-    if not twitch_id:
-        return
-    ledger = _load_trial_ledger()
-    if twitch_id in ledger:
-        return
-    ledger.add(twitch_id)
-    _TRIAL_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=_TRIAL_LEDGER_FILE.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(sorted(ledger), f)
-        os.replace(tmp, _TRIAL_LEDGER_FILE)
-        try:
-            os.chmod(_TRIAL_LEDGER_FILE, 0o600)
-        except OSError:
-            pass
-    except Exception as exc:
-        _ulog.error("trial_ledger_save_failed", error=str(exc))
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-
-
-def trial_claim_id(user: dict) -> str:
-    """The identity key used in the trial ledger — one free trial per real
-    identity (Twitch id, else prefixed Kick id). Empty if neither is present."""
-    if not user:
-        return ""
-    if user.get("twitch_id"):
-        return str(user["twitch_id"])
-    if user.get("kick_id"):
-        return f"kick:{user['kick_id']}"
-    return ""
-
-
-def record_trial_claim(claim_id: str) -> None:
-    """Public wrapper: mark an identity as having used its one-time trial."""
-    _record_trial_claim(claim_id)
-
 
 def _load() -> list[dict]:
     for path in (_USERS_FILE, _BACKUP_FILE):
@@ -277,14 +207,14 @@ def upsert_twitch_user(
             existing["tw_expires_at"] = expires_at
         if is_admin:
             existing["subscription_status"] = "active"
-        # Trials are now started through Stripe Checkout (card required), so we no
-        # longer grant a free, card-less app-managed trial on login.
+        # No access is ever granted on login — subscriptions come from Stripe
+        # Checkout, and free trials only from an explicit admin grant.
         _save(users)
         return _public(existing)
 
-    # Brand-new account. Trials are started via Stripe Checkout (card required),
-    # so a new account begins with no access and goes through the paywall →
-    # checkout, where it gets a 7-day Stripe trial if its identity hasn't used one.
+    # Brand-new account: begins with no access and goes through the paywall →
+    # checkout ($15/month, billed immediately). Free access exists only as an
+    # admin-granted timed trial (grant_trial).
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -353,6 +283,24 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
             u["subscription_status"] = status
             break
     _save(users)
+
+
+def grant_trial(user_id: str, days: int) -> dict | None:
+    """Admin-granted timed trial: full access until trial_ends_at, app-managed
+    with no Stripe subscription behind it. Expiry is enforced by the auth
+    middleware and the idle reaper, which flip the user to 'expired' and stop
+    their streams once the clock runs out. Granting again extends/replaces the
+    window (trial_ends_at is measured from now).
+
+    Returns the public user dict, or None if the user doesn't exist."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["subscription_status"] = "trialing"
+            u["trial_ends_at"]       = time.time() + days * 86400
+            _save(users)
+            return _public(u)
+    return None
 
 
 def update_subscription_by_customer(customer_id: str, status: str) -> str | None:
@@ -454,8 +402,8 @@ def upsert_kick_user(
         _save(users)
         return _public(existing)
 
-    # Trials are started via Stripe Checkout (card required); a new account begins
-    # with no access and goes through the paywall → checkout.
+    # A new account begins with no access and goes through the paywall →
+    # checkout; free access exists only as an admin-granted timed trial.
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,

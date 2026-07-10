@@ -1207,7 +1207,7 @@ function AccountScreen({ me }) {
             <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
           </div>
           {isTrial && <div className="rd-field">
-            <div><div className="fl">Free trial active</div><div className="fd">Your trial converts to a paid plan automatically — cancel anytime before it ends</div></div>
+            <div><div className="fl">Free trial active</div><div className="fd">Enjoy full access while it lasts — subscribe to keep clipping after it ends</div></div>
             <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Subscribe
             </a>
@@ -1906,7 +1906,7 @@ function RdApp() {
         </header>
         {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c79bff',fontWeight:600}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
-          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#9c9caa',fontWeight:500}}>Got a promo code? 50% off your first month at checkout.</span></span>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#9c9caa',fontWeight:500}}>Subscribe to keep access when it ends — promo codes get 50% off your first month.</span></span>
           <a href="/billing/checkout" style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Subscribe</a>
         </div>}
         <main className="rd-screen">{screen}</main>

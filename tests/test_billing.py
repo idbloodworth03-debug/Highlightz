@@ -85,27 +85,22 @@ def test_checkout_enables_promotion_codes():
     assert params["subscription_data"]["metadata"]["user_id"] == "u_1"
 
 
-def _checkout_params(trial_days):
+def _checkout_params():
     fake_client = MagicMock()
     fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
     with patch.object(sb, "_client", return_value=fake_client):
-        asyncio.run(sb.create_checkout_url("u_1", "alice", trial_days=trial_days))
+        asyncio.run(sb.create_checkout_url("u_1", "alice"))
     return fake_client.checkout.sessions.create.call_args.kwargs["params"]
 
 
-def test_checkout_with_trial_sets_trial_period_and_requires_card():
-    p = _checkout_params(7)
-    assert p["subscription_data"]["trial_period_days"] == 7
-    # A card is always collected, even when starting a free trial.
-    assert p["payment_method_collection"] == "always"
-    assert p["payment_method_types"] == ["card"]
-
-
-def test_checkout_without_trial_charges_immediately():
-    # Returning users (already used their one trial) get no trial_period_days.
-    p = _checkout_params(0)
+def test_checkout_has_no_free_trial_and_charges_immediately():
+    # There is no self-serve trial: checkout must never set trial_period_days —
+    # billing starts at subscribe time. Free access exists only as an
+    # admin-granted app-managed trial, which never touches Stripe.
+    p = _checkout_params()
     assert "trial_period_days" not in p["subscription_data"]
-    assert p["payment_method_collection"] == "always"
+    assert p["mode"] == "subscription"
+    assert p["payment_method_types"] == ["card"]
 
 
 def test_checkout_reuses_existing_stripe_customer():
@@ -165,24 +160,41 @@ def test_apply_subscription_event_mismatch_targets_customer_owner(monkeypatch):
     assert calls["by_user"] == [("user_X", "cus_A", "active")]
 
 
-def test_paywall_copy_is_honest_about_trial_eligibility():
+def test_paywall_copy_never_promises_free_days():
     from src.dashboard.api import _paywall_copy
-    fresh = _paywall_copy(True)
-    assert "7-day free trial" in fresh["headline"] and "won't be charged" in fresh["subline"]
-    returning = _paywall_copy(False)
-    assert "free trial" not in returning["cta"].lower()
-    assert "$15/month" in returning["cta"]
-    assert "already been used" in returning["subline"]
-    # Neither variant leaves template placeholders behind.
-    for c in (fresh, returning):
+    variants = {k: _paywall_copy(k) for k in ("new", "returning", "trial_ended")}
+    for kind, c in variants.items():
+        joined = " ".join(c.values()).lower()
+        # No self-serve trial exists — promising free days is a chargeback
+        # waiting to happen. (Mentioning that a granted trial *ended* is fine.)
+        assert "free trial" not in c["headline"].lower() or kind == "trial_ended"
+        assert "days free" not in joined and "7-day" not in joined
+        assert "$15/month" in c["cta"]
+        # No variant leaves template placeholders behind.
         assert all("{" not in v for v in c.values())
+    assert "trial has ended" in variants["trial_ended"]["headline"].lower() or \
+           "trial" in variants["trial_ended"]["headline"].lower()
+    assert "welcome back" in variants["returning"]["subline"].lower()
 
 
-def test_trial_claim_id_prefers_twitch_then_kick():
+def test_grant_trial_sets_status_and_expiry(tmp_path, monkeypatch):
+    # Admin-granted timed trial: app-managed 'trialing' + trial_ends_at, no
+    # Stripe involvement. The middleware/reaper expire it, so the two fields
+    # are the entire contract.
+    import time
     from src.auth import users
-    assert users.trial_claim_id({"twitch_id": "123"}) == "123"
-    assert users.trial_claim_id({"kick_id": "9"}) == "kick:9"
-    assert users.trial_claim_id({}) == ""
+    monkeypatch.setattr(users, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(users, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    u = users.create("bob", "hunter2hunter2")
+    granted = users.grant_trial(u["id"], 30)
+    assert granted["subscription_status"] == "trialing"
+    assert abs(granted["trial_ends_at"] - (time.time() + 30 * 86400)) < 5
+    assert sb.has_access("trialing", False) is True   # gate honours the grant
+    # Re-granting extends/replaces the window from now.
+    again = users.grant_trial(u["id"], 7)
+    assert abs(again["trial_ends_at"] - (time.time() + 7 * 86400)) < 5
+    # Unknown user → None, nothing written.
+    assert users.grant_trial("missing", 7) is None
 
 
 def test_has_access_matches_active_statuses():

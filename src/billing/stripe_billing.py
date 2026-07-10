@@ -19,14 +19,13 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
     return is_admin or subscription_status in ACTIVE_STATUSES
 
 
-async def create_checkout_url(user_id: str, username: str, trial_days: int = 0,
+async def create_checkout_url(user_id: str, username: str,
                               customer_id: str | None = None) -> str:
     """Create a Stripe Checkout session and return its URL.
 
-    A card is ALWAYS collected. When trial_days > 0 the subscription starts with
-    that many days free (Stripe charges the card automatically when the trial
-    ends unless the user cancels). trial_days == 0 charges immediately — used for
-    returning users who have already used their one free trial.
+    Billing starts immediately — there is no self-serve free trial. (Free access
+    is granted only by an admin through the dashboard, app-managed via
+    subscription_status='trialing' + trial_ends_at, with no Stripe involvement.)
 
     When the user already has a Stripe customer, pass customer_id so the new
     subscription lands on the SAME customer — otherwise every checkout mints a
@@ -35,19 +34,14 @@ async def create_checkout_url(user_id: str, username: str, trial_days: int = 0,
     """
     client = _client()
     base = "https://highlightz.app"
-    sub_data: dict = {"metadata": {"user_id": user_id}}
-    if trial_days > 0:
-        sub_data["trial_period_days"] = trial_days
     params: dict = {
         "mode":                 "subscription",
         "payment_method_types": ["card"],
         "line_items":           [{"price": settings.stripe_price_id, "quantity": 1}],
         "success_url":          f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url":           f"{base}/billing/cancel",
-        # Always require a card, even when starting a free trial.
-        "payment_method_collection": "always",
         "metadata":             {"user_id": user_id, "username": username},
-        "subscription_data":    sub_data,
+        "subscription_data":    {"metadata": {"user_id": user_id}},
         # Show the "Add promotion code" box on the hosted checkout page. The
         # actual discount (50% off first month) is a Coupon + Promotion Code
         # created in the Stripe dashboard (duration: once). Stripe validates the
