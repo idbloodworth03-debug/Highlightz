@@ -1,3 +1,17 @@
+# Hardened unit: runs as the unprivileged `highlightz` user with a read-only
+# filesystem view (only clips/ is writable). To migrate a server currently
+# running the service as root, run (as root):
+#
+#   id highlightz 2>/dev/null || useradd --system --home /opt/highlightz --shell /usr/sbin/nologin highlightz
+#   chown -R highlightz:highlightz /opt/highlightz/clips
+#   cp /opt/highlightz/deploy/highlightz.service /etc/systemd/system/highlightz.service
+#   systemctl daemon-reload && systemctl restart highlightz
+#   systemctl status highlightz --no-pager | head -12
+#
+# Notes: .env stays owned by root (systemd reads EnvironmentFile before
+# dropping privileges); code stays root-owned (the service only reads it, so
+# root-driven `git reset` deploys keep working); the backup cron keeps running
+# as root and writes /opt/highlightz/backups, outside this sandbox.
 [Unit]
 Description=Highlightz Stream Clipping Bot
 After=network.target redis-server.service

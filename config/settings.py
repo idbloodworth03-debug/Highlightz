@@ -49,6 +49,12 @@ class Settings(BaseSettings):
 
     # App behaviour
     log_level: str = "INFO"
+    # Bind address for the dashboard server. Nginx proxies via localhost, so
+    # 127.0.0.1 keeps uvicorn unreachable from outside even if the firewall is
+    # misconfigured. Set DASHBOARD_HOST=0.0.0.0 only when the process itself
+    # must accept external connections (e.g. inside a Docker port mapping).
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8000
     dashboard_secret_key: str = _DEFAULT_SECRET
     dashboard_password: str = _DEFAULT_PASSWORD
     dashboard_https_only: bool = True

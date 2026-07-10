@@ -252,8 +252,8 @@ async def auto_delete_old_clips() -> None:
 async def run_dashboard() -> None:
     config = uvicorn.Config(
         dashboard_app,
-        host="0.0.0.0",
-        port=8000,
+        host=settings.dashboard_host,
+        port=settings.dashboard_port,
         log_level="warning",
     )
     server = uvicorn.Server(config)
