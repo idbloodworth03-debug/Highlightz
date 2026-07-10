@@ -2107,8 +2107,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. 7-day free trial, then $15/month.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="canonical" href="https://highlightz.app/">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="/static/fonts/anton-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
@@ -2122,19 +2122,25 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. 7-day free trial, then $15/month.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
+  /* Self-hosted type — no third-party font dependency */
+  @font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/anton-400.woff2) format('woff2')}
+  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden}
+  body{background:#08080b;color:#f6f6f9;font-family:'Sora',Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden}
   body::before{content:'';position:fixed;inset:0;z-index:-3;background:radial-gradient(900px 560px at 16% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(760px 460px at 88% 2%,rgba(249,67,255,.14),transparent 55%),radial-gradient(760px 640px at 50% 112%,rgba(124,107,255,.13),transparent 60%)}
   body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);background-size:26px 26px;-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%);mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%)}
   a{text-decoration:none;color:inherit}
   .acc{color:#c79bff}
   .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  /* ── Display accent: hollow neon word inside Anton 3D block titles ── */
+  .hollow{color:transparent;-webkit-text-stroke:2.5px #f943ff;text-shadow:none;filter:drop-shadow(0 0 18px rgba(249,67,255,.45)) drop-shadow(0 10px 22px rgba(0,0,0,.5))}
+  @supports not (-webkit-text-stroke:1px #000){.hollow{color:#f943ff;filter:none}}
   /* Nav */
   .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:16px 30px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(8,8,11,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
   .nav-logo{display:flex;align-items:center;gap:11px}
   .nav-logo img{height:32px;filter:drop-shadow(0 0 9px rgba(199,155,255,.5))}
-  .nav-logo span{font-size:17px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
+  .nav-logo span{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:19px;color:#c79bff;letter-spacing:.05em;text-shadow:0 1px 0 #38205a,0 2px 0 #201138}
   .nav-actions{display:flex;align-items:center;gap:10px}
   .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s;white-space:nowrap}
   .nav-link:hover{color:#f6f6f9;background:rgba(255,255,255,.05)}
@@ -2150,11 +2156,11 @@ LANDING_HTML = """<!DOCTYPE html>
   section{padding-top:64px;padding-bottom:64px}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
   .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
-  h2.sec-title{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-bottom:14px;line-height:1.15}
+  h2.sec-title{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:40px;letter-spacing:.015em;margin-bottom:14px;line-height:1.06;color:#f6f2ff;text-shadow:0 1.5px 0 #44276a,0 3px 0 #38205a,0 4.5px 0 #2c1849,0 6px 0 #201138,0 10px 18px rgba(0,0,0,.55),0 18px 38px rgba(168,85,247,.24)}
   .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
   /* Hero */
   .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:74px;padding-bottom:44px}
-  .hero-copy h1{font-size:54px;font-weight:800;letter-spacing:-.04em;line-height:1.04;margin-bottom:20px}
+  .hero-copy h1{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:72px;letter-spacing:.015em;line-height:.98;margin-bottom:22px;color:#f6f2ff;text-shadow:0 2px 0 #4f2d77,0 4px 0 #44276a,0 6px 0 #38205a,0 8px 0 #2c1849,0 10px 0 #201138,0 16px 26px rgba(0,0,0,.62),0 26px 52px rgba(168,85,247,.3)}
   .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
   .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
   .hero-note{font-size:13px;color:#5d5d6b}
@@ -2178,8 +2184,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .demo-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
   .demo-ch{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
   .demo-ch .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
-  .demo-score{font-size:26px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-  .demo-score small{font-size:10.5px;font-weight:700;color:#5d5d6b;letter-spacing:.06em;text-transform:uppercase;margin-right:8px;vertical-align:3px}
+  .demo-score{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:29px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #44276a,0 2px 0 #331c52,0 3px 0 #201138}
+  .demo-score small{font-family:'Sora',Inter,system-ui,sans-serif;font-size:10.5px;font-weight:700;color:#5d5d6b;letter-spacing:.06em;text-transform:uppercase;margin-right:8px;vertical-align:3px;text-shadow:none}
   .demo-chart{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
   .demo-chart svg{display:block;width:100%;height:auto}
   .fired-badge{position:absolute;top:9px;right:9px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:5px 11px;border-radius:99px;box-shadow:0 4px 18px -4px rgba(249,67,255,.8);opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s}
@@ -2206,7 +2212,7 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Stats band */
   .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:34px 0 8px}
   .stat{padding:26px 20px;text-align:center}
-  .stat .n{font-size:38px;font-weight:800;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat .n{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:42px;letter-spacing:.02em;line-height:1.1;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #44276a,0 2px 0 #331c52,0 3px 0 #201138,0 6px 12px rgba(0,0,0,.5)}
   .stat .k{font-size:12.5px;color:#9c9caa;font-weight:600;margin-top:7px}
   .stat .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ee08a;box-shadow:0 0 8px #2ee08a;margin-right:8px;vertical-align:4px}
   /* Glass card */
@@ -2233,7 +2239,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .feat p{font-size:14px;color:#9c9caa;line-height:1.6}
   /* Formula */
   .formula{padding:46px 44px;text-align:center}
-  .formula h2{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:14px}
+  .formula h2{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:35px;letter-spacing:.015em;line-height:1.06;margin-bottom:14px;color:#f6f2ff;text-shadow:0 1.5px 0 #44276a,0 3px 0 #38205a,0 4.5px 0 #2c1849,0 6px 0 #201138,0 10px 18px rgba(0,0,0,.55)}
   .formula p.lead{font-size:16px;color:#b8b8c8;max-width:680px;margin:0 auto 32px;line-height:1.65}
   .signal-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .signal{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;padding:11px 18px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
@@ -2246,7 +2252,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:22px}
   .price-amt{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px}
   .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
-  .price-amt .num{font-size:64px;font-weight:800;letter-spacing:-.045em;line-height:1}
+  .price-amt .num{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:74px;letter-spacing:.01em;line-height:1;color:#f6f2ff;text-shadow:0 2px 0 #44276a,0 4px 0 #38205a,0 6px 0 #2c1849,0 8px 0 #201138,0 14px 24px rgba(0,0,0,.55),0 20px 42px rgba(168,85,247,.26)}
   .price-amt .per{font-size:16px;color:#9c9caa;font-weight:600}
   .price-trialline{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#2ee08a;background:rgba(46,224,138,.1);border:1px solid rgba(46,224,138,.3);padding:8px 16px;border-radius:99px;margin:14px 0 10px}
   .price-sub{font-size:13.5px;color:#9c9caa;margin-bottom:26px;line-height:1.6}
@@ -2257,7 +2263,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-promo b{color:#c79bff}
   /* Final CTA */
   .final{text-align:center;padding-top:56px;padding-bottom:90px}
-  .final h2{font-size:38px;font-weight:800;letter-spacing:-.03em;margin-bottom:16px;line-height:1.1}
+  .final h2{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:54px;letter-spacing:.015em;margin-bottom:18px;line-height:1.02;color:#f6f2ff;text-shadow:0 2px 0 #4f2d77,0 4px 0 #44276a,0 6px 0 #38205a,0 8px 0 #2c1849,0 10px 0 #201138,0 16px 26px rgba(0,0,0,.62),0 26px 52px rgba(168,85,247,.3)}
   .final p{font-size:17px;color:#9c9caa;max-width:540px;margin:0 auto 32px;line-height:1.6}
   /* Footer */
   .footer{border-top:1px solid rgba(255,255,255,.06);padding:36px 24px;text-align:center;font-size:12px;color:#3d3d4a;line-height:1.9}
@@ -2381,10 +2387,12 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   @media(max-width:680px){
     .shots-top{grid-template-columns:1fr}
-    .hero-copy h1{font-size:38px}
+    .hero-copy h1{font-size:46px;text-shadow:0 1.5px 0 #4f2d77,0 3px 0 #44276a,0 4.5px 0 #38205a,0 6px 0 #2c1849,0 7.5px 0 #201138,0 12px 20px rgba(0,0,0,.62),0 20px 40px rgba(168,85,247,.3)}
     .hero-copy p.lead{font-size:16.5px}
-    h2.sec-title{font-size:27px}
-    .final h2{font-size:29px}
+    h2.sec-title{font-size:31px}
+    .formula h2{font-size:28px}
+    .final h2{font-size:38px}
+    .hollow{-webkit-text-stroke-width:1.8px}
     section{padding-top:44px;padding-bottom:44px}
     .nav{padding:14px 14px}
     .nav-actions{gap:4px}
@@ -2393,8 +2401,8 @@ LANDING_HTML = """<!DOCTYPE html>
     .formula{padding:34px 22px}
     .stats-band{grid-template-columns:1fr;gap:12px}
     .stat{padding:20px}
-    .stat .n{font-size:32px}
-    .price-amt .num{font-size:54px}
+    .stat .n{font-size:36px}
+    .price-amt .num{font-size:60px}
   }
   /* Scroll-reveal + hero intro (motion-safe only) */
   @media(prefers-reduced-motion:no-preference){
@@ -2432,7 +2440,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <header class="wrap hero">
   <div class="hero-copy">
     <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
-    <h1>Never miss a <span class="grad-text">highlight</span> again.</h1>
+    <h1>Never miss a <span class="hollow">highlight</span> again.</h1>
     <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
@@ -2468,7 +2476,7 @@ LANDING_HTML = """<!DOCTYPE html>
                 <line x1="0" y1="42" x2="520" y2="42" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
                 <line x1="0" y1="104" x2="520" y2="104" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
                 <line id="d-thresh" x1="0" y1="64.8" x2="520" y2="64.8" stroke="#5d5d6b" stroke-width="1" stroke-dasharray="5 5"/>
-                <text x="8" y="60" font-size="9" fill="#5d5d6b" font-family="Inter,system-ui,sans-serif" font-weight="600">trigger threshold</text>
+                <text x="8" y="60" font-size="9" fill="#5d5d6b" font-family="Sora,Inter,system-ui,sans-serif" font-weight="600">trigger threshold</text>
                 <path id="d-area" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#dArea)"/>
                 <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#a855f7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
                 <circle id="d-dot" cx="415" cy="17" r="4.5" fill="#f943ff" stroke="#0b0b10" stroke-width="2"/>
@@ -2806,7 +2814,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Final CTA -->
 <section class="wrap final">
-  <h2>Your next viral clip is<br><span class="grad-text">already happening.</span></h2>
+  <h2>Your next viral clip is<br><span class="hollow">already happening.</span></h2>
   <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
   <a href="/login" class="btn btn-grad btn-lg">Start your 7-day free trial</a>
 </section>
