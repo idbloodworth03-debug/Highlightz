@@ -4,14 +4,17 @@
 #
 #   id highlightz 2>/dev/null || useradd --system --home /opt/highlightz --shell /usr/sbin/nologin highlightz
 #   chown -R highlightz:highlightz /opt/highlightz/clips
+#   chgrp highlightz /opt/highlightz/.env && chmod 640 /opt/highlightz/.env
 #   cp /opt/highlightz/deploy/highlightz.service /etc/systemd/system/highlightz.service
 #   systemctl daemon-reload && systemctl restart highlightz
 #   systemctl status highlightz --no-pager | head -12
 #
-# Notes: .env stays owned by root (systemd reads EnvironmentFile before
-# dropping privileges); code stays root-owned (the service only reads it, so
-# root-driven `git reset` deploys keep working); the backup cron keeps running
-# as root and writes /opt/highlightz/backups, outside this sandbox.
+# Notes: .env MUST be group-readable by the service user (640 root:highlightz)
+# — systemd reads EnvironmentFile as root, but pydantic-settings ALSO opens
+# .env directly from the process, which crash-loops on a 600 root:root file.
+# Code stays root-owned (the service only reads it, so root-driven `git reset`
+# deploys keep working); the backup cron keeps running as root and writes
+# /opt/highlightz/backups, outside this sandbox.
 [Unit]
 Description=Highlightz Stream Clipping Bot
 After=network.target redis-server.service
