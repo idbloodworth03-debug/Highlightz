@@ -37,3 +37,23 @@ def test_snapshot_message_count():
         m.ingest(f"message {i}")
     snap = m.snapshot()
     assert len(snap.messages) == 10
+
+
+def test_last_message_ts_survives_window_pruning():
+    # The heartbeat needs "last message EVER", not "last message in the 15s
+    # window" — a quiet chat empties the window but must not read as never
+    # connected.
+    import time
+    from unittest.mock import patch
+    m = ChatMetrics(window_seconds=15)
+    assert m.snapshot().last_message_ts == 0.0          # nothing ever ingested
+
+    t0 = time.time()
+    with patch("src.chat.metrics.time") as fake_time:
+        fake_time.time.return_value = t0
+        m.ingest("hello", author="a")
+        # 10 minutes later: window and long-window both fully pruned
+        fake_time.time.return_value = t0 + 600
+        snap = m.snapshot()
+    assert snap.velocity == 0.0                         # window is empty…
+    assert snap.last_message_ts == t0                   # …but the heartbeat remembers

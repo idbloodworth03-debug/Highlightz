@@ -76,6 +76,10 @@ class ChatSnapshot:
     emote_homogeneity: float    # fraction of messages that are the single most-common emote [0,1]
     velocity_acceleration: float = 1.0  # recent-half vs older-half chat rate (>1 = accelerating)
     avg_message_length: float = 0.0     # mean message char length (collapses during frantic hype)
+    # Wall-clock time of the last ingested message EVER (not window-pruned), so
+    # the dashboard heartbeat can distinguish "chat is quiet" from "chat was
+    # never connected". 0.0 = no message has ever arrived.
+    last_message_ts: float = 0.0
 
 
 class ChatMetrics:
@@ -102,6 +106,9 @@ class ChatMetrics:
         # Clip-it trip-wire: (timestamp, author) pairs within the last 10s
         self._clip_it_events: deque[tuple[float, str]] = deque()
 
+        # Last message ever ingested (never pruned) — dashboard heartbeat.
+        self._last_message_ts: float = 0.0
+
         # Silence-burst tracking
         self._last_quiet_time: float = 0.0
         self._quiet_duration: float = 0.0
@@ -117,6 +124,7 @@ class ChatMetrics:
         # Emote weight: single-token hype emotes count 2.5x in weighted velocity
         weight = emote_weight(message)
 
+        self._last_message_ts = now
         self._timestamps.append(now)
         self._messages.append(message)
         self._authors.append(author)
@@ -267,4 +275,5 @@ class ChatMetrics:
             emote_homogeneity=self.emote_homogeneity(),
             velocity_acceleration=self.velocity_acceleration(),
             avg_message_length=self.avg_message_length(),
+            last_message_ts=self._last_message_ts,
         )

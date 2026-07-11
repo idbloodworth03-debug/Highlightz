@@ -117,6 +117,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-track{height:8px;border-radius:var(--r-pill);background:rgba(255,255,255,.07);overflow:hidden;position:relative}
 .rd-fill{height:100%;border-radius:var(--r-pill);transition:background .6s;position:relative}
 .rd-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:14px;background:rgba(255,255,255,.5);filter:blur(5px);opacity:.7}
+.rd-thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(255,255,255,.65);box-shadow:0 0 5px rgba(255,255,255,.45);border-radius:1px;pointer-events:none}
 .rd-sigs{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
 .rd-sig{font-size:10px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
 .rd-profile{margin-top:12px;padding:11px;border-radius:var(--r-md);background:rgba(0,0,0,.25);border:1px solid var(--hair)}
@@ -632,6 +633,17 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   const rawScore = scoreData ? (scoreData.score||0) : 0;
   const breakdown = scoreData ? (scoreData.breakdown||{}) : {};
 
+  // Engine heartbeat: a local 1s tick measures the gap since the last
+  // score_update. A live worker emits ~1/s, so a >10s gap on a live stream
+  // means the engine is stalled — without this, a dead worker just silently
+  // freezes the card and looks identical to a calm chat.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const staleSecs = scoreData && scoreData.at ? Math.floor((nowTick - scoreData.at) / 1000) : null;
+
   // Smooth the bar via rAF easing — avoids jarring jumps on large WS updates
   const [displayScore, setDisplayScore] = useState(rawScore);
   const curRef = useRef(rawScore);
@@ -676,7 +688,26 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           <span className="lbl">Trigger score</span>
           <span className="val" style={{color:scoreColor(score)}}>{score.toFixed(1)}</span>
         </div>
-        <div className="rd-track"><div className="rd-fill" style={{width:score+'%',background:scoreFill(score)}}/></div>
+        <div className="rd-track">
+          <div className="rd-fill" style={{width:score+'%',background:scoreFill(score)}}/>
+          {breakdown._threshold!=null&&<div className="rd-thr" style={{left:Math.min(breakdown._threshold,99)+'%'}} title={'Fires at '+breakdown._threshold}/>}
+        </div>
+        <div className="rd-sigs" style={{marginTop:6}}>{(()=>{
+          const live = s.status==='live';
+          const chips = [];
+          if (staleSecs===null) chips.push(<span className="rd-sig" key="hb" style={{color:'var(--fg-3)'}}>&#9679; engine — waiting for first update…</span>);
+          else if (staleSecs<=10) chips.push(<span className="rd-sig" key="hb" style={{color:'#86efac'}}>&#9679; engine live</span>);
+          else if (!live) chips.push(<span className="rd-sig" key="hb" style={{color:'var(--fg-3)'}}>&#9679; engine idle — stream {s.status}</span>);
+          else chips.push(<span className="rd-sig" key="hb" style={{background:'rgba(239,68,68,.14)',color:'#f87171'}}>&#9679; engine — no updates for {staleSecs}s</span>);
+          if (breakdown._chat_vps!=null) {
+            const last = breakdown._last_chat_s;
+            const col = last<0 ? '#f87171' : last<30 ? '#86efac' : last<120 ? 'var(--pending)' : '#f87171';
+            const fresh = last<0 ? 'no chat received yet' : 'last msg '+(last<=1?'just now':last+'s ago');
+            chips.push(<span className="rd-sig" key="chat" style={{color:col}}>CHAT {breakdown._chat_vps}/s{breakdown._chat_base_vps>0?' (base '+breakdown._chat_base_vps+')':''} &middot; {fresh}</span>);
+          }
+          if (breakdown._threshold!=null) chips.push(<span className="rd-sig" key="thr" style={{color:'var(--fg-2)'}}>fires at {breakdown._threshold}</span>);
+          return chips;
+        })()}</div>
         <div className="rd-sigs">{Object.entries(breakdown).filter(([k])=>!k.startsWith('_')).map(([k,v])=>{
           const active=typeof v==='number'&&v>0.05;
           return <span className="rd-sig" key={k} style={active?{background:'rgba(168,85,247,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
@@ -1766,7 +1797,9 @@ function RdApp() {
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
         else if(msg.event==='stream_status'){setStreams(p=>p[msg.channel]?{...p,[msg.channel]:{...p[msg.channel],status:msg.status}}:p);}
         else if(msg.event==='score_update'){
-          setScores(p=>({...p,[msg.channel]:{score:msg.score,breakdown:msg.breakdown||{}}}));
+          // 'at' powers the per-card engine heartbeat: updates arrive ~1/s from
+          // a running worker, so a growing gap means stalled, not quiet.
+          setScores(p=>({...p,[msg.channel]:{score:msg.score,breakdown:msg.breakdown||{},at:Date.now()}}));
           setHistories(p=>{const h=[...(p[msg.channel]||[]),msg.score].slice(-40);return{...p,[msg.channel]:h};});
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}

@@ -125,11 +125,20 @@ class TriggerEngine:
             sig_meta = {str(s.type).split(".")[-1]: s.metadata for s in signals}
             audio_meta  = sig_meta.get("AUDIO_SPIKE", {})
             viewer_meta = sig_meta.get("VIEWER_SPIKE", {})
+            chat_meta   = sig_meta.get("CHAT_VELOCITY", {})
             breakdown["_audio_db"]      = round(audio_db, 1)
             breakdown["_audio_peak_db"] = round(self._audio_peak_db, 1)
             breakdown["_audio_base_db"] = audio_meta.get("baseline_db", round(self._audio_baseline_db, 1))
             breakdown["_viewers"]       = int(viewer_meta.get("viewer_current", self._viewer_current))
             breakdown["_viewer_base"]   = int(viewer_meta.get("viewer_baseline", self._viewer_baseline))
+            # Heartbeat: raw chat rate vs baseline, freshness of the last chat
+            # message ever received (-1 = none yet — distinguishes "quiet chat"
+            # from "chat never connected"), and the live firing bar so the
+            # dashboard can show distance-to-clip.
+            breakdown["_chat_vps"]      = chat_meta.get("velocity", round(snapshot.velocity, 2))
+            breakdown["_chat_base_vps"] = chat_meta.get("baseline", 0)
+            breakdown["_last_chat_s"]   = int(now - snapshot.last_message_ts) if snapshot.last_message_ts > 0 else -1
+            breakdown["_threshold"]     = round(threshold, 1)
             try:
                 await self.on_score(self.channel, round(score, 1), breakdown)
             except Exception as exc:
