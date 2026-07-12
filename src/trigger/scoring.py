@@ -17,22 +17,34 @@ All functions are pure and return a 0.0-1.0 signal value.
 # cannot measure; the VOD threshold is scaled down to compensate for the missing
 # headroom rather than re-weighting the chat signals.
 CHAT_WEIGHTS = {
-    "CHAT_VELOCITY":     22,
+    # Raised 22 → 36 (July 2026 volume rebalance): chat velocity is the one
+    # hype tell that works identically for quiet and loud streamers — it's
+    # measured relative to each channel's own baseline. Making it carry the
+    # score lets chat-led moments fire without needing a loud soundtrack
+    # (AUDIO_SPIKE was cut 38 → 24 in the live engine at the same time).
+    "CHAT_VELOCITY":     36,
     # Cut 12 → 4 (July 2026 training-log analysis, n=806): keyword-led clips
     # went 0/91 approved and keyword AUC vs outcome was 0.51 (coin flip) — the
     # keyword list predicts nothing for this content mix. Kept small (not 0)
     # so it can still support a moment, but it can no longer lead one.
-    # Blast radius: this also lowers VOD's chat-only ceiling — the VOD
-    # threshold scale in src/vod/analyzer.py was retuned 0.50 → 0.42 to match.
     "KEYWORD":            4,
     "SENTIMENT":          5,
-    "EMOTE_HOMOGENEITY":  9,
+    # Raised 9 → 12: crowdspeak (whole chat spamming the same emote) is one of
+    # the most human-legible hype markers; it fires rarely, so the extra
+    # weight costs nothing on calm windows and helps quiet-audio moments over
+    # the bar when it does fire.
+    "EMOTE_HOMOGENEITY": 12,
 }
+# NOTE: any change to CHAT_WEIGHTS or MULTI_SIGNAL_BONUS moves VOD's chat-only
+# score ceiling — retune the threshold scale in src/vod/analyzer.py to match
+# (currently 0.62 for the 57-point chat pool × 1.25 bonus).
 
 # Multi-signal bonus: when this many chat signals are genuinely strong (> 0.5),
-# multiply the raw score. Matches the live engine.
+# multiply the raw score. Matches the live engine. Raised 1.2 → 1.25 (July
+# 2026 volume rebalance): multi-evidence moments are the safest place to buy
+# extra clip volume — the bonus only engages when 3+ independent signals agree.
 MULTI_SIGNAL_MIN_ACTIVE = 3
-MULTI_SIGNAL_BONUS       = 1.2
+MULTI_SIGNAL_BONUS       = 1.25
 
 # Clip-it community trip-wire: this many unique users requesting a clip within a
 # short window is treated as community consensus and forces the score to at least

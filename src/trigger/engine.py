@@ -532,29 +532,45 @@ class TriggerEngine:
 
         return round(min(score, 100), 1)
 
+    # Titles say what was actually MEASURED, phrased as a viewer would see it.
+    # (The old set over-promised: "Massive Pop-Off" for a viewer-count blip,
+    # "Insane Moment" for a silence pattern — titles routinely didn't match
+    # the clip. A label is only used when its signal clearly led the moment.)
+    _SIGNAL_TITLES = {
+        SignalType.CHAT_VELOCITY:     "Chat Erupts",
+        SignalType.AUDIO_SPIKE:       "Loud Reaction",
+        SignalType.KEYWORD:           "Chat Calls For The Clip",
+        SignalType.VIEWER_SPIKE:      "Viewers Flood In",
+        SignalType.SENTIMENT:         "Emotions Run High",
+        SignalType.SILENCE_BURST:     "Silence, Then Chaos",
+        SignalType.EMOTE_HOMOGENEITY: "Chat Speaks As One",
+    }
+
     def _generate_clip_title(self, signals: list[Signal]) -> str:
-        """Generate a punchy social-ready title based on the peak signal."""
+        """Title from what the signals actually measured.
+
+        Dominance rule: name the peak signal only when it clearly led
+        (strong AND well ahead of the runner-up). When several signals are
+        strong at once, say that instead — calling a multi-signal moment
+        "Loud Reaction" just because audio edged out chat by 0.02 is how the
+        old titles ended up inaccurate. Weak, broad activity gets a neutral
+        title rather than a manufactured superlative."""
         val = {s.type: s.value for s in signals}
         ranked = sorted(val.items(), key=lambda x: x[1], reverse=True)
-        peak, peak_val = ranked[0] if ranked else (None, 0.0)
-
-        if peak_val < 0.2:
+        if not ranked or ranked[0][1] < 0.2:
             return f"Clip from {self.channel}"
-
-        titles = {
-            SignalType.SILENCE_BURST:     "Insane Moment",
-            SignalType.AUDIO_SPIKE:       "Big Reaction",
-            SignalType.KEYWORD:           "Chat Goes Wild",
-            SignalType.VIEWER_SPIKE:      "Massive Pop-Off",
-            SignalType.SENTIMENT:         "Pure Emotion",
-            SignalType.CHAT_VELOCITY:     "Chat Explodes",
-            SignalType.EMOTE_HOMOGENEITY: "Chat Spams",
-        }
-        label = titles.get(peak, "Highlight")
+        peak, peak_val = ranked[0]
+        runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+        strong = sum(1 for v in val.values() if v > 0.5)
 
         if self._sub_raid_active and (time.time() - self._sub_raid_time) < 30:
             label = "Sub/Raid Hype"
-
+        elif peak_val >= 0.5 and (runner_up < 0.3 or peak_val >= 1.5 * runner_up):
+            label = self._SIGNAL_TITLES.get(peak, "Highlight")   # one clear story
+        elif strong >= 2:
+            label = "Everything Pops Off At Once"                # genuinely multi-signal
+        else:
+            label = "Hype Moment"                                # active, but no headline act
         return f"{self.channel} — {label}"
 
     def _compute_score(self, signals: list[Signal]) -> float:
@@ -562,17 +578,25 @@ class TriggerEngine:
         # never drift; audio/viewer/silence are live-only and added on top.
         base_weights = {
             SignalType.CHAT_VELOCITY:    scoring.CHAT_WEIGHTS["CHAT_VELOCITY"],
-            SignalType.AUDIO_SPIKE:      38,   # loud audio is the strongest single predictor
+            # Cut 38 → 24 (July 2026 volume rebalance): audio was the largest
+            # weight but a weak outcome separator (AUC 0.58, saturated at
+            # ~0.86 even on rejected clips) — and requiring loudness meant
+            # quiet moments (chat erupting over a silent clutch) structurally
+            # couldn't reach the bar. Loudness now supports a clip; it no
+            # longer gates one. A loud-but-chat-dead window (music,
+            # soundboards) scores ~25 and stays far from any threshold.
+            SignalType.AUDIO_SPIKE:      24,
             SignalType.KEYWORD:          scoring.CHAT_WEIGHTS["KEYWORD"],
             SignalType.SENTIMENT:        scoring.CHAT_WEIGHTS["SENTIMENT"],
             # Raised 7 → 15 (July 2026 training-log analysis, n=806): the best
             # outcome separator of all signals (AUC 0.73; approved-clip mean
             # 0.63 vs 0.26 in junk) and viewer-led clips were approved at 10%
-            # — 4-5x the base rate. Together with the KEYWORD cut (12 → 4 in
-            # scoring.CHAT_WEIGHTS) the total weight pool stays at 105, so the
-            # overall score scale — and every learned threshold — is preserved.
+            # — 4-5x the base rate.
             SignalType.VIEWER_SPIKE:     15,
-            SignalType.SILENCE_BURST:    12,
+            # Raised 12 → 14: silence-then-eruption is the canonical QUIET
+            # highlight (held breath → payoff) — the pattern the audio cut is
+            # meant to let through.
+            SignalType.SILENCE_BURST:    14,
             SignalType.EMOTE_HOMOGENEITY: scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile

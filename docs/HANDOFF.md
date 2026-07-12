@@ -120,6 +120,21 @@ run against prod's 806 labeled outcomes (17 approved / 724 rejected /
   dataset only contains FIRED moments (can't see misses), and labels are
   the owner curating test channels (approve bar = showcase-worthy).
 
+**Volume rebalance (2026-07-11, owner-directed)**: the retune over-quieted
+things and audio dominance meant quiet moments (chat erupting over silent
+gameplay) structurally couldn't fire. Owner wants more clip volume WITHOUT
+lowering thresholds. Changes: CHAT_VELOCITY 22→36 (baseline-relative, works
+for quiet and loud channels alike), AUDIO_SPIKE 38→24 (was saturated at
+~0.86 on junk, AUC 0.58 — loudness now supports, never gates),
+SILENCE_BURST 12→14, EMOTE_HOMOGENEITY 9→12, multi-signal bonus 1.2→1.25.
+Total pool 105→110. VOD scale re-anchored 0.42→0.62 (rule: 0.50 × new chat
+ceiling / 57.6). Net effect: loud chat-hype fires slightly more (78 vs 75),
+quiet chat-hype goes from never-fires (43) to fires-with-support (57-66),
+loud-but-chat-dead drops further (25). Clip titles reworked at the same
+time: dominance rule (a signal is named only when clearly leading; near-ties
+say "Everything Pops Off At Once"; weak activity says "Hype Moment") with
+accurate labels ("Chat Erupts", "Silence, Then Chaos", "Viewers Flood In").
+
 - Clip at the TOP of the trigger (3s settle to catch the crest). The
   decay-wait/double-peak dwell (8–45s) produced flat aftermath clips and was
   reverted. Do not reintroduce waiting-for-decay.

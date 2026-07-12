@@ -28,14 +28,14 @@ def test_threshold_uses_learned_profile_over_preset():
     rules = ChannelRules()          # preset threshold 60 → bar 25.2
     p = _calibrated_profile(threshold=80.0)
     thr, mult = analyzer._vod_threshold(p, rules)
-    assert thr == 80.0 * 0.42       # heavily-rejected channel scans strict
+    assert thr == 80.0 * 0.62       # heavily-rejected channel scans strict
     assert mult == p.velocity_spike_multiplier   # adaptive, not the preset
 
 
 def test_threshold_falls_back_to_preset_without_profile():
     rules = ChannelRules()
     thr, mult = analyzer._vod_threshold(None, rules)
-    assert thr == rules.trigger_threshold * 0.42
+    assert thr == rules.trigger_threshold * 0.62
     assert mult == rules.velocity_multiplier
 
 
@@ -43,7 +43,7 @@ def test_uncalibrated_profile_uses_its_threshold_but_preset_multiplier():
     rules = ChannelRules()
     p = StreamerProfile(channel="x", trigger_threshold=52.0)   # <30 samples
     thr, mult = analyzer._vod_threshold(p, rules)
-    assert thr == pytest.approx(52.0 * 0.42)
+    assert thr == pytest.approx(52.0 * 0.62)
     assert mult == rules.velocity_multiplier
 
 
