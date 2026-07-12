@@ -938,13 +938,20 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   const [preset, setPreset] = useState('default');
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+  const [chanFilter, setChanFilter] = useState('all');
   const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');} };
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
   const streamsArr = Object.values(streams);
   const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
-  const filtered = filter==='all' ? clipsArr : clipsArr.filter(c=>c.status===filter);
+  // Streamer filter options come from the clips themselves, so the moment a
+  // new streamer gets clipped (clip_ready over the WS) they become filterable.
+  // If the selected streamer's clips all disappear (culled/removed), fall back
+  // to 'all' rather than pinning the grid to an empty, invisible filter.
+  const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
+  const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
+  const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
   const shown = [...filtered].sort((a,b)=>{
     if(sortBy==='virality') return (b.virality_score||0)-(a.virality_score||0);
     // default: pending first, then newest
@@ -1007,6 +1014,10 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
                 {showCull && <CullPanel clips={clips} onDone={()=>setShowCull(false)}/>}
               </div>
             )}
+            {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
+              <option value="all">All streamers</option>
+              {channels.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>}
             <div className="rd-filters">
               {['all','pending','approved'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
             </div>
@@ -1103,18 +1114,30 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, onForce })
 
 function LibraryScreen({ clips, onOpen, onApprove, onReject, onDelete }) {
   const [f, setF] = useState('all');
-  const clipsArr = Object.values(clips)
-    .filter(c=>f==='all'||c.status===f)
+  const [chanFilter, setChanFilter] = useState('all');
+  const allClips = Object.values(clips);
+  // Filterable streamers derive from the clips themselves — a newly-clipped
+  // streamer is selectable the moment their first clip arrives over the WS.
+  const channels = [...new Set(allClips.map(c=>c.channel).filter(Boolean))].sort();
+  const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
+  const clipsArr = allClips
+    .filter(c=>(f==='all'||c.status===f)&&(effChan==='all'||c.channel===effChan))
     .sort((a,b)=>(b.created_at||0)-(a.created_at||0));
-  const total = Object.values(clips).length;
-  const approvedCount = Object.values(clips).filter(c=>c.status==='approved').length;
+  const total = allClips.length;
+  const approvedCount = allClips.filter(c=>c.status==='approved').length;
   return (
     <div className="rd-scroll">
       <div className="rd-section-title">
         <h2>Clip library</h2>
         <span className="cnt">{total} captured · {approvedCount} approved</span>
-        <div className="rd-filters" style={{marginLeft:'auto'}}>
-          {['all','pending','approved','rejected'].map(x=><button key={x} className={'rd-filter'+(f===x?' active':'')} onClick={()=>setF(x)}>{x[0].toUpperCase()+x.slice(1)}</button>)}
+        <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
+            <option value="all">All streamers</option>
+            {channels.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>}
+          <div className="rd-filters">
+            {['all','pending','approved','rejected'].map(x=><button key={x} className={'rd-filter'+(f===x?' active':'')} onClick={()=>setF(x)}>{x[0].toUpperCase()+x.slice(1)}</button>)}
+          </div>
         </div>
       </div>
       {clipsArr.length===0

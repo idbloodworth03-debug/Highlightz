@@ -112,6 +112,51 @@ async def cancel_customer_subscriptions(customer_id: str) -> int:
         return 0
 
 
+def extract_promo_id(event: dict) -> str | None:
+    """Promotion-code id (promo_...) from a subscription lifecycle event, if a
+    promo code was applied at checkout. Handles both the legacy single
+    `discount` field and the newer `discounts` list; each may carry the
+    promotion_code as an id string or an expanded object."""
+    if not event.get("type", "").startswith("customer.subscription"):
+        return None
+    sub = event["data"]["object"]
+    candidates = []
+    if sub.get("discount"):
+        candidates.append(sub["discount"])
+    candidates.extend(d for d in (sub.get("discounts") or []) if isinstance(d, dict))
+    for disc in candidates:
+        promo = disc.get("promotion_code")
+        if isinstance(promo, dict):
+            promo = promo.get("id")
+        if promo:
+            return promo
+    return None
+
+
+# promo_id -> human code text ("NOVA50"); ids are immutable so cache forever.
+_promo_code_cache: dict[str, str] = {}
+
+
+async def resolve_promo_code(promo_id: str) -> str | None:
+    """Human-readable code text for a promotion-code id, for per-streamer
+    signup attribution. Best-effort: returns None on any error — attribution
+    is bookkeeping and must never break webhook processing."""
+    if promo_id in _promo_code_cache:
+        return _promo_code_cache[promo_id]
+    if not settings.stripe_secret_key:
+        return None
+    try:
+        client = _client()
+        obj = client.promotion_codes.retrieve(promo_id)
+        code = obj.get("code") if isinstance(obj, dict) else obj.code
+        if code:
+            _promo_code_cache[promo_id] = code
+        return code
+    except Exception as exc:
+        log.warning("promo_code_resolve_failed", promo=promo_id, error=str(exc))
+        return None
+
+
 def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
     """Verify and parse a Stripe webhook event. Raises on invalid signature."""
     return stripe.Webhook.construct_event(

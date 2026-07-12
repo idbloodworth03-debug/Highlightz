@@ -285,6 +285,21 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
     _save(users)
 
 
+def set_promo_code(user_id: str, code: str) -> None:
+    """Attribute the promo code used at signup — first attribution wins, so a
+    later re-subscribe with a different code can't rewrite who referred the
+    user (payouts key off this)."""
+    if not code:
+        return
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if not u.get("promo_code"):
+                u["promo_code"] = code
+                _save(users)
+            return
+
+
 def grant_trial(user_id: str, days: int) -> dict | None:
     """Admin-granted timed trial: full access until trial_ends_at, app-managed
     with no Stripe subscription behind it. Expiry is enforced by the auth

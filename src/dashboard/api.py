@@ -1197,6 +1197,17 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
+            # Promo attribution: if this subscription carries a promotion code
+            # (streamer partnership / discount), record which code brought the
+            # signup. Best-effort — never blocks webhook processing.
+            from src.billing.stripe_billing import extract_promo_id, resolve_promo_code
+            from src.auth import users as user_store
+            promo_id = extract_promo_id(event)
+            if promo_id:
+                code = await resolve_promo_code(promo_id)
+                if code:
+                    user_store.set_promo_code(user_id, code)
+                    log.info("promo_signup_attributed", user_id=user_id, code=code)
             # Realtime contract: a new/recovered subscription must clear the
             # paywall/trial banner in any open tab live, mirroring the
             # subscription_expired broadcast on the lapse path.
@@ -3623,6 +3634,11 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div id="table-wrap" class="loading">Loading...</div>
   </div>
   <div class="section" style="margin-top:16px">
+    <div class="section-head">Promo Codes</div>
+    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Signups attributed to each promo code (recorded from Stripe at checkout). Payouts are manual — Stripe's redemption count stays the source of truth.</p>
+    <div id="promo-wrap" class="loading">Loading...</div>
+  </div>
+  <div class="section" style="margin-top:16px">
     <div class="section-head">Opt-Out Registry</div>
     <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Streamers who have verified and opted out of being clipped.</p>
     <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
@@ -3755,6 +3771,36 @@ async function load() {
   document.getElementById('s-clips').textContent = clips;
 
   renderUsers();
+  renderPromo(customers);
+}
+
+function renderPromo(customers) {
+  const wrap = document.getElementById('promo-wrap');
+  if (!wrap) return;
+  const byCode = {};
+  customers.forEach(u => {
+    if (!u.promo_code) return;
+    const k = u.promo_code;
+    byCode[k] = byCode[k] || { signups: 0, active: 0 };
+    byCode[k].signups++;
+    if (u.subscription_status === 'active') byCode[k].active++;
+  });
+  const codes = Object.keys(byCode).sort((a, b) => byCode[b].signups - byCode[a].signups);
+  if (!codes.length) {
+    wrap.innerHTML = '<div class="empty">No promo-code signups yet. Codes are attributed automatically when a subscriber uses one at checkout.</div>';
+    wrap.className = '';
+    return;
+  }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr>' +
+    '<th>Code</th><th>Signups</th><th>Active now</th><th>Est. payout ($5/signup)</th>' +
+    '</tr></thead><tbody>' +
+    codes.map(c => '<tr>' +
+      '<td><span style="font-weight:700;color:#c79bff">' + esc(c) + '</span></td>' +
+      '<td>' + byCode[c].signups + '</td>' +
+      '<td>' + byCode[c].active + '</td>' +
+      '<td>$' + (byCode[c].signups * 5) + '</td>' +
+    '</tr>').join('') + '</tbody></table>';
 }
 
 function renderUsers() {
@@ -3788,8 +3834,9 @@ function renderUsers() {
     const canTrial = !isAdmin && sub !== 'active';
     const trialNote = sub === 'trialing' && u.trial_ends_at
       ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Trial ends ' + fmt(u.trial_ends_at) + '</div>' : '';
-    const stripeNote = u.stripe_customer_id
-      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Stripe: ' + esc(u.stripe_customer_id) + '</div>' : '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">No Stripe ID</div>';
+    const stripeNote = (u.stripe_customer_id
+      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Stripe: ' + esc(u.stripe_customer_id) + '</div>' : '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">No Stripe ID</div>')
+      + (u.promo_code ? '<div style="font-size:11px;color:#c79bff;margin-top:2px">Promo: ' + esc(u.promo_code) + '</div>' : '');
     return '<tr>' +
       '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +
         '<div class="account-id">' + (u.twitch_login ? 'Twitch: ' + esc(u.twitch_login) : 'Password auth') + '</div>' +
