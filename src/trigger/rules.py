@@ -26,16 +26,24 @@ class ChannelRules:
 
 
 # Preset profiles for common content types
+#
+# July 2026 volume pass (owner-directed): cooldowns halved and seed
+# thresholds trimmed ~4-6 points across presets. Cooldowns were the real
+# volume choke — e.g. "variety" allowed one clip per 10 minutes no matter
+# how good the stream was, which read as "the bot isn't working". Halving
+# them buys volume from moments that already cleared the quality bar. The
+# hourly decay pulls existing channels toward the new (lower) seeds, so the
+# loosening rolls out gently instead of as a hard reset.
 PRESETS: dict[str, ChannelRules] = {
     # ── General / unknown ─────────────────────────────────────────────────────
     # Balanced defaults for unknown content. 40s pre-roll captures most action
     # windows; 3-minute cooldown prevents clip flooding.
     "default": ChannelRules(
         velocity_multiplier=2.5,
-        trigger_threshold=68.0,
+        trigger_threshold=63.0,
         pre_roll=40,
         post_roll=25,
-        cooldown_seconds=240,
+        cooldown_seconds=120,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
             "hype", "insane", "no way", "clutch", "goated",
@@ -52,7 +60,7 @@ PRESETS: dict[str, ChannelRules] = {
         trigger_threshold=50.0,
         pre_roll=20,
         post_roll=22,
-        cooldown_seconds=360,
+        cooldown_seconds=180,
         extra_keywords=frozenset({
             "pog", "pogchamp", "clip it", "clip that", "lets go",
             "insane", "no way", "clutch", "goated", "holy",
@@ -65,10 +73,10 @@ PRESETS: dict[str, ChannelRules] = {
     # 3-minute cooldown — major plays are at least a round apart.
     "fps": ChannelRules(
         velocity_multiplier=2.5,
-        trigger_threshold=65.0,
+        trigger_threshold=61.0,
         pre_roll=22,
         post_roll=22,
-        cooldown_seconds=210,
+        cooldown_seconds=120,
         extra_keywords=frozenset({
             "ace", "clutch", "headshot", "one tap", "noscope",
             "no scope", "flick", "quickscope", "wallbang",
@@ -83,10 +91,10 @@ PRESETS: dict[str, ChannelRules] = {
     # 15s pre-roll is enough; 4-minute cooldown prevents multiple clips per game.
     "chess": ChannelRules(
         velocity_multiplier=4.5,
-        trigger_threshold=58.0,
+        trigger_threshold=56.0,
         pre_roll=15,
         post_roll=25,
-        cooldown_seconds=240,
+        cooldown_seconds=150,
         extra_keywords=frozenset({
             "brilliancy", "blunder", "checkmate", "resign", "trap", "gambit",
             "sac", "sacrifice", "fork", "pin", "skewer", "en passant",
@@ -106,7 +114,7 @@ PRESETS: dict[str, ChannelRules] = {
         trigger_threshold=52.0,
         pre_roll=20,
         post_roll=30,
-        cooldown_seconds=900,
+        cooldown_seconds=480,
         extra_keywords=frozenset({
             "omg", "no way", "crazy", "wild", "wtf", "based", "npc",
             "police", "fight", "interaction", "public", "street", "crowd",
@@ -121,10 +129,10 @@ PRESETS: dict[str, ChannelRules] = {
     # 10s pre-roll captures the setup; 10-minute cooldown for natural pacing.
     "variety": ChannelRules(
         velocity_multiplier=2.5,
-        trigger_threshold=64.0,
+        trigger_threshold=60.0,
         pre_roll=10,
         post_roll=25,
-        cooldown_seconds=600,
+        cooldown_seconds=300,
         extra_keywords=frozenset({
             "omg", "no way", "pog", "clip it", "clip that",
             "goated", "wild", "unhinged", "sheesh", "no shot",
@@ -136,10 +144,10 @@ PRESETS: dict[str, ChannelRules] = {
     # 38s pre-roll starts before the engage; 4-minute cooldown per objective.
     "moba": ChannelRules(
         velocity_multiplier=2.8,
-        trigger_threshold=66.0,
+        trigger_threshold=62.0,
         pre_roll=38,
         post_roll=28,
-        cooldown_seconds=300,
+        cooldown_seconds=180,
         extra_keywords=frozenset({
             "pentakill", "penta", "quadra", "triple kill", "ace", "baron",
             "dragon", "teamfight", "outplay", "diff", "inting", "gank",
@@ -155,10 +163,10 @@ PRESETS: dict[str, ChannelRules] = {
     # 18s pre-roll captures the spin/open; 3-minute cooldown prevents spam.
     "casino": ChannelRules(
         velocity_multiplier=1.8,
-        trigger_threshold=56.0,
+        trigger_threshold=54.0,
         pre_roll=18,
         post_roll=30,
-        cooldown_seconds=180,
+        cooldown_seconds=120,
         extra_keywords=frozenset({
             "jackpot", "big win", "massive win", "bonus", "retrigger",
             "max win", "bust", "profit", "rare", "covert", "contraband",
@@ -175,10 +183,10 @@ PRESETS: dict[str, ChannelRules] = {
     # Post-roll 22s for celebrations; 10-minute cooldown by game pace.
     "sports": ChannelRules(
         velocity_multiplier=3.5,
-        trigger_threshold=62.0,
+        trigger_threshold=58.0,
         pre_roll=6,
         post_roll=32,
-        cooldown_seconds=600,
+        cooldown_seconds=300,
         extra_keywords=frozenset({
             "goal", "score", "touchdown", "home run", "three pointer",
             "slam dunk", "penalty", "foul", "offside", "red card",

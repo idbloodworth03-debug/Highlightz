@@ -120,6 +120,19 @@ run against prod's 806 labeled outcomes (17 approved / 724 rejected /
   dataset only contains FIRED moments (can't see misses), and labels are
   the owner curating test channels (approve bar = showcase-worthy).
 
+**Volume pass 2 (2026-07-11, owner-directed — "clip a tad more, even if not
+amazing")**: the real choke was preset COOLDOWNS, not thresholds — variety
+allowed one clip per 10 min, default one per 4 min, regardless of stream
+quality. Cooldowns halved across presets (default 240→120s, variety
+600→300, small 360→180, irl 900→480, fps 210→120, moba 300→180, chess
+240→150, casino 180→120, sports 600→300; channel overrides already at 90s
+untouched). Preset seed thresholds trimmed ~4-6 pts (default 68→63, fps
+65→61, moba 66→62, variety 64→60, sports 62→58, chess 58→56, casino
+56→54) — the hourly decay pulls existing channels toward the new seeds
+gradually. Calibration gate 100→60 samples (~3 min) so a session's FIRST
+clip lands sooner (stored profiles keep their persisted target; only new
+profiles get 60). Floors (60 dry-spell / 50 learn) unchanged.
+
 **Volume rebalance (2026-07-11, owner-directed)**: the retune over-quieted
 things and audio dominance meant quiet moments (chat erupting over silent
 gameplay) structurally couldn't fire. Owner wants more clip volume WITHOUT

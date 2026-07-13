@@ -67,8 +67,12 @@ class StreamerProfile:
 
     # ── Calibration gate ─────────────────────────────────────────────────
     # No clips fire until we've collected this many velocity samples.
-    # At 3s fast intervals → 100 samples = 5 minutes of silent observation.
-    calibration_target: int = 100
+    # At 3s fast intervals → 60 samples ≈ 3 minutes of silent observation.
+    # Lowered 100 → 60 (July 2026 volume pass): the first clip of a session
+    # is where "is this even working?" doubt lives — 3 minutes of baseline is
+    # enough for the ratio-gated spike detector, and existing calibrated
+    # profiles are unaffected (their sample counts already exceed either bar).
+    calibration_target: int = 60
 
     # ── Adaptive trigger threshold ────────────────────────────────────────
     # Starts at global default; nudges down when clips get approved,
