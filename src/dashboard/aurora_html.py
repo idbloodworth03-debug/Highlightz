@@ -1260,6 +1260,18 @@ function AccountScreen({ me }) {
             <div><div className="fl">Plan status</div></div>
             <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
           </div>
+          {isSubscribed && me.plan_label && <div className="rd-field">
+            <div><div className="fl">Membership</div>
+              <div className="fd">{me.plan_limits ? `Up to ${me.plan_limits.max_streams} streams · ${me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
+            </div>
+            <span style={{fontWeight:700,color:'var(--acc)'}}>{me.plan_label}</span>
+          </div>}
+          {sub==='active' && me.plan==='starter' && <div className="rd-field">
+            <div><div className="fl">Upgrade to Pro</div><div className="fd">10 streams, 200 pending clips, and the VOD scanner — $25/month</div></div>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Upgrade
+            </a>
+          </div>}
           {isTrial && <div className="rd-field">
             <div><div className="fl">Free trial active</div><div className="fd">Enjoy full access while it lasts — subscribe to keep clipping after it ends</div></div>
             <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
@@ -1449,7 +1461,7 @@ function FeedbackScreen() {
   );
 }
 
-function VodScreen({ clips }) {
+function VodScreen({ clips, me }) {
   const [url, setUrl]         = useState('');
   const [preset, setPreset]   = useState('default');
   const [jobs, setJobs]       = useState([]);
@@ -1521,6 +1533,31 @@ function VodScreen({ clips }) {
   const shown = activeJob ? jobs.filter(j=>j.id===activeJob) : jobs;
   const PRESETS=['default','fps','chess','irl','small','variety','moba','casino','sports'];
 
+  // Plan gate: the VOD scanner is Pro-only. The backend enforces this (403 on
+  // /vod/analyze); the UI mirrors it with an upgrade card instead of a form
+  // that errors. Checked here — after every hook — so hook order stays stable
+  // while /me loads.
+  if (me && me.plan_limits && !me.plan_limits.vod) {
+    return (
+      <div className="rd-scroll">
+        <div className="rd-settings">
+          <div className="rd-section-title"><h2>Past Streams</h2></div>
+          <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+            <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="film" size={40}/></div>
+            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>VOD scanning is a Pro feature</h3>
+            <div className="desc" style={{maxWidth:440,margin:'0 auto 20px'}}>
+              Scan past broadcasts for highlights you missed — the formula replays the
+              whole VOD's chat and surfaces the best moments. Included with Pro, along
+              with 10 monitored streams and a 200-clip review queue.
+            </div>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
@@ -1920,7 +1957,7 @@ function RdApp() {
   else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
-  else if(route==='vod') screen=<VodScreen clips={platformClips}/>;
+  else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;

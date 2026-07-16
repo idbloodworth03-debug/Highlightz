@@ -19,9 +19,10 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
     return is_admin or subscription_status in ACTIVE_STATUSES
 
 
-async def create_checkout_url(user_id: str, username: str,
+async def create_checkout_url(user_id: str, username: str, price_id: str,
                               customer_id: str | None = None) -> str:
-    """Create a Stripe Checkout session and return its URL.
+    """Create a Stripe Checkout session for the given recurring price and
+    return its URL.
 
     Billing starts immediately — there is no self-serve free trial. (Free access
     is granted only by an admin through the dashboard, app-managed via
@@ -37,7 +38,7 @@ async def create_checkout_url(user_id: str, username: str,
     params: dict = {
         "mode":                 "subscription",
         "payment_method_types": ["card"],
-        "line_items":           [{"price": settings.stripe_price_id, "quantity": 1}],
+        "line_items":           [{"price": price_id, "quantity": 1}],
         "success_url":          f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url":           f"{base}/billing/cancel",
         "metadata":             {"user_id": user_id, "username": username},
@@ -110,6 +111,41 @@ async def cancel_customer_subscriptions(customer_id: str) -> int:
     except Exception as exc:
         log.error("stripe_cancel_failed", customer=customer_id, error=str(exc))
         return 0
+
+
+def extract_price_id(event: dict) -> str | None:
+    """The recurring price id on a subscription lifecycle event — this is what
+    tells us which membership tier the subscription is for."""
+    if not event.get("type", "").startswith("customer.subscription"):
+        return None
+    sub = event["data"]["object"]
+    items = ((sub.get("items") or {}).get("data")) or []
+    for item in items:
+        price = item.get("price") if isinstance(item, dict) else None
+        if isinstance(price, dict) and price.get("id"):
+            return price["id"]
+        if isinstance(price, str) and price:
+            return price
+    # Some event shapes carry a top-level plan (legacy API versions)
+    plan = sub.get("plan")
+    if isinstance(plan, dict) and plan.get("id"):
+        return plan["id"]
+    return None
+
+
+def plan_for_price(price_id: str | None) -> str | None:
+    """Map a Stripe price id to a membership plan. The legacy single-price id
+    ($15 era) maps to 'pro' — existing subscribers are grandfathered with full
+    access. Unknown/missing prices return None (caller keeps the stored plan)."""
+    if not price_id:
+        return None
+    if price_id == settings.stripe_price_id_starter:
+        return "starter"
+    if price_id == settings.stripe_price_id_pro:
+        return "pro"
+    if price_id == settings.stripe_price_id:
+        return "pro"   # grandfathered legacy $15 subscribers
+    return None
 
 
 def extract_promo_id(event: dict) -> str | None:

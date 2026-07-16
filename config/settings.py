@@ -84,7 +84,12 @@ class Settings(BaseSettings):
     # Stripe billing
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""
-    stripe_price_id: str = ""          # recurring Price ID from Stripe dashboard
+    # Legacy single-price id ($15 era). Kept so the webhook can recognize old
+    # subscriptions (mapped to the 'pro' plan) — do not reuse for new signups.
+    stripe_price_id: str = ""
+    # Two-tier prices (recurring Price IDs from the Stripe dashboard).
+    stripe_price_id_starter: str = ""   # $10/month
+    stripe_price_id_pro: str = ""       # $25/month
     stripe_webhook_secret: str = ""
 
     # Trigger thresholds

@@ -54,7 +54,7 @@ def test_landing_stats_route_is_public():
 
 def test_landing_html_has_price_counter_and_demo():
     html = api.LANDING_HTML
-    assert "$15" in html or ">15<" in html          # price shown
+    assert ">10<" in html and ">25<" in html        # both tier prices shown
     # No self-serve trial exists — the page must not advertise free days.
     assert "free trial" not in html.lower() and "days free" not in html.lower()
     assert 'id="lp-count"' in html                   # live counter element
@@ -116,7 +116,7 @@ def test_landing_has_faq_with_ten_items():
     assert html.count('class="faq-item"') == 10
     # A few key answers exist and stay honest
     assert "Is this AI?" in html and "transparent mathematical formula" in html
-    assert "How does billing work?" in html and "$15/month" in html
+    assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
     assert "roughly the last 30 seconds" in html   # no over-promising on length
 
 

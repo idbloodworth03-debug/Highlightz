@@ -285,6 +285,19 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
     _save(users)
 
 
+def set_plan(user_id: str, plan: str) -> None:
+    """Record the membership tier ('starter'/'pro'), set by the Stripe webhook
+    from the subscription's price id. Unlike promo attribution this always
+    updates — upgrades/downgrades through the billing portal must take effect."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.get("plan") != plan:
+                u["plan"] = plan
+                _save(users)
+            return
+
+
 def set_promo_code(user_id: str, code: str) -> None:
     """Attribute the promo code used at signup — first attribution wins, so a
     later re-subscribe with a different code can't rewrite who referred the

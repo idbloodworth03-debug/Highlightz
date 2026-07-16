@@ -64,9 +64,24 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
   disabled (Twitch is the only sign-in; Kick linking still works). Kick UI
   gated behind under-construction screen; Kick scrubbed from marketing.
 
-## Billing (Stripe) — current design (REWORKED 2026-07-10)
+## Billing (Stripe) — current design (TWO TIERS since 2026-07-11)
 
-- **$15/month, billed immediately. There is NO self-serve free trial.**
+- **Two plans**: Starter $10/mo (3 monitored streams, 50 pending clips, no
+  VOD scanner) and Pro $25/mo (10 streams, 200 pending, VOD scanner).
+  Plumbing: `src/billing/plans.py` (PLAN_LIMITS + get_plan), price ids in
+  settings (STRIPE_PRICE_ID_STARTER / STRIPE_PRICE_ID_PRO; legacy
+  STRIPE_PRICE_ID = the $15 era, mapped to 'pro' — **existing subscribers
+  are grandfathered as Pro**). The webhook reads the subscription's price id
+  (extract_price_id → plan_for_price) and stores `plan` on the user, so
+  portal upgrades/downgrades take effect automatically. Enforcement is
+  backend-side: add_stream limit, pending-clip eviction cap, 403 on
+  /vod/analyze; /me exposes plan + limits and the dashboard mirrors them
+  (VOD screen shows an upgrade card for Starter — gate placed AFTER hooks,
+  React hook-order). Admins and admin-granted trials get Pro features.
+  Checkout: /billing/checkout?plan=starter|pro; plan SWITCHING for active
+  subscribers goes through the Stripe portal (enable plan switching between
+  the two prices in portal settings). Paywall + landing show both tiers.
+- **Billed immediately. There is NO self-serve free trial.**
   trial_period_days, the trial-claims ledger (`trial_claims.json` helpers),
   and every "7 days free" promise were removed from checkout, landing,
   login, paywall, TOS, FAQ, JSON-LD, and meta tags. The prod

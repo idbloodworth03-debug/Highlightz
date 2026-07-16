@@ -77,7 +77,7 @@ def test_checkout_enables_promotion_codes():
     fake_client = MagicMock()
     fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
     with patch.object(sb, "_client", return_value=fake_client):
-        url = asyncio.run(sb.create_checkout_url("u_1", "alice"))
+        url = asyncio.run(sb.create_checkout_url("u_1", "alice", "price_pro"))
     assert url == "https://checkout"
     params = fake_client.checkout.sessions.create.call_args.kwargs["params"]
     assert params["allow_promotion_codes"] is True
@@ -85,11 +85,11 @@ def test_checkout_enables_promotion_codes():
     assert params["subscription_data"]["metadata"]["user_id"] == "u_1"
 
 
-def _checkout_params():
+def _checkout_params(price_id="price_pro"):
     fake_client = MagicMock()
     fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
     with patch.object(sb, "_client", return_value=fake_client):
-        asyncio.run(sb.create_checkout_url("u_1", "alice"))
+        asyncio.run(sb.create_checkout_url("u_1", "alice", price_id))
     return fake_client.checkout.sessions.create.call_args.kwargs["params"]
 
 
@@ -101,6 +101,8 @@ def test_checkout_has_no_free_trial_and_charges_immediately():
     assert "trial_period_days" not in p["subscription_data"]
     assert p["mode"] == "subscription"
     assert p["payment_method_types"] == ["card"]
+    # Checkout charges exactly the tier price it was asked for.
+    assert p["line_items"] == [{"price": "price_pro", "quantity": 1}]
 
 
 def test_checkout_reuses_existing_stripe_customer():
@@ -109,13 +111,13 @@ def test_checkout_reuses_existing_stripe_customer():
     fake_client = MagicMock()
     fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
     with patch.object(sb, "_client", return_value=fake_client):
-        asyncio.run(sb.create_checkout_url("u_1", "alice", customer_id="cus_A"))
+        asyncio.run(sb.create_checkout_url("u_1", "alice", "price_pro", customer_id="cus_A"))
     params = fake_client.checkout.sessions.create.call_args.kwargs["params"]
     assert params["customer"] == "cus_A"
     # And without a known customer, Stripe creates one (param absent).
     fake_client.reset_mock()
     with patch.object(sb, "_client", return_value=fake_client):
-        asyncio.run(sb.create_checkout_url("u_1", "alice"))
+        asyncio.run(sb.create_checkout_url("u_1", "alice", "price_pro"))
     assert "customer" not in fake_client.checkout.sessions.create.call_args.kwargs["params"]
 
 
@@ -169,7 +171,7 @@ def test_paywall_copy_never_promises_free_days():
         # waiting to happen. (Mentioning that a granted trial *ended* is fine.)
         assert "free trial" not in c["headline"].lower() or kind == "trial_ended"
         assert "days free" not in joined and "7-day" not in joined
-        assert "$15/month" in c["cta"]
+        assert "from $10/month" in c["subline"]
         # No variant leaves template placeholders behind.
         assert all("{" not in v for v in c.values())
     assert "trial has ended" in variants["trial_ended"]["headline"].lower() or \

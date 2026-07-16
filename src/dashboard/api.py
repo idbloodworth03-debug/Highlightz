@@ -371,7 +371,8 @@ async def broadcast(event: dict, user_id: str | None = None) -> None:
 # ── Clip pipeline ─────────────────────────────────────────────────────────────
 
 _DEDUP_WINDOW    = 45   # seconds — skip clip if same channel+user had one recently
-_MAX_PENDING_CLIPS = 200 # per-user cap on pending clips
+# Per-user pending-clip cap is plan-dependent (Starter 50 / Pro 200) — see
+# src/billing/plans.py. Oldest pending clips are evicted when the cap is hit.
 
 # ── All-time clip counter (public, powers the landing-page ticker) ────────────
 # Monotonic count of every clip the system has ever captured (live + VOD moments,
@@ -531,14 +532,17 @@ async def notify_clip_ready(clip: dict) -> None:
                          duplicate_of=existing["id"])
                 return
 
-        # Per-user pending cap
+        # Per-user pending cap (plan-dependent: Starter 50 / Pro 200)
+        from src.billing.plans import limits_for
+        from src.auth import users as _plan_user_store
+        pending_cap = limits_for(_plan_user_store.get_by_id(clip_uid))["max_pending"]
         user_pending = sorted(
             [c for c in _clips.values()
              if c.get("status") == "pending" and c.get("user_id") == clip_uid],
             key=lambda c: c.get("created_at", 0),
         )
         evicted = []
-        while len(user_pending) >= _MAX_PENDING_CLIPS:
+        while len(user_pending) >= pending_cap:
             oldest = user_pending.pop(0)
             del _clips[oldest["id"]]
             _delete_clip_file(oldest)
@@ -638,6 +642,8 @@ async def me(request: Request):
         trial_days_left = max(0, math.ceil((trial_ends_at - time.time()) / 86400))
     uid  = request.session.get("user_id", "")
     user = user_store.get_by_id(uid) if uid else {}
+    from src.billing.plans import get_plan, limits_for
+    limits = limits_for(user)
     return {
         "user_id":             uid,
         "username":            request.session.get("username", ""),
@@ -646,6 +652,13 @@ async def me(request: Request):
         "subscription_status": status,
         "trial_ends_at":       trial_ends_at,
         "trial_days_left":     trial_days_left,
+        # Membership tier + its limits, so the dashboard can mirror them
+        # (enforcement stays backend-side).
+        "plan":                get_plan(user),
+        "plan_label":          limits["label"],
+        "plan_limits":         {"max_streams": limits["max_streams"],
+                                "max_pending": limits["max_pending"],
+                                "vod": limits["vod"]},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
@@ -990,24 +1003,21 @@ def _paywall_copy(kind: str) -> dict:
     if kind == "trial_ended":
         return {
             "headline": "Your free trial has ended",
-            "subline":  ("hope you caught some great moments. Subscribe to keep the "
-                         "clips coming — $15/month, cancel anytime."),
-            "cta":      "Subscribe &middot; $15/month &#8594;",
+            "subline":  ("hope you caught some great moments. Pick a plan to keep the "
+                         "clips coming — from $10/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     if kind == "returning":
         return {
             "headline": "Restart your subscription",
-            "subline":  ("welcome back. Your subscription starts right away — "
-                         "$15/month, cancel anytime."),
-            "cta":      "Subscribe &middot; $15/month &#8594;",
+            "subline":  ("welcome back. Pick a plan and your subscription starts right "
+                         "away — from $10/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     return {
-        "headline": "Get Highlightz Pro",
+        "headline": "Pick your plan",
         "subline":  ("start capturing your best streaming moments automatically — "
-                     "$15/month, cancel anytime."),
-        "cta":      "Subscribe &middot; $15/month &#8594;",
+                     "from $10/month, cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -1030,23 +1040,30 @@ async def paywall_page(request: Request):
             .replace("{username}", _html.escape(username))
             .replace("{headline}", copy["headline"])
             .replace("{subline}",  copy["subline"])
-            .replace("{cta_label}", copy["cta"])
             .replace("{cta_note}",  copy["note"]))
     return HTMLResponse(page)
 
 
 @app.get("/billing/checkout")
-async def billing_checkout(request: Request):
-    """Create a Stripe Checkout session and redirect the user there.
+async def billing_checkout(request: Request, plan: str = "pro"):
+    """Create a Stripe Checkout session for the chosen tier and redirect.
 
     Billing starts immediately — no self-serve trial. A user on an app-managed
     admin-granted trial (status 'trialing', no Stripe subscription) is allowed
-    through so they can subscribe before the trial runs out.
+    through so they can subscribe before the trial runs out. Plan switching
+    for ALREADY-subscribed users happens in the Stripe portal, not here (the
+    active-subscription guard below sends them into the app).
     """
     from src.billing.stripe_billing import create_checkout_url
     from src.auth import users as user_store
     if not settings.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
+    if plan not in ("starter", "pro"):
+        raise HTTPException(status_code=400, detail="Unknown plan")
+    price_id = (settings.stripe_price_id_starter if plan == "starter"
+                else settings.stripe_price_id_pro)
+    if not price_id:
+        raise HTTPException(status_code=503, detail=f"{plan} price not configured")
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     if not uid:
@@ -1075,7 +1092,7 @@ async def billing_checkout(request: Request):
             return RedirectResponse("/billing/portal")
     # Reuse the existing Stripe customer so a re-subscribe stays on one customer
     # (portal / cancel-on-delete / admin sync all key off the stored id).
-    url = await create_checkout_url(uid, username, customer_id=stripe_customer)
+    url = await create_checkout_url(uid, username, price_id, customer_id=stripe_customer)
     return RedirectResponse(url)
 
 
@@ -1197,11 +1214,19 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
+            # Membership tier: map the subscription's price id to a plan and
+            # store it — this is how upgrades/downgrades through the portal
+            # take effect. Unknown prices leave the stored plan untouched
+            # (legacy $15 maps to 'pro' inside plan_for_price).
+            from src.billing.stripe_billing import (
+                extract_promo_id, resolve_promo_code, extract_price_id, plan_for_price)
+            from src.auth import users as user_store
+            plan = plan_for_price(extract_price_id(event))
+            if plan:
+                user_store.set_plan(user_id, plan)
             # Promo attribution: if this subscription carries a promotion code
             # (streamer partnership / discount), record which code brought the
             # signup. Best-effort — never blocks webhook processing.
-            from src.billing.stripe_billing import extract_promo_id, resolve_promo_code
-            from src.auth import users as user_store
             promo_id = extract_promo_id(event)
             if promo_id:
                 code = await resolve_promo_code(promo_id)
@@ -1396,12 +1421,20 @@ async def add_stream(request: Request, req: StreamRequest):
     async with _data_lock:
         if stream_key in _streams:
             raise HTTPException(status_code=409, detail="Stream already registered")
-        MAX_STREAMS_PER_USER = 10
+        # Per-plan stream limit (Starter 3 / Pro 10) — the backend is the
+        # authority; the dashboard only mirrors the number.
+        from src.billing.plans import limits_for, get_plan
+        from src.auth import users as user_store
+        db_user = user_store.get_by_id(uid)
+        limits  = limits_for(db_user)
         user_streams = [s for s in _streams.values() if s.get("user_id") == uid]
-        if len(user_streams) >= MAX_STREAMS_PER_USER:
+        if len(user_streams) >= limits["max_streams"]:
+            upgrade = (" Upgrade to Pro for up to 10 streams."
+                       if get_plan(db_user) == "starter" else "")
             raise HTTPException(
                 status_code=429,
-                detail=f"Stream limit reached ({MAX_STREAMS_PER_USER} max). Remove a stream to add a new one.",
+                detail=f"Stream limit reached ({limits['max_streams']} max on your plan)."
+                       f" Remove a stream to add a new one.{upgrade}",
             )
         if len(_streams) >= settings.max_concurrent_streams:
             raise HTTPException(status_code=503, detail="Server stream capacity reached. Try again later.")
@@ -1545,7 +1578,14 @@ class _VodRequest(BaseModel):
 @app.post("/vod/analyze", status_code=201)
 async def start_vod_analysis(request: Request, req: _VodRequest):
     from src.vod.analyzer import parse_vod_id, run_vod_analysis
+    from src.billing.plans import limits_for
+    from src.auth import users as user_store
     uid = _current_user_id(request)
+    if not limits_for(user_store.get_by_id(uid))["vod"]:
+        raise HTTPException(
+            status_code=403,
+            detail="The VOD scanner is a Pro feature — upgrade to scan past broadcasts.",
+        )
     await _check_vod_rate(uid)
 
     vod_id = parse_vod_id(req.vod_url)
@@ -2145,7 +2185,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
-<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. $15/month, cancel anytime.">
+<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. From $10/month, cancel anytime.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/anton-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -2154,13 +2194,13 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again">
-<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. $15/month, cancel anytime.">
+<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. From $10/month, cancel anytime.">
 <meta property="og:image" content="https://highlightz.app/static/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. $15/month, cancel anytime.">
+<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. From $10/month, cancel anytime.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
   /* Self-hosted type — no third-party font dependency */
@@ -2288,8 +2328,13 @@ LANDING_HTML = """<!DOCTYPE html>
   .plus{display:grid;place-items:center;color:#5d5d6b;font-size:18px;font-weight:700;padding:0 2px}
   .formula-eq{margin-top:30px;font-size:15px;color:#c79bff;font-weight:700;letter-spacing:.01em}
   /* Pricing */
-  .price-card{position:relative;max-width:470px;margin:44px auto 0;padding:1px;border-radius:22px;background:linear-gradient(160deg,rgba(249,67,255,.5),rgba(255,255,255,.09) 35%,rgba(255,255,255,.08) 65%,rgba(124,107,255,.45))}
-  .price-in{border-radius:21px;background:rgba(11,11,16,.94);padding:42px 40px;text-align:center}
+  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;max-width:840px;margin:44px auto 0}
+  .price-card{position:relative;padding:1px;border-radius:22px;background:linear-gradient(160deg,rgba(249,67,255,.5),rgba(255,255,255,.09) 35%,rgba(255,255,255,.08) 65%,rgba(124,107,255,.45))}
+  .price-card.starter{background:rgba(255,255,255,.09)}
+  .price-pop{position:absolute;top:-11px;left:50%;transform:translateX(-50%);z-index:2;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:4px 12px;border-radius:99px;box-shadow:0 4px 16px -4px rgba(249,67,255,.7);white-space:nowrap}
+  .price-in{border-radius:21px;background:rgba(11,11,16,.94);padding:42px 36px;text-align:center;height:100%;display:flex;flex-direction:column}
+  .price-in .price-list{flex:1}
+  .price-in .price-badge{align-self:center}
   .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:22px}
   .price-amt{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px}
   .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
@@ -2459,8 +2504,8 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 </style>
 
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "Offer", "price": "15.00", "priceCurrency": "USD", "description": "$15/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time, each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "One plan: $15/month, everything included. It renews monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "AggregateOffer", "lowPrice": "10.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "2", "description": "Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "Two plans: Starter at $10/month (3 monitored streams, 50-clip review queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
 <nav class="nav">
@@ -2486,7 +2531,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
       <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
     </div>
-    <p class="hero-note"><b>$15/month</b> &middot; cancel anytime</p>
+    <p class="hero-note">From <b>$10/month</b> &middot; cancel anytime</p>
     <div class="pills">
       <span class="pill">Formula-based — not AI</span>
       <span class="pill">Works at any channel size</span>
@@ -2782,25 +2827,40 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="wrap" id="pricing">
   <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">One plan, everything included. No contracts, no tiers — cancel anytime.</p>
-  <div class="price-card">
-    <div class="price-in">
-      <span class="price-badge">Highlightz Pro</span>
-      <div class="price-amt"><span class="cur">$</span><span class="num">15</span><span class="per">/month</span></div>
-      <div class="price-sub">Full access from day one. Renews monthly &middot; cancel anytime.</div>
-      <div class="price-list">
-        <div class="li"><span class="ck">&#10003;</span>Automatic clip detection on any live channel</div>
-        <div class="li"><span class="ck">&#10003;</span>Monitor multiple streams at the same time</div>
-        <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
-        <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
-        <div class="li"><span class="ck">&#10003;</span>Clip review queue with approve / reject</div>
-        <div class="li"><span class="ck">&#10003;</span>VOD scanner — find highlights in past broadcasts</div>
-        <div class="li"><span class="ck">&#10003;</span>Clips created instantly on Twitch under your account</div>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">Two plans, no contracts — cancel anytime.</p>
+  <div class="price-grid">
+    <div class="price-card starter">
+      <div class="price-in">
+        <span class="price-badge">Starter</span>
+        <div class="price-amt"><span class="cur">$</span><span class="num">10</span><span class="per">/month</span></div>
+        <div class="price-sub">Everything you need to stop missing highlights.</div>
+        <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Automatic clip detection, live on Twitch</div>
+          <div class="li"><span class="ck">&#10003;</span>Monitor up to <b>3 streams</b> at once</div>
+          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>50 pending clips</b></div>
+          <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
+          <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
+        </div>
+        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Start with Starter &#8594;</a>
       </div>
-      <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Get started &#8594;</a>
-      <div class="price-promo">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
+    </div>
+    <div class="price-card">
+      <div class="price-in">
+        <span class="price-pop">Most popular</span>
+        <span class="price-badge">Highlightz Pro</span>
+        <div class="price-amt"><span class="cur">$</span><span class="num">25</span><span class="per">/month</span></div>
+        <div class="price-sub">The full toolkit for serious clippers.</div>
+        <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Everything in Starter</div>
+          <div class="li"><span class="ck">&#10003;</span>Monitor up to <b>10 streams</b> at once</div>
+          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
+          <div class="li"><span class="ck">&#10003;</span><b>VOD scanner</b> — find highlights in past broadcasts</div>
+        </div>
+        <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Go Pro &#8594;</a>
+      </div>
     </div>
   </div>
+  <div class="price-promo" style="text-align:center;margin-top:18px">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
 </section>
 
 <!-- FAQ -->
@@ -2834,11 +2894,11 @@ LANDING_HTML = """<!DOCTYPE html>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Up to 10 at the same time, each with its own independent learning profile — your own channel, streamers you clip for, or anyone live right now.</div>
+      <div class="faq-a">Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile — your own channel, streamers you clip for, or anyone live right now.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">One plan: $15/month, everything included. It renews monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
+      <div class="faq-a">Two plans: Starter at $10/month (3 monitored streams, 50-clip review queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
@@ -3133,7 +3193,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="price-pill"><span class="dot"></span>$15/month — cancel anytime</div>
+  <div class="price-pill"><span class="dot"></span>From $10/month — cancel anytime</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
@@ -3170,7 +3230,21 @@ PAYWALL_HTML = """<!DOCTYPE html>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
-  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 44px;max-width:440px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 44px;max-width:560px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .plan-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px;text-align:left}
+  .plan{position:relative;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px 18px;display:flex;flex-direction:column}
+  .plan.pro{border-color:rgba(168,85,247,.55);box-shadow:0 0 30px -12px rgba(168,85,247,.5)}
+  .plan-pop{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:3px 10px;border-radius:99px;white-space:nowrap}
+  .plan-name{font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#c79bff}
+  .plan-price{font-size:28px;font-weight:800;margin:4px 0 10px}
+  .plan-price span{font-size:13px;color:#9c9caa;font-weight:600}
+  .plan-feats{list-style:none;margin:0 0 16px;padding:0;flex:1}
+  .plan-feats li{font-size:12.5px;color:#b8b8c8;padding:3px 0 3px 16px;position:relative}
+  .plan-feats li::before{content:'✓';position:absolute;left:0;color:#34d399;font-weight:800;font-size:11px}
+  .plan .cta{margin-bottom:0;padding:11px;font-size:13.5px}
+  .cta.ghost{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);box-shadow:none}
+  .cta.ghost:hover{background:rgba(255,255,255,.12);filter:none}
+  @media(max-width:520px){.plan-row{grid-template-columns:1fr}}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:20px}
   .logo-wrap img{height:64px;filter:drop-shadow(0 0 14px rgba(199,155,255,.5))}
   .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);color:#c79bff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:22px}
@@ -3196,17 +3270,32 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <body>
 <div class="card">
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
-  <span class="badge">Highlightz Pro</span>
+  <span class="badge">Highlightz</span>
   <h1>{headline}</h1>
   <p class="sub">Hi {username} — {subline}</p>
-  <div class="features">
-    <div class="feat"><span class="ic">›</span>Automatic clip detection on any live channel</div>
-    <div class="feat"><span class="ic">›</span>Live trigger score analytics</div>
-    <div class="feat"><span class="ic">›</span>Instant clips created on Twitch under your account</div>
-    <div class="feat"><span class="ic">›</span>Clip review queue with approve / reject</div>
-    <div class="feat"><span class="ic">›</span>Per-channel AI learning baseline</div>
+  <div class="plan-row">
+    <div class="plan">
+      <div class="plan-name">Starter</div>
+      <div class="plan-price">$10<span>/mo</span></div>
+      <ul class="plan-feats">
+        <li>3 monitored streams</li>
+        <li>50-clip review queue</li>
+        <li>Live clip detection &amp; analytics</li>
+      </ul>
+      <a href="/billing/checkout?plan=starter" class="cta ghost">Choose Starter</a>
+    </div>
+    <div class="plan pro">
+      <div class="plan-pop">Most popular</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">$25<span>/mo</span></div>
+      <ul class="plan-feats">
+        <li>10 monitored streams</li>
+        <li>200-clip review queue</li>
+        <li>VOD scanner included</li>
+      </ul>
+      <a href="/billing/checkout?plan=pro" class="cta">Choose Pro</a>
+    </div>
   </div>
-  <a href="/billing/checkout" class="cta">{cta_label}</a>
   <p class="sub" style="font-size:13px;margin-top:14px">{cta_note}</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
