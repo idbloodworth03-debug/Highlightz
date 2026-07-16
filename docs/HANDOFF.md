@@ -120,6 +120,22 @@ run against prod's 806 labeled outcomes (17 approved / 724 rejected /
   dataset only contains FIRED moments (can't see misses), and labels are
   the owner curating test channels (approve bar = showcase-worthy).
 
+**Learning redesign (2026-07-11, owner-directed — "it adjusts too hard")**:
+the old approve/reject mechanics had two proven failure modes. DEAD: each
+reject raised the threshold +2 AND cut every fired signal's weight (floor
+0.3); once max-achievable-score fell below the threshold nothing could ever
+fire again — weights only recovered via approvals, which need fires. STALE:
+approvals grew weights toward 2.5x, locking the profile onto the shape of
+past keepers. New mechanics: weight bounds [0.75, 1.5] (at the floor,
+max raw ≈ 82 > threshold ceiling 80 → death-by-weights impossible; the cap
+bounds archetype lock-in), hourly mean-reversion of weights toward 1.0
+(profile.decay_weights, called next to the threshold decay — history fades
+in ~days without new reviews), asymmetric steps (reject +0.75 was +2 —
+~27 consecutive rejects to reach the ceiling; approve stays −2; weight
+nudges 0.06 approve / 0.02 reject, was 0.08 both). from_dict clamps legacy
+out-of-range weights on load, so historically crushed profiles revive on
+next use. Locked by tests/test_learning_stability.py.
+
 **Volume pass 2 (2026-07-11, owner-directed — "clip a tad more, even if not
 amazing")**: the real choke was preset COOLDOWNS, not thresholds — variety
 allowed one clip per 10 min, default one per 4 min, regardless of stream

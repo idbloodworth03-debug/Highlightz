@@ -17,26 +17,50 @@ _SIGNAL_KEYS = [
     "SENTIMENT", "VIEWER_SPIKE", "SILENCE_BURST",
 ]
 
-_LEARN_RATE = 0.08   # per-clip nudge size
-_WEIGHT_MIN = 0.3
-_WEIGHT_MAX = 2.5
+# ── Learning mechanics (redesigned July 2026: gentle + self-recovering) ─────
+#
+# The old mechanism had two documented failure modes:
+#   DEAD clipping — every reject both raised the threshold (+2) AND cut the
+#   weights of every fired signal (floor 0.3). A rejection streak compounded:
+#   the bar rose while the channel's maximum achievable score fell, and once
+#   max-score dropped below the threshold nothing could EVER fire again —
+#   weights only recovered through approvals, which require fires. Permanent.
+#   STALE clipping — approvals boosted fired signals toward a 2.5x cap, so the
+#   profile locked onto the SHAPE of past keepers and went blind to good
+#   moments of a different shape.
+#
+# Fixes, in order of importance:
+#   1. Weight bounds tightened to [0.75, 1.5]: at the 0.75 floor the maximum
+#      raw score is ~110 x 0.75 ≈ 82 (≈100 with the multi-signal bonus) —
+#      above the 80 threshold ceiling, so death-by-weights is mathematically
+#      impossible. The 1.5 cap lets a preferred signal lead but never
+#      monopolize, bounding archetype lock-in from the other side.
+#   2. Weights mean-revert toward 1.0 a little every hour (decay_weights,
+#      called from the worker's hourly maintenance next to threshold decay) —
+#      opinions fade unless refreshed by new reviews, so recovery no longer
+#      depends on approvals that suppression makes impossible.
+#   3. Asymmetric, gentler steps: a reject is weak evidence (users bulk-reject
+#      junk — 724 rejects vs 17 approvals in the July log), an approval is
+#      rare deliberate evidence and keeps its full step.
+_LEARN_RATE_APPROVE = 0.06   # per-approval weight nudge (was 0.08)
+_LEARN_RATE_REJECT  = 0.02   # per-reject weight nudge (was 0.08 — 4x gentler)
+_WEIGHT_MIN = 0.75           # was 0.3 — old floor allowed permanent death
+_WEIGHT_MAX = 1.5            # was 2.5 — old cap allowed archetype lock-in
+_WEIGHT_REVERSION = 0.05     # hourly pull toward 1.0 — stale preferences fade in days
 
 # Adaptive trigger-threshold bounds + per-clip step sizes.
-# CEIL was 65, which on a hype-heavy channel still fires constantly — a user
-# rejecting almost everything could never make the bar selective enough. 80 lets
-# a persistently-rejected channel get genuinely picky (and stays below the
-# emergency-override threshold of 85). REJECT_STEP raised 1->2 so an over-firing
-# channel climbs at a usable pace. Over-suppression is bounded by the existing
-# dry-spell recalibration (no trigger for 10 min -> threshold eases back down).
-# Floor raised 30 → 50 (July 2026 training-log analysis, n=806): no approved
-# clip has ever scored below 60, so letting approvals drag a channel's bar
-# into the 30s only manufactures junk. 50 keeps approve-feedback meaningful
-# (it can still loosen a channel well below the 60 dry-spell floor) without
-# reaching score territory that has never produced a keeper.
+# CEIL 80 lets a persistently-rejected channel get genuinely picky (below the
+# 85 emergency override). REJECT_STEP lowered 2.0 → 0.75 (July 2026): at +2 a
+# routine rejection streak silenced a channel in minutes — ten rejects moved
+# the bar +20. At +0.75 the same streak moves it +7.5, and reaching the
+# ceiling takes ~27 consecutive rejects: a real verdict, not one bad stretch.
+# Approvals keep the full −2 (rare, deliberate, should open the tap).
+# Floor 50 (July 2026 analysis): no approved clip has ever scored below 60,
+# so approvals must not drag the bar into territory that only makes junk.
 _THRESHOLD_FLOOR = 50.0
 _THRESHOLD_CEIL  = 80.0
 _APPROVE_STEP    = 2.0
-_REJECT_STEP     = 2.0
+_REJECT_STEP     = 0.75
 
 
 @dataclass
@@ -173,18 +197,33 @@ class StreamerProfile:
 
         # Nudge per-signal weights based on which signals were active.
         # Approved: signals that fired strongly get a weight boost (they predict good clips).
-        # Rejected: signals that fired strongly get a weight cut (they caused false positives).
+        # Rejected: signals that fired strongly get a small weight cut — rejects are
+        # bulk actions and weak evidence, so they nudge at 1/3 the approval rate.
+        # Bounds are tight ([0.75, 1.5]) and weights mean-revert hourly, so no
+        # streak can silence a channel or lock it onto one clip archetype.
         if signals:
             for sig in signals:
                 key = sig.get("type", "")
                 value = float(sig.get("value", 0.0))
                 if key not in self.signal_weights or value <= 0.25:
                     continue
-                delta = _LEARN_RATE * value
                 if approved:
+                    delta = _LEARN_RATE_APPROVE * value
                     self.signal_weights[key] = min(_WEIGHT_MAX, self.signal_weights[key] + delta)
                 else:
+                    delta = _LEARN_RATE_REJECT * value
                     self.signal_weights[key] = max(_WEIGHT_MIN, self.signal_weights[key] - delta)
+
+    def decay_weights(self, rate: float = _WEIGHT_REVERSION) -> None:
+        """Mean-revert learned signal weights toward neutral (1.0).
+
+        Called hourly by the worker next to the threshold decay. This is the
+        anti-staleness / anti-death valve: preferences learned from past
+        reviews fade over days unless refreshed by new reviews, so a channel
+        can never be permanently locked into (or out of) one clip shape by
+        history alone."""
+        for key, w in self.signal_weights.items():
+            self.signal_weights[key] = round(w + rate * (1.0 - w), 4)
 
     @property
     def is_calibrated(self) -> bool:
@@ -252,4 +291,12 @@ class StreamerProfile:
             # Ensure all keys present (in case new signals were added)
             for k in _SIGNAL_KEYS:
                 data["signal_weights"].setdefault(k, 1.0)
+            # One-time migration for profiles saved under the old wide bounds
+            # ([0.3, 2.5]): clamp into the new safe range so a historically
+            # crushed profile is revived on its next load instead of staying
+            # dead until enough hourly reversion ticks accumulate.
+            data["signal_weights"] = {
+                k: min(_WEIGHT_MAX, max(_WEIGHT_MIN, v))
+                for k, v in data["signal_weights"].items()
+            }
         return cls(**data)
