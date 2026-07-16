@@ -1214,13 +1214,42 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
+            from src.billing.stripe_billing import (
+                extract_promo_id, resolve_promo_code, extract_price_id, plan_for_price,
+                customer_email, refund_and_cancel_subscription)
+            from src.auth import users as user_store
+            # Duplicate-signup guard: the same billing email must not pay for
+            # two accounts. Twitch login gives us no email, so the first time
+            # we learn it is HERE, post-payment — which is why the remediation
+            # is refund-then-cancel (refund first: a customer who paid and
+            # lost access is the one unacceptable outcome; if the refund
+            # fails, access stays and the case is logged for manual handling).
+            # Only NEW subscriptions are checked — renewals/updates of a
+            # long-standing subscription are never touched.
+            email = await customer_email(cust_id)
+            if email:
+                user_store.set_email(user_id, email)
+                if event.get("type") == "customer.subscription.created":
+                    dup = user_store.find_other_active_with_email(email, user_id)
+                    if dup:
+                        log.warning("duplicate_email_signup_blocked",
+                                    user_id=user_id, existing_user=dup["id"], email=email)
+                        if await refund_and_cancel_subscription(event["data"]["object"]):
+                            user_store.update_subscription(user_id, cust_id, "inactive")
+                            await broadcast(
+                                {"event": "subscription_expired",
+                                 "message": ("This email already has an active Highlightz "
+                                             "subscription on another account — this signup "
+                                             "was canceled and refunded.")},
+                                user_id=user_id,
+                            )
+                            return {"received": True}
+                        log.error("duplicate_email_remediation_failed_keeping_access",
+                                  user_id=user_id, existing_user=dup["id"])
             # Membership tier: map the subscription's price id to a plan and
             # store it — this is how upgrades/downgrades through the portal
             # take effect. Unknown prices leave the stored plan untouched
             # (legacy $15 maps to 'pro' inside plan_for_price).
-            from src.billing.stripe_billing import (
-                extract_promo_id, resolve_promo_code, extract_price_id, plan_for_price)
-            from src.auth import users as user_store
             plan = plan_for_price(extract_price_id(event))
             if plan:
                 user_store.set_plan(user_id, plan)
@@ -3925,6 +3954,7 @@ function renderUsers() {
       ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Trial ends ' + fmt(u.trial_ends_at) + '</div>' : '';
     const stripeNote = (u.stripe_customer_id
       ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Stripe: ' + esc(u.stripe_customer_id) + '</div>' : '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">No Stripe ID</div>')
+      + (u.email ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">' + esc(u.email) + '</div>' : '')
       + (u.promo_code ? '<div style="font-size:11px;color:#c79bff;margin-top:2px">Promo: ' + esc(u.promo_code) + '</div>' : '');
     return '<tr>' +
       '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +

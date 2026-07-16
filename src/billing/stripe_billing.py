@@ -148,6 +148,72 @@ def plan_for_price(price_id: str | None) -> str | None:
     return None
 
 
+async def customer_email(customer_id: str) -> str | None:
+    """Billing email for a Stripe customer. Best-effort: None on any failure —
+    the duplicate-email guard must fail OPEN (never touch a subscription on
+    flaky data)."""
+    if not (settings.stripe_secret_key and customer_id):
+        return None
+    try:
+        client = _client()
+        cust = client.customers.retrieve(customer_id)
+        email = cust.get("email") if isinstance(cust, dict) else cust.email
+        return email.strip().lower() if email else None
+    except Exception as exc:
+        log.warning("stripe_customer_email_failed", customer=customer_id, error=str(exc))
+        return None
+
+
+async def refund_and_cancel_subscription(sub: dict) -> bool:
+    """Duplicate-signup remediation: refund the subscription's initial payment,
+    then cancel it. REFUND FIRST — if the refund fails we abort and leave the
+    subscription (and the user's access) intact for manual handling, because
+    the one unacceptable outcome is a customer who paid AND lost access.
+    Returns True only when both steps succeeded."""
+    if not settings.stripe_secret_key:
+        return False
+    sub_id = sub.get("id")
+    if not sub_id:
+        return False
+    try:
+        client = _client()
+        # Find the payment behind the first invoice.
+        inv_id = sub.get("latest_invoice")
+        if isinstance(inv_id, dict):
+            invoice = inv_id
+        elif inv_id:
+            invoice = client.invoices.retrieve(inv_id)
+        else:
+            invoice = None
+        pi = charge = None
+        if invoice is not None:
+            get = invoice.get if isinstance(invoice, dict) else lambda k, d=None: getattr(invoice, k, d)
+            pi = get("payment_intent")
+            charge = get("charge")
+            if isinstance(pi, dict):
+                pi = pi.get("id")
+            if isinstance(charge, dict):
+                charge = charge.get("id")
+            amount_paid = get("amount_paid") or 0
+        else:
+            amount_paid = 0
+        if amount_paid > 0:
+            if pi:
+                client.refunds.create(params={"payment_intent": pi})
+            elif charge:
+                client.refunds.create(params={"charge": charge})
+            else:
+                log.error("duplicate_refund_no_payment_ref", subscription=sub_id)
+                return False
+        client.subscriptions.cancel(sub_id)
+        log.info("duplicate_subscription_refunded_and_cancelled",
+                 subscription=sub_id, refunded_cents=amount_paid)
+        return True
+    except Exception as exc:
+        log.error("duplicate_remediation_failed", subscription=sub_id, error=str(exc))
+        return False
+
+
 def extract_promo_id(event: dict) -> str | None:
     """Promotion-code id (promo_...) from a subscription lifecycle event, if a
     promo code was applied at checkout. Handles both the legacy single

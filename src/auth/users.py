@@ -285,6 +285,37 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
     _save(users)
 
 
+def set_email(user_id: str, email: str) -> None:
+    """Record the billing email (from the Stripe customer at activation) —
+    powers the duplicate-signup guard and gives support a contact address."""
+    if not email:
+        return
+    email = email.strip().lower()
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.get("email") != email:
+                u["email"] = email
+                _save(users)
+            return
+
+
+def find_other_active_with_email(email: str, exclude_user_id: str) -> dict | None:
+    """Another account with the same billing email AND a live paid
+    subscription — the duplicate-signup case. Only 'active' counts: an
+    app-managed trial on the other account isn't a payment, and past_due
+    isn't a live sub."""
+    if not email:
+        return None
+    email = email.strip().lower()
+    for u in _load():
+        if (u["id"] != exclude_user_id
+                and (u.get("email") or "").strip().lower() == email
+                and u.get("subscription_status") == "active"):
+            return _public(u)
+    return None
+
+
 def set_plan(user_id: str, plan: str) -> None:
     """Record the membership tier ('starter'/'pro'), set by the Stripe webhook
     from the subscription's price id. Unlike promo attribution this always
