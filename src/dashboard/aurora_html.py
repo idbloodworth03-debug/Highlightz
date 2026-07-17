@@ -2059,7 +2059,10 @@ function RdApp() {
   };
   const deleteClip = async(id)=>{
     if(!confirm('Delete this clip? This cannot be undone.')) return;
-    await fetch(`/clips/${id}/reject`,{method:'POST'});
+    // True delete — housekeeping only. Never routes through /reject: deleting
+    // is "clear this out", not "this was a bad clip", so it must not move the
+    // channel's threshold or feed the training data.
+    await fetch(`/clips/${id}`,{method:'DELETE'});
     setClips(p=>{const n={...p};delete n[id];return n;});
     flash('Clip deleted');
   };

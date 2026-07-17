@@ -1521,6 +1521,27 @@ class BulkCullBody(BaseModel):
     min_score: float = 50.0   # clips with score < this are removed
 
 
+@app.delete("/clips/{clip_id}", status_code=204)
+async def delete_clip_endpoint(request: Request, clip_id: str):
+    """Housekeeping delete — remove a clip WITHOUT teaching the formula.
+
+    Deliberately separate from /reject: rejecting means "I watched this and
+    it's bad" (raises the channel threshold, trims signal weights, logs a
+    REJECTED training example). Deleting/culling just tidies the library —
+    the user never judged the clip, so it must carry no learning signal at
+    all. The frontend's Delete button used to call /reject, silently
+    punishing the formula for every cleanup."""
+    uid = _current_user_id(request)
+    async with _data_lock:
+        clip = _clips.get(clip_id)
+        if not clip or clip.get("user_id") != uid:
+            raise HTTPException(status_code=404, detail="Clip not found")
+        _clips.pop(clip_id)
+        _save_clips()
+    _delete_clip_file(clip)
+    await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+
+
 @app.post("/clips/bulk-cull")
 async def bulk_cull_clips(request: Request, body: BulkCullBody):
     """Remove all clips for the current user whose score is below min_score."""

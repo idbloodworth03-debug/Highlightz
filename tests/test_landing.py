@@ -141,3 +141,12 @@ def test_seo_layer():
 def test_login_and_paywall_are_noindex():
     assert '<meta name="robots" content="noindex">' in api.LOGIN_HTML
     assert '<meta name="robots" content="noindex">' in api.PAYWALL_HTML
+
+
+def test_delete_and_reject_are_separate_routes():
+    # Deleting is housekeeping; rejecting is judgment. The Delete button used
+    # to call /reject, so every cleanup taught the formula a false negative.
+    # Lock the existence of the true-delete route so it can't regress.
+    routes = {(r.path, m) for r in api.app.routes for m in (getattr(r, "methods", None) or [])}
+    assert ("/clips/{clip_id}", "DELETE") in routes
+    assert ("/clips/{clip_id}/reject", "POST") in routes
