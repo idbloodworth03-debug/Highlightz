@@ -179,6 +179,11 @@ button{font-family:inherit;cursor:pointer}
   font-size:12px;font-weight:700;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
   background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
 .rd-scorebadge .pip{width:6px;height:6px;border-radius:50%}
+.rd-viralbadge{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
+  font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
+  background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
+.rd-viralbadge.hot{background:linear-gradient(135deg,#ff7700,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(255,119,0,.65)}
+.rd-viralbadge.warm{color:#ffcc5c;border-color:rgba(255,204,92,.35)}
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -761,6 +766,9 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
+        {clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
+          <Icon name="trending" size={12}/>{Math.round(clip.virality_score)}% viral
+        </span>}
         {dur && <span className="rd-dur">{dur}</span>}
       </div>
       <div className="rd-clip-body">
@@ -772,9 +780,6 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         <div className="rd-clip-meta">
           {time && <span className="rd-tag">{time}</span>}
           {clip.game && <span className="rd-tag">{clip.game}</span>}
-          {clip.virality_score>0 && <span className="rd-tag" style={{color:clip.virality_score>=65?'#ff7700':clip.virality_score>=35?'#ffcc00':'var(--fg-2)'}}>
-            {Math.round(clip.virality_score)}%
-          </span>}
         </div>
         <div className="rd-clip-actions">
           {clip.status==='pending' ? <>
