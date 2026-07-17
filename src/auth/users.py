@@ -285,6 +285,19 @@ def update_subscription(user_id: str, customer_id: str | None, status: str) -> N
     _save(users)
 
 
+def set_labeler(user_id: str, on: bool) -> bool:
+    """Grant/revoke the trainer role: access to the blind clip-scoring studio
+    (and nothing else — labelers are not admins). Returns True if user found."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if bool(u.get("is_labeler")) != on:
+                u["is_labeler"] = on
+                _save(users)
+            return True
+    return False
+
+
 def set_email(user_id: str, email: str) -> None:
     """Record the billing email (from the Stripe customer at activation) —
     powers the duplicate-signup guard and gives support a contact address."""

@@ -120,6 +120,14 @@ button{font-family:inherit;cursor:pointer}
 .rd-thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(255,255,255,.65);box-shadow:0 0 5px rgba(255,255,255,.45);border-radius:1px;pointer-events:none}
 .rd-sigs{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
 .rd-sig{font-size:10px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
+/* Training studio sliders */
+.tr-dim-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.tr-dim-label{font-size:13.5px;font-weight:700}
+.tr-dim-hint{font-size:11.5px;font-weight:500;color:var(--fg-3);margin-left:9px}
+.tr-dim-val{font-size:18px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums;min-width:26px;text-align:right}
+.tr-slider{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:rgba(255,255,255,.09);border-radius:99px;outline:none;cursor:pointer}
+.tr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#f943ff,#a855f7);box-shadow:0 0 10px rgba(168,85,247,.6);cursor:pointer}
+.tr-slider::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:linear-gradient(135deg,#f943ff,#a855f7);box-shadow:0 0 10px rgba(168,85,247,.6);cursor:pointer}
 .rd-profile{margin-top:12px;padding:11px;border-radius:var(--r-md);background:rgba(0,0,0,.25);border:1px solid var(--hair)}
 .rd-pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px 12px}
 .rd-pcell .k{font-size:10px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
@@ -1217,8 +1225,108 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],training:['Training Studio','Blind-score clips to calibrate the formula'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+
+function TrainingScreen() {
+  // Blind scoring studio: the queue endpoint strips every bot judgment
+  // (scores, signals, even the generated title), so the human rates the clip
+  // on the four core dimensions with zero anchoring. The server pairs each
+  // submission with the bot's hidden signal vector at save time.
+  const DIMS = [
+    ['chat_velocity','Chat velocity','How hard did chat pop off?'],
+    ['keyword','Keyword hits','Hype words, "clip it" energy?'],
+    ['sentiment','Sentiment','How emotionally charged?'],
+    ['audio','Audio spike','How loud / reactive was it?'],
+  ];
+  const FRESH = {chat_velocity:5,keyword:5,sentiment:5,audio:5};
+  const [queue, setQueue] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [idx, setIdx] = useState(0);
+  const [vals, setVals] = useState({...FRESH});
+  const [busy, setBusy] = useState(false);
+  const loadStats = ()=>fetch('/training/stats').then(r=>r.ok?r.json():null).then(setStats).catch(()=>{});
+  const load = ()=>{
+    fetch('/training/queue').then(r=>r.ok?r.json():[]).then(q=>{setQueue(q);setIdx(0);}).catch(()=>setQueue([]));
+    loadStats();
+  };
+  useEffect(()=>{
+    load();
+    // Realtime: a freshly-fired clip joins the blind queue live, and the
+    // screen self-heals on reconnect/deploy like every other data source.
+    const onWs = e => { try { const m = JSON.parse(e.detail); if(m.event==='clip_ready') load(); } catch {} };
+    window.addEventListener('hz_refetch', load);
+    window.addEventListener('hz_ws', onWs);
+    return ()=>{ window.removeEventListener('hz_refetch', load); window.removeEventListener('hz_ws', onWs); };
+  },[]);
+  const cur = queue && queue.length ? queue[Math.min(idx, queue.length-1)] : null;
+  const submit = async ()=>{
+    if(!cur || busy) return;
+    setBusy(true);
+    try{
+      const r = await fetch('/training/score',{method:'POST',headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({clip_id: cur.id, ...vals})});
+      if(r.ok || r.status===409){
+        setQueue(q=>q.filter(c=>c.id!==cur.id)); setIdx(0); setVals({...FRESH}); loadStats();
+      }
+    } catch {} finally { setBusy(false); }
+  };
+  const skip = ()=>{ if(queue&&queue.length) { setIdx(i=>(i+1)%queue.length); setVals({...FRESH}); } };
+  const isMobile = window.innerWidth <= 700;
+  const embedSrc = cur && cur.embed_url && !isMobile
+    ? cur.embed_url + (cur.embed_url.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
+    : '';
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title">
+          <h2>Training Studio</h2>
+          <span className="cnt">{queue===null?'Loading…':queue.length+' clip'+(queue.length===1?'':'s')+' awaiting your score'}{stats?` · ${stats.total} scored by the team`:''}</span>
+        </div>
+        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',display:'flex',gap:10,alignItems:'center'}}>
+          <Icon name="sparkles" size={15}/>
+          <span><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
+        </div>
+        {!cur
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+              <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="check" size={36}/></div>
+              <h3 style={{fontSize:17,justifyContent:'center'}}>Queue clear</h3>
+              <div className="desc">New clips land here automatically as the bot captures them.</div>
+            </div>
+          : <div className="rd-card glass">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:8,marginBottom:12}}>
+                <h3 style={{margin:0}}>{cur.channel}<span style={{fontSize:12,color:'var(--fg-3)',fontWeight:500,marginLeft:10}}>{cur.game||''}</span></h3>
+                <span style={{fontSize:12,color:'var(--fg-3)'}}>{new Date((cur.created_at||0)*1000).toLocaleString()}</span>
+              </div>
+              {embedSrc
+                ? <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
+                    <iframe src={embedSrc} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
+                  </div>
+                : <a href={cur.twitch_url||'#'} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>Watch on Twitch ↗</a>}
+              <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:14}}>
+                {DIMS.map(([key,label,hint])=>(
+                  <div key={key} className="tr-dim">
+                    <div className="tr-dim-head">
+                      <span className="tr-dim-label">{label}<span className="tr-dim-hint">{hint}</span></span>
+                      <span className="tr-dim-val">{vals[key]}</span>
+                    </div>
+                    <input type="range" min="1" max="10" step="1" value={vals[key]}
+                           onChange={e=>setVals(v=>({...v,[key]:parseInt(e.target.value,10)}))}
+                           className="tr-slider"/>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap'}}>
+                <button className="rd-btn grad" disabled={busy} onClick={submit} style={{opacity:busy?0.6:1}}>
+                  <Icon name="check" size={14}/>{busy?'Saving…':'Submit score & next'}
+                </button>
+                {queue.length>1&&<button className="rd-btn sm" onClick={skip}>Skip for now</button>}
+              </div>
+            </div>}
+      </div>
+    </div>
+  );
+}
 
 function AccountScreen({ me }) {
   const [deleting, setDeleting]   = useState(false);
@@ -1863,6 +1971,12 @@ function RdApp() {
           setHistories(p=>{const h=[...(p[msg.channel]||[]),msg.score].slice(-40);return{...p,[msg.channel]:h};});
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
+        else if(msg.event==='roles_updated'){
+          // Admin granted/revoked a role (e.g. trainer) — re-pull /me so the
+          // nav reflects it live, without a refresh.
+          refetchAll();
+          flash('Your account roles were updated.');
+        }
         else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 8 hours of inactivity. Restart them from the Live Streams tab.');}
         else if(msg.event==='subscription_expired'){
           // Backend stopped this user's streams because their trial/subscription
@@ -1958,6 +2072,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
+  else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
@@ -1967,7 +2082,7 @@ function RdApp() {
 
       <nav className="rd-nav">
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
-        {NAV.map(n=>(
+        {NAV.filter(n=>!n.labelerOnly||(me&&(me.is_labeler||me.is_admin))).map(n=>(
           <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>setRoute(n.id)}>
             {n.id==='review'&&pending>0&&<span className="navbadge">{pending}</span>}
             <span className="ic"><Icon name={n.icon} size={22}/></span>

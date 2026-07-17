@@ -107,12 +107,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         user_id=uid,
                     ))
                 request.session["is_admin"]            = db_user.get("is_admin", False)
+                request.session["is_labeler"]          = db_user.get("is_labeler", False)
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
                 _user_last_active[uid] = time.time()
-        # Billing gate — redirect to paywall unless admin, active subscriber,
-        # or within an unexpired free trial.
-        if not request.session.get("is_admin") and request.session.get("subscription_status") not in ("active", "trialing"):
+        # Billing gate — redirect to paywall unless admin, labeler (the
+        # owner's training team gets full access without a subscription),
+        # active subscriber, or within an unexpired free trial.
+        if (not request.session.get("is_admin")
+                and not request.session.get("is_labeler")
+                and request.session.get("subscription_status") not in ("active", "trialing")):
             if not request.headers.get("accept", "").startswith("application/json"):
                 return RedirectResponse("/billing/paywall", status_code=302)
             return JSONResponse({"detail": "Subscription required"}, status_code=402)
@@ -649,6 +653,7 @@ async def me(request: Request):
         "username":            request.session.get("username", ""),
         "avatar_url":          request.session.get("avatar_url", ""),
         "is_admin":            request.session.get("is_admin", False),
+        "is_labeler":          bool(user.get("is_labeler")),
         "subscription_status": status,
         "trial_ends_at":       trial_ends_at,
         "trial_days_left":     trial_days_left,
@@ -991,6 +996,165 @@ async def feedback_unread_count(request: Request):
     if not db_user or not db_user.get("is_admin"):
         return {"count": 0}
     return {"count": sum(1 for f in _feedback if not f.get("read"))}
+
+
+# ── Blind training studio ─────────────────────────────────────────────────────
+# Team-only (owner + labelers): humans score clips 1-10 on the four core
+# dimensions WITHOUT seeing the bot's numbers. The bot's signal vector is
+# joined to each submission SERVER-SIDE at save time, so the human/bot pairing
+# exists in the dataset without ever being shown to the scorer. The eventual
+# goal: enough paired data to fit the signal weights on human judgment.
+
+_HUMAN_SCORES_FILE = Path(settings.local_storage_path) / "human_scores.jsonl"
+
+# The four dimensions a labeler scores, matched to the bot's signal keys.
+_TRAIN_DIMENSIONS = {
+    "chat_velocity": "CHAT_VELOCITY",
+    "keyword":       "KEYWORD",
+    "sentiment":     "SENTIMENT",
+    "audio":         "AUDIO_SPIKE",
+}
+
+
+def _require_labeler(request: Request) -> str:
+    """Trainer gate: admins and users with the labeler flag."""
+    from src.auth import users as user_store
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    if not db_user or not (db_user.get("is_admin") or db_user.get("is_labeler")):
+        raise HTTPException(status_code=403, detail="Training access only")
+    return uid
+
+
+def _human_scored_pairs() -> set[tuple[str, str]]:
+    """(clip_id, labeler_user_id) pairs already scored — one score per clip
+    per labeler."""
+    pairs = set()
+    try:
+        for line in _HUMAN_SCORES_FILE.open(encoding="utf-8"):
+            try:
+                r = json.loads(line)
+                pairs.add((r.get("clip_id", ""), r.get("labeler_id", "")))
+            except json.JSONDecodeError:
+                continue
+    except FileNotFoundError:
+        pass
+    return pairs
+
+
+def _blind_clip_view(clip: dict) -> dict:
+    """What a labeler is allowed to see: enough to WATCH the clip, nothing
+    that leaks the bot's judgment. Excluded on purpose: trigger_score,
+    trigger_signals, virality_score, review status, and the generated
+    clip_title (titles like 'Chat Erupts' name the bot's dominant signal)."""
+    return {
+        "id":         clip.get("id"),
+        "channel":    clip.get("channel"),
+        "game":       clip.get("game") or "",
+        "created_at": clip.get("created_at"),
+        "duration_seconds": clip.get("duration_seconds"),
+        "twitch_url": clip.get("twitch_url") or "",
+        "embed_url":  clip.get("embed_url") or "",
+    }
+
+
+def _record_human_score(clip: dict, labeler_id: str, labeler_name: str,
+                        scores: dict) -> dict:
+    """Build + append one paired training record. `scores` values are 1-10
+    ints keyed by _TRAIN_DIMENSIONS keys; the bot's matching signal values and
+    overall scores are joined here, server-side."""
+    bot_signals = {}
+    for s in (clip.get("trigger_signals") or []):
+        t = str(s.get("type", "")).replace("SignalType.", "")
+        bot_signals[t] = round(float(s.get("value", 0.0) or 0.0), 4)
+    record = {
+        "ts":            round(time.time(), 1),
+        "clip_id":       clip.get("id"),
+        "channel":       clip.get("channel"),
+        "labeler_id":    labeler_id,
+        "labeler":       labeler_name,
+        "human":         {k: int(scores[k]) for k in _TRAIN_DIMENSIONS},
+        "bot_signals":   bot_signals,
+        "bot_trigger_score":  clip.get("trigger_score"),
+        "bot_virality_score": clip.get("virality_score"),
+    }
+    _HUMAN_SCORES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _HUMAN_SCORES_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    return record
+
+
+@app.get("/training/queue")
+async def training_queue(request: Request):
+    """Blind list of this labeler's not-yet-scored clips (their own account's
+    clips with a signal vector — VOD moments without signals carry no pairing
+    value). Newest first."""
+    uid = _require_labeler(request)
+    scored = _human_scored_pairs()
+    queue = [
+        _blind_clip_view(c) for c in _clips.values()
+        if c.get("user_id") == uid
+        and (c.get("trigger_signals") or [])
+        and (c.get("id"), uid) not in scored
+    ]
+    queue.sort(key=lambda c: c.get("created_at") or 0, reverse=True)
+    return queue[:100]
+
+
+class _TrainScoreRequest(BaseModel):
+    clip_id: str
+    chat_velocity: int = Field(ge=1, le=10)
+    keyword:       int = Field(ge=1, le=10)
+    sentiment:     int = Field(ge=1, le=10)
+    audio:         int = Field(ge=1, le=10)
+
+
+@app.post("/training/score", status_code=201)
+async def training_score(request: Request, body: _TrainScoreRequest):
+    uid = _require_labeler(request)
+    username = request.session.get("username", "")
+    clip = _clips.get(body.clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if (body.clip_id, uid) in _human_scored_pairs():
+        raise HTTPException(status_code=409, detail="You already scored this clip")
+    async with _data_lock:
+        _record_human_score(clip, uid, username, body.model_dump())
+    log.info("human_score_recorded", clip_id=body.clip_id, labeler=username)
+    return {"ok": True}
+
+
+@app.get("/training/stats")
+async def training_stats(request: Request):
+    """Scoreboard: total paired records and per-labeler counts."""
+    _require_labeler(request)
+    per: dict[str, int] = {}
+    total = 0
+    try:
+        for line in _HUMAN_SCORES_FILE.open(encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            total += 1
+            name = r.get("labeler") or r.get("labeler_id") or "?"
+            per[name] = per.get(name, 0) + 1
+    except FileNotFoundError:
+        pass
+    return {"total": total, "by_labeler": per}
+
+
+@app.post("/admin/users/{user_id}/labeler")
+async def admin_set_labeler(request: Request, user_id: str, on: bool = True):
+    """Grant/revoke training-studio access (labeler role — NOT admin)."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not user_store.set_labeler(user_id, on):
+        raise HTTPException(status_code=404, detail="User not found")
+    log.info("labeler_set", user_id=user_id, on=on, by=request.session.get("user_id"))
+    # Realtime: the user's open tab gains/loses the Training nav item live.
+    await broadcast({"event": "roles_updated"}, user_id=user_id)
+    return {"ok": True, "is_labeler": on}
 
 
 # ── Stripe billing ─────────────────────────────────────────────────────────────
@@ -3819,6 +3983,17 @@ async function grant(idx) {
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
+async function toggleLabeler(idx) {
+  const u = _users[idx]; if (!u) return;
+  const on = !u.is_labeler;
+  if (!confirm((on ? 'Grant ' : 'Revoke ') + 'training-studio access for ' + u.username + '?')) return;
+  try {
+    await api('/admin/users/' + u.id + '/labeler?on=' + on, 'POST');
+    toast(on ? 'Trainer access granted' : 'Trainer access revoked');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
 async function grantTrial(idx, sel) {
   const u = _users[idx]; if (!u) return;
   const days = parseInt(sel.value, 10);
@@ -3974,6 +4149,7 @@ function renderUsers() {
           '<option value="90">3 months</option></select>' : '') +
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + idx + ')">Revoke</button>' : '') +
         (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + idx + ')">Stripe Sync</button>' : '') +
+        (!isAdmin ? '<button class="btn" style="background:rgba(168,85,247,.15);border-color:rgba(168,85,247,.3);color:#c79bff" onclick="toggleLabeler(' + idx + ')">' + (u.is_labeler ? 'Revoke Trainer' : 'Make Trainer') + '</button>' : '') +
         (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + idx + ')">Delete</button>' : '') +
       '</div></td>' +
     '</tr>';
