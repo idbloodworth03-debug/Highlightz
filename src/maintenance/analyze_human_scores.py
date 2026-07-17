@@ -97,22 +97,34 @@ def main() -> int:
     print("\n── agreement per dimension (Spearman rank correlation) ──")
     print("  1.0 = bot sees what humans see · 0 = unrelated · negative = inverted")
     print(f"  {'dimension':16s} {'corr':>6s} {'n':>5s}   mean(human) when bot high / low")
-    for hk, bk in DIMS.items():
-        pairs = [(r["human"].get(hk), (r["bot_signals"] or {}).get(bk))
-                 for r in rows]
-        pairs = [(h, b) for h, b in pairs if h is not None and b is not None]
+
+    def _report(name: str, pairs: list[tuple[float, float]]) -> None:
+        """pairs = (human 1-10, bot 0-1)."""
         if not pairs:
-            print(f"  {hk:16s}      —     0")
-            continue
-        hs = [float(h) for h, _ in pairs]
-        bs = [float(b) for _, b in pairs]
+            print(f"  {name:16s}      —     0")
+            return
+        hs = [h for h, _ in pairs]
+        bs = [b for _, b in pairs]
         corr = spearman(hs, bs)
-        hi = [h for h, b in zip(hs, bs) if b >= 0.5]
-        lo = [h for h, b in zip(hs, bs) if b < 0.5]
+        hi = [h for h, b in pairs if b >= 0.5]
+        lo = [h for h, b in pairs if b < 0.5]
         hi_m = f"{sum(hi)/len(hi):.1f}" if hi else " —"
         lo_m = f"{sum(lo)/len(lo):.1f}" if lo else " —"
         corr_s = f"{corr:+.2f}" if corr is not None else "    —"
-        print(f"  {hk:16s} {corr_s:>6s} {len(pairs):5d}   {hi_m} / {lo_m}")
+        print(f"  {name:16s} {corr_s:>6s} {len(pairs):5d}   {hi_m} / {lo_m}")
+
+    for hk, bk in DIMS.items():
+        pairs = [(float(r["human"][hk]), float((r["bot_signals"] or {})[bk]))
+                 for r in rows
+                 if r["human"].get(hk) is not None
+                 and (r["bot_signals"] or {}).get(bk) is not None]
+        _report(hk, pairs)
+    # Virality pairs with the bot's separate 0-100 virality formula, not a signal.
+    v_pairs = [(float(r["human"]["virality"]), float(r["bot_virality_score"]) / 100.0)
+               for r in rows
+               if r["human"].get("virality") is not None
+               and isinstance(r.get("bot_virality_score"), (int, float))]
+    _report("virality", v_pairs)
 
     print("\n── biggest disagreements (rewatch these) ──")
     scored = []

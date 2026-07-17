@@ -34,9 +34,11 @@ def test_score_record_pairs_human_with_hidden_bot_signals(tmp_path, monkeypatch)
     }
     rec = api._record_human_score(clip, "u1", "alice",
                                   {"chat_velocity": 9, "keyword": 2,
-                                   "sentiment": 5, "audio": 7})
+                                   "sentiment": 5, "audio": 7, "virality": 8})
     # Human sliders stored as ints, bot side joined without ever being shown.
-    assert rec["human"] == {"chat_velocity": 9, "keyword": 2, "sentiment": 5, "audio": 7}
+    assert rec["human"] == {"chat_velocity": 9, "keyword": 2, "sentiment": 5,
+                            "audio": 7, "virality": 8}
+    assert rec["bot_virality_score"] == 41.0   # paired for the virality dimension
     assert rec["bot_signals"] == {"CHAT_VELOCITY": 0.83, "AUDIO_SPIKE": 0.4}
     assert rec["bot_trigger_score"] == 77.7
     # Persisted as one JSONL line, and the dedupe index sees it.

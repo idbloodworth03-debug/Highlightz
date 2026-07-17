@@ -1067,13 +1067,18 @@ def _record_human_score(clip: dict, labeler_id: str, labeler_name: str,
     for s in (clip.get("trigger_signals") or []):
         t = str(s.get("type", "")).replace("SignalType.", "")
         bot_signals[t] = round(float(s.get("value", 0.0) or 0.0), 4)
+    human = {k: int(scores[k]) for k in _TRAIN_DIMENSIONS}
+    # Virality is scored too — it pairs with bot_virality_score (a separate
+    # formula from the trigger), not with any single signal.
+    if "virality" in scores:
+        human["virality"] = int(scores["virality"])
     record = {
         "ts":            round(time.time(), 1),
         "clip_id":       clip.get("id"),
         "channel":       clip.get("channel"),
         "labeler_id":    labeler_id,
         "labeler":       labeler_name,
-        "human":         {k: int(scores[k]) for k in _TRAIN_DIMENSIONS},
+        "human":         human,
         "bot_signals":   bot_signals,
         "bot_trigger_score":  clip.get("trigger_score"),
         "bot_virality_score": clip.get("virality_score"),
@@ -1107,6 +1112,7 @@ class _TrainScoreRequest(BaseModel):
     keyword:       int = Field(ge=1, le=10)
     sentiment:     int = Field(ge=1, le=10)
     audio:         int = Field(ge=1, le=10)
+    virality:      int = Field(ge=1, le=10)
 
 
 @app.post("/training/score", status_code=201)
