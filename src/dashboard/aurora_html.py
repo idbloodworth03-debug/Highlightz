@@ -1258,21 +1258,34 @@ function TrainingScreen() {
   };
   useEffect(()=>{
     load();
-    // Realtime: a freshly-fired clip joins the blind queue live, and the
-    // screen self-heals on reconnect/deploy like every other data source.
-    const onWs = e => { try { const m = JSON.parse(e.detail); if(m.event==='clip_ready') load(); } catch {} };
+    // Realtime: a freshly-fired clip joins the blind queue live, teammates'
+    // submissions tick the counter live, and the screen self-heals on
+    // reconnect/deploy like every other data source.
+    const onWs = e => { try {
+      const m = JSON.parse(e.detail);
+      if(m.event==='clip_ready') load();
+      else if(m.event==='training_scored'){
+        setStats(s=>({...(s||{by_labeler:{}}), total: m.total}));
+        loadStats();   // refresh the per-trainer breakdown too
+      }
+    } catch {} };
     window.addEventListener('hz_refetch', load);
     window.addEventListener('hz_ws', onWs);
     return ()=>{ window.removeEventListener('hz_refetch', load); window.removeEventListener('hz_ws', onWs); };
   },[]);
   const cur = queue && queue.length ? queue[Math.min(idx, queue.length-1)] : null;
-  const submit = async ()=>{
+  // Score first, then (optionally) resolve the clip in the same click —
+  // trainers never need to visit Clip Review, which keeps them blind.
+  const submit = async (verdict)=>{
     if(!cur || busy) return;
     setBusy(true);
     try{
       const r = await fetch('/training/score',{method:'POST',headers:{'Content-Type':'application/json'},
         body: JSON.stringify({clip_id: cur.id, ...vals})});
       if(r.ok || r.status===409){
+        if(verdict==='approve'||verdict==='reject'){
+          await fetch(`/clips/${cur.id}/${verdict}`,{method:'POST'}).catch(()=>{});
+        }
         setQueue(q=>q.filter(c=>c.id!==cur.id)); setIdx(0); setVals({...FRESH}); loadStats();
       }
     } catch {} finally { setBusy(false); }
@@ -1289,9 +1302,14 @@ function TrainingScreen() {
           <h2>Training Studio</h2>
           <span className="cnt">{queue===null?'Loading…':queue.length+' clip'+(queue.length===1?'':'s')+' awaiting your score'}{stats?` · ${stats.total} scored by the team`:''}</span>
         </div>
-        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',display:'flex',gap:10,alignItems:'center'}}>
+        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="sparkles" size={15}/>
-          <span><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
+          <span style={{flex:1,minWidth:220}}><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
+          {stats && <span style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+            <span className="rd-tag" style={{background:'rgba(168,85,247,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>{stats.total} trained</span>
+            {Object.entries(stats.by_labeler||{}).sort((a,b)=>b[1]-a[1]).map(([name,n])=>
+              <span key={name} className="rd-tag">{name}: {n}</span>)}
+          </span>}
         </div>
         {!cur
           ? <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
@@ -1322,11 +1340,15 @@ function TrainingScreen() {
                   </div>
                 ))}
               </div>
-              <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap'}}>
-                <button className="rd-btn grad" disabled={busy} onClick={submit} style={{opacity:busy?0.6:1}}>
-                  <Icon name="check" size={14}/>{busy?'Saving…':'Submit score & next'}
+              <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap',alignItems:'center'}}>
+                <button className="rd-btn live" disabled={busy} onClick={()=>submit('approve')} style={{opacity:busy?0.6:1}}>
+                  <Icon name="check" size={14}/>{busy?'Saving…':'Score & Approve'}
                 </button>
-                {queue.length>1&&<button className="rd-btn sm" onClick={skip}>Skip for now</button>}
+                <button className="rd-btn danger" disabled={busy} onClick={()=>submit('reject')} style={{opacity:busy?0.6:1}}>
+                  <Icon name="x" size={14}/>Score & Reject
+                </button>
+                <button className="rd-btn sm" disabled={busy} onClick={()=>submit(null)} title="Save the sliders and leave the clip pending for later review">Score only</button>
+                {queue.length>1&&<button className="rd-btn sm" onClick={skip}>Skip</button>}
               </div>
             </div>}
       </div>
@@ -2008,6 +2030,10 @@ function RdApp() {
         }
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        }
+        // Forward team scoring ticks to the Training screen's live counter
+        else if(msg.event==='training_scored'){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
       };

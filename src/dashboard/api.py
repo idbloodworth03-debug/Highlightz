@@ -1127,7 +1127,12 @@ async def training_score(request: Request, body: _TrainScoreRequest):
     async with _data_lock:
         _record_human_score(clip, uid, username, body.model_dump())
     log.info("human_score_recorded", clip_id=body.clip_id, labeler=username)
-    return {"ok": True}
+    # Realtime: every open Training tab (all trainers) sees the team counter
+    # tick live. Global broadcast — the count isn't sensitive, and non-labeler
+    # tabs simply forward it to a screen that isn't mounted.
+    total = len(_human_scored_pairs())
+    await broadcast({"event": "training_scored", "total": total, "labeler": username})
+    return {"ok": True, "total": total}
 
 
 @app.get("/training/stats")
