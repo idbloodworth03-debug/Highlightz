@@ -81,14 +81,88 @@ async def live_subscription_status(customer_id: str) -> str | None:
         return None
 
 
+# Portal configuration id resolved at runtime; cached so we don't re-list /
+# re-create it on every "Manage billing" click.
+_portal_config_id: str | None = None
+
+
+def _ensure_portal_configuration(client: stripe.StripeClient) -> str:
+    """Return a usable Customer Portal configuration id, creating one via the
+    API if the account has none.
+
+    Stripe refuses to open ANY portal session until a configuration exists —
+    normally saved once by hand in the dashboard. If that step was never done,
+    every "Manage billing" click 500s. Building the configuration here makes
+    the portal work with zero dashboard setup, and gets cancel / invoices /
+    card-update (plus plan switching when both tier prices are configured).
+    """
+    existing = client.billing_portal.configurations.list(
+        params={"active": True, "limit": 10})
+    for cfg in (existing.data if hasattr(existing, "data") else []):
+        cfg_id = cfg.get("id") if isinstance(cfg, dict) else cfg.id
+        if cfg_id:
+            return cfg_id
+
+    features: dict = {
+        "customer_update":       {"enabled": True, "allowed_updates": ["email"]},
+        "invoice_history":       {"enabled": True},
+        "payment_method_update": {"enabled": True},
+        "subscription_cancel":   {"enabled": True, "mode": "at_period_end"},
+    }
+    # Plan switching (Starter <-> Pro). subscription_update needs product ids,
+    # which we don't store — resolve them from the configured prices. Skipped
+    # (not fatal) if prices are unset or lookup fails: the portal still opens.
+    price_ids = [p for p in (settings.stripe_price_id_starter,
+                             settings.stripe_price_id_pro) if p]
+    if len(price_ids) == 2:
+        try:
+            products = []
+            for pid in price_ids:
+                price = client.prices.retrieve(pid)
+                product = price.get("product") if isinstance(price, dict) else price.product
+                products.append({"product": product, "prices": [pid]})
+            features["subscription_update"] = {
+                "enabled":                 True,
+                "default_allowed_updates": ["price"],
+                "products":                products,
+                "proration_behavior":      "create_prorations",
+            }
+        except Exception as exc:
+            log.warning("stripe_portal_plan_switch_unavailable", error=str(exc))
+
+    cfg = client.billing_portal.configurations.create(params={
+        "business_profile": {
+            "privacy_policy_url":   "https://highlightz.app/privacy",
+            "terms_of_service_url": "https://highlightz.app/tos",
+        },
+        "features": features,
+    })
+    cfg_id = cfg.get("id") if isinstance(cfg, dict) else cfg.id
+    log.info("stripe_portal_configuration_created", configuration=cfg_id)
+    return cfg_id
+
+
 async def create_portal_url(customer_id: str) -> str:
-    """Create a Stripe Customer Portal session and return its URL."""
+    """Create a Stripe Customer Portal session and return its URL.
+
+    Self-healing: if the account has no saved portal configuration (the usual
+    reason this endpoint dies), build one via the API and retry once.
+    """
+    global _portal_config_id
     client = _client()
     base = "https://highlightz.app"
-    session = client.billing_portal.sessions.create(params={
-        "customer":   customer_id,
-        "return_url": f"{base}/",
-    })
+    params: dict = {"customer": customer_id, "return_url": f"{base}/"}
+    if _portal_config_id:
+        params["configuration"] = _portal_config_id
+    try:
+        session = client.billing_portal.sessions.create(params=params)
+    except Exception as exc:
+        if "configuration" not in str(exc).lower():
+            raise
+        log.warning("stripe_portal_missing_config", error=str(exc))
+        _portal_config_id = _ensure_portal_configuration(client)
+        params["configuration"] = _portal_config_id
+        session = client.billing_portal.sessions.create(params=params)
     return session.url
 
 

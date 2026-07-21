@@ -206,3 +206,90 @@ def test_has_access_matches_active_statuses():
     assert sb.has_access("inactive", False) is False
     # Admins always have access regardless of subscription state.
     assert sb.has_access("none", True) is True
+
+
+# ── Customer Portal ("Manage billing") ────────────────────────────────────────
+# The portal dies account-wide if no portal configuration was ever saved in the
+# Stripe dashboard — a one-time manual step that's easy to miss. These lock the
+# self-healing path: build the configuration via API and retry, so "Manage
+# billing" never leads nowhere.
+
+def _fresh_portal_state(monkeypatch):
+    monkeypatch.setattr(sb, "_portal_config_id", None)
+
+
+def test_portal_happy_path_needs_no_configuration(monkeypatch):
+    _fresh_portal_state(monkeypatch)
+    fake = MagicMock()
+    fake.billing_portal.sessions.create.return_value = MagicMock(url="https://billing.stripe.com/s/1")
+    with patch.object(sb, "_client", return_value=fake):
+        url = asyncio.run(sb.create_portal_url("cus_A"))
+    assert url == "https://billing.stripe.com/s/1"
+    params = fake.billing_portal.sessions.create.call_args.kwargs["params"]
+    assert params["customer"] == "cus_A" and "configuration" not in params
+    fake.billing_portal.configurations.create.assert_not_called()
+
+
+def test_portal_self_heals_when_account_has_no_configuration(monkeypatch):
+    _fresh_portal_state(monkeypatch)
+    monkeypatch.setattr(sb.settings, "stripe_price_id_starter", "price_s")
+    monkeypatch.setattr(sb.settings, "stripe_price_id_pro", "price_p")
+    fake = MagicMock()
+    # First attempt fails the way Stripe actually fails; retry succeeds.
+    fake.billing_portal.sessions.create.side_effect = [
+        Exception("You can't create a portal session ... save your customer "
+                  "portal settings ... default configuration has not been created"),
+        MagicMock(url="https://billing.stripe.com/s/2"),
+    ]
+    fake.billing_portal.configurations.list.return_value = MagicMock(data=[])
+    fake.billing_portal.configurations.create.return_value = MagicMock(id="bpc_1")
+    fake.prices.retrieve.side_effect = [MagicMock(product="prod_s"), MagicMock(product="prod_p")]
+    with patch.object(sb, "_client", return_value=fake):
+        url = asyncio.run(sb.create_portal_url("cus_A"))
+    assert url == "https://billing.stripe.com/s/2"
+    # The created configuration lets users actually manage things: cancel,
+    # update card, see invoices, and switch between the two tiers.
+    cfg = fake.billing_portal.configurations.create.call_args.kwargs["params"]
+    f = cfg["features"]
+    assert f["subscription_cancel"] == {"enabled": True, "mode": "at_period_end"}
+    assert f["payment_method_update"]["enabled"] and f["invoice_history"]["enabled"]
+    assert f["subscription_update"]["products"] == [
+        {"product": "prod_s", "prices": ["price_s"]},
+        {"product": "prod_p", "prices": ["price_p"]},
+    ]
+    # Retry pinned the new configuration, and it's cached for next time.
+    retry = fake.billing_portal.sessions.create.call_args.kwargs["params"]
+    assert retry["configuration"] == "bpc_1"
+    assert sb._portal_config_id == "bpc_1"
+
+
+def test_portal_reuses_existing_configuration_and_unrelated_errors_raise(monkeypatch):
+    _fresh_portal_state(monkeypatch)
+    fake = MagicMock()
+    fake.billing_portal.sessions.create.side_effect = [
+        Exception("no configuration saved"),
+        MagicMock(url="https://billing.stripe.com/s/3"),
+    ]
+    fake.billing_portal.configurations.list.return_value = MagicMock(
+        data=[MagicMock(id="bpc_existing")])
+    with patch.object(sb, "_client", return_value=fake):
+        url = asyncio.run(sb.create_portal_url("cus_A"))
+    assert url == "https://billing.stripe.com/s/3"
+    fake.billing_portal.configurations.create.assert_not_called()   # reuse, don't litter
+    # A genuinely unrelated Stripe failure must NOT trigger config creation.
+    _fresh_portal_state(monkeypatch)
+    fake2 = MagicMock()
+    fake2.billing_portal.sessions.create.side_effect = Exception("rate limited")
+    import pytest as _pytest
+    with patch.object(sb, "_client", return_value=fake2), _pytest.raises(Exception):
+        asyncio.run(sb.create_portal_url("cus_A"))
+    fake2.billing_portal.configurations.create.assert_not_called()
+
+
+def test_portal_endpoint_shows_friendly_page_not_500():
+    # If Stripe is truly down, a paying user clicking "Manage billing" gets a
+    # branded explanation with a way back — never a bare 500 dead end.
+    from src.dashboard import api
+    assert "support@highlightz.app" in api._PORTAL_ERROR_HTML
+    assert 'href="/"' in api._PORTAL_ERROR_HTML
+    assert '<meta name="robots" content="noindex">' in api._PORTAL_ERROR_HTML

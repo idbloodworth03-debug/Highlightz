@@ -1271,6 +1271,24 @@ async def billing_checkout(request: Request, plan: str = "pro"):
     return RedirectResponse(url)
 
 
+# Shown when Stripe refuses to open a portal session even after the
+# self-healing retry in create_portal_url. A raw 500 here strands paying
+# users with no way back — this page is the never-a-dead-end fallback.
+_PORTAL_ERROR_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Billing portal unavailable</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b12;color:#e8e8f0;font:15px/1.6 'Sora',system-ui,sans-serif;text-align:center}
+.card{max-width:420px;padding:40px 32px;background:#14141f;border:1px solid #26263a;border-radius:16px}
+h1{font-size:19px;margin:0 0 10px}p{color:#9a9aae;margin:0 0 22px}
+a{display:inline-block;padding:11px 22px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#a855f7);
+color:#fff;text-decoration:none;font-weight:600}</style></head><body><div class="card">
+<h1>Billing portal is temporarily unavailable</h1>
+<p>Your subscription is fine — nothing has changed. Please try again in a few
+minutes, or email <b>support@highlightz.app</b> and we'll sort it out.</p>
+<a href="/">Back to dashboard</a></div></body></html>"""
+
+
 @app.get("/billing/portal")
 async def billing_portal(request: Request):
     """Open the Stripe Customer Portal so users can manage / cancel."""
@@ -1280,10 +1298,14 @@ async def billing_portal(request: Request):
     user = user_store.get_by_id(uid)
     if not user or not user.get("stripe_customer_id"):
         return RedirectResponse("/billing/checkout")
-    url = await stripe_billing.create_portal_url(user["stripe_customer_id"])
+    try:
+        url = await stripe_billing.create_portal_url(user["stripe_customer_id"])
+    except Exception as exc:
+        log.error("stripe_portal_failed", user=uid, error=str(exc))
+        return HTMLResponse(_PORTAL_ERROR_HTML, status_code=502)
     if not url.startswith("https://billing.stripe.com/"):
         log.error("stripe_portal_url_unexpected", url=url[:64])
-        raise HTTPException(status_code=502, detail="Unexpected billing portal URL")
+        return HTMLResponse(_PORTAL_ERROR_HTML, status_code=502)
     return RedirectResponse(url)
 
 
