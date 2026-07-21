@@ -79,8 +79,16 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
   (VOD screen shows an upgrade card for Starter — gate placed AFTER hooks,
   React hook-order). Admins and admin-granted trials get Pro features.
   Checkout: /billing/checkout?plan=starter|pro; plan SWITCHING for active
-  subscribers goes through the Stripe portal (enable plan switching between
-  the two prices in portal settings). Paywall + landing show both tiers.
+  subscribers goes through the Stripe portal. Paywall + landing show both
+  tiers. The portal is **self-configuring**: if the Stripe account has no
+  saved Customer Portal configuration (sessions.create fails account-wide
+  until one exists — this is why "Manage billing" used to 500),
+  create_portal_url builds one via the API (cancel at period end, card
+  update, invoice history, Starter↔Pro switching when both price ids are
+  set) and retries once, caching the config id. If Stripe still fails,
+  /billing/portal renders a branded "temporarily unavailable" page with a
+  back link — never a raw 500. No dashboard portal setup is required
+  anymore; a manually saved config, if one exists, is used untouched.
 - **Billed immediately. There is NO self-serve free trial.**
   trial_period_days, the trial-claims ledger (`trial_claims.json` helpers),
   and every "7 days free" promise were removed from checkout, landing,
