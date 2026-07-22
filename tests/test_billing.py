@@ -293,3 +293,18 @@ def test_portal_endpoint_shows_friendly_page_not_500():
     assert "support@highlightz.app" in api._PORTAL_ERROR_HTML
     assert 'href="/"' in api._PORTAL_ERROR_HTML
     assert '<meta name="robots" content="noindex">' in api._PORTAL_ERROR_HTML
+
+
+def test_portal_explains_no_billing_accounts():
+    # Admin/trainer/trial accounts have access but no Stripe customer. The old
+    # chain (portal → checkout → 'active' guard → dashboard) silently looped,
+    # which looked like a broken Manage-billing button. They now get a page
+    # that says there's nothing to manage.
+    from src.dashboard import api
+    assert "no subscription to manage" in api._PORTAL_NO_BILLING_HTML
+    assert 'href="/"' in api._PORTAL_NO_BILLING_HTML
+    # And the loop's ingredients are locked: admins are minted 'active' with
+    # no stripe_customer_id, which is exactly the case the page covers.
+    import inspect
+    src = inspect.getsource(api.billing_portal)
+    assert "_PORTAL_NO_BILLING_HTML" in src and "is_labeler" in src

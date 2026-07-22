@@ -1288,6 +1288,20 @@ color:#fff;text-decoration:none;font-weight:600}</style></head><body><div class=
 minutes, or email <b>support@highlightz.app</b> and we'll sort it out.</p>
 <a href="/">Back to dashboard</a></div></body></html>"""
 
+# Shown to accounts with access but no Stripe subscription behind it (admin,
+# trainer, admin-granted trial). Their old path silently bounced portal →
+# checkout → dashboard, which looked like a broken button.
+_PORTAL_NO_BILLING_HTML = _PORTAL_ERROR_HTML.replace(
+    "<h1>Billing portal is temporarily unavailable</h1>",
+    "<h1>No billing on this account</h1>",
+).replace(
+    "<p>Your subscription is fine — nothing has changed. Please try again in a few\n"
+    "minutes, or email <b>support@highlightz.app</b> and we'll sort it out.</p>",
+    "<p>This account's access is granted in-app (admin, trainer, or trial) — it "
+    "isn't billed through Stripe, so there's no subscription to manage or "
+    "cancel. Paying subscribers land in the Stripe billing portal here.</p>",
+)
+
 
 @app.get("/billing/portal")
 async def billing_portal(request: Request):
@@ -1297,6 +1311,14 @@ async def billing_portal(request: Request):
     uid  = _current_user_id(request)
     user = user_store.get_by_id(uid)
     if not user or not user.get("stripe_customer_id"):
+        # No Stripe customer behind this account. If it nonetheless has access
+        # (admin / trainer / app-managed trial — status is set without Stripe),
+        # say so plainly: bouncing them into checkout used to loop straight
+        # back to the dashboard, which read as a broken button. Accounts
+        # WITHOUT access really are would-be subscribers → send to checkout.
+        if user and (user.get("is_admin") or user.get("is_labeler")
+                     or user.get("subscription_status") in ("active", "trialing")):
+            return HTMLResponse(_PORTAL_NO_BILLING_HTML)
         return RedirectResponse("/billing/checkout")
     try:
         url = await stripe_billing.create_portal_url(user["stripe_customer_id"])
