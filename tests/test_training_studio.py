@@ -33,11 +33,9 @@ def test_score_record_pairs_human_with_hidden_bot_signals(tmp_path, monkeypatch)
                             {"type": "AUDIO_SPIKE", "value": 0.4}],
     }
     rec = api._record_human_score(clip, "u1", "alice",
-                                  {"chat_velocity": 9, "keyword": 2,
-                                   "sentiment": 5, "audio": 7, "virality": 8})
+                                  {"sentiment": 5, "audio": 7, "virality": 8})
     # Human sliders stored as ints, bot side joined without ever being shown.
-    assert rec["human"] == {"chat_velocity": 9, "keyword": 2, "sentiment": 5,
-                            "audio": 7, "virality": 8}
+    assert rec["human"] == {"sentiment": 5, "audio": 7, "virality": 8}
     assert rec["bot_virality_score"] == 41.0   # paired for the virality dimension
     assert rec["bot_signals"] == {"CHAT_VELOCITY": 0.83, "AUDIO_SPIKE": 0.4}
     assert rec["bot_trigger_score"] == 77.7
@@ -66,3 +64,12 @@ def test_spearman_sanity():
     assert spearman([1, 2, 3, 4], [10, 20, 30, 40]) == pytest.approx(1.0)   # perfect
     assert spearman([1, 2, 3, 4], [40, 30, 20, 10]) == pytest.approx(-1.0)  # inverted
     assert spearman([1, 2], [2, 1]) is None                                 # too thin
+
+
+def test_train_dimensions_exclude_unjudgeable_signals():
+    # Chat velocity and keyword hits were removed from the sliders: a human
+    # can't honestly rate message-rate spikes from watching a 30s clip, so
+    # those scores were noise. Only watchable dimensions remain.
+    assert set(api._TRAIN_DIMENSIONS) == {"sentiment", "audio"}
+    fields = set(api._TrainScoreRequest.model_fields)
+    assert fields == {"clip_id", "sentiment", "audio", "virality"}

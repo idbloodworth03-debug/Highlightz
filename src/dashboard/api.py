@@ -999,20 +999,24 @@ async def feedback_unread_count(request: Request):
 
 
 # ── Blind training studio ─────────────────────────────────────────────────────
-# Team-only (owner + labelers): humans score clips 1-10 on the four core
-# dimensions WITHOUT seeing the bot's numbers. The bot's signal vector is
+# Team-only (owner + labelers): humans score clips 1-10 on the dimensions a
+# human can actually judge from watching (sentiment, audio, virality) WITHOUT
+# seeing the bot's numbers. Chat velocity and keyword hits were dropped from
+# the sliders on purpose: they're the least important to calibrate and nearly
+# impossible for a human to rate honestly from a 30s clip (you'd be guessing
+# at message rates, which just adds noise to the dataset). Historical records
+# that include those keys remain valid — the analyzer reads whatever is there. The bot's signal vector is
 # joined to each submission SERVER-SIDE at save time, so the human/bot pairing
 # exists in the dataset without ever being shown to the scorer. The eventual
 # goal: enough paired data to fit the signal weights on human judgment.
 
 _HUMAN_SCORES_FILE = Path(settings.local_storage_path) / "human_scores.jsonl"
 
-# The four dimensions a labeler scores, matched to the bot's signal keys.
+# The signal dimensions a labeler scores, matched to the bot's signal keys.
+# (Virality is scored too but pairs with bot_virality_score, not a signal.)
 _TRAIN_DIMENSIONS = {
-    "chat_velocity": "CHAT_VELOCITY",
-    "keyword":       "KEYWORD",
-    "sentiment":     "SENTIMENT",
-    "audio":         "AUDIO_SPIKE",
+    "sentiment": "SENTIMENT",
+    "audio":     "AUDIO_SPIKE",
 }
 
 
@@ -1108,11 +1112,9 @@ async def training_queue(request: Request):
 
 class _TrainScoreRequest(BaseModel):
     clip_id: str
-    chat_velocity: int = Field(ge=1, le=10)
-    keyword:       int = Field(ge=1, le=10)
-    sentiment:     int = Field(ge=1, le=10)
-    audio:         int = Field(ge=1, le=10)
-    virality:      int = Field(ge=1, le=10)
+    sentiment: int = Field(ge=1, le=10)
+    audio:     int = Field(ge=1, le=10)
+    virality:  int = Field(ge=1, le=10)
 
 
 @app.post("/training/score", status_code=201)

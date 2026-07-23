@@ -1236,16 +1236,16 @@ const HEAD={streams:['Live Streams','Monitor active streams and per-channel anal
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
   // (scores, signals, even the generated title), so the human rates the clip
-  // on the four core dimensions with zero anchoring. The server pairs each
-  // submission with the bot's hidden signal vector at save time.
+  // with zero anchoring. The server pairs each submission with the bot's
+  // hidden signal vector at save time. Only dimensions a human can honestly
+  // judge from watching: chat velocity and keyword sliders were removed —
+  // guessing at message rates just polluted the dataset.
   const DIMS = [
-    ['chat_velocity','Chat velocity','How hard did chat pop off?'],
-    ['keyword','Keyword hits','Hype words, "clip it" energy?'],
     ['sentiment','Sentiment','How emotionally charged?'],
     ['audio','Audio spike','How loud / reactive was it?'],
     ['virality','Virality','Would this travel — shareable, meme-able, clip-worthy?'],
   ];
-  const FRESH = {chat_velocity:5,keyword:5,sentiment:5,audio:5,virality:5};
+  const FRESH = {sentiment:5,audio:5,virality:5};
   const [queue, setQueue] = useState(null);
   const [stats, setStats] = useState(null);
   const [idx, setIdx] = useState(0);

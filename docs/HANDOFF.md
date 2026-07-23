@@ -216,8 +216,12 @@ NOT admin; labelers bypass the billing gate — they're the owner's team) shows
 a Training nav item. The screen serves the labeler's own clips BLIND —
 `/training/queue` strips trigger_score, signals, virality, review status and
 even the generated clip_title (titles name the bot's dominant signal). The
-human rates 1-10 sliders on the four core dimensions (chat velocity,
-keywords, sentiment, audio); `/training/score` joins the bot's hidden signal
+human rates 1-10 sliders on the dimensions a viewer can actually judge:
+sentiment, audio, and virality. (Chat-velocity and keyword sliders were
+REMOVED 2026-07-23 at the owner's request — humans can't honestly rate
+message-rate spikes from a 30s clip, so those scores were dataset noise.
+Historical records keep the old keys; the analyzer reads whichever keys a
+record has.) `/training/score` joins the bot's hidden signal
 vector + scores SERVER-SIDE at save time into `clips/human_scores.jsonl`
 (append-only, one score per clip per labeler, auto-included in backups).
 Analysis: `venv/bin/python -m src.maintenance.analyze_human_scores` —
