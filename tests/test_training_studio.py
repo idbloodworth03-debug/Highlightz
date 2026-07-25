@@ -82,3 +82,26 @@ def test_training_queue_is_oldest_first():
     src = inspect.getsource(api.training_queue)
     assert "reverse=True" not in src
     assert 'sort(key=lambda c: c.get("created_at") or 0)' in src
+
+
+def test_training_queue_excludes_already_reviewed_clips(monkeypatch, tmp_path):
+    # A clip the labeler approved/rejected in Clip Review has been watched with
+    # the bot's numbers visible — it can never be scored blind. Only unreviewed
+    # clips belong in the queue.
+    import asyncio
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(api, "_HUMAN_SCORES_FILE", tmp_path / "human_scores.jsonl")
+    monkeypatch.setattr(api, "_clips", {
+        "a": {"id": "a", "user_id": "u1", "status": "pending",  "created_at": 3,
+              "trigger_signals": [{"type": "SENTIMENT", "value": 0.5}]},
+        "b": {"id": "b", "user_id": "u1", "status": "approved", "created_at": 1,
+              "trigger_signals": [{"type": "SENTIMENT", "value": 0.5}]},
+        "c": {"id": "c", "user_id": "u1", "status": "rejected", "created_at": 2,
+              "trigger_signals": [{"type": "SENTIMENT", "value": 0.5}]},
+        "d": {"id": "d", "user_id": "u1", "status": "pending",  "created_at": 1,
+              "trigger_signals": [{"type": "SENTIMENT", "value": 0.5}]},
+    })
+    monkeypatch.setattr(api, "_require_labeler", lambda request: "u1")
+    queue = asyncio.run(api.training_queue(MagicMock()))
+    # Reviewed clips (b approved, c rejected) are gone; the rest oldest-first.
+    assert [c["id"] for c in queue] == ["d", "a"]

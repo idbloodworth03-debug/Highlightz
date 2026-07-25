@@ -1097,15 +1097,18 @@ def _record_human_score(clip: dict, labeler_id: str, labeler_name: str,
 async def training_queue(request: Request):
     """Blind list of this labeler's not-yet-scored clips (their own account's
     clips with a signal vector — VOD moments without signals carry no pairing
-    value). Oldest first — trainers work chronologically from the first clip
-    taken, so the backlog drains in capture order instead of newest clips
-    jumping the line."""
+    value). Clips already reviewed (approved/rejected) are excluded: the
+    labeler has watched and judged those in Clip Review, so they can't be
+    scored blind anymore. Oldest first — trainers work chronologically from
+    the first clip taken, so the backlog drains in capture order instead of
+    newest clips jumping the line."""
     uid = _require_labeler(request)
     scored = _human_scored_pairs()
     queue = [
         _blind_clip_view(c) for c in _clips.values()
         if c.get("user_id") == uid
         and (c.get("trigger_signals") or [])
+        and c.get("status") not in ("approved", "rejected")
         and (c.get("id"), uid) not in scored
     ]
     queue.sort(key=lambda c: c.get("created_at") or 0)
