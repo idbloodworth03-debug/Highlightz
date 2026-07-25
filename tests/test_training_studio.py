@@ -73,3 +73,12 @@ def test_train_dimensions_exclude_unjudgeable_signals():
     assert set(api._TRAIN_DIMENSIONS) == {"sentiment", "audio"}
     fields = set(api._TrainScoreRequest.model_fields)
     assert fields == {"clip_id", "sentiment", "audio", "virality"}
+
+
+def test_training_queue_is_oldest_first():
+    # Trainers score chronologically from the first clip taken — the backlog
+    # drains in capture order, newest clips don't jump the line.
+    import inspect
+    src = inspect.getsource(api.training_queue)
+    assert "reverse=True" not in src
+    assert 'sort(key=lambda c: c.get("created_at") or 0)' in src
