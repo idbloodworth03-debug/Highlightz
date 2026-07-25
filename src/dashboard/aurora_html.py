@@ -75,13 +75,16 @@ button{font-family:inherit;cursor:pointer}
 .rd-addrow{display:flex;gap:8px}
 .rd-suggwrap{position:relative;flex:1;min-width:0;display:flex}
 .rd-suggwrap .rd-input{width:100%}
-.rd-sugg{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:60;background:#101016;
+.rd-sugg{position:absolute;top:calc(100% + 6px);left:0;z-index:60;background:#101016;
   border:1px solid var(--hair-2);border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.55);
-  max-height:320px;overflow-y:auto;padding:6px}
+  max-height:320px;overflow-y:auto;overflow-x:hidden;padding:6px;
+  /* Wider than the input on purpose: names + LIVE + viewers/game must fit on
+     one line with no horizontal scrolling. Caps to the viewport on phones. */
+  width:340px;max-width:calc(100vw - 44px)}
 .rd-sugglabel{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);padding:7px 9px 3px}
 .rd-suggitem{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--fg)}
 .rd-suggitem:hover{background:rgba(255,255,255,.06)}
-.rd-suggitem .meta{margin-left:auto;color:var(--fg-3);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;flex-shrink:0}
+.rd-suggitem .meta2{color:var(--fg-3);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-sugglive{font-size:9.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:#e91916;border-radius:4px;padding:1px 5px;flex-shrink:0}
 .rd-suggempty{padding:12px 9px;font-size:12.5px;color:var(--fg-3)}
 .rd-input{flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
@@ -1026,10 +1029,14 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
                     (sugg.results||[]).length
                       ? (sugg.results||[]).map(r=>(
                           <div key={r.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(r.login);}}>
-                            {r.avatar ? <img src={r.avatar} alt="" style={{width:20,height:20,borderRadius:'50%',flexShrink:0}}/> : <span style={{width:20,flexShrink:0}}/>}
-                            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name||r.login}</span>
-                            {r.is_live && <span className="rd-sugglive">LIVE</span>}
-                            <span className="meta">{r.game||''}</span>
+                            {r.avatar ? <img src={r.avatar} alt="" style={{width:22,height:22,borderRadius:'50%',flexShrink:0}}/> : <span style={{width:22,flexShrink:0}}/>}
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name||r.login}</span>
+                                {r.is_live && <span className="rd-sugglive">LIVE</span>}
+                              </div>
+                              {r.game ? <div className="meta2">{r.game}</div> : null}
+                            </div>
                           </div>))
                       : <div className="rd-suggempty">No channels found</div>
                   ) : (
@@ -1045,9 +1052,13 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
                         <div className="rd-sugglabel">Popular right now</div>
                         {(sugg.popular||[]).map(p=>(
                           <div key={'p'+p.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(p.login);}}>
-                            <span className="rd-sugglive">LIVE</span>
-                            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||p.login}</span>
-                            <span className="meta">{fmtViewers(p.viewers)} · {p.game||''}</span>
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||p.login}</span>
+                                <span className="rd-sugglive">LIVE</span>
+                              </div>
+                              <div className="meta2">{fmtViewers(p.viewers)} watching · {p.game||''}</div>
+                            </div>
                           </div>))}
                       </>}
                       {!(sugg.recent||[]).length && !(sugg.popular||[]).length &&
