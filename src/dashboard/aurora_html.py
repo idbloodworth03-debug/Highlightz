@@ -73,6 +73,17 @@ button{font-family:inherit;cursor:pointer}
 .rd-eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
 .rd-count{font-size:11px;font-weight:600;color:var(--fg-2);background:rgba(255,255,255,.05);padding:3px 9px;border-radius:var(--r-pill)}
 .rd-addrow{display:flex;gap:8px}
+.rd-suggwrap{position:relative;flex:1;min-width:0;display:flex}
+.rd-suggwrap .rd-input{width:100%}
+.rd-sugg{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:60;background:#101016;
+  border:1px solid var(--hair-2);border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.55);
+  max-height:320px;overflow-y:auto;padding:6px}
+.rd-sugglabel{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);padding:7px 9px 3px}
+.rd-suggitem{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--fg)}
+.rd-suggitem:hover{background:rgba(255,255,255,.06)}
+.rd-suggitem .meta{margin-left:auto;color:var(--fg-3);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;flex-shrink:0}
+.rd-sugglive{font-size:9.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:#e91916;border-radius:4px;padding:1px 5px;flex-shrink:0}
+.rd-suggempty{padding:12px 9px;font-size:12.5px;color:var(--fg-3)}
 .rd-input{flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
   color:var(--fg);font-size:13px;padding:11px 13px;outline:none;transition:.18s}
 .rd-input::placeholder{color:var(--fg-3)}
@@ -490,6 +501,7 @@ button{font-family:inherit;cursor:pointer}
   .rd-toolbar{flex-wrap:wrap;gap:8px}
   .rd-addrow{flex-wrap:wrap}
   .rd-addrow .rd-input{flex:1 1 100%}
+  .rd-addrow .rd-suggwrap{flex:1 1 100%}
   .rd-addrow .rd-select{flex:1}
   .rd-grid{grid-template-columns:1fr}
   /* Scrolling content must never hide under the fixed bottom nav — including
@@ -952,7 +964,27 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [chanFilter, setChanFilter] = useState('all');
-  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');} };
+  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');setSuggOpen(false);} };
+  // Streamer suggestions: zero state = recently monitored + popular-now;
+  // typing = Twitch partial-name search (debounced). Twitch-only — the data
+  // source is Helix, so the dropdown stays away on other platforms.
+  const [sugg, setSugg] = useState(null);
+  const [suggOpen, setSuggOpen] = useState(false);
+  const suggT = useRef(null);
+  const canSugg = activePlatform === 'twitch';
+  const fetchSugg = (q) => {
+    fetch('/streams/suggest' + (q ? '?q=' + encodeURIComponent(q) : ''))
+      .then(r => r.ok ? r.json() : null).then(d => { if(d) setSugg(d); }).catch(()=>{});
+  };
+  const onChInput = (v) => {
+    setCh(v);
+    if (!canSugg) return;
+    setSuggOpen(true);
+    clearTimeout(suggT.current);
+    suggT.current = setTimeout(() => fetchSugg(v.trim()), v.trim() ? 250 : 0);
+  };
+  const pick = (login) => { onAdd(login, preset, activePlatform); setCh(''); setSuggOpen(false); };
+  const fmtViewers = (v) => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '' + v;
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
   const approved = clipsArr.filter(c=>c.status==='approved').length;
@@ -978,7 +1010,49 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
         <div className="rd-rail glass" style={{flex:'0 0 auto'}}>
           <div className="rd-eyebrow">Add a stream</div>
           <div className="rd-addrow">
-            <input className="rd-input" placeholder="channel name" value={ch} onChange={e=>setCh(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/>
+            <div className="rd-suggwrap">
+              <input className="rd-input" placeholder="search a streamer" value={ch}
+                onChange={e=>onChInput(e.target.value)}
+                onFocus={()=>{ if(canSugg){ setSuggOpen(true); fetchSugg(ch.trim()); } }}
+                onBlur={()=>setTimeout(()=>setSuggOpen(false),150)}
+                onKeyDown={e=>{ if(e.key==='Enter') add(); if(e.key==='Escape') setSuggOpen(false); }}/>
+              {suggOpen && sugg && (
+                <div className="rd-sugg">
+                  {ch.trim() ? (
+                    (sugg.results||[]).length
+                      ? (sugg.results||[]).map(r=>(
+                          <div key={r.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(r.login);}}>
+                            {r.avatar ? <img src={r.avatar} alt="" style={{width:20,height:20,borderRadius:'50%',flexShrink:0}}/> : <span style={{width:20,flexShrink:0}}/>}
+                            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name||r.login}</span>
+                            {r.is_live && <span className="rd-sugglive">LIVE</span>}
+                            <span className="meta">{r.game||''}</span>
+                          </div>))
+                      : <div className="rd-suggempty">No channels found</div>
+                  ) : (
+                    <>
+                      {(sugg.recent||[]).length > 0 && <>
+                        <div className="rd-sugglabel">Recently monitored</div>
+                        {(sugg.recent||[]).map(c=>(
+                          <div key={'r'+c} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(c);}}>
+                            <Icon name="clock" size={13}/><span style={{fontWeight:600}}>{c}</span>
+                          </div>))}
+                      </>}
+                      {(sugg.popular||[]).length > 0 && <>
+                        <div className="rd-sugglabel">Popular right now</div>
+                        {(sugg.popular||[]).map(p=>(
+                          <div key={'p'+p.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(p.login);}}>
+                            <span className="rd-sugglive">LIVE</span>
+                            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||p.login}</span>
+                            <span className="meta">{fmtViewers(p.viewers)} · {p.game||''}</span>
+                          </div>))}
+                      </>}
+                      {!(sugg.recent||[]).length && !(sugg.popular||[]).length &&
+                        <div className="rd-suggempty">Type a channel name to search Twitch</div>}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             <select className="rd-select" value={preset} onChange={e=>setPreset(e.target.value)}>
               <option value="default">Default</option>
               <option value="small">Small streamer</option>

@@ -145,6 +145,59 @@ async def create_clip(user_token: str, broadcaster_id: str,
     return None
 
 
+async def search_channels(query: str, first: int = 8) -> list[dict]:
+    """Helix Search Channels — partial-name typeahead for the add-stream box.
+    Returns light rows; [] on any error (suggestions are never worth failing)."""
+    if not query:
+        return []
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await _get_app_token(session)
+            headers = {"Client-Id": settings.twitch_client_id,
+                       "Authorization": f"Bearer {token}"}
+            async with session.get(f"{HELIX_BASE}/search/channels", headers=headers,
+                                   params={"query": query, "first": str(first)}) as resp:
+                if resp.status != 200:
+                    log.warning("channel_search_failed", status=resp.status, query=query)
+                    return []
+                rows = (await resp.json()).get("data", [])
+        return [{
+            "login":   r.get("broadcaster_login", ""),
+            "name":    r.get("display_name", ""),
+            "avatar":  r.get("thumbnail_url", ""),
+            "is_live": bool(r.get("is_live")),
+            "game":    r.get("game_name", ""),
+        } for r in rows if r.get("broadcaster_login")]
+    except Exception as exc:
+        log.warning("channel_search_failed", query=query, error=str(exc))
+        return []
+
+
+async def get_top_streams(first: int = 12) -> list[dict]:
+    """Helix Get Streams — the most-watched live channels right now, for the
+    'popular' zero-state of the add-stream box. [] on any error."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            token = await _get_app_token(session)
+            headers = {"Client-Id": settings.twitch_client_id,
+                       "Authorization": f"Bearer {token}"}
+            async with session.get(f"{HELIX_BASE}/streams", headers=headers,
+                                   params={"first": str(first)}) as resp:
+                if resp.status != 200:
+                    log.warning("top_streams_failed", status=resp.status)
+                    return []
+                rows = (await resp.json()).get("data", [])
+        return [{
+            "login":   r.get("user_login", ""),
+            "name":    r.get("user_name", ""),
+            "game":    r.get("game_name", ""),
+            "viewers": int(r.get("viewer_count") or 0),
+        } for r in rows if r.get("user_login")]
+    except Exception as exc:
+        log.warning("top_streams_failed", error=str(exc))
+        return []
+
+
 async def get_existing_clip_ids(slugs: list[str]) -> set[str] | None:
     """Which of these clip slugs does Twitch still have? Batched Get Clips
     (up to 100 ids per request). Returns the set of ids present, or None if the

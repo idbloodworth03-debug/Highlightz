@@ -1698,6 +1698,46 @@ async def list_streams(request: Request):
     return [s for s in _streams.values() if s.get("user_id") == uid]
 
 
+# Top-live-channels zero-state for the add-stream box, cached so focusing the
+# input doesn't burn Helix rate limit — one upstream call per TTL for everyone.
+_POPULAR_STREAMS_TTL = 300
+_popular_streams_cache: tuple[float, list] = (0.0, [])
+
+
+@app.get("/streams/suggest")
+async def stream_suggestions(request: Request, q: str = ""):
+    """Suggestions for the add-stream box, so users don't have to type exact
+    channel names. With q: Twitch partial-name search. Without q (zero state):
+    the user's previously monitored channels (their profile files, newest
+    activity first) + the most-watched live channels right now. Channels the
+    user already monitors are filtered out of every list."""
+    from src.output import twitch_clips
+    uid = _current_user_id(request)
+    monitored = {(s.get("channel") or "").lower() for s in _streams.values()
+                 if s.get("user_id") == uid}
+    q = q.strip()
+    if q:
+        rows = await twitch_clips.search_channels(q)
+        return {"results": [r for r in rows if r["login"].lower() not in monitored]}
+    recent = []
+    pdir = Path(settings.local_storage_path) / "profiles" / uid
+    try:
+        files = sorted(pdir.glob("*.json"), key=lambda p: p.stat().st_mtime,
+                       reverse=True)
+        recent = [p.stem for p in files if p.stem.lower() not in monitored][:8]
+    except OSError:
+        pass
+    global _popular_streams_cache
+    ts, popular = _popular_streams_cache
+    if time.time() - ts > _POPULAR_STREAMS_TTL:
+        popular = await twitch_clips.get_top_streams()
+        if popular:   # keep serving the stale list through a Helix hiccup
+            _popular_streams_cache = (time.time(), popular)
+    return {"recent": recent,
+            "popular": [p for p in popular
+                        if p["login"].lower() not in monitored][:8]}
+
+
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
