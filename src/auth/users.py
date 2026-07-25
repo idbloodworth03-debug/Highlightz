@@ -298,6 +298,20 @@ def set_labeler(user_id: str, on: bool) -> bool:
     return False
 
 
+def set_admin(user_id: str, on: bool) -> bool:
+    """Grant/revoke full admin: the admin portal, user management, and the
+    permanent billing bypass. Returns True if user found. The caller is
+    responsible for never letting the last admin revoke themselves."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if bool(u.get("is_admin")) != on:
+                u["is_admin"] = on
+                _save(users)
+            return True
+    return False
+
+
 def set_email(user_id: str, email: str) -> None:
     """Record the billing email (from the Stripe customer at activation) —
     powers the duplicate-signup guard and gives support a contact address."""

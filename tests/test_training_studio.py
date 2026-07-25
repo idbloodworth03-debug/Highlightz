@@ -105,3 +105,20 @@ def test_training_queue_excludes_already_reviewed_clips(monkeypatch, tmp_path):
     queue = asyncio.run(api.training_queue(MagicMock()))
     # Reviewed clips (b approved, c rejected) are gone; the rest oldest-first.
     assert [c["id"] for c in queue] == ["d", "a"]
+
+
+def test_admin_flag_roundtrip_and_self_demotion_guard(tmp_path, monkeypatch):
+    from src.auth import users
+    monkeypatch.setattr(users, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(users, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    u = users.create("teammate", "hunter2hunter2")
+    assert users.set_admin(u["id"], True) is True
+    assert users.get_by_id(u["id"])["is_admin"] is True
+    assert users.set_admin(u["id"], False) is True
+    assert users.get_by_id(u["id"])["is_admin"] is False
+    assert users.set_admin("missing", True) is False
+    # The endpoint refuses self-demotion — the last admin must never be able
+    # to lock every admin out of the panel with one misclick.
+    import inspect
+    src = inspect.getsource(api.admin_set_admin)
+    assert "can't revoke your own admin" in src

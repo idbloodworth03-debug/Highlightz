@@ -1175,6 +1175,25 @@ async def admin_set_labeler(request: Request, user_id: str, on: bool = True):
     return {"ok": True, "is_labeler": on}
 
 
+@app.post("/admin/users/{user_id}/admin")
+async def admin_set_admin(request: Request, user_id: str, on: bool = True):
+    """Grant/revoke FULL admin (portal, user management, permanent billing
+    bypass). Self-demotion is refused — an owner clicking the wrong row must
+    never be able to lock every admin out of the panel."""
+    _require_admin(request)
+    if not on and user_id == request.session.get("user_id"):
+        raise HTTPException(status_code=400,
+                            detail="You can't revoke your own admin access")
+    from src.auth import users as user_store
+    if not user_store.set_admin(user_id, on):
+        raise HTTPException(status_code=404, detail="User not found")
+    log.info("admin_set", user_id=user_id, on=on, by=request.session.get("user_id"))
+    # Realtime: the middleware re-reads is_admin from DB per request, so the
+    # promoted user's next /me refetch (triggered by this event) flips their UI.
+    await broadcast({"event": "roles_updated"}, user_id=user_id)
+    return {"ok": True, "is_admin": on}
+
+
 # ── Stripe billing ─────────────────────────────────────────────────────────────
 
 def _paywall_copy(kind: str) -> dict:
@@ -4077,6 +4096,20 @@ async function toggleLabeler(idx) {
   } catch(e) { toast('Error: ' + e.message, false); }
 }
 
+async function toggleAdmin(idx) {
+  const u = _users[idx]; if (!u) return;
+  const on = !u.is_admin;
+  const msg = on
+    ? 'Make ' + u.username + ' a FULL ADMIN? They get the admin portal, control over every user (grant/revoke/delete), and free access. Only do this for someone you completely trust.'
+    : 'Revoke admin access for ' + u.username + '?';
+  if (!confirm(msg)) return;
+  try {
+    await api('/admin/users/' + u.id + '/admin?on=' + on, 'POST');
+    toast(on ? u.username + ' is now an admin' : 'Admin access revoked');
+    load();
+  } catch(e) { toast('Error: ' + e.message, false); }
+}
+
 async function grantTrial(idx, sel) {
   const u = _users[idx]; if (!u) return;
   const days = parseInt(sel.value, 10);
@@ -4125,6 +4158,8 @@ async function stripeSync(idx) {
 }
 
 let _users = [];
+let _meId = '';   // own user id — the self row never gets a Revoke Admin button
+fetch('/me').then(r => r.json()).then(m => { _meId = m.user_id || ''; renderUsers(); }).catch(() => {});
 
 // A user counts as "active" if they have an active or trialing subscription.
 // Admins always show (it's the operator's own accounts).
@@ -4233,6 +4268,8 @@ function renderUsers() {
         (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + idx + ')">Revoke</button>' : '') +
         (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + idx + ')">Stripe Sync</button>' : '') +
         (!isAdmin ? '<button class="btn" style="background:rgba(168,85,247,.15);border-color:rgba(168,85,247,.3);color:#c79bff" onclick="toggleLabeler(' + idx + ')">' + (u.is_labeler ? 'Revoke Trainer' : 'Make Trainer') + '</button>' : '') +
+        (!isAdmin ? '<button class="btn" style="background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.3);color:#fbbf24" onclick="toggleAdmin(' + idx + ')">Make Admin</button>' : '') +
+        (isAdmin && u.id !== _meId ? '<button class="btn btn-delete" onclick="toggleAdmin(' + idx + ')">Revoke Admin</button>' : '') +
         (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + idx + ')">Delete</button>' : '') +
       '</div></td>' +
     '</tr>';
