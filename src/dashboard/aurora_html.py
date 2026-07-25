@@ -1007,7 +1007,11 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   return (
     <div className="rd-body" style={{flex:1}}>
       <aside className="rd-col" style={{minHeight:0}}>
-        <div className="rd-rail glass" style={{flex:'0 0 auto'}}>
+        {/* overflow visible + zIndex: the suggestion dropdown must escape this
+            short rail (.rd-rail clips by default) and paint over the rail
+            below it (both are backdrop-filter stacking contexts, so DOM order
+            would otherwise put the later rail on top). */}
+        <div className="rd-rail glass" style={{flex:'0 0 auto',overflow:'visible',position:'relative',zIndex:5}}>
           <div className="rd-eyebrow">Add a stream</div>
           <div className="rd-addrow">
             <div className="rd-suggwrap">
