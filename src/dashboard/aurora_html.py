@@ -847,13 +847,15 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
   const embed = clip.embed_url || '';
   const twHref = clip.twitch_url || '';
   const thumb = clip.thumbnail_url || '';
-  // Twitch embeds require JS and don't work in many mobile browsers (Error #4000).
-  // On narrow screens fall back to thumbnail + direct link — same as when no embed_url exists.
-  const isMobile = window.innerWidth <= 700;
-  const embedSrc = embed && !isMobile
+  // Inline playback everywhere, phones included. (The old ≤700px thumbnail
+  // fallback dated from Twitch's autoplay-related #4000 mobile error; with
+  // autoplay=false + tap-to-play the embed works on modern mobile browsers,
+  // and the "Player not loading? Watch on Twitch" link below stays as the
+  // escape hatch for any device that still refuses.)
+  const embedSrc = embed
     ? embed + (embed.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
     : '';
-  // With no inline embed (mobile, or no embed_url) the clip can only play on
+  // With no inline embed (no embed_url stored) the clip can only play on
   // Twitch — make the whole media area a tap target so it opens even when the
   // thumbnail image is broken (the old absolutely-positioned play link was an
   // unreliable hit target on mobile once the broken <img> collapsed).
@@ -1380,8 +1382,10 @@ function TrainingScreen() {
     } catch {} finally { setBusy(false); }
   };
   const skip = ()=>{ if(queue&&queue.length) { setIdx(i=>(i+1)%queue.length); setVals({...FRESH}); } };
-  const isMobile = window.innerWidth <= 700;
-  const embedSrc = cur && cur.embed_url && !isMobile
+  // Inline playback on every screen size — trainers score from their phones
+  // too. Tap-to-play (autoplay=false) works on modern mobile browsers; the
+  // Twitch link under the player is the escape hatch, never the only path.
+  const embedSrc = cur && cur.embed_url
     ? cur.embed_url + (cur.embed_url.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
     : '';
   return (
@@ -1412,9 +1416,12 @@ function TrainingScreen() {
                 <span style={{fontSize:12,color:'var(--fg-3)'}}>{new Date((cur.created_at||0)*1000).toLocaleString()}</span>
               </div>
               {embedSrc
-                ? <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
-                    <iframe src={embedSrc} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
-                  </div>
+                ? <>
+                    <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
+                      <iframe src={embedSrc} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
+                    </div>
+                    {cur.twitch_url && <a href={cur.twitch_url} target="_blank" rel="noopener" style={{display:'block',marginTop:6,fontSize:11.5,color:'var(--fg-3)',textDecoration:'none'}}>Player not loading? Watch on Twitch ↗</a>}
+                  </>
                 : <a href={cur.twitch_url||'#'} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>Watch on Twitch ↗</a>}
               <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:14}}>
                 {DIMS.map(([key,label,hint])=>(
