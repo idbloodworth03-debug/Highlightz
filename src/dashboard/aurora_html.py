@@ -864,6 +864,11 @@ function parseSecs(str) {
 }
 
 function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFeature }) {
+  // Retry counter for the Twitch iframe. Declared BEFORE the null-clip early
+  // return: hooks must run on every render or React errors when the modal
+  // opens (same trap documented on the VOD plan gate).
+  const [playerTry, setPlayerTry] = useState(0);
+  useEffect(()=>{ setPlayerTry(0); },[clip&&clip.id]);
   if (!clip) return null;
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
@@ -898,7 +903,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
         <div className="rd-modal-media" style={canLinkOut?{cursor:'pointer'}:undefined} onClick={canLinkOut?openClip:undefined}>
           {embedSrc
-            ? <iframe src={embedSrc} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
+            ? <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : thumb
               ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
@@ -906,7 +911,11 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
           <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         </div>
 
-        {embedSrc && twHref && <a href={twHref} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'9px 12px',fontSize:12.5,color:'#a5b4fc',textDecoration:'none',background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>Player not loading? Watch on Twitch ↗</a>}
+        {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'9px 12px',fontSize:12.5,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+          <span style={{color:'var(--fg-3)'}}>Player showing an error?</span>
+          <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
+          {twHref && <a href={twHref} target="_blank" rel="noopener" style={{color:'#a5b4fc',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
+        </div>}
 
         <div className="rd-modal-body">
           <div className="rd-modal-head">
@@ -1367,6 +1376,7 @@ function TrainingScreen() {
   const [idx, setIdx] = useState(0);
   const [vals, setVals] = useState({...FRESH});
   const [busy, setBusy] = useState(false);
+  const [playerTry, setPlayerTry] = useState(0);
   const loadStats = ()=>fetch('/training/stats').then(r=>r.ok?r.json():null).then(setStats).catch(()=>{});
   const load = ()=>{
     fetch('/training/queue').then(r=>r.ok?r.json():[]).then(q=>{setQueue(q);setIdx(0);}).catch(()=>setQueue([]));
@@ -1406,7 +1416,7 @@ function TrainingScreen() {
       }
     } catch {} finally { setBusy(false); }
   };
-  const skip = ()=>{ if(queue&&queue.length) { setIdx(i=>(i+1)%queue.length); setVals({...FRESH}); } };
+  const skip = ()=>{ if(queue&&queue.length) { setIdx(i=>(i+1)%queue.length); setVals({...FRESH}); setPlayerTry(0); } };
   // Inline playback on every screen size — trainers score from their phones
   // too. Tap-to-play (autoplay=false) works on modern mobile browsers; the
   // Twitch link under the player is the escape hatch, never the only path.
@@ -1443,9 +1453,13 @@ function TrainingScreen() {
               {embedSrc
                 ? <>
                     <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
-                      <iframe src={embedSrc} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
+                      <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
                     </div>
-                    {cur.twitch_url && <a href={cur.twitch_url} target="_blank" rel="noopener" style={{display:'block',marginTop:6,fontSize:11.5,color:'var(--fg-3)',textDecoration:'none'}}>Player not loading? Watch on Twitch ↗</a>}
+                    <div style={{display:'flex',alignItems:'center',gap:12,marginTop:8,fontSize:11.5,color:'var(--fg-3)'}}>
+                      <span>Player showing an error?</span>
+                      <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
+                      {cur.twitch_url && <a href={cur.twitch_url} target="_blank" rel="noopener" style={{color:'#a5b4fc',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
+                    </div>
                   </>
                 : <a href={cur.twitch_url||'#'} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>Watch on Twitch ↗</a>}
               <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:14}}>
