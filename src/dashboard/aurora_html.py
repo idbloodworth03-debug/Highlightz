@@ -242,6 +242,8 @@ button{font-family:inherit;cursor:pointer}
 .rd-navitem.active .ic{color:var(--acc)}
 .rd-navitem .ic,.rd-navitem span{position:relative;z-index:1}
 .rd-nav .sp{flex:1}
+/* Drawer affordances exist only at the mobile breakpoint (see @media below). */
+.rd-menubtn,.rd-navscrim{display:none}
 .rd-nav .navbadge{position:absolute;top:7px;right:9px;min-width:16px;height:16px;padding:0 4px;
   border-radius:99px;background:var(--grad);color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;z-index:2}
 .rd-header .htitle{font-size:18px;font-weight:700;letter-spacing:-.02em}
@@ -343,22 +345,41 @@ button{font-family:inherit;cursor:pointer}
   body{overflow:auto}
   .rd-app{grid-template-columns:1fr;height:auto;min-height:100dvh}
   .rd-frame{min-height:0;overflow:visible}
-  .rd-screen{overflow:visible;padding-bottom:70px}
+  /* No bottom bar to clear anymore — content runs to the bottom of the screen. */
+  .rd-screen{overflow:visible;padding-bottom:16px}
+  .rd-navscrim{display:block}
 
-  /* Vertical nav → bottom tab bar */
-  .rd-nav{position:fixed;bottom:0;left:0;right:0;z-index:20;
-    flex-direction:row;height:58px;padding:0 4px;gap:0;
-    border-right:none;border-top:1px solid var(--hair);
-    justify-content:space-around;align-items:center}
-  .rd-nav .logo{display:none}
-  .rd-nav .sp{display:none}
-  .rd-navitem{flex:1;width:auto;height:50px;border-radius:12px;font-size:9px;gap:2px}
+  /* Vertical nav → slide-out drawer. The old bottom tab bar cost 58px of
+     every screen and squeezed 9 tabs into it; the drawer gives the content
+     the full viewport and each destination a full-width row. */
+  .rd-nav{position:fixed;top:0;bottom:0;left:0;z-index:60;width:268px;max-width:82vw;
+    flex-direction:column;align-items:stretch;gap:4px;padding:18px 12px calc(18px + env(safe-area-inset-bottom));
+    border-right:1px solid var(--hair);border-top:none;overflow-y:auto;
+    background:#0c0c12;
+    transform:translateX(-102%);transition:transform .26s cubic-bezier(.4,0,.2,1);
+    box-shadow:0 0 40px rgba(0,0,0,.6)}
+  .rd-nav.open{transform:translateX(0)}
+  .rd-nav .logo{display:flex;justify-content:center;margin-bottom:14px}
+  .rd-nav .sp{flex:1;display:block;min-height:10px}
+  .rd-navitem{width:auto;height:auto;min-height:48px;flex-direction:row;justify-content:flex-start;
+    align-items:center;gap:12px;padding:0 14px;border-radius:12px;font-size:14px;font-weight:600;text-align:left}
+  /* Badge is first in DOM (absolute on desktop); in the row layout it belongs
+     at the end — order:3 keeps it there instead of shoving the icon/label right. */
+  .rd-navitem .navbadge{position:static;order:3;margin-left:auto}
+  /* Scrim: tap anywhere off the drawer to dismiss. */
+  .rd-navscrim{position:fixed;inset:0;z-index:59;background:rgba(0,0,0,.55);
+    opacity:0;pointer-events:none;transition:opacity .26s ease;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+  .rd-navscrim.open{opacity:1;pointer-events:auto}
+  .rd-menubtn{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
+    flex-shrink:0;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--hair);
+    color:var(--fg);cursor:pointer}
 
   /* Frame: let grid rows auto-size for page scroll */
   .rd-frame{grid-template-rows:56px auto}
 
   /* Header */
   .rd-header{padding:0 12px;gap:10px;height:56px}
+  .rd-menubtn{display:inline-flex}
   .rd-header .htitle{font-size:15px}
   .rd-header .hsub{display:none}
   .rd-header .rd-live{display:none}
@@ -401,8 +422,8 @@ button{font-family:inherit;cursor:pointer}
   .rd-user-chip .uc-name{display:none}
   .rd-user-chip{padding:2px;gap:0}
 
-  /* Toast: above bottom nav */
-  .rd-toast{bottom:70px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
+  /* Toast: no bottom bar to sit above now */
+  .rd-toast{bottom:20px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
 }
 /* ═══ Aurora v2 — pure-CSS visual layer. Appended last so it wins at equal
    specificity; NO markup/logic depends on it. Theme-aware: every accent is
@@ -507,11 +528,14 @@ button{font-family:inherit;cursor:pointer}
   .rd-addrow .rd-suggwrap{flex:1 1 100%}
   .rd-addrow .rd-select{flex:1}
   .rd-grid{grid-template-columns:1fr}
-  /* Scrolling content must never hide under the fixed bottom nav — including
-     the internally-scrolling stream-detail and channel-list columns */
-  .rd-body,.rd-scroll,.rd-streams-layout{padding-bottom:78px}
-  .rd-detail,.rd-chanlist{padding-bottom:84px}
-  .rd-nav{z-index:30}
+  /* The bottom nav is gone (drawer now), so scrolling content keeps only a
+     small breathing gap instead of reserving a whole tab bar's height. */
+  .rd-body,.rd-scroll,.rd-streams-layout{padding-bottom:18px}
+  .rd-detail,.rd-chanlist{padding-bottom:18px}
+  /* Opaque drawer: the aurora layer above gives .rd-nav a translucent
+     gradient, which would let page content read through a panel that now
+     floats OVER the content instead of sitting beside it. */
+  .rd-nav{background:#0c0c12}
   /* First-run welcome card: phone-comfortable padding */
   .wm-card{padding:26px 20px !important;border-radius:18px !important}
   /* Toolbars: the two filter groups (status + sort) must wrap, not push wide */
@@ -541,6 +565,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
   const P = {
     check: <polyline points="20 6 9 17 4 12"/>,
     x: <><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>,
+    menu: <><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></>,
     play: <polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>,
     plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
     zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
@@ -2002,6 +2027,9 @@ function UnderConstruction() {
 
 function RdApp() {
   const [route, setRoute] = useState('review');
+  // Mobile nav drawer. Desktop CSS ignores the class entirely (the rail is
+  // always visible there), so this state is inert above the breakpoint.
+  const [navOpen, setNavOpen] = useState(false);
   const [welcome, setWelcome] = useState(()=>{ try { return !localStorage.getItem('hz_welcome_seen'); } catch { return false; } });
   const dismissWelcome = () => { try { localStorage.setItem('hz_welcome_seen','1'); } catch {} setWelcome(false); };
   const [streams, setStreams] = useState({});
@@ -2062,6 +2090,16 @@ function RdApp() {
       flash('Kick connection failed' + (detail ? ': ' + decodeURIComponent(detail) : ' — check server logs'));
       history.replaceState(null,'',location.pathname);
     }
+  },[]);
+
+  // Escape closes the nav drawer, and a resize up to desktop drops the open
+  // state so returning to mobile doesn't reopen it unasked.
+  useEffect(()=>{
+    const onKey = e => { if(e.key==='Escape') setNavOpen(false); };
+    const onResize = () => { if(window.innerWidth > 700) setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    return ()=>{ window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
   },[]);
 
   useEffect(()=>{
@@ -2211,10 +2249,11 @@ function RdApp() {
   return (
     <div className={'rd-app'+(activePlatform==='kick'?' kick-theme':'')} id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
 
-      <nav className="rd-nav">
+      <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
+      <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
         {NAV.filter(n=>!n.labelerOnly||(me&&(me.is_labeler||me.is_admin))).map(n=>(
-          <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>setRoute(n.id)}>
+          <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>{setRoute(n.id);setNavOpen(false);}}>
             {n.id==='review'&&pending>0&&<span className="navbadge">{pending}</span>}
             <span className="ic"><Icon name={n.icon} size={22}/></span>
             <span>{n.label}</span>
@@ -2228,6 +2267,7 @@ function RdApp() {
       </nav>
       <div className="rd-frame">
         <header className="rd-header">
+          <button className="rd-menubtn" aria-label="Menu" onClick={()=>setNavOpen(o=>!o)}><Icon name="menu" size={19}/></button>
           <div><div className="htitle">{HEAD[route][0]}</div><div className="hsub">{HEAD[route][1]}</div></div>
           <div className="spacer"/>
           <div className="plat-switch">
