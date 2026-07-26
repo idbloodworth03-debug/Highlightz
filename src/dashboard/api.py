@@ -2500,7 +2500,10 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
     if any(e.get("id") == clip_id for e in items):
         items = [e for e in items if e.get("id") != clip_id]
         _save_showcase(items)
-        return {"featured": False, "count": len(items)}
+        # Realtime: every admin tab (Landing Page screen, clip modals) mirrors
+        # the curation state, so a change here must reach them without a reload.
+        await broadcast({"event": "showcase_updated"})
+        return {"featured": False, "count": len(items), "max": _SHOWCASE_MAX}
     clip = _clips.get(clip_id)
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
@@ -2508,10 +2511,33 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
         raise HTTPException(status_code=400, detail="Only approved clips can be featured")
     if clip.get("platform") != "twitch" or not clip.get("twitch_url"):
         raise HTTPException(status_code=400, detail="Only Twitch clips can be featured")
+    if len(items) >= _SHOWCASE_MAX:
+        # Refuse rather than silently evicting the oldest — the admin screen
+        # shows the cap, and a surprise drop off the landing page is worse
+        # than an explicit "remove one first".
+        raise HTTPException(
+            status_code=409,
+            detail=f"Landing page is full ({_SHOWCASE_MAX} clips) — remove one first")
     items.append(_showcase_entry(clip))
-    items = items[-_SHOWCASE_MAX:]   # newest N stay
     _save_showcase(items)
-    return {"featured": True, "count": len(items)}
+    await broadcast({"event": "showcase_updated"})
+    return {"featured": True, "count": len(items), "max": _SHOWCASE_MAX}
+
+
+@app.post("/admin/showcase/{clip_id}/move")
+async def admin_move_showcase(request: Request, clip_id: str, dir: str = "up"):
+    """Admin: reorder a featured clip. Landing-page order follows this list."""
+    _require_admin(request)
+    items = _load_showcase()
+    idx = next((i for i, e in enumerate(items) if e.get("id") == clip_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Clip is not featured")
+    swap = idx - 1 if dir == "up" else idx + 1
+    if 0 <= swap < len(items):
+        items[idx], items[swap] = items[swap], items[idx]
+        _save_showcase(items)
+        await broadcast({"event": "showcase_updated"})
+    return {"ok": True, "order": [e.get("id") for e in items]}
 
 
 LANDING_HTML = """<!DOCTYPE html>

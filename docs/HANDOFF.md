@@ -249,6 +249,17 @@ normal Clip Review screen, which still shows scores.
 - CSS traps: `.wrap` (class) beats `section` (type) on the padding
   shorthand — sections use longhand padding. Grid `1fr` means
   minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.
+- **Showcase curation (admin)**: the dashboard has an admin-only **Landing
+  Page** tab (NAV `adminOnly`, `LandingScreen` in aurora_html.py) listing
+  what's live on the marketing page with Remove / ↑ / ↓ plus an "approved
+  clips you can add" list filtered by streamer. Backed by
+  POST /admin/showcase/{id} (toggle) and /admin/showcase/{id}/move?dir=.
+  Cap is `_SHOWCASE_MAX` (8) and adding past it **409s** rather than
+  silently evicting the oldest. Both endpoints broadcast
+  `showcase_updated`; the ws handler re-pulls /landing/showcase so every
+  admin tab (and the clip modal's Feature button) stays in sync. The
+  per-clip Feature button in ClipModal still works — same endpoint.
+  Showcase grid on the landing page is centered flex (partial rows centre).
 - Landing features: animated capture demo, live clips counter
   (/landing/stats, monotonic clip_counter.json), admin-curated showcase
   (/landing/showcase + lightbox), FAQ (10 items — "How does billing work?"

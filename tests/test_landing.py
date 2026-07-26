@@ -150,3 +150,53 @@ def test_delete_and_reject_are_separate_routes():
     routes = {(r.path, m) for r in api.app.routes for m in (getattr(r, "methods", None) or [])}
     assert ("/clips/{clip_id}", "DELETE") in routes
     assert ("/clips/{clip_id}/reject", "POST") in routes
+
+
+def test_showcase_cap_refuses_instead_of_silently_evicting(tmp_path, monkeypatch):
+    # Adding past the cap used to drop the oldest entry silently — a clip
+    # vanishing off the public page with no signal. It now 409s so the admin
+    # screen can say "remove one first".
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import pytest as _pytest
+    monkeypatch.setattr(api, "_SHOWCASE_FILE", tmp_path / "showcase.json")
+    full = [{"id": f"old{i}"} for i in range(api._SHOWCASE_MAX)]
+    api._save_showcase(full)
+    monkeypatch.setattr(api, "_clips", {"new": {"id": "new", "status": "approved",
+                                                "platform": "twitch", "twitch_url": "https://t"}})
+    monkeypatch.setattr(api, "_require_admin", lambda request: None)
+    with patch.object(api, "broadcast", new=AsyncMock()):
+        with _pytest.raises(api.HTTPException) as exc:
+            asyncio.run(api.admin_toggle_showcase(MagicMock(), "new"))
+    assert exc.value.status_code == 409
+    # Nothing was evicted.
+    assert [e["id"] for e in api._load_showcase()] == [f"old{i}" for i in range(api._SHOWCASE_MAX)]
+
+
+def test_showcase_toggle_and_move_broadcast_and_reorder(tmp_path, monkeypatch):
+    # Realtime contract: curation changes must reach open admin tabs, and the
+    # landing page renders showcase order, so move must actually reorder.
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    monkeypatch.setattr(api, "_SHOWCASE_FILE", tmp_path / "showcase.json")
+    api._save_showcase([{"id": "a"}, {"id": "b"}, {"id": "c"}])
+    monkeypatch.setattr(api, "_require_admin", lambda request: None)
+    with patch.object(api, "broadcast", new=AsyncMock()) as bc:
+        out = asyncio.run(api.admin_move_showcase(MagicMock(), "c", dir="up"))
+        assert out["order"] == ["a", "c", "b"]
+        assert bc.await_count == 1
+        assert bc.await_args.args[0]["event"] == "showcase_updated"
+        # Removing an existing entry also broadcasts.
+        res = asyncio.run(api.admin_toggle_showcase(MagicMock(), "a"))
+        assert res["featured"] is False and res["max"] == api._SHOWCASE_MAX
+        assert bc.await_count == 2
+    assert [e["id"] for e in api._load_showcase()] == ["c", "b"]
+    # Moving at the edge is a no-op, not an error.
+    with patch.object(api, "broadcast", new=AsyncMock()):
+        assert asyncio.run(api.admin_move_showcase(MagicMock(), "c", dir="up"))["order"] == ["c", "b"]
+
+
+def test_showcase_admin_routes_exist():
+    routes = {(r.path, m) for r in api.app.routes for m in (getattr(r, "methods", None) or [])}
+    assert ("/admin/showcase/{clip_id}", "POST") in routes
+    assert ("/admin/showcase/{clip_id}/move", "POST") in routes

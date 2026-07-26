@@ -1346,8 +1346,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],training:['Training Studio','Blind-score clips to calibrate the formula'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -1471,6 +1471,84 @@ function TrainingScreen() {
                 <button className="rd-btn sm" disabled={busy} onClick={()=>submit(null)} title="Save the sliders and leave the clip pending for later review">Score only</button>
                 {queue.length>1&&<button className="rd-btn sm" onClick={skip}>Skip</button>}
               </div>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
+function LandingScreen({ clips, featured, onToggle, onMove }) {
+  // Admin-only curation of the public landing page's example clips. Featured
+  // entries come from /landing/showcase (the same payload visitors get), so
+  // what's listed here is literally what the site is showing.
+  const [q, setQ] = useState('');
+  const max = 8;
+  const featuredIds = featured.map(f=>f.id);
+  const eligible = Object.values(clips)
+    .filter(c=>c.status==='approved' && c.platform==='twitch' && c.twitch_url && !featuredIds.includes(c.id))
+    .filter(c=>!q.trim() || (c.channel||'').toLowerCase().includes(q.trim().toLowerCase()))
+    .sort((a,b)=>(b.virality_score||0)-(a.virality_score||0));
+  const full = featured.length >= max;
+  const thumb = (c)=> c.thumbnail_url
+    ? <img src={c.thumbnail_url} alt="" style={{width:96,height:54,objectFit:'cover',borderRadius:8,flexShrink:0,background:'#15111f'}}/>
+    : <div style={{width:96,height:54,borderRadius:8,flexShrink:0,background:'linear-gradient(135deg,#2a1840,#3a1a4d)'}}/>;
+  const row = (c, right)=>(
+    <div key={c.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 12px',borderRadius:12,
+      background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',minWidth:0}}>
+      {thumb(c)}
+      <div style={{minWidth:0,flex:1}}>
+        <div style={{fontWeight:700,fontSize:13.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          {c.clip_title||c.stream_title||'Clip'}</div>
+        <div style={{fontSize:11.5,color:'var(--fg-3)',marginTop:2}}>
+          {c.channel}{c.game?' · '+c.game:''} · {Math.round(c.score||c.trigger_score||0)}% trigger</div>
+      </div>
+      <div style={{display:'flex',gap:6,flexShrink:0}}>{right}</div>
+    </div>
+  );
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title">
+          <h2>On the landing page</h2>
+          <span className="cnt">{featured.length} of {max} slots used</span>
+        </div>
+        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',
+          display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+          <Icon name="trending" size={15}/>
+          <span style={{flex:1,minWidth:220}}>These are the example clips visitors see at
+            highlightz.app. Order here is the order they appear.</span>
+          <a href="/" target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>View live page ↗</a>
+        </div>
+        {featured.length===0
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'34px 24px',marginBottom:22}}>
+              <div className="desc">No clips featured yet — add a few from the list below and the
+                examples section appears on the landing page.</div>
+            </div>
+          : <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:24}}>
+              {featured.map((c,i)=>row(c,<>
+                <button className="rd-btn sm" disabled={i===0} onClick={()=>onMove(c.id,'up')} title="Move up">↑</button>
+                <button className="rd-btn sm" disabled={i===featured.length-1} onClick={()=>onMove(c.id,'down')} title="Move down">↓</button>
+                <button className="rd-btn sm danger" onClick={()=>onToggle(c.id)}>Remove</button>
+              </>))}
+            </div>}
+
+        <div className="rd-section-title">
+          <h2>Approved clips you can add</h2>
+          <span className="cnt">{eligible.length} available</span>
+        </div>
+        <div style={{margin:'10px 0 12px'}}>
+          <input className="rd-input" placeholder="filter by streamer" value={q} onChange={e=>setQ(e.target.value)}
+            style={{maxWidth:280}}/>
+        </div>
+        {full && <div className="rd-card glass" style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          All {max} slots are full — remove one above to add another.</div>}
+        {eligible.length===0
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'30px 24px'}}>
+              <div className="desc">{q.trim()?'No approved clips from that streamer.':'Approve some Twitch clips first — approved clips show up here.'}</div>
+            </div>
+          : <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {eligible.slice(0,40).map(c=>row(c,
+                <button className="rd-btn sm live" disabled={full} onClick={()=>onToggle(c.id)}>Add</button>))}
             </div>}
       </div>
     </div>
@@ -2046,7 +2124,10 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
-  const [featuredIds, setFeaturedIds] = useState([]);
+  // Full showcase entries (ordered) — the Landing Page screen renders these,
+  // and the clip modal only needs the id set, so derive that from them.
+  const [featured, setFeatured] = useState([]);
+  const featuredIds = featured.map(f=>f.id);
   const toastTimer = useRef(null);
 
   const flash = useCallback(msg => {
@@ -2070,7 +2151,7 @@ function RdApp() {
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
-    fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeaturedIds((d.clips||[]).map(c=>c.id))).catch(()=>{});
+    fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
     // so they self-heal on reconnect/deploy instead of going stale.
     window.dispatchEvent(new CustomEvent('hz_refetch'));
@@ -2133,6 +2214,11 @@ function RdApp() {
           setHistories(p=>{const h=[...(p[msg.channel]||[]),msg.score].slice(-40);return{...p,[msg.channel]:h};});
         }
         else if(msg.event==='profile_updated'){setProfiles(p=>({...p,[msg.profile.channel]:msg.profile}));}
+        else if(msg.event==='showcase_updated'){
+          // Landing-page curation changed (another admin tab, or this one) —
+          // keep every open Landing Page screen and clip modal in sync.
+          fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
+        }
         else if(msg.event==='roles_updated'){
           // Admin granted/revoked a role (e.g. trainer) — re-pull /me so the
           // nav reflects it live, without a refresh.
@@ -2210,12 +2296,21 @@ function RdApp() {
     await fetch(`/clips/${id}/reject`,{method:'POST'});
     setClips(p=>{const n={...p};delete n[id];return n;});
   };
+  const loadFeatured = ()=>fetch('/landing/showcase').then(r=>r.json())
+    .then(d=>setFeatured(d.clips||[])).catch(()=>{});
   const toggleFeature = async(id)=>{
     const r=await fetch(`/admin/showcase/${id}`,{method:'POST'});
-    if(!r.ok){flash('Could not update landing page examples');return;}
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      flash(e.detail||'Could not update landing page examples');return;
+    }
     const d=await r.json();
-    setFeaturedIds(p=> d.featured ? [...p.filter(x=>x!==id),id] : p.filter(x=>x!==id));
+    await loadFeatured();   // server owns order and the cap
     flash(d.featured ? 'Added to the landing page examples' : 'Removed from the landing page examples');
+  };
+  const moveFeature = async(id,dir)=>{
+    const r=await fetch(`/admin/showcase/${id}/move?dir=${dir}`,{method:'POST'});
+    if(r.ok) await loadFeatured();
   };
   const deleteClip = async(id)=>{
     if(!confirm('Delete this clip? This cannot be undone.')) return;
@@ -2242,6 +2337,7 @@ function RdApp() {
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(route==='training') screen=<TrainingScreen/>;
+  else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
@@ -2252,7 +2348,7 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
-        {NAV.filter(n=>!n.labelerOnly||(me&&(me.is_labeler||me.is_admin))).map(n=>(
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>(
           <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>{setRoute(n.id);setNavOpen(false);}}>
             {n.id==='review'&&pending>0&&<span className="navbadge">{pending}</span>}
             <span className="ic"><Icon name={n.icon} size={22}/></span>
