@@ -2757,8 +2757,11 @@ LANDING_HTML = """<!DOCTYPE html>
   .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
   .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
   /* Example clips (admin-curated showcase) */
-  .ex-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:44px}
-  .ex-card{display:block;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);transition:transform .22s,border-color .22s,box-shadow .22s;min-width:0}
+  /* Flex, not grid: a grid always left-aligns a partial last row, so a
+     trailing row of 2 clips sat off to the left. Cards keep a fixed share
+     (flex-grow:0) so a short row stays card-sized and just centers. */
+  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:44px}
+  .ex-card{display:block;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);transition:transform .22s,border-color .22s,box-shadow .22s;min-width:0;flex:0 1 calc(25% - 12px)}
   .ex-card:hover{transform:translateY(-4px);border-color:rgba(168,85,247,.4);box-shadow:0 24px 50px -20px rgba(0,0,0,.7),0 0 40px -18px rgba(168,85,247,.5)}
   .ex-media{position:relative;height:150px;background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730);overflow:hidden}
   .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
@@ -2798,6 +2801,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .faq-a{padding:0 18px 17px;font-size:14px;color:#9c9caa;line-height:1.7;max-width:680px}
   .faq-a b{color:#d8d8e2}
   @media(max-width:960px){
+    /* 3 per row (2 gaps ÷ 3 = 10.667px off each card) */
+    .ex-card{flex-basis:calc(33.333% - 10.667px)}
     .hero{grid-template-columns:minmax(0,1fr);gap:36px;padding-top:48px;padding-bottom:36px}
     .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
     .demo-head{flex-wrap:wrap;gap:4px 8px}
@@ -2806,6 +2811,8 @@ LANDING_HTML = """<!DOCTYPE html>
     .hero-ctas,.pills{justify-content:center}
   }
   @media(max-width:680px){
+    /* 2 per row (1 gap ÷ 2 = 8px off each card) */
+    .ex-card{flex-basis:calc(50% - 8px)}
     .shots-top{grid-template-columns:1fr}
     .hero-copy h1{font-size:46px;text-shadow:0 1.5px 0 #4f2d77,0 3px 0 #44276a,0 4.5px 0 #38205a,0 6px 0 #2c1849,0 7.5px 0 #201138,0 12px 20px rgba(0,0,0,.62),0 20px 40px rgba(168,85,247,.3)}
     .hero-copy p.lead{font-size:16.5px}
@@ -2823,6 +2830,10 @@ LANDING_HTML = """<!DOCTYPE html>
     .stat{padding:20px}
     .stat .n{font-size:36px}
     .price-amt .num{font-size:60px}
+  }
+  /* Single column on phones — matches where the old auto-fit grid collapsed. */
+  @media(max-width:520px){
+    .ex-card{flex-basis:100%}
   }
   /* Scroll-reveal + hero intro (motion-safe only) */
   @media(prefers-reduced-motion:no-preference){
