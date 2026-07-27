@@ -45,9 +45,9 @@ CURRENT_WEIGHTS = {
     "KEYWORD":           scoring.CHAT_WEIGHTS["KEYWORD"],
     "SENTIMENT":         scoring.CHAT_WEIGHTS["SENTIMENT"],
     "EMOTE_HOMOGENEITY": scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],
-    "AUDIO_SPIKE":       24,
-    "VIEWER_SPIKE":      15,
-    "SILENCE_BURST":     14,
+    "AUDIO_SPIKE":       22,
+    "VIEWER_SPIKE":      20,
+    "SILENCE_BURST":     10,
 }
 
 

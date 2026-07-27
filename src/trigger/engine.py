@@ -585,18 +585,32 @@ class TriggerEngine:
             # couldn't reach the bar. Loudness now supports a clip; it no
             # longer gates one. A loud-but-chat-dead window (music,
             # soundboards) scores ~25 and stays far from any threshold.
-            SignalType.AUDIO_SPIKE:      24,
+            # 24 -> 22 (July 2026 human-calibration, n=1001): audio correlates
+            # -0.03 with human-judged virality, and the human "audio spike"
+            # slider vs this signal is -0.035 — i.e. what we measure as an
+            # audio spike is NOT what a person hears as one. Both datasets now
+            # agree it's weak (outcome AUC was 0.58). Trimmed, not gutted: at
+            # 22 a loud moment still comfortably supports a clip.
+            SignalType.AUDIO_SPIKE:      22,
             SignalType.KEYWORD:          scoring.CHAT_WEIGHTS["KEYWORD"],
             SignalType.SENTIMENT:        scoring.CHAT_WEIGHTS["SENTIMENT"],
             # Raised 7 → 15 (July 2026 training-log analysis, n=806): the best
             # outcome separator of all signals (AUC 0.73; approved-clip mean
             # 0.63 vs 0.26 in junk) and viewer-led clips were approved at 10%
             # — 4-5x the base rate.
-            SignalType.VIEWER_SPIKE:     15,
-            # Raised 12 → 14: silence-then-eruption is the canonical QUIET
-            # highlight (held breath → payoff) — the pattern the audio cut is
-            # meant to let through.
-            SignalType.SILENCE_BURST:    14,
+            # 15 -> 20 (July 2026 human-calibration): the ONLY signal supported
+            # by both datasets — outcome AUC 0.73 (best separator) and the sole
+            # positive, non-contested correlation with human virality (+0.07).
+            # Two independent measurements agreeing is the strongest evidence
+            # this project has produced, so this gets the increase.
+            SignalType.VIEWER_SPIKE:     20,
+            # 14 -> 10 (July 2026 human-calibration): the only signal that is
+            # significantly INVERTED against human judgment (-0.102, n=1001) —
+            # it fires on clips humans score low. It was raised 12 -> 14 on a
+            # theory (held breath -> payoff) that the data does not support.
+            # Kept at 10 rather than removed: quiet-highlight coverage still
+            # matters and one dataset is not enough to delete a signal.
+            SignalType.SILENCE_BURST:    10,
             SignalType.EMOTE_HOMOGENEITY: scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile

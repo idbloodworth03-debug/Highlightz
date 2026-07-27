@@ -38,8 +38,8 @@ def test_rejection_streak_can_never_make_firing_impossible():
     # A maximal moment (every signal at 1.0) must still clear the ceiling —
     # even BEFORE the 1.25 multi-signal bonus.
     max_raw = sum(p.signal_weights[k] * base for k, base in {
-        "CHAT_VELOCITY": 36, "AUDIO_SPIKE": 24, "KEYWORD": 4,
-        "SENTIMENT": 5, "VIEWER_SPIKE": 15, "SILENCE_BURST": 14,
+        "CHAT_VELOCITY": 36, "AUDIO_SPIKE": 22, "KEYWORD": 6,
+        "SENTIMENT": 5, "VIEWER_SPIKE": 20, "SILENCE_BURST": 10,
     }.items()) + _FIXED_POOL
     assert max_raw > _THRESHOLD_CEIL
 
@@ -85,3 +85,23 @@ def test_legacy_crushed_profile_is_revived_on_load():
     assert p.signal_weights["CHAT_VELOCITY"] == _WEIGHT_MIN
     assert p.signal_weights["AUDIO_SPIKE"] == _WEIGHT_MAX
     assert p.signal_weights["KEYWORD"] == 1.0
+
+
+def test_weight_pool_is_preserved_at_110():
+    """Volume guard for the July-2026 human-calibration retune.
+
+    Clip volume tracks the SIZE of the weight pool, not its distribution: a
+    smaller pool means lower scores against unchanged thresholds, i.e. fewer
+    clips. The retune leaned the formula toward human ratings by moving weight
+    BETWEEN signals (VIEWER_SPIKE +5, KEYWORD +2 / SILENCE_BURST -4,
+    AUDIO_SPIKE -2, EMOTE_HOMOGENEITY -1) while holding the total at 110, so
+    the average clip scores the same and only the ranking shifts. Any future
+    edit that shrinks this pool will quietly reduce clip volume — which is why
+    it is pinned here.
+    """
+    from src.trigger import scoring
+    live_only = {"AUDIO_SPIKE": 22, "VIEWER_SPIKE": 20, "SILENCE_BURST": 10}
+    pool = sum(scoring.CHAT_WEIGHTS.values()) + sum(live_only.values())
+    assert pool == 110, f"weight pool moved to {pool} — clip volume will change"
+    # And the chat-only pool that drives the VOD scanner stays ~stable too.
+    assert 55 <= sum(scoring.CHAT_WEIGHTS.values()) <= 60

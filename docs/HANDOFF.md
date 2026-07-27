@@ -267,6 +267,50 @@ normal Clip Review screen, which still shows scores.
   cards, JSON-LD (SoftwareApplication + FAQPage), robots.txt + sitemap.xml;
   login/paywall are noindex.
 
+## Formula — July 2026 human-calibration retune (n=1001)
+
+Training Studio data (1001 blind human scores, 26 channels, 4 trainers) said
+something blunter than "reweight": **the signals barely track human judgment.**
+trigger_score vs human virality was +0.081; the bot's top-10% clips scored
+3.91/10 from humans vs 3.11 for its bottom 10%. Audio and sentiment did not
+even correlate with the matching human slider (-0.035 / +0.020), i.e. what we
+measure as an "audio spike" is not what a person hears as one.
+
+Applied a DELIBERATELY SMALL lean (owner's call: volume must not fall, clip
+count is the felt value of the product):
+
+    CHAT_VELOCITY 36 -> 36   (untouched: the volume engine; cutting it is what
+                              caused the dead-clipping episode in July)
+    AUDIO_SPIKE   24 -> 22   (noise in both datasets)
+    VIEWER_SPIKE  15 -> 20   (ONLY signal both datasets back: AUC 0.73 +0.070)
+    SILENCE_BURST 14 -> 10   (only significantly INVERTED signal, -0.102)
+    EMOTE_HOMOG.  12 -> 11   (noise, token trim)
+    KEYWORD        4 ->  6   (best new correlate +0.171 BUT 0/91 approved in
+                              the outcome study and its human slider runs
+                              inverted -0.276 — hedge, not a bet)
+    SENTIMENT      5 ->  5   (noise but too small to matter)
+
+**The pool stays at exactly 110** — that is the volume guarantee, pinned by
+`test_weight_pool_is_preserved_at_110`. Volume tracks pool SIZE against
+unchanged thresholds; redistribution changes which clips rank high, not how
+many clear the bar. Never shrink the pool to "raise quality".
+
+REJECTED: the analyzer's own proposal wanted KEYWORD 4 -> 44 (the single
+largest weight). That is the least-bad number in a field of noise taking the
+whole budget, and it contradicts the 806-label outcome study. Do not apply
+proposals unexamined.
+
+Before deploying any weight change run the what-if on prod:
+`venv/bin/python -m src.maintenance.simulate_weights` — replays every stored
+clip's real signal vector through old vs new weights and prints the volume
+delta, per-channel breakdown, and which moments would newly fail to fire.
+
+Open threads from this dataset: zero clips were scored by 2+ trainers, so
+inter-rater agreement is unmeasured (add an overlap mode before fitting
+weights properly); 43% of records are jynxzi; and 10 clips scored 99-100/100
+by the bot were rated 1/10 by humans — score saturation (`raw` caps at 100
+BEFORE the multi-signal bonus) is the next thing worth investigating.
+
 ## Verification workflow (what "done" means here)
 
 1. `python -m pytest tests/` — ~90 tests, all green.

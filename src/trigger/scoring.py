@@ -27,13 +27,22 @@ CHAT_WEIGHTS = {
     # went 0/91 approved and keyword AUC vs outcome was 0.51 (coin flip) — the
     # keyword list predicts nothing for this content mix. Kept small (not 0)
     # so it can still support a moment, but it can no longer lead one.
-    "KEYWORD":            4,
+    # 4 -> 6 (July 2026 human-calibration): keyword is the strongest
+    # correlate of human virality in the new data (+0.171, n=1001) — but the
+    # evidence conflicts. The 806-label outcome study had keyword-led clips at
+    # 0/91 approved, and the human keyword slider runs INVERTED against this
+    # signal (-0.276). The analyzer wanted 4 -> 44; that would hand the formula
+    # to the least-bad number in a field of noise. +2 is a hedge, not a bet.
+    "KEYWORD":            6,
     "SENTIMENT":          5,
     # Raised 9 → 12: crowdspeak (whole chat spamming the same emote) is one of
     # the most human-legible hype markers; it fires rarely, so the extra
     # weight costs nothing on calm windows and helps quiet-audio moments over
     # the bar when it does fire.
-    "EMOTE_HOMOGENEITY": 12,
+    # 12 -> 11 (July 2026 human-calibration): noise against human virality
+    # (-0.016). Trimmed by 1 only — the CHI-2017 crowdspeak basis still stands
+    # and one dataset showing "no signal" is not evidence of harm.
+    "EMOTE_HOMOGENEITY": 11,
 }
 # NOTE: any change to CHAT_WEIGHTS or MULTI_SIGNAL_BONUS moves VOD's chat-only
 # score ceiling — retune the threshold scale in src/vod/analyzer.py to match
