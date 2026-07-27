@@ -22,7 +22,7 @@ CHAT_WEIGHTS = {
     # measured relative to each channel's own baseline. Making it carry the
     # score lets chat-led moments fire without needing a loud soundtrack
     # (AUDIO_SPIKE was cut 38 → 24 in the live engine at the same time).
-    "CHAT_VELOCITY":     36,
+    "CHAT_VELOCITY":     38,
     # Cut 12 → 4 (July 2026 training-log analysis, n=806): keyword-led clips
     # went 0/91 approved and keyword AUC vs outcome was 0.51 (coin flip) — the
     # keyword list predicts nothing for this content mix. Kept small (not 0)
@@ -33,7 +33,7 @@ CHAT_WEIGHTS = {
     # 0/91 approved, and the human keyword slider runs INVERTED against this
     # signal (-0.276). The analyzer wanted 4 -> 44; that would hand the formula
     # to the least-bad number in a field of noise. +2 is a hedge, not a bet.
-    "KEYWORD":            6,
+    "KEYWORD":            5,
     "SENTIMENT":          5,
     # Raised 9 → 12: crowdspeak (whole chat spamming the same emote) is one of
     # the most human-legible hype markers; it fires rarely, so the extra
@@ -42,7 +42,7 @@ CHAT_WEIGHTS = {
     # 12 -> 11 (July 2026 human-calibration): noise against human virality
     # (-0.016). Trimmed by 1 only — the CHI-2017 crowdspeak basis still stands
     # and one dataset showing "no signal" is not evidence of harm.
-    "EMOTE_HOMOGENEITY": 11,
+    "EMOTE_HOMOGENEITY": 10,
 }
 # NOTE: any change to CHAT_WEIGHTS or MULTI_SIGNAL_BONUS moves VOD's chat-only
 # score ceiling — retune the threshold scale in src/vod/analyzer.py to match

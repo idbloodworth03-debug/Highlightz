@@ -279,16 +279,26 @@ measure as an "audio spike" is not what a person hears as one.
 Applied a DELIBERATELY SMALL lean (owner's call: volume must not fall, clip
 count is the felt value of the product):
 
-    CHAT_VELOCITY 36 -> 36   (untouched: the volume engine; cutting it is what
-                              caused the dead-clipping episode in July)
+    CHAT_VELOCITY 36 -> 38   (RAISED to protect volume — see below)
     AUDIO_SPIKE   24 -> 22   (noise in both datasets)
-    VIEWER_SPIKE  15 -> 20   (ONLY signal both datasets back: AUC 0.73 +0.070)
-    SILENCE_BURST 14 -> 10   (only significantly INVERTED signal, -0.102)
-    EMOTE_HOMOG.  12 -> 11   (noise, token trim)
-    KEYWORD        4 ->  6   (best new correlate +0.171 BUT 0/91 approved in
+    VIEWER_SPIKE  15 -> 19   (ONLY signal both datasets back: AUC 0.73 +0.070)
+    SILENCE_BURST 14 -> 11   (only significantly INVERTED signal, -0.102)
+    EMOTE_HOMOG.  12 -> 10   (noise, token trim)
+    KEYWORD        4 ->  5   (best new correlate +0.171 BUT 0/91 approved in
                               the outcome study and its human slider runs
                               inverted -0.276 — hedge, not a bet)
     SENTIMENT      5 ->  5   (noise but too small to matter)
+
+**An equal pool does NOT by itself guarantee equal volume.** The first attempt
+(VIEWER 20 / SILENCE 10 / CHAT 36) held the pool at 110 and still lost 6.6% of
+clip volume on real data — and the ENTIRE loss landed on one channel
+(yaboyyywill -16; every other channel flat, jynxzi +1). Reason: that channel's
+clips lean on the signals being cut, and VIEWER_SPIKE is too rare there to give
+the points back. Fix was raising CHAT_VELOCITY 36 -> 38: it is present in
+nearly every clip, so it restores points broadly. Final measured impact -1.8%
+(4 clips of 227 across all history), concentrated entirely on the same channel.
+ALWAYS run simulate_weights before deploying a weight change; never reason
+about volume from the pool total alone.
 
 **The pool stays at exactly 110** — that is the volume guarantee, pinned by
 `test_weight_pool_is_preserved_at_110`. Volume tracks pool SIZE against

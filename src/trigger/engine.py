@@ -603,14 +603,14 @@ class TriggerEngine:
             # positive, non-contested correlation with human virality (+0.07).
             # Two independent measurements agreeing is the strongest evidence
             # this project has produced, so this gets the increase.
-            SignalType.VIEWER_SPIKE:     20,
+            SignalType.VIEWER_SPIKE:     19,
             # 14 -> 10 (July 2026 human-calibration): the only signal that is
             # significantly INVERTED against human judgment (-0.102, n=1001) —
             # it fires on clips humans score low. It was raised 12 -> 14 on a
             # theory (held breath -> payoff) that the data does not support.
             # Kept at 10 rather than removed: quiet-highlight coverage still
             # matters and one dataset is not enough to delete a signal.
-            SignalType.SILENCE_BURST:    10,
+            SignalType.SILENCE_BURST:    11,
             SignalType.EMOTE_HOMOGENEITY: scoring.CHAT_WEIGHTS["EMOTE_HOMOGENEITY"],   # crowdspeak — CHI 2017 validated
         }
         # Apply per-signal learned multipliers from the streamer profile

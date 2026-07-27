@@ -39,9 +39,9 @@ OLD = {
 # the same lean and pick the strongest one that holds volume.
 CANDIDATES = {
     # name:            CHAT AUDIO VIEW SILENCE EMOTE SENT KEY
-    "A shipped":       (36,  22,   20,  10,     11,   5,   6),
+    "A first try":     (36,  22,   20,  10,     11,   5,   6),
     "B gentle":        (36,  23,   18,  12,     11,   5,   5),
-    "C chat-boost":    (38,  22,   19,  11,     10,   5,   5),
+    "C SHIPPED":       (38,  22,   19,  11,     10,   5,   5),
     "D minimal":       (36,  23,   17,  13,     11,   5,   5),
 }
 _ORDER = ("CHAT_VELOCITY", "AUDIO_SPIKE", "VIEWER_SPIKE", "SILENCE_BURST",
