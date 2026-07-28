@@ -28,7 +28,12 @@ def test_threshold_uses_learned_profile_over_preset():
     rules = ChannelRules()          # preset threshold 60 → bar 25.2
     p = _calibrated_profile(threshold=80.0)
     thr, mult = analyzer._vod_threshold(p, rules)
-    assert thr == 80.0 * 0.62       # heavily-rejected channel scans strict
+    # The inherited base is CAPPED for VOD: a live threshold of 80 is right for
+    # "should I clip right now?" but made the scanner return nothing on real
+    # VODs (measured: peak 37.8 vs bar 49.6 over 28,886 messages). A VOD scan
+    # is a search over a fixed corpus, so it caps at _VOD_MAX_BASE.
+    assert thr == analyzer._VOD_MAX_BASE * 0.62
+    assert thr < 80.0 * 0.62
     assert mult == p.velocity_spike_multiplier   # adaptive, not the preset
 
 
@@ -110,3 +115,35 @@ async def test_scan_emits_only_top_moments(monkeypatch):
     assert offs == sorted(offs)                    # chronological emission
     # Survivors are fully annotated before emission (end-offset pass ran first).
     assert all("end_offset_seconds" in m for m in emitted)
+
+
+def test_scan_with_chat_never_returns_zero_moments():
+    """Regression for the 2026-07-28 report: a 56-minute VOD with 28,886 chat
+    messages returned ZERO highlights (peak score 37.8 against a bar of 49.6,
+    inherited from a channel whose live threshold had climbed to 80).
+
+    Two independent guards now prevent that. First the inherited base is
+    capped, so the bar cannot outrun realistic VOD scores. Second, a scan that
+    still finds nothing falls back to ranking the scored seconds it already
+    recorded — a stream with chat always has relatively-best moments, and
+    'no highlights' is never a useful answer to a search.
+    """
+    from src.trigger.rules import ChannelRules
+    rules = ChannelRules()
+
+    # Guard 1 lowers the bar but is NOT sufficient on its own: capping 80 -> 65
+    # moves the bar 49.6 -> 40.3, still above the 37.8 peak that VOD actually
+    # reached. Worth having (it stops the bar running away), but the guarantee
+    # has to come from guard 2.
+    p = _calibrated_profile(threshold=80.0)
+    thr, _ = analyzer._vod_threshold(p, rules)
+    assert thr < 80.0 * 0.62, "cap not applied"
+    assert thr == analyzer._VOD_MAX_BASE * 0.62
+
+    # Guard 2: the fallback exists, and only rescues genuinely empty scans.
+    import inspect
+    src = inspect.getsource(analyzer.run_vod_analysis)
+    assert "if not moments and score_timeline:" in src, "fallback missing"
+    assert "below_bar=True" in src
+    # It must reuse the recorded timeline rather than rescanning the VOD.
+    assert "bd_timeline" in src and "sorted(score_timeline.items()" in src

@@ -321,6 +321,38 @@ weights properly); 43% of records are jynxzi; and 10 clips scored 99-100/100
 by the bot were rated 1/10 by humans — score saturation (`raw` caps at 100
 BEFORE the multi-signal bonus) is the next thing worth investigating.
 
+## VOD scanner — zero-results bug (fixed 2026-07-28)
+
+A 56-minute VOD with **28,886 chat messages returned zero highlights**. Log:
+`threshold: 49.6, peak_score: 37.8, moments: 0`. Not a fetch failure — the
+scan worked, nothing could reach the bar.
+
+Cause: the VOD bar is `profile.trigger_threshold x 0.62`, and the profile
+threshold is the LIVE learned value, which climbs to the 80 ceiling on
+heavily-rejected channels (lacy, marlon, stableronaldo, caseoh_, drsunscreen,
+ishowspeed, joe_bartolozzi, flats all sit at 80). 80 x 0.62 = 49.6, while real
+VOD scores peak near 38. The 0.62 scale was anchored to a *theoretical*
+chat-only ceiling (~72) that never actually occurs.
+
+Two fixes:
+1. `_VOD_MAX_BASE = 65` caps the inherited threshold — a rejection-inflated
+   live gate ("should I clip right now?") must not gate a VOD *search*
+   ("show me this stream's best moments"). Bar drops 49.6 -> 40.3.
+2. **Ranked fallback**: when the threshold pass finds NOTHING, surface the
+   top-scoring seconds from `score_timeline` (already recorded during the
+   scan — no rescan), spaced by COOLDOWN, flagged `below_threshold: True`.
+   Only fires on a completely empty scan; padding a scan that found a real
+   highlight with mediocre runners-up would make good scans worse.
+
+**The cap alone is NOT sufficient** and the regression test says so — 40.3 is
+still above the 37.8 peak that VOD reached. The guarantee comes from the
+fallback, which is robust to any score distribution.
+
+Still open: real VOD peaks (~38) sit right on the DEFAULT bar (60 x 0.62 =
+37.2), so a healthy channel yields roughly one moment per hour-long VOD. That
+suggests the whole 0.62 scale is anchored too high, but one VOD is not enough
+evidence to recalibrate — measure peak scores across several scans first.
+
 ## Verification workflow (what "done" means here)
 
 1. `python -m pytest tests/` — ~90 tests, all green.

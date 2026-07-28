@@ -231,6 +231,12 @@ async def _load_profile(user_id: str, channel: str):
         return None
 
 
+# Ceiling on the threshold a VOD scan may inherit, and the minimum number of
+# moments a scan should return when the VOD has any scoreable chat at all.
+_VOD_MAX_BASE      = 65.0
+_MIN_VOD_MOMENTS   = 3
+
+
 def _vod_threshold(profile, rules) -> tuple[float, float]:
     """(score threshold, spike multiplier) for a VOD scan.
 
@@ -247,6 +253,14 @@ def _vod_threshold(profile, rules) -> tuple[float, float]:
     volume rebalance: chat pool 40 → 57, bonus 1.2 → 1.25, so
     0.50 × (57 × 1.25) / 57.6 ≈ 0.62."""
     base = profile.trigger_threshold if profile is not None else rules.trigger_threshold
+    # Cap the inherited base. profile.trigger_threshold climbs to 80 on a
+    # heavily-rejected channel, which is correct for the LIVE gate ("should I
+    # clip right now?") but wrong for a VOD scan ("show me this stream's best
+    # moments") — at 80 the VOD bar lands at 49.6 against real peak scores that
+    # top out near 38, so the scanner returns nothing on exactly the channels
+    # users care about. Measured 2026-07-28: 28,886-message VOD, peak 37.8,
+    # bar 49.6, zero moments.
+    base = min(base, _VOD_MAX_BASE)
     spike_mult = (
         profile.velocity_spike_multiplier
         if profile is not None and profile.velocity_samples >= 30
@@ -432,6 +446,7 @@ async def run_vod_analysis(
         peak_score   = 0.0   # track for diagnostics
         offset       = 0.0
         score_timeline: dict[int, float] = {}   # second → score for end-offset detection
+        bd_timeline: dict[int, dict]     = {}   # second → signal breakdown (ranked fallback)
         trigger_offsets: dict[str, int]  = {}   # moment_id → raw trigger offset (pre CHAT_LAG)
 
         # Run-tracking: a "moment" is one contiguous stretch where score stays at
@@ -443,7 +458,8 @@ async def run_vod_analysis(
         run_peak_off   = 0.0
         run_peak_bd: dict = {}
 
-        async def _emit_moment(peak_off: float, peak_sc: float, breakdown: dict) -> None:
+        async def _emit_moment(peak_off: float, peak_sc: float, breakdown: dict,
+                               below_bar: bool = False) -> None:
             # Collects a candidate moment. Emission to the user happens AFTER the
             # scan, once _top_moments has ranked candidates and kept the best —
             # otherwise mediocre above-threshold runs reach the queue before we
@@ -476,6 +492,10 @@ async def run_vod_analysis(
                 "created_at":      time.time(),
                 "user_id":         user_id,
                 "is_vod_moment":   True,
+                # True when surfaced by the ranked fallback rather than by
+                # clearing the bar — the card's score badge shows the number,
+                # this flags it for later analysis.
+                "below_threshold": below_bar,
             }
             trigger_offsets[mid] = int(peak_off)  # stored separately, never in the clip dict
             moments.append(moment)
@@ -528,6 +548,7 @@ async def run_vod_analysis(
                     peak_score = score
 
                 score_timeline[sec] = score
+                bd_timeline[sec]    = breakdown
 
             # One moment per contiguous above-threshold run, anchored at its peak.
             # While the run holds, only track the peak; emit a single clip when the
@@ -562,6 +583,31 @@ async def run_vod_analysis(
         if in_run and run_peak_off - last_moment_offset >= COOLDOWN:
             last_moment_offset = run_peak_off
             await _emit_moment(run_peak_off, run_peak_score, run_peak_bd)
+
+        # Guaranteed results. A VOD scan is a SEARCH ("show me this stream's
+        # best moments"), not a live gate ("should I clip right now?"), so
+        # returning nothing is always the wrong answer for a stream that has
+        # chat at all. When the threshold pass came up short, fall back to the
+        # highest-scoring seconds recorded during the scan — score_timeline
+        # already holds every scored second, so this needs no rescan. Moments
+        # are spaced by COOLDOWN and flagged below_threshold; the card's score
+        # badge tells the user the quality honestly.
+        # Only fires on a COMPLETELY empty scan: if the threshold pass found even
+        # one genuine highlight that is a real result, and padding it with
+        # mediocre runners-up would make good scans worse.
+        if not moments and score_timeline:
+            taken = [trigger_offsets[m["id"]] for m in moments]
+            for sec, sc in sorted(score_timeline.items(), key=lambda kv: -kv[1]):
+                if len(moments) >= _MIN_VOD_MOMENTS:
+                    break
+                if any(abs(sec - t) < COOLDOWN for t in taken):
+                    continue
+                await _emit_moment(float(sec), sc, bd_timeline.get(sec, {}),
+                                   below_bar=True)
+                taken.append(sec)
+            log.info("vod_ranked_fallback", vod_id=vod_id, surfaced=len(moments),
+                     peak_score=round(peak_score, 1), threshold=round(threshold, 1),
+                     reason="threshold pass found fewer than the minimum")
 
         # Rank & trim: keep only the VOD's best moments (~3/hour, max 12) so the
         # queue gets highlights, not the stream's entire pulse.
