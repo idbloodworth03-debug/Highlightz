@@ -140,10 +140,103 @@ def test_scan_with_chat_never_returns_zero_moments():
     assert thr < 80.0 * 0.62, "cap not applied"
     assert thr == analyzer._VOD_MAX_BASE * 0.62
 
-    # Guard 2: the fallback exists, and only rescues genuinely empty scans.
+    # Guard 2 — the real guarantee: selection also runs against THIS VOD's own
+    # score distribution, so a bar that no second can reach cannot produce an
+    # empty result.
     import inspect
     src = inspect.getsource(analyzer.run_vod_analysis)
-    assert "if not moments and score_timeline:" in src, "fallback missing"
+    assert "_VOD_PCTL" in src and "eff_bar = min(threshold, pctl_bar)" in src
     assert "below_bar=True" in src
     # It must reuse the recorded timeline rather than rescanning the VOD.
     assert "bd_timeline" in src and "sorted(score_timeline.items()" in src
+
+
+def test_percentile_is_nearest_rank_and_self_normalising():
+    # The percentile bar must scale with the stream, not with an absolute
+    # number — that is what makes it work identically for a small channel and
+    # for xQc, and what stops it being mis-anchored the way the old bar was.
+    quiet = [float(i) for i in range(100)]          # 0..99
+    loud  = [float(i) * 10 for i in range(100)]     # 0..990
+    assert analyzer._percentile(quiet, 0.97) == 96.0
+    assert analyzer._percentile(loud, 0.97) == 960.0
+    assert analyzer._percentile([], 0.97) == 0.0
+    assert analyzer._percentile([5.0], 0.97) == 5.0
+    # Top 3% of a real-shaped distribution sits above the bulk of it.
+    assert analyzer._percentile(quiet, _VOD_PCTL_TEST := 0.97) > sum(quiet) / len(quiet)
+
+
+def _fake_clip_session(pages):
+    """aiohttp.ClientSession stand-in yielding `pages` of Helix responses."""
+    from unittest.mock import MagicMock
+    calls = {"n": 0}
+
+    class _Resp:
+        status = 200
+        async def json(self):
+            i = min(calls["n"], len(pages) - 1)
+            calls["n"] += 1
+            return pages[i]
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class _Sess:
+        def get(self, *a, **k): return _Resp()
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    return MagicMock(side_effect=lambda *a, **k: _Sess())
+
+
+def test_viewer_clips_offset_math_and_filtering():
+    """vod_offset is the clip's END; the start we need is (offset - duration).
+    Getting this backwards would seek every viewer clip to after the moment.
+    Clips from other VODs, and live-made clips whose offset Twitch has not
+    resolved yet (null), must be dropped rather than mis-placed at 0.
+    """
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+    from src.output import twitch_clips as tc
+
+    page = {"data": [
+        {"id": "a", "video_id": "999", "vod_offset": 300, "duration": 30.0,
+         "view_count": 120, "title": "Insane clutch", "url": "https://c/a"},
+        {"id": "b", "video_id": "999", "vod_offset": 20, "duration": 30.0,
+         "view_count": 5, "title": "", "url": "https://c/b"},
+        {"id": "c", "video_id": "OTHER", "vod_offset": 50, "duration": 30.0,
+         "view_count": 900, "title": "wrong vod", "url": ""},
+        {"id": "d", "video_id": "999", "vod_offset": None, "duration": 30.0,
+         "view_count": 40, "title": "made live", "url": ""},
+    ], "pagination": {}}
+
+    with patch.object(tc, "_get_app_token", new=AsyncMock(return_value="t")), \
+         patch.object(tc.aiohttp, "ClientSession", _fake_clip_session([page])):
+        out = asyncio.run(tc.get_clips_for_vod("123", "999"))
+
+    assert [c["id"] for c in out] == ["b", "a"]          # sorted by offset
+    assert out[1]["offset"] == 270.0                     # 300 end - 30 duration
+    assert out[0]["offset"] == 0.0                       # clamped, never negative
+    assert out[1]["view_count"] == 120
+
+
+def test_viewer_clips_fail_soft():
+    """A Helix failure must never break a scan — enrichment is a bonus."""
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+    from src.output import twitch_clips as tc
+    with patch.object(tc, "_get_app_token", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        assert asyncio.run(tc.get_clips_for_vod("123", "999")) == []
+    assert asyncio.run(tc.get_clips_for_vod("", "999")) == []
+
+
+def test_scan_merges_viewer_clips_as_ground_truth():
+    """Clips real viewers made from the VOD are merged as first-class moments,
+    deduped against detected ones, ranked by view count, and never able to
+    break the scan."""
+    import inspect
+    src = inspect.getsource(analyzer.run_vod_analysis)
+    assert "get_clips_for_vod" in src
+    assert "viewer_clipped" in src and "viewer_clip_views" in src
+    # Deduped against already-detected moments by the same cooldown spacing.
+    assert "abs(off - t) < COOLDOWN" in src
+    # Must be inside a try/except so a Helix hiccup leaves the scan intact.
+    assert "vod_viewer_clips_skipped" in src

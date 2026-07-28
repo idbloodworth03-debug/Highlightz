@@ -198,6 +198,11 @@ button{font-family:inherit;cursor:pointer}
   background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
 .rd-viralbadge.hot{background:linear-gradient(135deg,#ff7700,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(255,119,0,.65)}
 .rd-viralbadge.warm{color:#ffcc5c;border-color:rgba(255,204,92,.35)}
+/* Crowd-validated: a real viewer already clipped this moment. Sits under
+   the virality badge so both are readable. */
+.rd-clippedbadge{position:absolute;top:38px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
+  font-size:10.5px;font-weight:800;letter-spacing:.02em;padding:3px 8px;border-radius:99px;color:#0b0b12;
+  background:linear-gradient(135deg,#3ee08a,#2ee0c8);box-shadow:0 3px 12px -3px rgba(62,224,138,.6)}
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -808,6 +813,10 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
         {clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
           <Icon name="trending" size={12}/>{Math.round(clip.virality_score)}% viral
+        </span>}
+        {clip.viewer_clipped && <span className="rd-clippedbadge"
+          title={`Real viewers clipped this moment on Twitch — ${clip.viewer_clip_views||0} views`}>
+          <Icon name="check" size={11}/>{(clip.viewer_clip_views||0).toLocaleString()} clipped it
         </span>}
         {dur && <span className="rd-dur">{dur}</span>}
       </div>

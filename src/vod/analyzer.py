@@ -235,6 +235,27 @@ async def _load_profile(user_id: str, channel: str):
 # moments a scan should return when the VOD has any scoreable chat at all.
 _VOD_MAX_BASE      = 65.0
 _MIN_VOD_MOMENTS   = 3
+# Percentile gate: a moment must be in the top _VOD_PCTL of THIS VOD's own
+# score distribution. Self-normalising — it yields the same handful of
+# genuinely-exceptional moments on a 200-viewer stream and on xQc, and it
+# cannot be mis-anchored the way the absolute bar was (that bar was derived
+# from a theoretical 72-point ceiling real scans never approach; measured peak
+# on a 28,886-message VOD was 37.8). Applied as a FLOOR alongside the absolute
+# threshold: a moment must clear the percentile, and the absolute bar only
+# applies when it is the stricter of the two.
+_VOD_PCTL          = 0.97
+# Below this many scored seconds the distribution is too thin for a percentile
+# to mean anything, so the absolute threshold is used alone.
+_VOD_PCTL_MIN_N    = 120
+
+
+def _percentile(values: list[float], pctl: float) -> float:
+    """Value at `pctl` (0-1) of `values`, nearest-rank. Empty list -> 0.0."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, max(0, int(round(pctl * (len(ordered) - 1)))))
+    return ordered[idx]
 
 
 def _vod_threshold(profile, rules) -> tuple[float, float]:
@@ -584,30 +605,79 @@ async def run_vod_analysis(
             last_moment_offset = run_peak_off
             await _emit_moment(run_peak_off, run_peak_score, run_peak_bd)
 
-        # Guaranteed results. A VOD scan is a SEARCH ("show me this stream's
-        # best moments"), not a live gate ("should I clip right now?"), so
-        # returning nothing is always the wrong answer for a stream that has
-        # chat at all. When the threshold pass came up short, fall back to the
-        # highest-scoring seconds recorded during the scan — score_timeline
-        # already holds every scored second, so this needs no rescan. Moments
-        # are spaced by COOLDOWN and flagged below_threshold; the card's score
-        # badge tells the user the quality honestly.
-        # Only fires on a COMPLETELY empty scan: if the threshold pass found even
-        # one genuine highlight that is a real result, and padding it with
-        # mediocre runners-up would make good scans worse.
-        if not moments and score_timeline:
-            taken = [trigger_offsets[m["id"]] for m in moments]
-            for sec, sc in sorted(score_timeline.items(), key=lambda kv: -kv[1]):
-                if len(moments) >= _MIN_VOD_MOMENTS:
-                    break
-                if any(abs(sec - t) < COOLDOWN for t in taken):
+        # ── Viewer clips: crowd-sourced ground truth ─────────────────────
+        # Clips real viewers made from THIS VOD are the strongest highlight
+        # signal available — a human already decided the moment was worth
+        # keeping, and view_count ranks them. Chat-only detection sees 58 of
+        # the formula's 110 points, so this fills a gap inference cannot.
+        # Merged as first-class moments, deduped against detected ones by
+        # COOLDOWN. Fails soft: an API hiccup leaves the scan untouched.
+        viewer_clips: list[dict] = []
+        try:
+            from src.output import twitch_clips as _tc
+            _bid = await _tc.resolve_broadcaster_id(chan)
+            if _bid:
+                viewer_clips = await _tc.get_clips_for_vod(_bid, vod_id)
+        except Exception as exc:
+            log.warning("vod_viewer_clips_skipped", vod_id=vod_id, error=str(exc))
+        if viewer_clips:
+            taken_v = [trigger_offsets[m["id"]] for m in moments]
+            top_views = max(c["view_count"] for c in viewer_clips) or 1
+            merged = 0
+            for vc in sorted(viewer_clips, key=lambda c: -c["view_count"]):
+                off = vc["offset"]
+                if any(abs(off - t) < COOLDOWN for t in taken_v):
                     continue
-                await _emit_moment(float(sec), sc, bd_timeline.get(sec, {}),
-                                   below_bar=True)
-                taken.append(sec)
-            log.info("vod_ranked_fallback", vod_id=vod_id, surfaced=len(moments),
-                     peak_score=round(peak_score, 1), threshold=round(threshold, 1),
-                     reason="threshold pass found fewer than the minimum")
+                # Score from views on the VOD's own scale: the most-clipped
+                # moment scores like a strong detection, the rest scale down.
+                # Never below the percentile bar's neighbourhood so ranking
+                # keeps it visible against detected moments.
+                vscore = 55.0 + 45.0 * (vc["view_count"] / top_views)
+                bd = dict(score_timeline and bd_timeline.get(int(off), {}) or {})
+                bd["VIEWER_CLIPPED"] = round(vc["view_count"] / top_views, 3)
+                await _emit_moment(off + CHAT_LAG, vscore, bd)
+                moments[-1]["clip_title"] = (
+                    vc["title"] or f"{chan} - clipped by viewers")
+                moments[-1]["viewer_clipped"] = True
+                moments[-1]["viewer_clip_views"] = vc["view_count"]
+                moments[-1]["viewer_clip_url"] = vc["url"]
+                taken_v.append(off)
+                merged += 1
+            log.info("vod_viewer_clips_merged", vod_id=vod_id,
+                     available=len(viewer_clips), merged=merged)
+
+        # ── Percentile top-up ────────────────────────────────────────────
+        # A VOD scan is a SEARCH ("show me this stream's best moments"), not a
+        # live gate ("should I clip right now?"). The absolute bar is derived
+        # from a theoretical ceiling real scans never approach, so on some
+        # channels nothing could ever clear it. Re-select against THIS VOD's
+        # own score distribution: anything in the top _VOD_PCTL is a candidate.
+        # score_timeline already holds every scored second, so no rescan.
+        # Effective bar = min(absolute, percentile): it can only ADD candidates,
+        # and _top_moments still ranks and caps them, so a healthy scan keeps
+        # exactly the moments it already had.
+        cap = int(min(12, max(_MIN_VOD_MOMENTS, (duration / 3600.0) * 3)))
+        if score_timeline:
+            scores_all = list(score_timeline.values())
+            pctl_bar = (_percentile(scores_all, _VOD_PCTL)
+                        if len(scores_all) >= _VOD_PCTL_MIN_N else threshold)
+            eff_bar = min(threshold, pctl_bar)
+            if eff_bar < threshold:
+                taken = [trigger_offsets[m["id"]] for m in moments]
+                added = 0
+                for sec, sc in sorted(score_timeline.items(), key=lambda kv: -kv[1]):
+                    if len(moments) >= cap or sc < eff_bar:
+                        break
+                    if any(abs(sec - t) < COOLDOWN for t in taken):
+                        continue
+                    await _emit_moment(float(sec), sc, bd_timeline.get(sec, {}),
+                                       below_bar=True)
+                    taken.append(sec)
+                    added += 1
+                if added:
+                    log.info("vod_percentile_topup", vod_id=vod_id, added=added,
+                             abs_bar=round(threshold, 1), pctl_bar=round(pctl_bar, 1),
+                             peak_score=round(peak_score, 1))
 
         # Rank & trim: keep only the VOD's best moments (~3/hour, max 12) so the
         # queue gets highlights, not the stream's entire pulse.

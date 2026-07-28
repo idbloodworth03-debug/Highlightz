@@ -348,10 +348,37 @@ Two fixes:
 still above the 37.8 peak that VOD reached. The guarantee comes from the
 fallback, which is robust to any score distribution.
 
+### Quality pass (2026-07-28, second round)
+
+Root cause of mediocre results: **VOD scanning is chat-only** — it scores from
+4 signals worth 58 points, while live uses 7 worth 110. It judges highlights
+with 53% of the formula, which is why real peaks top out near 38.
+
+Two additions:
+
+1. **Viewer clips as ground truth** (`twitch_clips.get_clips_for_vod`). Clips
+   real viewers made from the SAME VOD are merged as first-class moments,
+   ranked by view_count, deduped against detected ones by COOLDOWN, badged
+   "N clipped it" in the UI. A human already decided those moments mattered —
+   no inference needed. **`vod_offset` is the clip's END position**, so start =
+   `vod_offset - duration`; it is null for clips made during a live broadcast
+   and those are skipped. Helix has no video_id filter, so it pages the
+   broadcaster's clips (5 pages max) and matches client-side. Fails soft.
+2. **Percentile selection** (`_VOD_PCTL = 0.97`). Selection now also runs
+   against THIS VOD's own score distribution; effective bar is
+   `min(absolute, p97)`, so it can only ADD candidates and `_top_moments`
+   still ranks/caps. Self-normalising: identical behaviour on a 200-viewer
+   channel and on xQc, and it cannot be mis-anchored the way the absolute bar
+   was. Skipped below `_VOD_PCTL_MIN_N` (120) scored seconds — too thin for a
+   percentile to mean anything.
+
 Still open: real VOD peaks (~38) sit right on the DEFAULT bar (60 x 0.62 =
-37.2), so a healthy channel yields roughly one moment per hour-long VOD. That
-suggests the whole 0.62 scale is anchored too high, but one VOD is not enough
-evidence to recalibrate — measure peak scores across several scans first.
+37.2), so a healthy channel yields roughly one moment per hour-long VOD from
+detection alone. The percentile pass papers over this; the 0.62 scale itself is
+probably anchored too high, but recalibrating needs peak scores from several
+scans, not one. **Idea 3 (peak prominence) and idea 4 (VOD audio) remain
+unbuilt** — note that audio should NOT be ported until the audio signal itself
+is fixed (it correlates -0.03 with human virality).
 
 ## Verification workflow (what "done" means here)
 

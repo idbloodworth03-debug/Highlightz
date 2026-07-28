@@ -86,6 +86,72 @@ async def get_recent_clips(broadcaster_id: str, days: int = 30, limit: int = 100
     return data.get("data", [])
 
 
+async def get_clips_for_vod(broadcaster_id: str, vod_id: str,
+                            limit: int = 100) -> list[dict]:
+    """Clips that VIEWERS created from a specific VOD — crowd-sourced ground
+    truth for "this was a highlight", with view_count as a built-in quality
+    ranking.
+
+    Helix has no video_id filter on Get Clips, so we page the broadcaster's
+    recent clips and keep the ones whose video_id matches. Returns a list of
+    {offset, duration, view_count, title, url, id} sorted by offset, where
+    `offset` is the clip's START second in the VOD.
+
+    Note on vod_offset: Twitch documents it as the clip's END position, so the
+    start is (vod_offset - duration). It is null for clips made during a live
+    broadcast (the offset is resolved minutes later), and those are skipped.
+
+    Returns [] on any failure — highlight enrichment must never break a scan.
+    """
+    if not (broadcaster_id and vod_id):
+        return []
+    try:
+        found: list[dict] = []
+        async with aiohttp.ClientSession() as session:
+            token = await _get_app_token(session)
+            headers = {"Client-Id": settings.twitch_client_id,
+                       "Authorization": f"Bearer {token}"}
+            cursor = ""
+            for _ in range(5):          # up to 500 recent clips
+                params = {"broadcaster_id": broadcaster_id, "first": 100}
+                if cursor:
+                    params["after"] = cursor
+                async with session.get(f"{HELIX_BASE}/clips", headers=headers,
+                                       params=params) as resp:
+                    if resp.status != 200:
+                        log.warning("vod_clips_lookup_failed", status=resp.status,
+                                    vod_id=vod_id)
+                        break
+                    payload = await resp.json()
+                rows = payload.get("data", [])
+                if not rows:
+                    break
+                for r in rows:
+                    if str(r.get("video_id") or "") != str(vod_id):
+                        continue
+                    end = r.get("vod_offset")
+                    if end is None:
+                        continue        # live-created clip, offset not resolved yet
+                    dur = float(r.get("duration") or 30.0)
+                    found.append({
+                        "id":         r.get("id"),
+                        "offset":     max(0.0, float(end) - dur),
+                        "duration":   dur,
+                        "view_count": int(r.get("view_count") or 0),
+                        "title":      (r.get("title") or "").strip(),
+                        "url":        r.get("url") or "",
+                    })
+                cursor = (payload.get("pagination") or {}).get("cursor") or ""
+                if not cursor:
+                    break
+        found.sort(key=lambda c: c["offset"])
+        log.info("vod_viewer_clips_found", vod_id=vod_id, count=len(found))
+        return found
+    except Exception as exc:
+        log.warning("vod_clips_lookup_error", vod_id=vod_id, error=str(exc))
+        return []
+
+
 async def create_clip(user_token: str, broadcaster_id: str,
                       retries: int = 3, retry_delay: float = 5.0) -> str | None:
     """Create a clip on the broadcaster's live stream using the user's token.
