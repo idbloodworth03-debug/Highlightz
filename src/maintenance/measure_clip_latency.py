@@ -151,6 +151,11 @@ async def main() -> int:
                 if not slug or slug in seen:
                     continue
                 if str(c.get("creator_id")) in our_uids or slug in our_slugs:
+                    # Mark as seen FIRST: without this each of our clips is
+                    # re-counted on every poll, inflating the tally ~300x over
+                    # a 25-minute run and making it look like we are flooding
+                    # the channel when it is a handful of clips.
+                    seen[slug] = now
                     ours_filtered += 1
                     continue
                 ts = _parse_ts(c.get("created_at", ""))
@@ -191,6 +196,23 @@ async def main() -> int:
     print(f"\n  -- LATENCY (created_at -> visible in API) --")
     print(f"     median {_pct(lags,0.5):6.1f}s     p90 {_pct(lags,0.9):6.1f}s"
           f"     max {max(lags):6.1f}s     min {min(lags):5.1f}s")
+    print(f"     p10 {_pct(lags,0.1):6.1f}s   p25 {_pct(lags,0.25):6.1f}s"
+          f"   p75 {_pct(lags,0.75):6.1f}s")
+    print("\n     share arriving within each budget:")
+    for cut in (20, 30, 45, 60, 90, 120):
+        share = sum(1 for l in lags if l <= cut) / len(lags)
+        bar = "#" * int(share * 40)
+        print(f"       <={cut:3d}s  {share*100:5.1f}%  {bar}")
+
+    # A hype moment produces a BURST of clips. The trigger only needs the
+    # FIRST of that burst to surface, not the median one — so the relevant
+    # statistic is the minimum of N draws, which is far better than the median.
+    fast = sum(1 for l in lags if l <= 45) / len(lags)
+    if 0 < fast < 1:
+        print("\n     if a moment produces N simultaneous clips, chance that at")
+        print("     least one surfaces within 45s (the usable trigger budget):")
+        for n in (1, 3, 5, 10, 20):
+            print(f"       N={n:2d} clips  ->  {(1 - (1 - fast) ** n) * 100:5.1f}%")
     med = _pct(lags, 0.5)
     print()
     if med < 20:
