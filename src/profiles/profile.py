@@ -225,7 +225,8 @@ class StreamerProfile:
                     self.signal_weights[key] = max(_WEIGHT_MIN, self.signal_weights[key] - delta)
 
     def decay_elapsed(self, seed_threshold: float, now: float | None = None,
-                      max_hours: float = _MAX_DECAY_HOURS) -> float:
+                      max_hours: float = _MAX_DECAY_HOURS,
+                      assume_last: float | None = None) -> float:
         """Apply however many hours of decay have actually elapsed, and return
         the number of hours applied.
 
@@ -247,9 +248,17 @@ class StreamerProfile:
         the seed either way, just predictably.
         """
         now = time.time() if now is None else now
-        if self.last_decay_ts <= 0.0:          # first sight — start the clock
-            self.last_decay_ts = now
-            return 0.0
+        if self.last_decay_ts <= 0.0:
+            # No clock yet (profile predates this field). Rather than starting
+            # from `now` — which would strand an already-stuck channel until it
+            # happens to be loaded twice, an hour apart — start from when the
+            # profile was last WRITTEN, if the caller can tell us. That is a
+            # real measure of when the channel was last active: a file untouched
+            # for five days means five days of neglect, and the decay it earned
+            # is applied immediately.
+            self.last_decay_ts = assume_last if assume_last and assume_last > 0 else now
+            if self.last_decay_ts >= now:
+                return 0.0
         hours = (now - self.last_decay_ts) / 3600.0
         if hours < 1.0:
             return 0.0

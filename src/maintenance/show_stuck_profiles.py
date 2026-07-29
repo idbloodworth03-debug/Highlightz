@@ -42,12 +42,18 @@ def main() -> int:
         thr = float(d.get("trigger_threshold") or 60.0)
         seed = get_rules(ch, "default").trigger_threshold
         last = float(d.get("last_decay_ts") or 0.0)
-        # Profiles saved before this fix have no clock; their first load only
-        # starts it, so the honest preview is "recovery begins then".
-        hours = (now - last) / 3600.0 if last > 0 else 0.0
+        # Profiles written before last_decay_ts existed fall back to the file's
+        # mtime — when the channel was last actually active — so the preview
+        # reflects what the next load really does, not a placeholder.
+        if last <= 0:
+            try:
+                last = pf.stat().st_mtime
+            except OSError:
+                last = 0.0
+        hours = max(0.0, (now - last) / 3600.0) if last > 0 else 0.0
         retained = (1.0 - _THRESHOLD_REVERSION) ** min(hours, 720.0)
-        after = seed + (thr - seed) * retained if last > 0 else thr
-        rows.append((ch, thr, seed, after, last, pf))
+        after = seed + (thr - seed) * retained if hours >= 1.0 else thr
+        rows.append((ch, thr, seed, after, hours, pf))
 
     if not rows:
         print("no profiles found")
@@ -56,9 +62,9 @@ def main() -> int:
     stuck = [r for r in rows if r[1] > r[2] + 5]
     print(f"=== {len(rows)} profiles, {len(stuck)} sitting well above their seed ===\n")
     print(f"  {'channel':22s} {'now':>6s} {'seed':>6s} {'after load':>11s}   note")
-    for ch, thr, seed, after, last, _ in sorted(rows, key=lambda r: -r[1])[:30]:
-        if last <= 0:
-            note = "clock starts on next load; recovers from there"
+    for ch, thr, seed, after, hours, _ in sorted(rows, key=lambda r: -r[1])[:30]:
+        if hours < 1.0:
+            note = "active right now — keeps its learned strictness"
         elif abs(thr - after) < 0.2:
             note = "already at/near seed"
         elif after < thr:
@@ -66,7 +72,8 @@ def main() -> int:
         else:
             note = f"rises {after - thr:.1f} toward seed"
         flag = "  <-- STUCK" if thr > seed + 5 else ""
-        print(f"  {ch[:22]:22s} {thr:6.1f} {seed:6.1f} {after:11.1f}   {note}{flag}")
+        print(f"  {ch[:22]:22s} {thr:6.1f} {seed:6.1f} {after:11.1f}   "
+              f"[idle {hours/24:4.1f}d] {note}{flag}")
 
     print("\nHow recovery behaves from the ceiling (80) toward a 60 seed:")
     for h in (1, 6, 24, 72, 168):

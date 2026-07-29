@@ -74,7 +74,15 @@ class ProfileManager:
                     try:
                         from src.trigger.rules import get_rules
                         seed = get_rules(channel, "default").trigger_threshold
-                        hrs = profile.decay_elapsed(seed)
+                        # Seed the clock from the file's mtime for profiles
+                        # written before last_decay_ts existed, so a channel
+                        # neglected for days recovers on THIS load rather than
+                        # waiting to be loaded twice.
+                        try:
+                            mtime = path.stat().st_mtime
+                        except OSError:
+                            mtime = 0.0
+                        hrs = profile.decay_elapsed(seed, assume_last=mtime)
                         if hrs and abs(before - profile.trigger_threshold) > 0.1:
                             log.info("profile_decay_caught_up", channel=channel,
                                      user=self._user_id, hours=round(hrs, 1),

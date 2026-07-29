@@ -176,3 +176,39 @@ def test_decay_survives_a_save_load_round_trip():
     assert restored.last_decay_ts == now
     restored.decay_elapsed(60.0, now=now + 24 * 3600)
     assert restored.trigger_threshold < 80.0
+
+
+def test_clockless_profile_recovers_on_first_load_via_mtime():
+    """Migration path for the 24 profiles that were already stuck at the
+    ceiling when this fix shipped.
+
+    They have no last_decay_ts. Starting their clock at `now` would strand
+    them: recovery would need the profile loaded TWICE, an hour apart, which
+    for an unmonitored channel may never happen. Seeding from the file's
+    mtime — when the channel was last actually active — applies the decay it
+    already earned on the very first load.
+    """
+    import time as _t
+    now = _t.time()
+    five_days_ago = now - 5 * 24 * 3600
+
+    stuck = StreamerProfile(channel="lacy", trigger_threshold=80.0)
+    hrs = stuck.decay_elapsed(63.0, now=now, assume_last=five_days_ago)
+    assert hrs > 100
+    assert abs(stuck.trigger_threshold - 63.0) < 0.5, stuck.trigger_threshold
+
+    # A recently-written profile has an mtime near now, so it earns almost
+    # nothing — an active channel keeps the strictness it just learned.
+    fresh = StreamerProfile(channel="active", trigger_threshold=80.0)
+    fresh.decay_elapsed(63.0, now=now, assume_last=now - 300)
+    assert fresh.trigger_threshold == 80.0
+
+    # A future/garbage mtime must never inflate the threshold or run backwards.
+    weird = StreamerProfile(channel="skew", trigger_threshold=80.0)
+    assert weird.decay_elapsed(63.0, now=now, assume_last=now + 9999) == 0.0
+    assert weird.trigger_threshold == 80.0
+
+    # With no hint at all, behaviour is the safe original: start the clock.
+    noinfo = StreamerProfile(channel="n", trigger_threshold=80.0)
+    assert noinfo.decay_elapsed(63.0, now=now) == 0.0
+    assert noinfo.trigger_threshold == 80.0
