@@ -131,13 +131,16 @@ async def main() -> int:
           f"{len(our_slugs)} clip(s) we created\n")
 
     seen: dict[str, float] = {}      # slug -> first time WE saw it
-    created: dict[str, float] = {}   # slug -> Twitch's created_at
     lags: list[float] = []
     ours_filtered = 0
+    backlog = 0                      # pre-existing clips, see below
     minute_buckets: dict[int, int] = {}
-    deadline = time.time() + minutes * 60
+    probe_start = time.time()
+    deadline = probe_start + minutes * 60
 
-    async with aiohttp.ClientSession() as session:
+    print("  (press Ctrl-C any time to stop early — the summary still prints)\n")
+    try:
+      async with aiohttp.ClientSession() as session:
         token = await _get_app_token(session)
         headers = {"Client-Id": settings.twitch_client_id,
                    "Authorization": f"Bearer {token}"}
@@ -152,19 +155,31 @@ async def main() -> int:
                     continue
                 ts = _parse_ts(c.get("created_at", ""))
                 seen[slug] = now
-                created[slug] = ts
-                if ts:
-                    lag = now - ts
-                    # A clip that already existed when we started shows a huge
-                    # apparent lag; only count ones born during the probe.
-                    if 0 <= lag <= _WINDOW_MINS * 60:
-                        lags.append(lag)
-                        minute_buckets[int(ts // 60)] = minute_buckets.get(int(ts // 60), 0) + 1
-                        print(f"  +{lag:5.1f}s  {c.get('creator_name','?')[:18]:18s} "
-                              f"{(c.get('title') or '')[:44]}")
+                if not ts:
+                    continue
+                # STARTUP BACKLOG: the first poll sees every clip already in the
+                # lookback window. Their apparent "lag" is just how old they
+                # were when we arrived — up to the whole window — and averaging
+                # that in makes latency look minutes worse than it is. Only
+                # clips BORN during the probe are measurements.
+                if ts < probe_start:
+                    backlog += 1
+                    continue
+                lag = now - ts
+                if lag < 0:
+                    continue          # clock skew between us and Twitch
+                lags.append(lag)
+                minute_buckets[int(ts // 60)] = minute_buckets.get(int(ts // 60), 0) + 1
+                print(f"  +{lag:5.1f}s  {c.get('creator_name','?')[:18]:18s} "
+                      f"{(c.get('title') or '')[:44]}")
             await asyncio.sleep(_POLL_SECS)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("\n  (stopped early — reporting what was collected)")
 
-    print(f"\n=== results over {minutes:g} minutes ===")
+    elapsed = (time.time() - probe_start) / 60.0
+    print(f"\n=== results over {elapsed:.1f} minutes ===")
+    print(f"  pre-existing clips skipped: {backlog}  "
+          f"(already there when the probe started — not measurements)")
     print(f"  new viewer clips seen : {len(lags)}")
     print(f"  our clips filtered out: {ours_filtered}")
     if not lags:
