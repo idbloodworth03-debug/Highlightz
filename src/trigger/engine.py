@@ -10,6 +10,7 @@ as a naturally-loud FPS channel.
 
 import asyncio
 import time
+from collections import deque
 import structlog
 from typing import Callable, Awaitable
 
@@ -22,6 +23,10 @@ from . import scoring
 from src.chat.metrics import ChatMetrics, ChatSnapshot
 
 log = structlog.get_logger(__name__)
+
+# ~15 minutes of evaluations, comfortably longer than the measured p90 clip
+# visibility lag (369s) so late-surfacing viewer clips still find a score.
+_SCORE_HISTORY_MAX = 1200
 
 OnTrigger = Callable[[TriggerEvent], Awaitable[None]]
 OnScore = Callable[[str, float, dict], Awaitable[None]]
@@ -64,6 +69,12 @@ class TriggerEngine:
         self._viewer_samples: int = 0
         self._last_score: float = 0.0  # updated each evaluation; read by monitoring tasks
         self._last_signals: list = []  # latest built signals; read by _monitor_and_fire on a re-peak
+        # Rolling score history: (epoch, score). Exists so a viewer clip that
+        # surfaces LATE can still be paired with what we thought at the moment
+        # it was actually made. Measured Twitch clip-visibility lag is ~167s
+        # median (p90 369s), so 15 minutes of history covers essentially every
+        # clip. Small: one float pair per evaluation.
+        self._score_history: deque = deque(maxlen=_SCORE_HISTORY_MAX)
         # Dry-spell clock: reference time used to detect "no clip in a long while".
         # Anchored on the first calibrated evaluation and reset on every trigger fire
         # and every dry-spell recalibration. See _maybe_recalibrate_dry_spell.
@@ -81,6 +92,23 @@ class TriggerEngine:
         """Call when a sub, gifted sub, or raid event fires."""
         self._sub_raid_active = True
         self._sub_raid_time = time.time()
+
+    def score_at(self, ts: float, tolerance: float = 20.0) -> float | None:
+        """What we scored at wall-clock `ts` — the score closest in time within
+        `tolerance` seconds, or None if we have no reading that near.
+
+        This is what makes viewer clips usable despite Twitch surfacing them
+        minutes late: we look BACKWARD at what the engine thought when the
+        viewer actually clipped, rather than needing to react in the moment.
+        """
+        best = None
+        best_gap = tolerance
+        for t, sc in self._score_history:
+            gap = abs(t - ts)
+            if gap <= best_gap:
+                best_gap = gap
+                best = sc
+        return best
 
     def update_viewer_count(self, count: int) -> None:
         """Update viewer count. Tracks raw current value and slow EMA baseline separately."""
@@ -117,6 +145,7 @@ class TriggerEngine:
 
         self._last_score = score
         self._last_signals = signals   # latest snapshot, read by _monitor_and_fire on a re-peak
+        self._score_history.append((now, round(score, 1)))
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
         if self.on_score:

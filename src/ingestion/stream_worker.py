@@ -23,6 +23,38 @@ from src.profiles.profile import StreamerProfile
 
 log = structlog.get_logger(__name__)
 
+# Our own clips are real Twitch clips and appear in the same Get Clips results
+# as viewers'. Learning from them would be learning from ourselves. Cached
+# because it reads two JSON files; refreshed a few times an hour is plenty.
+_IDENTITY_TTL = 600.0
+_identity_cache: tuple[float, set, set] = (0.0, set(), set())
+
+
+def _our_clip_identity() -> tuple[set, set]:
+    """(twitch ids of our users, slugs of clips we created)."""
+    global _identity_cache
+    ts, ids, slugs = _identity_cache
+    now = time.time()
+    if now - ts < _IDENTITY_TTL:
+        return ids, slugs
+    import json as _json
+    from pathlib import Path as _Path
+    base = _Path(settings.local_storage_path)
+    ids, slugs = set(), set()
+    try:
+        users = _json.loads((base / "users.json").read_text())
+        users = users if isinstance(users, list) else users.get("users", [])
+        ids = {str(u.get("twitch_id")) for u in users if u.get("twitch_id")}
+    except Exception:
+        pass
+    try:
+        clips = _json.loads((base / "clips.json").read_text())
+        slugs = {str(c.get("twitch_clip_id")) for c in clips if c.get("twitch_clip_id")}
+    except Exception:
+        pass
+    _identity_cache = (now, ids, slugs)
+    return ids, slugs
+
 PROFILE_UPDATE_INTERVAL_FAST = 3   # seconds during calibration (first 100 samples = ~5 min)
 PROFILE_UPDATE_INTERVAL_SLOW = 30  # seconds once calibrated
 
@@ -54,6 +86,9 @@ class StreamWorker:
         self._buffer: AudioMeter | None = None
         self._engine: TriggerEngine | None = None
         self._profile: StreamerProfile | None = None
+        # Resolved once per worker — the viewer-clip watcher needs it and the
+        # lookup costs a Helix call.
+        self._broadcaster_id: str | None = None
         self._session_start: float = 0.0
         self._last_profile_save: float = 0.0
         self._last_threshold_decay: float = 0.0
@@ -322,7 +357,11 @@ class StreamWorker:
                       samples=self._profile.velocity_samples)
 
     async def _viewer_poll_loop(self) -> None:
-        """Poll viewer count every 60s and feed it to the trigger engine."""
+        """Poll viewer count every 60s and feed it to the trigger engine.
+
+        Also records viewer-created clips for LEARNING (never for triggering —
+        measured Twitch visibility lag is ~167s median, far too late to act
+        on). See src/trigger/viewer_clips.py."""
         while self._running:
             await asyncio.sleep(60)
             if not self._engine:
@@ -332,6 +371,29 @@ class StreamWorker:
                 self._engine.update_viewer_count(info.viewer_count)
             except Exception as exc:
                 log.debug("viewer_poll_failed", channel=self._config.channel, error=str(exc))
+            await self._record_viewer_clips()
+
+    async def _record_viewer_clips(self) -> None:
+        """Crowd highlight labels. Observation only — it can neither fire a
+        clip nor change a score, so a failure here is harmless."""
+        from src.trigger import viewer_clips
+        chan = self._config.channel
+        # Gate is shared across every worker on this channel: five users
+        # watching one streamer must cost one poll, not five (Helix budget is
+        # per client-id, shared across all our users).
+        if not viewer_clips.due(chan):
+            return
+        try:
+            from src.output.twitch_clips import resolve_broadcaster_id
+            bid = self._broadcaster_id or await resolve_broadcaster_id(chan)
+            self._broadcaster_id = bid
+            if not bid:
+                return
+            ours_ids, ours_slugs = _our_clip_identity()
+            await viewer_clips.poll_and_record(chan, bid, self._engine,
+                                               ours_ids, ours_slugs)
+        except Exception as exc:
+            log.debug("viewer_clip_record_failed", channel=chan, error=str(exc))
 
     async def _on_trigger(self, event: TriggerEvent) -> None:
         info = self._stream_info

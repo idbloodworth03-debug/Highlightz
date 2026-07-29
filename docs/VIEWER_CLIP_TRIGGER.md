@@ -1,6 +1,26 @@
 # Viewer-clip trigger — design plan
 
-**Status: Phase 0 (measuring). No formula change has shipped.**
+**Status: measured. Trigger REJECTED by the data. Learning watcher shipped.**
+
+## Phase 0 result (2026-07-29)
+
+    stableronaldo — 89 clips, 25 clean minutes (backlog excluded)
+      median 167.4s   p90 369.3s   max 461.1s   min 10.8s   rate 4.05 clips/min
+
+    jynxzi — 5 usable clips before he went offline
+      ~21s, but n=5 from a truncated run; the 89-clip sample is the real number
+
+**Verdict: no trigger.** Create Clip reaches back only ~60s, so acting ~3
+minutes late captures the aftermath, not the payoff. The <45s bar was set
+BEFORE the data was collected precisely so this call could not be
+rationalised afterwards, and 167s is not close.
+
+Latency is irrelevant to the learning use, which looks backward instead of
+forward — so that is what shipped: `src/trigger/viewer_clips.py`, plus a
+~15-minute score history on the engine (`TriggerEngine.score_at`) so a clip
+surfacing minutes late still pairs with what we thought when it was made.
+Records to `clips/viewer_clips.jsonl`. It observes only — a test asserts the
+module cannot create clips or move a score.
 
 The idea: when real viewers clip a moment on a channel we're monitoring, that
 is the strongest highlight evidence that exists. Not inference from chat rate
