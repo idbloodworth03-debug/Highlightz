@@ -105,3 +105,74 @@ def test_weight_pool_is_preserved_at_110():
     assert pool == 110, f"weight pool moved to {pool} — clip volume will change"
     # And the chat-only pool that drives the VOD scanner stays ~stable too.
     assert 55 <= sum(scoring.CHAT_WEIGHTS.values()) <= 60
+
+
+def test_threshold_recovers_by_elapsed_time_not_monitoring_uptime():
+    """The dead-channel bug (found 2026-07-29).
+
+    Decay used to live only inside `_profile_update_loop`, which runs
+    `while self._running` — so it ticked only while a channel was ACTIVELY
+    monitored, and only after an hour of continuous uptime. A channel pushed to
+    the 80 ceiling and then left unwatched froze there permanently: nothing
+    fires at 80, so nothing gets approved, so nothing pulls it back down. Eight
+    production channels were stuck like that, one with 225 stored clips and
+    zero that would fire today.
+
+    Decay is now a function of elapsed WALL-CLOCK time and is applied on load,
+    so a profile heals whether or not anyone was watching it.
+    """
+    import time as _t
+    p = StreamerProfile(channel="lacy", trigger_threshold=80.0)
+    now = _t.time()
+
+    # First sight only starts the clock — it must never jump the threshold.
+    assert p.decay_elapsed(60.0, now=now) == 0.0
+    assert p.trigger_threshold == 80.0
+    assert p.last_decay_ts == now
+
+    # Under an hour: nothing happens (no drift from repeated loads).
+    assert p.decay_elapsed(60.0, now=now + 600) == 0.0
+    assert p.trigger_threshold == 80.0
+
+    # A day unwatched: recovers most of the way toward the seed on its own.
+    p.decay_elapsed(60.0, now=now + 24 * 3600)
+    assert 60.0 < p.trigger_threshold < 64.0, p.trigger_threshold
+
+    # A week unwatched: effectively back at the seed — the channel is alive.
+    p2 = StreamerProfile(channel="marlon", trigger_threshold=80.0,
+                         last_decay_ts=now)
+    p2.decay_elapsed(60.0, now=now + 7 * 24 * 3600)
+    assert abs(p2.trigger_threshold - 60.0) < 0.5
+
+    # Catch-up is bounded, and it converges to the seed rather than past it.
+    p3 = StreamerProfile(channel="old", trigger_threshold=80.0, last_decay_ts=1.0)
+    p3.decay_elapsed(60.0, now=now)
+    assert 59.5 <= p3.trigger_threshold <= 60.5
+
+    # It pulls UP as well as down — a channel below its seed also converges.
+    p4 = StreamerProfile(channel="low", trigger_threshold=50.0, last_decay_ts=now)
+    p4.decay_elapsed(60.0, now=now + 24 * 3600)
+    assert 50.0 < p4.trigger_threshold <= 60.0
+
+    # Signal weights ride the same clock and revert toward neutral.
+    p5 = StreamerProfile(channel="w", last_decay_ts=now)
+    p5.signal_weights["AUDIO_SPIKE"] = 1.5
+    p5.decay_elapsed(60.0, now=now + 24 * 3600)
+    # Weights revert at 5%/hour vs the threshold's 10%, so a day takes 1.5 to
+    # ~1.15 — deliberately slower, since a learned preference is worth more
+    # than a threshold that has drifted.
+    assert 1.0 <= p5.signal_weights["AUDIO_SPIKE"] < 1.2
+    p5.decay_elapsed(60.0, now=now + 7 * 24 * 3600)
+    assert abs(p5.signal_weights["AUDIO_SPIKE"] - 1.0) < 0.05
+
+
+def test_decay_survives_a_save_load_round_trip():
+    """last_decay_ts must persist, or every load restarts the clock and decay
+    never accumulates — the same silent-no-op class as the original bug."""
+    import time as _t
+    now = _t.time()
+    p = StreamerProfile(channel="x", trigger_threshold=80.0, last_decay_ts=now)
+    restored = StreamerProfile.from_dict(p.to_dict())
+    assert restored.last_decay_ts == now
+    restored.decay_elapsed(60.0, now=now + 24 * 3600)
+    assert restored.trigger_threshold < 80.0

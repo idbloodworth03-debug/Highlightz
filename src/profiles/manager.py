@@ -64,6 +64,26 @@ class ProfileManager:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     profile = StreamerProfile.from_dict(data)
+                    # Catch up on decay missed while nobody was watching. Decay
+                    # used to run only inside the monitoring loop, so a channel
+                    # that hit the ceiling and then went unmonitored stayed
+                    # there forever — nothing fires at 80, so nothing gets
+                    # approved, so nothing brings it back down. Applying
+                    # elapsed-time decay here heals that on the next load.
+                    before = profile.trigger_threshold
+                    try:
+                        from src.trigger.rules import get_rules
+                        seed = get_rules(channel, "default").trigger_threshold
+                        hrs = profile.decay_elapsed(seed)
+                        if hrs and abs(before - profile.trigger_threshold) > 0.1:
+                            log.info("profile_decay_caught_up", channel=channel,
+                                     user=self._user_id, hours=round(hrs, 1),
+                                     threshold_from=round(before, 2),
+                                     threshold_to=round(profile.trigger_threshold, 2),
+                                     seed=seed)
+                    except Exception as exc:
+                        log.warning("profile_decay_catchup_failed",
+                                    channel=channel, error=str(exc))
                     log.info("profile_loaded", channel=channel, user=self._user_id,
                              threshold=profile.trigger_threshold)
                 except Exception as exc:

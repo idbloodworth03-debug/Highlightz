@@ -380,6 +380,40 @@ scans, not one. **Idea 3 (peak prominence) and idea 4 (VOD audio) remain
 unbuilt** — note that audio should NOT be ported until the audio signal itself
 is fixed (it correlates -0.03 with human virality).
 
+## Dead-channel bug — decay only ran while watching (fixed 2026-07-29)
+
+Eight prod channels sat pinned at the 80 threshold ceiling (lacy, marlon,
+stableronaldo, caseoh_, drsunscreen, ishowspeed, joe_bartolozzi, flats). lacy
+had 225 stored clips and ZERO that would fire.
+
+Nobody set 80 — the bot learned it. Reject = +0.75, approve = -2.0, ceiling 80.
+With 724 rejections against 17 approvals, several channels walked to the cap.
+
+Threshold decay DID exist (10%/hour toward the preset seed) but lived inside
+`_profile_update_loop`, which runs `while self._running`. So it ticked **only
+while a channel was actively monitored, and only after an hour of continuous
+uptime**. A channel that hit the ceiling and then went unwatched — stream
+ended, idle reaper, user removed it — froze there permanently. Self-
+reinforcing: nothing fires at 80, so nothing is approved, so nothing pulls it
+down. Streams monitored in bursts under an hour never decayed at all.
+
+Fix: `StreamerProfile.decay_elapsed(seed, now)` applies decay as a function of
+**elapsed wall-clock time**, and `ProfileManager.load` calls it, so a profile
+heals whether or not anyone was watching. `last_decay_ts` persists on the
+profile (round-trip covered by a test — without it every load restarts the
+clock and decay silently never accumulates, the same class of no-op as the
+original bug). The worker's hourly tick now calls the same function, so there
+is one implementation rather than two that can drift. Catch-up is capped at
+720 hours. Signal weights ride the same clock (5%/hour vs the threshold's 10%
+— a learned preference is worth more than a drifted threshold).
+
+Recovery from the ceiling toward a 60 seed: 6h -> 70.6, 24h -> 61.6, 72h -> 60.
+Active rejection still holds the bar (one reject is +0.75 against ~10% of the
+gap per hour), so this rescues neglect, not genuine strictness.
+
+Preview before deploying: `venv/bin/python -m src.maintenance.show_stuck_profiles`
+(read-only; lists every profile, its seed, and what happens on next load).
+
 ## Verification workflow (what "done" means here)
 
 1. `python -m pytest tests/` — ~90 tests, all green.

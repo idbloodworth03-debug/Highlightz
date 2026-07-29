@@ -57,6 +57,13 @@ _WEIGHT_REVERSION = 0.05     # hourly pull toward 1.0 — stale preferences fade
 # Approvals keep the full −2 (rare, deliberate, should open the tap).
 # Floor 50 (July 2026 analysis): no approved clip has ever scored below 60,
 # so approvals must not drag the bar into territory that only makes junk.
+# Per-hour pull of the trigger threshold back toward the channel's seed. Kept
+# at the worker's historical 10% so behaviour is unchanged for channels that
+# WERE decaying; the fix is that it now applies to channels that were not.
+_THRESHOLD_REVERSION = 0.10
+# Cap on a single catch-up (see decay_elapsed). 30 days of pull lands any
+# profile effectively at its seed without an unbounded computation.
+_MAX_DECAY_HOURS = 720.0
 _THRESHOLD_FLOOR = 50.0
 _THRESHOLD_CEIL  = 80.0
 _APPROVE_STEP    = 2.0
@@ -102,6 +109,9 @@ class StreamerProfile:
     # Starts at global default; nudges down when clips get approved,
     # nudges up when clips get rejected (stays in [_THRESHOLD_FLOOR, _THRESHOLD_CEIL]).
     trigger_threshold: float = 60.0
+    # Wall-clock of the last decay tick. Decay is a function of ELAPSED TIME,
+    # not of monitoring uptime — see decay_elapsed. 0.0 = never decayed.
+    last_decay_ts: float = 0.0
 
     # ── Per-signal learned weight multipliers (1.0 = unchanged) ──────────
     # Nudged by record_clip() based on which signals fired in each clip.
@@ -213,6 +223,47 @@ class StreamerProfile:
                 else:
                     delta = _LEARN_RATE_REJECT * value
                     self.signal_weights[key] = max(_WEIGHT_MIN, self.signal_weights[key] - delta)
+
+    def decay_elapsed(self, seed_threshold: float, now: float | None = None,
+                      max_hours: float = _MAX_DECAY_HOURS) -> float:
+        """Apply however many hours of decay have actually elapsed, and return
+        the number of hours applied.
+
+        WHY THIS EXISTS (2026-07-29): decay used to live only inside
+        `_profile_update_loop`, which runs `while self._running` — so it ticked
+        only while a channel was ACTIVELY MONITORED, and only after an hour of
+        continuous uptime. A channel that got pushed to the ceiling and then
+        stopped being watched (stream ended, idle reaper, user removed it)
+        froze there permanently: nothing fires at 80, so nothing gets approved,
+        so nothing ever brings it back down. Eight prod channels were stuck
+        that way, one with 225 stored clips and zero that would fire.
+
+        Making decay depend on wall-clock time and applying it at LOAD fixes
+        that class of bug outright: a profile recovers whether or not anyone
+        was watching, and a stream monitored in short bursts still recovers.
+
+        `max_hours` caps a single catch-up so a profile untouched for months
+        does one bounded correction rather than an enormous jump — it lands at
+        the seed either way, just predictably.
+        """
+        now = time.time() if now is None else now
+        if self.last_decay_ts <= 0.0:          # first sight — start the clock
+            self.last_decay_ts = now
+            return 0.0
+        hours = (now - self.last_decay_ts) / 3600.0
+        if hours < 1.0:
+            return 0.0
+        hours = min(hours, max_hours)
+        # Compound the same per-hour pull the worker applied, so behaviour is
+        # identical whether one tick or fifty are being caught up on.
+        retained = (1.0 - _THRESHOLD_REVERSION) ** hours
+        self.trigger_threshold = round(
+            seed_threshold + (self.trigger_threshold - seed_threshold) * retained, 2)
+        w_retained = (1.0 - _WEIGHT_REVERSION) ** hours
+        for key, w in self.signal_weights.items():
+            self.signal_weights[key] = round(1.0 + (w - 1.0) * w_retained, 4)
+        self.last_decay_ts = now
+        return hours
 
     def decay_weights(self, rate: float = _WEIGHT_REVERSION) -> None:
         """Mean-revert learned signal weights toward neutral (1.0).

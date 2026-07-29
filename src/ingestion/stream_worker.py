@@ -297,13 +297,13 @@ class StreamWorker:
                 from src.trigger.rules import get_rules
                 seed_threshold = get_rules(self._config.channel, self._config.preset).trigger_threshold
                 current = self._profile.trigger_threshold
-                decayed = current + 0.1 * (seed_threshold - current)
-                self._profile.trigger_threshold = round(decayed, 2)
-                # Signal weights mean-revert on the same hourly clock — the
-                # anti-stale/anti-dead valve: learned preferences fade toward
-                # neutral unless refreshed by new reviews (see
-                # StreamerProfile.decay_weights).
-                self._profile.decay_weights()
+                # Single decay implementation, shared with the load-time
+                # catch-up in ProfileManager.load — two copies would drift.
+                # It also mean-reverts signal weights on the same clock: the
+                # anti-stale/anti-dead valve, so learned preferences fade
+                # toward neutral unless refreshed by new reviews.
+                self._profile.decay_elapsed(seed_threshold)
+                decayed = self._profile.trigger_threshold
                 self._last_threshold_decay = self._last_profile_save
                 if abs(current - decayed) > 0.1:
                     log.info("threshold_decayed", channel=self._config.channel,
