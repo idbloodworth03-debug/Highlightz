@@ -238,14 +238,29 @@ normal Clip Review screen, which still shows scores.
   babel block and compile with @babel/preset-react before pushing.
 - Landing = LANDING_HTML string in `api.py` (plain string, no f-string
   braces; the string in api.py is canonical).
-- **Typography (NEW 2026-07-10)**: Anton (display — 3D block-letter
-  extrusion via layered text-shadow; hollow neon accent words via
-  -webkit-text-stroke with an @supports fallback) + Sora (body, variable
-  weight). Self-hosted woff2 in `src/dashboard/static/fonts/` (preloaded,
-  font-display swap) — no Google Fonts requests. The og-card.png was
-  already made with Anton, so the site matches its own share card. Mobile
-  heading sizes retuned in the 680px media query. The tracked
-  Anton-Regular.ttf is the og-card source font — keep it.
+- **Typography (display face changed 2026-07-30)**: **Nunito Black (900)**
+  for display + Sora (body, variable weight). Self-hosted woff2 in
+  `src/dashboard/static/fonts/` (preloaded, font-display swap) — no Google
+  Fonts requests. Hollow neon accent words via -webkit-text-stroke with an
+  @supports fallback. Mobile sizes retuned in the 680px media query;
+  headline verified to fit at 320px and 360px.
+  - Was Anton until the owner reported the titles looking "pixelated". Two
+    causes: Anton is a CONDENSED industrial grotesque (sharp terminals,
+    tight counters — the opposite of the "bubble letters" wanted), and more
+    importantly **the 3D extrusion stacked hard-edged shadow copies at 2px
+    gaps**, so the steps between copies were visible as banding. Every
+    extrusion is now **contiguous 1px steps**, which reads as one solid
+    slab. If you ever add a new 3D title, use 1px steps — the gap is the
+    bug, not the font.
+  - Display tracking was NEGATIVE-ised (was +.015em to give condensed Anton
+    air; a wide rounded face sprawls with positive tracking). Small
+    uppercase bits (nav logo, tabular numerals) keep their positive
+    tracking.
+  - Body now sets -webkit-font-smoothing:antialiased + optimizeLegibility.
+  - **OPEN: og-card.png is still rendered in Anton**, so the share card no
+    longer matches the site. Regenerate it in Nunito Black when convenient.
+    `Anton-Regular.ttf` is that card's source font — **keep it** until the
+    card is redone.
 - CSS traps: `.wrap` (class) beats `section` (type) on the padding
   shorthand — sections use longhand padding. Grid `1fr` means
   minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.

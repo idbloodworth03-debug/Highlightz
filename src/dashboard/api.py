@@ -2549,7 +2549,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. From $10/month, cancel anytime.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="canonical" href="https://highlightz.app/">
-<link rel="preload" href="/static/fonts/anton-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/nunito-900.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
@@ -2565,24 +2565,29 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
   /* Self-hosted type — no third-party font dependency */
-  @font-face{font-family:'Anton';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/anton-400.woff2) format('woff2')}
+  /* Display face. Nunito Black replaced Anton 2026-07-30: Anton is a
+     CONDENSED industrial grotesque, so its tight counters and sharp
+     terminals read as harsh/pixelated under a 3D extrusion. Nunito's
+     rounded terminals stay clean at display sizes. */
+  @font-face{font-family:'Nunito';font-style:normal;font-weight:900;font-display:swap;src:url(/static/fonts/nunito-900.woff2) format('woff2')}
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{background:#08080b;color:#f6f6f9;font-family:'Sora',Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden}
+  body{background:#08080b;color:#f6f6f9;font-family:'Sora',Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
   body::before{content:'';position:fixed;inset:0;z-index:-3;background:radial-gradient(900px 560px at 16% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(760px 460px at 88% 2%,rgba(249,67,255,.14),transparent 55%),radial-gradient(760px 640px at 50% 112%,rgba(124,107,255,.13),transparent 60%)}
   body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);background-size:26px 26px;-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%);mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%)}
   a{text-decoration:none;color:inherit}
   .acc{color:#c79bff}
   .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  /* ── Display accent: hollow neon word inside Anton 3D block titles ── */
+  /* ── Display accent: hollow neon word inside the 3D block titles ── */
   .hollow{color:transparent;-webkit-text-stroke:2.5px #f943ff;text-shadow:none;filter:drop-shadow(0 0 18px rgba(249,67,255,.45)) drop-shadow(0 10px 22px rgba(0,0,0,.5))}
   @supports not (-webkit-text-stroke:1px #000){.hollow{color:#f943ff;filter:none}}
   /* Nav */
   .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:16px 30px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(8,8,11,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
   .nav-logo{display:flex;align-items:center;gap:11px}
   .nav-logo img{height:32px;filter:drop-shadow(0 0 9px rgba(199,155,255,.5))}
-  .nav-logo span{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:19px;color:#c79bff;letter-spacing:.05em;text-shadow:0 1px 0 #38205a,0 2px 0 #201138}
+  .nav-logo span{font-family:'Nunito',system-ui,sans-serif;font-weight:900;text-transform:uppercase;font-size:19px;color:#c79bff;letter-spacing:.05em;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160}
   .nav-actions{display:flex;align-items:center;gap:10px}
   .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s;white-space:nowrap}
   .nav-link:hover{color:#f6f6f9;background:rgba(255,255,255,.05)}
@@ -2598,11 +2603,11 @@ LANDING_HTML = """<!DOCTYPE html>
   section{padding-top:64px;padding-bottom:64px}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
   .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
-  h2.sec-title{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:40px;letter-spacing:.015em;margin-bottom:14px;line-height:1.06;color:#f6f2ff;text-shadow:0 1.5px 0 #44276a,0 3px 0 #38205a,0 4.5px 0 #2c1849,0 6px 0 #201138,0 10px 18px rgba(0,0,0,.55),0 18px 38px rgba(168,85,247,.24)}
+  h2.sec-title{font-family:'Nunito',system-ui,sans-serif;font-weight:900;text-transform:uppercase;font-size:40px;letter-spacing:-.01em;margin-bottom:14px;line-height:1.06;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #2a1748,0 9px 15px rgba(0,0,0,.5),0 16px 32px rgba(168,85,247,.2)}
   .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
   /* Hero */
   .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:74px;padding-bottom:44px}
-  .hero-copy h1{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:72px;letter-spacing:.015em;line-height:.98;margin-bottom:22px;color:#f6f2ff;text-shadow:0 2px 0 #4f2d77,0 4px 0 #44276a,0 6px 0 #38205a,0 8px 0 #2c1849,0 10px 0 #201138,0 16px 26px rgba(0,0,0,.62),0 26px 52px rgba(168,85,247,.3)}
+  .hero-copy h1{font-family:'Nunito',system-ui,sans-serif;font-weight:900;text-transform:uppercase;font-size:72px;letter-spacing:-.015em;line-height:.98;margin-bottom:22px;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #3a2160,0 7px 0 #3a2160,0 8px 0 #3a2160,0 9px 0 #3a2160,0 11px 0 #2a1748,0 14px 22px rgba(0,0,0,.55),0 24px 46px rgba(168,85,247,.26)}
   .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
   .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
   .hero-note{font-size:13px;color:#5d5d6b}
@@ -2626,7 +2631,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .demo-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
   .demo-ch{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
   .demo-ch .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
-  .demo-score{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:29px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #44276a,0 2px 0 #331c52,0 3px 0 #201138}
+  .demo-score{font-family:'Nunito',system-ui,sans-serif;font-weight:900;font-size:29px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160}
   .demo-score small{font-family:'Sora',Inter,system-ui,sans-serif;font-size:10.5px;font-weight:700;color:#5d5d6b;letter-spacing:.06em;text-transform:uppercase;margin-right:8px;vertical-align:3px;text-shadow:none}
   .demo-chart{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
   .demo-chart svg{display:block;width:100%;height:auto}
@@ -2654,7 +2659,7 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Stats band */
   .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:34px 0 8px}
   .stat{padding:26px 20px;text-align:center}
-  .stat .n{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:42px;letter-spacing:.02em;line-height:1.1;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #44276a,0 2px 0 #331c52,0 3px 0 #201138,0 6px 12px rgba(0,0,0,.5)}
+  .stat .n{font-family:'Nunito',system-ui,sans-serif;font-weight:900;font-size:42px;letter-spacing:.02em;line-height:1.1;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 6px 11px rgba(0,0,0,.45)}
   .stat .k{font-size:12.5px;color:#9c9caa;font-weight:600;margin-top:7px}
   .stat .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ee08a;box-shadow:0 0 8px #2ee08a;margin-right:8px;vertical-align:4px}
   /* Glass card */
@@ -2681,7 +2686,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .feat p{font-size:14px;color:#9c9caa;line-height:1.6}
   /* Formula */
   .formula{padding:46px 44px;text-align:center}
-  .formula h2{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:35px;letter-spacing:.015em;line-height:1.06;margin-bottom:14px;color:#f6f2ff;text-shadow:0 1.5px 0 #44276a,0 3px 0 #38205a,0 4.5px 0 #2c1849,0 6px 0 #201138,0 10px 18px rgba(0,0,0,.55)}
+  .formula h2{font-family:'Nunito',system-ui,sans-serif;font-weight:900;text-transform:uppercase;font-size:35px;letter-spacing:-.01em;line-height:1.06;margin-bottom:14px;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #2a1748,0 9px 15px rgba(0,0,0,.5)}
   .formula p.lead{font-size:16px;color:#b8b8c8;max-width:680px;margin:0 auto 32px;line-height:1.65}
   .signal-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .signal{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;padding:11px 18px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
@@ -2699,7 +2704,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:22px}
   .price-amt{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px}
   .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
-  .price-amt .num{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;font-size:74px;letter-spacing:.01em;line-height:1;color:#f6f2ff;text-shadow:0 2px 0 #44276a,0 4px 0 #38205a,0 6px 0 #2c1849,0 8px 0 #201138,0 14px 24px rgba(0,0,0,.55),0 20px 42px rgba(168,85,247,.26)}
+  .price-amt .num{font-family:'Nunito',system-ui,sans-serif;font-weight:900;font-size:74px;letter-spacing:-.02em;line-height:1;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #3a2160,0 7px 0 #3a2160,0 9px 0 #2a1748,0 13px 20px rgba(0,0,0,.5),0 19px 38px rgba(168,85,247,.22)}
   .price-amt .per{font-size:16px;color:#9c9caa;font-weight:600}
   .price-sub{font-size:13.5px;color:#9c9caa;margin:12px 0 26px;line-height:1.6}
   .price-list{text-align:left;display:flex;flex-direction:column;gap:12px;margin-bottom:30px}
@@ -2709,7 +2714,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-promo b{color:#c79bff}
   /* Final CTA */
   .final{text-align:center;padding-top:56px;padding-bottom:90px}
-  .final h2{font-family:'Anton','Arial Narrow',Impact,system-ui,sans-serif;font-weight:400;text-transform:uppercase;font-size:54px;letter-spacing:.015em;margin-bottom:18px;line-height:1.02;color:#f6f2ff;text-shadow:0 2px 0 #4f2d77,0 4px 0 #44276a,0 6px 0 #38205a,0 8px 0 #2c1849,0 10px 0 #201138,0 16px 26px rgba(0,0,0,.62),0 26px 52px rgba(168,85,247,.3)}
+  .final h2{font-family:'Nunito',system-ui,sans-serif;font-weight:900;text-transform:uppercase;font-size:54px;letter-spacing:-.015em;margin-bottom:18px;line-height:1.02;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #3a2160,0 7px 0 #3a2160,0 8px 0 #3a2160,0 9px 0 #3a2160,0 11px 0 #2a1748,0 14px 22px rgba(0,0,0,.55),0 24px 46px rgba(168,85,247,.26)}
   .final p{font-size:17px;color:#9c9caa;max-width:540px;margin:0 auto 32px;line-height:1.6}
   /* Footer */
   .footer{border-top:1px solid rgba(255,255,255,.06);padding:36px 24px;text-align:center;font-size:12px;color:#3d3d4a;line-height:1.9}
@@ -2840,7 +2845,7 @@ LANDING_HTML = """<!DOCTYPE html>
     /* 2 per row (1 gap ÷ 2 = 8px off each card) */
     .ex-card{flex-basis:calc(50% - 8px)}
     .shots-top{grid-template-columns:1fr}
-    .hero-copy h1{font-size:46px;text-shadow:0 1.5px 0 #4f2d77,0 3px 0 #44276a,0 4.5px 0 #38205a,0 6px 0 #2c1849,0 7.5px 0 #201138,0 12px 20px rgba(0,0,0,.62),0 20px 40px rgba(168,85,247,.3)}
+    .hero-copy h1{font-size:46px;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #3a2160,0 6px 0 #3a2160,0 7px 0 #2a1748,0 11px 18px rgba(0,0,0,.55),0 18px 34px rgba(168,85,247,.26)}
     .hero-copy p.lead{font-size:16.5px}
     h2.sec-title{font-size:31px}
     .formula h2{font-size:28px}
