@@ -299,11 +299,15 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz - Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lobster&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0e0e10; color: #efeff1; font-family: Inter, system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  :root { --font-display: 'Lobster', cursive; --font-body: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body { background: #0e0e10; color: #efeff1; font-family: var(--font-body); display: flex; align-items: center; justify-content: center; min-height: 100vh; }
   .card { background: #1f1f23; border: 1px solid #2d2d35; border-radius: 12px; padding: 40px; width: 340px; }
-  h1 { font-size: 24px; font-weight: 700; color: #bf94ff; margin-bottom: 4px; }
+  h1 { font-family: var(--font-display); font-size: 34px; font-weight: 400; letter-spacing: .01em; color: #bf94ff; margin-bottom: 4px; }
   .sub { font-size: 13px; color: #adadb8; margin-bottom: 28px; }
   label { font-size: 12px; color: #adadb8; display: block; margin-bottom: 6px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
   input { width: 100%; background: #26262c; border: 1px solid #3a3a44; border-radius: 6px; color: #efeff1; padding: 10px 12px; font-size: 14px; outline: none; margin-bottom: 16px; }
@@ -333,11 +337,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lobster&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0e0e10; color: #efeff1; font-family: Inter, system-ui, sans-serif; min-height: 100vh; }
+  :root { --font-display: 'Lobster', cursive; --font-body: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body { background: #0e0e10; color: #efeff1; font-family: var(--font-body); min-height: 100vh; }
   header { background: #1f1f23; border-bottom: 1px solid #2d2d35; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
-  header h1 { font-size: 18px; font-weight: 700; color: #bf94ff; }
+  header h1 { font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: .01em; color: #bf94ff; }
   .badge { background: #26262c; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #adadb8; }
   .badge.live { background: #1a3a2a; color: #00c853; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #00c853; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
@@ -384,7 +392,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   /* Clips panel */
   .clips-panel { display: flex; flex-direction: column; overflow: hidden; }
   .clips-toolbar { padding: 16px 20px; border-bottom: 1px solid #2d2d35; display: flex; align-items: center; gap: 12px; }
-  .clips-toolbar h2 { font-size: 15px; font-weight: 700; flex: 1; }
+  .clips-toolbar h2 { font-family: var(--font-display); font-size: 22px; font-weight: 400; flex: 1; }
   .filter-btn { background: #26262c; border: 1px solid #3a3a44; border-radius: 20px; color: #adadb8; padding: 5px 14px; font-size: 12px; cursor: pointer; transition: all .15s; }
   .filter-btn.active, .filter-btn:hover { background: #bf94ff22; border-color: #bf94ff; color: #bf94ff; }
   .clips-grid { flex: 1; overflow-y: auto; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-content: start; }
@@ -465,7 +473,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="clips-grid" id="clips-grid">
       <div class="empty-state" id="clips-empty" style="grid-column:1/-1;padding:60px 0">
         <div style="font-size:40px;margin-bottom:12px">--</div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:6px">Waiting for clips</div>
+        <div style="font-family:var(--font-display);font-size:24px;font-weight:400;color:#efeff1;margin-bottom:6px">Waiting for clips</div>
         <div>Add a live Twitch stream to start monitoring</div>
       </div>
     </div>
