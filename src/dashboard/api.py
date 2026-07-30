@@ -2585,9 +2585,13 @@ LANDING_HTML = """<!DOCTYPE html>
   a{text-decoration:none;color:inherit}
   .acc{color:#c79bff}
   .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  /* ── Display accent: hollow neon word inside the 3D block titles ── */
-  .hollow{color:transparent;-webkit-text-stroke:2.5px #f943ff;text-shadow:none;filter:drop-shadow(0 0 18px rgba(249,67,255,.45)) drop-shadow(0 10px 22px rgba(0,0,0,.5))}
-  @supports not (-webkit-text-stroke:1px #000){.hollow{color:#f943ff;filter:none}}
+  /* ── Display accent: the highlighted word inside a title. SOLID purple.
+     Previously transparent with a -webkit-text-stroke outline, which the
+     owner disliked. Now filled, so the stroke and its @supports fallback
+     (for browsers lacking text-stroke) are both gone. Class renamed to
+     .accent since the old name described the opposite of what it does. */
+  .accent{color:#a855f7;-webkit-text-stroke:0;text-shadow:none;
+    filter:drop-shadow(0 0 20px rgba(168,85,247,.45)) drop-shadow(0 6px 16px rgba(0,0,0,.5))}
   /* Nav */
   .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:16px 30px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(8,8,11,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
   .nav-logo{display:flex;align-items:center;gap:11px}
@@ -2855,7 +2859,6 @@ LANDING_HTML = """<!DOCTYPE html>
     h2.sec-title{font-size:30px}
     .formula h2{font-size:26px}
     .final h2{font-size:34px}
-    .hollow{-webkit-text-stroke-width:1.8px}
     section{padding-top:44px;padding-bottom:44px}
     .nav{padding:14px 14px}
     .nav-actions{gap:4px}
@@ -2907,7 +2910,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <header class="wrap hero">
   <div class="hero-copy">
     <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
-    <h1>Never miss a <span class="hollow">highlight</span> again.</h1>
+    <h1>Never miss a <span class="accent">highlight</span> again.</h1>
     <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
@@ -3295,7 +3298,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Final CTA -->
 <section class="wrap final">
-  <h2>Your next viral clip is<br><span class="hollow">already happening.</span></h2>
+  <h2>Your next viral clip is<br><span class="accent">already happening.</span></h2>
   <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
   <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
 </section>

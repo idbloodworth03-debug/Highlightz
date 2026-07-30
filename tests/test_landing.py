@@ -100,6 +100,25 @@ def test_showcase_entry_carries_embed_url_for_inline_playback():
     assert entry["embed_url"] == "https://clips.twitch.tv/embed?clip=Slug"
 
 
+def test_accent_word_is_solid_not_outlined():
+    """The highlighted word in a title is a SOLID purple fill.
+
+    It used to be transparent with a -webkit-text-stroke outline. Two things
+    have to stay true or it silently reverts to that look: the fill must not be
+    transparent, and no stroke width may come back.
+    """
+    import re
+    css = api.LANDING_HTML
+    block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
+    assert "color:#a855f7" in block, "accent must be filled purple"
+    assert "color:transparent" not in block
+    assert "-webkit-text-stroke:0" in block
+    # The old class name described the opposite behaviour and is fully gone.
+    assert ".hollow" not in css and 'class="hollow"' not in css
+    # Both accented words still exist in the markup.
+    assert css.count('class="accent"') == 2
+
+
 def test_landing_has_inline_clip_lightbox():
     html = api.LANDING_HTML
     # Visitors watch featured clips in-page (like the clip library), with a
