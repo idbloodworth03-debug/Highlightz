@@ -238,51 +238,36 @@ normal Clip Review screen, which still shows scores.
   babel block and compile with @babel/preset-react before pushing.
 - Landing = LANDING_HTML string in `api.py` (plain string, no f-string
   braces; the string in api.py is canonical).
-- **Typography (display face changed 2026-07-30)**: **Michroma (400)**
-  for display + Sora (body, variable weight).
-  - **Michroma ships ONE weight (400).** Requesting 700/900 makes the
-    browser SYNTHESISE bold by smearing glyphs ~9% wider — mushy, and the
-    exact artefact we removed when Anton went. A drive-test asserts no
-    display element computes a weight other than 400.
-  - Its strokes are lighter than a black weight, so the 3D slab was
-    halved in depth (a 9-layer extrusion swamps thin strokes).
-  - Its caps are WIDE and long words (HIGHLIGHT, AUTOMATICALLY) cannot
-    wrap, so every display size was reduced: hero 72->56, sec-title
-    40->32, final 54->42, formula 35->28; mobile hero 46->33, sec-title
-    31->24, formula 28->20, final 38->27, price 60->46. Verified to fit
-    at 1440/1024/390/360/320px. Raising them re-breaks narrow phones.
-  - Owner picked it from a rendered 8-option angular/esports comparison,
-    referencing esports lettering. NOTE the tension with the original
-    brief ("stand away from competitors") — angular esports type is the
-    default look in this space. Nunito Black was the prior pick and is a
-    one-line revert if that becomes a concern.
-  - Fixed while here: `.demo-wrap::before` bled -30px sideways and pushed
-    body.scrollWidth past the viewport around 1024px. Now `inset:-36px 0`
-    — the blur still softens outward, so it looks identical. (clip-path
-    does NOT help: it clips painting, not the scrollable region.) Page
-    overflow is now 0 at 1440/1024/390/360, better than before. 320px
-    keeps a pre-existing 13px, unrelated and masked by overflow-x:hidden. Self-hosted woff2 in
-  `src/dashboard/static/fonts/` (preloaded, font-display swap) — no Google
-  Fonts requests. Hollow neon accent words via -webkit-text-stroke with an
-  @supports fallback. Mobile sizes retuned in the 680px media query;
-  headline verified to fit at 320px and 360px.
-  - Was Anton until the owner reported the titles looking "pixelated". Two
-    causes: Anton is a CONDENSED industrial grotesque (sharp terminals,
-    tight counters — the opposite of the "bubble letters" wanted), and more
-    importantly **the 3D extrusion stacked hard-edged shadow copies at 2px
-    gaps**, so the steps between copies were visible as banding. Every
-    extrusion is now **contiguous 1px steps**, which reads as one solid
-    slab. If you ever add a new 3D title, use 1px steps — the gap is the
-    bug, not the font.
-  - Display tracking was NEGATIVE-ised (was +.015em to give condensed Anton
-    air; a wide rounded face sprawls with positive tracking). Small
-    uppercase bits (nav logo, tabular numerals) keep their positive
-    tracking.
-  - Body now sets -webkit-font-smoothing:antialiased + optimizeLegibility.
-  - **OPEN: og-card.png is still rendered in Anton**, so the share card no
-    longer matches the site. Regenerate it in Nunito Black when convenient.
-    `Anton-Regular.ttf` is that card's source font — **keep it** until the
-    card is redone.
+- **Typography (settled 2026-07-30)**: **Lobster (400) for TITLES ONLY**
+  (`.hero-copy h1`, `h2.sec-title`, `.formula h2`, `.final h2`); everything
+  else — wordmark, stat numbers, price, demo score, all body copy — is **Sora**.
+  Self-hosted woff2, preloaded, no Google Fonts request.
+  - **Lobster is a SCRIPT.** Two hard rules, both locked by
+    `test_lobster_is_titles_only_and_never_uppercased`:
+    1. **Never `text-transform:uppercase`** — its letters are drawn to connect
+       in lowercase; uppercasing turns it into disconnected slanted capitals.
+       All four title rules deliberately have no text-transform.
+    2. **Weight 400 only** — it ships one weight; asking for bold makes the
+       browser synthesise it by smearing glyphs.
+    Also no letter-spacing on titles: the forms are drawn to sit tight.
+  - The heavy 3D extrusion was dropped for titles — a multi-layer slab on thin
+    script strokes reads as mud. Titles use a soft shadow + purple glow only.
+  - **Three display faces were tried and rejected before this**, in order:
+    Anton (owner: "pixelated" — it is condensed/industrial AND the extrusion
+    stacked hard shadows at 2px GAPS, which banded), Nunito Black (rounded,
+    clean — rejected on look), Michroma (angular/esports per a reference image;
+    rejected as too thin/technical). Their font files were removed. If a future
+    display face is picked, check first whether it ships real weights and
+    whether it survives uppercasing.
+  - Extrusion lesson worth keeping: hard-shadow 3D stacks need **contiguous
+    1px steps**. Gaps between copies are what read as "pixelated".
+  - Fixed along the way: `.demo-wrap::before` bled -30px sideways and pushed
+    body.scrollWidth past the viewport near 1024px; now `inset:-36px 0`. Page
+    overflow is 0 at 1440/1024/390/360. 320px keeps a pre-existing 13px,
+    unrelated and masked by overflow-x:hidden.
+  - **OPEN: og-card.png is still rendered in Anton**, so the share card matches
+    no current face. Regenerate it in Lobster. `Anton-Regular.ttf` is that
+    card's source font — **keep it** until the card is redone.
 - CSS traps: `.wrap` (class) beats `section` (type) on the padding
   shorthand — sections use longhand padding. Grid `1fr` means
   minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.

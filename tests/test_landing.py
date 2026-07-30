@@ -200,3 +200,42 @@ def test_showcase_admin_routes_exist():
     routes = {(r.path, m) for r in api.app.routes for m in (getattr(r, "methods", None) or [])}
     assert ("/admin/showcase/{clip_id}", "POST") in routes
     assert ("/admin/showcase/{clip_id}/move", "POST") in routes
+
+
+def test_lobster_is_titles_only_and_never_uppercased():
+    """Lobster is a SCRIPT face, which imposes two hard constraints.
+
+    1. Its letters are drawn to connect in lowercase. `text-transform:uppercase`
+       mangles it into disconnected slanted capitals — the single most common
+       way a script font gets ruined.
+    2. It ships ONE weight (400). Requesting bold makes the browser synthesise
+       it by smearing glyphs, the same artefact that made the previous two
+       display faces look wrong.
+
+    And it is deliberately scoped to TITLES — the owner asked for clean, normal
+    lettering everywhere else, so numbers/labels/wordmark stay Sora.
+    """
+    import re
+    css = api.LANDING_HTML
+
+    # Every rule that sets Lobster must not also uppercase or embolden it.
+    for m in re.finditer(r"([^{};]+)\{([^}]*font-family:'Lobster'[^}]*)\}", css):
+        sel, body = m.group(1).strip(), m.group(2)
+        assert "text-transform:uppercase" not in body, f"{sel} uppercases a script face"
+        weight = re.search(r"font-weight:(\d+)", body)
+        assert weight and weight.group(1) == "400", f"{sel} would synthesise bold"
+
+    # Scope: the four titles use it...
+    for sel in (".hero-copy h1", "h2.sec-title", ".formula h2", ".final h2"):
+        block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
+        assert "'Lobster'" in block, f"{sel} should be the script face"
+
+    # ...and the non-title display bits must NOT.
+    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".demo-score"):
+        block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
+        assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
+        assert "'Sora'" in block, f"{sel} should be Sora"
+
+    # The font is self-hosted and preloaded, like the others.
+    assert "/static/fonts/lobster-400.woff2" in css
+    assert 'rel="preload"' in css and "lobster-400.woff2" in css
