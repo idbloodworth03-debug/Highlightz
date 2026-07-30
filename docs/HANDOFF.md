@@ -238,8 +238,30 @@ normal Clip Review screen, which still shows scores.
   babel block and compile with @babel/preset-react before pushing.
 - Landing = LANDING_HTML string in `api.py` (plain string, no f-string
   braces; the string in api.py is canonical).
-- **Typography (display face changed 2026-07-30)**: **Nunito Black (900)**
-  for display + Sora (body, variable weight). Self-hosted woff2 in
+- **Typography (display face changed 2026-07-30)**: **Michroma (400)**
+  for display + Sora (body, variable weight).
+  - **Michroma ships ONE weight (400).** Requesting 700/900 makes the
+    browser SYNTHESISE bold by smearing glyphs ~9% wider — mushy, and the
+    exact artefact we removed when Anton went. A drive-test asserts no
+    display element computes a weight other than 400.
+  - Its strokes are lighter than a black weight, so the 3D slab was
+    halved in depth (a 9-layer extrusion swamps thin strokes).
+  - Its caps are WIDE and long words (HIGHLIGHT, AUTOMATICALLY) cannot
+    wrap, so every display size was reduced: hero 72->56, sec-title
+    40->32, final 54->42, formula 35->28; mobile hero 46->33, sec-title
+    31->24, formula 28->20, final 38->27, price 60->46. Verified to fit
+    at 1440/1024/390/360/320px. Raising them re-breaks narrow phones.
+  - Owner picked it from a rendered 8-option angular/esports comparison,
+    referencing esports lettering. NOTE the tension with the original
+    brief ("stand away from competitors") — angular esports type is the
+    default look in this space. Nunito Black was the prior pick and is a
+    one-line revert if that becomes a concern.
+  - Fixed while here: `.demo-wrap::before` bled -30px sideways and pushed
+    body.scrollWidth past the viewport around 1024px. Now `inset:-36px 0`
+    — the blur still softens outward, so it looks identical. (clip-path
+    does NOT help: it clips painting, not the scrollable region.) Page
+    overflow is now 0 at 1440/1024/390/360, better than before. 320px
+    keeps a pre-existing 13px, unrelated and masked by overflow-x:hidden. Self-hosted woff2 in
   `src/dashboard/static/fonts/` (preloaded, font-display swap) — no Google
   Fonts requests. Hollow neon accent words via -webkit-text-stroke with an
   @supports fallback. Mobile sizes retuned in the 680px media query;
