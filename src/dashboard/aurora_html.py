@@ -375,6 +375,12 @@ button{font-family:inherit;cursor:pointer}
 .ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
+.rd-picks{display:flex;gap:8px;flex-wrap:wrap}
+.rd-pick{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:7px 11px;
+  border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);
+  color:var(--fg-2);font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+.rd-pick:hover{background:var(--grad-soft);border-color:rgba(199,155,255,.4);color:#fff}
+.rd-pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-uprow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair)}
 .rd-uprow:last-child{border-bottom:none}
 .rd-uprow .pb{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
@@ -2665,12 +2671,31 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
             onDragLeave={()=>setOver(false)}
             onDrop={onDrop}>
             <div className="di"><Icon name="upload" size={30}/></div>
-            <div className="dt">Drop clips here, or click to choose</div>
-            <div className="ds">Opens straight in the editor · your files stay private</div>
+            <div className="dt">Drop a clip here to open the editor</div>
+            <div className="ds">or click to choose a file · MP4, MOV or WebM</div>
           </div>
           <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
             multiple style={{display:'none'}}
             onChange={e=>{ if(e.target.files?.length) send(e.target.files); e.target.value=''; }}/>
+
+          {/* Anything already uploaded is one click from the editor. Without
+              this the only visible route in is "upload something", which is a
+              dead end for a user who already has clips here and just wants to
+              re-cut one. */}
+          {uploads.length>0 && <div style={{marginTop:14}}>
+            <div className="ed-note" style={{marginBottom:7}}>
+              Or edit one you've already uploaded:
+            </div>
+            <div className="rd-picks">
+              {uploads.slice(0,8).map(u=>(
+                <button key={u.id} className="rd-pick" onClick={()=>setEditing(u)}
+                  title={'Edit ' + u.filename}>
+                  <Icon name="film" size={13}/>
+                  <span>{u.filename}</span>
+                </button>
+              ))}
+            </div>
+          </div>}
 
           {running.length>0 && <div style={{marginTop:14}}>
             {running.map(([id,p])=>(
@@ -2701,7 +2726,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
             ? <div className="rd-grid-empty" style={{padding:'40px 0'}}>
                 <div className="ic"><Icon name="film" size={38}/></div>
                 <div className="big">No clips uploaded yet</div>
-                <div>Drop a clip above to get started.</div>
+                <div>Drop a clip above and the editor opens automatically.</div>
               </div>
             : <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
                 {uploads.map(u=>(

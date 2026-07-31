@@ -210,3 +210,24 @@ def test_uploading_opens_the_editor_without_a_second_click():
     assert "setEditing(prev => prev || up)" in body, (
         "upload does not open the editor, or would clobber an already-open one"
     )
+
+
+def test_the_dropzone_says_it_is_the_way_into_the_editor():
+    """A user landing here needs to know the editor exists and how to reach it.
+    "Drop clips here" alone describes an upload box, not a way in."""
+    m = re.search(r'className=\{\'rd-drop\'.*?</div>\n\s*<input ref=\{fileRef\}', SRC, re.S)
+    assert m, "dropzone block not found"
+    assert re.search(r'class[Nn]ame="dt">Drop a clip here to open the editor', m.group(0)), \
+        "dropzone no longer tells the user it opens the editor"
+
+
+def test_already_uploaded_clips_are_one_click_from_the_editor():
+    """Without this the only visible route in is 'upload something', which is a
+    dead end for a user who already has clips here and wants to re-cut one."""
+    assert 'className="rd-picks"' in SRC, "no quick-pick row for existing clips"
+    picks = re.search(r'className="rd-picks">(.*?)</div>', SRC, re.S)
+    assert picks, "quick-pick row markup not found"
+    assert "setEditing(u)" in picks.group(1), \
+        "quick-pick chips do not open the editor"
+    assert "uploads.length>0 &&" in SRC, \
+        "quick-pick row must be hidden when there is nothing to pick"
