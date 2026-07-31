@@ -154,3 +154,39 @@ def test_records_with_no_paired_score_are_excluded_not_counted_as_zero(capsys):
     out = capsys.readouterr().out
     assert "paired with one of our scores: 1/2" in out
     assert "100.0%" in out, "the one paired moment should score 100%, not 50%"
+
+
+def test_a_zero_catch_rate_is_disambiguated_from_never_clipping(capsys):
+    """0% catch rate has two completely different causes and the report must
+    not let them look alike:
+
+      A. we clipped the channel plenty, just not these moments  -> cooldown /
+         post-roll / scoring, worth chasing in the formula
+      B. we produced no clips on that channel at all            -> monitoring,
+         tokens or clip-creation errors; tuning weights fixes NOTHING
+
+    Prod showed five channels at 0.0%, which is only readable with this.
+    """
+    rows = [rec(1000, channel="dead", peak=90.0),
+            rec(5000, channel="alive", peak=90.0, clip="x")]
+    ours = [{"channel": "alive", "created_at": 4000.0},   # in window, different moment
+            {"channel": "alive", "created_at": 4200.0}]
+    az.report(rows, ours)
+    out = capsys.readouterr().out
+
+    assert "our clips" in out, "no column showing whether we clipped at all"
+    # 'dead' has zero clips anywhere -> called out by name.
+    assert "No clip of ours EVER exists for: dead" in out
+    assert "alive" not in out.split("No clip of ours EVER exists for:")[1].split("\n")[0]
+
+
+def test_the_our_clips_column_counts_only_the_analysis_window(capsys):
+    """Clips from months ago must not make a currently-broken channel look
+    healthy."""
+    rows = [rec(1_000_000, channel="c", peak=90.0)]
+    ours = [{"channel": "c", "created_at": 1_000_000.0},    # in window
+            {"channel": "c", "created_at": 1.0}]            # ancient
+    az.report(rows, ours)
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.strip().startswith("c "))
+    assert line.split()[-1] == "1", f"window filter not applied: {line!r}"

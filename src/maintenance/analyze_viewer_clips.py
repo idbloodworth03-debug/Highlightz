@@ -192,11 +192,21 @@ def report(rows: list[dict], ours: list[dict], only_channel: str = "",
         return
 
     # ── 2. The headline ───────────────────────────────────────────────────
+    # How many clips WE made on each channel inside this window, at all. Without
+    # this column a 0% catch rate is unreadable: "we missed these specific
+    # moments" and "we never clipped this channel once" look identical, and
+    # they are completely different problems with completely different fixes.
+    ours_in_window: dict[str, int] = defaultdict(int)
+    for c in ours:
+        ct = c.get("created_at") or 0
+        if t0 - MATCH_BEFORE <= ct <= t1 + MATCH_AFTER:
+            ours_in_window[(c.get("channel") or "?").lower()] += 1
+
     print(f"\n2. DID WE SEE WHAT THEY SAW?")
     print(f"   Grouping clips into distinct moments (viewers within"
           f" {CONSENSUS_GAP:.0f}s = one moment).\n")
-    print(f"   {'channel':<20} {'moments':>8} {'we scored ≥ bar':>16} {'we clipped it':>15}")
-    print(f"   {'-'*20} {'-'*8} {'-'*16} {'-'*15}")
+    print(f"   {'channel':<20} {'moments':>8} {'we scored ≥ bar':>16} {'we clipped it':>15} {'our clips':>10}")
+    print(f"   {'-'*20} {'-'*8} {'-'*16} {'-'*15} {'-'*10}")
 
     tot_moments = tot_over = tot_clipped = 0
     per_chan_scores: dict[str, list[float]] = {}
@@ -224,17 +234,38 @@ def report(rows: list[dict], ours: list[dict], only_channel: str = "",
         per_chan_scores[chan] = scores
         tot_moments += len(moments); tot_over += over; tot_clipped += clipped
         print(f"   {chan[:20]:<20} {len(moments):>8} "
-              f"{_pct(over, len(moments)):>16} {_pct(clipped, len(moments)):>15}")
+              f"{_pct(over, len(moments)):>16} {_pct(clipped, len(moments)):>15} "
+              f"{ours_in_window.get(chan.lower(), 0):>10}")
 
-    print(f"   {'-'*20} {'-'*8} {'-'*16} {'-'*15}")
+    print(f"   {'-'*20} {'-'*8} {'-'*16} {'-'*15} {'-'*10}")
     print(f"   {'ALL':<20} {tot_moments:>8} "
-          f"{_pct(tot_over, tot_moments):>16} {_pct(tot_clipped, tot_moments):>15}")
+          f"{_pct(tot_over, tot_moments):>16} {_pct(tot_clipped, tot_moments):>15} "
+          f"{sum(ours_in_window.values()):>10}")
     print()
     print("   'we scored ≥ bar' = our score crossed the channel's threshold.")
     print("   'we clipped it'   = a real clip of ours lands within the window.")
-    print("   The second is lower when cooldown or post-roll swallowed a")
-    print("   moment that did beat the bar — that gap is a fixable bug, not a")
-    print("   scoring problem.")
+    print("   'our clips'       = clips we made on that channel in this window,")
+    print("                       whether or not a viewer also clipped it.")
+    print()
+    print("   Read the last column FIRST. A channel scoring over the bar but")
+    print("   showing ~0 clips of ours did not 'miss these moments' — it never")
+    print("   produced clips at all, and no amount of formula tuning fixes")
+    print("   that. Look at monitoring, tokens and clip-creation errors.")
+    print("   Where 'our clips' is healthy but the catch rate is low, THAT is")
+    print("   the cooldown/post-roll gap worth chasing.")
+
+    # Channel-name drift would produce a fake 0% and send someone hunting a
+    # bug that doesn't exist, so name it explicitly rather than leaving the
+    # reader to infer it from a zero.
+    seen_ours = {(c.get("channel") or "").lower() for c in ours if c.get("channel")}
+    silent = [ch for ch in by_chan if ch.lower() not in seen_ours]
+    if silent:
+        print()
+        print(f"   ⚠  No clip of ours EVER exists for: {', '.join(sorted(silent))}")
+        print("      (not just in this window — anywhere in clips.json). Either")
+        print("      we genuinely never clipped these channels, or their names")
+        print("      are stored differently on the two sides. Check before")
+        print("      reading anything into their catch rate.")
 
     # ── 3. Where our scores actually sat ──────────────────────────────────
     print(f"\n3. OUR SCORE AT MOMENTS VIEWERS CLIPPED")
