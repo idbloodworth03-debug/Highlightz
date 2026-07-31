@@ -23,6 +23,33 @@ log = structlog.get_logger(__name__)
 HELIX_BASE = "https://api.twitch.tv/helix"
 TOKEN_URL  = "https://id.twitch.tv/oauth2/token"
 
+
+class ClipNotAuthorizedError(RuntimeError):
+    """Twitch refuses to let us clip this channel, permanently.
+
+    HTTP 403 "User not authorized to create clips" is a setting the BROADCASTER
+    controls — they have restricted clipping (commonly to subscribers or
+    followers). It is not a token problem, not a scope problem, and not
+    transient: retrying produces the same 403 forever.
+
+    Distinct from a generic failure because the correct response is the
+    opposite one. A normal failure should be retried on the next moment; this
+    one must STOP the channel and tell the user, or the bot spends a stream
+    scoring perfectly, firing hundreds of times, and producing nothing while
+    the user stares at an empty queue and concludes the product is broken.
+    Measured on prod 2026-07-31: 5 channels, ~890 fires, ~1 clip.
+    """
+
+
+def is_not_authorized(status: int, body: str) -> bool:
+    """True for the permanent "this channel cannot be clipped" 403.
+
+    Matched on the message rather than the bare status because 403 is also
+    returned for token problems, which ARE fixable by re-linking and must not
+    be treated as permanent.
+    """
+    return status == 403 and "not authorized to create clips" in (body or "").lower()
+
 # Cached app (client-credentials) token for read-only lookups
 _app_token: str = ""
 _app_token_exp: float = 0.0
@@ -261,6 +288,15 @@ async def create_clip(user_token: str, broadcaster_id: str,
                                 attempt=attempt + 1, retrying_in=round(backoff, 1))
                     await asyncio.sleep(backoff)
                     continue
+
+                # Permanent refusal — do not burn the remaining retries on it,
+                # and do not let it look like a transient failure to the caller.
+                if is_not_authorized(resp.status, body):
+                    log.warning("twitch_clip_not_authorized",
+                                broadcaster_id=broadcaster_id, body=body[:200])
+                    raise ClipNotAuthorizedError(
+                        "This channel has clipping restricted on Twitch, so "
+                        "Highlightz can't create clips for it.")
 
                 is_ccl_error = "content classification" in body.lower()
                 if is_ccl_error and attempt < retries - 1:

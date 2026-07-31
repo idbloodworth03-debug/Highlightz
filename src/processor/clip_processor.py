@@ -75,6 +75,10 @@ class ClipProcessor:
                 log.warning("post_roll_capped", requested=job.post_roll, actual=wait)
             await asyncio.sleep(wait)
 
+        # ClipNotAuthorizedError deliberately propagates rather than being
+        # folded into the generic failure below: the caller must stop the
+        # stream instead of retrying, because every future attempt gets the
+        # same permanent 403.
         slug = await twitch_clips.create_clip(token, broadcaster_id)
         if not slug:
             raise RuntimeError(f"Twitch clip creation failed for '{channel}'")

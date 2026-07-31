@@ -23,6 +23,7 @@ from src.ingestion.platform.youtube import YouTubePlatform
 from src.ingestion.platform.kick import KickPlatform
 from src.queue.job_queue import JobQueue
 from src.processor.clip_processor import ClipProcessor
+from src.output import twitch_clips
 
 log = structlog.get_logger(__name__)
 
@@ -173,6 +174,34 @@ async def run_clip_processor() -> None:
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
+        except twitch_clips.ClipNotAuthorizedError:
+            # The broadcaster has clipping restricted. This will NEVER succeed,
+            # so retrying is pure waste: before this branch existed the bot
+            # spent whole streams scoring correctly, firing hundreds of times
+            # and producing nothing, while the user saw an empty queue and
+            # reasonably concluded the product was broken.
+            #
+            # Stop the stream and say why. Removing it also frees the slot,
+            # which matters on a plan capped at 3 or 10 streams.
+            _uid = getattr(job, "user_id", "") if job else ""
+            _ch  = getattr(job, "channel", "") if job else ""
+            log.warning("clip_channel_not_clippable", channel=_ch, user_id=_uid)
+            if _ch:
+                try:
+                    await dashboard_api.stop_stream_internal(_ch, _uid)
+                except Exception:
+                    log.warning("not_clippable_stop_failed", channel=_ch)
+            if _uid:
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": _ch or "that channel",
+                         "message": (f"{_ch} has clipping restricted on Twitch, so we "
+                                     f"can't create clips there. Monitoring stopped.")},
+                        user_id=_uid,
+                    )
+                except Exception:
+                    pass
+            continue
         except Exception as exc:
             import traceback as _tb
             log.error("clip_processor_error", error=str(exc),

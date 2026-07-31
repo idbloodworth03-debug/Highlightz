@@ -1816,6 +1816,32 @@ async def remove_stream(request: Request, channel: str):
         await _publish_remove_stream(channel, uid)
 
 
+async def stop_stream_internal(channel: str, uid: str) -> bool:
+    """Stop monitoring one stream from BACKEND code (no HTTP request).
+
+    Same three steps the DELETE endpoint performs — drop it, tell the user's
+    open tabs, stop the worker — so a stream stopped by the system looks
+    exactly like one the user removed. Returns False when it was already gone.
+
+    Used when a channel turns out to be permanently unclippable: leaving it
+    running would burn a stream slot (plans cap at 3 or 10) forever on a
+    channel that can never produce a clip.
+    """
+    channel    = _clean_channel(channel)
+    stream_key = f"{uid}:{channel}" if uid else channel
+    async with _data_lock:
+        if stream_key not in _streams:
+            return False
+        del _streams[stream_key]
+        _save_streams()
+    # Realtime contract: the tab showing this stream must drop it live.
+    await broadcast({"event": "stream_removed", "channel": channel}, user_id=uid)
+    if _publish_remove_stream:
+        await _publish_remove_stream(channel, uid)
+    log.info("stream_stopped_internal", channel=channel, user_id=uid)
+    return True
+
+
 async def _stop_user_streams_now(uid: str) -> None:
     """Immediately stop all stream workers for a user (no grace period)."""
     keys = [k for k in _streams if k.startswith(f"{uid}:")]
