@@ -231,3 +231,24 @@ def test_already_uploaded_clips_are_one_click_from_the_editor():
         "quick-pick chips do not open the editor"
     assert "uploads.length>0 &&" in SRC, \
         "quick-pick row must be hidden when there is nothing to pick"
+
+
+def test_the_editor_tab_explains_the_flow_before_asking_for_a_file():
+    """A dropzone alone doesn't tell anyone an editor exists, what it does, or
+    where the result goes. Three numbered steps state it once, up top."""
+    m = re.search(r'className="rd-how">(.*?)</div>\n\s*\)\)\}', SRC, re.S)
+    assert m, "how-it-works strip not found"
+    steps = re.findall(r"'(?:\w+)','(\d)','([^']+)'", m.group(1))
+    assert [n for n, _ in steps] == ["1", "2", "3"], f"steps not 1-2-3: {steps}"
+    titles = " ".join(t.lower() for _, t in steps)
+    assert "add" in titles and "edit" in titles and "export" in titles, \
+        f"steps don't cover add/edit/export: {titles}"
+
+
+def test_the_twitch_list_says_why_those_clips_cannot_be_edited():
+    """Two lists sit on this screen and only one has Edit buttons. Left
+    unexplained that reads as a bug rather than a Twitch limitation."""
+    m = re.search(r"function TwitchImport\(\) \{(.*?)className=\"rd-drop\"", SRC, re.S)
+    block = m.group(1) if m else SRC
+    assert re.search(r"Twitch doesn't let apps download clip files", block), \
+        "no explanation for why Twitch clips have no Edit button"

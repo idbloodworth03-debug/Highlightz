@@ -375,6 +375,14 @@ button{font-family:inherit;cursor:pointer}
 .ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
+.rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:760px){.rd-how{grid-template-columns:1fr}}
+.rd-step{display:flex;gap:11px;align-items:flex-start;padding:13px 15px;border-radius:14px;
+  background:rgba(255,255,255,.025);border:1px solid var(--hair)}
+.rd-step .sn{flex-shrink:0;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
+  background:var(--grad-soft);color:var(--acc);font-size:11.5px;font-weight:800}
+.rd-step .st{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.rd-step .sb{font-size:11.5px;color:var(--fg-3);line-height:1.5}
 .rd-picks{display:flex;gap:8px;flex-wrap:wrap}
 .rd-pick{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:7px 11px;
   border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);
@@ -1965,7 +1973,8 @@ function TwitchImport() {
       <h3><span className="si"><Icon name="download" size={15}/></span>Your Twitch clips</h3>
       <div className="desc">
         Every clip on your channel — the ones you made and the ones your viewers made.
-        Pulled live from Twitch, nothing is stored here.
+        Browse and watch them here; Twitch doesn't let apps download clip files, so
+        to edit one, download it from your Twitch Creator Dashboard and drop it in above.
       </div>
 
       {!started
@@ -2653,6 +2662,24 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
               {' '}to launch.</span>
           </div>}
 
+        {/* The flow is not guessable from a dropzone alone: nothing on screen
+            says an editor exists, what it can do, or where the result goes.
+            Three steps, stated once, at the top. */}
+        <div className="rd-how">
+          {[['upload','1','Add a clip','Drop a file in, or pick one you already uploaded.'],
+            ['film','2','Edit it','Trim, reframe for TikTok or Reels, add a caption.'],
+            ['download','3','Export','Renders on your device and saves to your downloads.']
+          ].map(([icon,n,title,body])=>(
+            <div className="rd-step" key={n}>
+              <span className="sn">{n}</span>
+              <div>
+                <div className="st"><Icon name={icon} size={13}/> {title}</div>
+                <div className="sb">{body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Import is complete on its own and ships independently of uploads. */}
         {importOn && <TwitchImport/>}
 
@@ -2721,7 +2748,8 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
 
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="film" size={15}/></span>Your clips</h3>
-          <div className="desc">Everything you've uploaded. Editing and publishing land here next.</div>
+          <div className="desc">Everything you've uploaded. Hit Edit on any of them to trim,
+            reframe and export — publishing straight to TikTok lands here next.</div>
           {uploads.length===0
             ? <div className="rd-grid-empty" style={{padding:'40px 0'}}>
                 <div className="ic"><Icon name="film" size={38}/></div>
