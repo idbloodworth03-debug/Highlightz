@@ -241,6 +241,11 @@ button{font-family:inherit;cursor:pointer}
   align-items:center;justify-content:center;gap:5px;background:transparent;border:none;
   color:var(--fg-3);font-size:11.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
 .rd-navitem:hover{color:var(--fg-2);background:rgba(255,255,255,.05)}
+/* Closed off on Kick. The button is really `disabled`; this only makes that
+   legible — and the not-allowed cursor plus killed hover stops it reading as
+   an unresponsive app. */
+.rd-navitem.blocked{opacity:.32;cursor:not-allowed;filter:saturate(.4)}
+.rd-navitem.blocked:hover{color:var(--fg-3);background:transparent}
 .rd-navitem.active{color:#fff}
 .rd-navitem.active::before{content:'';position:absolute;inset:0;border-radius:16px;
   background:var(--grad-soft);border:1px solid rgba(199,155,255,.3)}
@@ -1386,6 +1391,12 @@ function SettingsScreen({ streams }) {
 }
 
 const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Upload',icon:'upload'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+// Tabs that are closed off while Kick clipping is under construction. Used by
+// BOTH the route dispatch and the nav, so a blocked tab is greyed out and
+// unclickable rather than looking live and then dead-ending. Account, Feedback
+// and the admin/labeler tools are global and stay open; the platform switch
+// and Sign out always stay live so Kick is never a trap.
+const KICK_BLOCKED=['review','streams','library','vod','uploads','settings'];
 const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Upload','Bring your own clips in to edit and publish'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
@@ -1979,6 +1990,18 @@ function UploadScreen({ me }) {
           <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>
         </div>
 
+        {/* Admins bypass the release flag to exercise the feature on prod.
+            Say so plainly — previewing a hidden feature looks identical to a
+            launched one, and that is exactly how something ships by accident. */}
+        {me && me.is_admin && me.features && !me.features.uploads &&
+          <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,
+                       background:'rgba(255,138,76,.12)',border:'1px solid rgba(255,138,76,.32)',
+                       fontSize:12.5,color:'#ff9a52',fontWeight:600}}>
+            <Icon name="cog" size={15}/>
+            <span>Admin preview — your users see an “under construction” screen here.
+              Set <code style={{fontFamily:'monospace'}}>UPLOADS_ENABLED=true</code> to launch.</span>
+          </div>}
+
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="upload" size={15}/></span>Add clips</h3>
           <div className="desc">
@@ -2329,33 +2352,61 @@ function WelcomeOverlay({ onClose }) {
   );
 }
 
-function UnderConstruction() {
+// Shared "not ready yet" screen. Two callers with different palettes: Kick
+// (green) and held-back features like Clip Upload (the app's purple), so the
+// screen reads as part of whatever the user was looking at.
+const UC_THEME = {
+  kick:   { a:'#53fc18', b:'#39b515' },
+  violet: { a:'#c79bff', b:'#a855f7' },
+};
+
+function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note }) {
+  const { a, b } = UC_THEME[theme] || UC_THEME.kick;
+  const tint = (o)=>theme==='kick'?`rgba(83,252,24,${o})`:`rgba(168,85,247,${o})`;
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
                  textAlign:'center',minHeight:'70vh',padding:'40px 24px',gap:22}}>
-      <div style={{width:96,height:96,borderRadius:26,display:'grid',placeItems:'center',color:'#53fc18',
-                   background:'rgba(83,252,24,.1)',border:'1px solid rgba(83,252,24,.32)',
-                   boxShadow:'0 12px 40px -14px rgba(83,252,24,.45)'}}><Icon name="cog" size={44}/></div>
+      <div style={{width:96,height:96,borderRadius:26,display:'grid',placeItems:'center',color:a,
+                   background:tint(.1),border:'1px solid '+tint(.32),
+                   boxShadow:'0 12px 40px -14px '+tint(.45)}}><Icon name="cog" size={44}/></div>
       <div style={{display:'inline-flex',alignItems:'center',gap:9,padding:'7px 16px',borderRadius:999,
-                   background:'rgba(83,252,24,.12)',border:'1px solid rgba(83,252,24,.35)',
-                   color:'#53fc18',fontWeight:800,fontSize:12.5,letterSpacing:'.14em',textTransform:'uppercase'}}>
-        <span style={{width:8,height:8,borderRadius:'50%',background:'#53fc18',boxShadow:'0 0 10px #53fc18'}}/>
+                   background:tint(.12),border:'1px solid '+tint(.35),
+                   color:a,fontWeight:800,fontSize:12.5,letterSpacing:'.14em',textTransform:'uppercase'}}>
+        <span style={{width:8,height:8,borderRadius:'50%',background:a,boxShadow:'0 0 10px '+a}}/>
         Under Construction
       </div>
       <h1 style={{margin:0,fontSize:38,fontWeight:900,letterSpacing:'-.02em',
-                  background:'linear-gradient(135deg,#53fc18,#39b515)',
+                  background:`linear-gradient(135deg,${a},${b})`,
                   WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
-        Kick is coming soon
+        {title}
       </h1>
       <p style={{margin:0,maxWidth:560,fontSize:15.5,lineHeight:1.6,color:'var(--fg-2)'}}>
-        We're building fully-automated Kick clipping to the same standard as our Twitch detection.
-        It isn't ready yet, so this section is temporarily closed off. In the meantime, switch back to
-        <b style={{color:'var(--fg)'}}> Twitch</b> to keep capturing highlights.
+        {children}
       </p>
       <p style={{margin:0,fontSize:13,color:'var(--fg-3)'}}>
-        Thanks for your patience — we'll flip this on the moment it's solid.
+        {note || "Thanks for your patience — we'll flip this on the moment it's solid."}
       </p>
     </div>
+  );
+}
+
+function KickUnderConstruction() {
+  return (
+    <UnderConstruction theme="kick" title="Kick is coming soon">
+      We're building fully-automated Kick clipping to the same standard as our Twitch detection.
+      It isn't ready yet, so this section is temporarily closed off. In the meantime, switch back to
+      <b style={{color:'var(--fg)'}}> Twitch</b> to keep capturing highlights.
+    </UnderConstruction>
+  );
+}
+
+function UploadsUnderConstruction() {
+  return (
+    <UnderConstruction theme="violet" title="Clip Upload is coming soon">
+      Bring your own clips in to edit, reframe for vertical, and publish straight to
+      TikTok and Instagram. The upload side is built — we're finishing the editing and
+      publishing half before switching it on, because half a feature is worse than none.
+    </UnderConstruction>
   );
 }
 
@@ -2586,13 +2637,23 @@ function RdApp() {
   const platformStreams = Object.fromEntries(Object.entries(streams).filter(([,s])=>s.platform===activePlatform));
   const platformClips   = Object.fromEntries(Object.entries(clips).filter(([,c])=>c.platform===activePlatform));
   const pending = Object.values(platformClips).filter(c=>c.status==='pending').length;
+  // Held-back feature: released for everyone, or an admin previewing it.
+  // Default false while /me is still loading, so the tab never flashes the
+  // real screen before the flag arrives.
+  const uploadsOn = !!(me && (me.features?.uploads || me.is_admin));
 
   let screen;
   // Kick is temporarily closed off while automated clipping is built — show a
   // big "under construction" prompt for every platform-specific feature screen.
   // Account and Feedback are global and stay open; Settings shows Twitch-only
   // stats so it's also gated while Kick is under construction.
-  if(activePlatform==='kick' && ['review','streams','library','vod','settings'].includes(route)) screen=<UnderConstruction/>;
+  // KICK_BLOCKED is the single source of truth, shared with the nav below so
+  // a tab can never be clickable-but-dead (or greyed-out-but-working).
+  if(activePlatform==='kick' && KICK_BLOCKED.includes(route)) screen=<KickUnderConstruction/>;
+  // Clip Upload is built but held back until editing/publishing exist. The
+  // backend refuses too (503) — this is not a UI-only gate. Admins get the
+  // real screen so the owner can exercise it on prod.
+  else if(route==='uploads' && !uploadsOn) screen=<UploadsUnderConstruction/>;
   else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
@@ -2610,13 +2671,22 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
-        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>(
-          <button key={n.id} className={'rd-navitem'+(route===n.id?' active':'')} onClick={()=>{setRoute(n.id);setNavOpen(false);}}>
-            {n.id==='review'&&pending>0&&<span className="navbadge">{pending}</span>}
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>{
+          // On Kick every platform-specific tab is closed off, so the button is
+          // genuinely disabled — not just visually dimmed. `disabled` is what
+          // actually stops the click; the class only makes that visible.
+          const blocked = activePlatform==='kick' && KICK_BLOCKED.includes(n.id);
+          return (
+          <button key={n.id} disabled={blocked} aria-disabled={blocked}
+            title={blocked?'Not available on Kick yet':undefined}
+            className={'rd-navitem'+(route===n.id?' active':'')+(blocked?' blocked':'')}
+            onClick={()=>{ if(blocked) return; setRoute(n.id); setNavOpen(false); }}>
+            {n.id==='review'&&pending>0&&!blocked&&<span className="navbadge">{pending}</span>}
             <span className="ic"><Icon name={n.icon} size={22}/></span>
             <span>{n.label}</span>
           </button>
-        ))}
+          );
+        })}
         <span className="sp"/>
         <button className="rd-navitem" style={{background:'none',border:'none',cursor:'pointer',color:'inherit'}} title="Sign out" onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>
           <span className="ic"><Icon name="logout" size={18}/></span>

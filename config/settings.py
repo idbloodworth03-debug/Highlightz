@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     upload_max_user_mb: int = 2048       # 2 GB per user
     upload_max_total_mb: int = 25600     # 25 GB across all users
 
+    # Release flag. Clip Upload is built and tested but held back until the
+    # editing/publishing half exists — shipping "upload a file, then nothing"
+    # is worse than not shipping it. Off means users get an under-construction
+    # screen AND the API refuses, so a direct POST cannot fill the disk while
+    # the tab is hidden. Admins bypass it so the owner can exercise the real
+    # feature on prod; their dashboard says plainly that users cannot see it.
+    # Flip to true (UPLOADS_ENABLED=true in .env) to launch.
+    uploads_enabled: bool = False
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so

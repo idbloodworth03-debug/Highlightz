@@ -244,12 +244,18 @@ def client(monkeypatch, isolated_store):
         "pro_user":     {"id": "pro_user", "subscription_status": "active", "plan": "pro"},
         "starter_user": {"id": "starter_user", "subscription_status": "active", "plan": "starter"},
         "other_pro":    {"id": "other_pro", "subscription_status": "active", "plan": "pro"},
+        "admin":        {"id": "admin", "subscription_status": "active", "plan": "pro",
+                         "is_admin": True},
     }
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: people.get(uid))
     # Broadcasts need a running loop and real sockets; the realtime contract is
     # covered by test_realtime_contract.py, so stub it out here.
     async def _noop(*a, **k): return None
     monkeypatch.setattr(api, "broadcast", _noop)
+
+    # The release flag defaults OFF. These tests exercise the feature itself,
+    # so switch it on; the flag's own behaviour is tested separately below.
+    monkeypatch.setattr(api.settings, "uploads_enabled", True)
 
     c = TestClient(api.app)
 
@@ -341,3 +347,52 @@ def test_playback_supports_range_requests(client):
     assert r.status_code == 206, "no partial-content support — video cannot be scrubbed"
     assert r.content == MP4[4:12]
     assert r.headers["content-range"] == f"bytes 4-11/{len(MP4)}"
+
+
+# ── Release flag ──────────────────────────────────────────────────────────────
+#
+# Clip Upload is finished on the storage side but held back until editing and
+# publishing exist. "Held back" has to mean the API refuses too — a UI-only
+# gate still lets a direct POST write to the shared 50 GB disk.
+
+def test_when_the_feature_is_off_the_api_refuses_even_for_a_pro_user(client, monkeypatch):
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "uploads_enabled", False)
+    c = client.login("pro_user")
+
+    r = c.post("/uploads", files={"file": ("clip.mp4", MP4, "video/mp4")})
+    assert r.status_code == 503, "hidden feature still accepts uploads"
+    assert "coming soon" in r.json()["detail"].lower()
+    assert c.get("/uploads").status_code == 503
+    # Nothing reached the disk.
+    assert lib.total_bytes() == 0
+
+
+def test_admins_bypass_the_release_flag(client, monkeypatch):
+    """The owner has to be able to exercise the real feature on prod before
+    switching it on for everyone."""
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "uploads_enabled", False)
+    c = client.login("admin")
+    assert c.get("/uploads").status_code == 200
+    assert c.post("/uploads", files={"file": ("a.mp4", MP4, "video/mp4")}).status_code == 201
+
+
+def test_the_plan_gate_still_applies_once_the_feature_is_switched_on(client, monkeypatch):
+    """Launching must not accidentally hand Clip Upload to Starter users."""
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "uploads_enabled", True)
+    c = client.login("starter_user")
+    assert c.get("/uploads").status_code == 403
+
+
+def test_me_reports_the_flag_so_the_dashboard_can_mirror_it(client, monkeypatch):
+    from src.dashboard import api
+    from src.billing import plans
+    monkeypatch.setattr(api.settings, "uploads_enabled", False)
+    c = client.login("pro_user")
+    me = c.get("/me").json()
+    assert me["features"]["uploads"] is False
+    # Plan entitlement and release state are separate axes: a Pro user is
+    # entitled to a feature that is not switched on yet.
+    assert me["plan_limits"]["uploads"] is True

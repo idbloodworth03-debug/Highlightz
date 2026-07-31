@@ -69,3 +69,57 @@ def test_route_is_wired_into_every_table(route):
     assert route in _head_routes(), f"{route!r} missing from HEAD"
     assert route in _dispatch_routes() or route == "settings", \
         f"{route!r} missing from the route dispatch"
+
+
+def _kick_blocked() -> set[str]:
+    m = re.search(r"const KICK_BLOCKED=\[(.*?)\];", SRC, re.S)
+    assert m, "KICK_BLOCKED table not found"
+    return set(re.findall(r"'(\w+)'", m.group(1)))
+
+
+def test_kick_blocked_tabs_are_real_nav_tabs():
+    """A typo'd id here would silently block nothing."""
+    unknown = _kick_blocked() - _nav_routes()
+    assert not unknown, f"KICK_BLOCKED lists ids that are not NAV tabs: {sorted(unknown)}"
+
+
+def test_kick_blocked_nav_buttons_are_actually_disabled_not_just_dimmed():
+    """Greying a button out without disabling it leaves it clickable — the user
+    lands on a dead tab and the app looks broken rather than closed.
+
+    The click handler must also bail, because `disabled` alone does not stop a
+    programmatic or keyboard-triggered click in every browser.
+    """
+    nav = re.search(r"NAV\.filter\(.*?\}\)\}", SRC, re.S)
+    assert nav, "nav render block not found"
+    block = nav.group(0)
+    assert "const blocked = activePlatform==='kick' && KICK_BLOCKED.includes(n.id)" in block
+    # The lookbehind matters: `aria-disabled={blocked}` contains the literal
+    # `disabled={blocked}`, so a plain substring check passes even when the
+    # real `disabled` attribute has been removed and the button is clickable
+    # again. Only the standalone attribute actually blocks the click.
+    assert re.search(r"(?<![-\w])disabled=\{blocked\}", block), \
+        "blocked tab is styled/aria-marked but still clickable"
+    assert "if(blocked) return;" in block, "click handler does not bail on a blocked tab"
+
+
+def test_kick_never_traps_the_user():
+    """Everything platform-specific is closed on Kick, so the ways OUT must
+    stay open or the only escape is a page refresh."""
+    blocked = _kick_blocked()
+    for escape in ("account", "feedback"):
+        assert escape not in blocked, f"{escape} must stay reachable from Kick"
+    # The platform switch and sign-out live outside the NAV loop entirely, so
+    # KICK_BLOCKED cannot reach them; assert they are still rendered.
+    assert "switchPlatform('twitch')" in SRC
+    assert "/logout" in SRC
+
+
+def test_held_back_features_default_to_closed_while_me_is_loading():
+    """`me` is null on first paint. If the flag defaulted open, the real screen
+    would flash before /me arrives and then get yanked away."""
+    m = re.search(r"const uploadsOn = ([^;]+);", SRC)
+    assert m, "uploadsOn not found"
+    expr = m.group(1)
+    assert "me &&" in expr, "uploadsOn must be false until /me has loaded"
+    assert "features?.uploads" in expr and "is_admin" in expr

@@ -667,6 +667,10 @@ async def me(request: Request):
                                 "max_pending": limits["max_pending"],
                                 "vod": limits["vod"],
                                 "uploads": limits["uploads"]},
+        # Release flags — what is switched ON for everyone, separate from what
+        # this user's plan entitles them to. The dashboard shows an
+        # under-construction screen for anything off here.
+        "features":            {"uploads": settings.uploads_enabled},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
@@ -2048,7 +2052,16 @@ _UPLOAD_CHUNK = 1024 * 1024      # 1 MB — bounded memory on a 2 GB box
 def _require_upload_access(uid: str) -> None:
     from src.billing.plans import limits_for
     from src.auth import users as user_store
-    if not limits_for(user_store.get_by_id(uid))["uploads"]:
+    user = user_store.get_by_id(uid)
+    # Release flag first: while the feature is held back the API must refuse
+    # too, not just the UI. Otherwise a direct POST still writes to the shared
+    # disk even though nobody can reach the tab.
+    if not settings.uploads_enabled and not (user or {}).get("is_admin"):
+        raise HTTPException(
+            status_code=503,
+            detail="Clip Upload isn't available yet — it's coming soon.",
+        )
+    if not limits_for(user)["uploads"]:
         raise HTTPException(
             status_code=403,
             detail="Clip Upload is a Pro feature — upgrade to upload and edit clips.",

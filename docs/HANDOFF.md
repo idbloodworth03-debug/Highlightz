@@ -76,6 +76,13 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
 - Kick: no public clip-creation API (verified June 2026). Kick sign-in
   disabled (Twitch is the only sign-in; Kick linking still works). Kick UI
   gated behind under-construction screen; Kick scrubbed from marketing.
+  **On Kick the blocked nav tabs are genuinely `disabled`, not just dimmed**
+  (2026-07-31) — a greyed-but-clickable tab dead-ends and reads as a broken
+  app. `KICK_BLOCKED` in `aurora_html.py` is the single source of truth for
+  both the nav and the route dispatch, so a tab can never be
+  clickable-but-dead or greyed-out-but-working. Account, Feedback, the platform
+  switch and Sign out stay live — **Kick must never be a trap**
+  (`test_kick_never_traps_the_user`).
 
 ## Billing (Stripe) — current design (TWO TIERS since 2026-07-11)
 
@@ -509,6 +516,17 @@ Preview before deploying: `venv/bin/python -m src.maintenance.show_stuck_profile
   checkout never confirmed on prod.
 
 ## Clip Upload — the social-publishing foundation (started 2026-07-31)
+
+**HELD BACK — `UPLOADS_ENABLED=false` (the default).** Built and tested, but
+not released: shipping "upload a file, then nothing" is worse than not
+shipping. Users get an under-construction screen; **the API also returns 503**,
+because a UI-only gate still lets a direct POST write to the shared 50 GB disk.
+Admins bypass the flag so the owner can exercise it on prod, and their
+dashboard shows an orange "Admin preview — your users see an under-construction
+screen" banner, so a hidden feature can't be mistaken for a launched one.
+**To launch:** set `UPLOADS_ENABLED=true` in prod `.env` and restart. The Pro
+plan gate is independent and still applies (`test_the_plan_gate_still_applies_
+once_the_feature_is_switched_on`).
 
 **Why it exists.** TikTok's Content Posting API and Instagram's publishing API
 both take either raw bytes or a URL on a domain you have *verified you own*.
