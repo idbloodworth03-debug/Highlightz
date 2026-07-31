@@ -113,3 +113,34 @@ def test_landing_has_share_card_tags_and_asset():
     assert "https://highlightz.app/static/og-card.png" in LANDING_HTML
     # The referenced asset must actually ship.
     assert (Path(_STATIC_DIR) / "og-card.png").exists()
+
+
+def test_mp4_derivation_only_accepts_real_clip_thumbnails():
+    """The probe must refuse to guess.
+
+    Our own clips.json turned out to hold VOD thumbnails
+    (cf_vods/.../thumb0-1280x720.jpg), not clip thumbnails. A naive
+    `.replace('.jpg','.mp4')` would happily build a URL from one of those, get
+    a 403, and read as "Twitch blocked us" when it really means "wrong input".
+    Returning None keeps an inconclusive probe distinguishable from a negative
+    one — which is the whole value of running it.
+    """
+    from src.maintenance.probe_clip_media import mp4_from_thumbnail
+
+    clip = ("https://clips-media-assets2.twitch.tv/"
+            "AT-cm%7C1234567890-preview-480x272.jpg")
+    assert mp4_from_thumbnail(clip) == (
+        "https://clips-media-assets2.twitch.tv/AT-cm%7C1234567890.mp4")
+    # Any -preview- size works; Twitch varies it.
+    assert mp4_from_thumbnail(
+        "https://x.tv/abc-preview-260x147.jpg") == "https://x.tv/abc.mp4"
+
+    # The VOD shape we actually have on prod must NOT derive anything.
+    vod = ("https://static-cdn.jtvnw.net/cf_vods/d2nvs31859zcd8/"
+           "87e4c6506abe71ffff76_beyondcookedmax_316854934263_1782266575//"
+           "thumb/thumb0-1280x720.jpg")
+    assert mp4_from_thumbnail(vod) is None
+    assert mp4_from_thumbnail("") is None
+    assert mp4_from_thumbnail("https://x.tv/no-suffix.jpg") is None
+    # '-preview-' must be the SUFFIX, not merely present in the path.
+    assert mp4_from_thumbnail("https://x.tv/a-preview-480x272.jpg/other.png") is None
