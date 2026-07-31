@@ -142,3 +142,44 @@ def test_watcher_cannot_trigger_a_clip():
     src = inspect.getsource(viewer_clips)
     for forbidden in ("create_clip", "on_trigger", "_last_score =", "trigger_threshold ="):
         assert forbidden not in src, f"watcher must not {forbidden!r}"
+
+
+def test_score_window_takes_the_peak_not_the_endpoint():
+    """A point sample at the clip's created_at is biased LOW.
+
+    A viewer watches the moment land, THEN reaches for the button, so
+    created_at stamps the aftermath — chat already calming. Scoring the bot
+    against that instant makes it look like it missed moments it actually
+    spiked on seconds earlier. The window asks the honest question: did our
+    score ever cross the bar while the clipped moment was happening?
+    """
+    from src.trigger.engine import TriggerEngine
+    eng = TriggerEngine.__new__(TriggerEngine)          # no I/O, no config
+    from collections import deque
+    eng._score_history = deque([
+        (1000.0, 20.0),
+        (1020.0, 88.0),      # the spike
+        (1040.0, 30.0),
+        (1060.0, 12.0),      # where the viewer's clip lands
+    ])
+
+    peak, n = eng.score_window(1000.0, 1060.0)
+    assert peak == 88.0 and n == 4
+
+    # The bias this exists to remove: sampling at the clip timestamp alone
+    # reads 12, the window reads the 88 that actually happened.
+    assert eng.score_at(1060.0, tolerance=5.0) == 12.0
+    assert eng.score_window(1000.0, 1070.0)[0] == 88.0
+
+    # Nothing in range is reported as no data, never as zero — "we weren't
+    # watching" and "we scored 0" must not collapse into the same number.
+    assert eng.score_window(2000.0, 2100.0) == (None, 0)
+
+
+def test_recorded_peak_window_looks_backward_from_the_clip():
+    """The moment precedes created_at, so the window must be asymmetric —
+    mostly before the timestamp, barely after."""
+    from src.trigger import viewer_clips as vc
+    assert vc._PEAK_LOOKBACK > vc._PEAK_LOOKAHEAD
+    # Wide enough to cover a Twitch clip (~30s) plus human reaction time.
+    assert vc._PEAK_LOOKBACK >= 45.0

@@ -54,6 +54,13 @@ POLL_INTERVAL = 90.0
 # falls between polls, and wide enough to catch the measured p90 lag.
 _WINDOW_SECS = 420.0
 
+# How far around a viewer clip's created_at to look for OUR peak score. A
+# Twitch clip covers roughly the preceding 30s, and a viewer takes a few more
+# seconds to react and press the button — so the moment sits before the
+# timestamp, never after it by much. Asymmetric on purpose.
+_PEAK_LOOKBACK  = 60.0
+_PEAK_LOOKAHEAD = 10.0
+
 # channel -> last poll time, and channel -> slugs already recorded.
 _last_poll: dict[str, float] = {}
 _seen: dict[str, set[str]] = {}
@@ -133,6 +140,12 @@ async def poll_and_record(channel: str, broadcaster_id: str, engine,
         if not ts:
             continue
         our_score = engine.score_at(ts) if engine else None
+        # A viewer clips AFTER the moment lands, so `ts` points at the
+        # aftermath. Take our peak across the window the clip plausibly covers
+        # — a point sample at `ts` systematically understates what we scored
+        # and would make the bot look like it missed moments it caught.
+        peak, peak_n = (engine.score_window(ts - _PEAK_LOOKBACK, ts + _PEAK_LOOKAHEAD)
+                        if engine else (None, 0))
         out.append({
             "ts":           round(ts, 1),
             "recorded_at":  round(now, 1),
@@ -146,6 +159,11 @@ async def poll_and_record(channel: str, broadcaster_id: str, engine,
             # moment. None means the moment fell outside our score history
             # (stream started later, or we were not watching).
             "our_score":    our_score,
+            # What we peaked at across the clipped window — the number that
+            # actually answers "did we see this moment at all?".
+            "our_peak":     peak,
+            "peak_n":       peak_n,
+            "peak_window":  [_PEAK_LOOKBACK, _PEAK_LOOKAHEAD],
             "threshold":    round(engine.profile.trigger_threshold, 1)
                             if engine and engine.profile else None,
         })

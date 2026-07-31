@@ -110,6 +110,30 @@ class TriggerEngine:
                 best = sc
         return best
 
+    def score_window(self, start_ts: float, end_ts: float) -> tuple[float | None, int]:
+        """Our PEAK score across [start_ts, end_ts], plus how many readings
+        backed it. (None, 0) when we have no readings in that span.
+
+        `score_at` is a point sample, and for viewer clips a point sample is
+        biased LOW. A viewer clips some seconds after the moment lands — they
+        watch it happen, then reach for the button — and Twitch stamps
+        `created_at` at that later instant. Sampling our score there reads the
+        aftermath, when chat has already calmed, not the spike itself. Judging
+        the bot on that number would make it look like it missed moments it
+        actually scored highly, seconds earlier.
+
+        The window keeps the comparison honest: did our score EVER cross the
+        bar while the clipped moment was happening?
+        """
+        best: float | None = None
+        n = 0
+        for t, sc in self._score_history:
+            if start_ts <= t <= end_ts:
+                n += 1
+                if best is None or sc > best:
+                    best = sc
+        return best, n
+
     def update_viewer_count(self, count: int) -> None:
         """Update viewer count. Tracks raw current value and slow EMA baseline separately."""
         self._viewer_current = float(count)

@@ -140,6 +140,43 @@ entire latency budget.
 
 ---
 
+## Analysis (built 2026-07-31)
+
+    venv/bin/python -m src.maintenance.analyze_viewer_clips
+    venv/bin/python -m src.maintenance.analyze_viewer_clips --channel jynxzi --peak-only
+
+Read-only. Reports, per channel: how many distinct MOMENTS viewers clipped
+(clips within 45s are one moment — ten people clipping one play is one
+highlight), what fraction we scored over the bar, what fraction we actually
+produced a clip for, our score percentiles at those moments, a threshold
+sweep, and the misses listed with clip URLs.
+
+**The measurement bug this exposed, fixed the same day.** `score_at(ts)` is a
+POINT sample at the clip's `created_at` — but a viewer watches the moment land
+and *then* reaches for the button, so that timestamp is the aftermath, seconds
+after chat peaked. Judging the bot there makes it look like it missed moments
+it actually spiked on. `TriggerEngine.score_window()` now records `our_peak`
+across `[ts-60, ts+10]` (asymmetric: the moment precedes the timestamp), and
+the analyzer prefers it. **Records written before that change carry only
+`our_score` and understate the bot** — the report says so loudly and
+`--peak-only` drops them.
+
+Two limits that can invert a conclusion, both printed in the report:
+
+* **Recall only, never precision.** This says which viewer-clipped moments we
+  missed. It says nothing about whether the clips we DID take were good. No
+  viewer clipping a moment is not evidence the moment was bad — small channel,
+  sleepy chat, 4am.
+* **The threshold sweep shows what a lower bar would have CAUGHT, never what
+  it would ALSO have fired on.** This file contains only clipped moments, so
+  there is no sample of ordinary stream to count new false positives against.
+  Validate with `simulate_weights.py` before deploying, as always.
+
+The "scored over bar" vs "actually clipped" gap is the useful diagnostic: a
+moment that beat the threshold and still produced nothing was swallowed by
+cooldown or post-roll. That is a fixable bug, and a completely different
+problem from the formula not lighting up.
+
 ## Phase 3 — Validation (the part that makes it trustworthy)
 
 Every detection logs: channel, timestamp, distinct clippers, **our score at
