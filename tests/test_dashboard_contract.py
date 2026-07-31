@@ -180,3 +180,33 @@ def test_no_python_escape_is_left_for_python_to_eat_in_the_js():
         "single-backslash escape inside the JS — Python will consume it before "
         "the browser sees it; double it:\n  " + "\n  ".join(offenders[:10])
     )
+
+
+def test_twitch_clips_play_in_a_lightbox_not_inside_the_grid_card():
+    """A Twitch embed draws its own title, avatar and controls OVER the video.
+    Squeezed into a ~300px grid cell those overlap the picture and the card
+    reads as broken (reported from prod, 2026-07-31). The player needs real
+    width, so playback belongs in the lightbox.
+    """
+    card = re.search(r'<div className="rd-tw" key=\{c\.id\}>(.*?)</div>\s*\)\)\}', SRC, re.S)
+    assert card, "clip card markup not found"
+    assert "<iframe" not in card.group(1), "embed is back inside the grid card"
+    # The lightbox lives after the card's closing brace, so it is matched
+    # against the whole file rather than a function-body slice.
+    # Matched loosely: the element carries "tw-box glass", so an exact
+    # className== comparison would fail on a purely cosmetic class change.
+    assert "tw-box" in SRC, "no lightbox to play in"
+    assert re.search(r'className="tw-frame">\s*<iframe', SRC), \
+        "lightbox has no embed — clicking a clip would open an empty box"
+
+
+def test_uploading_opens_the_editor_without_a_second_click():
+    """Uploading here exists to enable editing, so making the user hunt for an
+    Edit button afterwards is pure friction. Only the FIRST of a batch opens —
+    dropping five files must not fight the user for the screen."""
+    m = re.search(r"const sendOne = \(file\) => new Promise\(resolve=>\{(.*?)\n  \}\);", SRC, re.S)
+    assert m, "sendOne not found"
+    body = m.group(1)
+    assert "setEditing(prev => prev || up)" in body, (
+        "upload does not open the editor, or would clobber an already-open one"
+    )

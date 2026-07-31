@@ -339,6 +339,9 @@ button{font-family:inherit;cursor:pointer}
 .rd-tw .tw-link{font-size:11px;color:var(--acc);font-weight:600;margin-top:2px}
 .rd-tw .tw-link:hover{text-decoration:underline}
 /* ── Editor ── */
+.tw-box{width:min(900px,100%);border-radius:18px;padding:18px}
+.tw-frame{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
+.tw-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:20px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .ed{width:min(1080px,100%);max-height:94vh;overflow-y:auto;border-radius:20px;padding:20px;
@@ -1987,26 +1990,19 @@ function TwitchImport() {
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
                 {shown.map(c=>(
                   <div className="rd-tw" key={c.id}>
-                    {play===c.id
-                      ? <iframe src={c.embed_url + '&parent=' + location.hostname + '&autoplay=true'}
-                          allowFullScreen title={c.title||'Clip'}/>
-                      : <button className="tw-thumb" onClick={()=>setPlay(c.id)}
-                          title="Play clip">
-                          {c.thumbnail_url
-                            ? <img src={c.thumbnail_url} alt="" loading="lazy"/>
-                            : <span className="tw-noimg"><Icon name="film" size={26}/></span>}
-                          <span className="tw-play"><Icon name="play" size={16}/></span>
-                          <span className="tw-dur">{Math.round(c.duration||0)}s</span>
-                        </button>}
+                    <button className="tw-thumb" onClick={()=>setPlay(c)} title="Play clip">
+                      {c.thumbnail_url
+                        ? <img src={c.thumbnail_url} alt="" loading="lazy"/>
+                        : <span className="tw-noimg"><Icon name="film" size={26}/></span>}
+                      <span className="tw-play"><Icon name="play" size={16}/></span>
+                      <span className="tw-dur">{Math.round(c.duration||0)}s</span>
+                    </button>
                     <div className="tw-meta">
                       <div className="tw-title" title={c.title}>{c.title || 'Untitled clip'}</div>
                       <div className="tw-sub">
                         {(c.view_count||0).toLocaleString()} view{c.view_count===1?'':'s'}
                         {c.creator_name ? ' · by ' + c.creator_name : ''}
                       </div>
-                      <a href={c.url} target="_blank" rel="noopener noreferrer" className="tw-link">
-                        Open on Twitch
-                      </a>
                     </div>
                   </div>
                 ))}
@@ -2020,6 +2016,30 @@ function TwitchImport() {
           </>}
 
       {err && <div style={{marginTop:12,fontSize:12,color:'var(--danger)'}}>{err}</div>}
+
+      {/* Playback in a lightbox, not in the card. Twitch's embed draws its own
+          title, avatar and controls over the video; at ~300px of grid cell
+          they overlap the picture and it reads as broken. The player needs
+          real width, so give it the screen. */}
+      {play && <div className="ed-bg" onMouseDown={e=>{ if(e.target===e.currentTarget) setPlay(null); }}>
+        <div className="tw-box glass">
+          <div className="ed-head">
+            <span style={{color:'var(--acc)'}}><Icon name="film" size={18}/></span>
+            <h3>{play.title || 'Clip'}</h3>
+            <button className="rd-btn sm" onClick={()=>setPlay(null)}>Close</button>
+          </div>
+          <div className="tw-frame">
+            <iframe src={play.embed_url + '&parent=' + location.hostname + '&autoplay=true'}
+              allowFullScreen title={play.title||'Clip'}/>
+          </div>
+          <div className="ed-note" style={{marginTop:10}}>
+            {(play.view_count||0).toLocaleString()} views
+            {play.creator_name ? ' · clipped by ' + play.creator_name : ''} ·{' '}
+            <a href={play.url} target="_blank" rel="noopener noreferrer"
+               style={{color:'var(--acc)',fontWeight:600}}>Open on Twitch</a>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -2536,6 +2556,11 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
         try{
           const up = JSON.parse(xhr.responseText);
           setUploads(p=>p.some(u=>u.id===up.id)?p:[up,...p]);
+          // Open the editor on the clip that just landed. Uploading is a means
+          // to editing, so making the user find a button afterwards is pure
+          // friction. Only the first of a batch opens, so dropping five files
+          // doesn't fight the user for the screen.
+          setEditing(prev => prev || up);
         }catch{}
         setProg(p=>{const n={...p};delete n[localId];return n;});
         load();
@@ -2629,8 +2654,9 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="upload" size={15}/></span>Add clips</h3>
           <div className="desc">
-            Download a clip from your Twitch Creator Dashboard, then drop it here.
-            MP4, MOV or WebM, up to {quota?fmtBytes(quota.max_file):'300 MB'} each.
+            Drop a clip in and it opens in the editor — trim it, reframe it for
+            vertical, add a caption, export. MP4, MOV or WebM, up to{' '}
+            {quota?fmtBytes(quota.max_file):'300 MB'} each.
           </div>
 
           <div className={'rd-drop'+(over?' over':'')}
@@ -2640,7 +2666,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
             onDrop={onDrop}>
             <div className="di"><Icon name="upload" size={30}/></div>
             <div className="dt">Drop clips here, or click to choose</div>
-            <div className="ds">Your files stay private to your account</div>
+            <div className="ds">Opens straight in the editor · your files stay private</div>
           </div>
           <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
             multiple style={{display:'none'}}
