@@ -256,6 +256,15 @@ normal Clip Review screen, which still shows scores.
 - Dashboard = one Babel-standalone React string in `aurora_html.py` —
   no bundler. A JSX error white-screens everything → ALWAYS extract the
   babel block and compile with @babel/preset-react before pushing.
+- **Extract from the PARSED Python string, never the raw file.** The React app
+  lives inside a triple-quoted string, so Python consumes escapes before the
+  browser sees them: `split('\n')` typed with ONE backslash becomes a real
+  newline, terminates the JS string and white-screens the app — while a checker
+  that reads the file still sees an intact escape and passes. Bit us on
+  2026-07-31 (ClipEditor caption). `scratchpad/extract_jsx.py` now imports
+  DASHBOARD_HTML, and `test_no_python_escape_is_left_for_python_to_eat_in_the_js`
+  fails on any single backslash the interpreter would eat. **Any backslash
+  meant for JavaScript must be doubled.**
 - **Compiling is NOT enough — a new tab must be added to THREE tables.**
   `NAV` (the sidebar), `HEAD` (route → [title, subtitle]) and the
   `route==='x'` dispatch chain. Miss `HEAD` and `HEAD[route][0]` throws inside

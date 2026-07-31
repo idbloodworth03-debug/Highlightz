@@ -143,3 +143,40 @@ def test_a_failed_clip_import_leaves_the_retry_button_in_place():
     assert "setStart" not in fin.group(1), \
         "setStart in finally — a failed load hides the retry button"
     assert "setStart(true)" in body, "success path never marks the load complete"
+
+
+def _raw_babel_block() -> str:
+    """The React source AS TYPED in the file (escapes not yet processed)."""
+    m = re.search(r'<script type="text/babel">(.*?)</script>', SRC, re.S)
+    assert m, "babel block not found"
+    return m.group(1)
+
+
+# Escapes Python CONSUMES inside a normal triple-quoted string. Anything here
+# written with a single backslash silently changes before the browser sees it.
+_PY_EATS = "nrtbfav0x'\"" + '"'
+
+
+def test_no_python_escape_is_left_for_python_to_eat_in_the_js():
+    """The whole React app sits inside a Python triple-quoted string, so PYTHON
+    processes escapes before the browser ever loads the file.
+
+    `split('\\n')` typed with ONE backslash becomes a real newline in the
+    parsed string, which terminates the JS string literal and white-screens the
+    entire dashboard. Worse, it survives a syntax check that reads the raw file
+    — there the escape still looks intact. That is exactly how it happened
+    (ClipEditor's caption split, 2026-07-31).
+
+    Rule: inside the babel block, any backslash meant for JavaScript must be
+    DOUBLED. `\\n` in the file gives JS its `\n`; a lone `\n` gives it a
+    line break and a syntax error.
+    """
+    offenders = []
+    for n, line in enumerate(_raw_babel_block().splitlines(), 1):
+        # A backslash not itself escaped, followed by something Python acts on.
+        for m in re.finditer(r"(?<!\\)\\([" + re.escape(_PY_EATS) + r"])", line):
+            offenders.append(f"line {n}: \\{m.group(1)} -> {line.strip()[:78]}")
+    assert not offenders, (
+        "single-backslash escape inside the JS — Python will consume it before "
+        "the browser sees it; double it:\n  " + "\n  ".join(offenders[:10])
+    )

@@ -338,6 +338,40 @@ button{font-family:inherit;cursor:pointer}
 .rd-tw .tw-sub{font-size:11px;color:var(--fg-3)}
 .rd-tw .tw-link{font-size:11px;color:var(--acc);font-weight:600;margin-top:2px}
 .rd-tw .tw-link:hover{text-decoration:underline}
+/* ── Editor ── */
+.ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
+  align-items:center;justify-content:center;padding:20px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.ed{width:min(1080px,100%);max-height:94vh;overflow-y:auto;border-radius:20px;padding:20px;
+  background:var(--panel);border:1px solid var(--hair)}
+.ed-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.ed-head h3{font-size:16px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-body{display:grid;grid-template-columns:1fr 260px;gap:18px}
+@media(max-width:820px){.ed-body{grid-template-columns:1fr}}
+.ed-stage{background:#000;border-radius:14px;overflow:hidden;display:grid;place-items:center;min-height:300px}
+.ed-stage canvas{max-width:100%;max-height:56vh;display:block}
+.ed-side{display:flex;flex-direction:column;gap:16px}
+.ed-grp{display:flex;flex-direction:column;gap:7px}
+.ed-grp label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ed-row{display:flex;align-items:center;gap:8px}
+.ed-row input[type=range]{flex:1;accent-color:var(--acc);cursor:pointer}
+.ed-num{font-size:11px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:10px;
+  padding:8px 10px;color:var(--fg);font-size:13px;font-family:inherit}
+.ed-in:focus{outline:none;border-color:var(--acc-2)}
+.ed-seg{display:flex;gap:6px;flex-wrap:wrap}
+.ed-seg button{flex:1;min-width:64px;padding:7px 9px;border-radius:9px;font-size:11.5px;font-weight:700;
+  background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:.15s}
+.ed-seg button.on{background:var(--grad-soft);border-color:rgba(199,155,255,.4);color:#fff}
+.ed-track{position:relative;height:36px;border-radius:10px;background:rgba(255,255,255,.06);
+  border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:2px}
+.ed-track .sel{position:absolute;top:0;bottom:0;background:var(--grad-soft);
+  border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
+.ed-track .play{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 6px #fff}
+.ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+.ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .15s}
+.ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
+.ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
+  border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
 .rd-uprow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair)}
 .rd-uprow:last-child{border-bottom:none}
 .rd-uprow .pb{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
@@ -1990,6 +2024,449 @@ function TwitchImport() {
   );
 }
 
+/* ── Clip editor ────────────────────────────────────────────────────────────
+   Everything runs in the USER'S browser. The clip is already on our disk from
+   the upload, but the decode, the compositing and the encode all happen on
+   their machine — the droplet has 1 vCPU already saturated by audio meters for
+   every monitored channel, and a 30s 1080p re-encode there would starve live
+   clip detection to serve a side feature.
+
+   Two encode paths, chosen at runtime:
+     WebCodecs      fast (a 30s clip in seconds), real H.264. Chrome/Edge,
+                    Safari 16.4+, Firefox 130+.
+     MediaRecorder  everywhere else. Real-time (a 30s clip takes 30s) because
+                    it records playback rather than encoding frames directly.
+
+   Both draw the same canvas, so the picture is identical either way. Only the
+   speed and the container differ.                                          */
+
+const HAS_WEBCODECS = typeof window !== 'undefined'
+  && typeof window.VideoEncoder === 'function'
+  && typeof window.VideoFrame === 'function';
+
+// Preferred MediaRecorder types, best first. H.264 in an MP4 is what TikTok and
+// Instagram accept; WebM is the last resort and needs a server-side convert
+// before it can be published anywhere.
+const REC_TYPES = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4;codecs=avc1.42E01E',
+  'video/mp4',
+  'video/webm;codecs=h264',
+  'video/webm;codecs=vp9',
+  'video/webm',
+];
+
+function pickRecorderType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  return REC_TYPES.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || '';
+}
+
+const RATIOS = [
+  ['9:16', 9 / 16, 'Vertical'],
+  ['1:1',  1,      'Square'],
+  ['16:9', 16 / 9, 'Original'],
+];
+
+function edTime(s) {
+  s = Math.max(0, s || 0);
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(Math.floor((s % 1) * 10))}`;
+}
+
+/* Draw one frame of the edit. Single source of truth for how the output looks —
+   the preview and BOTH encoders call this, so what the user sees while
+   scrubbing is exactly what gets exported. */
+function paintFrame(ctx, video, o) {
+  const { w, h, zoom, offX, offY, text, textSize, textPos } = o;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+  // Cover: fill the frame, crop the overflow. Letterboxing a vertical export
+  // would defeat the point of reframing for a phone screen.
+  const scale = Math.max(w / vw, h / vh) * zoom;
+  const dw = vw * scale, dh = vh * scale;
+  ctx.drawImage(video, (w - dw) / 2 + offX * w, (h - dh) / 2 + offY * h, dw, dh);
+
+  if (text) {
+    const fs = Math.round(h * textSize);
+    ctx.font = `900 ${fs}px Sora, Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const y = textPos === 'top' ? h * 0.12 : textPos === 'middle' ? h * 0.5 : h * 0.88;
+    // NOTE: this whole script lives inside a Python triple-quoted string, so a
+    // bare backslash-n here would be parsed by PYTHON into a real newline and
+    // break the JS string literal. Split on a character code instead — no
+    // escape, nothing for Python to eat.
+    const lines = String(text).split(String.fromCharCode(10)).slice(0, 3);
+    lines.forEach((ln, i) => {
+      const ly = y + (i - (lines.length - 1) / 2) * fs * 1.15;
+      ctx.lineWidth = Math.max(2, fs * 0.16);
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(ln, w / 2, ly);      // outline first, so text reads on any background
+      ctx.fillStyle = '#fff';
+      ctx.fillText(ln, w / 2, ly);
+    });
+  }
+}
+
+function ClipEditor({ clip, onClose, onExported }) {
+  const [dur, setDur]       = useState(0);
+  const [inPt, setIn]       = useState(0);
+  const [outPt, setOut]     = useState(0);
+  const [ratio, setRatio]   = useState('9:16');
+  const [zoom, setZoom]     = useState(1);
+  const [offX, setOffX]     = useState(0);
+  const [offY, setOffY]     = useState(0);
+  const [text, setText]     = useState('');
+  const [textSize, setTS]   = useState(0.075);
+  const [textPos, setTP]    = useState('bottom');
+  const [playing, setPlay]  = useState(false);
+  const [busy, setBusy]     = useState(false);
+  const [pct, setPct]       = useState(0);
+  const [err, setErr]       = useState('');
+  const [done, setDone]     = useState('');
+
+  const videoRef = useRef(null);
+  const canvRef  = useRef(null);
+  const rafRef   = useRef(0);
+  const cancelRef = useRef(false);
+
+  const OUT_H = 1280;
+  const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
+  const outW = Math.round(OUT_H * aspect / 2) * 2;   // even dims: H.264 requires it
+  const outH = OUT_H;
+
+  const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos });
+
+  // Live preview loop.
+  useEffect(() => {
+    const draw = () => {
+      const v = videoRef.current, c = canvRef.current;
+      if (v && c) {
+        // Never resize mid-export: assigning canvas.width resets the surface
+        // and invalidates the MediaRecorder capture track, so a shape change
+        // landing during a render would truncate the file.
+        if (c.width !== outW && !busy) { c.width = outW; c.height = outH; }
+        paintFrame(c.getContext('2d'), v, opts());
+        if (v.currentTime >= outPt && playing) { v.pause(); setPlay(false); v.currentTime = inPt; }
+      }
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafRef.current);
+  });
+
+  const onMeta = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const settle = (d) => { setDur(d); setIn(0); setOut(d); v.currentTime = 0; };
+    if (isFinite(v.duration) && v.duration > 0) { settle(v.duration); return; }
+    // A WebM written by MediaRecorder carries NO duration in its header, so
+    // the browser reports Infinity until it has scanned the file. Bailing here
+    // (the first version did) leaves the editor with a 0s clip, a black canvas
+    // and an empty export — and browser-recorded WebM is exactly the kind of
+    // file a user uploads. Seeking far past the end forces the scan.
+    const onSeek = () => {
+      v.removeEventListener('timeupdate', onSeek);
+      settle(isFinite(v.duration) && v.duration > 0 ? v.duration : 0);
+    };
+    v.addEventListener('timeupdate', onSeek);
+    v.currentTime = 1e101;
+  };
+
+  const seek = (t) => {
+    const v = videoRef.current;
+    if (v) v.currentTime = Math.max(inPt, Math.min(outPt, t));
+  };
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) { v.pause(); setPlay(false); }
+    else { if (v.currentTime < inPt || v.currentTime >= outPt) v.currentTime = inPt; v.play(); setPlay(true); }
+  };
+
+  const trackClick = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    seek(((e.clientX - r.left) / r.width) * dur);
+  };
+
+  const download = (blob, ext) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (clip.filename || 'clip').replace(/\.[^.]+$/, '') + `-${ratio.replace(':', 'x')}.${ext}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    // Revoke late: revoking immediately can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  // ── Export: MediaRecorder path ──
+  // Records the canvas while the video plays, so it runs in real time. Used
+  // when WebCodecs is missing.
+  const exportRecorder = async () => {
+    const v = videoRef.current, c = canvRef.current;
+    const type = pickRecorderType();
+    if (!type) throw new Error('This browser cannot export video. Try Chrome.');
+    const stream = c.captureStream(30);
+    const chunks = [];
+    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6e6 });
+    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    const finished = new Promise(res => { rec.onstop = res; });
+
+    // Seek to the in-point. Assigning the CURRENT time fires no 'seeked' event
+    // in most browsers, so waiting unconditionally would hang forever on a
+    // clip whose playhead is already parked there.
+    if (Math.abs(v.currentTime - inPt) > 0.01) {
+      v.currentTime = inPt;
+      await new Promise(res => {
+        const h = () => { v.removeEventListener('seeked', h); res(); };
+        v.addEventListener('seeked', h);
+        setTimeout(h, 3000);           // never block export on a missing event
+      });
+    }
+
+    rec.start(200);
+    // Give the recorder a beat to latch onto the track before playback starts.
+    // Without it a short trim can finish before the first timeslice is emitted
+    // and the export lands empty — which is exactly how this failed the first
+    // time it was driven.
+    await new Promise(r => setTimeout(r, 150));
+
+    await v.play().catch(() => {});
+    const span = Math.max(0.1, outPt - inPt);
+    const started = Date.now();
+    await new Promise(res => {
+      const tick = () => {
+        if (cancelRef.current) return res();
+        // A minimum wall-clock floor guarantees at least one timeslice lands
+        // even for a very short trim.
+        const enough = Date.now() - started >= 400;
+        if (enough && (v.currentTime >= outPt || v.ended)) return res();
+        setPct(Math.min(99, ((v.currentTime - inPt) / span) * 100));
+        setTimeout(tick, 100);
+      };
+      tick();
+    });
+    v.pause();
+    // Flush whatever is buffered before stopping; some builds only emit the
+    // tail on request.
+    try { rec.requestData(); } catch {}
+    await new Promise(r => setTimeout(r, 120));
+    rec.stop();
+    await finished;
+    return { blob: new Blob(chunks, { type }), ext: type.includes('mp4') ? 'mp4' : 'webm' };
+  };
+
+  // ── Export: WebCodecs path ──
+  // Seeks frame by frame and encodes directly — no real-time playback, so a
+  // 30s clip finishes in seconds. Falls back to the recorder if anything in
+  // the pipeline is unavailable.
+  const exportWebCodecs = async () => {
+    const v = videoRef.current, c = canvRef.current;
+    const FPS = 30;
+    const total = Math.max(1, Math.round((outPt - inPt) * FPS));
+    const chunks = [];
+    let cfg = null;
+
+    const enc = new VideoEncoder({
+      output: (chunk, meta) => {
+        if (meta && meta.decoderConfig) cfg = meta.decoderConfig;
+        const buf = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(buf);
+        chunks.push({ data: buf, key: chunk.type === 'key', ts: chunk.timestamp, dur: chunk.duration || (1e6 / FPS) });
+      },
+      error: e => { throw e; },
+    });
+
+    const support = await VideoEncoder.isConfigSupported({
+      codec: 'avc1.42001f', width: outW, height: outH, bitrate: 6e6, framerate: FPS,
+      avc: { format: 'annexb' },
+    });
+    if (!support || !support.supported) throw new Error('no-h264');
+    enc.configure(support.config);
+
+    const ctx = c.getContext('2d');
+    for (let i = 0; i < total; i++) {
+      if (cancelRef.current) break;
+      const t = inPt + i / FPS;
+      v.currentTime = t;
+      await new Promise(res => { const h = () => { v.removeEventListener('seeked', h); res(); }; v.addEventListener('seeked', h); });
+      paintFrame(ctx, v, opts());
+      const frame = new VideoFrame(c, { timestamp: Math.round((i / FPS) * 1e6), duration: Math.round(1e6 / FPS) });
+      enc.encode(frame, { keyFrame: i % (FPS * 2) === 0 });
+      frame.close();
+      if (i % 3 === 0) setPct((i / total) * 100);
+      // Let the encoder drain so memory doesn't balloon on a long clip.
+      if (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 8));
+    }
+    await enc.flush();
+    enc.close();
+    if (!chunks.length) throw new Error('no-frames');
+    return { blob: muxAnnexB(chunks, FPS), ext: 'h264', raw: true };
+  };
+
+  // Annex-B elementary stream. Playable and re-muxable, but not an MP4 — so
+  // this path only ships once the muxer below is proven; see runExport.
+  const muxAnnexB = (chunks) => new Blob(chunks.map(c => c.data), { type: 'video/h264' });
+
+  const runExport = async () => {
+    setErr(''); setDone(''); setBusy(true); setPct(0); cancelRef.current = false;
+    const v = videoRef.current;
+    const wasMuted = v.muted;
+    v.muted = true;                       // exporting should not blast audio
+    try {
+      // MediaRecorder produces a real, playable container on every browser.
+      // The WebCodecs fast path is deliberately NOT wired in yet: it yields a
+      // raw H.264 elementary stream, and shipping a file the user cannot open
+      // would be worse than a slower export that works.
+      const { blob, ext } = await exportRecorder();
+      if (cancelRef.current) { setDone(''); return; }
+      if (!blob.size) throw new Error('Export produced an empty file.');
+      download(blob, ext);
+      setPct(100);
+      setDone(ext === 'mp4'
+        ? 'Exported. Check your downloads.'
+        : 'Exported as WebM — your browser cannot make MP4. It plays fine, but TikTok needs MP4.');
+      if (onExported) onExported(blob, ext);
+    } catch (e) {
+      setErr(e && e.message ? e.message : 'Export failed.');
+    } finally {
+      v.muted = wasMuted;
+      setBusy(false); setPlay(false);
+    }
+  };
+
+  const recType = pickRecorderType();
+  const canExport = !!recType;
+  const eta = Math.max(1, Math.round(outPt - inPt));
+
+  return (
+    <div className="ed-bg" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div className="ed glass">
+        <div className="ed-head">
+          <span style={{color:'var(--acc)'}}><Icon name="film" size={18}/></span>
+          <h3>{clip.filename || 'Edit clip'}</h3>
+          <button className="rd-btn sm" onClick={onClose} disabled={busy}>Close</button>
+        </div>
+
+        <div className="ed-body">
+          <div>
+            <div className="ed-stage"><canvas ref={canvRef}/></div>
+
+            <video ref={videoRef} src={clip.url} onLoadedMetadata={onMeta} playsInline
+              crossOrigin="anonymous" style={{display:'none'}}/>
+
+            <div style={{display:'flex',alignItems:'center',gap:10,marginTop:12}}>
+              <button className="rd-btn sm" onClick={togglePlay} disabled={busy}>
+                {playing ? 'Pause' : 'Play'}
+              </button>
+              <span className="ed-num" style={{minWidth:0}}>
+                {edTime(inPt)} – {edTime(outPt)} ({(outPt - inPt).toFixed(1)}s)
+              </span>
+            </div>
+
+            <div className="ed-track" onClick={trackClick}>
+              <div className="sel" style={{left:(dur?inPt/dur*100:0)+'%',
+                                           width:(dur?(outPt-inPt)/dur*100:0)+'%'}}/>
+              <div className="play" style={{left:(dur&&videoRef.current
+                                            ?videoRef.current.currentTime/dur*100:0)+'%'}}/>
+            </div>
+
+            <div className="ed-grp" style={{marginTop:10}}>
+              <div className="ed-row">
+                <span className="ed-num" style={{textAlign:'left',minWidth:34}}>Start</span>
+                <input type="range" min="0" max={dur||0} step="0.05" value={inPt} disabled={busy}
+                  onChange={e=>{const x=Math.min(+e.target.value,outPt-0.3);setIn(x);seek(x);}}/>
+                <span className="ed-num">{edTime(inPt)}</span>
+              </div>
+              <div className="ed-row">
+                <span className="ed-num" style={{textAlign:'left',minWidth:34}}>End</span>
+                <input type="range" min="0" max={dur||0} step="0.05" value={outPt} disabled={busy}
+                  onChange={e=>{const x=Math.max(+e.target.value,inPt+0.3);setOut(x);seek(x);}}/>
+                <span className="ed-num">{edTime(outPt)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="ed-side">
+            <div className="ed-grp">
+              <label>Shape</label>
+              <div className="ed-seg">
+                {RATIOS.map(([k,,name])=>(
+                  <button key={k} className={ratio===k?'on':''} disabled={busy}
+                    onClick={()=>setRatio(k)}>{name}<br/>{k}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="ed-grp">
+              <label>Zoom</label>
+              <div className="ed-row">
+                <input type="range" min="1" max="2.5" step="0.01" value={zoom} disabled={busy}
+                  onChange={e=>setZoom(+e.target.value)}/>
+                <span className="ed-num">{zoom.toFixed(2)}x</span>
+              </div>
+            </div>
+
+            <div className="ed-grp">
+              <label>Position</label>
+              <div className="ed-row">
+                <span className="ed-num" style={{textAlign:'left',minWidth:14}}>X</span>
+                <input type="range" min="-0.5" max="0.5" step="0.01" value={offX} disabled={busy}
+                  onChange={e=>setOffX(+e.target.value)}/>
+              </div>
+              <div className="ed-row">
+                <span className="ed-num" style={{textAlign:'left',minWidth:14}}>Y</span>
+                <input type="range" min="-0.5" max="0.5" step="0.01" value={offY} disabled={busy}
+                  onChange={e=>setOffY(+e.target.value)}/>
+              </div>
+              <button className="rd-btn sm" disabled={busy}
+                onClick={()=>{setZoom(1);setOffX(0);setOffY(0);}}>Reset framing</button>
+            </div>
+
+            <div className="ed-grp">
+              <label>Caption</label>
+              <textarea className="ed-in" rows="2" value={text} disabled={busy}
+                placeholder="Optional text on the clip" maxLength={120}
+                onChange={e=>setText(e.target.value)}/>
+              <div className="ed-seg">
+                {['top','middle','bottom'].map(p=>(
+                  <button key={p} className={textPos===p?'on':''} disabled={busy}
+                    onClick={()=>setTP(p)}>{p}</button>
+                ))}
+              </div>
+              <div className="ed-row">
+                <span className="ed-num" style={{textAlign:'left',minWidth:30}}>Size</span>
+                <input type="range" min="0.04" max="0.14" step="0.005" value={textSize} disabled={busy}
+                  onChange={e=>setTS(+e.target.value)}/>
+              </div>
+            </div>
+
+            {busy && <div className="ed-grp">
+              <div className="ed-prog"><i style={{width:pct+'%'}}/></div>
+              <div className="ed-note">Exporting… {Math.round(pct)}%</div>
+              <button className="rd-btn sm danger" onClick={()=>{cancelRef.current=true;}}>Cancel</button>
+            </div>}
+
+            {!busy && <button className="rd-btn grad" onClick={runExport} disabled={!canExport}>
+              <Icon name="download" size={14}/>&nbsp;Export {ratio}
+            </button>}
+
+            {!canExport &&
+              <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
+            {canExport && !busy && !done &&
+              <div className="ed-note">Renders on your machine, about {eta}s. Keep this tab open.</div>}
+            {done && <div className="ed-note" style={{color:'var(--acc)'}}>{done}</div>}
+            {err && <div className="ed-warn">{err}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UploadScreen({ me, uploadsOn = true, importOn = false }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
@@ -1997,6 +2474,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
   const [prog, setProg]       = useState({});   // localId -> {name, pct, err}
   const [err, setErr]         = useState('');
   const fileRef = useRef(null);
+  const [editing, setEditing] = useState(null);
 
   const load = useCallback(()=>{
     // Don't call an endpoint that is deliberately 503ing: when only the import
@@ -2208,6 +2686,9 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
                         <div className="un" title={u.filename}>{u.filename}</div>
                         <div className="um">{fmtBytes(u.size)} · {u.kind.toUpperCase()}</div>
                       </div>
+                      <button className="rd-btn sm" onClick={()=>setEditing(u)} title="Edit clip">
+                        <Icon name="film" size={13}/>&nbsp;Edit
+                      </button>
                       <button className="rd-btn danger sm" onClick={()=>del(u.id)} title="Delete clip">
                         <Icon name="trash" size={13}/>
                       </button>
@@ -2218,6 +2699,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
         </div>
         </>}
       </div>
+      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)}/>}
     </div>
   );
 }
