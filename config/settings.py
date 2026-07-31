@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     streamlink_path: str = "streamlink"
 
+    # Clip Upload library. These are the only place in the product where we
+    # hold video bytes, so the caps matter: the droplet has a 50 GB disk and a
+    # full disk takes down clipping, billing and the dashboard at once, not
+    # just uploads. upload_max_total_mb is the real safety net (it bounds the
+    # whole feature no matter how many users sign up); the per-user cap is
+    # fairness between users, and the per-file cap rejects obvious junk early.
+    # A 60s 1080p60 Twitch clip is ~50-100 MB, so 300 MB is generous per file.
+    upload_max_file_mb: int = 300
+    upload_max_user_mb: int = 2048       # 2 GB per user
+    upload_max_total_mb: int = 25600     # 25 GB across all users
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so

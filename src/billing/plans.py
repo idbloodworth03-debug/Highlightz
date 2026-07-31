@@ -1,8 +1,10 @@
 """
 Membership tiers. Two paid plans:
 
-  starter — $10/month: 3 monitored streams, 50 pending clips, no VOD scanner
-  pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner
+  starter — $10/month: 3 monitored streams, 50 pending clips, no VOD scanner,
+            no Clip Upload
+  pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
+            Clip Upload
 
 Plan resolution rules (get_plan):
   - Admins and admin-granted trials get the full 'pro' experience.
@@ -18,9 +20,9 @@ the dashboard mirrors the limits for display only.
 
 PLAN_LIMITS: dict[str, dict] = {
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
-                "max_pending": 50, "vod": False},
+                "max_pending": 50, "vod": False, "uploads": False},
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
-                "max_pending": 200, "vod": True},
+                "max_pending": 200, "vod": True, "uploads": True},
 }
 
 DEFAULT_PLAN = "pro"   # legacy/grandfathered accounts

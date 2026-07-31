@@ -43,10 +43,23 @@ rules; this file is the context behind them. Last updated: **2026-07-10**
 
 ## Non-negotiable product constraints
 
-- **No video recording/re-hosting, ever.** Clips are real Twitch clips made
-  via the official Helix API with the user's own token; Twitch hosts
-  everything. This is the compliance moat — rejected repeatedly for both
-  60s clips and Kick.
+- **No video recording/re-hosting, ever — on the CLIPPING path.** Clips are
+  real Twitch clips made via the official Helix API with the user's own token;
+  Twitch hosts everything. This is the compliance moat — rejected repeatedly
+  for both 60s clips and Kick. Scope note (2026-07-31): Clip Upload holds
+  video bytes, but the source is the user's own upload of their own file, and
+  we never fetch from Twitch. The ToS wording (`api.py`, "never records,
+  stores, or re-hosts any stream video itself") is specifically about the
+  Service creating clips on the user's behalf, which is untouched. **If
+  server-side clip fetching is ever added, five user-facing places must be
+  rewritten first** — landing hero, features, FAQ, compliance section, and the
+  ToS — search for "re-host".
+- **We never download from Twitch ourselves.** Being OAuth'd as the user does
+  NOT unlock clip video: there is no Twitch scope for it, and the CDN
+  (`clips-media-assets2.twitch.tv`) does not check tokens at all. Getting
+  bytes means the undocumented thumbnail→MP4 URL pattern or the private GQL
+  endpoint. Both are grey-area (StreamLadder-style); neither is in the
+  product. Asked and answered 2026-07-31.
 - Twitch clips are ~30s, hard API limit (no duration param on Create Clip).
   Captured buffer ~90s; creators can extend to 60s only in Twitch's browser
   editor (edit_url currently discarded — storing it + an "Extend to 60s"
@@ -236,6 +249,20 @@ normal Clip Review screen, which still shows scores.
 - Dashboard = one Babel-standalone React string in `aurora_html.py` —
   no bundler. A JSX error white-screens everything → ALWAYS extract the
   babel block and compile with @babel/preset-react before pushing.
+- **Compiling is NOT enough — a new tab must be added to THREE tables.**
+  `NAV` (the sidebar), `HEAD` (route → [title, subtitle]) and the
+  `route==='x'` dispatch chain. Miss `HEAD` and `HEAD[route][0]` throws inside
+  RdApp's render, React unmounts the whole tree, and the user gets a **white
+  screen, not a broken tab** — this happened adding Clip Upload (2026-07-31).
+  Babel compiles it fine; only running it catches it.
+  `tests/test_dashboard_contract.py` now enforces all three.
+- Driving the dashboard in headless Chromium needs an **HTTP origin, not
+  `file://`** — the app is fetch-driven and on a file:// page every relative
+  fetch resolves to `file:///clips` etc., which Chromium blocks by CORS before
+  Playwright's router sees it. `scratchpad/build_dash.py` rewrites the three
+  unpkg CDN tags to vendored copies; serve the dir over a throwaway
+  `http.createServer` and stub the API with `p.route`. Dismiss the first-run
+  welcome modal (button "Start clipping") before asserting on any screen.
 - Landing = LANDING_HTML string in `api.py` (plain string, no f-string
   braces; the string in api.py is canonical).
 - **Typography (settled 2026-07-30)**: **Lobster (400) for TITLES ONLY**
@@ -477,9 +504,62 @@ Preview before deploying: `venv/bin/python -m src.maintenance.show_stuck_profile
 - Smaller leftovers: /auth/kick 503s before redirect when unconfigured;
   orphaned blank Kick account in prod users.json; backup tar not written
   atomically; counter seed double-counts reviewed clips; VodScreen reconnect
-  duplicate moment (cosmetic); nginx client_max_body_size 500M unnecessary;
+  duplicate moment (cosmetic); 
   PROCESSING_KEY dead constant in job_queue.py; end-to-end test-mode Stripe
   checkout never confirmed on prod.
+
+## Clip Upload — the social-publishing foundation (started 2026-07-31)
+
+**Why it exists.** TikTok's Content Posting API and Instagram's publishing API
+both take either raw bytes or a URL on a domain you have *verified you own*.
+Neither accepts a twitch.tv link. So posting a clip anywhere — and any editing
+— requires possessing the file. That is the whole reason this feature holds
+video when nothing else in the product does.
+
+**v1 source is the user's own upload**, deliberately: broadcasters can already
+download their own clips from the Twitch Creator Dashboard, so this asks for a
+file they are entitled to and keeps us clear of Twitch entirely. The important
+architectural point: **the video source is one function, and everything
+valuable is downstream of it.** The editor, vertical reframe, captions and
+publishing do not care where the MP4 came from — so build those against the
+safe source, and swapping in server-side fetching later (if that call is ever
+made, with revenue data rather than speculatively) is a small delta.
+
+**Where things are:**
+- `src/uploads/library.py` — storage, quota, container sniffing. All caps in
+  `config/settings.py`: `upload_max_file_mb` 300, `upload_max_user_mb` 2048,
+  `upload_max_total_mb` 25600.
+- API: `GET/POST /uploads`, `GET /uploads/{id}/file`, `DELETE /uploads/{id}`.
+  Pro-only (`PLAN_LIMITS[...]["uploads"]`), same gate shape as the VOD scanner.
+- Frontend: `UploadScreen` in `aurora_html.py`, nav id `uploads`.
+- Files land in `clips/uploads/<user_id>/<uuid>.<ext>` — under the gitignored
+  `clips/`, so prod data never reaches the repo.
+
+**The three things that must not regress** (all in `tests/test_uploads.py`):
+1. **The global cap is the real safety net.** The droplet has ONE 50 GB disk;
+   a full disk stops clipping, billing writes and the dashboard, not just
+   uploads. Size is checked *during* the copy, not after — checking afterwards
+   means the bytes already landed, which is not a cap.
+2. **Client input never becomes a path.** Stored paths are a server UUID plus a
+   whitelisted extension. The filename is display text only. If that ever
+   regresses to joining the client name onto a directory, `../../etc/cron.d/x`
+   is a remote write.
+3. **Content-Type proves nothing.** A browser labels anything `video/mp4`.
+   Containers are sniffed from magic bytes (ISO `ftyp` / EBML) and nothing else.
+
+Also: uploads are deleted with the account (`delete_all_for_user`), one user's
+id is a 404 to another, and playback serves HTTP Range (206) so seeking works
+without re-downloading a 300 MB file.
+
+**Deploy note:** `deploy/nginx.conf` already carries `client_max_body_size
+500M` (a pre-pivot leftover HANDOFF used to list as unnecessary — it is now
+load-bearing). No nginx change needed. **Do not lower it below
+`upload_max_file_mb`** or uploads fail at the proxy with an opaque 413.
+
+**Next, in order:** vertical reframe + captions (ffmpeg — needs its own worker,
+it will contend with the audio meters on 1 vCPU), then TikTok/IG OAuth +
+publishing. Encoding is a genuinely different resource profile from the current
+box; expect to need a dedicated encode droplet before this is real.
 
 ## Queued nice-to-haves
 

@@ -296,6 +296,27 @@ button{font-family:inherit;cursor:pointer}
 .rd-card h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
 .rd-card h3 .si{width:30px;height:30px;border-radius:9px;background:var(--grad-soft);color:var(--acc);display:grid;place-items:center}
 .rd-card .desc{font-size:12px;color:var(--fg-3);margin:6px 0 18px 40px}
+/* ── Clip Upload ── */
+.rd-drop{border:2px dashed var(--hair);border-radius:16px;padding:34px 20px;text-align:center;
+  cursor:pointer;transition:border-color .18s,background .18s;background:rgba(255,255,255,.015)}
+.rd-drop:hover{border-color:var(--acc-2);background:rgba(168,85,247,.05)}
+.rd-drop.over{border-color:var(--acc);background:rgba(168,85,247,.11)}
+.rd-drop .di{color:var(--acc);margin-bottom:10px}
+.rd-drop .dt{font-size:14px;font-weight:700;margin-bottom:5px}
+.rd-drop .ds{font-size:12px;color:var(--fg-3)}
+.rd-quota{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin:9px 0 6px}
+.rd-quota i{display:block;height:100%;border-radius:99px;background:var(--grad);transition:width .3s}
+.rd-quota-full i{background:linear-gradient(135deg,#ff5a78,#ff8a4c)}
+.rd-up{border-radius:14px;border:1px solid var(--hair);background:rgba(255,255,255,.02);overflow:hidden;
+  display:flex;flex-direction:column}
+.rd-up video{width:100%;aspect-ratio:16/9;background:#000;display:block;object-fit:contain}
+.rd-up .ub{padding:11px 13px;display:flex;align-items:center;gap:10px}
+.rd-up .un{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.rd-up .um{font-size:11px;color:var(--fg-3);margin-top:2px}
+.rd-uprow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair)}
+.rd-uprow:last-child{border-bottom:none}
+.rd-uprow .pb{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.rd-uprow .pb i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .2s}
 .rd-preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .rd-preset{border-radius:14px;padding:15px;border:1px solid var(--hair);background:rgba(255,255,255,.02)}
 .rd-preset .pn{font-weight:700;font-size:14px;text-transform:capitalize;display:flex;align-items:center;justify-content:space-between}
@@ -1364,8 +1385,8 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Upload',icon:'upload'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Upload','Bring your own clips in to edit and publish'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -1813,6 +1834,218 @@ function FeedbackScreen() {
               </button>
             </>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtBytes(n){
+  if(!n) return '0 MB';
+  const mb = n/1048576;
+  return mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : (mb<10?mb.toFixed(1):Math.round(mb))+' MB';
+}
+
+function UploadScreen({ me }) {
+  const [uploads, setUploads] = useState([]);
+  const [quota, setQuota]     = useState(null);
+  const [over, setOver]       = useState(false);
+  const [prog, setProg]       = useState({});   // localId -> {name, pct, err}
+  const [err, setErr]         = useState('');
+  const fileRef = useRef(null);
+
+  const load = useCallback(()=>{
+    fetch('/uploads').then(r=>r.ok?r.json():null).then(d=>{
+      if(!d) return;
+      setUploads(d.uploads||[]);
+      setQuota(d.quota||null);
+    }).catch(()=>{});
+  },[]);
+
+  // Mount + every WS reconnect (deploy, sleep, network blip). Without the
+  // hz_refetch listener the library would silently go stale after a restart.
+  useEffect(()=>{
+    load();
+    window.addEventListener('hz_refetch', load);
+    return ()=>window.removeEventListener('hz_refetch', load);
+  },[load]);
+
+  // Live updates from the user's OTHER tabs — upload on your laptop, see it
+  // appear on your phone without a refresh.
+  useEffect(()=>{
+    const onWs = e=>{
+      try{
+        const m = JSON.parse(e.detail);
+        if(m.event==='upload_added'){
+          setUploads(p=>p.some(u=>u.id===m.upload.id)?p:[m.upload,...p]);
+          if(m.quota) setQuota(m.quota);
+        } else if(m.event==='upload_removed'){
+          setUploads(p=>p.filter(u=>u.id!==m.upload_id));
+          if(m.quota) setQuota(m.quota);
+        }
+      }catch{}
+    };
+    window.addEventListener('hz_ws', onWs);
+    return ()=>window.removeEventListener('hz_ws', onWs);
+  },[]);
+
+  // XHR rather than fetch: fetch gives no upload progress, and these files are
+  // big enough that a silent 60-second wait reads as a broken page.
+  const sendOne = (file) => new Promise(resolve=>{
+    const localId = Math.random().toString(36).slice(2);
+    setProg(p=>({...p,[localId]:{name:file.name,pct:0}}));
+    const fd = new FormData();
+    fd.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST','/uploads');
+    xhr.upload.onprogress = ev=>{
+      if(!ev.lengthComputable) return;
+      const pct = Math.round(ev.loaded/ev.total*100);
+      setProg(p=>p[localId]?{...p,[localId]:{...p[localId],pct}}:p);
+    };
+    xhr.onload = ()=>{
+      if(xhr.status>=200 && xhr.status<300){
+        // The WS event also delivers this; de-dupe by id so the optimistic
+        // insert and the broadcast can't produce two cards.
+        try{
+          const up = JSON.parse(xhr.responseText);
+          setUploads(p=>p.some(u=>u.id===up.id)?p:[up,...p]);
+        }catch{}
+        setProg(p=>{const n={...p};delete n[localId];return n;});
+        load();
+      } else {
+        let msg = 'Upload failed';
+        try{ msg = JSON.parse(xhr.responseText).detail || msg; }catch{}
+        setProg(p=>p[localId]?{...p,[localId]:{...p[localId],err:msg}}:p);
+        setErr(msg);
+      }
+      resolve();
+    };
+    xhr.onerror = ()=>{
+      setProg(p=>p[localId]?{...p,[localId]:{...p[localId],err:'Network error'}}:p);
+      resolve();
+    };
+    xhr.send(fd);
+  });
+
+  // Sequential, not parallel: the box has 1 vCPU and a 2 GB RAM ceiling, and
+  // three concurrent 300 MB uploads is how you starve the clipping workers.
+  const send = async (files) => {
+    setErr('');
+    for(const f of Array.from(files)) await sendOne(f);
+  };
+
+  const onDrop = e=>{
+    e.preventDefault(); setOver(false);
+    if(e.dataTransfer.files?.length) send(e.dataTransfer.files);
+  };
+
+  const del = async id=>{
+    const r = await fetch('/uploads/'+id,{method:'DELETE'});
+    if(r.ok){ setUploads(p=>p.filter(u=>u.id!==id)); load(); }
+  };
+
+  // Plan gate mirrors the backend 403 with an upgrade card rather than a form
+  // that errors. After every hook, so hook order stays stable while /me loads.
+  if (me && me.plan_limits && !me.plan_limits.uploads) {
+    return (
+      <div className="rd-scroll">
+        <div className="rd-settings">
+          <div className="rd-section-title"><h2>Clip Upload</h2></div>
+          <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+            <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="upload" size={40}/></div>
+            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>Clip Upload is a Pro feature</h3>
+            <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
+              Bring your own clips into Highlightz to edit and publish. Included with
+              Pro, along with the VOD scanner, 10 monitored streams and a 200-clip queue.
+            </div>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pct = quota && quota.limit ? Math.min(100, Math.round(quota.used/quota.limit*100)) : 0;
+  const running = Object.entries(prog);
+
+  return (
+    <div className="rd-scroll">
+      <div className="rd-settings">
+        <div className="rd-section-title">
+          <h2>Clip Upload</h2>
+          <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>
+        </div>
+
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="upload" size={15}/></span>Add clips</h3>
+          <div className="desc">
+            Download a clip from your Twitch Creator Dashboard, then drop it here.
+            MP4, MOV or WebM, up to {quota?fmtBytes(quota.max_file):'300 MB'} each.
+          </div>
+
+          <div className={'rd-drop'+(over?' over':'')}
+            onClick={()=>fileRef.current&&fileRef.current.click()}
+            onDragOver={e=>{e.preventDefault();setOver(true);}}
+            onDragLeave={()=>setOver(false)}
+            onDrop={onDrop}>
+            <div className="di"><Icon name="upload" size={30}/></div>
+            <div className="dt">Drop clips here, or click to choose</div>
+            <div className="ds">Your files stay private to your account</div>
+          </div>
+          <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+            multiple style={{display:'none'}}
+            onChange={e=>{ if(e.target.files?.length) send(e.target.files); e.target.value=''; }}/>
+
+          {running.length>0 && <div style={{marginTop:14}}>
+            {running.map(([id,p])=>(
+              <div className="rd-uprow" key={id}>
+                <div style={{fontSize:12,fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                <div className="pb"><i style={{width:(p.err?100:p.pct)+'%',background:p.err?'var(--danger)':undefined}}/></div>
+                <div style={{fontSize:11,color:p.err?'var(--danger)':'var(--fg-3)',minWidth:76,textAlign:'right'}}>
+                  {p.err ? p.err : (p.pct<100?p.pct+'%':'Processing...')}
+                </div>
+              </div>
+            ))}
+          </div>}
+
+          {err && <div style={{marginTop:12,fontSize:12,color:'var(--danger)'}}>{err}</div>}
+
+          {quota && <div style={{marginTop:16}}>
+            <div className={'rd-quota'+(pct>=90?' rd-quota-full':'')}><i style={{width:pct+'%'}}/></div>
+            <div style={{fontSize:11,color:'var(--fg-3)'}}>
+              {fmtBytes(quota.used)} of {fmtBytes(quota.limit)} used · {fmtBytes(quota.remaining)} free
+            </div>
+          </div>}
+        </div>
+
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="film" size={15}/></span>Your clips</h3>
+          <div className="desc">Everything you've uploaded. Editing and publishing land here next.</div>
+          {uploads.length===0
+            ? <div className="rd-grid-empty" style={{padding:'40px 0'}}>
+                <div className="ic"><Icon name="film" size={38}/></div>
+                <div className="big">No clips uploaded yet</div>
+                <div>Drop a clip above to get started.</div>
+              </div>
+            : <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+                {uploads.map(u=>(
+                  <div className="rd-up" key={u.id}>
+                    <video src={u.url} controls preload="metadata"/>
+                    <div className="ub">
+                      <div style={{minWidth:0,flex:1}}>
+                        <div className="un" title={u.filename}>{u.filename}</div>
+                        <div className="um">{fmtBytes(u.size)} · {u.kind.toUpperCase()}</div>
+                      </div>
+                      <button className="rd-btn danger sm" onClick={()=>del(u.id)} title="Delete clip">
+                        <Icon name="trash" size={13}/>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>}
         </div>
       </div>
     </div>
@@ -2275,6 +2508,11 @@ function RdApp() {
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
+        // Forward Clip Upload events so a second open tab (or your phone)
+        // reflects an upload/delete live instead of after a refresh.
+        else if(['upload_added','upload_removed'].includes(msg.event)){
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        }
         // Forward team scoring ticks to the Training screen's live counter
         else if(msg.event==='training_scored'){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
@@ -2359,6 +2597,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;

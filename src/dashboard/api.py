@@ -25,9 +25,11 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
 import structlog
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form
+from fastapi import (FastAPI, WebSocket, WebSocketDisconnect, HTTPException,
+                     Request, Form, File, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import (HTMLResponse, RedirectResponse, JSONResponse,
+                               PlainTextResponse, Response, FileResponse)
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -663,7 +665,8 @@ async def me(request: Request):
         "plan_label":          limits["label"],
         "plan_limits":         {"max_streams": limits["max_streams"],
                                 "max_pending": limits["max_pending"],
-                                "vod": limits["vod"]},
+                                "vod": limits["vod"],
+                                "uploads": limits["uploads"]},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
@@ -827,9 +830,14 @@ async def delete_account(request: Request):
         from src.billing.stripe_billing import cancel_customer_subscriptions
         await cancel_customer_subscriptions(stripe_customer_id)
 
+    # Uploaded video is the one thing we actually hold bytes for, so it has to
+    # go with the account rather than linger on disk after the user has left.
+    from src.uploads import library as upload_lib
+    removed_uploads = upload_lib.delete_all_for_user(uid)
+
     user_store.delete(uid)
     request.session.clear()
-    log.info("account_deleted", user_id=uid)
+    log.info("account_deleted", user_id=uid, uploads_removed=removed_uploads)
     return {"status": "deleted"}
 
 
@@ -2021,6 +2029,123 @@ async def cancel_vod_job(request: Request, job_id: str):
     if task and not task.done():
         task.cancel()
     _vod_jobs.pop(job_id, None)
+
+
+# ── Clip Upload library ───────────────────────────────────────────────────────
+#
+# The user's own video files, held on our disk. Unlike every other clip path in
+# this product, these are real bytes rather than a Twitch embed — because
+# TikTok and Instagram publishing both require possessing the file, and so does
+# any editing. The source is the user's own upload, never a fetch from Twitch,
+# so the automated-clipping compliance promise is untouched.
+#
+# Pro-only, matching the VOD scanner: this is the feature that consumes the
+# shared disk, so it stays behind the tier that pays for it.
+
+_UPLOAD_CHUNK = 1024 * 1024      # 1 MB — bounded memory on a 2 GB box
+
+
+def _require_upload_access(uid: str) -> None:
+    from src.billing.plans import limits_for
+    from src.auth import users as user_store
+    if not limits_for(user_store.get_by_id(uid))["uploads"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Clip Upload is a Pro feature — upgrade to upload and edit clips.",
+        )
+
+
+@app.get("/uploads")
+async def list_uploads(request: Request):
+    """This user's uploads plus their quota, in one call.
+
+    Quota travels with the list because the UI shows a usage bar next to it;
+    two endpoints would let the two drift apart on screen.
+    """
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    return {
+        "uploads": [u.public() for u in upload_lib.for_user(uid)],
+        "quota":   upload_lib.quota(uid),
+    }
+
+
+@app.post("/uploads", status_code=201)
+async def create_upload(request: Request, file: UploadFile = File(...)):
+    """Accept one video file, streamed to disk with every cap enforced.
+
+    Nothing here trusts the client: not the filename (the stored path is a
+    server UUID), not the Content-Type (the container is sniffed from the
+    bytes), and not the declared length (the running total is checked as the
+    chunks arrive, so an oversized upload is cut off partway rather than after
+    it has already filled the disk).
+    """
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+
+    async def _chunks():
+        while True:
+            chunk = await file.read(_UPLOAD_CHUNK)
+            if not chunk:
+                break
+            yield chunk
+
+    try:
+        up = await upload_lib.save_stream(uid, file.filename or "clip", _chunks())
+    except upload_lib.UploadError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message)
+    finally:
+        await file.close()
+
+    payload = up.public()
+    # Realtime contract: the user's other open tabs must show this without a
+    # refresh, so the event carries the whole record rather than a hint to
+    # re-fetch.
+    await broadcast({"event": "upload_added", "upload": payload,
+                     "quota": upload_lib.quota(uid)}, user_id=uid)
+    return payload
+
+
+@app.get("/uploads/{upload_id}/file")
+async def get_upload_file(request: Request, upload_id: str):
+    """Serve an upload back to its owner for in-page playback.
+
+    `library.get` scopes by owner, so another user's id is a 404 rather than a
+    file. The path comes from the stored record (UUID + whitelisted
+    extension), never from `upload_id` directly, so the route cannot be walked
+    out of the uploads directory.
+    """
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    up = upload_lib.get(upload_id, uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    path = upload_lib.path_for(up)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Upload file is missing")
+    media = {"mp4": "video/mp4", "mov": "video/quicktime",
+             "webm": "video/webm"}[up.kind]
+    return FileResponse(
+        path, media_type=media,
+        # inline + a fixed safe type: the browser plays it rather than being
+        # invited to sniff it into something executable.
+        headers={"Content-Disposition": f'inline; filename="{up.filename}"',
+                 "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.delete("/uploads/{upload_id}", status_code=200)
+async def remove_upload(request: Request, upload_id: str):
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    if not upload_lib.delete(upload_id, uid):
+        raise HTTPException(status_code=404, detail="Upload not found")
+    await broadcast({"event": "upload_removed", "upload_id": upload_id,
+                     "quota": upload_lib.quota(uid)}, user_id=uid)
+    return {"status": "deleted"}
 
 
 @app.websocket("/ws")
