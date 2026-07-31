@@ -258,3 +258,68 @@ def test_lobster_is_titles_only_and_never_uppercased():
     # The font is self-hosted and preloaded, like the others.
     assert "/static/fonts/lobster-400.woff2" in css
     assert 'rel="preload"' in css and "lobster-400.woff2" in css
+
+
+def test_aurora_layer_is_decorative_and_cannot_block_the_page():
+    """The background aurora must stay strictly decorative.
+
+    It is a full-viewport fixed layer sitting over the whole landing page, so
+    the ways it can break the site are all about it stopping being *background*:
+
+    * a click-eating overlay (`pointer-events` other than `none`) would make
+      every button on the page dead — the worst possible failure, and invisible
+      in a screenshot;
+    * a z-index at or above 0 would paint it on top of the copy;
+    * animating anything but `transform`/`opacity` forces layout or paint every
+      frame, which on the 1vCPU droplet's visitors reads as a janky page.
+
+    It also has to live on the LANDING page specifically — an earlier revision
+    of this change landed the markup in `_PORTAL_ERROR_HTML` because a blind
+    `replace("<body>", ...)` matched the first `<body>` in the module.
+    """
+    import re
+    css = api.LANDING_HTML
+
+    block = css[css.index(".aurora{"):css.index("}", css.index(".aurora{"))]
+    assert "pointer-events:none" in block, "aurora must never intercept clicks"
+    assert "position:fixed" in block
+    z = re.search(r"z-index:(-?\d+)", block)
+    assert z and int(z.group(1)) < 0, "aurora must paint behind all content"
+
+    # It sits under the existing radial wash rather than fighting it for order.
+    body_before = css[css.index("body::before{"):css.index("}", css.index("body::before{"))]
+    bz = re.search(r"z-index:(-?\d+)", body_before)
+    assert bz and int(z.group(1)) < int(bz.group(1)), "aurora must sit below body::before"
+
+    # Only transform is animated, so every frame is a GPU composite.
+    for name in ("auroraA", "auroraB", "auroraC", "auroraD"):
+        kf = re.search(r"@keyframes " + name + r"\{(.*?)\}\}", css, re.S)
+        assert kf, f"{name} keyframes missing"
+        props = set(re.findall(r"([a-z-]+):", kf.group(1)))
+        assert props <= {"transform"}, f"{name} animates non-composited {props}"
+
+    # Motion is decoration; respect a reduced-motion preference.
+    assert "@media(prefers-reduced-motion:reduce){.aurora i{animation:none}}" in css
+
+    # The markup is on the landing page, and only there.
+    start = css.index('<div class="aurora" aria-hidden="true">')
+    div = css[start:css.index("</div>", start)]
+    assert div.count("<i></i>") == 4, "four blobs expected"
+    # aria-hidden: it is pure decoration, so screen readers must skip it.
+    assert 'aria-hidden="true"' in div
+    for other in ("_PORTAL_ERROR_HTML", "_PORTAL_NO_BILLING_HTML"):
+        assert 'class="aurora"' not in getattr(api, other), f"aurora leaked into {other}"
+
+
+def test_landing_vertical_rhythm_stays_tight():
+    """Sections used to carry 64px top AND bottom padding, so every seam
+    between two sections was a 128px dead band on a page that is mostly dark —
+    which is what read as "too much empty space". Keep the rhythm tight enough
+    that the aurora is the thing filling the gaps, not emptiness.
+    """
+    import re
+    css = api.LANDING_HTML
+    block = css[css.index("section{"):css.index("}", css.index("section{"))]
+    pads = [int(v) for v in re.findall(r"padding-(?:top|bottom):(\d+)px", block)]
+    assert len(pads) == 2, "section should set top and bottom padding explicitly"
+    assert max(pads) <= 50, f"section padding crept back up: {pads}"

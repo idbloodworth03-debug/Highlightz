@@ -2581,6 +2581,37 @@ LANDING_HTML = """<!DOCTYPE html>
   body{background:#08080b;color:#f6f6f9;font-family:'Sora',Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
   body::before{content:'';position:fixed;inset:0;z-index:-3;background:radial-gradient(900px 560px at 16% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(760px 460px at 88% 2%,rgba(249,67,255,.14),transparent 55%),radial-gradient(760px 640px at 50% 112%,rgba(124,107,255,.13),transparent 60%)}
+  /* ── Aurora: slow drifting colour behind everything. Fills the dark
+     expanses between sections without adding content. Transform-only
+     animation so it composites on the GPU; blur is applied once, not per
+     frame. pointer-events:none so it can never eat a click. ── */
+  .aurora{position:fixed;inset:-20vmax;z-index:-4;pointer-events:none;overflow:hidden;
+    contain:strict}
+  .aurora i{position:absolute;display:block;border-radius:50%;filter:blur(90px);
+    opacity:.62;will-change:transform}
+  .aurora i:nth-child(1){width:46vmax;height:46vmax;left:2%;top:-6%;
+    background:radial-gradient(circle,rgba(168,85,247,.55),transparent 68%);
+    animation:auroraA 26s ease-in-out infinite alternate}
+  .aurora i:nth-child(2){width:38vmax;height:38vmax;right:4%;top:6%;
+    background:radial-gradient(circle,rgba(249,67,255,.38),transparent 68%);
+    animation:auroraB 32s ease-in-out infinite alternate}
+  .aurora i:nth-child(3){width:52vmax;height:52vmax;left:24%;bottom:-14%;
+    background:radial-gradient(circle,rgba(124,107,255,.42),transparent 70%);
+    animation:auroraC 38s ease-in-out infinite alternate}
+  .aurora i:nth-child(4){width:34vmax;height:34vmax;right:18%;bottom:16%;
+    background:radial-gradient(circle,rgba(199,155,255,.3),transparent 70%);
+    animation:auroraD 30s ease-in-out infinite alternate}
+  @keyframes auroraA{from{transform:translate3d(0,0,0) scale(1)}
+    to{transform:translate3d(9vmax,6vmax,0) scale(1.15)}}
+  @keyframes auroraB{from{transform:translate3d(0,0,0) scale(1.1)}
+    to{transform:translate3d(-8vmax,9vmax,0) scale(.92)}}
+  @keyframes auroraC{from{transform:translate3d(0,0,0) scale(1)}
+    to{transform:translate3d(7vmax,-7vmax,0) scale(1.18)}}
+  @keyframes auroraD{from{transform:translate3d(0,0,0) scale(.95)}
+    to{transform:translate3d(-6vmax,-8vmax,0) scale(1.12)}}
+  /* Motion is decoration: hold it still for anyone who asked for less. */
+  @media(prefers-reduced-motion:reduce){.aurora i{animation:none}}
+
   body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);background-size:26px 26px;-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%);mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%)}
   a{text-decoration:none;color:inherit}
   .acc{color:#c79bff}
@@ -2609,13 +2640,13 @@ LANDING_HTML = """<!DOCTYPE html>
   .btn-lg{padding:15px 30px;font-size:15px;border-radius:13px}
   /* Layout */
   .wrap{max-width:1120px;margin:0 auto;padding-left:24px;padding-right:24px}
-  section{padding-top:64px;padding-bottom:64px}
+  section{padding-top:46px;padding-bottom:46px}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
   .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
   h2.sec-title{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:40px;line-height:1.12;margin-bottom:14px;color:#f6f2ff;text-shadow:0 2px 5px rgba(0,0,0,.45),0 8px 24px rgba(168,85,247,.18)}
   .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
   /* Hero */
-  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:74px;padding-bottom:44px}
+  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:52px;padding-bottom:30px}
   .hero-copy h1{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:60px;line-height:1.06;margin-bottom:22px;color:#f6f2ff;text-shadow:0 2px 6px rgba(0,0,0,.5),0 10px 30px rgba(168,85,247,.22)}
   .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
   .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
@@ -2893,6 +2924,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "Two plans: Starter at $10/month (3 monitored streams, 50-clip review queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-actions">
