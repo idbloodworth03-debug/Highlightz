@@ -29,6 +29,7 @@ the last two columns. fired ≈ 0 with a healthy score means the failure is at a
 gate.
 """
 
+import io
 import json
 import re
 import sys
@@ -86,7 +87,8 @@ def main() -> int:
               '| venv/bin/python -m src.maintenance.why_no_clips')
         return 2
 
-    per, loose = parse(sys.stdin)
+    raw = sys.stdin.read()
+    per, loose = parse(io.StringIO(raw))
     if not per and not loose:
         print("No trigger/clip events found in that log range.")
         print("Check the --since window, and that the unit name is right.")
@@ -116,8 +118,88 @@ def main() -> int:
     print("  fired large, but few clips in clips.json")
     print("      the trigger works and the failure is downstream — look at")
     print("      not_ready / create_failed, and at the post-roll monitor.")
+
+    print_failures(failures(io.StringIO(raw)))
     return 0
 
+
+
+# ── Failure breakdown ─────────────────────────────────────────────────────────
+
+def failures(stream) -> dict:
+    """Tally create_clip failures by (status, message, broadcaster_id).
+
+    Kept separate from the gate table because these carry a broadcaster_id
+    rather than a channel name, so they cannot be attributed without a lookup.
+    """
+    out: dict = defaultdict(int)
+    for line in stream:
+        if "twitch_clip_create_failed" not in line:
+            continue
+        m = _JSON.search(line)
+        if not m:
+            continue
+        try:
+            rec = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            continue
+        body = rec.get("body") or ""
+        try:
+            msg = json.loads(body).get("message", body)[:70]
+        except (json.JSONDecodeError, AttributeError):
+            msg = body[:70]
+        out[(rec.get("status"), msg, str(rec.get("broadcaster_id") or ""))] += 1
+    return out
+
+
+async def _resolve_names(ids: set) -> dict:
+    """broadcaster_id -> login, via Helix Get Users. Best effort: an unresolved
+    id is still printed, just without a name."""
+    import aiohttp
+    from config.settings import settings
+    from src.output.twitch_clips import HELIX_BASE, _get_app_token
+    names: dict = {}
+    ids = [i for i in ids if i]
+    if not ids:
+        return names
+    async with aiohttp.ClientSession() as s:
+        token = await _get_app_token(s)
+        headers = {"Client-Id": settings.twitch_client_id,
+                   "Authorization": f"Bearer {token}"}
+        for i in range(0, len(ids), 100):
+            params = [("id", x) for x in ids[i:i + 100]]
+            async with s.get(f"{HELIX_BASE}/users", headers=headers,
+                             params=params) as r:
+                if r.status != 200:
+                    continue
+                for u in (await r.json()).get("data", []):
+                    names[str(u["id"])] = u.get("login", "")
+    return names
+
+
+def print_failures(tally: dict) -> None:
+    import asyncio
+    if not tally:
+        print("\nNo clip-creation failures logged.")
+        return
+    names = {}
+    try:
+        names = asyncio.run(_resolve_names({b for (_, _, b) in tally}))
+    except Exception as exc:
+        print(f"(could not resolve broadcaster names: {exc})")
+
+    print("\nCLIP-CREATION FAILURES")
+    print(f"{'count':>7}  {'status':>6}  {'channel':<20} {'message'}")
+    print("-" * 96)
+    for (status, msg, bid), n in sorted(tally.items(), key=lambda kv: -kv[1]):
+        who = names.get(bid) or f"id:{bid}" if bid else "?"
+        print(f"{n:>7}  {status:>6}  {who:<20} {msg}")
+    print()
+    print("'User not authorized to create clips' is a CHANNEL setting, not our")
+    print("bug — the streamer has restricted clipping (often to subs/followers).")
+    print("No amount of formula or threshold work changes it; the channel simply")
+    print("cannot be clipped by us. Surface it to the user instead of silently")
+    print("monitoring a channel that can never produce a clip.")
 
 if __name__ == "__main__":
     raise SystemExit(main())
