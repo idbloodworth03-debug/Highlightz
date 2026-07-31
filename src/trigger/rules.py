@@ -15,7 +15,18 @@ class ChannelRules:
     cooldown_seconds: int = 60         # min seconds between clips
     # Score must reach this to break cooldown early — avoids missing huge moments
     # right after a smaller clip fires. Set to 101 to disable override entirely.
-    emergency_threshold: float = 85.0
+    #
+    # 85 -> 75 (July 2026, viewer-clip evidence). 6905 viewer clips over 50h
+    # gave 1316 crowd-validated moments; 675 multi-viewer moments produced no
+    # clip of ours, and the biggest of those scored 85-100 against bars of
+    # 51-58. They cleared the trigger threshold easily and were lost to
+    # cooldown, because the override only rescues a moment once it beats 85.
+    # Moments a dozen people clip are exactly what this override exists for.
+    #
+    # Volume risk is bounded, not open-ended: emergency_cooldown_seconds still
+    # forces 60s between override fires, so the worst case is one extra clip
+    # per channel per minute during sustained hype.
+    emergency_threshold: float = 75.0
     # Floor on how often the emergency override itself may fire. Without this, a
     # channel that parks ABOVE emergency_threshold (a long sustained hype segment)
     # breaks cooldown on every 1s evaluation tick and enqueues ~1 clip/second of

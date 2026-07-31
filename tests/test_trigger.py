@@ -94,3 +94,35 @@ async def test_emergency_override_respects_its_own_cooldown():
     # And immediately again it's throttled once more.
     await engine.evaluate()
     assert engine._monitor_and_fire.call_count == 2
+
+
+def test_emergency_override_rescues_a_crowd_sized_moment_from_cooldown():
+    """The July 2026 viewer-clip pass moved emergency_threshold 85 -> 75.
+
+    Evidence: 1316 crowd-validated moments over 50h; 675 multi-viewer moments
+    produced no clip, and the biggest scored 85-100 against bars of 51-58.
+    They cleared the trigger threshold easily and died in cooldown, because
+    the override only rescued a moment once it beat 85. A moment a dozen
+    people clip is precisely what the override is for.
+
+    The bound that keeps this from flooding is emergency_cooldown_seconds, NOT
+    the height of the threshold — so lowering it must not remove the floor.
+    """
+    from src.trigger.rules import ChannelRules, PRESETS
+
+    r = ChannelRules()
+    assert r.emergency_threshold == 75.0
+    # A moment scoring 80 — the band this change exists to rescue.
+    assert 80.0 >= r.emergency_threshold
+    # The spacing floor survives, so a channel parked above the bar cannot
+    # break cooldown on every 1s tick.
+    assert r.emergency_cooldown_seconds >= 60
+
+    # The override must still sit ABOVE every preset's normal threshold,
+    # otherwise it stops being an exception and just replaces the threshold.
+    for name, preset in PRESETS.items():
+        assert preset.emergency_threshold > preset.trigger_threshold, (
+            f"{name}: override {preset.emergency_threshold} does not exceed "
+            f"threshold {preset.trigger_threshold} — it would fire on every "
+            f"ordinary trigger and defeat cooldown entirely"
+        )
