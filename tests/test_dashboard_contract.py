@@ -252,3 +252,37 @@ def test_the_twitch_list_says_why_those_clips_cannot_be_edited():
     block = m.group(1) if m else SRC
     assert re.search(r"Twitch doesn't let apps download clip files", block), \
         "no explanation for why Twitch clips have no Edit button"
+
+
+def test_adding_a_stream_lives_on_live_streams_not_clip_review():
+    """The two tabs had one job each and were sharing a screen: Clip Review
+    carried the add-stream box, so neither tab's name described what it did.
+
+    Review is now purely for judging clips; adding and monitoring channels is
+    Live Streams. The add panel must exist in exactly one place, or the split
+    is cosmetic.
+    """
+    review = SRC[SRC.index("function ReviewScreen({"):SRC.index("function StreamsScreen({")]
+    for gone in ("Add a stream", "Monitor stream", "streams/suggest", "Monitored streams"):
+        assert gone not in review, f"Clip Review still owns the add-stream UI ({gone!r})"
+    assert "onAdd" not in review, "Clip Review can still add streams"
+
+    streams = SRC[SRC.index("function StreamsScreen({"):SRC.index("function LibraryScreen({")]
+    assert "AddStreamPanel" in streams, "Live Streams has no add-stream panel"
+
+
+def test_live_streams_can_still_add_the_very_first_channel():
+    """StreamsScreen used to early-return a bare 'No streams monitored' when
+    the list was empty. Now that it owns the only add box, that return has to
+    render the panel too — otherwise a brand-new user has nowhere to start."""
+    streams = SRC[SRC.index("function StreamsScreen({"):SRC.index("function LibraryScreen({")]
+    early = re.search(r"if\(!active\) return \((.*?)\n  \);", streams, re.S)
+    assert early, "empty-state early return not found"
+    assert "AddStreamPanel" in early.group(1), \
+        "empty Live Streams has no way to add a channel — new users are stuck"
+
+
+def test_clip_review_uses_the_full_width_now_that_the_rail_is_gone():
+    review = SRC[SRC.index("function ReviewScreen({"):SRC.index("function StreamsScreen({")]
+    assert "rd-body-full" in review, "review grid still reserves space for a removed rail"
+    assert ".rd-body-full{grid-template-columns:1fr}" in SRC, "rd-body-full has no rule"

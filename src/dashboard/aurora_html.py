@@ -68,6 +68,11 @@ button{font-family:inherit;cursor:pointer}
 .rd-user-chip .uc-name{font-size:13px;font-weight:600;color:var(--fg-2)}
 .rd-body{display:grid;grid-template-columns:322px 1fr;gap:18px;padding:18px 22px;overflow:hidden;min-height:0}
 .rd-col{min-height:0;display:flex;flex-direction:column;gap:16px}
+/* Clip Review has no side rail any more — adding streams moved to Live
+   Streams — so the grid takes the full width instead of leaving a gap. */
+.rd-body-full{grid-template-columns:1fr}
+.rd-streampick{cursor:pointer;border-radius:15px;transition:.15s}
+.rd-streampick.on{box-shadow:0 0 0 1px var(--acc-2)}
 .rd-rail{border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
 .rd-rail-head{display:flex;align-items:center;justify-content:space-between}
 .rd-eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
@@ -262,7 +267,12 @@ button{font-family:inherit;cursor:pointer}
 .rd-section-title{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .rd-section-title h2{font-size:19px;font-weight:800;letter-spacing:-.025em}
 .rd-section-title .cnt{font-size:12px;color:var(--fg-3)}
-.rd-streams-layout{display:grid;grid-template-columns:290px 1fr;gap:18px;flex:1;min-height:0;padding:20px 22px}
+/* 322px matches the old Clip Review rail: the add-stream box moved here and
+   the search input needs the same room, otherwise the placeholder truncates
+   next to the preset dropdown. */
+.rd-streams-layout{display:grid;grid-template-columns:322px 1fr;gap:18px;flex:1;min-height:0;padding:20px 22px}
+/* Search above preset — side by side leaves the input too narrow to read. */
+.rd-addrow{flex-direction:column}
 .rd-chanlist{display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:0;padding-right:2px}
 .rd-chanlist .rd-eyebrow{padding:4px 2px 2px}
 .rd-chan{text-align:left;padding:12px;border-radius:15px;background:rgba(255,255,255,.025);
@@ -1103,12 +1113,14 @@ function CullPanel({ clips, onDone }) {
   );
 }
 
-function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, activePlatform, onAdd, onRemove, onForce, onApprove, onReject, onOpen }) {
+/* Adding a streamer lives on Live Streams, not Clip Review. Review is for
+   judging clips; putting the add box there meant the two jobs shared one
+   screen and neither tab said what it was for. Lifted verbatim so the
+   suggestion dropdown keeps its exact focus/blur/escape behaviour. */
+function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRemove, onForce,
+                          selected, onSelect }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
-  const [showCull, setShowCull] = useState(false);
-  const [sortBy, setSortBy] = useState('newest');
-  const [chanFilter, setChanFilter] = useState('all');
   const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');setSuggOpen(false);} };
   // Streamer suggestions: zero state = recently monitored + popular-now;
   // typing = Twitch partial-name search (debounced). Twitch-only — the data
@@ -1130,28 +1142,9 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   };
   const pick = (login) => { onAdd(login, preset, activePlatform); setCh(''); setSuggOpen(false); };
   const fmtViewers = (v) => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '' + v;
-  const clipsArr = Object.values(clips);
-  const pending = clipsArr.filter(c=>c.status==='pending').length;
-  const approved = clipsArr.filter(c=>c.status==='approved').length;
   const streamsArr = Object.values(streams);
-  const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
-  // Streamer filter options come from the clips themselves, so the moment a
-  // new streamer gets clipped (clip_ready over the WS) they become filterable.
-  // If the selected streamer's clips all disappear (culled/removed), fall back
-  // to 'all' rather than pinning the grid to an empty, invisible filter.
-  const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
-  const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
-  const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
-  const shown = [...filtered].sort((a,b)=>{
-    if(sortBy==='virality') return (b.virality_score||0)-(a.virality_score||0);
-    // default: pending first, then newest
-    const sp={pending:0,approved:1,rejected:2};
-    if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
-    return (b.created_at||0)-(a.created_at||0);
-  });
   return (
-    <div className="rd-body" style={{flex:1}}>
-      <aside className="rd-col" style={{minHeight:0}}>
+    <aside className="rd-col" style={{minHeight:0}}>
         {/* overflow visible + zIndex: the suggestion dropdown must escape this
             short rail (.rd-rail clips by default) and paint over the rail
             below it (both are backdrop-filter stacking contexts, so DOM order
@@ -1236,10 +1229,43 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
           <div className="rd-streams">
             {streamsArr.length===0
               ? <div className="rd-empty"><span className="ic"><Icon name="radio" size={26}/></span>No streams yet.<br/>Add one to start monitoring.</div>
-              : streamsArr.map(s=><RdStream key={s.channel} s={s} scoreData={scores[s.channel]} profile={profiles[s.channel]} onRemove={onRemove} onForce={onForce}/>)}
+              : streamsArr.map(s=>(
+                  <div key={s.channel} onClick={()=>onSelect&&onSelect(s.channel)}
+                    className={onSelect?'rd-streampick'+(s.channel===selected?' on':''):''}>
+                    <RdStream s={s} scoreData={scores[s.channel]} profile={profiles[s.channel]}
+                      onRemove={onRemove} onForce={onForce}/>
+                  </div>))}
           </div>
         </div>
-      </aside>
+    </aside>
+  );
+}
+
+function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen }) {
+  const [showCull, setShowCull] = useState(false);
+  const [sortBy, setSortBy] = useState('newest');
+  const [chanFilter, setChanFilter] = useState('all');
+  const clipsArr = Object.values(clips);
+  const pending = clipsArr.filter(c=>c.status==='pending').length;
+  const approved = clipsArr.filter(c=>c.status==='approved').length;
+  const streamsArr = Object.values(streams);
+  const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
+  // Streamer filter options come from the clips themselves, so the moment a
+  // new streamer gets clipped (clip_ready over the WS) they become filterable.
+  // If the selected streamer's clips all disappear (culled/removed), fall back
+  // to 'all' rather than pinning the grid to an empty, invisible filter.
+  const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
+  const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
+  const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
+  const shown = [...filtered].sort((a,b)=>{
+    if(sortBy==='virality') return (b.virality_score||0)-(a.virality_score||0);
+    // default: pending first, then newest
+    const sp={pending:0,approved:1,rejected:2};
+    if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
+    return (b.created_at||0)-(a.created_at||0);
+  });
+  return (
+    <div className="rd-body rd-body-full" style={{flex:1}}>
       <section className="rd-main">
         <div className="rd-stats">
           <RdStat icon="sparkles" k="Pending review" v={pending} sub="awaiting your call" accent/>
@@ -1273,7 +1299,7 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
         </div>
         <div className="rd-grid">
           {shown.length===0
-            ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a live stream — clips appear here the moment a highlight fires.</div></div>
+            ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div></div>
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
         </div>
       </section>
@@ -1281,12 +1307,26 @@ function ReviewScreen({ streams, scores, profiles, clips, filter, setFilter, act
   );
 }
 
-function StreamsScreen({ streams, scores, profiles, histories, clips, onForce }) {
+function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
   useEffect(()=>{ if(!sel&&streamsArr.length>0) setSel(streamsArr[0].channel); },[streamsArr.length]);
   const active = streams[sel]||streamsArr[0];
-  if(!active) return <div className="rd-scroll"><div className="rd-empty"><span className="ic"><Icon name="radio" size={28}/></span>No streams monitored.</div></div>;
+  // With no streams the add panel MUST still render — this is now the only
+  // place a channel can be added, so an early return here would leave a new
+  // user with nowhere to start.
+  if(!active) return (
+    <div className="rd-streams-layout">
+      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}/>
+      <div className="rd-detail">
+        <div className="rd-grid-empty" style={{padding:'70px 0'}}>
+          <div className="ic"><Icon name="radio" size={42}/></div>
+          <div className="big">No streams monitored yet</div>
+          <div>Search a streamer on the left to start watching for highlights.</div>
+        </div>
+      </div>
+    </div>
+  );
   const p = profiles[active.channel]||{};
   const sd = scores[active.channel]||{score:0,breakdown:{}};
   const hist = histories[active.channel]||[sd.score];
@@ -1296,17 +1336,8 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, onForce })
   const statusColor = active.status==='live'?'var(--live)':active.status==='reconnecting'?'var(--pending)':'var(--fg-2)';
   return (
     <div className="rd-streams-layout">
-      <div className="rd-chanlist">
-        <div className="rd-eyebrow">Channels · {streamsArr.length}</div>
-        {streamsArr.map(s=>{
-          const sc=scores[s.channel]||{score:0};
-          return <button key={s.channel} className={'rd-chan'+(s.channel===active.channel?' active':'')} onClick={()=>setSel(s.channel)}>
-            <span className="av">{initials(s.channel)}</span>
-            <div><div className="nm">{s.channel}</div><div className="mt">{s.platform} · {s.preset}</div></div>
-            <span className="mini" style={{color:scoreColor(sc.score)}}>{sc.score.toFixed(0)}</span>
-          </button>;
-        })}
-      </div>
+      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}
+        selected={active.channel} onSelect={setSel}/>
       <div className="rd-detail">
         <div className="rd-detail-head">
           <span className="av">{initials(active.channel)}</span>
@@ -1468,7 +1499,7 @@ const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','settings'];
-const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in, edit them, publish them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in, edit them, publish them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -3366,8 +3397,8 @@ function RdApp() {
   // backend refuses too (503) — this is not a UI-only gate. Admins get the
   // real screen so the owner can exercise it on prod.
   else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
-  else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
+  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
+  else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn}/>;
