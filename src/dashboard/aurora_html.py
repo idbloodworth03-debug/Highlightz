@@ -301,7 +301,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-card h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
 .rd-card h3 .si{width:30px;height:30px;border-radius:9px;background:var(--grad-soft);color:var(--acc);display:grid;place-items:center}
 .rd-card .desc{font-size:12px;color:var(--fg-3);margin:6px 0 18px 40px}
-/* ── Clip Upload ── */
+/* ── Clip Editor ── */
 .rd-drop{border:2px dashed var(--hair);border-radius:16px;padding:34px 20px;text-align:center;
   cursor:pointer;transition:border-color .18s,background .18s;background:rgba(255,255,255,.015)}
 .rd-drop:hover{border-color:var(--acc-2);background:rgba(168,85,247,.05)}
@@ -1410,14 +1410,14 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Upload',icon:'upload'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','settings'];
-const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Upload','Bring your own clips in to edit and publish'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Monitor active streams and per-channel analytics'],review:['Clip Review','Approve highlights as they fire'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in, edit them, publish them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -2099,10 +2099,10 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
     return (
       <div className="rd-scroll">
         <div className="rd-settings">
-          <div className="rd-section-title"><h2>Clip Upload</h2></div>
+          <div className="rd-section-title"><h2>Clip Editor</h2></div>
           <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
             <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="upload" size={40}/></div>
-            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>Clip Upload is a Pro feature</h3>
+            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>Clip Editor is a Pro feature</h3>
             <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
               Bring your own clips into Highlightz to edit and publish. Included with
               Pro, along with the VOD scanner, 10 monitored streams and a 200-clip queue.
@@ -2123,7 +2123,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
     <div className="rd-scroll">
       <div className="rd-settings">
         <div className="rd-section-title">
-          <h2>Clip Upload</h2>
+          <h2>Clip Editor</h2>
           {uploadsOn &&
             <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>}
         </div>
@@ -2500,7 +2500,7 @@ function WelcomeOverlay({ onClose }) {
 }
 
 // Shared "not ready yet" screen. Two callers with different palettes: Kick
-// (green) and held-back features like Clip Upload (the app's purple), so the
+// (green) and held-back features like Clip Editor (the app's purple), so the
 // screen reads as part of whatever the user was looking at.
 const UC_THEME = {
   kick:   { a:'#53fc18', b:'#39b515' },
@@ -2549,7 +2549,7 @@ function KickUnderConstruction() {
 
 function UploadsUnderConstruction() {
   return (
-    <UnderConstruction theme="violet" title="Clip Upload is coming soon">
+    <UnderConstruction theme="violet" title="Clip Editor is coming soon">
       Bring your own clips in to edit, reframe for vertical, and publish straight to
       TikTok and Instagram. The upload side is built — we're finishing the editing and
       publishing half before switching it on, because half a feature is worse than none.
@@ -2706,7 +2706,7 @@ function RdApp() {
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
-        // Forward Clip Upload events so a second open tab (or your phone)
+        // Forward Clip Editor events so a second open tab (or your phone)
         // reflects an upload/delete live instead of after a refresh.
         else if(['upload_added','upload_removed'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
@@ -2801,7 +2801,7 @@ function RdApp() {
   // KICK_BLOCKED is the single source of truth, shared with the nav below so
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(route)) screen=<KickUnderConstruction/>;
-  // Clip Upload is built but held back until editing/publishing exist. The
+  // Clip Editor is built but held back until editing/publishing exist. The
   // backend refuses too (503) — this is not a UI-only gate. Admins get the
   // real screen so the owner can exercise it on prod.
   else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;

@@ -2062,7 +2062,7 @@ async def cancel_vod_job(request: Request, job_id: str):
     _vod_jobs.pop(job_id, None)
 
 
-# ── Clip Upload library ───────────────────────────────────────────────────────
+# ── Clip Editor library ───────────────────────────────────────────────────────
 #
 # The user's own video files, held on our disk. Unlike every other clip path in
 # this product, these are real bytes rather than a Twitch embed — because
@@ -2169,12 +2169,12 @@ def _require_upload_access(uid: str) -> None:
     if not settings.uploads_enabled and not (user or {}).get("is_admin"):
         raise HTTPException(
             status_code=503,
-            detail="Clip Upload isn't available yet — it's coming soon.",
+            detail="The Clip Editor isn't available yet — it's coming soon.",
         )
     if not limits_for(user)["uploads"]:
         raise HTTPException(
             status_code=403,
-            detail="Clip Upload is a Pro feature — upgrade to upload and edit clips.",
+            detail="The Clip Editor is a Pro feature — upgrade to edit and publish clips.",
         )
 
 

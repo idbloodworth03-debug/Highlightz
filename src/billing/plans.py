@@ -2,9 +2,9 @@
 Membership tiers. Two paid plans:
 
   starter — $10/month: 3 monitored streams, 50 pending clips, no VOD scanner,
-            no Clip Upload
+            no Clip Editor
   pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
-            Clip Upload
+            Clip Editor
 
 Plan resolution rules (get_plan):
   - Admins and admin-granted trials get the full 'pro' experience.
