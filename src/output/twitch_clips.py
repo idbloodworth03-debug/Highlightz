@@ -152,6 +152,72 @@ async def get_clips_for_vod(broadcaster_id: str, vod_id: str,
         return []
 
 
+async def list_channel_clips(broadcaster_id: str, cursor: str = "",
+                             limit: int = 100) -> dict:
+    """One page of a channel's clips, newest-first-ish, for the import screen.
+
+    This is the whole "show me all my Twitch clips" feature: Get Clips is
+    documented, needs only an app token, and returns everything the UI wants
+    (title, thumbnail, views, duration, embed). No part of it touches the
+    media CDN or any undocumented URL — importing METADATA is a completely
+    different question from obtaining the video file, which has no supported
+    path (see src/maintenance/probe_clip_media.py).
+
+    Returns {"clips": [...], "cursor": str}. An empty cursor means the end.
+
+    Paging is caller-driven rather than looped-to-exhaustion here: a large
+    channel has thousands of clips, and Helix's 800 points/min is shared
+    across every user we serve. One page per request keeps a single import
+    from starving live clipping.
+
+    Note on ordering: Helix sorts by VIEW COUNT, not recency (a documented
+    quirk that has bitten this codebase before). The UI says so rather than
+    pretending it is chronological.
+    """
+    if not broadcaster_id:
+        return {"clips": [], "cursor": ""}
+
+    params = {"broadcaster_id": broadcaster_id, "first": max(1, min(100, limit))}
+    if cursor:
+        params["after"] = cursor
+
+    async with aiohttp.ClientSession() as session:
+        token = await _get_app_token(session)
+        headers = {"Client-Id": settings.twitch_client_id,
+                   "Authorization": f"Bearer {token}"}
+        async with session.get(f"{HELIX_BASE}/clips", headers=headers,
+                               params=params) as resp:
+            if resp.status != 200:
+                body = (await resp.text())[:200]
+                log.warning("channel_clips_failed", status=resp.status,
+                            broadcaster_id=broadcaster_id, body=body)
+                raise RuntimeError(f"Twitch returned HTTP {resp.status}")
+            payload = await resp.json()
+
+    clips = []
+    for r in payload.get("data", []):
+        if not r.get("id"):
+            continue
+        clips.append({
+            "id":            r["id"],
+            "title":         (r.get("title") or "").strip(),
+            "url":           r.get("url") or f"https://clips.twitch.tv/{r['id']}",
+            "embed_url":     r.get("embed_url") or "",
+            "thumbnail_url": r.get("thumbnail_url") or "",
+            "view_count":    int(r.get("view_count") or 0),
+            "duration":      float(r.get("duration") or 0.0),
+            "created_at":    r.get("created_at") or "",
+            # Who pressed the clip button — the streamer or a viewer. Worth
+            # surfacing: "clips other people made of me" is most of a channel's
+            # catalogue and the part streamers have never had in one place.
+            "creator_name":  r.get("creator_name") or "",
+            "game_id":       r.get("game_id") or "",
+        })
+
+    return {"clips": clips,
+            "cursor": (payload.get("pagination") or {}).get("cursor") or ""}
+
+
 async def create_clip(user_token: str, broadcaster_id: str,
                       retries: int = 3, retry_delay: float = 5.0) -> str | None:
     """Create a clip on the broadcaster's live stream using the user's token.

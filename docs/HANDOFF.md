@@ -517,6 +517,55 @@ Preview before deploying: `venv/bin/python -m src.maintenance.show_stuck_profile
 
 ## Clip Upload — the social-publishing foundation (started 2026-07-31)
 
+**TWO INDEPENDENT HALVES, two flags.** They are held back separately because
+the reason for holding one back does not apply to the other:
+
+| Flag | What it gates | Why |
+|---|---|---|
+| `CLIP_IMPORT_ENABLED` | "Your Twitch clips" — browse every clip on your channel | **Complete on its own.** Ready to launch whenever you want. |
+| `UPLOADS_ENABLED` | drag-and-drop upload + library | Half a feature until the editor exists. |
+
+The tab renders if EITHER is on (`clipTabOn`), so import can ship alone.
+
+### Clip import (`GET /twitch/clips`)
+
+Lists a user's own clips through documented Helix — metadata only, and it can
+never be a route to the video file (that question is CLOSED, see below). Fetched
+live and cached 120s rather than stored: a local mirror of Twitch's data goes
+stale the moment a clip is retitled or deleted, and there is no reason to own
+that problem.
+
+Three things not to regress (`tests/test_clip_import.py`):
+1. **The broadcaster comes from the SESSION, never the request.** Honour a
+   client-supplied channel and this stops being "your clips" and becomes a
+   general-purpose endpoint for enumerating anyone's clips, on our app token
+   and our Helix budget.
+2. **One page per request, plus a per-user rate limit** (12/min). Helix is 800
+   points/min shared across every user AND with live clipping; a helper that
+   paged to exhaustion would let one import starve the clip workers.
+3. **A Twitch outage is a 502, not an empty list.** An empty list renders as
+   "you have no clips" — a lie the user would act on.
+
+Helix sorts clips by **view count, not recency** (documented quirk that has
+bitten this codebase before). The payload says `sorted_by: view_count` and the
+UI offers its own Most-viewed / Newest toggle rather than claiming an order it
+does not have.
+
+### Why the file itself is out of reach (settled 2026-07-31)
+
+`src/maintenance/probe_clip_media.py` run against prod: clips now return
+`static-cdn.jtvnw.net/twitch-video-assets/…/landscape/thumb/thumb-…jpg`. The
+widely-documented trick (`clips-media-assets2…-preview-480x272.jpg` → strip
+suffix, append `.mp4`) assumed the thumbnail sat beside the video; in this
+newer asset layout it is under a separate `/thumb/` directory, so **no suffix
+swap yields the file**. Do not go fishing for a replacement pattern — that is
+guessing at undocumented URLs, and the probe exists so this can be re-checked
+with evidence instead. Two earlier attempts produced convincing-looking 403s
+that meant nothing (the media path is NOT the clip slug; and every record in
+our own `clips.json` carries a VOD thumbnail, so it cannot answer this either).
+
+### Uploads specifically
+
 **HELD BACK — `UPLOADS_ENABLED=false` (the default).** Built and tested, but
 not released: shipping "upload a file, then nothing" is worse than not
 shipping. Users get an under-construction screen; **the API also returns 503**,

@@ -670,7 +670,8 @@ async def me(request: Request):
         # Release flags — what is switched ON for everyone, separate from what
         # this user's plan entitles them to. The dashboard shows an
         # under-construction screen for anything off here.
-        "features":            {"uploads": settings.uploads_enabled},
+        "features":            {"uploads": settings.uploads_enabled,
+                                "clip_import": settings.clip_import_enabled},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
@@ -2047,6 +2048,89 @@ async def cancel_vod_job(request: Request, job_id: str):
 # shared disk, so it stays behind the tier that pays for it.
 
 _UPLOAD_CHUNK = 1024 * 1024      # 1 MB — bounded memory on a 2 GB box
+
+# Twitch clip import: per-user rate limit + a short cache. Helix allows 800
+# points/min across EVERY user we serve, so an import screen that re-fetches
+# on each render would compete with live clipping for the same budget.
+_IMPORT_WINDOW = 60.0
+_IMPORT_MAX    = 12              # pages per minute per user
+_import_hits: dict[str, tuple[int, float]] = {}
+_IMPORT_RATE_LOCK = asyncio.Lock()
+_IMPORT_CACHE_TTL = 120.0
+_import_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+async def _check_import_rate(uid: str) -> None:
+    async with _IMPORT_RATE_LOCK:
+        now = time.time()
+        for k, (_, ts) in list(_import_hits.items()):
+            if now - ts > _IMPORT_WINDOW:
+                _import_hits.pop(k, None)
+        count, window_start = _import_hits.get(uid, (0, now))
+        if now - window_start > _IMPORT_WINDOW:
+            count, window_start = 0, now
+        if count >= _IMPORT_MAX:
+            raise HTTPException(status_code=429,
+                                detail="Loading clips too quickly — give it a moment.")
+        _import_hits[uid] = (count + 1, window_start)
+
+
+def _require_import_access(uid: str) -> None:
+    from src.auth import users as user_store
+    user = user_store.get_by_id(uid)
+    if not settings.clip_import_enabled and not (user or {}).get("is_admin"):
+        raise HTTPException(
+            status_code=503,
+            detail="Importing Twitch clips isn't available yet — it's coming soon.",
+        )
+    return user
+
+
+@app.get("/twitch/clips")
+async def list_my_twitch_clips(request: Request, cursor: str = ""):
+    """Every clip on the caller's OWN Twitch channel, one page at a time.
+
+    Metadata only, through documented Helix — this is not, and cannot be, a
+    path to the video file (see src/maintenance/probe_clip_media.py for why
+    that question is closed). Nothing is stored: the list is fetched live and
+    cached briefly, because a mirror of Twitch's data goes stale the moment a
+    clip is deleted or retitled and there is no reason to own that problem.
+
+    Scoped to the session's own twitch_id, never a client-supplied channel —
+    otherwise this becomes a general-purpose "enumerate anyone's clips"
+    endpoint running on our Helix budget.
+    """
+    from src.output.twitch_clips import list_channel_clips
+    uid = _current_user_id(request)
+    user = _require_import_access(uid)
+
+    twitch_id = (user or {}).get("twitch_id") or ""
+    if not twitch_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Connect your Twitch account first to load your clips.",
+        )
+
+    key = (twitch_id, cursor)
+    hit = _import_cache.get(key)
+    if hit and time.time() - hit[0] < _IMPORT_CACHE_TTL:
+        return hit[1]
+
+    await _check_import_rate(uid)
+    try:
+        page = await list_channel_clips(twitch_id, cursor=cursor)
+    except Exception as exc:
+        log.warning("twitch_clip_import_failed", user_id=uid, error=str(exc))
+        raise HTTPException(status_code=502,
+                            detail="Couldn't reach Twitch just now — try again in a moment.")
+
+    # Helix sorts by view count, not recency. Say so in the payload so the UI
+    # never has to claim an order it doesn't have.
+    page["sorted_by"] = "view_count"
+    _import_cache[key] = (time.time(), page)
+    if len(_import_cache) > 2000:            # bounded: one entry per page seen
+        _import_cache.clear()
+    return page
 
 
 def _require_upload_access(uid: str) -> None:

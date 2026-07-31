@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Flip to true (UPLOADS_ENABLED=true in .env) to launch.
     uploads_enabled: bool = False
 
+    # Importing a user's own Twitch clips is a SEPARATE, already-complete
+    # feature: it lists metadata through documented Helix and needs no editor
+    # to be useful ("every clip on my channel in one place" is the whole
+    # thing). Its own flag so it can ship without the unfinished upload half —
+    # the reason uploads are held back does not apply to it.
+    clip_import_enabled: bool = False
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so

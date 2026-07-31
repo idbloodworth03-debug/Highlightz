@@ -123,3 +123,23 @@ def test_held_back_features_default_to_closed_while_me_is_loading():
     expr = m.group(1)
     assert "me &&" in expr, "uploadsOn must be false until /me has loaded"
     assert "features?.uploads" in expr and "is_admin" in expr
+
+
+def test_a_failed_clip_import_leaves_the_retry_button_in_place():
+    """`started` gates the whole import UI: false shows the load button, true
+    shows the results view.
+
+    It was originally set in a `finally`, so a FAILED first load flipped it
+    true — the retry button vanished and the user was left with an error
+    message sitting next to "No clips on your channel yet". Two contradictory
+    statements and no way forward. It must only be set on the success path.
+    """
+    m = re.search(r"const fetchPage = useCallback\(async \(cur\) => \{(.*?)\n  \}, \[\]\);",
+                  SRC, re.S)
+    assert m, "fetchPage not found"
+    body = m.group(1)
+    fin = re.search(r"finally \{([^}]*)\}", body)
+    assert fin, "no finally block in fetchPage"
+    assert "setStart" not in fin.group(1), \
+        "setStart in finally — a failed load hides the retry button"
+    assert "setStart(true)" in body, "success path never marks the load complete"

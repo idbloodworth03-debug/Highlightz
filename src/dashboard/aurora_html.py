@@ -318,6 +318,26 @@ button{font-family:inherit;cursor:pointer}
 .rd-up .ub{padding:11px 13px;display:flex;align-items:center;gap:10px}
 .rd-up .un{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .rd-up .um{font-size:11px;color:var(--fg-3);margin-top:2px}
+/* Twitch clip import cards */
+.rd-tw{border-radius:14px;border:1px solid var(--hair);background:rgba(255,255,255,.02);
+  overflow:hidden;display:flex;flex-direction:column}
+.rd-tw iframe{width:100%;aspect-ratio:16/9;border:none;display:block;background:#000}
+.rd-tw .tw-thumb{position:relative;display:block;width:100%;aspect-ratio:16/9;padding:0;border:none;
+  background:#0b0b12;cursor:pointer;overflow:hidden}
+.rd-tw .tw-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s}
+.rd-tw .tw-thumb:hover img{transform:scale(1.04)}
+.rd-tw .tw-noimg{width:100%;height:100%;display:grid;place-items:center;color:var(--fg-3)}
+.rd-tw .tw-play{position:absolute;inset:0;margin:auto;width:40px;height:40px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(0,0,0,.55);color:#fff;
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:.18s}
+.rd-tw .tw-thumb:hover .tw-play{background:var(--acc-2);transform:scale(1.08)}
+.rd-tw .tw-dur{position:absolute;right:7px;bottom:7px;font-size:10.5px;font-weight:700;color:#fff;
+  background:rgba(0,0,0,.7);padding:2px 6px;border-radius:6px}
+.rd-tw .tw-meta{padding:10px 12px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.rd-tw .tw-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-tw .tw-sub{font-size:11px;color:var(--fg-3)}
+.rd-tw .tw-link{font-size:11px;color:var(--acc);font-weight:600;margin-top:2px}
+.rd-tw .tw-link:hover{text-decoration:underline}
 .rd-uprow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair)}
 .rd-uprow:last-child{border-bottom:none}
 .rd-uprow .pb{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
@@ -1857,7 +1877,120 @@ function fmtBytes(n){
   return mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : (mb<10?mb.toFixed(1):Math.round(mb))+' MB';
 }
 
-function UploadScreen({ me }) {
+function TwitchImport() {
+  const [clips, setClips]   = useState([]);
+  const [cursor, setCursor] = useState('');
+  const [loading, setLoad]  = useState(false);
+  const [started, setStart] = useState(false);
+  const [err, setErr]       = useState('');
+  const [sort, setSort]     = useState('views');
+  const [play, setPlay]     = useState(null);
+
+  const fetchPage = useCallback(async (cur) => {
+    setLoad(true); setErr('');
+    try {
+      const r = await fetch('/twitch/clips' + (cur ? '?cursor=' + encodeURIComponent(cur) : ''));
+      if (!r.ok) {
+        let d = 'Could not load your clips';
+        try { d = (await r.json()).detail || d; } catch {}
+        setErr(d); return;
+      }
+      const data = await r.json();
+      // De-dupe by id: Helix pages by view count, and a clip whose count
+      // changes mid-paging can legitimately appear on two pages.
+      setClips(prev => {
+        const seen = new Set(prev.map(c => c.id));
+        return [...prev, ...(data.clips || []).filter(c => !seen.has(c.id))];
+      });
+      setCursor(data.cursor || '');
+      // Only on success. Setting this in `finally` made a FAILED first load
+      // look like a completed one: the retry button vanished and the user got
+      // an error sitting next to "No clips on your channel yet" — two
+      // contradictory messages and no way forward. A failed first load must
+      // leave the button exactly where it was.
+      setStart(true);
+    } catch { setErr('Could not reach the server'); }
+    finally { setLoad(false); }
+  }, []);
+
+  const shown = [...clips].sort((a, b) =>
+    sort === 'views' ? (b.view_count || 0) - (a.view_count || 0)
+                     : String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  return (
+    <div className="rd-card glass">
+      <h3><span className="si"><Icon name="download" size={15}/></span>Your Twitch clips</h3>
+      <div className="desc">
+        Every clip on your channel — the ones you made and the ones your viewers made.
+        Pulled live from Twitch, nothing is stored here.
+      </div>
+
+      {!started
+        ? <button className="rd-btn grad" disabled={loading} onClick={()=>fetchPage('')}>
+            {loading ? 'Loading…' : 'Load my Twitch clips'}
+          </button>
+        : <>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+              <span style={{fontSize:12.5,color:'var(--fg-3)'}}>
+                {clips.length} clip{clips.length===1?'':'s'} loaded
+              </span>
+              <div className="rd-filters" style={{marginLeft:'auto'}}>
+                {[['views','Most viewed'],['recent','Newest']].map(([k,label])=>(
+                  <button key={k} className={'rd-filter'+(sort===k?' active':'')}
+                    onClick={()=>setSort(k)}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {clips.length===0 && !loading &&
+              <div className="rd-grid-empty" style={{padding:'34px 0'}}>
+                <div className="ic"><Icon name="film" size={38}/></div>
+                <div className="big">No clips on your channel yet</div>
+                <div>Clips you or your viewers create on Twitch will show up here.</div>
+              </div>}
+
+            {clips.length>0 &&
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+                {shown.map(c=>(
+                  <div className="rd-tw" key={c.id}>
+                    {play===c.id
+                      ? <iframe src={c.embed_url + '&parent=' + location.hostname + '&autoplay=true'}
+                          allowFullScreen title={c.title||'Clip'}/>
+                      : <button className="tw-thumb" onClick={()=>setPlay(c.id)}
+                          title="Play clip">
+                          {c.thumbnail_url
+                            ? <img src={c.thumbnail_url} alt="" loading="lazy"/>
+                            : <span className="tw-noimg"><Icon name="film" size={26}/></span>}
+                          <span className="tw-play"><Icon name="play" size={16}/></span>
+                          <span className="tw-dur">{Math.round(c.duration||0)}s</span>
+                        </button>}
+                    <div className="tw-meta">
+                      <div className="tw-title" title={c.title}>{c.title || 'Untitled clip'}</div>
+                      <div className="tw-sub">
+                        {(c.view_count||0).toLocaleString()} view{c.view_count===1?'':'s'}
+                        {c.creator_name ? ' · by ' + c.creator_name : ''}
+                      </div>
+                      <a href={c.url} target="_blank" rel="noopener noreferrer" className="tw-link">
+                        Open on Twitch
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>}
+
+            {cursor &&
+              <button className="rd-btn" style={{marginTop:14}} disabled={loading}
+                onClick={()=>fetchPage(cursor)}>
+                {loading ? 'Loading…' : 'Load more'}
+              </button>}
+          </>}
+
+      {err && <div style={{marginTop:12,fontSize:12,color:'var(--danger)'}}>{err}</div>}
+    </div>
+  );
+}
+
+function UploadScreen({ me, uploadsOn = true, importOn = false }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -1866,12 +1999,16 @@ function UploadScreen({ me }) {
   const fileRef = useRef(null);
 
   const load = useCallback(()=>{
+    // Don't call an endpoint that is deliberately 503ing: when only the import
+    // half is live this screen still mounts, and a pointless failing request
+    // on every reconnect is noise in the logs for no gain.
+    if(!uploadsOn) return;
     fetch('/uploads').then(r=>r.ok?r.json():null).then(d=>{
       if(!d) return;
       setUploads(d.uploads||[]);
       setQuota(d.quota||null);
     }).catch(()=>{});
-  },[]);
+  },[uploadsOn]);
 
   // Mount + every WS reconnect (deploy, sleep, network blip). Without the
   // hz_refetch listener the library would silently go stale after a restart.
@@ -1987,21 +2124,30 @@ function UploadScreen({ me }) {
       <div className="rd-settings">
         <div className="rd-section-title">
           <h2>Clip Upload</h2>
-          <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>
+          {uploadsOn &&
+            <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>}
         </div>
 
-        {/* Admins bypass the release flag to exercise the feature on prod.
-            Say so plainly — previewing a hidden feature looks identical to a
-            launched one, and that is exactly how something ships by accident. */}
-        {me && me.is_admin && me.features && !me.features.uploads &&
+        {/* Admins bypass the release flags to exercise features on prod. Say
+            so plainly, and name the exact flag still off — previewing a hidden
+            feature looks identical to a launched one, and that is how
+            something ships by accident. */}
+        {me && me.is_admin && me.features && !(me.features.uploads && me.features.clip_import) &&
           <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,
                        background:'rgba(255,138,76,.12)',border:'1px solid rgba(255,138,76,.32)',
                        fontSize:12.5,color:'#ff9a52',fontWeight:600}}>
             <Icon name="cog" size={15}/>
-            <span>Admin preview — your users see an “under construction” screen here.
-              Set <code style={{fontFamily:'monospace'}}>UPLOADS_ENABLED=true</code> to launch.</span>
+            <span>Admin preview — parts of this screen are hidden from your users. Set{' '}
+              {!me.features.clip_import && <code style={{fontFamily:'monospace'}}>CLIP_IMPORT_ENABLED=true</code>}
+              {!me.features.clip_import && !me.features.uploads && ' and '}
+              {!me.features.uploads && <code style={{fontFamily:'monospace'}}>UPLOADS_ENABLED=true</code>}
+              {' '}to launch.</span>
           </div>}
 
+        {/* Import is complete on its own and ships independently of uploads. */}
+        {importOn && <TwitchImport/>}
+
+        {uploadsOn && <>
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="upload" size={15}/></span>Add clips</h3>
           <div className="desc">
@@ -2070,6 +2216,7 @@ function UploadScreen({ me }) {
                 ))}
               </div>}
         </div>
+        </>}
       </div>
     </div>
   );
@@ -2641,6 +2788,10 @@ function RdApp() {
   // Default false while /me is still loading, so the tab never flashes the
   // real screen before the flag arrives.
   const uploadsOn = !!(me && (me.features?.uploads || me.is_admin));
+  const importOn  = !!(me && (me.features?.clip_import || me.is_admin));
+  // The tab is worth showing if EITHER half is live. Import is complete on its
+  // own (browse every clip on your channel); uploads are what's held back.
+  const clipTabOn = uploadsOn || importOn;
 
   let screen;
   // Kick is temporarily closed off while automated clipping is built — show a
@@ -2653,12 +2804,12 @@ function RdApp() {
   // Clip Upload is built but held back until editing/publishing exist. The
   // backend refuses too (503) — this is not a UI-only gate. Admins get the
   // real screen so the owner can exercise it on prod.
-  else if(route==='uploads' && !uploadsOn) screen=<UploadsUnderConstruction/>;
+  else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,profiles,clips:platformClips,filter,setFilter,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
