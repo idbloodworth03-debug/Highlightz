@@ -632,10 +632,82 @@ without re-downloading a 300 MB file.
 load-bearing). No nginx change needed. **Do not lower it below
 `upload_max_file_mb`** or uploads fail at the proxy with an opaque 413.
 
-**Next, in order:** vertical reframe + captions (ffmpeg — needs its own worker,
-it will contend with the audio meters on 1 vCPU), then TikTok/IG OAuth +
-publishing. Encoding is a genuinely different resource profile from the current
-box; expect to need a dedicated encode droplet before this is real.
+**Next, in order:** ~~vertical reframe + captions~~ (both done — see below),
+then TikTok/IG OAuth + publishing.
+
+### Clip Editor + auto-captions (2026-08-01)
+
+The tab is named **Clip Editor** (`uploads`). Adding streamers moved to the
+**Live Streams** tab; **Clip Review** is now only clip reviews.
+
+**Editing and export run in the BROWSER, not on the droplet.** Trim, shape
+(9:16 / 1:1 / 16:9), zoom, position, title text and burned-in captions all
+draw through one function — `paintFrame(ctx, video, o)` in `aurora_html.py` —
+and export re-renders that same path into a `MediaRecorder`. This is the single
+most important cost decision in the feature: server-side ffmpeg encoding on a
+1 vCPU box would contend directly with the audio meters, and the earlier plan
+in this file ("expect to need a dedicated encode droplet") is what browser
+encoding avoids entirely. **Do not move export server-side** without a very
+concrete reason.
+
+Traps already paid for, do not re-learn them:
+- **MediaRecorder WebM carries no duration header** — `video.duration` is
+  `Infinity` until you seek to a huge time (`1e101`). Exported clips would not
+  play/scrub without that.
+- **Export races its own recorder**: needs a settle delay before start, a
+  wall-clock floor, a `requestData()` before stop, and a guard against the
+  canvas being resized mid-export.
+- **Python eats backslashes before the browser sees them.** `split('\n')` in
+  the JSX string became a real newline and white-screened the app. Use
+  `String.fromCharCode(10)`. The JSX checker must extract from the **parsed**
+  `DASHBOARD_HTML`, not the raw source file, or it validates text the browser
+  never receives.
+
+**Auto-captions — Whisper on THIS droplet (owner's call, 2026-08-01).** The
+recommendation was a paid transcription API (~$0.006/min, no CPU cost); the
+owner chose the free path, so it is built to be safe rather than fast:
+
+- `src/captions/transcribe.py`. `faster-whisper`, `tiny.en`, `compute_type=
+  "int8"`, `beam_size=1`, `vad_filter=True`.
+- **Four CPU guards, all mutation-tested in `tests/test_captions.py`** (each
+  guard was removed and the test confirmed to fail): `_slot =
+  asyncio.Semaphore(1)` is **process-wide, not per user** — one transcription
+  at a time, ever; `cpu_threads=1` (CTranslate2 otherwise grabs every core it
+  sees, which here is the only one); a hard `captions_timeout_s` so a
+  pathological file cannot pin the core; and the temp WAV is removed in a
+  `finally`.
+- The model is **loaded lazily and once**, so a user who never asks for
+  captions never pays the load, and a droplet without `faster-whisper`
+  installed still boots and clips normally.
+- Rationale for all of it: clip detection is the product, captioning is a
+  convenience. If they ever compete, detection wins.
+- Flags: `CAPTIONS_ENABLED` (default false), `CAPTIONS_MODEL` (`tiny.en` —
+  `base.en` is ~2x the cost for a modest gain; only move up if the box is
+  visibly idle), `CAPTIONS_TIMEOUT_S`.
+- API: `GET/POST /uploads/{id}/captions`, one running job per user (429 on a
+  second). Broadcasts `captions_progress` / `captions_ready` /
+  `captions_failed`, all handled in `ws.onmessage`. Captions are stored beside
+  the video (`<video>.captions.json`) so deleting the upload takes them too.
+
+**UNVERIFIED FROM DEV, AND WHY:** the dev container's egress proxy blocks the
+weights host (`httpx.ProxyError: 403`), so `_run_whisper` has **never actually
+executed here**. Everything around it — queueing, the semaphore, storage, the
+API, the UI, failure rendering — is verified in tests and in headless Chromium.
+That one function is deliberately isolated so the unverified surface is as
+small as possible. Confirm it on prod:
+
+```bash
+venv/bin/pip install faster-whisper                       # deploys never pip install
+venv/bin/python -m src.captions.transcribe --selftest      # downloads + runs the model
+```
+
+Browser-side note: **enabling captions must not tempt anyone into COOP/COEP.**
+`SharedArrayBuffer` is off, which rules out in-browser Whisper (wasm), and
+turning it on would break the cross-origin Twitch embeds the dashboard depends
+on. That is why transcription is server-side at all.
+
+Encoding is a genuinely different resource profile from the current box — if
+export ever *does* move server-side, expect to need a dedicated encode droplet.
 
 ## Queued nice-to-haves
 

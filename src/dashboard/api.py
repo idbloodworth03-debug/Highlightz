@@ -671,7 +671,8 @@ async def me(request: Request):
         # this user's plan entitles them to. The dashboard shows an
         # under-construction screen for anything off here.
         "features":            {"uploads": settings.uploads_enabled,
-                                "clip_import": settings.clip_import_enabled},
+                                "clip_import": settings.clip_import_enabled,
+                                "captions": settings.captions_enabled},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
@@ -2269,6 +2270,91 @@ async def remove_upload(request: Request, upload_id: str):
     await broadcast({"event": "upload_removed", "upload_id": upload_id,
                      "quota": upload_lib.quota(uid)}, user_id=uid)
     return {"status": "deleted"}
+
+
+# ── Auto-captions ─────────────────────────────────────────────────────────────
+#
+# Whisper runs on THIS box, which is also running an audio meter per monitored
+# channel on one core. Captioning is serialised to a single clip at a time in
+# src/captions/transcribe.py; here we additionally refuse to queue a second job
+# for the same user, so one person cannot fill the queue and make everyone
+# else — including live clip detection — wait behind them.
+
+_caption_jobs: dict[str, dict] = {}          # upload_id -> {status, pct, error}
+
+
+def _require_captions(uid: str):
+    from src.auth import users as user_store
+    user = user_store.get_by_id(uid)
+    if not settings.captions_enabled and not (user or {}).get("is_admin"):
+        raise HTTPException(status_code=503,
+                            detail="Auto-captions aren't available yet — coming soon.")
+    return user
+
+
+@app.get("/uploads/{upload_id}/captions")
+async def get_captions(request: Request, upload_id: str):
+    """Existing captions, or the state of a run in flight."""
+    from src.uploads import library as upload_lib
+    from src.captions import transcribe as cap
+    uid = _current_user_id(request)
+    up = upload_lib.get(upload_id, uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return {"captions": cap.load(upload_lib.path_for(up)),
+            "job": _caption_jobs.get(upload_id)}
+
+
+@app.post("/uploads/{upload_id}/captions", status_code=202)
+async def start_captions(request: Request, upload_id: str):
+    """Kick off transcription. Returns immediately; progress arrives over the
+    WebSocket, because a 30s clip can take ~30-60s on this hardware and holding
+    an HTTP request open that long is how you collect timeouts."""
+    from src.uploads import library as upload_lib
+    from src.captions import transcribe as cap
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    _require_captions(uid)
+
+    up = upload_lib.get(upload_id, uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    running = _caption_jobs.get(upload_id)
+    if running and running.get("status") == "running":
+        return running
+    # One queued job per user. The transcriber is single-slot process-wide, so
+    # letting one user stack five jobs would just push everyone else back.
+    if any(j.get("status") == "running" and j.get("user_id") == uid
+           for j in _caption_jobs.values()):
+        raise HTTPException(status_code=429,
+                            detail="Already captioning a clip — one at a time.")
+
+    job = {"status": "running", "pct": 0, "error": "", "user_id": uid,
+           "upload_id": upload_id}
+    _caption_jobs[upload_id] = job
+
+    async def _progress(pct: int, note: str) -> None:
+        job["pct"] = pct
+        await broadcast({"event": "captions_progress", "upload_id": upload_id,
+                         "pct": pct, "note": note}, user_id=uid)
+
+    async def _work() -> None:
+        path = upload_lib.path_for(up)
+        try:
+            payload = await cap.transcribe(path, on_progress=_progress)
+            cap.save(path, payload)
+            job.update(status="done", pct=100)
+            await broadcast({"event": "captions_ready", "upload_id": upload_id,
+                             "captions": payload}, user_id=uid)
+        except Exception as exc:
+            log.warning("captions_failed", upload_id=upload_id, error=str(exc))
+            job.update(status="failed", error=str(exc))
+            await broadcast({"event": "captions_failed", "upload_id": upload_id,
+                             "message": str(exc)}, user_id=uid)
+
+    asyncio.create_task(_work())
+    return job
 
 
 @app.websocket("/ws")

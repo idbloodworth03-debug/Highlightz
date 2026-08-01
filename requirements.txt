@@ -29,6 +29,13 @@ uvicorn[standard]
 python-multipart
 itsdangerous
 
+# Auto-captions (Whisper on the droplet). NOT imported at startup — the model
+# is loaded lazily on the first caption job — so a box without this installed
+# still boots and clips normally; only /uploads/{id}/captions fails.
+# Deploys do not run pip install: `venv/bin/pip install faster-whisper` on the
+# droplet before setting CAPTIONS_ENABLED=true.
+faster-whisper
+
 # Utilities
 pydantic
 pydantic-settings

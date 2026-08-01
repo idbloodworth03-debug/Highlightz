@@ -2141,8 +2141,16 @@ function edTime(s) {
 /* Draw one frame of the edit. Single source of truth for how the output looks —
    the preview and BOTH encoders call this, so what the user sees while
    scrubbing is exactly what gets exported. */
+function activeCaption(segs, t) {
+  if (!segs || !segs.length) return '';
+  // Linear scan: a clip is seconds long and has a handful of segments, so this
+  // is cheaper than the bookkeeping a binary search would need per frame.
+  for (const s of segs) if (t >= s.start && t <= s.end) return s.text || '';
+  return '';
+}
+
 function paintFrame(ctx, video, o) {
-  const { w, h, zoom, offX, offY, text, textSize, textPos } = o;
+  const { w, h, zoom, offX, offY, text, textSize, textPos, caption } = o;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
 
@@ -2152,6 +2160,37 @@ function paintFrame(ctx, video, o) {
   const scale = Math.max(w / vw, h / vh) * zoom;
   const dw = vw * scale, dh = vh * scale;
   ctx.drawImage(video, (w - dw) / 2 + offX * w, (h - dh) / 2 + offY * h, dw, dh);
+
+  // Auto-caption first, so a manual title drawn at the same spot sits on top
+  // rather than being hidden behind it.
+  if (caption) {
+    const fs = Math.round(h * 0.055);
+    ctx.font = `800 ${fs}px Sora, Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Wrap to the frame instead of running off the edge — a long line on a
+    // 9:16 export would otherwise lose both ends.
+    const words = String(caption).split(' ');
+    const lines = [];
+    let cur = '';
+    for (const wd of words) {
+      const test = cur ? cur + ' ' + wd : wd;
+      if (ctx.measureText(test).width > w * 0.86 && cur) { lines.push(cur); cur = wd; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    const shown = lines.slice(-3);
+    const baseY = h * 0.78;
+    shown.forEach((ln, i) => {
+      const ly = baseY + (i - (shown.length - 1) / 2) * fs * 1.2;
+      ctx.lineWidth = Math.max(2, fs * 0.2);
+      ctx.strokeStyle = 'rgba(0,0,0,.9)';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(ln, w / 2, ly);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(ln, w / 2, ly);
+    });
+  }
 
   if (text) {
     const fs = Math.round(h * textSize);
@@ -2193,6 +2232,11 @@ function ClipEditor({ clip, onClose, onExported }) {
   const [err, setErr]       = useState('');
   const [done, setDone]     = useState('');
 
+  const [caps, setCaps]     = useState(null);   // [{start,end,text}]
+  const [capOn, setCapOn]   = useState(true);
+  const [capJob, setCapJob] = useState(null);   // {status,pct} while running
+  const [capErr, setCapErr] = useState('');
+
   const videoRef = useRef(null);
   const canvRef  = useRef(null);
   const rafRef   = useRef(0);
@@ -2203,7 +2247,44 @@ function ClipEditor({ clip, onClose, onExported }) {
   const outW = Math.round(OUT_H * aspect / 2) * 2;   // even dims: H.264 requires it
   const outH = OUT_H;
 
-  const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos });
+  const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
+    caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : '' });
+
+  // Existing captions on open, plus live progress for a run started in another
+  // tab — transcription happens on the server, so it is not tied to this one.
+  useEffect(()=>{
+    let gone = false;
+    fetch('/uploads/'+clip.id+'/captions').then(r=>r.ok?r.json():null).then(d=>{
+      if(gone||!d) return;
+      if(d.captions) setCaps(d.captions.segments||[]);
+      if(d.job && d.job.status==='running') setCapJob(d.job);
+    }).catch(()=>{});
+    const onWs = e=>{
+      try{
+        const m = JSON.parse(e.detail);
+        if(m.upload_id !== clip.id) return;
+        if(m.event==='captions_progress') setCapJob({status:'running',pct:m.pct});
+        else if(m.event==='captions_ready'){
+          setCaps((m.captions&&m.captions.segments)||[]); setCapJob(null); setCapErr('');
+        }
+        else if(m.event==='captions_failed'){ setCapJob(null); setCapErr(m.message||'Captioning failed'); }
+      }catch{}
+    };
+    window.addEventListener('hz_ws', onWs);
+    return ()=>{ gone=true; window.removeEventListener('hz_ws', onWs); };
+  },[clip.id]);
+
+  const makeCaptions = async () => {
+    setCapErr(''); setCapJob({status:'running',pct:0});
+    try{
+      const r = await fetch('/uploads/'+clip.id+'/captions',{method:'POST'});
+      if(!r.ok){
+        let d='Could not start captioning';
+        try{ d=(await r.json()).detail||d; }catch{}
+        setCapErr(d); setCapJob(null);
+      }
+    }catch{ setCapErr('Could not reach the server'); setCapJob(null); }
+  };
 
   // Live preview loop.
   useEffect(() => {
@@ -2493,7 +2574,35 @@ function ClipEditor({ clip, onClose, onExported }) {
             </div>
 
             <div className="ed-grp">
-              <label>Caption</label>
+              <label>Auto-captions</label>
+              {!caps && !capJob &&
+                <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}>
+                  <Icon name="sparkles" size={13}/>&nbsp;Generate captions
+                </button>}
+              {capJob &&
+                <>
+                  <div className="ed-prog"><i style={{width:(capJob.pct||0)+'%'}}/></div>
+                  <div className="ed-note">Transcribing on the server… {capJob.pct||0}%</div>
+                </>}
+              {caps && !capJob && <>
+                <div className="ed-row">
+                  <button className={'rd-btn sm'+(capOn?' grad':'')} disabled={busy}
+                    onClick={()=>setCapOn(v=>!v)} style={{flex:1}}>
+                    {capOn ? 'Captions on' : 'Captions off'}
+                  </button>
+                  <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}
+                    title="Transcribe again">↻</button>
+                </div>
+                <div className="ed-note">
+                  {caps.length ? caps.length + ' lines · burned into the export'
+                               : 'No speech detected in this clip.'}
+                </div>
+              </>}
+              {capErr && <div className="ed-warn">{capErr}</div>}
+            </div>
+
+            <div className="ed-grp">
+              <label>Title text</label>
               <textarea className="ed-in" rows="2" value={text} disabled={busy}
                 placeholder="Optional text on the clip" maxLength={120}
                 onChange={e=>setText(e.target.value)}/>
@@ -3301,6 +3410,11 @@ function RdApp() {
         // Forward Clip Editor events so a second open tab (or your phone)
         // reflects an upload/delete live instead of after a refresh.
         else if(['upload_added','upload_removed'].includes(msg.event)){
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        }
+        // Captioning runs on the SERVER, so its progress has to arrive over the
+        // socket — the tab that started it may not even be the one watching.
+        else if(['captions_progress','captions_ready','captions_failed'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter

@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     # the reason uploads are held back does not apply to it.
     clip_import_enabled: bool = False
 
+    # Auto-captions (Whisper, on this box — owner's call over a paid API).
+    # 'tiny.en' is the only size that belongs on a 1 vCPU / 2 GB droplet that is
+    # already running an audio meter per monitored channel; 'base.en' is roughly
+    # 2x the cost for a modest accuracy gain, so move up only if the box is
+    # visibly idle. Captioning is deliberately serialised to one clip at a time
+    # (src/captions/transcribe.py) — clip detection must always win the core.
+    captions_enabled: bool = False
+    captions_model: str = "tiny.en"
+    captions_timeout_s: float = 240.0
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so
