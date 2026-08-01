@@ -651,6 +651,17 @@ encoding avoids entirely. **Do not move export server-side** without a very
 concrete reason.
 
 Traps already paid for, do not re-learn them:
+- **The paint loop changes no state, so React does not re-render while a clip
+  plays.** Anything positioned from `videoRef.current.currentTime` *during
+  render* is frozen wherever the last state change left it — that is exactly
+  how the trim playhead shipped stuck at 0%. The playhead and the clock are
+  written imperatively from inside the rAF loop (`headRef` / `clockRef`).
+  Calling `setState` every frame instead would re-render the whole editor 60x
+  a second; don't.
+- **Whisper segments are sentences, not captions.** Straight from the model, a
+  clip of continuous speech is often ONE segment spanning the whole thing — a
+  correct transcript that renders as a single caption that never changes. Cues
+  are rebuilt from word timings; see `_cues_from_words`.
 - **MediaRecorder WebM carries no duration header** — `video.duration` is
   `Infinity` until you seek to a huge time (`1e101`). Exported clips would not
   play/scrub without that.
@@ -668,7 +679,14 @@ recommendation was a paid transcription API (~$0.006/min, no CPU cost); the
 owner chose the free path, so it is built to be safe rather than fast:
 
 - `src/captions/transcribe.py`. `faster-whisper`, `tiny.en`, `compute_type=
-  "int8"`, `beam_size=1`, `vad_filter=True`.
+  "int8"`, `beam_size=1`, `vad_filter=True`, `word_timestamps=True`.
+- **`word_timestamps=True` is load-bearing, not a nicety.** Without it there
+  are no word timings, `_cues_from_words` takes its keep-the-whole-segment
+  fallback for everything, and captions collapse back to one static blob with
+  all the cue-shaping code still present and silently doing nothing. Guarded by
+  `test_word_timestamps_are_requested_from_whisper`. Cue bounds live in the
+  `_MAX_CUE_*` constants — raise them and captions read like subtitles instead
+  of short-form captions.
 - **Four CPU guards, all mutation-tested in `tests/test_captions.py`** (each
   guard was removed and the test confirmed to fail): `_slot =
   asyncio.Semaphore(1)` is **process-wide, not per user** — one transcription

@@ -161,6 +161,58 @@ def test_blank_segments_are_dropped_by_the_real_filter(monkeypatch):
     assert lang == "en"
 
 
+class _W:
+    def __init__(self, start, end, word):
+        self.start, self.end, self.word = start, end, word
+
+
+class _WSeg:
+    def __init__(self, start, end, text, words=None):
+        self.start, self.end, self.text, self.words = start, end, text, words
+
+
+def test_one_long_segment_is_broken_into_cues_that_actually_turn_over():
+    """THE BUG THIS EXISTS FOR: Whisper returns sentence-level segments, so a
+    clip of someone talking without pausing came back as ONE segment spanning
+    the whole clip — a single caption that never changed for 30 seconds. The
+    transcript was right and the captions were useless."""
+    words = [_W(i * 0.4, i * 0.4 + 0.4, f"w{i}") for i in range(12)]
+    seg = _WSeg(0.0, 4.8, " ".join(w.word for w in words), words)
+
+    cues = cap._cues_from_words([seg])
+
+    assert len(cues) >= 3, f"still one blob: {cues}"
+    for c in cues:
+        assert len(c.text.split()) <= cap._MAX_CUE_WORDS
+        assert c.end - c.start <= cap._MAX_CUE_S + 0.5
+    # Every word survives, in order — shortening cues must not drop speech.
+    assert " ".join(c.text for c in cues) == seg.text
+
+
+def test_a_pause_ends_a_cue_instead_of_being_spanned():
+    """A cue whose timing spans a long silence sits on screen over nothing."""
+    cues = cap._cues_from_words([_WSeg(0.0, 9.0, "a b", [
+        _W(0.0, 0.3, "a"), _W(8.0, 8.3, "b")])])
+    assert len(cues) == 2, "a 7.7s gap was swallowed into one cue"
+    assert cues[0].end < 1.0 and cues[1].start > 7.0
+
+
+def test_a_segment_with_no_word_timings_is_kept_whole_not_guessed_at():
+    """Better one long true caption than invented timings."""
+    cues = cap._cues_from_words([_WSeg(1.0, 4.0, "  no words here  ", None)])
+    assert [(c.start, c.end, c.text) for c in cues] == [(1.0, 4.0, "no words here")]
+
+
+def test_word_timestamps_are_requested_from_whisper():
+    """Guard on the flag itself: without it faster-whisper returns no `words`,
+    every segment takes the keep-whole fallback, and the one-blob bug is back
+    with all the cue-shaping code still present and silently doing nothing."""
+    import inspect
+    # The autouse fixture replaces _run_whisper, so read the one captured at
+    # import — otherwise this inspects the stub and passes on nothing.
+    assert "word_timestamps=True" in inspect.getsource(REAL_RUN_WHISPER)
+
+
 def test_the_model_is_configured_for_a_single_core_box():
     """cpu_threads must be pinned. Left to itself CTranslate2 takes every core
     it can see — on this box that is the only one, and the audio meters lose."""

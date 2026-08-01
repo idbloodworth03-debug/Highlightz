@@ -379,7 +379,10 @@ button{font-family:inherit;cursor:pointer}
   border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:2px}
 .ed-track .sel{position:absolute;top:0;bottom:0;background:var(--grad-soft);
   border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
-.ed-track .play{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 6px #fff}
+/* margin-left pulls the bar half its width so it stays visible at both ends
+   instead of being clipped away by the track's overflow:hidden at 0%/100%. */
+.ed-track .play{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;
+  background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
 .ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
 .ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .15s}
 .ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
@@ -2241,6 +2244,15 @@ function ClipEditor({ clip, onClose, onExported }) {
   const canvRef  = useRef(null);
   const rafRef   = useRef(0);
   const cancelRef = useRef(false);
+  // The playhead and the clock are driven from the animation loop, NOT from
+  // render. The loop paints the canvas imperatively and changes no state, so
+  // React does not re-render while the video plays — anything positioned from
+  // `videoRef.current.currentTime` during render is frozen at wherever it was
+  // when the last state change happened. (It was, and the bar never moved.)
+  // Calling setState 60x/second instead would re-render the whole editor every
+  // frame, which is the wrong trade for two numbers.
+  const headRef  = useRef(null);
+  const clockRef = useRef(null);
 
   const OUT_H = 1280;
   const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
@@ -2296,7 +2308,14 @@ function ClipEditor({ clip, onClose, onExported }) {
         // landing during a render would truncate the file.
         if (c.width !== outW && !busy) { c.width = outW; c.height = outH; }
         paintFrame(c.getContext('2d'), v, opts());
-        if (v.currentTime >= outPt && playing) { v.pause(); setPlay(false); v.currentTime = inPt; }
+        const t = v.currentTime;
+        if (headRef.current)
+          headRef.current.style.left = (dur ? Math.min(t, dur) / dur * 100 : 0) + '%';
+        if (clockRef.current) {
+          const s = edTime(t);
+          if (clockRef.current.textContent !== s) clockRef.current.textContent = s;
+        }
+        if (t >= outPt && playing) { v.pause(); setPlay(false); v.currentTime = inPt; }
       }
       rafRef.current = requestAnimationFrame(draw);
     };
@@ -2510,15 +2529,14 @@ function ClipEditor({ clip, onClose, onExported }) {
                 {playing ? 'Pause' : 'Play'}
               </button>
               <span className="ed-num" style={{minWidth:0}}>
-                {edTime(inPt)} – {edTime(outPt)} ({(outPt - inPt).toFixed(1)}s)
+                <b ref={clockRef}>{edTime(0)}</b> · trim {edTime(inPt)} – {edTime(outPt)} ({(outPt - inPt).toFixed(1)}s)
               </span>
             </div>
 
             <div className="ed-track" onClick={trackClick}>
               <div className="sel" style={{left:(dur?inPt/dur*100:0)+'%',
                                            width:(dur?(outPt-inPt)/dur*100:0)+'%'}}/>
-              <div className="play" style={{left:(dur&&videoRef.current
-                                            ?videoRef.current.currentTime/dur*100:0)+'%'}}/>
+              <div className="play" ref={headRef} style={{left:0}}/>
             </div>
 
             <div className="ed-grp" style={{marginTop:10}}>

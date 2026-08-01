@@ -52,6 +52,59 @@ class Segment:
     text: str
 
 
+# Cue shaping. Whisper returns SENTENCE-level segments — a 30s clip of someone
+# talking without pausing can come back as a single segment covering the whole
+# clip, which renders as one caption that never changes. That is technically a
+# correct transcript and useless as captions. So the words get regrouped into
+# short cues that turn over as the person speaks (the style every short-form
+# platform uses). These bounds are what "punchy" means here; raising them makes
+# captions read more like subtitles.
+_MAX_CUE_WORDS = 4
+_MAX_CUE_S = 1.6
+_MAX_GAP_S = 0.5        # a pause this long ends a cue rather than spanning it
+_SENTENCE_END = ".?!"
+
+
+def _cues_from_words(segments) -> list[Segment]:
+    """Regroup word-level timings into short caption cues.
+
+    Falls back to the whole segment when a segment has no word timings — better
+    a long-but-true caption than invented timings.
+    """
+    cues: list[Segment] = []
+    cur: list[tuple[float, float, str]] = []
+
+    def flush():
+        if not cur:
+            return
+        cues.append(Segment(round(cur[0][0], 2), round(cur[-1][1], 2),
+                            " ".join(w for _, _, w in cur)))
+        cur.clear()
+
+    for seg in segments:
+        words = getattr(seg, "words", None) or []
+        if not words:
+            flush()
+            txt = (getattr(seg, "text", "") or "").strip()
+            if txt:
+                cues.append(Segment(round(seg.start, 2), round(seg.end, 2), txt))
+            continue
+        for w in words:
+            txt = (getattr(w, "word", "") or "").strip()
+            if not txt:
+                continue
+            if cur and (w.start - cur[-1][1] > _MAX_GAP_S
+                        or len(cur) >= _MAX_CUE_WORDS
+                        or w.end - cur[0][0] > _MAX_CUE_S):
+                flush()
+            cur.append((w.start, w.end, txt))
+            if txt[-1] in _SENTENCE_END:
+                flush()
+        flush()     # never let a cue straddle two segments
+    flush()
+    return cues
+
+
 def captions_path(video_path: Path) -> Path:
     """Captions live beside the video they describe, so deleting the upload's
     directory takes them with it and nothing is orphaned."""
@@ -102,9 +155,10 @@ def _run_whisper(wav: Path) -> tuple[list[Segment], str]:
         beam_size=1,                 # greedy: markedly cheaper, fine for captions
         vad_filter=True,             # skip silence instead of hallucinating over it
         condition_on_previous_text=False,   # stops one bad guess cascading
+        word_timestamps=True,        # REQUIRED: segment timings alone give one
+                                     # caption for the whole clip (see _cues_from_words)
     )
-    out = [Segment(round(s.start, 2), round(s.end, 2), (s.text or "").strip())
-           for s in segs if (s.text or "").strip()]
+    out = _cues_from_words(segs)
     return out, getattr(info, "language", "") or ""
 
 
