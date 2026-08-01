@@ -2144,12 +2144,25 @@ function edTime(s) {
 /* Draw one frame of the edit. Single source of truth for how the output looks —
    the preview and BOTH encoders call this, so what the user sees while
    scrubbing is exactly what gets exported. */
+/* How long a cue stays up after its own end, when nothing has replaced it yet.
+   Speech has small gaps between words and cues break on them, so without this
+   the caption strobes off and back on several times a second. It is BOUNDED on
+   purpose: if a transcript ends early, the screen goes clean instead of
+   freezing on the last line forever and looking broken. */
+const CAP_HOLD_S = 0.8;
+
 function activeCaption(segs, t) {
   if (!segs || !segs.length) return '';
   // Linear scan: a clip is seconds long and has a handful of segments, so this
   // is cheaper than the bookkeeping a binary search would need per frame.
-  for (const s of segs) if (t >= s.start && t <= s.end) return s.text || '';
-  return '';
+  let held = '';
+  for (const s of segs) {
+    if (t >= s.start && t <= s.end) return s.text || '';
+    // Segments are in order, so the last one that qualifies here is the most
+    // recent cue — that is the one worth holding through a short gap.
+    if (s.end < t && t - s.end <= CAP_HOLD_S) held = s.text || '';
+  }
+  return held;
 }
 
 function paintFrame(ctx, video, o) {
