@@ -139,9 +139,13 @@ def _load_model():
     )
 
 
-def _run_whisper(wav: Path) -> tuple[list[Segment], str]:
+def _run_whisper(wav: Path, vad: bool | None = None) -> tuple[list[Segment], str]:
     """The only part that touches Whisper. Synchronous and CPU-bound — callers
     run it in an executor.
+
+    `vad` overrides the setting; used by the A/B in
+    src/maintenance/caption_vad_test.py so the choice can be made against a
+    real clip instead of by argument.
 
     UNVERIFIED IN DEV: the weights host is unreachable from the dev container,
     so this path has never actually executed there. Confirm on prod with
@@ -153,7 +157,9 @@ def _run_whisper(wav: Path) -> tuple[list[Segment], str]:
     segs, info = _model.transcribe(
         str(wav),
         beam_size=1,                 # greedy: markedly cheaper, fine for captions
-        vad_filter=True,             # skip silence instead of hallucinating over it
+        # See config/settings.py: VAD discards audio before transcription, so a
+        # false negative silently deletes speech. Default off.
+        vad_filter=settings.captions_vad if vad is None else vad,
         condition_on_previous_text=False,   # stops one bad guess cascading
         word_timestamps=True,        # REQUIRED: segment timings alone give one
                                      # caption for the whole clip (see _cues_from_words)

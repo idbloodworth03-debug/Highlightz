@@ -213,6 +213,18 @@ def test_word_timestamps_are_requested_from_whisper():
     assert "word_timestamps=True" in inspect.getsource(REAL_RUN_WHISPER)
 
 
+def test_vad_is_off_by_default_and_wired_to_the_setting():
+    """VAD discards audio BEFORE transcription, so a false negative deletes
+    speech with nothing downstream able to recover it. On prod it kept 8.07s
+    of a 30.01s clip and cut the sentence in half. Off by default; the setting
+    exists so it can be put back without a deploy."""
+    import inspect
+    assert settings.captions_vad is False, "VAD back on by default — it ate speech"
+    src = inspect.getsource(REAL_RUN_WHISPER)
+    assert "vad_filter=settings.captions_vad if vad is None else vad" in src, \
+        "vad_filter hard-coded again; the setting would do nothing"
+
+
 def test_the_model_is_configured_for_a_single_core_box():
     """cpu_threads must be pinned. Left to itself CTranslate2 takes every core
     it can see — on this box that is the only one, and the audio meters lose."""

@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     captions_enabled: bool = False
     captions_model: str = "tiny.en"
     captions_timeout_s: float = 240.0
+    # Whisper's voice-activity filter drops audio it judges to be non-speech
+    # BEFORE transcription, so anything it gets wrong is gone — there is no
+    # later stage that can recover it. On a real 30s clip it kept 8s and cut
+    # the sentence in half; short-form clips are exactly its weak case (loud
+    # game audio and music under the speech). Off by default: transcribing the
+    # whole clip costs more CPU but cannot silently lose the second half of
+    # what someone said. CAPTIONS_VAD=true to put it back.
+    captions_vad: bool = False
 
     # App behaviour
     log_level: str = "INFO"

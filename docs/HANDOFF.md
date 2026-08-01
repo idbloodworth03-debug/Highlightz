@@ -680,6 +680,14 @@ owner chose the free path, so it is built to be safe rather than fast:
 
 - `src/captions/transcribe.py`. `faster-whisper`, `tiny.en`, `compute_type=
   "int8"`, `beam_size=1`, `vad_filter=True`, `word_timestamps=True`.
+- **VAD is OFF (`captions_vad`, default false) and that is deliberate.** The
+  voice-activity filter discards audio before transcription, so anything it
+  misjudges is gone with no downstream stage able to recover it. Measured on
+  prod: a 30.01s clip came back captioned to 8.07s, cut mid-sentence. Short
+  clips are its weak case — game audio and music under the speech. Turning it
+  back on costs nothing to try (`CAPTIONS_VAD=true`) but re-run
+  `src/maintenance/caption_vad_test.py` first; it A/Bs both settings on a real
+  clip and prints the coverage each produced.
 - **`word_timestamps=True` is load-bearing, not a nicety.** Without it there
   are no word timings, `_cues_from_words` takes its keep-the-whole-segment
   fallback for everything, and captions collapse back to one static blob with
