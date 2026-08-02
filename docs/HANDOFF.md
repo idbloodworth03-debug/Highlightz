@@ -679,15 +679,23 @@ recommendation was a paid transcription API (~$0.006/min, no CPU cost); the
 owner chose the free path, so it is built to be safe rather than fast:
 
 - `src/captions/transcribe.py`. `faster-whisper`, `tiny.en`, `compute_type=
-  "int8"`, `beam_size=1`, `vad_filter=True`, `word_timestamps=True`.
-- **VAD is OFF (`captions_vad`, default false) and that is deliberate.** The
+  "int8"`, `beam_size=1`, `word_timestamps=True`, VAD off.
+- **VAD is OFF (`captions_vad`, default false) and the numbers say so.** The
   voice-activity filter discards audio before transcription, so anything it
-  misjudges is gone with no downstream stage able to recover it. Measured on
-  prod: a 30.01s clip came back captioned to 8.07s, cut mid-sentence. Short
-  clips are its weak case — game audio and music under the speech. Turning it
-  back on costs nothing to try (`CAPTIONS_VAD=true`) but re-run
-  `src/maintenance/caption_vad_test.py` first; it A/Bs both settings on a real
-  clip and prints the coverage each produced.
+  misjudges is gone with no downstream stage able to recover it. A/B on prod
+  via `src/maintenance/caption_vad_test.py` — same clip, same build, only the
+  flag different:
+
+  | vad_filter | cues | words | coverage | took |
+  |---|---|---|---|---|
+  | True  | 6 | 17 | 8.37s of 30.01s = **28%** | 4.0s |
+  | False | 8 | 19 | 23.66s of 30.01s = **79%** | 2.8s |
+
+  It was also **faster** with VAD off — on a clip this short the VAD pass costs
+  more than the audio it skips, which kills the CPU argument that was the only
+  reason to have it. Short-form clips are its weak case anyway: game audio and
+  music sitting under the voice. `CAPTIONS_VAD=true` puts it back, but re-run
+  the A/B before believing it.
 - **`word_timestamps=True` is load-bearing, not a nicety.** Without it there
   are no word timings, `_cues_from_words` takes its keep-the-whole-segment
   fallback for everything, and captions collapse back to one static blob with
