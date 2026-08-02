@@ -743,6 +743,31 @@ on. That is why transcription is server-side at all.
 Encoding is a genuinely different resource profile from the current box — if
 export ever *does* move server-side, expect to need a dedicated encode droplet.
 
+## Streamer outreach shortlist (`src/maintenance/find_streamers.py`)
+
+For the streamer-partnership idea below. **Two things Helix does not have, and
+the tool is built around both:**
+
+1. **No country field. Anywhere.** Not on streams, users, or channels.
+   "US-based" is not queryable. The proxies are `language` (necessary, far from
+   sufficient — `en` is also UK/CA/AU/IE) and WHEN someone is live. The report
+   prints a `US?` column = the share of that channel's live samples falling in
+   22:00-07:00 UTC. It is only meaningful if you sample around the clock, so
+   the report checks the hours you actually covered and prints `n/a` instead of
+   a fake number when every pass was inside that window.
+2. **No average-viewers endpoint.** `GET /streams` is viewers *right now*. A
+   single snapshot of a 100-500 band is mostly people having an unusual night.
+   Hence `--sample` (collect, on a cron) and `--report` (aggregate), with a
+   warning when fewer than 3 passes exist.
+
+`--floor` (60) sits deliberately BELOW `--min` (100): collecting only at the
+band's floor would record targets' good nights and miss their quiet ones,
+biasing every average upward.
+
+Helix budget is shared with live clip creation (800 pts/min). One pass is
+~20-40 requests, paced by `--delay`, hard-capped by `--max-pages`, and a 429
+ends the pass rather than retrying. Do not cron it more than a few times a day.
+
 ## Queued nice-to-haves
 
 Discord webhook notifications on clip_ready (top retention idea), edit_url
