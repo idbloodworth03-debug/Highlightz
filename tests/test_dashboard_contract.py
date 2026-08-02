@@ -324,3 +324,22 @@ def test_the_editor_resyncs_caption_state_on_reconnect():
     # that window must not cancel a job that is about to exist.
     assert "startedAt" in editor and "6000" in editor, \
         "no grace window — a reconnect racing the POST would kill a live job"
+
+
+def test_the_queue_never_claims_it_will_post_for_you():
+    """The app holds no TikTok/Instagram/YouTube credentials, so the queue can
+    only remind. If the UI implies automation someone misses a posting slot
+    they were counting on — worse than not shipping the feature."""
+    for phrase in ("you still tap share", "don't have access to your accounts"):
+        assert phrase in SRC.lower().replace("’", "'"), \
+            f"the queue UI no longer says {phrase!r}"
+    for lie in ("we'll post it", "posts automatically", "auto-post"):
+        assert lie not in SRC.lower(), f"UI claims {lie!r} — it cannot"
+
+
+def test_queue_times_cross_the_wire_as_epoch_seconds():
+    """datetime-local has no timezone. Sending the raw string would make the
+    server guess which 19:00 was meant; a user who travels gets posts due at
+    the wrong hour with no way to tell."""
+    assert "new Date(when).getTime()/1000" in SRC, \
+        "local wall-clock time is being sent without being resolved to an instant"

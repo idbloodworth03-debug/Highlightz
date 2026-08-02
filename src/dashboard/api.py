@@ -840,6 +840,8 @@ async def delete_account(request: Request):
     # go with the account rather than linger on disk after the user has left.
     from src.uploads import library as upload_lib
     removed_uploads = upload_lib.delete_all_for_user(uid)
+    from src.publish import schedule as sched
+    sched.delete_all_for_user(uid)
 
     user_store.delete(uid)
     request.session.clear()
@@ -2267,6 +2269,10 @@ async def remove_upload(request: Request, upload_id: str):
     _require_upload_access(uid)
     if not upload_lib.delete(upload_id, uid):
         raise HTTPException(status_code=404, detail="Upload not found")
+    # A queued post whose clip is gone is a reminder to do something impossible.
+    from src.publish import schedule as sched
+    for dropped in sched.drop_upload(upload_id, uid):
+        await broadcast({"event": "schedule_removed", "item_id": dropped}, user_id=uid)
     await broadcast({"event": "upload_removed", "upload_id": upload_id,
                      "quota": upload_lib.quota(uid)}, user_id=uid)
     return {"status": "deleted"}
@@ -2319,6 +2325,96 @@ async def publish_platforms(request: Request):
     from src.publish import platforms as plat
     _current_user_id(request)
     return {"platforms": plat.public_specs()}
+
+
+# ── Posting queue ─────────────────────────────────────────────────────────────
+#
+# Reminders, not automation: we hold no platform credentials, so at the due time
+# the user still taps share. Every string below has to say that — a queue that
+# looks automatic and silently isn't would cost someone a posting slot.
+
+@app.get("/publish/schedule")
+async def publish_schedule(request: Request):
+    from src.publish import schedule as sched
+    uid = _current_user_id(request)
+    return {"items": [i.public() for i in sched.for_user(uid)]}
+
+
+@app.post("/publish/schedule", status_code=201)
+async def publish_schedule_add(request: Request):
+    from src.publish import schedule as sched
+    from src.publish import platforms as plat
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+
+    body = await request.json()
+    up = upload_lib.get(str(body.get("upload_id") or ""), uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Reject unknown platform ids rather than storing them: they would render
+    # as a reminder to post somewhere that does not exist.
+    targets = [p for p in (body.get("platforms") or []) if p in plat.BY_ID]
+    if not targets:
+        raise HTTPException(status_code=400, detail="Pick at least one platform.")
+    try:
+        due_at = float(body.get("due_at") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid time.")
+
+    try:
+        item = sched.add(uid, up.id, up.filename, str(body.get("caption") or ""),
+                         targets, due_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    await broadcast({"event": "schedule_added", "item": item.public()}, user_id=uid)
+    return item.public()
+
+
+@app.patch("/publish/schedule/{item_id}")
+async def publish_schedule_update(request: Request, item_id: str):
+    from src.publish import schedule as sched
+    uid = _current_user_id(request)
+    body = await request.json()
+    try:
+        item = sched.set_status(item_id, uid, str(body.get("status") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    await broadcast({"event": "schedule_updated", "item": item.public()}, user_id=uid)
+    return item.public()
+
+
+@app.delete("/publish/schedule/{item_id}", status_code=204)
+async def publish_schedule_delete(request: Request, item_id: str):
+    from src.publish import schedule as sched
+    uid = _current_user_id(request)
+    if not sched.remove(item_id, uid):
+        raise HTTPException(status_code=404, detail="Not found")
+    await broadcast({"event": "schedule_removed", "item_id": item_id}, user_id=uid)
+    return Response(status_code=204)
+
+
+async def schedule_due_task() -> None:
+    """Tell open tabs the moment a queued post comes due.
+
+    The list itself is the source of truth (`due` is derived from the clock on
+    every read), so this event is a nudge, not state. That is deliberate: a
+    missed broadcast — restart, dropped socket — must not be able to lose a
+    reminder, and here it cannot.
+    """
+    from src.publish import schedule as sched
+    while True:
+        try:
+            for item in sched.newly_due():
+                await broadcast({"event": "schedule_due", "item": item.public()},
+                                user_id=item.user_id)
+        except Exception as exc:                       # never kill the loop
+            log.warning("schedule_due_task_error", error=str(exc))
+        await asyncio.sleep(30)
 
 
 @app.get("/uploads/{upload_id}/captions")

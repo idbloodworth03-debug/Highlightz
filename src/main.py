@@ -367,6 +367,7 @@ async def main() -> None:
         asyncio.create_task(auto_delete_old_clips(), name="auto-delete"),
         asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
+        asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
     ]
 
     # Restore streams that were running before the last shutdown

@@ -751,6 +751,55 @@ on. That is why transcription is server-side at all.
 Encoding is a genuinely different resource profile from the current box — if
 export ever *does* move server-side, expect to need a dedicated encode droplet.
 
+## Publishing — deliberately NOT an API integration (2026-08-02)
+
+**We do not post on the user's behalf, and that is the design.** Posting
+through TikTok's Content Posting API, Instagram's Content Publishing API or
+YouTube's Data API each require the app to pass platform review first — weeks
+of calendar time — and YouTube's default 10,000 units/day against 1600 per
+`videos.insert` would cap the ENTIRE app at six uploads a day. Instagram will
+not accept bytes at all; it fetches from a public URL on a domain you have
+verified, i.e. hosting user video publicly. Handing the user a correctly-shaped
+file plus a one-tap share needs none of it and shipped in a day.
+
+If server-side posting is ever revisited, that paragraph is the cost, and it
+should be paid only with revenue data rather than speculatively.
+
+**What exists:**
+- `src/publish/platforms.py` — the single source of the per-platform limits
+  (ideal vs hard duration, caption cap, preferred ratio, upload URL). Carries a
+  checked-on date; these move, and a stale limit is worse than none because it
+  is confidently wrong.
+- Editor "Post it" panel: keeps the exported blob, offers `navigator.share`
+  with the file (the OS share sheet — TikTok/IG/YouTube, one tap, on a phone),
+  a caption box, and a per-platform FIT CHECK.
+- `src/publish/schedule.py` + `/publish/schedule` — an in-app posting queue.
+
+**Three things not to regress:**
+1. **The fit check distinguishes "will be rejected" from "loses Shorts
+   format".** Over YouTube's Shorts cutoff the video is still accepted, just no
+   longer a Short. Calling that a rejection sends people trimming clips that
+   were fine.
+2. **The share button is a CAPABILITY check (`navigator.canShare({files})`),
+   never a user-agent sniff** — it is genuinely absent on most desktop
+   browsers, and the desktop path (download + copy caption + open the upload
+   page) is a real path, not an apology. `AbortError` is the user cancelling
+   the sheet and must not render as a failure.
+3. **The queue reminds; it cannot post.** Every user-facing string says so
+   (`test_the_queue_never_claims_it_will_post_for_you`). A queue that looks
+   automatic and silently isn't costs someone a posting slot — worse than not
+   shipping it.
+
+Queue design: times are epoch seconds UTC, converted in the browser (the only
+place that knows the zone); `due`/`missed` are DERIVED from the clock on every
+read and never stored, so a restart or clock step cannot make the list lie; the
+`schedule_due` broadcast is only a nudge, so a missed event cannot lose a
+reminder. Deleting a clip drops anything queued for it, and account deletion
+takes the whole queue.
+
+**Not built, on purpose:** email and browser-push reminders. In-app only for
+now — the owner's call. Email needs a sender that does not exist yet.
+
 ## Streamer outreach shortlist (`src/maintenance/find_streamers.py`)
 
 For the streamer-partnership idea below. **Two things Helix does not have, and

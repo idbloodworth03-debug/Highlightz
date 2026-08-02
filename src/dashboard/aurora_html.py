@@ -390,6 +390,15 @@ button{font-family:inherit;cursor:pointer}
 .pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
 .pub-ok{font-size:11px;color:var(--acc)}
 .pub-warn{font-size:11px;color:#ff9a52;line-height:1.4}
+.q-row{display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;
+  border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--hair)}
+.q-row.due{border-color:rgba(168,85,247,.5);background:var(--grad-soft)}
+.q-row.missed{border-color:rgba(255,138,76,.35)}
+.q-when{flex-shrink:0;min-width:74px;font-size:11.5px;font-weight:700;color:var(--acc)}
+.q-row.missed .q-when{color:#ff9a52}
+.q-mid{flex:1;min-width:0}
+.q-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q-sub{font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
 .rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -2239,6 +2248,16 @@ function paintFrame(ctx, video, o) {
    every number comes from the spec the server sent, so the limits cannot drift
    between the two. Ordered worst-first: a hard rejection matters more than
    losing Shorts eligibility, which matters more than a crop. */
+/* Epoch seconds -> the user's own local time. Times are stored UTC precisely
+   so this conversion happens once, here, in the browser that knows the zone. */
+function qWhen(ts) {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const t = d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  return sameDay ? t : d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + t;
+}
+
 function fitIssues(pf, secs, ratio, caption) {
   const out = [];
   if (secs > pf.hard_max_s)
@@ -2287,6 +2306,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
   const [cap, setCap]         = useState('');    // caption text to carry across
   const [copied, setCopied]   = useState('');
+  const [when, setWhen]       = useState('');
+  const [queuing, setQueuing] = useState(false);
+  const [queueErr, setQueueErr] = useState('');
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -2615,6 +2637,23 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     setTimeout(()=>setCopied(''), 1800);
   };
 
+  const queuePost = async () => {
+    setQueueErr(''); setQueuing(true);
+    try{
+      // datetime-local is LOCAL wall-clock with no zone. new Date() reads it in
+      // the browser's zone, and the epoch seconds we send are unambiguous — the
+      // server never has to guess which 19:00 was meant.
+      const due = Math.floor(new Date(when).getTime()/1000);
+      const r = await fetch('/publish/schedule',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({upload_id: clip.id, caption: cap,
+          platforms: (platforms||[]).map(p=>p.id), due_at: due})});
+      if(!r.ok){ let d='Could not queue that'; try{ d=(await r.json()).detail||d; }catch{} setQueueErr(d); }
+      else setWhen('');
+    }catch{ setQueueErr('Could not reach the server'); }
+    setQueuing(false);
+  };
+
   const clipSecs = Math.max(0, outPt - inPt);
   const shareReady = !!outFile;
   const canNativeShare = shareReady && canShareFiles(
@@ -2799,6 +2838,21 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 </button>
               </div>
 
+              {/* Queue it for later. This REMINDS — it cannot post for you,
+                  because the app holds no TikTok/Instagram/YouTube
+                  credentials. Saying otherwise would cost someone a slot. */}
+              <div className="ed-row" style={{gap:8,flexWrap:'wrap',marginTop:4}}>
+                <input className="ed-in" type="datetime-local" value={when}
+                  style={{flex:'1 1 190px'}} onChange={e=>setWhen(e.target.value)}/>
+                <button className="rd-btn sm" disabled={!when||queuing}
+                  onClick={queuePost}>{queuing?'Adding…':'Remind me'}</button>
+              </div>
+              <div className="ed-note">
+                We'll nudge you here when it's time — you still tap share. We
+                don't have access to your accounts.
+              </div>
+              {queueErr && <div className="ed-warn">{queueErr}</div>}
+
               {(platforms||[]).map(pf=>{
                 const issues = fitIssues(pf, clipSecs, ratio, cap);
                 return (
@@ -2819,7 +2873,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   );
 }
 
-function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [] }) {
+function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [], queue = [] }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -2827,6 +2881,15 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   const [err, setErr]         = useState('');
   const fileRef = useRef(null);
   const [editing, setEditing] = useState(null);
+
+  // Both of these are fire-and-forget: the server broadcasts the change and
+  // the list updates from that, so there is no local copy to drift.
+  const markQueue = (id, status) =>
+    fetch('/publish/schedule/'+id, {method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status})}).catch(()=>{});
+  const dropQueue = (id) =>
+    fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
   const load = useCallback(()=>{
     // Don't call an endpoint that is deliberately 503ing: when only the import
@@ -3021,6 +3084,30 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
           <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
             multiple style={{display:'none'}}
             onChange={e=>{ if(e.target.files?.length) send(e.target.files); e.target.value=''; }}/>
+
+          {(queue||[]).filter(i=>i.status==='pending').length>0 && <div style={{marginBottom:16}}>
+            <div className="ed-note" style={{marginBottom:7}}>
+              Coming up — we'll nudge you when it's time. You still tap share;
+              we don't have access to your accounts.
+            </div>
+            {(queue||[]).filter(i=>i.status==='pending')
+              .sort((a,b)=>a.due_at-b.due_at).map(i=>(
+              <div key={i.id} className={'q-row'+(i.due?' due':'')+(i.missed?' missed':'')}>
+                <div className="q-when">
+                  {i.missed ? 'Missed' : i.due ? 'Now' : qWhen(i.due_at)}
+                </div>
+                <div className="q-mid">
+                  <div className="q-name">{i.filename}</div>
+                  <div className="q-sub">
+                    {(i.platforms||[]).join(' · ')}
+                    {i.caption ? ' — ' + i.caption.slice(0,60) : ''}
+                  </div>
+                </div>
+                <button className="rd-btn sm" onClick={()=>markQueue(i.id,'posted')}>Posted</button>
+                <button className="rd-btn sm danger" onClick={()=>dropQueue(i.id)}>Remove</button>
+              </div>
+            ))}
+          </div>}
 
           {/* Anything already uploaded is one click from the editor. Without
               this the only visible route in is "upload something", which is a
@@ -3459,6 +3546,9 @@ function RdApp() {
   // Publishing targets + their limits, from the server so the editor's
   // fit-check and src/publish/platforms.py can never disagree.
   const [platforms, setPlatforms] = useState([]);
+  // The posting queue. Reminders only — we hold no platform credentials,
+  // so nothing here posts by itself and every string must say so.
+  const [queue, setQueue] = useState([]);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -3489,6 +3579,7 @@ function RdApp() {
     // reconnect, so a deploy that changes a platform limit reaches open
     // tabs without anyone being told to refresh.
     fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
+    fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
@@ -3602,6 +3693,22 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter
+        else if(msg.event==='schedule_added'||msg.event==='schedule_updated'){
+          setQueue(q=>{
+            const rest = q.filter(i=>i.id!==msg.item.id);
+            return [...rest, msg.item].sort((x,y)=>x.due_at-y.due_at);
+          });
+        }
+        else if(msg.event==='schedule_removed'){
+          setQueue(q=>q.filter(i=>i.id!==msg.item_id));
+        }
+        else if(msg.event==='schedule_due'){
+          // The list is the source of truth (`due` is derived from the clock on
+          // every read), so this only nudges — a missed event cannot lose a
+          // reminder, it just arrives on the next fetch instead.
+          setQueue(q=>q.map(i=>i.id===msg.item.id?msg.item:i));
+          flash('Time to post: ' + (msg.item.filename||'your clip'));
+        }
         else if(msg.event==='training_scored'){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
@@ -3703,7 +3810,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms} queue={queue}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
