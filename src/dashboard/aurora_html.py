@@ -386,6 +386,10 @@ button{font-family:inherit;cursor:pointer}
 .ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
 .ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .15s}
 .ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
+.pub-row{display:flex;align-items:center;gap:9px;margin-top:7px}
+.pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
+.pub-ok{font-size:11px;color:var(--acc)}
+.pub-warn{font-size:11px;color:#ff9a52;line-height:1.4}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
 .rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -2231,7 +2235,31 @@ function paintFrame(ctx, video, o) {
   }
 }
 
-function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
+/* Mirrors src/publish/platforms.py check_fit. Only the COMPARISON is here —
+   every number comes from the spec the server sent, so the limits cannot drift
+   between the two. Ordered worst-first: a hard rejection matters more than
+   losing Shorts eligibility, which matters more than a crop. */
+function fitIssues(pf, secs, ratio, caption) {
+  const out = [];
+  if (secs > pf.hard_max_s)
+    out.push(Math.round(secs) + 's is over ' + pf.label + "'s " +
+             Math.round(pf.hard_max_s) + 's limit — it will be rejected.');
+  else if (secs > pf.ideal_max_s)
+    out.push(pf.id === 'youtube'
+      ? Math.round(secs) + 's is over the ' + Math.round(pf.ideal_max_s) +
+        's Shorts cutoff — posts as a normal video, not a Short.'
+      : Math.round(secs) + 's is over ' + Math.round(pf.ideal_max_s) +
+        's, where ' + pf.label + ' reach usually drops off.');
+  if (ratio && ratio !== pf.preferred_ratio)
+    out.push(pf.label + ' expects ' + pf.preferred_ratio + '; ' + ratio +
+             ' gets cropped or letterboxed.');
+  if (caption && caption.length > pf.caption_max)
+    out.push('Caption is ' + caption.length + ' characters; ' + pf.label +
+             ' allows ' + pf.caption_max + '.');
+  return out;
+}
+
+function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [] }) {
   // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
@@ -2251,6 +2279,14 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
   const [pct, setPct]       = useState(0);
   const [err, setErr]       = useState('');
   const [done, setDone]     = useState('');
+
+  // The exported file is KEPT, not just downloaded. Handing it to the native
+  // share sheet is the whole "post to TikTok/IG/YouTube" story: one tap on a
+  // phone, into the real app, with no OAuth and no platform app-review. Dropping
+  // the blob after download would force a re-export to share.
+  const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
+  const [cap, setCap]         = useState('');    // caption text to carry across
+  const [copied, setCopied]   = useState('');
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -2533,6 +2569,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
       const { blob, ext } = await exportRecorder();
       if (cancelRef.current) { setDone(''); return; }
       if (!blob.size) throw new Error('Export produced an empty file.');
+      const name = (clip.filename || 'clip').replace(/\.[^.]+$/, '')
+                   + '-' + ratio.replace(':', 'x') + '.' + ext;
+      setOutFile({ blob, ext, name });
       download(blob, ext);
       setPct(100);
       setDone(ext === 'mp4'
@@ -2546,6 +2585,40 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
       setBusy(false); setPlay(false);
     }
   };
+
+  // Web Share API level 2 (files). On a phone this opens the OS share sheet
+  // with TikTok / Instagram / YouTube in it, which is the entire feature — no
+  // OAuth, no platform app review, no upload quota. It is genuinely absent on
+  // most desktop browsers, so this is a capability check and NOT a browser
+  // sniff, and the desktop path below is a real path rather than an apology.
+  const canShareFiles = (f) => {
+    try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [f] })); }
+    catch { return false; }
+  };
+
+  const shareFile = async () => {
+    if (!outFile) return;
+    const f = new File([outFile.blob], outFile.name,
+                       { type: outFile.blob.type || 'video/mp4' });
+    if (!canShareFiles(f)) return;
+    try { await navigator.share({ files: [f], text: cap || '' }); }
+    catch (e) {
+      // AbortError just means the user backed out of the sheet. Reporting that
+      // as a failure would be wrong and alarming.
+      if (e && e.name !== 'AbortError') setErr('Could not open the share sheet.');
+    }
+  };
+
+  const copyCap = async () => {
+    try { await navigator.clipboard.writeText(cap || ''); setCopied('caption'); }
+    catch { setErr('Could not copy — select the text and copy it manually.'); }
+    setTimeout(()=>setCopied(''), 1800);
+  };
+
+  const clipSecs = Math.max(0, outPt - inPt);
+  const shareReady = !!outFile;
+  const canNativeShare = shareReady && canShareFiles(
+    new File([outFile.blob], outFile.name, { type: outFile.blob.type || 'video/mp4' }));
 
   const recType = pickRecorderType();
   const canExport = !!recType;
@@ -2696,6 +2769,49 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
               <div className="ed-note">Renders on your machine, about {eta}s. Keep this tab open.</div>}
             {done && <div className="ed-note" style={{color:'var(--acc)'}}>{done}</div>}
             {err && <div className="ed-warn">{err}</div>}
+
+            {/* Post it. Everything here runs on the user's machine and their
+                own accounts — we never post for them, which is why none of it
+                waits on TikTok/Meta/Google app review. */}
+            {shareReady && <div className="ed-grp">
+              <label>Post it</label>
+
+              <textarea className="ed-in" rows="3" value={cap}
+                placeholder="Caption + hashtags — written once, copied to each app"
+                onChange={e=>setCap(e.target.value)}/>
+
+              {canNativeShare
+                ? <button className="rd-btn grad" onClick={shareFile}>
+                    <Icon name="upload" size={14}/>&nbsp;Share to an app
+                  </button>
+                : <div className="ed-note">
+                    Your clip is in your downloads. Open a platform below and
+                    drop it in — or open this page on your phone to share
+                    straight into the apps.
+                  </div>}
+
+              <div className="ed-row" style={{gap:8,flexWrap:'wrap'}}>
+                <button className="rd-btn sm" onClick={copyCap} disabled={!cap}>
+                  {copied === 'caption' ? 'Copied' : 'Copy caption'}
+                </button>
+                <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>
+                  Download again
+                </button>
+              </div>
+
+              {(platforms||[]).map(pf=>{
+                const issues = fitIssues(pf, clipSecs, ratio, cap);
+                return (
+                  <div key={pf.id} className="pub-row">
+                    <a className="rd-btn sm" href={pf.upload_url}
+                       target="_blank" rel="noopener noreferrer">{pf.label}</a>
+                    {issues.length
+                      ? <span className="pub-warn">{issues[0]}</span>
+                      : <span className="pub-ok">Fits · {Math.round(clipSecs)}s</span>}
+                  </div>
+                );
+              })}
+            </div>}
           </div>
         </div>
       </div>
@@ -2703,7 +2819,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
   );
 }
 
-function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false }) {
+function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [] }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -2979,7 +3095,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         </div>
         </>}
       </div>
-      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn}/>}
+      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}/>}
     </div>
   );
 }
@@ -3340,6 +3456,9 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
+  // Publishing targets + their limits, from the server so the editor's
+  // fit-check and src/publish/platforms.py can never disagree.
+  const [platforms, setPlatforms] = useState([]);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -3366,6 +3485,10 @@ function RdApp() {
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+    // Static config, but it still belongs here: refetchAll runs on every
+    // reconnect, so a deploy that changes a platform limit reaches open
+    // tabs without anyone being told to refresh.
+    fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
@@ -3580,7 +3703,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;

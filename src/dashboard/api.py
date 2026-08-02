@@ -2307,6 +2307,20 @@ def _require_captions(uid: str):
     return user
 
 
+@app.get("/publish/platforms")
+async def publish_platforms(request: Request):
+    """Where a finished clip can go, and the limits it has to fit.
+
+    We do NOT post on the user's behalf — the clip goes to their machine and
+    they share it from there. That is why this endpoint returns specs rather
+    than OAuth state: there is no connection to hold, nothing to expire, and
+    none of it waits on TikTok/Meta/Google app review.
+    """
+    from src.publish import platforms as plat
+    _current_user_id(request)
+    return {"platforms": plat.public_specs()}
+
+
 @app.get("/uploads/{upload_id}/captions")
 async def get_captions(request: Request, upload_id: str):
     """Existing captions, or the state of a run in flight."""
