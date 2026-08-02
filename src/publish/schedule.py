@@ -67,6 +67,11 @@ class Item:
     # it — the whole list would otherwise pull every file on every render.
     duration_s: float = 0.0
     ratio: str = ""
+    # Container the render actually came out as. MediaRecorder cannot
+    # always make MP4, and a WebM is refused outright by TikTok and
+    # Instagram — the fit check needs this or it reports "Fits" on a file
+    # that cannot be posted at all.
+    fmt: str = ""
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
@@ -113,7 +118,7 @@ def _save() -> None:
 
 def add(user_id: str, upload_id: str, filename: str, caption: str,
         platforms: list[str], due_at: float = 0.0,
-        duration_s: float = 0.0, ratio: str = "") -> Item:
+        duration_s: float = 0.0, ratio: str = "", fmt: str = "") -> Item:
     _load()
     if due_at < 0:
         raise ValueError("Pick a time for this post.")
@@ -127,7 +132,8 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
     item = Item(id=uuid.uuid4().hex, user_id=user_id, upload_id=upload_id,
                 filename=filename, caption=caption,
                 platforms=list(platforms), due_at=float(due_at),
-                duration_s=float(duration_s), ratio=str(ratio))
+                duration_s=float(duration_s), ratio=str(ratio),
+                fmt=str(fmt).lower().lstrip("."))
     _items[item.id] = item
     _save()
     return item

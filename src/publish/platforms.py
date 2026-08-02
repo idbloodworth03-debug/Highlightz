@@ -34,6 +34,12 @@ class Platform:
     hard_max_s: float
     caption_max: int
     preferred_ratio: str
+    # Containers the platform's own uploader accepts. This exists because the
+    # editor cannot always produce MP4: MediaRecorder falls back to WebM when a
+    # browser has no H.264 encoder (Firefox, always), and a WebM that reads
+    # "Fits" and is then refused at the upload page is the exact failure the
+    # fit check is for.
+    formats: tuple[str, ...]
     upload_url: str
     note: str
 
@@ -45,21 +51,21 @@ PLATFORMS: tuple[Platform, ...] = (
     Platform(
         id="tiktok", label="TikTok",
         ideal_max_s=60.0, hard_max_s=600.0, caption_max=2200,
-        preferred_ratio="9:16",
+        preferred_ratio="9:16", formats=("mp4", "mov"),
         upload_url="https://www.tiktok.com/upload",
         note="Vertical, sound on. Under 60s tends to loop and retain best.",
     ),
     Platform(
         id="instagram", label="Instagram Reels",
         ideal_max_s=90.0, hard_max_s=180.0, caption_max=2200,
-        preferred_ratio="9:16",
+        preferred_ratio="9:16", formats=("mp4", "mov"),
         upload_url="https://www.instagram.com/",
         note="Reels only — a 9:16 clip posted as a feed video gets cropped.",
     ),
     Platform(
         id="youtube", label="YouTube Shorts",
         ideal_max_s=60.0, hard_max_s=180.0, caption_max=100,
-        preferred_ratio="9:16",
+        preferred_ratio="9:16", formats=("mp4", "mov", "webm"),
         upload_url="https://www.youtube.com/upload",
         note="Over the Shorts cutoff it is published as a normal video, not a "
              "Short — different feed, different reach. Caption limit here is "
@@ -71,7 +77,7 @@ BY_ID = {p.id: p for p in PLATFORMS}
 
 
 def check_fit(platform_id: str, duration_s: float, ratio: str,
-              caption: str = "") -> list[str]:
+              caption: str = "", fmt: str = "") -> list[str]:
     """Problems this clip would hit on this platform. Empty list = good to go.
 
     Ordered worst-first: a hard rejection matters more than losing Shorts
@@ -82,6 +88,13 @@ def check_fit(platform_id: str, duration_s: float, ratio: str,
         return [f"Unknown platform {platform_id!r}"]
 
     issues: list[str] = []
+    # Format first: it is a hard refusal at the upload page and no amount of
+    # trimming fixes it.
+    if fmt and fmt.lower().lstrip(".") not in p.formats:
+        issues.append(
+            f"{p.label} will not accept a .{fmt.lower().lstrip('.')} file — "
+            f"it needs {' or '.join('.' + f for f in p.formats)}. Your browser "
+            f"could not make MP4; try Chrome, Edge or Safari.")
     if duration_s > p.hard_max_s:
         issues.append(
             f"{duration_s:.0f}s is over {p.label}'s {p.hard_max_s:.0f}s limit — "

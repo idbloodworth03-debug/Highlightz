@@ -374,3 +374,37 @@ def test_queue_times_cross_the_wire_as_epoch_seconds():
     body = body[:body.index("function qWhen(")]
     assert "toISOString" not in body, "datetime-local filled with UTC"
     assert "getHours()" in body, "not using local time to fill the input"
+
+
+def test_blur_fill_degrades_to_a_crop_when_the_canvas_cannot_blur():
+    """Without ctx.filter the background copy would draw UNBLURRED — a huge
+    duplicate of the video behind itself, which reads as broken rather than as
+    a missing nicety."""
+    assert "function ctxCanFilter(" in SRC
+    body = SRC[SRC.index("function paintFrame("):]
+    body = body[:body.index("function ClipEditor(")]
+    assert "fill === 'blur' && ctxCanFilter(ctx)" in body, \
+        "blur path taken without checking the canvas can actually blur"
+    assert "} else {" in body and "Math.max(w / vw, h / vh) * zoom" in body, \
+        "no cover fallback left for the unsupported case"
+
+
+def test_blur_fill_contains_the_video_rather_than_cropping_it():
+    """The entire point is that nothing is cut off the sides — if the
+    foreground still used cover, blur would be decoration over the same crop."""
+    body = SRC[SRC.index("function paintFrame("):]
+    body = body[:body.index("function ClipEditor(")]
+    blur = body[body.index("if (fill === 'blur'"):body.index("} else {")]
+    assert "Math.min(w / vw, h / vh)" in blur, "foreground is not contained"
+    assert "Math.max(w / vw, h / vh)" in blur, "background is not over-scaled"
+
+
+def test_caption_position_and_size_are_driven_by_the_editor_not_hardcoded():
+    body = SRC[SRC.index("function paintFrame("):]
+    body = body[:body.index("function ClipEditor(")]
+    assert "o.capSize" in body and "o.capPos" in body and "o.capHighlight" in body
+    assert "const opts = () => ({" in SRC
+    o = SRC[SRC.index("const opts = () => ({"):]
+    o = o[:o.index("});") + 3]
+    for k in ("capSize", "capPos", "capHighlight", "fill"):
+        assert k in o, f"{k} never reaches paintFrame, so the control does nothing"

@@ -102,3 +102,52 @@ def test_backing_out_of_the_share_sheet_is_not_reported_as_an_error():
 
 def test_the_export_blob_is_kept_so_sharing_does_not_need_a_re_export():
     assert "setOutFile(" in SRC, "exported file discarded after download"
+
+
+# ── container format ─────────────────────────────────────────────────────────
+
+def test_a_webm_is_refused_by_tiktok_and_instagram():
+    """MediaRecorder falls back to WebM on browsers with no H.264 encoder
+    (Firefox, always). Before this rule the Scheduler showed 'Fits' for that
+    file and the user found out at TikTok's upload page."""
+    for pid in ("tiktok", "instagram"):
+        issues = plat.check_fit(pid, 30.0, "9:16", "", "webm")
+        assert issues, f"{pid} accepted a WebM"
+        assert "will not accept" in issues[0], "format problem not reported first"
+
+
+def test_youtube_does_accept_webm():
+    """Blanket-warning on WebM would be wrong and would train people to ignore
+    the warnings that matter."""
+    assert plat.check_fit("youtube", 30.0, "9:16", "", "webm") == []
+
+
+def test_mp4_is_fine_everywhere():
+    for p in plat.PLATFORMS:
+        assert plat.check_fit(p.id, 30.0, "9:16", "", "mp4") == []
+
+
+def test_an_unknown_format_is_not_silently_accepted():
+    assert plat.check_fit("tiktok", 30.0, "9:16", "", "avi") != []
+
+
+def test_no_format_given_means_no_format_warning():
+    """Items queued before this field existed have no fmt. They must not all
+    light up red on the strength of a missing value."""
+    assert plat.check_fit("tiktok", 30.0, "9:16", "") == []
+
+
+def test_a_leading_dot_is_tolerated():
+    assert plat.check_fit("tiktok", 30.0, "9:16", "", ".mp4") == []
+
+
+def test_the_javascript_checks_format_too():
+    js = SRC[SRC.index("function fitIssues("):SRC.index("function ClipEditor(")]
+    assert "formats" in js, "JS fit-check ignores the container format"
+    assert "will not accept" in js
+    # And the card must actually pass it in, or the rule is inert.
+    assert "cap, item.fmt" in SRC, "the Scheduler card never passes fmt to fitIssues"
+
+
+def test_the_editor_sends_the_container_it_actually_produced():
+    assert "fmt: ext" in SRC, "export never tells the queue what format it made"

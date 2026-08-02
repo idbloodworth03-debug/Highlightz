@@ -2195,22 +2195,52 @@ function activeCaption(segs, t) {
   return held;
 }
 
+/* Canvas filter support, probed once. Blur fill silently becomes a plain crop
+   without it — drawing the background unblurred would put a huge duplicate of
+   the video behind itself, which looks broken rather than degraded. */
+let _CTX_FILTER = null;
+function ctxCanFilter(ctx) {
+  if (_CTX_FILTER === null) {
+    try { ctx.filter = 'blur(2px)'; _CTX_FILTER = ctx.filter !== 'none'; ctx.filter = 'none'; }
+    catch { _CTX_FILTER = false; }
+  }
+  return _CTX_FILTER;
+}
+
 function paintFrame(ctx, video, o) {
   const { w, h, zoom, offX, offY, text, textSize, textPos, caption } = o;
+  const fill = o.fill || 'crop';
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
 
   const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
-  // Cover: fill the frame, crop the overflow. Letterboxing a vertical export
-  // would defeat the point of reframing for a phone screen.
-  const scale = Math.max(w / vw, h / vh) * zoom;
-  const dw = vw * scale, dh = vh * scale;
-  ctx.drawImage(video, (w - dw) / 2 + offX * w, (h - dh) / 2 + offY * h, dw, dh);
+
+  if (fill === 'blur' && ctxCanFilter(ctx)) {
+    // Contain the video and put a blurred, over-scaled copy behind it. Nothing
+    // is cropped off the sides, which is the point — a 16:9 clip forced into
+    // 9:16 by cover loses most of the frame.
+    ctx.save();
+    ctx.filter = 'blur(28px)';
+    const bs = Math.max(w / vw, h / vh) * 1.25;   // overscan so blurred edges
+    ctx.drawImage(video, (w - vw * bs) / 2, (h - vh * bs) / 2, vw * bs, vh * bs);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.3)';             // hold the foreground forward
+    ctx.fillRect(0, 0, w, h);
+    const cs = Math.min(w / vw, h / vh) * zoom;
+    const cw = vw * cs, ch = vh * cs;
+    ctx.drawImage(video, (w - cw) / 2 + offX * w, (h - ch) / 2 + offY * h, cw, ch);
+  } else {
+    // Cover: fill the frame, crop the overflow. Letterboxing a vertical export
+    // would defeat the point of reframing for a phone screen.
+    const scale = Math.max(w / vw, h / vh) * zoom;
+    const dw = vw * scale, dh = vh * scale;
+    ctx.drawImage(video, (w - dw) / 2 + offX * w, (h - dh) / 2 + offY * h, dw, dh);
+  }
 
   // Auto-caption first, so a manual title drawn at the same spot sits on top
   // rather than being hidden behind it.
   if (caption) {
-    const fs = Math.round(h * 0.055);
+    const fs = Math.round(h * (o.capSize || 0.055));
     ctx.font = `800 ${fs}px Sora, Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2226,13 +2256,30 @@ function paintFrame(ctx, video, o) {
     }
     if (cur) lines.push(cur);
     const shown = lines.slice(-3);
-    const baseY = h * 0.78;
+    const capPos = o.capPos || 'bottom';
+    // 0.78 keeps captions clear of the platform's own bottom chrome; 'low'
+    // (0.88) is for people who want them under the action, and 'top' for when
+    // the interesting part of the frame is at the bottom.
+    const baseY = h * (capPos === 'top' ? 0.16 : capPos === 'middle' ? 0.5
+                     : capPos === 'low' ? 0.88 : 0.78);
     shown.forEach((ln, i) => {
       const ly = baseY + (i - (shown.length - 1) / 2) * fs * 1.2;
-      ctx.lineWidth = Math.max(2, fs * 0.2);
-      ctx.strokeStyle = 'rgba(0,0,0,.9)';
-      ctx.lineJoin = 'round';
-      ctx.strokeText(ln, w / 2, ly);
+      if (o.capHighlight) {
+        // A solid plate behind the words. Reads on any background, where a
+        // stroke alone can still disappear into busy gameplay.
+        const tw = ctx.measureText(ln).width;
+        const padX = fs * 0.34, padY = fs * 0.24;
+        ctx.fillStyle = 'rgba(0,0,0,.72)';
+        const rx = (w - tw) / 2 - padX, ry = ly - fs * 0.62 - padY;
+        const rw = tw + padX * 2, rh = fs * 1.24 + padY * 2;
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, fs * 0.22); ctx.fill(); }
+        else ctx.fillRect(rx, ry, rw, rh);
+      } else {
+        ctx.lineWidth = Math.max(2, fs * 0.2);
+        ctx.strokeStyle = 'rgba(0,0,0,.9)';
+        ctx.lineJoin = 'round';
+        ctx.strokeText(ln, w / 2, ly);
+      }
       ctx.fillStyle = '#fff';
       ctx.fillText(ln, w / 2, ly);
     });
@@ -2285,8 +2332,15 @@ function qWhen(ts) {
   return sameDay ? t : d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + t;
 }
 
-function fitIssues(pf, secs, ratio, caption) {
+function fitIssues(pf, secs, ratio, caption, fmt) {
   const out = [];
+  // Format first: a hard refusal at the upload page, and trimming cannot fix
+  // it. MediaRecorder falls back to WebM on browsers with no H.264 encoder.
+  const f = String(fmt||'').toLowerCase().replace(/^[.]/,'');
+  if (f && (pf.formats||[]).indexOf(f) === -1)
+    out.push(pf.label + ' will not accept a .' + f + ' file — it needs ' +
+             (pf.formats||[]).map(x=>'.'+x).join(' or ') +
+             '. Your browser could not make MP4; try Chrome, Edge or Safari.');
   if (secs > pf.hard_max_s)
     out.push(Math.round(secs) + 's is over ' + pf.label + "'s " +
              Math.round(pf.hard_max_s) + 's limit — it will be rejected.');
@@ -2320,6 +2374,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [text, setText]     = useState('');
   const [textSize, setTS]   = useState(0.075);
   const [textPos, setTP]    = useState('bottom');
+  const [fill, setFill]     = useState('crop');
+  const [capSize, setCapSize] = useState(0.055);
+  const [capPos, setCapPos]   = useState('bottom');
+  const [capHi, setCapHi]     = useState(false);
   const [playing, setPlay]  = useState(false);
   const [busy, setBusy]     = useState(false);
   const [pct, setPct]       = useState(0);
@@ -2359,6 +2417,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const outH = OUT_H;
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
+    fill, capSize, capPos, capHighlight: capHi,
     caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : '' });
 
   // Existing captions on open, plus live progress for a run started in another
@@ -2634,7 +2693,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         await fetch('/publish/schedule', { method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ upload_id: saved.id, caption: '', platforms: [],
-                                 due_at: 0, duration_s: clipSecs, ratio }) });
+                                 due_at: 0, duration_s: clipSecs, ratio, fmt: ext }) });
         setDone('Exported and added to your Scheduler.');
       } catch (e) {
         // The user still HAS the file — it downloaded. Say what did and did
@@ -2749,6 +2808,20 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             </div>
 
             <div className="ed-grp">
+              <label>Fill</label>
+              <div className="ed-seg">
+                <button className={fill==='crop'?'on':''} disabled={busy}
+                  onClick={()=>setFill('crop')}>Crop<br/>fills the frame</button>
+                <button className={fill==='blur'?'on':''} disabled={busy}
+                  onClick={()=>setFill('blur')}>Blur<br/>keeps it all</button>
+              </div>
+              <div className="ed-note">
+                Crop cuts the sides off to fill a vertical frame. Blur keeps the
+                whole picture and fills the gaps with a blurred copy.
+              </div>
+            </div>
+
+            <div className="ed-grp">
               <label>Zoom</label>
               <div className="ed-row">
                 <input type="range" min="1" max="2.5" step="0.01" value={zoom} disabled={busy}
@@ -2796,6 +2869,29 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 <div className="ed-note">
                   {caps.length ? caps.length + ' lines · burned into the export'
                                : 'No speech detected in this clip.'}
+                </div>
+              </>}
+              {caps && !capJob && <>
+                <div className="ed-seg">
+                  {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([k,l])=>(
+                    <button key={k} className={capPos===k?'on':''} disabled={busy}
+                      onClick={()=>setCapPos(k)}>{l}</button>
+                  ))}
+                </div>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:30}}>Size</span>
+                  <input type="range" min="0.035" max="0.09" step="0.005" value={capSize}
+                    disabled={busy} onChange={e=>setCapSize(+e.target.value)}/>
+                </div>
+                <button className={'rd-btn sm'+(capHi?' grad':'')} disabled={busy}
+                  onClick={()=>setCapHi(!capHi)}>
+                  {capHi ? 'Highlight box on' : 'Highlight box off'}
+                </button>
+                <div className="ed-note">
+                  "Low" sits under the action — on TikTok and Reels the platform
+                  puts its own captions and buttons there, so it can end up
+                  covered. The highlight box reads on busy gameplay where an
+                  outline alone can disappear.
                 </div>
               </>}
               {capErr && <div className="ed-warn">{capErr}</div>}
@@ -2935,7 +3031,7 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
 
         <div className="sc-plats">
           {(platforms||[]).map(pf=>{
-            const issues = fitIssues(pf, item.duration_s||0, item.ratio||'', cap);
+            const issues = fitIssues(pf, item.duration_s||0, item.ratio||'', cap, item.fmt||'');
             const on = picked.has(pf.id);
             return (
               <div key={pf.id} className="sc-plat">

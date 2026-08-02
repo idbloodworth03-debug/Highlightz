@@ -782,17 +782,30 @@ out of the editor's source-clip picker; they are output, not input.
   a caption box, and a per-platform FIT CHECK.
 - `src/publish/schedule.py` + `/publish/schedule` — an in-app posting queue.
 
+**Editor draw options** (all through `paintFrame`, so preview and export can
+never disagree): `fill` crop|blur, `capSize`, `capPos` top|middle|bottom|low,
+`capHighlight`. Blur fill CONTAINS the video and puts an over-scaled blurred
+copy behind — if the foreground ever goes back to cover, blur becomes
+decoration over the same crop and the feature is pointless. It degrades to a
+plain crop when `ctx.filter` is unsupported, because drawing the background
+unblurred puts a giant duplicate of the video behind itself.
+
 **Three things not to regress:**
-1. **The fit check distinguishes "will be rejected" from "loses Shorts
+1. **Container format is a fit rule, not a footnote.** MediaRecorder falls
+   back to WebM wherever there is no H.264 encoder (Firefox, always), and
+   TikTok/Instagram refuse WebM outright — YouTube accepts it. Before this
+   existed the Scheduler said "Fits" and the user found out at the upload page.
+   `fmt` is stored on the queue item at export.
+2. **The fit check distinguishes "will be rejected" from "loses Shorts
    format".** Over YouTube's Shorts cutoff the video is still accepted, just no
    longer a Short. Calling that a rejection sends people trimming clips that
    were fine.
-2. **The share button is a CAPABILITY check (`navigator.canShare({files})`),
+3. **The share button is a CAPABILITY check (`navigator.canShare({files})`),
    never a user-agent sniff** — it is genuinely absent on most desktop
    browsers, and the desktop path (download + copy caption + open the upload
    page) is a real path, not an apology. `AbortError` is the user cancelling
    the sheet and must not render as a failure.
-3. **The queue reminds; it cannot post.** Every user-facing string says so
+4. **The queue reminds; it cannot post.** Every user-facing string says so
    (`test_the_queue_never_claims_it_will_post_for_you`). A queue that looks
    automatic and silently isn't costs someone a posting slot — worse than not
    shipping it.

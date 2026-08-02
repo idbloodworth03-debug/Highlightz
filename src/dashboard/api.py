@@ -2368,7 +2368,8 @@ async def publish_schedule_add(request: Request):
     try:
         item = sched.add(uid, up.id, up.filename, str(body.get("caption") or ""),
                          targets, due_at, duration_s=duration_s,
-                         ratio=str(body.get("ratio") or ""))
+                         ratio=str(body.get("ratio") or ""),
+                         fmt=str(body.get("fmt") or ""))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
