@@ -55,17 +55,27 @@ class Item:
     filename: str
     caption: str
     platforms: list[str]
-    due_at: float
+    # 0 means "no time picked yet". Every exported clip lands here, and most of
+    # them arrive before their owner has decided when to post — forcing a time
+    # at export would make the queue a chore instead of an inbox.
+    due_at: float = 0.0
     status: str = PENDING
     created_at: float = field(default_factory=time.time)
     notified: bool = False      # has the "it's time" event been sent yet
+    # Shape of the RENDER, captured at export. Stored so the scheduler can
+    # fit-check against each platform without downloading the video to measure
+    # it — the whole list would otherwise pull every file on every render.
+    duration_s: float = 0.0
+    ratio: str = ""
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
         d = asdict(self)
-        # Derived, never stored — see module docstring.
-        d["due"] = self.status == PENDING and now >= self.due_at
-        d["missed"] = (self.status == PENDING
+        # All derived, never stored — see module docstring.
+        scheduled = self.due_at > 0
+        d["scheduled"] = scheduled
+        d["due"] = scheduled and self.status == PENDING and now >= self.due_at
+        d["missed"] = (scheduled and self.status == PENDING
                        and now >= self.due_at + GRACE_S)
         return d
 
@@ -102,9 +112,10 @@ def _save() -> None:
 
 
 def add(user_id: str, upload_id: str, filename: str, caption: str,
-        platforms: list[str], due_at: float) -> Item:
+        platforms: list[str], due_at: float = 0.0,
+        duration_s: float = 0.0, ratio: str = "") -> Item:
     _load()
-    if due_at <= 0:
+    if due_at < 0:
         raise ValueError("Pick a time for this post.")
     if len(caption) > CAPTION_MAX:
         raise ValueError(f"Caption is longer than {CAPTION_MAX} characters.")
@@ -115,7 +126,8 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
 
     item = Item(id=uuid.uuid4().hex, user_id=user_id, upload_id=upload_id,
                 filename=filename, caption=caption,
-                platforms=list(platforms), due_at=float(due_at))
+                platforms=list(platforms), due_at=float(due_at),
+                duration_s=float(duration_s), ratio=str(ratio))
     _items[item.id] = item
     _save()
     return item
@@ -123,8 +135,11 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
 
 def for_user(user_id: str) -> list[Item]:
     _load()
+    # Scheduled items first in time order, then undated ones newest-first.
+    # Sorting on due_at alone would pin every undated clip (0) above posts that
+    # actually have a time.
     return sorted((i for i in _items.values() if i.user_id == user_id),
-                  key=lambda i: i.due_at)
+                  key=lambda i: (i.due_at <= 0, i.due_at, -i.created_at))
 
 
 def get(item_id: str, user_id: str) -> Item | None:
@@ -142,6 +157,31 @@ def set_status(item_id: str, user_id: str, status: str) -> Item | None:
     if not item:
         return None
     item.status = status
+    _save()
+    return item
+
+
+def update(item_id: str, user_id: str, *, caption: str | None = None,
+           due_at: float | None = None,
+           platforms: list[str] | None = None) -> Item | None:
+    """Edit a queued post. Re-arming the time clears `notified` so a
+    rescheduled item is announced again — otherwise moving a missed post to
+    tomorrow would silently never nudge."""
+    item = get(item_id, user_id)
+    if not item:
+        return None
+    if caption is not None:
+        if len(caption) > CAPTION_MAX:
+            raise ValueError(f"Caption is longer than {CAPTION_MAX} characters.")
+        item.caption = caption
+    if platforms is not None:
+        item.platforms = list(platforms)
+    if due_at is not None:
+        if due_at < 0:
+            raise ValueError("Pick a time for this post.")
+        if due_at != item.due_at:
+            item.notified = False
+        item.due_at = float(due_at)
     _save()
     return item
 
@@ -191,7 +231,8 @@ def newly_due(now: float | None = None) -> list[Item]:
     _load()
     now = time.time() if now is None else now
     out = [i for i in _items.values()
-           if i.status == PENDING and not i.notified and now >= i.due_at]
+           if i.status == PENDING and not i.notified
+           and i.due_at > 0 and now >= i.due_at]
     if out:
         for i in out:
             i.notified = True

@@ -222,7 +222,8 @@ def check_headroom(user_id: str) -> None:
             "Delete a clip to make room.", status=507)
 
 
-async def save_stream(user_id: str, filename: str, chunks) -> Upload:
+async def save_stream(user_id: str, filename: str, chunks,
+                      source: str = "upload") -> Upload:
     """Stream an upload to disk, enforcing every cap as the bytes arrive.
 
     `chunks` is an async iterator of bytes. Nothing is buffered whole in
@@ -286,6 +287,7 @@ async def save_stream(user_id: str, filename: str, chunks) -> Upload:
             kind=kind,
             size=written,
             created_at=time.time(),
+            source=source if source in ("upload", "render") else "upload",
         )
         final = path_for(up)
         os.replace(tmp, final)       # atomic: never expose a partial file

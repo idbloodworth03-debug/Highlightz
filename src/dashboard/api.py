@@ -2198,7 +2198,8 @@ async def list_uploads(request: Request):
 
 
 @app.post("/uploads", status_code=201)
-async def create_upload(request: Request, file: UploadFile = File(...)):
+async def create_upload(request: Request, file: UploadFile = File(...),
+                        source: str = "upload"):
     """Accept one video file, streamed to disk with every cap enforced.
 
     Nothing here trusts the client: not the filename (the stored path is a
@@ -2219,7 +2220,8 @@ async def create_upload(request: Request, file: UploadFile = File(...)):
             yield chunk
 
     try:
-        up = await upload_lib.save_stream(uid, file.filename or "clip", _chunks())
+        up = await upload_lib.save_stream(uid, file.filename or "clip", _chunks(),
+                                          source=source)
     except upload_lib.UploadError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message)
     finally:
@@ -2354,18 +2356,19 @@ async def publish_schedule_add(request: Request):
         raise HTTPException(status_code=404, detail="Clip not found")
 
     # Reject unknown platform ids rather than storing them: they would render
-    # as a reminder to post somewhere that does not exist.
+    # as a reminder to post somewhere that does not exist. An empty list is
+    # fine — a freshly exported clip has no destination chosen yet.
     targets = [p for p in (body.get("platforms") or []) if p in plat.BY_ID]
-    if not targets:
-        raise HTTPException(status_code=400, detail="Pick at least one platform.")
     try:
         due_at = float(body.get("due_at") or 0)
+        duration_s = float(body.get("duration_s") or 0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid time.")
 
     try:
         item = sched.add(uid, up.id, up.filename, str(body.get("caption") or ""),
-                         targets, due_at)
+                         targets, due_at, duration_s=duration_s,
+                         ratio=str(body.get("ratio") or ""))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -2377,10 +2380,20 @@ async def publish_schedule_add(request: Request):
 async def publish_schedule_update(request: Request, item_id: str):
     from src.publish import schedule as sched
     uid = _current_user_id(request)
+    from src.publish import platforms as plat
     body = await request.json()
     try:
-        item = sched.set_status(item_id, uid, str(body.get("status") or ""))
-    except ValueError as exc:
+        if body.get("status"):
+            item = sched.set_status(item_id, uid, str(body["status"]))
+        else:
+            targets = (None if body.get("platforms") is None
+                       else [p for p in body["platforms"] if p in plat.BY_ID])
+            item = sched.update(
+                item_id, uid,
+                caption=None if body.get("caption") is None else str(body["caption"]),
+                due_at=None if body.get("due_at") is None else float(body["due_at"]),
+                platforms=targets)
+    except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not item:
         raise HTTPException(status_code=404, detail="Not found")

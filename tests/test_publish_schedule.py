@@ -127,3 +127,58 @@ def test_one_unreadable_row_does_not_discard_the_others():
 def test_writes_are_atomic():
     _add()
     assert not list(sched._INDEX.parent.glob("*.tmp")), "temp index left behind"
+
+
+# ── every exported clip lands here, most without a time yet ──────────────────
+
+def test_a_clip_can_be_queued_with_no_time_yet():
+    """Every export lands in the Scheduler, and most arrive before their owner
+    has decided when to post. Demanding a time at export would turn the
+    scheduler into a chore instead of an inbox."""
+    item = _add(due=0)
+    pub = item.public()
+    assert pub["scheduled"] is False
+    assert pub["due"] is False and pub["missed"] is False, \
+        "an undated clip must not read as due — 0 is not 'the epoch'"
+
+
+def test_undated_clips_never_fire_a_reminder():
+    _add(due=0)
+    assert sched.newly_due() == []
+
+
+def test_undated_clips_sort_after_scheduled_ones():
+    """due_at 0 sorts first numerically, which would pin every undated clip
+    above posts that actually have a time."""
+    later = _add(due=time.time() + 9999)
+    undated = _add(due=0)
+    assert [i.id for i in sched.for_user("u1")] == [later.id, undated.id]
+
+
+def test_rescheduling_re_arms_the_reminder():
+    """Moving a missed post to tomorrow must nudge again. notified is sticky
+    otherwise, and the new time would pass in silence."""
+    item = _add(due=time.time() - 10)
+    assert len(sched.newly_due()) == 1          # fires, marks notified
+    sched.update(item.id, "u1", due_at=time.time() - 5)
+    assert len(sched.newly_due()) == 1, "rescheduled post never nudges again"
+
+
+def test_editing_the_caption_does_not_re_arm_the_reminder():
+    """Only a time change should re-arm — otherwise fixing a typo re-notifies."""
+    item = _add(due=time.time() - 10)
+    sched.newly_due()
+    sched.update(item.id, "u1", caption="fixed typo")
+    assert sched.newly_due() == []
+
+
+def test_the_render_shape_is_stored_so_the_list_need_not_download_the_video():
+    """The Scheduler fit-checks every card against every platform. Measuring
+    the file instead would pull every render on every page load."""
+    item = sched.add("u1", "up1", "c.mp4", "", ["tiktok"], 0, duration_s=42.5, ratio="9:16")
+    assert (item.public()["duration_s"], item.public()["ratio"]) == (42.5, "9:16")
+
+
+def test_editing_cannot_reach_another_users_item():
+    item = _add(uid="owner")
+    assert sched.update(item.id, "someone_else", caption="hi") is None

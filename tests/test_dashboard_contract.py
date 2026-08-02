@@ -233,16 +233,35 @@ def test_already_uploaded_clips_are_one_click_from_the_editor():
         "quick-pick row must be hidden when there is nothing to pick"
 
 
+def _how_steps(component: str) -> list[tuple[str, str]]:
+    """The numbered strip inside one component. Scoped by component because
+    every tab has one now — an unscoped search silently returns whichever is
+    defined first in the file."""
+    body = SRC[SRC.index("function " + component + "("):]
+    m = re.search(r'className="rd-how">(.*?)</div>\n\s*\)\)\}', body, re.S)
+    assert m, f"how-it-works strip not found in {component}"
+    return re.findall(r"'(?:\w+)','(\d)','([^']+)'", m.group(1))
+
+
 def test_the_editor_tab_explains_the_flow_before_asking_for_a_file():
     """A dropzone alone doesn't tell anyone an editor exists, what it does, or
     where the result goes. Three numbered steps state it once, up top."""
-    m = re.search(r'className="rd-how">(.*?)</div>\n\s*\)\)\}', SRC, re.S)
-    assert m, "how-it-works strip not found"
-    steps = re.findall(r"'(?:\w+)','(\d)','([^']+)'", m.group(1))
+    steps = _how_steps("UploadScreen")
     assert [n for n, _ in steps] == ["1", "2", "3"], f"steps not 1-2-3: {steps}"
     titles = " ".join(t.lower() for _, t in steps)
     assert "add" in titles and "edit" in titles and "export" in titles, \
         f"steps don't cover add/edit/export: {titles}"
+
+
+def test_the_scheduler_tab_explains_itself_the_same_way():
+    """It is a new tab with clips already in it that the user did not put
+    there. Without the strip, "why is this here and what do I do" has no
+    answer on screen."""
+    steps = _how_steps("ScheduleScreen")
+    assert [n for n, _ in steps] == ["1", "2", "3"], f"steps not 1-2-3: {steps}"
+    titles = " ".join(t.lower() for _, t in steps)
+    assert "export" in titles, "never says where these clips come from"
+    assert "post" in titles, "never says what to do with them"
 
 
 def test_the_twitch_list_says_why_those_clips_cannot_be_edited():
@@ -330,16 +349,28 @@ def test_the_queue_never_claims_it_will_post_for_you():
     """The app holds no TikTok/Instagram/YouTube credentials, so the queue can
     only remind. If the UI implies automation someone misses a posting slot
     they were counting on — worse than not shipping the feature."""
-    for phrase in ("you still tap share", "don't have access to your accounts"):
-        assert phrase in SRC.lower().replace("’", "'"), \
-            f"the queue UI no longer says {phrase!r}"
-    for lie in ("we'll post it", "posts automatically", "auto-post"):
-        assert lie not in SRC.lower(), f"UI claims {lie!r} — it cannot"
+    low = SRC.lower().replace("’", "'")
+    for phrase in ("never posts for you",
+                   "never asks for your tiktok, instagram\n        or youtube login",
+                   "you post it from\n        your own account",
+                   "a reminder here is a nudge, not an upload"):
+        assert phrase in low, f"the Scheduler no longer says {phrase!r}"
+    for lie in ("we'll post it", "posts automatically", "auto-post",
+                "connect your tiktok", "link your instagram"):
+        assert lie not in low, f"UI claims {lie!r} — it cannot"
 
 
 def test_queue_times_cross_the_wire_as_epoch_seconds():
     """datetime-local has no timezone. Sending the raw string would make the
     server guess which 19:00 was meant; a user who travels gets posts due at
     the wrong hour with no way to tell."""
-    assert "new Date(when).getTime()/1000" in SRC, \
+    assert "new Date(e.target.value).getTime()/1000" in SRC, \
         "local wall-clock time is being sent without being resolved to an instant"
+    # And back the other way: filling the input from stored epoch seconds must
+    # use local getters. toISOString() would hand the input UTC and shift every
+    # displayed time by the user's offset.
+    assert "function toLocalInput(" in SRC
+    body = SRC[SRC.index("function toLocalInput("):]
+    body = body[:body.index("function qWhen(")]
+    assert "toISOString" not in body, "datetime-local filled with UTC"
+    assert "getHours()" in body, "not using local time to fill the input"

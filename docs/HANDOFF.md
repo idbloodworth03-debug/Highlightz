@@ -765,6 +765,13 @@ file plus a one-tap share needs none of it and shipped in a day.
 If server-side posting is ever revisited, that paragraph is the cost, and it
 should be paid only with revenue data rather than speculatively.
 
+**Tabs:** Clip Editor is for CUTTING; **Scheduler** is for POSTING. Every
+export uploads the render back to the server (`POST /uploads?source=render`)
+and drops it in the Scheduler. That round-trip is not bookkeeping — a blob in
+one tab's memory is unreachable from the phone that has the TikTok app on it,
+and the phone is where the share sheet lives. `source="render"` keeps exports
+out of the editor's source-clip picker; they are output, not input.
+
 **What exists:**
 - `src/publish/platforms.py` — the single source of the per-platform limits
   (ideal vs hard duration, caption cap, preferred ratio, upload URL). Carries a
@@ -790,7 +797,14 @@ should be paid only with revenue data rather than speculatively.
    automatic and silently isn't costs someone a posting slot — worse than not
    shipping it.
 
-Queue design: times are epoch seconds UTC, converted in the browser (the only
+Queue design: `due_at = 0` means "exported, no time picked yet" — most clips
+arrive that way, and demanding a time at export would make the Scheduler a
+chore instead of an inbox. Undated items sort AFTER scheduled ones (0 sorts
+first numerically, which would pin them all to the top) and never fire a
+reminder. Changing the time clears `notified` so a rescheduled post nudges
+again; changing the caption does not, so fixing a typo doesn't re-notify.
+`duration_s`/`ratio` are stored at export so the Scheduler can fit-check every
+card without downloading every render. Times are epoch seconds UTC, converted in the browser (the only
 place that knows the zone); `due`/`missed` are DERIVED from the clock on every
 read and never stored, so a restart or clock step cannot make the list lie; the
 `schedule_due` broadcast is only a nudge, so a missed event cannot lose a

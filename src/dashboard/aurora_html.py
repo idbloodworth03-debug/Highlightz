@@ -399,6 +399,23 @@ button{font-family:inherit;cursor:pointer}
 .q-mid{flex:1;min-width:0}
 .q-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .q-sub{font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-list{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.sc-card{display:flex;gap:16px;padding:16px;border-radius:18px}
+@media(max-width:760px){.sc-card{flex-direction:column}}
+.sc-card.due{border-color:rgba(168,85,247,.55)}
+.sc-card.missed{border-color:rgba(255,138,76,.4)}
+.sc-media{flex-shrink:0;width:184px}
+@media(max-width:760px){.sc-media{width:100%}}
+.sc-media video{width:100%;border-radius:12px;background:#000;aspect-ratio:9/16;object-fit:contain}
+.sc-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.sc-top{display:flex;align-items:center;gap:10px}
+.sc-name{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-when{font-size:11.5px;font-weight:800;color:var(--acc);flex-shrink:0}
+.sc-when.missed{color:#ff9a52}
+.sc-plats{display:flex;flex-direction:column;gap:6px}
+.sc-plat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sc-plat .rd-btn{min-width:96px;justify-content:center}
+.sc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
 .rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -1508,14 +1525,14 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
-const KICK_BLOCKED=['review','streams','library','vod','uploads','settings'];
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in, edit them, publish them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -2250,6 +2267,16 @@ function paintFrame(ctx, video, o) {
    losing Shorts eligibility, which matters more than a crop. */
 /* Epoch seconds -> the user's own local time. Times are stored UTC precisely
    so this conversion happens once, here, in the browser that knows the zone. */
+/* Epoch seconds -> the value a datetime-local input expects, which is LOCAL
+   wall-clock with no zone. toISOString() would hand it UTC and silently shift
+   every displayed time by the user's offset. */
+function toLocalInput(ts) {
+  const d = new Date(ts * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate())
+       + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
 function qWhen(ts) {
   const d = new Date(ts * 1000);
   const now = new Date();
@@ -2306,9 +2333,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
   const [cap, setCap]         = useState('');    // caption text to carry across
   const [copied, setCopied]   = useState('');
-  const [when, setWhen]       = useState('');
-  const [queuing, setQueuing] = useState(false);
-  const [queueErr, setQueueErr] = useState('');
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -2596,9 +2620,29 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       setOutFile({ blob, ext, name });
       download(blob, ext);
       setPct(100);
-      setDone(ext === 'mp4'
-        ? 'Exported. Check your downloads.'
-        : 'Exported as WebM — your browser cannot make MP4. It plays fine, but TikTok needs MP4.');
+      // The render goes to the server as well as to the downloads folder. Not
+      // for our benefit — it is what lets the Scheduler tab, and the user's
+      // PHONE, share the edited clip. A blob living in one tab's memory is
+      // unreachable from the device that has the TikTok app on it.
+      setDone('Exported. Saving to your Scheduler…');
+      try {
+        const fd = new FormData();
+        fd.append('file', new File([blob], name, { type: blob.type || 'video/mp4' }));
+        const ur = await fetch('/uploads?source=render', { method: 'POST', body: fd });
+        if (!ur.ok) throw new Error((await ur.json().catch(()=>({}))).detail || 'save failed');
+        const saved = await ur.json();
+        await fetch('/publish/schedule', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_id: saved.id, caption: '', platforms: [],
+                                 due_at: 0, duration_s: clipSecs, ratio }) });
+        setDone('Exported and added to your Scheduler.');
+      } catch (e) {
+        // The user still HAS the file — it downloaded. Say what did and did
+        // not happen rather than reporting a failed export.
+        setDone('');
+        setErr('Exported to your downloads, but saving it to the Scheduler failed'
+               + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+      }
       if (onExported) onExported(blob, ext);
     } catch (e) {
       setErr(e && e.message ? e.message : 'Export failed.');
@@ -2635,23 +2679,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     try { await navigator.clipboard.writeText(cap || ''); setCopied('caption'); }
     catch { setErr('Could not copy — select the text and copy it manually.'); }
     setTimeout(()=>setCopied(''), 1800);
-  };
-
-  const queuePost = async () => {
-    setQueueErr(''); setQueuing(true);
-    try{
-      // datetime-local is LOCAL wall-clock with no zone. new Date() reads it in
-      // the browser's zone, and the epoch seconds we send are unambiguous — the
-      // server never has to guess which 19:00 was meant.
-      const due = Math.floor(new Date(when).getTime()/1000);
-      const r = await fetch('/publish/schedule',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({upload_id: clip.id, caption: cap,
-          platforms: (platforms||[]).map(p=>p.id), due_at: due})});
-      if(!r.ok){ let d='Could not queue that'; try{ d=(await r.json()).detail||d; }catch{} setQueueErr(d); }
-      else setWhen('');
-    }catch{ setQueueErr('Could not reach the server'); }
-    setQueuing(false);
   };
 
   const clipSecs = Math.max(0, outPt - inPt);
@@ -2809,62 +2836,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             {done && <div className="ed-note" style={{color:'var(--acc)'}}>{done}</div>}
             {err && <div className="ed-warn">{err}</div>}
 
-            {/* Post it. Everything here runs on the user's machine and their
-                own accounts — we never post for them, which is why none of it
-                waits on TikTok/Meta/Google app review. */}
-            {shareReady && <div className="ed-grp">
-              <label>Post it</label>
-
-              <textarea className="ed-in" rows="3" value={cap}
-                placeholder="Caption + hashtags — written once, copied to each app"
-                onChange={e=>setCap(e.target.value)}/>
-
-              {canNativeShare
-                ? <button className="rd-btn grad" onClick={shareFile}>
-                    <Icon name="upload" size={14}/>&nbsp;Share to an app
-                  </button>
-                : <div className="ed-note">
-                    Your clip is in your downloads. Open a platform below and
-                    drop it in — or open this page on your phone to share
-                    straight into the apps.
-                  </div>}
-
-              <div className="ed-row" style={{gap:8,flexWrap:'wrap'}}>
-                <button className="rd-btn sm" onClick={copyCap} disabled={!cap}>
-                  {copied === 'caption' ? 'Copied' : 'Copy caption'}
-                </button>
-                <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>
-                  Download again
-                </button>
-              </div>
-
-              {/* Queue it for later. This REMINDS — it cannot post for you,
-                  because the app holds no TikTok/Instagram/YouTube
-                  credentials. Saying otherwise would cost someone a slot. */}
-              <div className="ed-row" style={{gap:8,flexWrap:'wrap',marginTop:4}}>
-                <input className="ed-in" type="datetime-local" value={when}
-                  style={{flex:'1 1 190px'}} onChange={e=>setWhen(e.target.value)}/>
-                <button className="rd-btn sm" disabled={!when||queuing}
-                  onClick={queuePost}>{queuing?'Adding…':'Remind me'}</button>
-              </div>
-              <div className="ed-note">
-                We'll nudge you here when it's time — you still tap share. We
-                don't have access to your accounts.
-              </div>
-              {queueErr && <div className="ed-warn">{queueErr}</div>}
-
-              {(platforms||[]).map(pf=>{
-                const issues = fitIssues(pf, clipSecs, ratio, cap);
-                return (
-                  <div key={pf.id} className="pub-row">
-                    <a className="rd-btn sm" href={pf.upload_url}
-                       target="_blank" rel="noopener noreferrer">{pf.label}</a>
-                    {issues.length
-                      ? <span className="pub-warn">{issues[0]}</span>
-                      : <span className="pub-ok">Fits · {Math.round(clipSecs)}s</span>}
-                  </div>
-                );
-              })}
+            {/* The render is in the Scheduler now — that is where posting
+                lives, so the editor stays about editing. */}
+            {shareReady && <div className="ed-note" style={{color:'var(--acc)'}}>
+              Open the <b>Scheduler</b> tab to caption it, pick platforms and post.
             </div>}
           </div>
         </div>
@@ -2873,7 +2848,202 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   );
 }
 
-function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [], queue = [] }) {
+
+/* ── Scheduler ────────────────────────────────────────────────────────────────
+   Everything exported lands here. This is where posting lives, so it gets the
+   room: a card per clip with the video, the caption, the platform buttons and
+   the fit check, rather than a strip squeezed into the editor's sidebar.
+
+   It REMINDS. It cannot post — the app holds no TikTok/Instagram/YouTube
+   credentials by design. Every string here has to say so. */
+function ScheduleCard({ item, platforms, onChange, onDrop }) {
+  const [cap, setCap]     = useState(item.caption || '');
+  const [when, setWhen]   = useState(item.due_at ? toLocalInput(item.due_at) : '');
+  const [picked, setPicked] = useState(new Set(item.platforms || []));
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [busyErr, setBusyErr] = useState('');
+  const [shareable, setShareable] = useState(false);
+
+  // Only offer the share sheet if this browser can actually take a file. It is
+  // absent on most desktops, so the download + upload-page path below is the
+  // real path there, not a fallback apology.
+  useEffect(()=>{
+    try {
+      const probe = new File([new Blob([1])], 'x.mp4', {type:'video/mp4'});
+      setShareable(!!(navigator.canShare && navigator.share && navigator.canShare({files:[probe]})));
+    } catch { setShareable(false); }
+  },[]);
+
+  const save = async (patch) => {
+    setSaving(true); setBusyErr('');
+    try {
+      const r = await fetch('/publish/schedule/'+item.id, {method:'PATCH',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch)});
+      if(!r.ok){ let d='Could not save'; try{ d=(await r.json()).detail||d; }catch{} setBusyErr(d); }
+    } catch { setBusyErr('Could not reach the server'); }
+    setSaving(false);
+    if (onChange) onChange();
+  };
+
+  const toggle = (id) => {
+    const next = new Set(picked);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setPicked(next);
+    save({platforms:[...next]});
+  };
+
+  const share = async () => {
+    setBusyErr('');
+    try {
+      const r = await fetch('/uploads/'+item.upload_id+'/file');
+      if(!r.ok) throw new Error('clip is no longer on the server');
+      const blob = await r.blob();
+      const f = new File([blob], item.filename || 'clip.mp4',
+                         {type: blob.type || 'video/mp4'});
+      if(!(navigator.canShare && navigator.canShare({files:[f]})))
+        throw new Error('this browser cannot share files');
+      await navigator.share({files:[f], text: cap || ''});
+    } catch(e){
+      if(e && e.name === 'AbortError') return;   // user backed out of the sheet
+      setBusyErr(e && e.message ? 'Could not share: ' + e.message : 'Could not share.');
+    }
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(cap||''); setCopied(true); setTimeout(()=>setCopied(false),1600); }
+    catch { setBusyErr('Could not copy — select the text and copy it.'); }
+  };
+
+  const when_ = item.missed ? 'Missed' : item.due ? 'Post now'
+              : item.scheduled ? qWhen(item.due_at) : 'No time set';
+
+  return (
+    <div className={'sc-card glass'+(item.due?' due':'')+(item.missed?' missed':'')}>
+      <div className="sc-media">
+        <video src={'/uploads/'+item.upload_id+'/file'} controls preload="metadata"/>
+      </div>
+      <div className="sc-body">
+        <div className="sc-top">
+          <div className="sc-name">{item.filename}</div>
+          <div className={'sc-when'+(item.missed?' missed':'')}>{when_}</div>
+        </div>
+
+        <textarea className="ed-in" rows="3" value={cap}
+          placeholder="Caption + hashtags — written once, used everywhere"
+          onChange={e=>setCap(e.target.value)} onBlur={()=>save({caption:cap})}/>
+
+        <div className="sc-plats">
+          {(platforms||[]).map(pf=>{
+            const issues = fitIssues(pf, item.duration_s||0, item.ratio||'', cap);
+            const on = picked.has(pf.id);
+            return (
+              <div key={pf.id} className="sc-plat">
+                <button className={'rd-btn sm'+(on?' grad':'')} onClick={()=>toggle(pf.id)}>
+                  {on ? '✓ ' : ''}{pf.label}
+                </button>
+                <a className="rd-btn sm" href={pf.upload_url} target="_blank"
+                   rel="noopener noreferrer">Open</a>
+                {issues.length
+                  ? <span className="pub-warn">{issues[0]}</span>
+                  : <span className="pub-ok">Fits · {Math.round(item.duration_s||0)}s</span>}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="sc-actions">
+          {shareable && <button className="rd-btn sm grad" onClick={share}>
+            <Icon name="upload" size={13}/>&nbsp;Share to an app
+          </button>}
+          <a className="rd-btn sm" href={'/uploads/'+item.upload_id+'/file'}
+             download={item.filename}>Download</a>
+          <button className="rd-btn sm" onClick={copy} disabled={!cap}>
+            {copied ? 'Copied' : 'Copy caption'}
+          </button>
+          <input className="ed-in" type="datetime-local" value={when}
+            style={{flex:'1 1 176px',minWidth:150}}
+            onChange={e=>{ setWhen(e.target.value);
+              const t = e.target.value ? Math.floor(new Date(e.target.value).getTime()/1000) : 0;
+              save({due_at: t}); }}/>
+          <button className="rd-btn sm" onClick={()=>save({status:'posted'})}
+            disabled={saving}>Mark posted</button>
+          <button className="rd-btn sm danger" onClick={()=>onDrop(item.id)}>Remove</button>
+        </div>
+        {busyErr && <div className="ed-warn">{busyErr}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
+  const [tab, setTab] = useState('todo');
+  const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
+
+  const pending = (queue||[]).filter(i=>i.status==='pending');
+  const done    = (queue||[]).filter(i=>i.status!=='pending');
+  const shown   = tab==='todo' ? pending : done;
+
+  return (
+    <div className="rd-wrap">
+      {/* Same three-step shape as the other tabs: nothing on screen otherwise
+          says where these clips came from or what the user is meant to do. */}
+      <div className="rd-how">
+        {[['download','1','Export a clip','Anything you export in the Clip Editor lands here automatically.'],
+          ['chat','2','Write it once','One caption, reused for every platform. We check it fits before you post.'],
+          ['clock','3','Post it','Share straight to the apps from your phone, or set a time and we will nudge you.']
+        ].map(([icon,n,title,body])=>(
+          <div className="rd-step" key={n}>
+            <span className="sn">{n}</span>
+            <div>
+              <div className="st"><Icon name={icon} size={13}/> {title}</div>
+              <div className="sb">{body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="ed-warn" style={{marginTop:12,color:'var(--fg-3)',
+        background:'rgba(255,255,255,.03)',borderColor:'var(--hair)'}}>
+        Highlightz never posts for you and never asks for your TikTok, Instagram
+        or YouTube login. Your clip goes to your device and you post it from
+        your own account — a reminder here is a nudge, not an upload.
+      </div>
+
+      <div className="ed-seg" style={{maxWidth:280,marginTop:14}}>
+        <button className={tab==='todo'?'on':''} onClick={()=>setTab('todo')}>
+          To post{pending.length?' ('+pending.length+')':''}
+        </button>
+        <button className={tab==='done'?'on':''} onClick={()=>setTab('done')}>
+          Done{done.length?' ('+done.length+')':''}
+        </button>
+      </div>
+
+      {!uploadsOn &&
+        <div className="ed-warn" style={{marginTop:14}}>
+          The Clip Editor is switched off, so nothing can reach the Scheduler yet.
+        </div>}
+
+      {shown.length === 0
+        ? <div className="rd-card glass" style={{marginTop:14}}>
+            <h3><span className="si"><Icon name="clock" size={15}/></span>
+              {tab==='todo' ? 'Nothing waiting to post' : 'Nothing posted yet'}</h3>
+            <div className="desc">
+              {tab==='todo'
+                ? 'Export a clip in the Clip Editor and it shows up here, ready to caption and post.'
+                : 'Clips you mark as posted move here, so the list above stays what is left to do.'}
+            </div>
+          </div>
+        : <div className="sc-list">
+            {shown.map(i=>(
+              <ScheduleCard key={i.id} item={i} platforms={platforms} onDrop={drop}/>
+            ))}
+          </div>}
+    </div>
+  );
+}
+
+function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [] }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -2881,15 +3051,6 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   const [err, setErr]         = useState('');
   const fileRef = useRef(null);
   const [editing, setEditing] = useState(null);
-
-  // Both of these are fire-and-forget: the server broadcasts the change and
-  // the list updates from that, so there is no local copy to drift.
-  const markQueue = (id, status) =>
-    fetch('/publish/schedule/'+id, {method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({status})}).catch(()=>{});
-  const dropQueue = (id) =>
-    fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
   const load = useCallback(()=>{
     // Don't call an endpoint that is deliberately 503ing: when only the import
@@ -3085,30 +3246,6 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             multiple style={{display:'none'}}
             onChange={e=>{ if(e.target.files?.length) send(e.target.files); e.target.value=''; }}/>
 
-          {(queue||[]).filter(i=>i.status==='pending').length>0 && <div style={{marginBottom:16}}>
-            <div className="ed-note" style={{marginBottom:7}}>
-              Coming up — we'll nudge you when it's time. You still tap share;
-              we don't have access to your accounts.
-            </div>
-            {(queue||[]).filter(i=>i.status==='pending')
-              .sort((a,b)=>a.due_at-b.due_at).map(i=>(
-              <div key={i.id} className={'q-row'+(i.due?' due':'')+(i.missed?' missed':'')}>
-                <div className="q-when">
-                  {i.missed ? 'Missed' : i.due ? 'Now' : qWhen(i.due_at)}
-                </div>
-                <div className="q-mid">
-                  <div className="q-name">{i.filename}</div>
-                  <div className="q-sub">
-                    {(i.platforms||[]).join(' · ')}
-                    {i.caption ? ' — ' + i.caption.slice(0,60) : ''}
-                  </div>
-                </div>
-                <button className="rd-btn sm" onClick={()=>markQueue(i.id,'posted')}>Posted</button>
-                <button className="rd-btn sm danger" onClick={()=>dropQueue(i.id)}>Remove</button>
-              </div>
-            ))}
-          </div>}
-
           {/* Anything already uploaded is one click from the editor. Without
               this the only visible route in is "upload something", which is a
               dead end for a user who already has clips here and just wants to
@@ -3118,7 +3255,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
               Or edit one you've already uploaded:
             </div>
             <div className="rd-picks">
-              {uploads.slice(0,8).map(u=>(
+              {uploads.filter(u=>u.source!=='render').slice(0,8).map(u=>(
                 <button key={u.id} className="rd-pick" onClick={()=>setEditing(u)}
                   title={'Edit ' + u.filename}>
                   <Icon name="film" size={13}/>
@@ -3810,7 +3947,8 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms} queue={queue}/>;
+  else if(route==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
