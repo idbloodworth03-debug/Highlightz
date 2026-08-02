@@ -286,3 +286,41 @@ def test_clip_review_uses_the_full_width_now_that_the_rail_is_gone():
     review = SRC[SRC.index("function ReviewScreen({"):SRC.index("function StreamsScreen({")]
     assert "rd-body-full" in review, "review grid still reserves space for a removed rail"
     assert ".rd-body-full{grid-template-columns:1fr}" in SRC, "rd-body-full has no rule"
+
+
+def test_the_captions_panel_is_hidden_when_the_feature_is_switched_off():
+    """CAPTIONS_ENABLED was unset on prod while UPLOADS_ENABLED was true, so
+    every Pro user saw a 'Generate captions' button that 503'd on every click.
+    A visible control that always fails is the same mistake as a greyed-but-
+    clickable Kick tab: the user cannot tell a broken app from a closed door."""
+    assert "captionsOn && <div className=\"ed-grp\">" in SRC, \
+        "Auto-captions panel is rendered unconditionally again"
+    assert "const captionsOn = !!(me && (me.features?.captions || me.is_admin));" in SRC, \
+        "captionsOn must follow the same release-flag + admin-bypass shape as uploadsOn"
+    # It has to actually reach the editor, not just be computed.
+    # NOTE [^>]* cannot be used here: the call site contains an arrow function
+    # (`()=>setEditing(null)`) and the > in => ends the class early.
+    assert re.search(r"<ClipEditor\b[^\n]*captionsOn=\{captionsOn\}", SRC), \
+        "captionsOn computed but never passed to ClipEditor"
+    assert re.search(r"<UploadScreen\b[^\n]*captionsOn=\{captionsOn\}", SRC), \
+        "captionsOn never reaches UploadScreen"
+
+
+def test_the_editor_resyncs_caption_state_on_reconnect():
+    """A deploy kills the transcription task AND the in-memory job record, so
+    captions_ready is never sent — nobody is left to send it. Without an
+    hz_refetch listener the panel sat on 'Transcribing... 40%' forever and only
+    a manual page refresh cleared it, which the realtime rule forbids."""
+    editor = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+    # Assert the SUBSCRIPTION, not the word: "hz_refetch" also appears in the
+    # cleanup line, so a substring check passed with the listener deleted.
+    assert "window.addEventListener('hz_refetch', load)" in editor, \
+        "ClipEditor never re-pulls caption state on reconnect"
+    assert "window.removeEventListener('hz_refetch', load)" in editor, \
+        "listener added but never cleaned up — leaks one per editor open"
+    assert "the server restarted" in editor, \
+        "a job the server has forgotten must be cleared with a reason, not left spinning"
+    # The optimistic setCapJob happens before the POST lands; a reconnect in
+    # that window must not cancel a job that is about to exist.
+    assert "startedAt" in editor and "6000" in editor, \
+        "no grace window — a reconnect racing the POST would kill a live job"

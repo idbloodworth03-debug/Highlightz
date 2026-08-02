@@ -2231,7 +2231,11 @@ function paintFrame(ctx, video, o) {
   }
 }
 
-function ClipEditor({ clip, onClose, onExported }) {
+function ClipEditor({ clip, onClose, onExported, captionsOn = false }) {
+  // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
+  // hidden entirely rather than rendered as a button that 503s on every click —
+  // a visible control that always fails is the Kick-tab mistake again, and this
+  // one shipped to paying users while CAPTIONS_ENABLED was unset on prod.
   const [dur, setDur]       = useState(0);
   const [inPt, setIn]       = useState(0);
   const [outPt, setOut]     = useState(0);
@@ -2277,18 +2281,39 @@ function ClipEditor({ clip, onClose, onExported }) {
 
   // Existing captions on open, plus live progress for a run started in another
   // tab — transcription happens on the server, so it is not tied to this one.
+  //
+  // This ALSO re-syncs on every WebSocket reconnect (hz_refetch), and it has to.
+  // A deploy restarts the server: the asyncio task running the transcription
+  // dies, the in-memory job record goes with it, and captions_ready is never
+  // sent because there is nobody left to send it. Without this listener the
+  // panel sat on "Transcribing... 40%" forever and the only way out was a
+  // manual page refresh — which is exactly what the realtime rule forbids.
   useEffect(()=>{
     let gone = false;
-    fetch('/uploads/'+clip.id+'/captions').then(r=>r.ok?r.json():null).then(d=>{
-      if(gone||!d) return;
-      if(d.captions) setCaps(d.captions.segments||[]);
-      if(d.job && d.job.status==='running') setCapJob(d.job);
-    }).catch(()=>{});
+    const load = ()=>{
+      fetch('/uploads/'+clip.id+'/captions').then(r=>r.ok?r.json():null).then(d=>{
+        if(gone||!d) return;
+        if(d.captions) setCaps(d.captions.segments||[]);
+        const live = d.job && d.job.status==='running';
+        if(live) setCapJob(d.job);
+        else setCapJob(prev=>{
+          if(!prev) return prev;
+          // The server says nothing is running. Believe it only if our own job
+          // has been up long enough that the POST must have registered — a
+          // reconnect landing in the gap between the optimistic setCapJob and
+          // the request arriving would otherwise cancel a perfectly good job.
+          if(Date.now() - (prev.startedAt||0) < 6000) return prev;
+          setCapErr('Captioning stopped — the server restarted. Press Generate to run it again.');
+          return null;
+        });
+      }).catch(()=>{});
+    };
+    load();
     const onWs = e=>{
       try{
         const m = JSON.parse(e.detail);
         if(m.upload_id !== clip.id) return;
-        if(m.event==='captions_progress') setCapJob({status:'running',pct:m.pct});
+        if(m.event==='captions_progress') setCapJob(p=>({status:'running',pct:m.pct,startedAt:(p&&p.startedAt)||Date.now()}));
         else if(m.event==='captions_ready'){
           setCaps((m.captions&&m.captions.segments)||[]); setCapJob(null); setCapErr('');
         }
@@ -2296,11 +2321,16 @@ function ClipEditor({ clip, onClose, onExported }) {
       }catch{}
     };
     window.addEventListener('hz_ws', onWs);
-    return ()=>{ gone=true; window.removeEventListener('hz_ws', onWs); };
+    window.addEventListener('hz_refetch', load);
+    return ()=>{
+      gone=true;
+      window.removeEventListener('hz_ws', onWs);
+      window.removeEventListener('hz_refetch', load);
+    };
   },[clip.id]);
 
   const makeCaptions = async () => {
-    setCapErr(''); setCapJob({status:'running',pct:0});
+    setCapErr(''); setCapJob({status:'running',pct:0,startedAt:Date.now()});
     try{
       const r = await fetch('/uploads/'+clip.id+'/captions',{method:'POST'});
       if(!r.ok){
@@ -2604,7 +2634,7 @@ function ClipEditor({ clip, onClose, onExported }) {
                 onClick={()=>{setZoom(1);setOffX(0);setOffY(0);}}>Reset framing</button>
             </div>
 
-            <div className="ed-grp">
+            {captionsOn && <div className="ed-grp">
               <label>Auto-captions</label>
               {!caps && !capJob &&
                 <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}>
@@ -2630,7 +2660,7 @@ function ClipEditor({ clip, onClose, onExported }) {
                 </div>
               </>}
               {capErr && <div className="ed-warn">{capErr}</div>}
-            </div>
+            </div>}
 
             <div className="ed-grp">
               <label>Title text</label>
@@ -2673,7 +2703,7 @@ function ClipEditor({ clip, onClose, onExported }) {
   );
 }
 
-function UploadScreen({ me, uploadsOn = true, importOn = false }) {
+function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -2949,7 +2979,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false }) {
         </div>
         </>}
       </div>
-      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)}/>}
+      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn}/>}
     </div>
   );
 }
@@ -3526,6 +3556,10 @@ function RdApp() {
   // real screen before the flag arrives.
   const uploadsOn = !!(me && (me.features?.uploads || me.is_admin));
   const importOn  = !!(me && (me.features?.clip_import || me.is_admin));
+  // Same shape as the two above: release flag, admin bypass. Threaded into
+  // the editor so the Auto-captions panel is hidden rather than dead when
+  // CAPTIONS_ENABLED is off.
+  const captionsOn = !!(me && (me.features?.captions || me.is_admin));
   // The tab is worth showing if EITHER half is live. Import is complete on its
   // own (browse every clip on your channel); uploads are what's held back.
   const clipTabOn = uploadsOn || importOn;
@@ -3546,7 +3580,7 @@ function RdApp() {
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn}/>;
+  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn}/>;
   else if(route==='training') screen=<TrainingScreen/>;
   else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;

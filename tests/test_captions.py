@@ -232,3 +232,44 @@ def test_the_model_is_configured_for_a_single_core_box():
     src = inspect.getsource(cap._load_model)
     assert "cpu_threads=1" in src, "Whisper would grab the only core"
     assert 'compute_type="int8"' in src, "float32 on a 2 GB box is asking for OOM"
+
+
+def test_finished_caption_jobs_do_not_accumulate_forever():
+    """One entry per caption ever run, never removed, was the old behaviour —
+    and the per-user 'already captioning?' check scans this dict on every
+    request, so it got slower as it grew."""
+    from src.dashboard import api
+    import time as _t
+    api._caption_jobs.clear()
+    api._caption_jobs["old"]     = {"status": "done", "finished_at": _t.time() - 99999}
+    api._caption_jobs["recent"]  = {"status": "failed", "finished_at": _t.time()}
+    api._caption_jobs["live"]    = {"status": "running"}
+    api._prune_caption_jobs()
+    assert "old" not in api._caption_jobs, "finished jobs never expire"
+    assert "recent" in api._caption_jobs, "a just-failed job must survive long "\
+        "enough for a reconnecting tab to read the reason"
+    assert "live" in api._caption_jobs, "pruned a RUNNING job"
+    api._caption_jobs.clear()
+
+    # ...and it has to actually run. Pruning nothing calls is the same as no
+    # pruning, and the direct test above passes either way.
+    import inspect
+    assert "_prune_caption_jobs()" in inspect.getsource(api.start_captions), \
+        "prune defined but never called — the dict still grows forever"
+
+
+def test_the_vad_ab_tool_does_not_claim_cross_process_serialisation():
+    """It runs as its own process, so cap._slot there is a different semaphore
+    from the service's. It said otherwise, which would have had someone run it
+    mid-stream believing it was safe."""
+    import inspect
+    from src.maintenance import caption_vad_test
+    doc = caption_vad_test.__doc__ or ""
+    assert "SEPARATE PROCESS" in doc and "different semaphore" in doc
+    # The old wording is quoted in the docstring as the thing being corrected,
+    # so "is the phrase absent" is not the test — "is it marked as wrong" is.
+    assert "That was wrong" in doc
+    # And the code comment at the acquire must not re-assert cross-process
+    # safety either; that is where someone would read it and believe it.
+    src = inspect.getsource(caption_vad_test._run)
+    assert "does NOT serialise against the running" in src

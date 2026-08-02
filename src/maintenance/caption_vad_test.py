@@ -11,8 +11,17 @@ The numbers decide, not the argument.
 
     python -m src.maintenance.caption_vad_test <upload_id_or_filename_fragment>
 
-Costs two transcriptions. It takes the same single slot the API uses, so it
-cannot run alongside a user's caption job or steal a core from clip detection.
+Costs two transcriptions.
+
+**RUN THIS WHEN THE BOX IS QUIET.** An earlier version of this docstring
+claimed it "takes the same single slot the API uses, so it cannot double up
+with a user's caption job". That was wrong: this is a SEPARATE PROCESS, so
+`cap._slot` here is a different semaphore object from the one inside the
+running service. Nothing coordinates the two. Start this while someone is
+captioning and you get two Whisper runs on one core, both competing with the
+audio meters that clip detection depends on. There is no cheap fix — a real
+one means a cross-process lock — so the honest answer is: don't run it during
+a stream you care about.
 """
 
 import asyncio
@@ -62,7 +71,9 @@ async def _run(video: Path) -> int:
                   "the clip's audio is. Stop here.")
 
         for vad in (True, False):
-            # Same slot the API uses, so this cannot double up with a real job.
+            # In-process only. This does NOT serialise against the running
+            # service (different process, different semaphore) — it only keeps
+            # this script's own two runs from overlapping. See module docstring.
             async with cap._slot:
                 t0 = time.time()
                 segs, lang = await asyncio.get_running_loop().run_in_executor(

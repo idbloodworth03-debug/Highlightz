@@ -1,8 +1,16 @@
 # Session handoff — project state & hard-won knowledge
 
 Read this before making changes. `CLAUDE.md` has the binding engineering
-rules; this file is the context behind them. Last updated: **2026-07-10**
-(landing type redesign, trial-system rework, full prod audit + hardening).
+rules; this file is the context behind them. Last updated: **2026-08-02**
+(Clip Editor + auto-captions; prod audit).
+
+**Prod release flags as of 2026-08-02 (read from `.env`, not assumed):**
+`UPLOADS_ENABLED=true`, `CLIP_IMPORT_ENABLED=true`, `CAPTIONS_ENABLED` unset.
+So the Clip Editor is LIVE for Pro users and clip import is live for
+everyone; captions are admin-only. Do not restate these from memory —
+`grep -E "ENABLED" /opt/highlightz/.env` is the only authority, and
+getting it wrong once already meant telling the owner a live feature was
+switched off.
 
 ## Production environment (facts, verified 2026-07-10)
 

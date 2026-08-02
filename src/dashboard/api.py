@@ -2282,6 +2282,21 @@ async def remove_upload(request: Request, upload_id: str):
 
 _caption_jobs: dict[str, dict] = {}          # upload_id -> {status, pct, error}
 
+# Finished jobs are kept only long enough that a tab reconnecting just after a
+# failure can still read the reason; after that they are dead weight. Without
+# pruning this dict grew by one entry per caption ever run and never shrank,
+# and the per-user "already captioning?" check below scanned all of it.
+_CAPTION_JOB_TTL = 900.0        # 15 minutes
+
+
+def _prune_caption_jobs() -> None:
+    now = time.time()
+    for uid_key, job in list(_caption_jobs.items()):
+        if job.get("status") == "running":
+            continue
+        if now - job.get("finished_at", 0) > _CAPTION_JOB_TTL:
+            _caption_jobs.pop(uid_key, None)
+
 
 def _require_captions(uid: str):
     from src.auth import users as user_store
@@ -2320,6 +2335,8 @@ async def start_captions(request: Request, upload_id: str):
     if not up:
         raise HTTPException(status_code=404, detail="Upload not found")
 
+    _prune_caption_jobs()
+
     running = _caption_jobs.get(upload_id)
     if running and running.get("status") == "running":
         return running
@@ -2344,12 +2361,12 @@ async def start_captions(request: Request, upload_id: str):
         try:
             payload = await cap.transcribe(path, on_progress=_progress)
             cap.save(path, payload)
-            job.update(status="done", pct=100)
+            job.update(status="done", pct=100, finished_at=time.time())
             await broadcast({"event": "captions_ready", "upload_id": upload_id,
                              "captions": payload}, user_id=uid)
         except Exception as exc:
             log.warning("captions_failed", upload_id=upload_id, error=str(exc))
-            job.update(status="failed", error=str(exc))
+            job.update(status="failed", error=str(exc), finished_at=time.time())
             await broadcast({"event": "captions_failed", "upload_id": upload_id,
                              "message": str(exc)}, user_id=uid)
 
