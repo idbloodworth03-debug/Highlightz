@@ -121,3 +121,27 @@ def test_no_page_still_says_the_product_starts_at_ten_dollars():
     from src.dashboard.api import LANDING_HTML
     assert "From $10/month" not in LANDING_HTML
     assert "From <b>$10/month</b>" not in LANDING_HTML
+
+
+def test_pricing_bullets_are_not_laid_out_as_flex_columns():
+    """`display:flex` on .price-list .li makes every inline <b> its OWN flex
+    column, so "Monitor up to <b>3 streams</b> at once" rendered as three
+    stacked columns and "VOD Scanner" broke away from its own sentence. It only
+    became visible when the cards narrowed to fit three across.
+
+    The geometry is verified in the browser (scratchpad/drive_price.js); this
+    just stops the declaration coming back.
+    """
+    from src.dashboard.api import LANDING_HTML
+    i = LANDING_HTML.index(".price-list .li{")
+    rule = LANDING_HTML[i:LANDING_HTML.index("}", i)]
+    assert "display:flex" not in rule, \
+        "pricing bullets are flex again — inline <b> will break the sentence"
+    assert "position:relative" in rule and "padding-left" in rule, \
+        "the tick needs absolute positioning for the text to be one inline flow"
+
+
+def test_the_vod_scanner_is_named_consistently():
+    from src.dashboard.api import LANDING_HTML
+    assert "<b>VOD Scanner</b>" in LANDING_HTML
+    assert "VOD scanner" not in LANDING_HTML, "mixed capitalisation of the feature name"
