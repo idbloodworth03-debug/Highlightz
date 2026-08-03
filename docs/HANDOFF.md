@@ -882,7 +882,16 @@ ends the pass rather than retrying. Do not cron it more than a few times a day.
 ## Per-channel clip record (`src/stats/stream_stats.py`, 2026-08-03)
 
 "We caught 40 moments on your stream and I kept 12" — built to be shown to a
-streamer, on the Live Streams tab under the metrics row.
+streamer. **ADMIN ONLY** (`/admin` → Clip Record), by request: it is an
+operator view spanning every user, so `/admin/stream-stats` must never lose
+its `_require_admin` — without it any signed-in user could read everyone
+else's monitored streamers and how the product performs on them.
+
+Sortable on every column (numeric columns compare as numbers — sorting
+"caught" as text puts 9 above 40), filterable by channel or user, and each
+row expands to its per-stream breakdown. `_summarise` is shared by
+`for_user` and `all_rows` so a per-user view, if one is ever added back,
+cannot disagree with the admin table.
 
 **It is a dedicated append-only ledger, and it has to be.** Neither existing
 source can answer the question:

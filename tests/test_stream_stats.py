@@ -200,3 +200,66 @@ def test_every_clip_outcome_has_a_hook():
     for marker in ("stream_stats.CAUGHT", "stream_stats.APPROVED",
                    "stream_stats.REJECTED", "_ss.EXPIRED"):
         assert marker in src, f"no hook records {marker}"
+
+
+# ── admin only ───────────────────────────────────────────────────────────────
+
+def test_the_clip_record_endpoint_is_admin_only(tmp_path, monkeypatch):
+    """It spans EVERY user's channels. Reachable without the admin flag it
+    would hand any signed-in user a list of everyone else's monitored streamers
+    and how well the product performs on them."""
+    import base64, json as _j
+    from fastapi.testclient import TestClient
+    from itsdangerous import TimestampSigner
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(ss, "_LOG_FILE", tmp_path / "s.jsonl")
+    people = {"boss":  {"id": "boss", "username": "boss", "is_admin": True,
+                        "subscription_status": "active"},
+              "punter": {"id": "punter", "username": "punter",
+                         "subscription_status": "active"}}
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: people.get(uid))
+    monkeypatch.setattr(user_store, "get_all", lambda: list(people.values()))
+    ss.record(ss.CAUGHT, clip(uid="punter", channel="secretstreamer"))
+
+    c = TestClient(api.app)
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+
+    def as_user(uid):
+        c.cookies.clear()
+        c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+            {"auth": True, "user_id": uid, "username": uid,
+             "is_admin": people[uid].get("is_admin", False),
+             "subscription_status": "active"}).encode())).decode())
+        return c.get("/admin/stream-stats")
+
+    assert as_user("punter").status_code == 403, \
+        "a non-admin can read every user's channels"
+    r = as_user("boss")
+    assert r.status_code == 200
+    rows = r.json()["rows"]
+    assert rows and rows[0]["channel"] == "secretstreamer"
+    assert rows[0]["username"] == "punter", "rows are not attributed to a user"
+
+
+def test_the_user_facing_endpoint_is_gone():
+    """Moved to admin by request. Leaving the old route behind would keep the
+    data one URL away from any signed-in user."""
+    from src.dashboard import api
+    paths = {getattr(r, "path", "") for r in api.app.routes}
+    assert "/stats/streams" not in paths
+    assert "/admin/stream-stats" in paths
+
+
+def test_all_rows_and_for_user_agree_on_the_same_numbers():
+    """They share _summarise so the admin table and any future per-user view
+    cannot drift apart."""
+    for i in range(5):
+        ss.record(ss.CAUGHT, clip(cid=f"c{i}", at=1000.0 + i))
+    ss.record(ss.APPROVED, clip(cid="c0", at=1000.0))
+    mine = ss.for_channel("u1", "pokimane")
+    admin = [r for r in ss.all_rows()
+             if r["user_id"] == "u1" and r["channel"] == "pokimane"][0]
+    for k in ("caught", "approved", "rejected", "expired", "kept_pct"):
+        assert mine[k] == admin[k], f"{k} differs between the two views"

@@ -2485,17 +2485,25 @@ async def admin_review_delete(request: Request, review_id: str):
     return Response(status_code=204)
 
 
-@app.get("/stats/streams")
-async def stats_streams(request: Request):
-    """How many clips we caught per channel, and how many the user kept.
+@app.get("/admin/stream-stats")
+async def admin_stream_stats(request: Request):
+    """How many clips were caught per channel, and how many were kept.
 
-    Per channel, and per inferred session within it — see
-    src/stats/stream_stats.py for why sessions are inferred from gaps and why
-    this reads a dedicated ledger rather than counting `_clips`.
+    ADMIN ONLY, by request — this is an operator view for showing a streamer
+    what the product did on their channel, not a user-facing feature. It spans
+    every user, so it must never be reachable without the admin flag.
+
+    See src/stats/stream_stats.py for why sessions are inferred from gaps and
+    why this reads a dedicated ledger rather than counting `_clips`.
     """
     from src.stats import stream_stats
-    uid = _current_user_id(request)
-    return {"channels": stream_stats.for_user(uid),
+    from src.auth import users as user_store
+    _require_admin(request)
+    names = {u["id"]: u.get("username") or u["id"] for u in user_store.get_all()}
+    rows = stream_stats.all_rows()
+    for r in rows:
+        r["username"] = names.get(r["user_id"], r["user_id"])
+    return {"rows": rows,
             "session_gap_hours": stream_stats.SESSION_GAP_S / 3600}
 
 
@@ -4807,6 +4815,20 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div id="promo-wrap" class="loading">Loading...</div>
   </div>
   <div class="section" style="margin-top:16px">
+    <div class="section-head" id="cr-head">Clip Record</div>
+    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
+      What Highlightz caught per channel and how much of it was kept — the
+      numbers to show a streamer. Counted from a dedicated ledger, so rejected
+      and aged-out clips still count as caught. Click a column to sort; click a
+      row to see it broken down per stream.
+    </p>
+    <input id="cr-filter" placeholder="Filter by channel or user"
+      style="width:100%;max-width:320px;margin-bottom:12px;background:rgba(255,255,255,.05);
+             border:1px solid rgba(255,255,255,.1);color:#f6f6f9;border-radius:10px;
+             padding:9px 12px;font-size:13px;font-family:inherit">
+    <div id="cr-wrap" class="loading">Loading...</div>
+  </div>
+  <div class="section" style="margin-top:16px">
     <div class="section-head" id="reviews-head">Reviews</div>
     <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
       Star ratings from users, asked after 25 approved clips. A review is only
@@ -4823,6 +4845,135 @@ ADMIN_HTML = """<!DOCTYPE html>
     <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
     <a href="/admin/feedback-page" id="feedback-link" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Feedback &#8594;</a>
     <script>
+      // ── Clip Record ──────────────────────────────────────────────────
+      // Same rules as the reviews block below: no backslashes, no inline
+      // onclick. Sorting and expansion run off data- attributes and delegated
+      // listeners.
+      let CR_ROWS = [], CR_SORT = 'caught', CR_DESC = true, CR_OPEN = null;
+
+      const CR_COLS = [
+        ['channel',  'Channel'],
+        ['username', 'User'],
+        ['caught',   'Caught'],
+        ['approved', 'Kept'],
+        ['rejected', 'Rejected'],
+        ['expired',  'Aged out'],
+        ['kept_pct', 'Keep rate'],
+        ['last_at',  'Last clip'],
+      ];
+
+      function crWhen(ts){
+        if(!ts) return '-';
+        const d = new Date(ts * 1000);
+        return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' '
+             + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+      }
+
+      function crSorted(){
+        const q = (document.getElementById('cr-filter').value || '').toLowerCase();
+        const rows = CR_ROWS.filter(r =>
+          !q || String(r.channel).toLowerCase().indexOf(q) >= 0
+             || String(r.username).toLowerCase().indexOf(q) >= 0);
+        // Text columns compare as text, numbers as numbers. Sorting 'caught'
+        // as a string puts 9 above 40, which is the kind of wrong nobody
+        // notices until they quote the wrong figure at a streamer.
+        const textCol = CR_SORT === 'channel' || CR_SORT === 'username';
+        rows.sort((a, b) => {
+          const x = a[CR_SORT], y = b[CR_SORT];
+          const cmp = textCol
+            ? String(x).toLowerCase().localeCompare(String(y).toLowerCase())
+            : (Number(x) || 0) - (Number(y) || 0);
+          return CR_DESC ? -cmp : cmp;
+        });
+        return rows;
+      }
+
+      function crRender(){
+        const wrap = document.getElementById('cr-wrap');
+        const rows = crSorted();
+        const head = document.getElementById('cr-head');
+        if (head) head.textContent = 'Clip Record (' + CR_ROWS.length + ' channels)';
+        if (!CR_ROWS.length) {
+          wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">Nothing recorded yet. '
+            + 'Counting starts from the first clip caught after this shipped.</p>';
+          return;
+        }
+        if (!rows.length) { wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">No match.</p>'; return; }
+
+        const arrow = k => CR_SORT === k ? (CR_DESC ? ' \u25be' : ' \u25b4') : '';
+        let html = '<table><thead><tr>' + CR_COLS.map(c =>
+          '<th class="cr-sort" data-k="' + c[0] + '" style="cursor:pointer;'
+          + (CR_SORT === c[0] ? 'color:#c79bff' : '') + '">' + c[1] + arrow(c[0])
+          + '</th>').join('') + '</tr></thead><tbody>';
+
+        rows.forEach(r => {
+          const key = r.user_id + '|' + r.channel;
+          html += '<tr class="cr-row" data-key="' + rvEsc(key) + '" style="cursor:pointer">'
+            + '<td style="font-weight:600">' + rvEsc(r.channel) + '</td>'
+            + '<td style="color:#9c9caa">' + rvEsc(r.username) + '</td>'
+            + '<td>' + r.caught + '</td>'
+            + '<td style="color:#34d399;font-weight:700">' + r.approved + '</td>'
+            + '<td>' + r.rejected + '</td>'
+            + '<td style="color:#5d5d6b">' + r.expired + '</td>'
+            + '<td>' + (r.caught ? r.kept_pct + '%' : '-') + '</td>'
+            + '<td style="color:#9c9caa">' + crWhen(r.last_at) + '</td></tr>';
+          if (CR_OPEN === key) {
+            const ss = r.sessions || [];
+            let inner = '<div class="detail-section-head">Per stream ('
+              + ss.length + ')</div>';
+            if (r.expired) {
+              inner += '<p style="font-size:12px;color:#9c9caa;margin-bottom:8px">'
+                + r.expired + ' aged out before review, so the keep rate counts them '
+                + 'as not kept. Of what was actually reviewed: '
+                + r.kept_of_reviewed_pct + '%.</p>';
+            }
+            inner += ss.map(s =>
+              '<div style="display:flex;align-items:center;gap:12px;padding:5px 0;font-size:12.5px">'
+              + '<span style="width:120px;color:#9c9caa;flex-shrink:0">' + crWhen(s.started_at) + '</span>'
+              + '<span style="flex:1;height:7px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden">'
+              + '<i style="display:block;height:100%;width:'
+              + (s.caught ? (s.approved / s.caught * 100) : 0)
+              + '%;background:linear-gradient(90deg,#a855f7,#f943ff)"></i></span>'
+              + '<span style="width:150px;flex-shrink:0;text-align:right">'
+              + s.approved + ' kept of ' + s.caught
+              + (s.caught ? ' (' + s.kept_pct + '%)' : '') + '</span></div>').join('');
+            html += '<tr><td colspan="' + CR_COLS.length + '" style="background:rgba(255,255,255,.02)">'
+              + inner + '</td></tr>';
+          }
+        });
+        wrap.innerHTML = html + '</tbody></table>';
+      }
+
+      async function loadClipRecord(){
+        try {
+          const d = await (await fetch('/admin/stream-stats')).json();
+          CR_ROWS = d.rows || [];
+        } catch (e) {
+          document.getElementById('cr-wrap').innerHTML =
+            '<p style="color:#f87171">Could not load the clip record.</p>';
+          return;
+        }
+        crRender();
+      }
+
+      document.getElementById('cr-wrap').addEventListener('click', (e) => {
+        const th = e.target.closest('.cr-sort');
+        if (th) {
+          const k = th.dataset.k;
+          // Same column toggles direction; a new column starts descending,
+          // because "who has the most" is what you want first every time
+          // except on the two text columns.
+          if (CR_SORT === k) CR_DESC = !CR_DESC;
+          else { CR_SORT = k; CR_DESC = (k !== 'channel' && k !== 'username'); }
+          crRender();
+          return;
+        }
+        const tr = e.target.closest('.cr-row');
+        if (tr) { CR_OPEN = (CR_OPEN === tr.dataset.key) ? null : tr.dataset.key; crRender(); }
+      });
+      document.getElementById('cr-filter').addEventListener('input', crRender);
+      loadClipRecord();
+
       function rvEsc(t){ const d=document.createElement('div'); d.textContent=t==null?'':String(t); return d.innerHTML; }
       const RV_STAR = String.fromCharCode(9733);
       function rvStars(n){ return '<span style="color:#ffc75a;letter-spacing:1px">'

@@ -1367,106 +1367,6 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
   );
 }
 
-/* Per-session clip record for one channel: what the bot caught, what the user
-   kept. Built to be SHOWN TO A STREAMER, which is why the numbers come from a
-   dedicated ledger (src/stats/stream_stats.py) rather than from the clip list —
-   rejected and cap-evicted clips are deleted, so counting survivors would report
-   "10 caught" for a stream where 40 were caught and 30 thrown away. */
-function StreamRecord({ channel }) {
-  const [data, setData] = useState(null);
-  const [err, setErr]   = useState('');
-  const [open, setOpen] = useState(false);
-
-  const load = useCallback(()=>{
-    fetch('/stats/streams').then(r=>r.ok?r.json():null).then(d=>{
-      if(!d) { setErr('Could not load the clip record.'); return; }
-      setData((d.channels||[]).find(c=>c.channel.toLowerCase()===String(channel).toLowerCase())
-              || {channel, caught:0, approved:0, rejected:0, expired:0,
-                  kept_pct:0, kept_of_reviewed_pct:0, sessions:[]});
-    }).catch(()=>setErr('Could not load the clip record.'));
-  },[channel]);
-
-  // Mount + every reconnect, and again whenever a clip is caught or reviewed on
-  // this channel, so the numbers move while someone is watching them.
-  useEffect(()=>{
-    load();
-    const onWs = e=>{
-      try{
-        const m = JSON.parse(e.detail);
-        if(['clip_ready','clip_updated','clip_removed'].indexOf(m.event) >= 0) load();
-      }catch{}
-    };
-    window.addEventListener('hz_refetch', load);
-    window.addEventListener('hz_ws', onWs);
-    return ()=>{ window.removeEventListener('hz_refetch', load);
-                 window.removeEventListener('hz_ws', onWs); };
-  },[load]);
-
-  if(err) return <div className="rd-card2 glass"><div className="ed-warn">{err}</div></div>;
-  if(!data) return null;
-
-  const sessions = data.sessions||[];
-  return (
-    <div className="rd-card2 glass">
-      <h3 style={{fontSize:14,fontWeight:700,marginBottom:4,display:'flex',alignItems:'center',gap:9}}>
-        <Icon name="film" size={15} style={{color:'var(--acc)'}}/>Clip record · {data.channel}
-      </h3>
-      <div className="ed-note" style={{marginBottom:14}}>
-        Everything Highlightz caught on this channel, and how much of it you kept.
-      </div>
-
-      <div className="sr-tiles">
-        <div className="sr-tile"><div className="k">Caught</div><div className="v">{data.caught}</div></div>
-        <div className="sr-tile"><div className="k">You kept</div>
-          <div className="v" style={{color:'var(--live)'}}>{data.approved}</div></div>
-        <div className="sr-tile"><div className="k">Rejected</div><div className="v">{data.rejected}</div></div>
-        <div className="sr-tile"><div className="k">Keep rate</div>
-          <div className="v">{data.caught? data.kept_pct+'%' : '—'}</div></div>
-      </div>
-
-      {data.expired>0 &&
-        <div className="ed-note" style={{marginTop:10}}>
-          {data.expired} aged out of the queue before you reviewed them, so the
-          keep rate above counts them as not kept. Of the ones you actually
-          looked at, you kept {data.kept_of_reviewed_pct}%.
-        </div>}
-
-      {sessions.length>0 && <>
-        <button className="rd-btn sm" style={{marginTop:12}} onClick={()=>setOpen(!open)}>
-          {open ? 'Hide' : 'Show'} {sessions.length} stream{sessions.length>1?'s':''}
-        </button>
-        {open && <div className="sr-list">
-          {sessions.map((ss,i)=>(
-            <div className="sr-row" key={i}>
-              <div className="sr-when">{srDate(ss.started_at)}</div>
-              <div className="sr-bar">
-                <i style={{width:(ss.caught? (ss.approved/ss.caught*100):0)+'%'}}/>
-              </div>
-              <div className="sr-nums">
-                <b>{ss.approved}</b> kept of <b>{ss.caught}</b>
-                {ss.caught? ' · '+ss.kept_pct+'%' : ''}
-              </div>
-            </div>
-          ))}
-        </div>}
-      </>}
-      {sessions.length===0 &&
-        <div className="ed-note" style={{marginTop:10}}>
-          Nothing recorded on this channel yet. Counting starts from the first
-          clip caught after this feature went live.
-        </div>}
-    </div>
-  );
-}
-
-/* Sessions are inferred from gaps between clips, so they are labelled by date
-   rather than given a broadcast id we do not have. */
-function srDate(ts) {
-  const d = new Date(ts * 1000);
-  return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' · '
-       + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-}
-
 function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
@@ -1526,8 +1426,6 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           </div>
           <div className="rd-metric glass"><div className="k">Total clips</div><div className="v">{p.total_clips||0}</div></div>
         </div>
-        <StreamRecord channel={active.channel}/>
-
         {Object.keys(sw).length>0 && <div className="rd-card2 glass">
           <h3 style={{fontSize:14,fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:9}}><Icon name="sliders" size={15} style={{color:'var(--acc)'}}/>Learned signal weights</h3>
           {WK.filter(([k])=>sw[k]!=null).map(([k,lbl])=>{const v=sw[k]||1;const pct=Math.min(100,(v/2.5)*100);return <div className="rd-weight" key={k}>

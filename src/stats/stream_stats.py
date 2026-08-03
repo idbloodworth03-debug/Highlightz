@@ -115,35 +115,74 @@ def _sessions(events: list[dict]) -> list[dict]:
     return sessions
 
 
+def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
+    """One channel's totals. Shared by for_user and all_rows so the per-user
+    view and the admin table can never disagree about the same numbers."""
+    sessions = _sessions(events)
+    caught = sum(s["caught"] for s in sessions)
+    approved = sum(s["approved"] for s in sessions)
+    rejected = sum(s["rejected"] for s in sessions)
+    expired = sum(s["expired"] for s in sessions)
+    return {
+        "user_id": user_id,
+        "channel": channel,
+        "caught": caught,
+        "approved": approved,
+        "rejected": rejected,
+        "expired": expired,
+        # Of the ones actually LOOKED AT. Counting un-reviewed clips as
+        # rejections would understate the hit rate on a channel whose queue
+        # the user has not worked through yet.
+        "kept_pct": round(100 * approved / caught) if caught else 0,
+        "kept_of_reviewed_pct": (round(100 * approved / (approved + rejected))
+                                 if (approved + rejected) else 0),
+        "sessions": sorted(sessions, key=lambda s: -s["started_at"]),
+        "last_at": max((s["ended_at"] for s in sessions), default=0),
+    }
+
+
 def for_user(user_id: str) -> list[dict]:
     """Per channel: totals plus a session breakdown, newest channel first."""
     by_channel: dict[str, list[dict]] = defaultdict(list)
     for r in _read(user_id):
         by_channel[r["channel"]].append(r)
 
-    out = []
-    for channel, events in by_channel.items():
-        sessions = _sessions(events)
-        caught = sum(s["caught"] for s in sessions)
-        approved = sum(s["approved"] for s in sessions)
-        rejected = sum(s["rejected"] for s in sessions)
-        expired = sum(s["expired"] for s in sessions)
-        out.append({
-            "channel": channel,
-            "caught": caught,
-            "approved": approved,
-            "rejected": rejected,
-            "expired": expired,
-            # Of the ones actually LOOKED AT. Counting un-reviewed clips as
-            # rejections would understate the hit rate on a channel whose queue
-            # the user has not worked through yet.
-            "kept_pct": round(100 * approved / caught) if caught else 0,
-            "kept_of_reviewed_pct": (round(100 * approved / (approved + rejected))
-                                     if (approved + rejected) else 0),
-            "sessions": sorted(sessions, key=lambda s: -s["started_at"]),
-            "last_at": max((s["ended_at"] for s in sessions), default=0),
-        })
+    out = [_summarise(user_id, channel, events)
+           for channel, events in by_channel.items()]
     return sorted(out, key=lambda c: -c["last_at"])
+
+
+def all_rows() -> list[dict]:
+    """Every (user, channel) pair with its totals — the admin view.
+
+    Reads the file once and buckets by user rather than calling for_user() per
+    user, which would re-read the whole log for each of them. At 1,000 users
+    that is the difference between one pass and a thousand.
+    """
+    if not _LOG_FILE.exists():
+        return []
+    by_user: dict[str, list[dict]] = defaultdict(list)
+    try:
+        with _LOG_FILE.open(encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get("user_id") and r.get("channel"):
+                    by_user[r["user_id"]].append(r)
+    except OSError as exc:
+        log.warning("stream_stats_read_failed", error=str(exc))
+        return []
+
+    rows = []
+    for uid, events in by_user.items():
+        by_channel: dict[str, list[dict]] = defaultdict(list)
+        for r in events:
+            by_channel[r["channel"]].append(r)
+        for channel, evs in by_channel.items():
+            rows.append(_summarise(uid, channel, evs))
+    return rows
 
 
 def for_channel(user_id: str, channel: str) -> dict | None:
