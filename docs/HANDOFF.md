@@ -879,6 +879,37 @@ Helix budget is shared with live clip creation (800 pts/min). One pass is
 ~20-40 requests, paced by `--delay`, hard-capped by `--max-pages`, and a 429
 ends the pass rather than retrying. Do not cron it more than a few times a day.
 
+## Per-channel clip record (`src/stats/stream_stats.py`, 2026-08-03)
+
+"We caught 40 moments on your stream and I kept 12" — built to be shown to a
+streamer, on the Live Streams tab under the metrics row.
+
+**It is a dedicated append-only ledger, and it has to be.** Neither existing
+source can answer the question:
+- `_clips` cannot: rejecting DELETES the clip, and so does cap-eviction. A
+  channel where 40 were caught and 30 rejected would read as "10 caught" —
+  the exact opposite of the point being made.
+- `training_log.jsonl` cannot: it deliberately skips clips with no signal
+  vector (VOD moments, legacy), so it is a training set, not a census.
+
+Four hooks, one per outcome: caught (at creation), approved, rejected, expired
+(cap eviction). `test_every_clip_outcome_has_a_hook` guards the wiring — a
+missing reject hook would show a 100% keep rate, which is worse than no number
+at all when the number is being used as evidence.
+
+**Sessions are INFERRED from gaps** (`SESSION_GAP_S` = 4h), because the app
+never persisted broadcast boundaries. Labelled by date, never given a broadcast
+id we do not have. Events are grouped by the clip's `created_at`, not by when
+it was reviewed — approving on Friday must not create a Friday session for a
+Tuesday clip.
+
+Two rates, deliberately: `kept_pct` is over everything caught, and
+`kept_of_reviewed_pct` is over what the user actually looked at. Counting
+un-reviewed clips as rejections understates a channel whose queue is unworked.
+
+Counting starts from deploy — there is no backfill, and reconstructing one from
+the sources above would be exactly the undercount this exists to avoid.
+
 ## Reviews / social proof (started 2026-08-03)
 
 **Why not Google Business Profile:** it requires serving customers in person or

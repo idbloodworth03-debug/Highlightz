@@ -558,12 +558,18 @@ async def notify_clip_ready(clip: dict) -> None:
         _clips[clip["id"]] = clip
         _save_clips()
         increment_clip_counter()
+        # Counted at creation, not from _clips — rejects and cap-evictions are
+        # deleted, so a later census would report only survivors.
+        from src.stats import stream_stats
+        stream_stats.record(stream_stats.CAUGHT, clip)
 
     # A pending clip pushed out at the cap was never approved → weak negative for
     # the training log (the user had it in their queue and didn't keep it).
     from src.profiles import training_log
+    from src.stats import stream_stats as _ss
     for ev in evicted:
         training_log.log_outcome(ev, training_log.EXPIRED_UNREVIEWED)
+        _ss.record(_ss.EXPIRED, ev)
         await broadcast({"event": "clip_removed", "clip_id": ev["id"]}, user_id=clip_uid)
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
@@ -850,6 +856,8 @@ async def delete_account(request: Request):
     # someone's name on a marketing page with no way left to withdraw it.
     from src.feedback import reviews as _reviews
     _reviews.delete_all_for_user(uid)
+    from src.stats import stream_stats as _ss_purge
+    _ss_purge.delete_all_for_user(uid)
 
     user_store.delete(uid)
     request.session.clear()
@@ -1579,6 +1587,8 @@ async def approve_clip(request: Request, clip_id: str):
         _save_clips()
     from src.profiles import training_log
     training_log.log_outcome(clip, training_log.APPROVED)
+    from src.stats import stream_stats
+    stream_stats.record(stream_stats.APPROVED, clip)
     await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the approval is always recorded — even if
@@ -1606,6 +1616,8 @@ async def reject_clip(request: Request, clip_id: str):
         _save_clips()
     from src.profiles import training_log
     training_log.log_outcome(clip, training_log.REJECTED)
+    from src.stats import stream_stats
+    stream_stats.record(stream_stats.REJECTED, clip)
     _delete_clip_file(clip)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
@@ -2471,6 +2483,20 @@ async def admin_review_delete(request: Request, review_id: str):
         raise HTTPException(status_code=404, detail="Not found")
     await broadcast({"event": "reviews_updated"})
     return Response(status_code=204)
+
+
+@app.get("/stats/streams")
+async def stats_streams(request: Request):
+    """How many clips we caught per channel, and how many the user kept.
+
+    Per channel, and per inferred session within it — see
+    src/stats/stream_stats.py for why sessions are inferred from gaps and why
+    this reads a dedicated ledger rather than counting `_clips`.
+    """
+    from src.stats import stream_stats
+    uid = _current_user_id(request)
+    return {"channels": stream_stats.for_user(uid),
+            "session_gap_hours": stream_stats.SESSION_GAP_S / 3600}
 
 
 @app.get("/publish/platforms")
