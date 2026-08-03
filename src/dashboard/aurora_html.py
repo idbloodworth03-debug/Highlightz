@@ -416,6 +416,21 @@ button{font-family:inherit;cursor:pointer}
 .sc-plat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .sc-plat .rd-btn{min-width:96px;justify-content:center}
 .sc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rv{max-width:460px;width:100%;padding:26px 28px;border-radius:20px;
+  display:flex;flex-direction:column;gap:12px}
+.rv h3{font-size:19px;font-weight:800;margin:0}
+.rv-sub{font-size:12.5px;color:var(--fg-3);margin:0;line-height:1.5}
+.rv-stars{display:flex;gap:4px;margin:2px 0}
+.rv-star{background:none;border:0;cursor:pointer;font-size:32px;line-height:1;
+  padding:0 2px;color:rgba(255,255,255,.2);transition:color .12s}
+.rv-star.on{color:#ffc75a}
+.rv-check{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;
+  color:var(--fg-2);cursor:pointer;line-height:1.45}
+.rv-check input{margin-top:2px;flex-shrink:0}
+.rv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+.rv-actions .rd-btn.grad{flex:1 1 120px;justify-content:center}
+.rv-done{display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:22px 0;color:var(--acc);text-align:center}
 .ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
   border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
 .rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -2952,6 +2967,105 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
    It REMINDS. It cannot post — the app holds no TikTok/Instagram/YouTube
    credentials by design. Every string here has to say so. */
+/* ── Review prompt ────────────────────────────────────────────────────────────
+   Appears after 25 approved clips. Three things it must get right:
+
+   1. "Not now" and "don't ask again" are REAL. A prompt that comes back after
+      someone declined is the fastest way to make people resent the product.
+   2. Publishing is opt-in and separate from rating. Someone giving 5 stars has
+      not agreed to appear on a marketing page under their own name.
+   3. It never asks for sentiment first. Showing this only to happy users is
+      review gating — prohibited by Google and Trustpilot, and Trustpilot pulls
+      profiles over it. Everyone at 25 clips gets the same prompt. */
+function ReviewPrompt({ clips, onClose }) {
+  const [stars, setStars]   = useState(0);
+  const [hover, setHover]   = useState(0);
+  const [comment, setCom]   = useState('');
+  const [consent, setCon]   = useState(false);
+  const [name, setName]     = useState('');
+  const [busy, setBusy]     = useState(false);
+  const [err, setErr]       = useState('');
+  const [sent, setSent]     = useState(false);
+
+  const post = async (payload) => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/reviews', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      if(!r.ok){ let d='Could not send that'; try{ d=(await r.json()).detail||d; }catch{}
+        setErr(d); setBusy(false); return false; }
+    } catch { setErr('Could not reach the server'); setBusy(false); return false; }
+    setBusy(false); return true;
+  };
+
+  const submit = async () => {
+    if(!stars) { setErr('Pick a rating first.'); return; }
+    if(await post({stars, comment, publish_consent: consent, display_name: name})) {
+      setSent(true);
+      setTimeout(onClose, 1800);
+    }
+  };
+  const later = async () => { await post({action:'snooze'}); onClose(); };
+  const never = async () => { await post({action:'never'}); onClose(); };
+
+  return (
+    <div className="ed-bg" onMouseDown={e=>{ if(e.target===e.currentTarget) later(); }}>
+      <div className="rv glass">
+        {sent
+          ? <div className="rv-done">
+              <Icon name="sparkles" size={22}/>
+              <h3>Thank you — that genuinely helps.</h3>
+            </div>
+          : <>
+            <h3>How is Highlightz working out?</h3>
+            <p className="rv-sub">
+              You have approved {clips} clips. However it is going, we would
+              rather hear it than not.
+            </p>
+
+            <div className="rv-stars" onMouseLeave={()=>setHover(0)}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} className={'rv-star'+((hover||stars)>=n?' on':'')}
+                  onMouseEnter={()=>setHover(n)} onClick={()=>setStars(n)}
+                  aria-label={n+' star'+(n>1?'s':'')}>★</button>
+              ))}
+            </div>
+
+            <textarea className="ed-in" rows="4" value={comment} maxLength={1500}
+              placeholder="What is working, and what is not? (optional)"
+              onChange={e=>setCom(e.target.value)}/>
+
+            <label className="rv-check">
+              <input type="checkbox" checked={consent}
+                onChange={e=>setCon(e.target.checked)}/>
+              <span>You can show this on the Highlightz site.</span>
+            </label>
+            {consent &&
+              <input className="ed-in" value={name} maxLength={60}
+                placeholder="Name to show (leave blank to stay anonymous)"
+                onChange={e=>setName(e.target.value)}/>}
+            <div className="ed-note">
+              Ticking that box is the only thing that makes this public, and we
+              still read it first. Leave it unticked and it only ever reaches us.
+            </div>
+
+            {err && <div className="ed-warn">{err}</div>}
+
+            <div className="rv-actions">
+              <button className="rd-btn grad" onClick={submit} disabled={busy||!stars}>
+                Send
+              </button>
+              <button className="rd-btn sm" onClick={later} disabled={busy}>Not now</button>
+              <button className="rd-btn sm" onClick={never} disabled={busy}>
+                Don't ask again
+              </button>
+            </div>
+          </>}
+      </div>
+    </div>
+  );
+}
+
 function ScheduleCard({ item, platforms, onChange, onDrop }) {
   const [cap, setCap]     = useState(item.caption || '');
   const [when, setWhen]   = useState(item.due_at ? toLocalInput(item.due_at) : '');
@@ -3782,6 +3896,8 @@ function RdApp() {
   // The posting queue. Reminders only — we hold no platform credentials,
   // so nothing here posts by itself and every string must say so.
   const [queue, setQueue] = useState([]);
+  // {clips} while the review prompt is open, null otherwise.
+  const [reviewAsk, setReviewAsk] = useState(null);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -3807,7 +3923,12 @@ function RdApp() {
     fetch('/profiles').then(r=>r.json()).then(arr=>{
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
-    fetch('/me').then(r=>r.json()).then(data=>setMe(data)).catch(()=>{});
+    fetch('/me').then(r=>r.json()).then(data=>{
+      setMe(data);
+      // The broadcast covers the live case; this covers a tab opened after
+      // the milestone was crossed, and any reconnect.
+      if(data && data.review_prompt) setReviewAsk(p=>p||{clips:0});
+    }).catch(()=>{});
     // Static config, but it still belongs here: refetchAll runs on every
     // reconnect, so a deploy that changes a platform limit reaches open
     // tabs without anyone being told to refresh.
@@ -3926,6 +4047,8 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter
+        else if(msg.event==='review_prompt'){ setReviewAsk({clips: msg.clips||0}); }
+        else if(msg.event==='reviews_updated'){ /* landing page only; nothing to do here */ }
         else if(msg.event==='schedule_added'||msg.event==='schedule_updated'){
           setQueue(q=>{
             const rest = q.filter(i=>i.id!==msg.item.id);
@@ -4104,6 +4227,8 @@ function RdApp() {
         </div>}
         <main className="rd-screen">{screen}</main>
       </div>
+      {reviewAsk && <ReviewPrompt clips={reviewAsk.clips}
+        onClose={()=>setReviewAsk(null)}/>}
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>

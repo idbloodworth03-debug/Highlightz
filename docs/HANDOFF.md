@@ -852,6 +852,44 @@ Helix budget is shared with live clip creation (800 pts/min). One pass is
 ~20-40 requests, paced by `--delay`, hard-capped by `--max-pages`, and a 429
 ends the pass rather than retrying. Do not cron it more than a few times a day.
 
+## Reviews / social proof (started 2026-08-03)
+
+**Why not Google Business Profile:** it requires serving customers in person or
+at a verified address. A pure web app does not qualify, and a listing on a home
+address gets suspended, taking the reviews with it. **Why not self-marked-up
+testimonials:** Google has ignored self-serving review markup since 2019.
+The one legitimate route for us is `SoftwareApplication` + `aggregateRating`,
+which the landing JSON-LD already half-declares — the entity is a software
+product, not a business.
+
+**Built:** `src/feedback/reviews.py` + a prompt after **25 approved clips**
+(`MILESTONES = (25, 150, 500)`).
+
+**Four rules, all mutation-tested (`tests/test_reviews.py`):**
+1. **The trigger is a CLIP COUNT and never sentiment.** Showing this only to
+   users with a high approval rate is *review gating* — prohibited by Google
+   and Trustpilot, and Trustpilot removes profiles for it. There is a test that
+   greps `should_prompt` for rate/ratio/sentiment/score words.
+2. **Dismissal is real.** "Not now" snoozes a month AND records the milestone;
+   "don't ask again" is permanent; a submitted review is never followed by
+   another ask. The prompt reaches users two ways — the live broadcast and the
+   flag on `/me` — and only one marked it shown, so the *dismissal* records the
+   milestone rather than trusting the caller.
+3. **Publishing needs consent AND admin approval**, and the display name is
+   discarded outright without consent. `public()` never emits the user id or
+   username. Deleting an account deletes its reviews.
+4. **`aggregate()` covers published reviews only.** That number would feed
+   schema.org; averaging private ones describes something no visitor can read,
+   which is what structured-data penalties are for.
+
+**Not built yet:** the landing-page testimonial section and the
+`aggregateRating` JSON-LD that consumes `reviews.aggregate()`. Do not add the
+markup before real approved reviews exist.
+
+**Still the highest-leverage item and not a code task:** free profiles on
+Trustpilot, G2, Capterra and Product Hunt. Those are what actually rank in
+Google for SaaS; our own page never will.
+
 ## Queued nice-to-haves
 
 Discord webhook notifications on clip_ready (top retention idea), edit_url

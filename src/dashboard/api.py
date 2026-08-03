@@ -670,6 +670,10 @@ async def me(request: Request):
         # Release flags — what is switched ON for everyone, separate from what
         # this user's plan entitles them to. The dashboard shows an
         # under-construction screen for anything off here.
+        # Same flag the review_prompt broadcast carries. The event handles the
+        # live case; this handles a tab opened after the milestone was crossed,
+        # and a reconnect (refetchAll pulls /me).
+        "review_prompt":       _review_prompt_due(uid),
         "features":            {"uploads": settings.uploads_enabled,
                                 "clip_import": settings.clip_import_enabled,
                                 "captions": settings.captions_enabled},
@@ -842,6 +846,10 @@ async def delete_account(request: Request):
     removed_uploads = upload_lib.delete_all_for_user(uid)
     from src.publish import schedule as sched
     sched.delete_all_for_user(uid)
+    # Their words go with them. A published quote from a deleted account is
+    # someone's name on a marketing page with no way left to withdraw it.
+    from src.feedback import reviews as _reviews
+    _reviews.delete_all_for_user(uid)
 
     user_store.delete(uid)
     request.session.clear()
@@ -1580,6 +1588,7 @@ async def approve_clip(request: Request, clip_id: str):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+    await _maybe_prompt_review(uid)
     return clip
 
 
@@ -2313,6 +2322,101 @@ def _require_captions(uid: str):
         raise HTTPException(status_code=503,
                             detail="Auto-captions aren't available yet — coming soon.")
     return user
+
+
+# ── Reviews ───────────────────────────────────────────────────────────────────
+#
+# Asked after 25 approved clips, because that is when someone has an opinion
+# worth having. The trigger is a CLIP COUNT and never a sentiment score:
+# soliciting only happy users is review gating, which Google and Trustpilot
+# both prohibit and which Trustpilot removes profiles for.
+
+def _review_prompt_due(uid: str) -> bool:
+    from src.auth import users as user_store
+    from src.feedback import reviews
+    user = user_store.get_by_id(uid)
+    return bool(user) and reviews.should_prompt(user, _approved_clip_count(uid))
+
+
+def _approved_clip_count(uid: str) -> int:
+    return sum(1 for c in _clips.values()
+               if c.get("user_id") == uid and c.get("status") == "approved")
+
+
+async def _maybe_prompt_review(uid: str) -> None:
+    """Called after an approval. Broadcasts once when a milestone is crossed so
+    the prompt appears without a refresh; /me carries the same flag so a tab
+    opened later still sees it."""
+    from src.auth import users as user_store
+    from src.feedback import reviews
+    user = user_store.get_by_id(uid)
+    if not user:
+        return
+    count = _approved_clip_count(uid)
+    if not reviews.should_prompt(user, count):
+        return
+    user_store.set_review_prompt_state(uid, reviews.mark_shown(user, count))
+    await broadcast({"event": "review_prompt", "clips": count}, user_id=uid)
+
+
+@app.post("/reviews", status_code=201)
+async def submit_review(request: Request):
+    from src.auth import users as user_store
+    from src.feedback import reviews
+    uid = _current_user_id(request)
+    user = user_store.get_by_id(uid) or {}
+    body = await request.json()
+
+    action = str(body.get("action") or "submit")
+    if action == "snooze":
+        user_store.set_review_prompt_state(
+            uid, reviews.mark_snoozed(user, _approved_clip_count(uid)))
+        return {"ok": True}
+    if action == "never":
+        user_store.set_review_prompt_state(uid, reviews.mark_never(user))
+        return {"ok": True}
+
+    try:
+        r = reviews.add(uid, user.get("username", ""), int(body.get("stars") or 0),
+                        str(body.get("comment") or ""),
+                        bool(body.get("publish_consent")),
+                        str(body.get("display_name") or ""))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    user_store.set_review_prompt_state(uid, reviews.mark_submitted(user))
+    return {"ok": True, "id": r.id}
+
+
+@app.get("/admin/reviews")
+async def admin_reviews(request: Request):
+    _require_admin(request)
+    from src.feedback import reviews
+    return {"reviews": [r.admin() for r in reviews.all_reviews()],
+            "aggregate": reviews.aggregate()}
+
+
+@app.post("/admin/reviews/{review_id}/approve")
+async def admin_review_approve(request: Request, review_id: str):
+    _require_admin(request)
+    from src.feedback import reviews
+    body = await request.json()
+    r = reviews.set_approved(review_id, bool(body.get("approved", True)))
+    if not r:
+        raise HTTPException(status_code=404, detail="Not found")
+    # Publishing changes the landing page for everyone, so this is one of the
+    # few genuinely global broadcasts.
+    await broadcast({"event": "reviews_updated"})
+    return r.admin()
+
+
+@app.delete("/admin/reviews/{review_id}", status_code=204)
+async def admin_review_delete(request: Request, review_id: str):
+    _require_admin(request)
+    from src.feedback import reviews
+    if not reviews.remove(review_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    await broadcast({"event": "reviews_updated"})
+    return Response(status_code=204)
 
 
 @app.get("/publish/platforms")

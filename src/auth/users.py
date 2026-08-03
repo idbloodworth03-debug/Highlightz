@@ -273,6 +273,18 @@ async def get_valid_twitch_token(user_id: str) -> str | None:
     return access or None
 
 
+def set_review_prompt_state(user_id: str, state: dict) -> None:
+    """Persist when we last asked this user for a review, and whether they told
+    us to stop. Lives on the user rather than in the reviews file because it
+    exists even for people who never write one."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["review_prompt"] = state
+            _save(users)
+            return
+
+
 def update_subscription(user_id: str, customer_id: str | None, status: str) -> None:
     """Called by Stripe webhook to sync subscription state by user ID."""
     users = _load()
