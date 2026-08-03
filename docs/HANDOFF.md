@@ -854,6 +854,36 @@ takes the whole queue.
 **Not built, on purpose:** email and browser-push reminders. In-app only for
 now — the owner's call. Email needs a sender that does not exist yet.
 
+## Clip trading between admins (2026-08-03)
+
+**Landing Page tab → Grab.** Copies a featured clip into your own Clip Library
+so the team can trade — one person's bot catches something and everyone can
+post it. Admin-only; `POST /admin/showcase/{clip_id}/grab`.
+
+**Nothing is re-hosted.** The copy is a record pointing at the same Twitch URL,
+exactly like every other clip in the product, so this does not touch the
+no-re-hosting line at all.
+
+**`_is_grabbed(clip)` is the important part, and every telemetry path checks
+it.** A grabbed clip was NOT produced by our formula for the person holding it,
+so counting it would:
+- inflate the per-channel clip record with a "kept" that has no matching
+  "caught" — and that record is what gets shown to streamers,
+- teach that channel's profile from a decision the formula never made, drifting
+  its threshold on borrowed evidence,
+- put a mislabelled row in the training set.
+
+Grabbed clips therefore carry NO `trigger_score` and NO `trigger_signals` —
+copying the original's score would fabricate a detection that never happened.
+They arrive `approved` (grabbing is the approval) and dedupe on the Twitch URL
+rather than the clip id, since the id is per-record.
+
+All five guards mutation-tested (`tests/test_clip_grab.py`): removing the stats
+guard, the profile guard, the dedupe, the admin gate, or copying the score
+across each fails a test. One test deliberately checks a NORMAL clip still
+records and teaches — a guard that swallowed ordinary clips would silently stop
+all learning, which is the expensive way to be wrong.
+
 ## Referrals + free-plan landing (2026-08-03, growth plan items 2 & 5)
 
 **`src/auth/referrals.py`** — signup attribution INDEPENDENT of Stripe. The

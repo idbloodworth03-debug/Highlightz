@@ -20,6 +20,7 @@ import re
 import secrets
 import tempfile
 import time
+import uuid
 from typing import Any
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
@@ -1608,9 +1609,11 @@ async def approve_clip(request: Request, clip_id: str):
         clip["status"] = "approved"
         _save_clips()
     from src.profiles import training_log
-    training_log.log_outcome(clip, training_log.APPROVED)
-    from src.stats import stream_stats
-    stream_stats.record(stream_stats.APPROVED, clip)
+    # A grabbed clip was never scored by us for this user — see _is_grabbed.
+    if not _is_grabbed(clip):
+        training_log.log_outcome(clip, training_log.APPROVED)
+        from src.stats import stream_stats
+        stream_stats.record(stream_stats.APPROVED, clip)
     await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the approval is always recorded — even if
@@ -1618,7 +1621,10 @@ async def approve_clip(request: Request, clip_id: str):
     # deploy or once the stream ended). A cache-miss here used to silently drop
     # the feedback, skewing learning toward rejections only.
     profile = await pm.load(clip["channel"])
-    if profile:
+    # Never teach a channel's profile from a grabbed clip: the formula did not
+    # produce it, so the decision says nothing about whether the formula was
+    # right, and it would drift that channel's threshold on borrowed evidence.
+    if profile and not _is_grabbed(clip):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
@@ -1637,16 +1643,20 @@ async def reject_clip(request: Request, clip_id: str):
         del _clips[clip_id]
         _save_clips()
     from src.profiles import training_log
-    training_log.log_outcome(clip, training_log.REJECTED)
-    from src.stats import stream_stats
-    stream_stats.record(stream_stats.REJECTED, clip)
+    if not _is_grabbed(clip):
+        training_log.log_outcome(clip, training_log.REJECTED)
+        from src.stats import stream_stats
+        stream_stats.record(stream_stats.REJECTED, clip)
     _delete_clip_file(clip)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the rejection is always recorded, matching
     # the approve path — see note there.
     profile = await pm.load(clip["channel"])
-    if profile:
+    # Never teach a channel's profile from a grabbed clip: the formula did not
+    # produce it, so the decision says nothing about whether the formula was
+    # right, and it would drift that channel's threshold on borrowed evidence.
+    if profile and not _is_grabbed(clip):
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
@@ -3277,6 +3287,82 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
     _save_showcase(items)
     await broadcast({"event": "showcase_updated"})
     return {"featured": True, "count": len(items), "max": _SHOWCASE_MAX}
+
+
+def _is_grabbed(clip: dict) -> bool:
+    """A clip copied from another admin's showcase rather than caught by the
+    detector on this user's behalf.
+
+    Every telemetry path has to check this. A grabbed clip did NOT come from
+    our scoring on their channel, so counting it would:
+      * inflate the per-channel clip record (a "kept" with no matching
+        "caught", which is the number being shown to streamers),
+      * teach that channel's profile from a decision the formula never made,
+      * and put a mislabelled row in the training set.
+    """
+    return clip.get("source") == "grabbed"
+
+
+@app.post("/admin/showcase/{clip_id}/grab")
+async def admin_grab_showcase(request: Request, clip_id: str):
+    """Admin: copy a featured clip into your own library.
+
+    For trading clips between the team — one person's bot catches something on
+    a channel and everyone can post it. NOTHING IS COPIED BUT A REFERENCE: the
+    video stays on Twitch, exactly as with every other clip in the product, so
+    this does not touch the no-re-hosting line at all.
+    """
+    _require_admin(request)
+    uid = _current_user_id(request)
+
+    entry = next((e for e in _load_showcase() if e.get("id") == clip_id), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="That clip is not on the landing page")
+
+    origin = _clips.get(clip_id)
+    if origin and origin.get("user_id") == uid:
+        raise HTTPException(status_code=400, detail="That one is already yours")
+
+    url = entry.get("twitch_url")
+    if not url:
+        raise HTTPException(status_code=400, detail="That clip has no Twitch link to copy")
+
+    async with _data_lock:
+        # Dedupe on the Twitch URL, not the clip id: the id is per-record and a
+        # second grab would otherwise stack duplicates in their library.
+        if any(c.get("user_id") == uid and c.get("twitch_url") == url
+               for c in _clips.values()):
+            raise HTTPException(status_code=409, detail="You already have that clip")
+
+        copy = {
+            "id":            uuid.uuid4().hex,
+            "user_id":       uid,
+            "platform":      "twitch",
+            "channel":       entry.get("channel") or "",
+            "clip_title":    entry.get("clip_title") or "Clip",
+            "game":          entry.get("game") or "",
+            "twitch_url":    url,
+            "embed_url":     entry.get("embed_url") or "",
+            "thumbnail_url": entry.get("thumbnail_url") or "",
+            "duration_seconds": entry.get("duration_seconds") or 0,
+            # Approved on arrival: grabbing IS the approval. Landing in the
+            # review queue would ask them to judge a clip they just chose.
+            "status":        "approved",
+            "created_at":    time.time(),
+            # The marker every telemetry path checks. Also records who it came
+            # from, so "who found this" survives the copy.
+            "source":        "grabbed",
+            "grabbed_from":  (origin or {}).get("user_id", ""),
+            # Deliberately NO trigger_score / trigger_signals: our formula never
+            # scored this for them, and inventing a score would put a fabricated
+            # row in the training data.
+        }
+        _clips[copy["id"]] = copy
+        _save_clips()
+
+    log.info("clip_grabbed", user_id=uid, source_clip=clip_id, channel=copy["channel"])
+    await broadcast({"event": "clip_ready", "clip": copy}, user_id=uid)
+    return copy
 
 
 @app.post("/admin/showcase/{clip_id}/move")

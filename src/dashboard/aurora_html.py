@@ -1694,7 +1694,7 @@ function TrainingScreen() {
   );
 }
 
-function LandingScreen({ clips, featured, onToggle, onMove }) {
+function LandingScreen({ clips, featured, onToggle, onMove, onGrab, myUrls }) {
   // Admin-only curation of the public landing page's example clips. Featured
   // entries come from /landing/showcase (the same payload visitors get), so
   // what's listed here is literally what the site is showing.
@@ -1733,7 +1733,9 @@ function LandingScreen({ clips, featured, onToggle, onMove }) {
           display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="trending" size={15}/>
           <span style={{flex:1,minWidth:220}}>These are the example clips visitors see at
-            highlightz.app. Order here is the order they appear.</span>
+            highlightz.app. Order here is the order they appear. <b>Grab</b> copies
+            one into your own Clip Library so the team can trade clips — it links
+            to the same Twitch clip, nothing is re-hosted.</span>
           <a href="/" target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>View live page ↗</a>
         </div>
         {featured.length===0
@@ -1742,11 +1744,21 @@ function LandingScreen({ clips, featured, onToggle, onMove }) {
                 examples section appears on the landing page.</div>
             </div>
           : <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:24}}>
-              {featured.map((c,i)=>row(c,<>
-                <button className="rd-btn sm" disabled={i===0} onClick={()=>onMove(c.id,'up')} title="Move up">↑</button>
-                <button className="rd-btn sm" disabled={i===featured.length-1} onClick={()=>onMove(c.id,'down')} title="Move down">↓</button>
-                <button className="rd-btn sm danger" onClick={()=>onToggle(c.id)}>Remove</button>
-              </>))}
+              {featured.map((c,i)=>{
+                // Already in your library? Say so rather than offering a
+                // button that errors — the server refuses a duplicate, and a
+                // dead button is worse than no button.
+                const mine = myUrls.has(c.twitch_url);
+                return row(c,<>
+                  <button className="rd-btn sm" disabled={mine} onClick={()=>onGrab(c.id)}
+                    title={mine?'Already in your clips':'Copy this clip into your own library'}>
+                    {mine ? 'In yours' : 'Grab'}
+                  </button>
+                  <button className="rd-btn sm" disabled={i===0} onClick={()=>onMove(c.id,'up')} title="Move up">↑</button>
+                  <button className="rd-btn sm" disabled={i===featured.length-1} onClick={()=>onMove(c.id,'down')} title="Move down">↓</button>
+                  <button className="rd-btn sm danger" onClick={()=>onToggle(c.id)}>Remove</button>
+                </>);
+              })}
             </div>}
 
         <div className="rd-section-title">
@@ -4126,6 +4138,24 @@ function RdApp() {
     await fetch(`/clips/${id}/reject`,{method:'POST'});
     setClips(p=>{const n={...p};delete n[id];return n;});
   };
+  // Which Twitch clips this admin already has, so the Grab button can say
+  // "In yours" instead of offering an action the server will refuse.
+  const myClipUrls = new Set(Object.values(clips).map(c=>c.twitch_url).filter(Boolean));
+
+  const grabFeature = async (id)=>{
+    try{
+      const r = await fetch(`/admin/showcase/${id}/grab`, {method:'POST'});
+      if(!r.ok){
+        let d='Could not grab that clip';
+        try{ d=(await r.json()).detail||d; }catch{}
+        flash(d); return;
+      }
+      // The clip_ready broadcast puts it in the library; this is just the
+      // confirmation that the click did something.
+      flash('Added to your Clip Library');
+    }catch{ flash('Could not reach the server'); }
+  };
+
   const loadFeatured = ()=>fetch('/landing/showcase').then(r=>r.json())
     .then(d=>setFeatured(d.clips||[])).catch(()=>{});
   const toggleFeature = async(id)=>{
@@ -4187,7 +4217,7 @@ function RdApp() {
   else if(route==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
   else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
   else if(route==='training') screen=<TrainingScreen/>;
-  else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature}/>;
+  else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} myUrls={myClipUrls}/>;
   else if(route==='account') screen=<AccountScreen me={me}/>;
   else if(route==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
