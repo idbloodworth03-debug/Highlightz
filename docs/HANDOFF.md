@@ -854,6 +854,43 @@ takes the whole queue.
 **Not built, on purpose:** email and browser-push reminders. In-app only for
 now — the owner's call. Email needs a sender that does not exist yet.
 
+## Referrals + free-plan landing (2026-08-03, growth plan items 2 & 5)
+
+**`src/auth/referrals.py`** — signup attribution INDEPENDENT of Stripe. The
+existing promo attribution fires from the Stripe webhook at checkout, so it
+records nothing for a free signup, and the growth plan is free signups.
+
+Three rules, all mutation-tested (`tests/test_referrals.py`):
+1. **First touch wins, permanently** (`users.set_ref_once` refuses to
+   overwrite). Someone who arrives via Tommy's link, returns via Ian's and then
+   subscribes still counts as Tommy's — otherwise whoever posted most recently
+   harvests everyone else's work and the weekly table stops meaning anything.
+2. **A link and a typed code are the same thing.** `?ref=tommy` and a typed
+   `TOMMY` resolve identically; splitting them undercounts every lane that uses
+   both, which is all of them.
+3. **Unknown codes are dropped, never stored** — a stored typo becomes a row in
+   the report attributed to nobody, reading as a real lane that produced users.
+
+**The ordering trap:** the ref rides the SESSION COOKIE out to twitch.tv and
+back, and `twitch_callback` calls `request.session.clear()` for session
+fixation three lines from the attribution. It must be read BEFORE that; reading
+after silently attributes nobody and every signup shows as Direct.
+`test_the_callback_reads_the_ref_before_clearing_the_session` guards it.
+Captured on `/`, `/login` AND `/auth/twitch` — a bio link may point at any.
+
+Add a person by adding a key to `REFERRERS`; their link and code both work.
+
+**Admin → Referrals** shows the weekly table from the plan: signups /
+connected a channel / still active wk2 / paid. Users younger than 7 days are
+excluded from the retention column entirely rather than counted as churned.
+
+**Landing page now leads with free** — a Free card (first of three), hero note,
+meta descriptions, the FAQ billing answer, and the JSON-LD `AggregateOffer`
+(`lowPrice` 0.00, `offerCount` 3). The price grid was widened from 840px to
+1120px; at `minmax(300px,1fr)` it only ever fitted two cards and wrapped the
+third. A price in schema.org that disagrees with the page is what
+structured-data penalties are for, so those two move together.
+
 ## Streamer outreach shortlist (`src/maintenance/find_streamers.py`)
 
 For the streamer-partnership idea below. **Two things Helix does not have, and

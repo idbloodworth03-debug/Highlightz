@@ -587,6 +587,7 @@ def _current_user_id(request: Request) -> str:
 @app.get("/auth/twitch")
 async def twitch_login(request: Request, intent: str = ""):
     """Redirect the browser to Twitch's OAuth consent screen."""
+    _capture_ref(request)
     from src.auth.twitch_oauth import authorization_url
     if not settings.twitch_client_id:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
@@ -620,6 +621,11 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         request.session["optout_avatar"]         = tuser.get("avatar_url", "")
         return RedirectResponse("/opt-out/confirm")
 
+    # Read the referral BEFORE session.clear() below wipes it. This is the only
+    # moment it exists: the code rode the session cookie out to twitch.tv and
+    # back, and the session-fixation clear is three lines away.
+    pending_ref = request.session.get("ref")
+
     is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
     user = user_store.upsert_twitch_user(
         twitch_id=tuser["id"],
@@ -631,6 +637,13 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         expires_in=tokens.get("expires_in", 0),
         is_admin=is_owner,
     )
+    if pending_ref:
+        # First touch only — set_ref_once refuses to overwrite, so a returning
+        # user who arrives through a different link keeps their original
+        # attribution.
+        if user_store.set_ref_once(user["id"], pending_ref):
+            log.info("referral_attributed", user_id=user["id"], ref=pending_ref)
+
     # Clear any existing session before setting new auth data (session fixation)
     request.session.clear()
     request.session["auth"]                = True
@@ -2485,6 +2498,51 @@ async def admin_review_delete(request: Request, review_id: str):
     return Response(status_code=204)
 
 
+@app.get("/admin/referrals")
+async def admin_referrals(request: Request):
+    """Signups per referrer, and how many of them stuck.
+
+    The column that matters is not signups — it is who came back. Signups say
+    who is good at getting attention; week-2 retention says whose lane brought
+    people who actually needed this.
+    """
+    from src.auth import referrals
+    from src.auth import users as user_store
+    from src.billing.plans import is_paid
+    _require_admin(request)
+
+    now = time.time()
+    WEEK = 7 * 86400
+    buckets: dict[str, dict] = {}
+    for key in referrals.all_keys() + ["direct"]:
+        buckets[key] = {"ref": key, "label": referrals.label(None if key == "direct" else key),
+                        "signups": 0, "connected": 0, "active_wk2": 0, "paid": 0}
+
+    for u in user_store.get_all():
+        key = u.get("ref") or "direct"
+        b = buckets.setdefault(key, {"ref": key, "label": referrals.label(key),
+                                     "signups": 0, "connected": 0,
+                                     "active_wk2": 0, "paid": 0})
+        b["signups"] += 1
+        # "Connected a channel" = they got as far as linking Twitch, which is
+        # the first step that means anything.
+        if u.get("twitch_id"):
+            b["connected"] += 1
+        # Week-2 retention: signed up at least 7 days ago AND seen since. A
+        # user who joined yesterday is not yet a retention datapoint, so they
+        # are excluded from BOTH sides rather than counted as churned.
+        created = u.get("created_at") or 0
+        if created and now - created >= WEEK:
+            last = _user_last_active.get(u["id"], 0)
+            if last and now - last < WEEK:
+                b["active_wk2"] += 1
+        if is_paid(u):
+            b["paid"] += 1
+
+    rows = sorted(buckets.values(), key=lambda r: -r["signups"])
+    return {"rows": rows, "total": sum(r["signups"] for r in rows)}
+
+
 @app.get("/admin/stream-stats")
 async def admin_stream_stats(request: Request):
     """How many clips were caught per channel, and how many were kept.
@@ -2972,7 +3030,8 @@ _ERROR_MESSAGES = {
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(error: str = ""):
+async def login_page(request: Request, error: str = ""):
+    _capture_ref(request)
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
@@ -3108,8 +3167,25 @@ async def get_stats(request: Request):
     return result
 
 
+def _capture_ref(request: Request) -> None:
+    """Stash a referral code from the URL into the session.
+
+    The session cookie is what carries it through the Twitch OAuth round-trip —
+    the user leaves for twitch.tv and comes back, and nothing else survives
+    that. Called on every public entry point because a bio link might point at
+    any of them.
+    """
+    from src.auth import referrals
+    ref = referrals.normalise(request.query_params.get("ref"))
+    # First touch wins here too: a second link must not overwrite the first
+    # within one browsing session either.
+    if ref and not request.session.get("ref"):
+        request.session["ref"] = ref
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
+    _capture_ref(request)
     # Authenticated users reach this only after passing the auth + billing gate
     # in AuthMiddleware, so they get the app. Everyone else sees the public
     # marketing landing page.
@@ -3216,7 +3292,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
-<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. From $10/month, cancel anytime.">
+<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start, no card required.">
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -3225,13 +3301,13 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again">
-<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. From $10/month, cancel anytime.">
+<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
 <meta property="og:image" content="https://highlightz.app/static/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. From $10/month, cancel anytime.">
+<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
   /* Self-hosted type — no third-party font dependency */
@@ -3404,7 +3480,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .plus{display:grid;place-items:center;color:#5d5d6b;font-size:18px;font-weight:700;padding:0 2px}
   .formula-eq{margin-top:30px;font-size:15px;color:#c79bff;font-weight:700;letter-spacing:.01em}
   /* Pricing */
-  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;max-width:840px;margin:44px auto 0}
+  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(276px,1fr));gap:18px;max-width:1120px;margin:44px auto 0}  /* three cards since Free was added; 840px/300px only ever fitted two and wrapped the third */
   .price-card{position:relative;padding:1px;border-radius:22px;background:linear-gradient(160deg,rgba(249,67,255,.5),rgba(255,255,255,.09) 35%,rgba(255,255,255,.08) 65%,rgba(124,107,255,.45))}
   .price-card.starter{background:rgba(255,255,255,.09)}
   .price-pop{position:absolute;top:-11px;left:50%;transform:translateX(-50%);z-index:2;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:4px 12px;border-radius:99px;box-shadow:0 4px 16px -4px rgba(249,67,255,.7);white-space:nowrap}
@@ -3590,8 +3666,8 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 </style>
 
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "AggregateOffer", "lowPrice": "10.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "2", "description": "Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "Two plans: Starter at $10/month (3 monitored streams, 50-clip review queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "There is a free plan with no card required \u2014 one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
 <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -3618,7 +3694,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
       <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
     </div>
-    <p class="hero-note">From <b>$10/month</b> &middot; cancel anytime</p>
+    <p class="hero-note"><b>Free to start</b> &middot; no card &middot; cancel anytime</p>
     <div class="pills">
       <span class="pill">Formula-based — not AI</span>
       <span class="pill">Works at any channel size</span>
@@ -3913,22 +3989,37 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Pricing -->
 <section class="wrap" id="pricing">
-  <h2 class="sec-title" style="text-align:center">Simple, honest pricing</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">Two plans, no contracts — cancel anytime.</p>
+  <h2 class="sec-title" style="text-align:center">Start free. Pay when it earns it.</h2>
+  <p class="sec-sub" style="margin:0 auto;text-align:center">No card to start, no contracts — cancel anytime.</p>
   <div class="price-grid">
+    <div class="price-card starter">
+      <div class="price-in">
+        <span class="price-badge">Free</span>
+        <div class="price-amt"><span class="cur">$</span><span class="num">0</span><span class="per">/forever</span></div>
+        <div class="price-sub">The real product on one channel. No card.</div>
+        <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Automatic clip detection, live on Twitch</div>
+          <div class="li"><span class="ck">&#10003;</span>Monitor <b>1 stream</b></div>
+          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>15 pending clips</b></div>
+          <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
+          <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
+        </div>
+        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Start free &#8594;</a>
+      </div>
+    </div>
     <div class="price-card starter">
       <div class="price-in">
         <span class="price-badge">Starter</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">10</span><span class="per">/month</span></div>
         <div class="price-sub">Everything you need to stop missing highlights.</div>
         <div class="price-list">
-          <div class="li"><span class="ck">&#10003;</span>Automatic clip detection, live on Twitch</div>
+          <div class="li"><span class="ck">&#10003;</span>Everything in Free</div>
           <div class="li"><span class="ck">&#10003;</span>Monitor up to <b>3 streams</b> at once</div>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>50 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
         </div>
-        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Start with Starter &#8594;</a>
+        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Choose Starter &#8594;</a>
       </div>
     </div>
     <div class="price-card">
@@ -3985,7 +4076,7 @@ LANDING_HTML = """<!DOCTYPE html>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Two plans: Starter at $10/month (3 monitored streams, 50-clip review queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
+      <div class="faq-a">There is a <b>free plan with no card required</b> — one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
@@ -4815,6 +4906,17 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div id="promo-wrap" class="loading">Loading...</div>
   </div>
   <div class="section" style="margin-top:16px">
+    <div class="section-head" id="rf-head">Referrals</div>
+    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
+      Signups per person, from <code>?ref=</code> links and typed codes alike.
+      <b>Still active wk2</b> is the column that matters &mdash; signups say who
+      is good at getting attention, retention says whose lane brought people who
+      actually needed this. Users who signed up less than 7 days ago are
+      excluded from that column entirely rather than counted as churned.
+    </p>
+    <div id="rf-wrap" class="loading">Loading...</div>
+  </div>
+  <div class="section" style="margin-top:16px">
     <div class="section-head" id="cr-head">Clip Record</div>
     <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
       What Highlightz caught per channel and how much of it was kept — the
@@ -4845,6 +4947,33 @@ ADMIN_HTML = """<!DOCTYPE html>
     <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
     <a href="/admin/feedback-page" id="feedback-link" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Feedback &#8594;</a>
     <script>
+      // ── Referrals ────────────────────────────────────────────────────
+      async function loadReferrals(){
+        const wrap = document.getElementById('rf-wrap');
+        let d;
+        try { d = await (await fetch('/admin/referrals')).json(); }
+        catch (e) { wrap.innerHTML = '<p style="color:#f87171">Could not load referrals.</p>'; return; }
+        const rows = d.rows || [];
+        const head = document.getElementById('rf-head');
+        if (head) head.textContent = 'Referrals (' + (d.total || 0) + ' users)';
+        wrap.innerHTML = '<table><thead><tr><th>Who</th><th>Signups</th>'
+          + '<th>Connected a channel</th><th>Still active wk2</th><th>Paid</th>'
+          + '<th>Link</th></tr></thead><tbody>'
+          + rows.map(r => {
+              const link = r.ref === 'direct' ? '<span style="color:#5d5d6b">-</span>'
+                : '<code style="font-size:11.5px;color:#9c9caa">highlightz.app/?ref='
+                  + rvEsc(r.ref) + '</code>';
+              return '<tr><td style="font-weight:600">' + rvEsc(r.label) + '</td>'
+                + '<td>' + r.signups + '</td>'
+                + '<td>' + r.connected + '</td>'
+                + '<td style="color:#34d399;font-weight:700">' + r.active_wk2 + '</td>'
+                + '<td>' + r.paid + '</td>'
+                + '<td>' + link + '</td></tr>';
+            }).join('')
+          + '</tbody></table>';
+      }
+      loadReferrals();
+
       // ── Clip Record ──────────────────────────────────────────────────
       // Same rules as the reviews block below: no backslashes, no inline
       // onclick. Sorting and expansion run off data- attributes and delegated

@@ -273,6 +273,26 @@ async def get_valid_twitch_token(user_id: str) -> str | None:
     return access or None
 
 
+def set_ref_once(user_id: str, ref: str) -> bool:
+    """Attribute a user to a referrer, FIRST TOUCH ONLY.
+
+    Never overwrites. Someone who arrives through Tommy's link, returns a week
+    later through Ian's and subscribes still counts as Tommy's — otherwise the
+    person who posted most recently harvests everyone else's work and the
+    weekly table stops telling you which lane actually produces users.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.get("ref"):
+                return False
+            u["ref"] = ref
+            u["ref_at"] = time.time()
+            _save(users)
+            return True
+    return False
+
+
 def set_review_prompt_state(user_id: str, state: dict) -> None:
     """Persist when we last asked this user for a review, and whether they told
     us to stop. Lives on the user rather than in the reviews file because it
