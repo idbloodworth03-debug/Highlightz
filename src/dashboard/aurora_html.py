@@ -1795,12 +1795,12 @@ function AccountScreen({ me }) {
         {/* Subscription */}
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="card" size={15}/></span>Subscription</h3>
-          <div className="desc">Manage your Highlightz Pro plan.</div>
+          <div className="desc">Your plan and billing.</div>
           <div className="rd-field">
             <div><div className="fl">Plan status</div></div>
             <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
           </div>
-          {isSubscribed && me.plan_label && <div className="rd-field">
+          {me.plan_label && <div className="rd-field">
             <div><div className="fl">Membership</div>
               <div className="fd">{me.plan_limits ? `Up to ${me.plan_limits.max_streams} streams · ${me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
             </div>
@@ -1822,9 +1822,15 @@ function AccountScreen({ me }) {
             <div><div className="fl">Billing</div><div className="fd">Manage or cancel via Stripe portal</div></div>
             <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
           </div>}
-          {!isSubscribed && sub!=='trialing' && <div style={{marginTop:16}}>
-            <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
-              <Icon name="zap" size={14}/>Subscribe now
+          {!isSubscribed && sub!=='trialing' && <div className="rd-field">
+            <div><div className="fl">Want more?</div>
+              <div className="fd">
+                Starter is $10/month for 3 streams and 50 pending clips.
+                Pro is $25 for 10 streams, 200 pending, the VOD scanner and the
+                Clip Editor.
+              </div></div>
+            <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>See plans
             </a>
           </div>}
           {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'#9c9caa'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}

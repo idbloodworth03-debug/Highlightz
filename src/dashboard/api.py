@@ -113,15 +113,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
                 _user_last_active[uid] = time.time()
-        # Billing gate — redirect to paywall unless admin, labeler (the
-        # owner's training team gets full access without a subscription),
-        # active subscriber, or within an unexpired free trial.
-        if (not request.session.get("is_admin")
-                and not request.session.get("is_labeler")
-                and request.session.get("subscription_status") not in ("active", "trialing")):
-            if not request.headers.get("accept", "").startswith("application/json"):
-                return RedirectResponse("/billing/paywall", status_code=302)
-            return JSONResponse({"detail": "Subscription required"}, status_code=402)
+        # NO BILLING GATE HERE ANY MORE. Everyone who signs in gets the
+        # product; what differs is how much of it (src/billing/plans.py). This
+        # used to redirect non-subscribers to /billing/paywall, which meant a
+        # signup without a card saw nothing at all — you cannot ask someone to
+        # pay $10 to find out whether the detector works on their channel.
+        # Access control now lives with the individual limits: add_stream, the
+        # pending-clip cap, the VOD gate and the Clip Editor gate each ask
+        # limits_for() what this user is allowed. The paywall page still exists
+        # and is still linked from upgrade prompts; it is just not a wall.
         return await call_next(request)
 
 # Middleware stack is LIFO — SessionMiddleware added last runs first,
@@ -1476,10 +1476,12 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
         # for idle reaper — and tell the open tab (realtime contract: the lapse
         # must reach the user live, mirroring admin revoke).
         if status not in ("active", "trialing") and user_id:
-            asyncio.create_task(_stop_user_streams_now(user_id))
+            # Down to free, not out. Only the streams beyond the free limit stop.
+            asyncio.create_task(_enforce_stream_limit(user_id))
             await broadcast(
                 {"event": "subscription_expired",
-                 "message": "Your subscription has ended — streams have been stopped."},
+                 "message": "Your subscription has ended. You are on the free "
+                            "plan now — one stream, and your clips are still here."},
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
@@ -1789,8 +1791,12 @@ async def add_stream(request: Request, req: StreamRequest):
         limits  = limits_for(db_user)
         user_streams = [s for s in _streams.values() if s.get("user_id") == uid]
         if len(user_streams) >= limits["max_streams"]:
-            upgrade = (" Upgrade to Pro for up to 10 streams."
-                       if get_plan(db_user) == "starter" else "")
+            plan = get_plan(db_user)
+            # The moment a free user hits this is the moment upgrading means
+            # something concrete to them, so name the next tier rather than
+            # just refusing.
+            upgrade = {"free": " Starter ($10/mo) gives you 3 streams, Pro gives 10.",
+                       "starter": " Upgrade to Pro for up to 10 streams."}.get(plan, "")
             raise HTTPException(
                 status_code=429,
                 detail=f"Stream limit reached ({limits['max_streams']} max on your plan)."
@@ -1804,6 +1810,10 @@ async def add_stream(request: Request, req: StreamRequest):
             "preset":          req.preset,
             "status":          "starting",
             "user_id":         uid,
+            # Needed by _enforce_stream_limit to decide which streams survive a
+            # downgrade. Records written before this field existed sort as 0,
+            # i.e. oldest, which is the right side of the line to be on.
+            "added_at":        time.time(),
         }
         _streams[stream_key] = record
         _save_streams()
@@ -1852,6 +1862,49 @@ async def stop_stream_internal(channel: str, uid: str) -> bool:
         await _publish_remove_stream(channel, uid)
     log.info("stream_stopped_internal", channel=channel, user_id=uid)
     return True
+
+
+async def _enforce_stream_limit(uid: str) -> int:
+    """Trim a user down to what their CURRENT plan allows, newest first.
+
+    This replaces "stop everything" on a lapse. Before the free tier a lapsed
+    subscriber was locked out entirely, so killing all their streams was the
+    same thing as their access ending. Now lapsing means dropping to free — and
+    a free user is entitled to one stream, so stopping all of them would take
+    away something they still have a right to.
+
+    Newest-first is deliberate: the channel they added first is the one they
+    care most about, and it is the one still running afterwards.
+    """
+    from src.billing.plans import limits_for
+    from src.auth import users as _limit_store
+    allowed = limits_for(_limit_store.get_by_id(uid))["max_streams"]
+
+    mine = [(k, v) for k, v in _streams.items() if k.startswith(f"{uid}:")]
+    if len(mine) <= allowed:
+        return 0
+    mine.sort(key=lambda kv: kv[1].get("added_at") or 0)
+    excess = mine[allowed:]
+    log.info("enforce_stream_limit", user=uid, allowed=allowed,
+             had=len(mine), stopping=len(excess))
+
+    removed = []
+    async with _data_lock:
+        for key, _ in excess:
+            stream = _streams.pop(key, None)
+            if stream:
+                removed.append(stream)
+        _save_streams()
+    for stream in removed:
+        if _publish_remove_stream:
+            try:
+                await _publish_remove_stream(stream["channel"], uid)
+            except Exception as exc:
+                log.warning("enforce_stream_limit_failed",
+                            channel=stream.get("channel"), error=str(exc))
+        await broadcast({"event": "stream_removed", "channel": stream["channel"]},
+                        user_id=uid)
+    return len(removed)
 
 
 async def _stop_user_streams_now(uid: str) -> None:
@@ -1904,14 +1957,15 @@ async def idle_stream_reaper() -> None:
                     if status == "trialing" and now >= trial_ends_at:
                         _reaper_user_store.update_subscription(uid, db_user.get("stripe_customer_id"), "expired")
                         log.info("reaper_trial_expired", user=uid)
-                        await _stop_user_streams_now(uid)
+                        await _enforce_stream_limit(uid)
                         await broadcast({"event": "subscription_expired"}, user_id=uid)
                         continue
-                    # Kill streams for any lapsed subscription
+                    # Trim a lapsed subscriber to the free allowance. NOT a
+                    # shutdown: they keep using the product on free.
                     if status not in ("active", "trialing") and not db_user.get("is_admin"):
-                        log.info("reaper_subscription_lapsed", user=uid, status=status)
-                        await _stop_user_streams_now(uid)
-                        await broadcast({"event": "subscription_expired"}, user_id=uid)
+                        if await _enforce_stream_limit(uid):
+                            log.info("reaper_subscription_lapsed", user=uid, status=status)
+                            await broadcast({"event": "subscription_expired"}, user_id=uid)
                         continue
 
                 # Idle timeout — stop if no HTTP activity in 8 hours
@@ -2622,9 +2676,12 @@ async def websocket_endpoint(ws: WebSocket):
         import time as _t
         if _t.time() >= (_ws_db_user.get("trial_ends_at") or 0):
             _ws_sub = "expired"
-    if not _ws_is_admin and _ws_sub not in ("active", "trialing"):
-        await ws.close(code=1008)
-        return
+    # Deliberately NO subscription check. Realtime is not a paid feature — it
+    # is how the dashboard works at all (CLAUDE.md: "refresh to see it" is a
+    # bug). Closing the socket on a free user would leave them with a screen
+    # that silently stops updating, which reads as a broken product rather than
+    # as a limit. What free users get less OF is enforced at the limits, not
+    # by starving the transport.
     async with _ws_lock:
         bucket = _ws_clients.setdefault(uid, set())
         if len(bucket) >= _MAX_WS_PER_USER:

@@ -117,6 +117,33 @@ switched off.
   /billing/portal renders a branded "temporarily unavailable" page with a
   back link — never a raw 500. No dashboard portal setup is required
   anymore; a manually saved config, if one exists, is used untouched.
+- **THERE IS A FREE TIER (added 2026-08-03).** `free` = 1 monitored stream,
+  15 pending clips, no VOD scanner, no Clip Editor. It exists because the
+  growth plan needs 1,000 signups in a month and nobody hands over $10 to find
+  out whether the detector works on their channel.
+  - **AuthMiddleware no longer paywalls anyone.** It used to redirect every
+    non-subscriber to `/billing/paywall`, so a signup without a card saw no
+    product at all. Access control now lives with the individual limits
+    (add-stream cap, pending cap, VOD gate, Clip Editor gate), each asking
+    `limits_for()`. The paywall page still exists and is still linked from
+    upgrade prompts; it is just not a wall.
+  - **The websocket does NOT check subscription either.** Realtime is how the
+    dashboard works at all — closing the socket on a free user leaves a screen
+    that silently stops updating, which reads as broken rather than as a limit.
+  - **`get_plan` ordering is load-bearing.** No active subscription → free,
+    even if a `plan` field is stored (a lapsed subscriber must not keep Pro
+    forever). An active subscription with NO stored plan is a legacy $15-era
+    customer, grandfathered to Pro — the only case where a missing plan means
+    paid, which is why it is checked last. Anything unrecognised falls to free:
+    failing open on billing is the expensive direction.
+  - **Lapsing trims, it does not shut down.** `_enforce_stream_limit` stops
+    only the streams beyond the new allowance, newest first, because a free
+    user is still entitled to one. `_stop_user_streams_now` remains for admin
+    revoke, where stopping everything IS the intent.
+  - **Free is 1 stream because a stream is the scarce resource** — each one
+    runs a streamlink+ffmpeg audio meter on the single shared vCPU. Raising it
+    is a capacity decision, not a config tweak, and `max_concurrent_streams`
+    (20, process-wide) is still the global ceiling.
 - **Billed immediately. There is NO self-serve free trial.**
   trial_period_days, the trial-claims ledger (`trial_claims.json` helpers),
   and every "7 days free" promise were removed from checkout, landing,
