@@ -66,6 +66,14 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
                   "/landing/showcase", "/robots.txt", "/sitemap.xml"}
+# Short referral links. Open, because the whole point is that a signed-out
+# stranger clicks them — if the auth middleware bounced them to /login first,
+# the ref would be gone before any handler saw it.
+def _referral_paths() -> set[str]:
+    from src.auth.referrals import all_keys
+    return {f"/{k}" for k in all_keys()} | {f"/r/{k}" for k in all_keys()}
+
+
 _AUTH_PREFIXES = ("/auth/", "/billing/")
 _STATIC_PREFIX = "/static"
 
@@ -74,6 +82,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if (path in _OPEN_PATHS or path == "/login"
                 or path.startswith(_STATIC_PREFIX)
+                or path.rstrip("/").lower() in _referral_paths()
                 or any(path.startswith(p) for p in _AUTH_PREFIXES)):
             return await call_next(request)
         if not request.session.get("auth"):
@@ -5788,3 +5797,41 @@ load();
 </script>
 </body>
 </html>"""
+
+
+# ── Short referral links ──────────────────────────────────────────────────────
+#
+# `highlightz.app/ian` instead of `highlightz.app/?ref=ian`. A bio field shows
+# whatever URL you type into it, so the attribution cannot be hidden outright —
+# but a bare path reads as a page rather than as tracking, which is the whole
+# difference in a bio.
+#
+# REGISTERED LAST ON PURPOSE. FastAPI matches routes in registration order, so
+# putting a single-segment path here means every real route above already had
+# its chance. The handler additionally refuses anything not in REFERRERS, so it
+# can never shadow a future /settings or /pricing — an unknown slug 404s exactly
+# as it would have without this route.
+
+@app.get("/r/{slug}")
+async def referral_short_link(request: Request, slug: str):
+    return _referral_redirect(request, slug)
+
+
+@app.get("/{slug}")
+async def referral_bare_link(request: Request, slug: str):
+    return _referral_redirect(request, slug)
+
+
+def _referral_redirect(request: Request, slug: str):
+    from src.auth import referrals
+    ref = referrals.normalise(slug)
+    if not ref:
+        # Not a referrer. Behave exactly as if this route did not exist.
+        raise HTTPException(status_code=404, detail="Not found")
+    # First touch wins here too, matching _capture_ref.
+    if not request.session.get("ref"):
+        request.session["ref"] = ref
+    # 302, not 301: browsers cache a permanent redirect, and a cached redirect
+    # from /tommy would keep sending that person to the landing page even after
+    # they are signed in.
+    return RedirectResponse("/", status_code=302)

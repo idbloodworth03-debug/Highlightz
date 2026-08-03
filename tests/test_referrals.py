@@ -145,3 +145,77 @@ def test_the_vod_scanner_is_named_consistently():
     from src.dashboard.api import LANDING_HTML
     assert "<b>VOD Scanner</b>" in LANDING_HTML
     assert "VOD scanner" not in LANDING_HTML, "mixed capitalisation of the feature name"
+
+
+# ── short links ──────────────────────────────────────────────────────────────
+
+def test_a_bare_slug_attributes_and_lands_on_the_page(client):
+    """`highlightz.app/tommy` — a bio field shows whatever URL you type, so the
+    ref cannot be hidden outright, but a bare path reads as a page rather than
+    as tracking."""
+    r = client.get("/tommy", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/"
+    assert client.cookies.get("session"), "the ref was not carried into a session"
+
+
+def test_the_prefixed_form_works_too(client):
+    r = client.get("/r/andrew", follow_redirects=False)
+    assert r.status_code == 302
+
+
+def test_short_links_work_signed_out(client):
+    """The whole point is that a stranger clicks them. If AuthMiddleware
+    bounced them to /login the ref would be gone before any handler ran."""
+    r = client.get("/thomas", follow_redirects=False)
+    assert r.status_code == 302
+    assert "/login" not in r.headers.get("location", "")
+
+
+def test_an_unknown_slug_is_never_treated_as_a_referral():
+    """The bare-slug route must behave as if it does not exist for anything
+    that is not a referrer, or it shadows every future single-segment page.
+
+    Signed OUT, an unknown path is a redirect to /login — that is the auth
+    middleware doing its long-standing job, not this route. The tell is WHERE
+    it redirects: this route always sends you to "/". Signed in, the middleware
+    steps aside and the route must 404.
+    """
+    import base64, json as _j
+    from fastapi.testclient import TestClient
+    from itsdangerous import TimestampSigner
+    from src.dashboard import api
+
+    c = TestClient(api.app)
+    out = c.get("/pricing", follow_redirects=False)
+    assert out.headers.get("location", "").startswith("/login"), \
+        f"an unknown slug was swallowed by the referral route: {out.headers.get('location')}"
+
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+        {"auth": True, "user_id": "u", "subscription_status": "none"}).encode())).decode())
+    assert c.get("/pricing", follow_redirects=False).status_code == 404
+
+
+def test_the_bare_slug_route_does_not_shadow_real_pages():
+    """Registration order is what keeps this safe, so assert it rather than
+    trusting it: every real route is declared before the catch-all."""
+    from src.dashboard import api
+    paths = [getattr(r, "path", "") for r in api.app.routes]
+    assert paths[-1] == "/{slug}", "the catch-all is no longer last"
+    slug_at = paths.index("/{slug}")
+    for real in ("/login", "/me", "/clips", "/streams", "/admin", "/tos", "/privacy"):
+        assert paths.index(real) < slug_at, f"{real} is shadowed by the catch-all"
+
+
+def test_real_pages_still_resolve_with_the_catch_all_in_place(client):
+    """The direct proof, not just ordering: these must not 302 to '/'."""
+    for path in ("/login", "/tos", "/privacy"):
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 200, f"{path} was captured by the catch-all"
+
+
+def test_short_links_redirect_temporarily_not_permanently(client):
+    """A 301 gets cached by the browser, so /tommy would keep bouncing that
+    person to the landing page long after they signed in."""
+    assert client.get("/tommy", follow_redirects=False).status_code == 302

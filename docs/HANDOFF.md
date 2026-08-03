@@ -878,7 +878,23 @@ after silently attributes nobody and every signup shows as Direct.
 `test_the_callback_reads_the_ref_before_clearing_the_session` guards it.
 Captured on `/`, `/login` AND `/auth/twitch` — a bio link may point at any.
 
-Add a person by adding a key to `REFERRERS`; their link and code both work.
+**Short links:** `highlightz.app/ian` and `highlightz.app/r/ian` both work
+alongside `?ref=ian`. A bio field displays whatever URL you type, so the
+attribution cannot be hidden outright — a bare path just reads as a page
+instead of as tracking.
+
+`GET /{slug}` is registered LAST in api.py and refuses anything not in
+REFERRERS, so it cannot shadow a future `/pricing` or `/settings`; an unknown
+slug behaves exactly as if the route did not exist. Two tests hold that: one
+asserts the route is last in `app.routes` and every real path precedes it, the
+other checks real pages still resolve. Referral paths are also in the open-path
+check — without that the auth middleware bounces a signed-out visitor to
+`/login` and the ref is gone before any handler runs. 302 not 301: a cached
+permanent redirect would keep sending that person to the landing page after
+they signed in.
+
+Add a person by adding a key to `REFERRERS`; their link, short link and typed
+code all start working.
 
 **Admin → Referrals** shows the weekly table from the plan: signups /
 connected a channel / still active wk2 / paid. Users younger than 7 days are
