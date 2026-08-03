@@ -4724,11 +4724,86 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div id="promo-wrap" class="loading">Loading...</div>
   </div>
   <div class="section" style="margin-top:16px">
+    <div class="section-head" id="reviews-head">Reviews</div>
+    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
+      Star ratings from users, asked after 25 approved clips. A review is only
+      publishable if the user ticked the consent box AND you approve it here.
+      The average shown is over APPROVED reviews only — that is the number that
+      would ever appear as a rating on the site, so it has to match what a
+      visitor can actually read.
+    </p>
+    <div id="reviews-wrap" class="loading">Loading...</div>
+  </div>
+  <div class="section" style="margin-top:16px">
     <div class="section-head">Opt-Out Registry</div>
     <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Streamers who have verified and opted out of being clipped.</p>
     <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
     <a href="/admin/feedback-page" id="feedback-link" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Feedback &#8594;</a>
     <script>
+      function rvEsc(t){ const d=document.createElement('div'); d.textContent=t==null?'':String(t); return d.innerHTML; }
+      const RV_STAR = String.fromCharCode(9733);
+      function rvStars(n){ return '<span style="color:#ffc75a;letter-spacing:1px">'
+        + RV_STAR.repeat(n) + '<span style="color:#3a3a45">' + RV_STAR.repeat(5-n) + '</span></span>'; }
+
+      // NO INLINE onclick AND NO BACKSLASHES IN THIS BLOCK. The whole file is a
+      // Python triple-quoted string, so an escape written for JS is eaten by
+      // Python first: onclick="rvApprove(<escaped quote>ID<escaped quote>)"
+      // reached the browser as rvApprove(''), a syntax error that killed the
+      // entire script and left the section stuck on "Loading...". Buttons carry
+      // data- attributes and one delegated listener reads them.
+      function rvRow(r){
+        // Consent is the user's decision and is NOT overridable here. The
+        // publish button only exists for reviews they agreed to publish;
+        // offering it otherwise invites putting someone's words on the public
+        // site by accident.
+        const act = r.publish_consent
+          ? '<button class="btn rv-act" data-id="' + rvEsc(r.id) + '" data-on="'
+              + (!r.approved) + '">' + (r.approved ? 'Unpublish' : 'Publish') + '</button>'
+          : '<span style="font-size:11px;color:#5d5d6b">no consent</span>';
+        return '<tr><td>' + rvStars(r.stars) + '</td>'
+          + '<td style="max-width:340px;white-space:pre-wrap">' + rvEsc(r.comment || '-') + '</td>'
+          + '<td>' + rvEsc(r.username || r.user_id) + '</td>'
+          + '<td>' + (r.publish_consent ? rvEsc(r.display_name || 'Highlightz user')
+                                        : '<span style="color:#5d5d6b">-</span>') + '</td>'
+          + '<td>' + act + ' <button class="btn rv-del" data-id="' + rvEsc(r.id)
+          + '">Delete</button></td></tr>';
+      }
+
+      async function loadReviews(){
+        const wrap = document.getElementById('reviews-wrap');
+        let d;
+        try { d = await (await fetch('/admin/reviews')).json(); }
+        catch (e) { wrap.innerHTML = '<p style="color:#f87171">Could not load reviews.</p>'; return; }
+        const rows = d.reviews || [], agg = d.aggregate || {count:0, average:0};
+        const head = document.getElementById('reviews-head');
+        if (head) head.textContent = 'Reviews (' + rows.length + ')'
+          + (agg.count ? ' - ' + agg.average + RV_STAR + ' from ' + agg.count + ' published' : '');
+        if (!rows.length) {
+          wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">Nothing yet. '
+            + 'The prompt appears at 25 approved clips.</p>';
+          return;
+        }
+        wrap.innerHTML = '<table><thead><tr><th>Rating</th><th>Comment</th>'
+          + '<th>User</th><th>Shows as</th><th>Public</th></tr></thead><tbody>'
+          + rows.map(rvRow).join('') + '</tbody></table>';
+      }
+
+      document.getElementById('reviews-wrap').addEventListener('click', async function (e) {
+        const act = e.target.closest('.rv-act'), del = e.target.closest('.rv-del');
+        if (act) {
+          await fetch('/admin/reviews/' + act.dataset.id + '/approve', {method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({approved: act.dataset.on === 'true'})});
+          loadReviews();
+        } else if (del) {
+          if (!confirm('Delete this review permanently?')) return;
+          await fetch('/admin/reviews/' + del.dataset.id, {method:'DELETE'});
+          loadReviews();
+        }
+      });
+
+      loadReviews();
+
       fetch('/admin/feedback').then(r=>r.json()).then(fb=>{
         const unread=fb.filter(f=>!f.read).length;
         if(unread>0){const el=document.getElementById('feedback-link');if(el)el.textContent='View Feedback ('+unread+' new) →';}

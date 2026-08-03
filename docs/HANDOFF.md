@@ -882,6 +882,19 @@ product, not a business.
    schema.org; averaging private ones describes something no visitor can read,
    which is what structured-data penalties are for.
 
+**Where to see them:** the `/admin` panel, "Reviews" section — rating, comment,
+who wrote it, the name it would show as, and Publish/Unpublish/Delete. The
+publish button only exists for reviews the user consented to; consent is not
+overridable from the panel.
+
+**That block contains no backslashes and no inline `onclick`, on purpose.**
+ADMIN_HTML is a Python triple-quoted string, so a JS escape is eaten by Python
+first: `onclick="rvApprove(\'ID\')"` reached the browser as `rvApprove('')`, a
+SyntaxError that killed the entire script and left the section on "Loading..."
+with nothing in the suite noticing. Buttons carry `data-` attributes and one
+delegated listener reads them. `test_the_admin_reviews_script_actually_parses`
+runs `node --check` on the extracted block — do the same for any new admin JS.
+
 **Not built yet:** the landing-page testimonial section and the
 `aggregateRating` JSON-LD that consumes `reviews.aggregate()`. Do not add the
 markup before real approved reviews exist.

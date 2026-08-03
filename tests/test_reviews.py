@@ -186,3 +186,61 @@ def test_a_snooze_holds_even_when_a_new_milestone_is_reached():
     later = time.time() + reviews.SNOOZE_S + 60
     assert reviews.should_prompt(user, 150, now=later) is True, \
         "and it must resume once the month is up"
+
+
+# ── the admin panel ──────────────────────────────────────────────────────────
+
+def _reviews_script() -> str:
+    import re
+    from src.dashboard.api import ADMIN_HTML
+    blocks = [b for b in re.findall(r"<script>(.*?)</script>", ADMIN_HTML, re.S)
+              if "rvEsc" in b]
+    assert blocks, "the reviews script is not in the admin page"
+    return blocks[0]
+
+
+def test_the_admin_reviews_script_actually_parses():
+    """ADMIN_HTML is a Python triple-quoted string, so a JS escape is eaten by
+    Python before the browser sees it. The first version of this block used
+    onclick="rvApprove(<escaped quote>ID<escaped quote>)" and arrived as
+    rvApprove(''), a SyntaxError that killed the whole script — the section sat
+    on "Loading..." forever and nothing in the test suite noticed."""
+    import subprocess, tempfile, shutil
+    node = shutil.which("node")
+    if not node:                                    # pragma: no cover
+        import pytest as _p
+        _p.skip("node not available")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(_reviews_script())
+        path = fh.name
+    r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+    assert r.returncode == 0, f"admin reviews JS does not parse:\n{r.stderr}"
+
+
+def test_the_admin_reviews_script_contains_no_backslashes():
+    """The structural fix, not just the symptom: with zero backslashes in the
+    block there is nothing for Python to eat. Inline handlers were replaced by
+    data- attributes and one delegated listener to make that possible."""
+    # Strip // comments first: the block documents the original bug and names
+    # onclick in prose, which is not the same as using one.
+    js = "\n".join(l for l in _reviews_script().splitlines()
+                   if not l.strip().startswith("//"))
+    assert "\\" not in js, "a backslash is back in the admin reviews JS"
+    assert "onclick=" not in js, "inline onclick reintroduces the quoting problem"
+
+
+def test_the_admin_panel_never_offers_to_publish_without_consent():
+    """Consent is the user's decision and must not be overridable from the
+    admin panel — a button there invites putting someone's words on the public
+    site by accident."""
+    js = _reviews_script()
+    assert "r.publish_consent" in js and "no consent" in js
+
+
+def test_admin_reviews_output_is_escaped():
+    """Comments are user-written text rendered via innerHTML."""
+    js = _reviews_script()
+    assert "function rvEsc(" in js and "textContent" in js
+    for field in ("r.comment", "r.display_name", "r.username", "r.id"):
+        assert f"rvEsc({field}" in js or f"rvEsc({field} " in js, \
+            f"{field} reaches innerHTML unescaped"
