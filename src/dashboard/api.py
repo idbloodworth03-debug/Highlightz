@@ -581,6 +581,28 @@ async def notify_clip_ready(clip: dict) -> None:
         training_log.log_outcome(ev, training_log.EXPIRED_UNREVIEWED)
         _ss.record(_ss.EXPIRED, ev)
         await broadcast({"event": "clip_removed", "clip_id": ev["id"]}, user_id=clip_uid)
+
+    if evicted:
+        # Tell them a clip was DELETED, because that is what happened. The cap
+        # does not make us miss the new clip — it is saved — it deletes the
+        # oldest one they had not reviewed yet. Saying "we missed a clip" would
+        # be a lie they could disprove in one glance at the queue, and the true
+        # version is the stronger case for upgrading anyway.
+        from src.billing.plans import PLAN_LIMITS, get_plan
+        _ev_user = _plan_user_store.get_by_id(clip_uid)
+        _ev_plan = get_plan(_ev_user)
+        _next = {"free": "starter", "starter": "pro"}.get(_ev_plan)
+        await broadcast({
+            "event": "clip_evicted",
+            "channel": evicted[-1].get("channel") or "",
+            "title": evicted[-1].get("clip_title") or "a clip",
+            "plan": _ev_plan,
+            "limit": pending_cap,
+            "lost_24h": _ss.evictions_since(clip_uid, time.time() - 86400),
+            "next_plan": _next,
+            "next_limit": PLAN_LIMITS[_next]["max_pending"] if _next else 0,
+            "next_price": PLAN_LIMITS[_next]["price"] if _next else 0,
+        }, user_id=clip_uid)
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
 
@@ -703,6 +725,16 @@ async def me(request: Request):
         # live case; this handles a tab opened after the milestone was crossed,
         # and a reconnect (refetchAll pulls /me).
         "review_prompt":       _review_prompt_due(uid),
+        # Clips deleted by the pending cap in the last 24h. On /me rather
+        # than only on the event so the notice survives a reload and a
+        # reconnect — the event is the live nudge, this is the state.
+        "clips_lost_24h":      _clips_lost_24h(uid),
+        # The tier above this one, so the queue-full notice can make the
+        # concrete offer on a PAGE LOAD too. Without it the reload path —
+        # which is how most people will actually see the notice — fell
+        # back to "review some to free up space" and never mentioned
+        # upgrading at all.
+        "next_plan":           _next_tier(user),
         "features":            {"uploads": settings.uploads_enabled,
                                 "clip_import": settings.clip_import_enabled,
                                 "captions": settings.captions_enabled},
@@ -2428,6 +2460,25 @@ def _require_captions(uid: str):
 # worth having. The trigger is a CLIP COUNT and never a sentiment score:
 # soliciting only happy users is review gating, which Google and Trustpilot
 # both prohibit and which Trustpilot removes profiles for.
+
+def _next_tier(user: dict | None) -> dict | None:
+    """The plan above this user's, with its real numbers. None on Pro — there
+    is nothing above it, and an upgrade button that leads nowhere is worse
+    than no button."""
+    from src.billing.plans import PLAN_LIMITS, get_plan
+    nxt = {"free": "starter", "starter": "pro"}.get(get_plan(user))
+    if not nxt:
+        return None
+    return {"plan": nxt, "label": PLAN_LIMITS[nxt]["label"],
+            "max_pending": PLAN_LIMITS[nxt]["max_pending"],
+            "max_streams": PLAN_LIMITS[nxt]["max_streams"],
+            "price": PLAN_LIMITS[nxt]["price"]}
+
+
+def _clips_lost_24h(uid: str) -> int:
+    from src.stats import stream_stats
+    return stream_stats.evictions_since(uid, time.time() - 86400)
+
 
 def _review_prompt_due(uid: str) -> bool:
     from src.auth import users as user_store

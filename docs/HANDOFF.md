@@ -854,6 +854,31 @@ takes the whole queue.
 **Not built, on purpose:** email and browser-push reminders. In-app only for
 now — the owner's call. Email needs a sender that does not exist yet.
 
+## Queue-full notice / upgrade prompt (2026-08-03)
+
+The pending cap is the conversion lever, so the notice has to be accurate:
+**the cap does NOT make us miss a clip.** `notify_clip_ready` saves the new clip
+and deletes the OLDEST UNREVIEWED one to make room (FIFO). A user can disprove
+"we missed a clip" by glancing at their queue and seeing the new one sitting
+there, and a sales message they can catch lying is worth less than none.
+`test_the_notice_says_a_clip_was_deleted_not_missed` holds the wording.
+
+- `clip_evicted` broadcast on eviction (live nudge) + `clips_lost_24h` and
+  `next_plan` on `/me` (state, so the notice survives a reload and a reconnect).
+  **Both paths need the next-tier fields** — the reload path is how most people
+  will actually see this, and without them it fell back to "review some to free
+  up space" and never mentioned upgrading at all. Found in the browser drive,
+  not by reading the code.
+- Counted from the `stream_stats` ledger (cap evictions already log as
+  `EXPIRED`), so no new storage and it survives a restart — the cap fires while
+  the user is away, and an in-memory counter would read zero by the time they
+  open the tab.
+- **Pro gets the notice but no upgrade button.** There is no tier above it; the
+  copy switches to "review or approve some to free up space". An upgrade button
+  that leads nowhere is worse than no button.
+- `clips_lost_24h == 0` clears the banner, so a true warning cannot become a
+  permanent nag once they free up space.
+
 ## Clip trading between admins (2026-08-03)
 
 **Landing Page tab → Grab.** Copies a featured clip into your own Clip Library

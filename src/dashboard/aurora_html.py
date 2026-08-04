@@ -428,6 +428,12 @@ button{font-family:inherit;cursor:pointer}
 .sr-bar{flex:1;height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
 .sr-bar i{display:block;height:100%;background:var(--grad);border-radius:99px}
 .sr-nums{flex-shrink:0;font-size:11.5px;color:var(--fg-2)}
+.rd-lost{display:flex;align-items:center;gap:13px;padding:13px 16px;margin-bottom:14px;
+  border-radius:14px;background:rgba(255,138,76,.09);border:1px solid rgba(255,138,76,.3)}
+.rd-lost .ic{flex-shrink:0;color:#ff9a52;display:grid;place-items:center}
+.rd-lost .tx{flex:1;min-width:0;font-size:12.8px;line-height:1.5;color:var(--fg-2)}
+.rd-lost .tx b{color:#ff9a52}
+@media(max-width:640px){.rd-lost{flex-direction:column;align-items:flex-start}}
 .rv{max-width:460px;width:100%;padding:26px 28px;border-radius:20px;
   display:flex;flex-direction:column;gap:12px}
 .rv h3{font-size:19px;font-weight:800;margin:0}
@@ -1301,7 +1307,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   );
 }
 
-function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen }) {
+function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [chanFilter, setChanFilter] = useState('all');
@@ -1324,9 +1330,30 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
     if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
     return (b.created_at||0)-(a.created_at||0);
   });
+  // The pending cap DELETES the oldest unreviewed clip to make room for a new
+  // one. Say exactly that: the new clip is in the queue, so "we missed a clip"
+  // is disprovable at a glance and would cost more trust than the upgrade is
+  // worth. Losing work you already had is the stronger case anyway.
+  const lostN = lost ? (lost.lost_24h || 1) : 0;
+  const nextPlan = lost && lost.next_plan;
   return (
     <div className="rd-body rd-body-full" style={{flex:1}}>
       <section className="rd-main">
+        {lostN > 0 && <div className="rd-lost">
+          <span className="ic"><Icon name="zap" size={16}/></span>
+          <div className="tx">
+            <b>Your review queue is full{lost.limit ? ' at ' + lost.limit + ' clips' : ''}.</b>{' '}
+            {lostN === 1
+              ? 'A clip you had not reviewed yet was deleted to make room for a newer one.'
+              : lostN + ' clips you had not reviewed were deleted to make room for newer ones, in the last 24 hours.'}
+            {nextPlan
+              ? ' ' + (nextPlan === 'starter' ? 'Starter' : 'Pro') + ' holds '
+                + lost.next_limit + ' — $' + lost.next_price + '/month.'
+              : ' Review or approve some to free up space.'}
+          </div>
+          {nextPlan && <a className="rd-btn grad" href="/billing/paywall"
+            style={{textDecoration:'none',flexShrink:0}}>See plans</a>}
+        </div>}
         <div className="rd-stats">
           <RdStat icon="sparkles" k="Pending review" v={pending} sub="awaiting your call" accent/>
           <RdStat icon="check" k="Approved" v={approved} sub="ready to use"/>
@@ -3928,6 +3955,9 @@ function RdApp() {
   const [queue, setQueue] = useState([]);
   // {clips} while the review prompt is open, null otherwise.
   const [reviewAsk, setReviewAsk] = useState(null);
+  // Clips DELETED by the pending cap. Not 'missed' — the new clip is kept
+  // and the oldest unreviewed one is dropped, which is what the notice says.
+  const [lostClips, setLostClips] = useState(null);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -3958,6 +3988,18 @@ function RdApp() {
       // The broadcast covers the live case; this covers a tab opened after
       // the milestone was crossed, and any reconnect.
       if(data && data.review_prompt) setReviewAsk(p=>p||{clips:0});
+      // The event is the live nudge; this is the state, so the notice
+      // survives a reload and a reconnect.
+      if(data && data.clips_lost_24h > 0)
+        // Carry the next tier here too. The reload path is how most people
+        // will actually see this notice, and without these fields it rendered
+        // the "free up space" fallback and never mentioned upgrading.
+        setLostClips(p=>p||{lost_24h:data.clips_lost_24h, plan:data.plan,
+                            limit:(data.plan_limits||{}).max_pending,
+                            next_plan:(data.next_plan||{}).plan,
+                            next_limit:(data.next_plan||{}).max_pending,
+                            next_price:(data.next_plan||{}).price});
+      else if(data && data.clips_lost_24h === 0) setLostClips(null);
     }).catch(()=>{});
     // Static config, but it still belongs here: refetchAll runs on every
     // reconnect, so a deploy that changes a platform limit reaches open
@@ -4077,6 +4119,10 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter
+        else if(msg.event==='clip_evicted'){
+          setLostClips(msg);
+          flash('Queue full — your oldest unreviewed clip was deleted to make room');
+        }
         else if(msg.event==='review_prompt'){ setReviewAsk({clips: msg.clips||0}); }
         else if(msg.event==='reviews_updated'){ /* landing page only; nothing to do here */ }
         else if(msg.event==='schedule_added'||msg.event==='schedule_updated'){
@@ -4210,7 +4256,7 @@ function RdApp() {
   // backend refuses too (503) — this is not a UI-only gate. Admins get the
   // real screen so the owner can exercise it on prod.
   else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip}}/>;
+  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;

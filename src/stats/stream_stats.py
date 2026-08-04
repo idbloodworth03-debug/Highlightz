@@ -152,6 +152,18 @@ def for_user(user_id: str) -> list[dict]:
     return sorted(out, key=lambda c: -c["last_at"])
 
 
+def evictions_since(user_id: str, since_ts: float) -> int:
+    """How many clips this user lost to the pending cap since `since_ts`.
+
+    Cap evictions are already logged here as EXPIRED, so this needs no new
+    storage — and it survives a restart, which an in-memory counter would not.
+    Used for the "your queue is full" notice, so the number a user is shown is
+    the same one the ledger holds.
+    """
+    return sum(1 for r in _read(user_id)
+               if r.get("event") == EXPIRED and (r.get("ts") or 0) >= since_ts)
+
+
 def all_rows() -> list[dict]:
     """Every (user, channel) pair with its totals — the admin view.
 
