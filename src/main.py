@@ -165,6 +165,18 @@ async def run_clip_processor() -> None:
                 log.warning("clip_job_stale_dropped", clip_id=job.clip_id,
                             channel=job.channel, age_s=round(age, 1))
                 continue
+            # Queue full? Do not clip at all. Checked HERE, before the Helix
+            # call, for two reasons: creating the clip and then discarding our
+            # record would leave an orphan on the user's Twitch account that
+            # never appears in Highlightz, and it would spend a Helix call from
+            # a budget shared with every other user.
+            _used, _cap = dashboard_api.pending_room(job.user_id)
+            if _used >= _cap:
+                log.info("clip_skipped_queue_full", channel=job.channel,
+                         user_id=job.user_id, pending=_used, cap=_cap)
+                await dashboard_api.notify_clip_missed(job.user_id, job.channel)
+                continue
+
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
             # Budget: post_roll sleep (≤30s) + create_clip retries (≤15s) +

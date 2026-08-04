@@ -557,52 +557,34 @@ async def notify_clip_ready(clip: dict) -> None:
              if c.get("status") == "pending" and c.get("user_id") == clip_uid],
             key=lambda c: c.get("created_at", 0),
         )
-        evicted = []
-        while len(user_pending) >= pending_cap:
-            oldest = user_pending.pop(0)
-            del _clips[oldest["id"]]
-            _delete_clip_file(oldest)
-            log.info("clip_cap_evicted", clip_id=oldest["id"], channel=oldest.get("channel"))
-            evicted.append(oldest)
+        # FULL QUEUE DROPS THE NEW CLIP — it does not evict an old one.
+        # Until 2026-08-03 this deleted the OLDEST unreviewed clip to make room,
+        # so a full queue silently destroyed work the user already had. Now the
+        # newest moment is the one refused, which is both less destructive and
+        # the honest version of "you missed a clip".
+        # The processor checks pending_room() before creating the Twitch clip,
+        # so this path only fires when the queue filled between that check and
+        # here. Keeping it is what stops a race from putting the queue over cap.
+        dropped = len(user_pending) >= pending_cap
+        if dropped:
+            log.info("clip_dropped_queue_full", clip_id=clip.get("id"),
+                     channel=channel, pending=len(user_pending), cap=pending_cap)
+            _delete_clip_file(clip)
+        else:
+            _clips[clip["id"]] = clip
+            _save_clips()
+            increment_clip_counter()
+            # Counted at creation, not from _clips — rejected clips are deleted,
+            # so a later census would report only survivors.
+            from src.stats import stream_stats
+            stream_stats.record(stream_stats.CAUGHT, clip)
 
-        _clips[clip["id"]] = clip
-        _save_clips()
-        increment_clip_counter()
-        # Counted at creation, not from _clips — rejects and cap-evictions are
-        # deleted, so a later census would report only survivors.
-        from src.stats import stream_stats
-        stream_stats.record(stream_stats.CAUGHT, clip)
+    # Outside the lock: notify_clip_missed broadcasts, and awaiting a socket
+    # write while holding _data_lock stalls every other clip in the pipeline.
+    if dropped:
+        await notify_clip_missed(clip_uid, channel)
+        return
 
-    # A pending clip pushed out at the cap was never approved → weak negative for
-    # the training log (the user had it in their queue and didn't keep it).
-    from src.profiles import training_log
-    from src.stats import stream_stats as _ss
-    for ev in evicted:
-        training_log.log_outcome(ev, training_log.EXPIRED_UNREVIEWED)
-        _ss.record(_ss.EXPIRED, ev)
-        await broadcast({"event": "clip_removed", "clip_id": ev["id"]}, user_id=clip_uid)
-
-    if evicted:
-        # Tell them a clip was DELETED, because that is what happened. The cap
-        # does not make us miss the new clip — it is saved — it deletes the
-        # oldest one they had not reviewed yet. Saying "we missed a clip" would
-        # be a lie they could disprove in one glance at the queue, and the true
-        # version is the stronger case for upgrading anyway.
-        from src.billing.plans import PLAN_LIMITS, get_plan
-        _ev_user = _plan_user_store.get_by_id(clip_uid)
-        _ev_plan = get_plan(_ev_user)
-        _next = {"free": "starter", "starter": "pro"}.get(_ev_plan)
-        await broadcast({
-            "event": "clip_evicted",
-            "channel": evicted[-1].get("channel") or "",
-            "title": evicted[-1].get("clip_title") or "a clip",
-            "plan": _ev_plan,
-            "limit": pending_cap,
-            "lost_24h": _ss.evictions_since(clip_uid, time.time() - 86400),
-            "next_plan": _next,
-            "next_limit": PLAN_LIMITS[_next]["max_pending"] if _next else 0,
-            "next_price": PLAN_LIMITS[_next]["price"] if _next else 0,
-        }, user_id=clip_uid)
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
 
@@ -2475,9 +2457,58 @@ def _next_tier(user: dict | None) -> dict | None:
             "price": PLAN_LIMITS[nxt]["price"]}
 
 
+def pending_room(uid: str) -> tuple[int, int]:
+    """(pending clips this user has, what their plan allows).
+
+    Called by the clip processor BEFORE creating the Twitch clip. Checking
+    afterwards would leave an orphan clip on the user's Twitch account that
+    never appears in Highlightz, and would spend a Helix call from a budget
+    shared with every other user.
+    """
+    from src.billing.plans import limits_for
+    from src.auth import users as _room_store
+    cap = limits_for(_room_store.get_by_id(uid))["max_pending"]
+    used = sum(1 for c in _clips.values()
+               if c.get("status") == "pending" and c.get("user_id") == uid)
+    return used, cap
+
+
+async def notify_clip_missed(user_id: str, channel: str, reason: str = "queue_full") -> None:
+    """A moment we did NOT clip because the user's queue was full.
+
+    Recorded in the same ledger as everything else so the clip record stays
+    honest — a missed moment is not a caught one, and must never read as a
+    rejection either.
+    """
+    from src.billing.plans import PLAN_LIMITS, get_plan
+    from src.auth import users as _miss_store
+    from src.stats import stream_stats as _ss
+
+    user = _miss_store.get_by_id(user_id)
+    used, cap = pending_room(user_id)
+    _ss.record(_ss.MISSED, {"id": "", "user_id": user_id, "channel": channel,
+                            "created_at": time.time()})
+    plan = get_plan(user)
+    nxt = {"free": "starter", "starter": "pro"}.get(plan)
+    log.info("clip_missed_queue_full", user_id=user_id, channel=channel,
+             pending=used, cap=cap, plan=plan)
+    await broadcast({
+        "event": "clip_missed",
+        "channel": channel,
+        "reason": reason,
+        "plan": plan,
+        "limit": cap,
+        "missed_24h": _ss.missed_since(user_id, time.time() - 86400),
+        "next_plan": nxt,
+        "next_limit": PLAN_LIMITS[nxt]["max_pending"] if nxt else 0,
+        "next_price": PLAN_LIMITS[nxt]["price"] if nxt else 0,
+    }, user_id=user_id)
+
+
 def _clips_lost_24h(uid: str) -> int:
+    """Moments NOT clipped in the last 24h because the queue was full."""
     from src.stats import stream_stats
-    return stream_stats.evictions_since(uid, time.time() - 86400)
+    return stream_stats.missed_since(uid, time.time() - 86400)
 
 
 def _review_prompt_due(uid: str) -> bool:

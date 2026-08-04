@@ -1,10 +1,12 @@
-"""Telling a free user the pending cap cost them a clip.
+"""Telling a free user the pending cap cost them a highlight.
 
-The point of this is conversion, which is exactly why the wording has to be
-right. The cap does NOT make us miss a clip: the new clip is saved and the
-OLDEST UNREVIEWED one is deleted to make room. A user can disprove "we missed a
-clip" by glancing at their queue and seeing the new one sitting there — and a
-sales message they can catch lying is worth less than no message.
+The cap now REFUSES the new moment instead of deleting an old clip, so "we did
+not clip this" is accurate. It is checked BEFORE the Twitch clip is created, so
+there is no orphan sitting in the user's Twitch clips to contradict the notice
+— which is what made the old wording unsafe.
+
+The point of this is conversion, which is exactly why the numbers and the
+wording have to hold up.
 """
 
 import base64
@@ -29,50 +31,52 @@ def _clip(uid="u1", cid="c1"):
     return {"id": cid, "user_id": uid, "channel": "aceu", "created_at": 1000.0}
 
 
-def test_evictions_are_counted_from_the_ledger_not_a_memory_counter():
+def test_misses_are_counted_from_the_ledger_not_a_memory_counter():
     """It has to survive a restart — the cap fires while the user is away, and
     a counter in memory would be zero by the time they open the tab."""
     import time
     for i in range(3):
-        ss.record(ss.EXPIRED, _clip(cid=f"c{i}"))
-    assert ss.evictions_since("u1", time.time() - 3600) == 3
+        ss.record(ss.MISSED, _clip(cid=f"c{i}"))
+    assert ss.missed_since("u1", time.time() - 3600) == 3
     ss._LOG_FILE.touch()          # nothing cached; re-read from disk
-    assert ss.evictions_since("u1", time.time() - 3600) == 3
+    assert ss.missed_since("u1", time.time() - 3600) == 3
 
 
-def test_only_cap_evictions_count_not_rejections():
-    """A clip the user threw away is not a clip the cap took."""
+def test_only_misses_count_not_rejections_or_catches():
+    """A clip the user threw away is not a moment the cap refused."""
     import time
-    ss.record(ss.EXPIRED, _clip(cid="a"))
+    ss.record(ss.MISSED, _clip(cid="a"))
     ss.record(ss.REJECTED, _clip(cid="b"))
     ss.record(ss.APPROVED, _clip(cid="c"))
     ss.record(ss.CAUGHT, _clip(cid="d"))
-    assert ss.evictions_since("u1", time.time() - 3600) == 1
+    assert ss.missed_since("u1", time.time() - 3600) == 1
 
 
 def test_the_window_is_respected():
     import time
-    ss.record(ss.EXPIRED, _clip())
-    assert ss.evictions_since("u1", time.time() + 60) == 0
+    ss.record(ss.MISSED, _clip())
+    assert ss.missed_since("u1", time.time() + 60) == 0
 
 
 def test_one_users_losses_are_not_anothers():
     import time
-    ss.record(ss.EXPIRED, _clip(uid="mine"))
-    ss.record(ss.EXPIRED, _clip(uid="theirs"))
-    assert ss.evictions_since("mine", time.time() - 3600) == 1
+    ss.record(ss.MISSED, _clip(uid="mine"))
+    ss.record(ss.MISSED, _clip(uid="theirs"))
+    assert ss.missed_since("mine", time.time() - 3600) == 1
 
 
 # ── the wording ──────────────────────────────────────────────────────────────
 
-def test_the_notice_says_a_clip_was_deleted_not_missed():
-    """The load-bearing test. The cap deletes the OLDEST unreviewed clip; the
-    new one is kept. Claiming we missed it is both false and checkable."""
+def test_the_notice_says_the_highlight_was_not_clipped():
+    """The cap refuses the NEW moment now, so this wording is the true one. It
+    must not go back to claiming a clip was deleted — nothing is deleted any
+    more, and a user checking their queue would find nothing missing."""
     review = SRC[SRC.index("function ReviewScreen("):SRC.index("function LandingScreen(")]
     banner = review[review.index("rd-lost"):review.index("rd-stats")]
-    assert "was deleted to make room" in banner or "were deleted to make room" in banner
-    for lie in ("missed a clip", "could not clip", "we missed", "failed to clip"):
-        assert lie not in banner.lower(), f"the notice claims {lie!r}, which is false"
+    assert "was not clipped" in banner or "were not clipped" in banner
+    for stale in ("deleted to make room", "oldest unreviewed"):
+        assert stale not in banner.lower(), \
+            f"the notice still says {stale!r} — the cap no longer evicts"
 
 
 def test_the_notice_names_the_next_tier_and_its_real_limit():
@@ -86,7 +90,7 @@ def test_a_pro_user_is_told_to_review_rather_than_sold_to():
     """There is no tier above Pro. Showing them an upgrade button would be a
     dead end, so the copy switches to the thing they can actually do."""
     review = SRC[SRC.index("function ReviewScreen("):SRC.index("function LandingScreen(")]
-    assert "Review or approve some to free up space" in review
+    assert "Review or clear some to make room" in review
     assert "{nextPlan && <a className=\"rd-btn grad\"" in review, \
         "the upgrade button is not conditional on a next tier existing"
 
@@ -106,13 +110,14 @@ def test_zero_losses_clears_a_stale_notice():
     assert "data.clips_lost_24h === 0) setLostClips(null)" in SRC
 
 
-def test_the_evicted_event_has_a_handler():
-    assert "msg.event==='clip_evicted'" in SRC
+def test_the_missed_event_has_a_handler():
+    assert "msg.event==='clip_missed'" in SRC
+    assert "clip_evicted" not in SRC, "the old eviction event is still referenced"
 
 
 # ── end to end ───────────────────────────────────────────────────────────────
 
-def test_me_reports_the_losses(monkeypatch, tmp_path):
+def test_me_reports_the_misses(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     from src.dashboard import api
     from src.auth import users as user_store
@@ -120,7 +125,7 @@ def test_me_reports_the_losses(monkeypatch, tmp_path):
     people = {"free": {"id": "free", "username": "f", "subscription_status": "none"}}
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: people.get(uid))
     for i in range(4):
-        ss.record(ss.EXPIRED, _clip(uid="free", cid=f"c{i}"))
+        ss.record(ss.MISSED, _clip(uid="free", cid=f"c{i}"))
 
     c = TestClient(api.app)
     signer = TimestampSigner(api.settings.dashboard_secret_key)

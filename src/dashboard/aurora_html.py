@@ -1330,11 +1330,11 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
     if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
     return (b.created_at||0)-(a.created_at||0);
   });
-  // The pending cap DELETES the oldest unreviewed clip to make room for a new
-  // one. Say exactly that: the new clip is in the queue, so "we missed a clip"
-  // is disprovable at a glance and would cost more trust than the upgrade is
-  // worth. Losing work you already had is the stronger case anyway.
-  const lostN = lost ? (lost.lost_24h || 1) : 0;
+  // The cap now REFUSES the new moment rather than deleting an old clip, so
+  // "we did not clip this" is finally the accurate wording. The clip is never
+  // created on Twitch either — the processor checks before spending the Helix
+  // call — so there is no orphan for the user to find and contradict us with.
+  const lostN = lost ? (lost.missed_24h || lost.lost_24h || 1) : 0;
   const nextPlan = lost && lost.next_plan;
   return (
     <div className="rd-body rd-body-full" style={{flex:1}}>
@@ -1344,12 +1344,12 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
           <div className="tx">
             <b>Your review queue is full{lost.limit ? ' at ' + lost.limit + ' clips' : ''}.</b>{' '}
             {lostN === 1
-              ? 'A clip you had not reviewed yet was deleted to make room for a newer one.'
-              : lostN + ' clips you had not reviewed were deleted to make room for newer ones, in the last 24 hours.'}
+              ? 'A highlight was not clipped, because there was no room left in your queue.'
+              : lostN + ' highlights were not clipped in the last 24 hours, because there was no room left in your queue.'}
             {nextPlan
               ? ' ' + (nextPlan === 'starter' ? 'Starter' : 'Pro') + ' holds '
                 + lost.next_limit + ' — $' + lost.next_price + '/month.'
-              : ' Review or approve some to free up space.'}
+              : ' Review or clear some to make room.'}
           </div>
           {nextPlan && <a className="rd-btn grad" href="/billing/paywall"
             style={{textDecoration:'none',flexShrink:0}}>See plans</a>}
@@ -3994,7 +3994,7 @@ function RdApp() {
         // Carry the next tier here too. The reload path is how most people
         // will actually see this notice, and without these fields it rendered
         // the "free up space" fallback and never mentioned upgrading.
-        setLostClips(p=>p||{lost_24h:data.clips_lost_24h, plan:data.plan,
+        setLostClips(p=>p||{missed_24h:data.clips_lost_24h, plan:data.plan,
                             limit:(data.plan_limits||{}).max_pending,
                             next_plan:(data.next_plan||{}).plan,
                             next_limit:(data.next_plan||{}).max_pending,
@@ -4119,9 +4119,9 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter
-        else if(msg.event==='clip_evicted'){
+        else if(msg.event==='clip_missed'){
           setLostClips(msg);
-          flash('Queue full — your oldest unreviewed clip was deleted to make room');
+          flash('Queue full — a highlight on ' + (msg.channel||'your stream') + ' was not clipped');
         }
         else if(msg.event==='review_prompt'){ setReviewAsk({clips: msg.clips||0}); }
         else if(msg.event==='reviews_updated'){ /* landing page only; nothing to do here */ }

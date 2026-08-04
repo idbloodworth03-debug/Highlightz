@@ -43,6 +43,11 @@ CAUGHT   = "caught"      # the bot made a clip
 APPROVED = "approved"    # the user kept it
 REJECTED = "rejected"    # the user threw it away
 EXPIRED  = "expired"     # aged out of the queue unreviewed
+# A moment we did NOT clip because the queue was full. Deliberately its own
+# event: it is not a "caught" (no clip exists) and it is not a rejection
+# (the user never saw it). Folding it into either would corrupt the keep
+# rate that gets shown to streamers.
+MISSED   = "missed"
 
 # A gap this long on one channel starts a new session. Four hours is longer
 # than any break inside a single broadcast and shorter than the gap between
@@ -102,11 +107,15 @@ def _sessions(events: list[dict]) -> list[dict]:
         at = r.get("clip_at") or r.get("ts") or 0
         if cur is None or (last_at is not None and at - last_at > SESSION_GAP_S):
             cur = {"started_at": at, "ended_at": at,
-                   "caught": 0, "approved": 0, "rejected": 0, "expired": 0}
+                   "caught": 0, "approved": 0, "rejected": 0, "expired": 0,
+                   "missed": 0}
             sessions.append(cur)
         cur["ended_at"] = max(cur["ended_at"], at)
         last_at = at
         ev = r.get("event")
+        if ev == MISSED:
+            cur["missed"] = cur.get("missed", 0) + 1
+            continue        # never a caught, never a rejection
         if ev in cur:
             cur[ev] += 1
     for s in sessions:
@@ -123,6 +132,7 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
     approved = sum(s["approved"] for s in sessions)
     rejected = sum(s["rejected"] for s in sessions)
     expired = sum(s["expired"] for s in sessions)
+    missed = sum(s.get("missed", 0) for s in sessions)
     return {
         "user_id": user_id,
         "channel": channel,
@@ -130,6 +140,9 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
         "approved": approved,
         "rejected": rejected,
         "expired": expired,
+        # Moments the queue was too full to clip. NOT part of caught/kept — a
+        # clip that was never made cannot be one the user kept or rejected.
+        "missed": missed,
         # Of the ones actually LOOKED AT. Counting un-reviewed clips as
         # rejections would understate the hit rate on a channel whose queue
         # the user has not worked through yet.
@@ -150,6 +163,12 @@ def for_user(user_id: str) -> list[dict]:
     out = [_summarise(user_id, channel, events)
            for channel, events in by_channel.items()]
     return sorted(out, key=lambda c: -c["last_at"])
+
+
+def missed_since(user_id: str, since_ts: float) -> int:
+    """Moments not clipped at all because the queue was full."""
+    return sum(1 for r in _read(user_id)
+               if r.get("event") == MISSED and (r.get("ts") or 0) >= since_ts)
 
 
 def evictions_since(user_id: str, since_ts: float) -> int:

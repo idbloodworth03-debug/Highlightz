@@ -198,7 +198,7 @@ def test_every_clip_outcome_has_a_hook():
     from src.dashboard import api
     src = inspect.getsource(api)
     for marker in ("stream_stats.CAUGHT", "stream_stats.APPROVED",
-                   "stream_stats.REJECTED", "_ss.EXPIRED"):
+                   "stream_stats.REJECTED", "_ss.MISSED"):
         assert marker in src, f"no hook records {marker}"
 
 

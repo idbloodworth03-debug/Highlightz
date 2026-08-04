@@ -854,14 +854,37 @@ takes the whole queue.
 **Not built, on purpose:** email and browser-push reminders. In-app only for
 now — the owner's call. Email needs a sender that does not exist yet.
 
+## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
+
+**A full pending queue now drops the new moment. It no longer evicts an old
+clip.** Until this change `notify_clip_ready` deleted the OLDEST UNREVIEWED clip
+to make room, so a busy stream silently destroyed work the user already had.
+
+**The check runs in `run_clip_processor` BEFORE `processor.process(job)`,** and
+that ordering is load-bearing: the Twitch clip is created inside `process()`, so
+checking afterwards would leave an orphan clip on the user's Twitch account that
+never appears in Highlightz — which the user could find, contradicting the "we
+didn't clip this" notice — and would spend a Helix call from a budget shared
+with every other user. `pending_room(uid)` is the helper.
+
+The in-`notify_clip_ready` check stays as the race guard (the queue can fill
+between the pre-check and arrival) and is what keeps the queue from going over
+cap. It sets a flag inside `_data_lock` and broadcasts AFTER releasing it —
+awaiting a socket write under that lock stalls every clip in the pipeline.
+
+**`MISSED` is its own ledger event**, never folded into caught or rejected: a
+clip that was never made cannot be one the user kept or threw away, and either
+substitution corrupts the keep rate shown to streamers. `stream_stats` reports
+it as a separate `missed` count per channel and session.
+
 ## Queue-full notice / upgrade prompt (2026-08-03)
 
-The pending cap is the conversion lever, so the notice has to be accurate:
-**the cap does NOT make us miss a clip.** `notify_clip_ready` saves the new clip
-and deletes the OLDEST UNREVIEWED one to make room (FIFO). A user can disprove
-"we missed a clip" by glancing at their queue and seeing the new one sitting
-there, and a sales message they can catch lying is worth less than none.
-`test_the_notice_says_a_clip_was_deleted_not_missed` holds the wording.
+The pending cap is the conversion lever. Since the policy change above the cap
+genuinely does refuse the moment, so "N highlights were not clipped" is
+accurate — and because nothing is created on Twitch either, there is no orphan
+clip for the user to find and contradict it with.
+`test_the_notice_says_the_highlight_was_not_clipped` holds the wording, and
+also fails if it drifts back to claiming something was deleted.
 
 - `clip_evicted` broadcast on eviction (live nudge) + `clips_lost_24h` and
   `next_plan` on `/me` (state, so the notice survives a reload and a reconnect).
