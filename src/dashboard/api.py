@@ -3330,8 +3330,8 @@ def render_landing(html: str | None = None) -> str:
 
     pretty = f"{total:,}"
     html = html.replace(
-        '<div class="glass stat" id="stat-clips" style="display:none">',
-        '<div class="glass stat" id="stat-clips">', 1)
+        '<div class="stat stat-big" id="stat-clips" style="display:none">',
+        '<div class="stat stat-big" id="stat-clips">', 1)
     html = html.replace('<span id="lp-count">0</span>',
                         f'<span id="lp-count">{pretty}</span>', 1)
     html = html.replace('"userInteractionCount": 0',
@@ -3529,6 +3529,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/plexmono-400.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
@@ -3542,444 +3544,682 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
 <style>
-  /* Self-hosted type — no third-party font dependency */
-  /* Display face. Nunito Black replaced Anton 2026-07-30: Anton is a
-     CONDENSED industrial grotesque, so its tight counters and sharp
-     terminals read as harsh/pixelated under a 3D extrusion. Nunito's
-     rounded terminals stay clean at display sizes. */
-  /* TITLES ONLY. Lobster is a SCRIPT face: its letters are drawn to connect
-     in lowercase, so text-transform:uppercase mangles it — every title rule
-     below deliberately drops uppercase, and a test asserts none creeps back.
-     It ships ONE weight (400); requesting bold makes the browser smear the
-     glyphs. Everything that is NOT a title stays Sora. */
+  /* ══════════════════════════════════════════════════════════════════════
+     LATE-NIGHT STREAM ROOM
+     The page is a dark room at 1am. A desk lamp behind you throws AMBER.
+     The monitor throws VIOLET — but only when something fires. That is the
+     whole colour logic: purple is not paint, it is the light a trigger makes.
+
+     PALETTE (7)
+       --void   #0E0B11  the unlit wall. Plum-black (H270), not blue-black.
+       --wall   #1B1221  a panel sitting in shadow
+       --bruise #33203F  a surface turned toward the light
+       --glow   #B86ADC  the light the monitor throws. H281 S62 — deliberately
+                         NOT Twitch's H264 S100, and desaturated because light
+                         on a matte wall loses saturation
+       --flare  #D26AFB  threshold crossed; the hottest moment on the page
+       --ember  #F7A745  the lamp behind you. Warm counterpoint, and the
+                         BELOW-threshold state of every score on the page
+       --ink    #F2EAF7  type, warmed toward the room's violet
+
+     TYPE
+       Lobster  display, twice on the whole page (h1, closing line)
+       Sora     body + section headings (700, tightened for dark)
+       Plex Mono  every number, score, label — the instrument face
+
+     Light on dark reads heavier: body sits at 400 where the old page used
+     500/600, headings tighten to -.025em, and labels open up to .16em.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* Self-hosted, subsetted — no third-party font dependency. */
+  /* TITLES ONLY, and now only two of them. Lobster is a SCRIPT face: its
+     letters are drawn to connect in lowercase, so text-transform:uppercase
+     mangles it — every rule below deliberately drops uppercase, and a test
+     asserts none creeps back. It ships ONE weight (400); asking for bold makes
+     the browser smear the glyphs. */
   @font-face{font-family:'Lobster';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/lobster-400.woff2) format('woff2')}
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth}
-  body{background:#08080b;color:#f6f6f9;font-family:'Sora',Inter,system-ui,sans-serif;line-height:1.6;overflow-x:hidden;
-    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
-  body::before{content:'';position:fixed;inset:0;z-index:-3;background:radial-gradient(900px 560px at 16% -10%,rgba(168,85,247,.24),transparent 60%),radial-gradient(760px 460px at 88% 2%,rgba(249,67,255,.14),transparent 55%),radial-gradient(760px 640px at 50% 112%,rgba(124,107,255,.13),transparent 60%)}
-  /* ── Aurora: slow drifting colour behind everything. Fills the dark
-     expanses between sections without adding content. Transform-only
-     animation so it composites on the GPU; blur is applied once, not per
-     frame. pointer-events:none so it can never eat a click. ── */
-  .aurora{position:fixed;inset:-20vmax;z-index:-4;pointer-events:none;overflow:hidden;
-    contain:strict}
-  .aurora i{position:absolute;display:block;border-radius:50%;filter:blur(90px);
-    opacity:.62;will-change:transform}
-  .aurora i:nth-child(1){width:46vmax;height:46vmax;left:2%;top:-6%;
-    background:radial-gradient(circle,rgba(168,85,247,.55),transparent 68%);
-    animation:auroraA 26s ease-in-out infinite alternate}
-  .aurora i:nth-child(2){width:38vmax;height:38vmax;right:4%;top:6%;
-    background:radial-gradient(circle,rgba(249,67,255,.38),transparent 68%);
-    animation:auroraB 32s ease-in-out infinite alternate}
-  .aurora i:nth-child(3){width:52vmax;height:52vmax;left:24%;bottom:-14%;
-    background:radial-gradient(circle,rgba(124,107,255,.42),transparent 70%);
-    animation:auroraC 38s ease-in-out infinite alternate}
-  .aurora i:nth-child(4){width:34vmax;height:34vmax;right:18%;bottom:16%;
-    background:radial-gradient(circle,rgba(199,155,255,.3),transparent 70%);
-    animation:auroraD 30s ease-in-out infinite alternate}
-  @keyframes auroraA{from{transform:translate3d(0,0,0) scale(1)}
-    to{transform:translate3d(9vmax,6vmax,0) scale(1.15)}}
-  @keyframes auroraB{from{transform:translate3d(0,0,0) scale(1.1)}
-    to{transform:translate3d(-8vmax,9vmax,0) scale(.92)}}
-  @keyframes auroraC{from{transform:translate3d(0,0,0) scale(1)}
-    to{transform:translate3d(7vmax,-7vmax,0) scale(1.18)}}
-  @keyframes auroraD{from{transform:translate3d(0,0,0) scale(.95)}
-    to{transform:translate3d(-6vmax,-8vmax,0) scale(1.12)}}
-  /* Motion is decoration: hold it still for anyone who asked for less. */
-  @media(prefers-reduced-motion:reduce){.aurora i{animation:none}}
+  /* The instrument face. Every number a visitor reads is a measurement, so it
+     is set in a mono with real tabular figures — a score that shifts width as
+     it counts is a score you cannot read at a glance. */
+  @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
 
-  body::after{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,.045) 1px,transparent 1px);background-size:26px 26px;-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%);mask-image:radial-gradient(900px 620px at 50% 0%,#000 0%,transparent 75%)}
+  :root{
+    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
+    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085);
+    --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Sora',system-ui,sans-serif;
+    /* 0..1 — how hard the trigger is firing right now. Everything that is
+       "light" on this page reads from this one number. */
+    --lit:0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;overflow-x:clip}
+  body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
+    font-size:15.5px;line-height:1.68;overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+
+  /* ── Grain. Real rooms are not flat. One tiled turbulence tile at 3%, sitting
+     over everything so panels get tooth too. No blend mode: on this palette
+     overlay just crushes the darks and bands. ── */
+  .grain{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.032;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px 180px}
+
   a{text-decoration:none;color:inherit}
-  .acc{color:#c79bff}
-  .grad-text{background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  /* ── Display accent: the highlighted word inside a title. SOLID purple.
-     Previously transparent with a -webkit-text-stroke outline, which the
-     owner disliked. Now filled, so the stroke and its @supports fallback
-     (for browsers lacking text-stroke) are both gone. Class renamed to
-     .accent since the old name described the opposite of what it does. */
-  .accent{color:#a855f7;-webkit-text-stroke:0;text-shadow:none;
-    filter:drop-shadow(0 0 20px rgba(168,85,247,.45)) drop-shadow(0 6px 16px rgba(0,0,0,.5))}
-  /* Nav */
-  .nav{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:16px 30px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(8,8,11,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
-  .nav-logo{display:flex;align-items:center;gap:11px}
-  .nav-logo img{height:32px;filter:drop-shadow(0 0 9px rgba(199,155,255,.5))}
-  .nav-logo span{font-family:'Sora',Inter,system-ui,sans-serif;font-weight:800;text-transform:uppercase;font-size:19px;color:#c79bff;letter-spacing:.05em;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160}
-  .nav-actions{display:flex;align-items:center;gap:10px}
-  .nav-link{font-size:13px;color:#9c9caa;font-weight:600;padding:9px 14px;border-radius:10px;transition:.15s;white-space:nowrap}
-  .nav-link:hover{color:#f6f6f9;background:rgba(255,255,255,.05)}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;font-weight:700;cursor:pointer;border:none;transition:.16s;white-space:nowrap}
-  .btn-grad{position:relative;overflow:hidden;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border-radius:12px;padding:11px 20px;font-size:14px;box-shadow:0 6px 24px -8px rgba(168,85,247,.7)}
-  .btn-grad:hover{filter:brightness(1.09);transform:translateY(-1px)}
-  .btn-grad::after{content:'';position:absolute;top:0;left:-70%;width:45%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);transform:skewX(-22deg)}
-  .btn-ghost{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#f6f6f9;border-radius:12px;padding:12px 22px;font-size:14px}
-  .btn-ghost:hover{background:rgba(255,255,255,.09)}
-  .btn-lg{padding:15px 30px;font-size:15px;border-radius:13px}
-  /* Layout */
-  .wrap{max-width:1120px;margin:0 auto;padding-left:24px;padding-right:24px}
+  ::selection{background:rgba(210,106,251,.3);color:#fff}
+  /* Focus has to survive a very dark palette: a two-tone ring so it reads on
+     both the void and on a lit surface. */
+  :focus-visible{outline:2px solid var(--flare);outline-offset:3px;border-radius:4px}
+
+  /* ── Rim light. A panel catches the light on the edge FACING the source.
+     The source is above and to the right for the whole page — one position,
+     one falloff, no exceptions — so every rim runs 215deg. Two backgrounds
+     (padding-box fill + border-box gradient) instead of a pseudo-element:
+     no z-index games, no stacking-context surprises. ── */
+  .lit{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.40),rgba(184,106,220,.08) 34%,rgba(242,234,247,.05) 64%,rgba(242,234,247,.018)) border-box}
+  .lit-deep{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.26),rgba(242,234,247,.05) 40%,rgba(242,234,247,.015)) border-box}
+  /* The one surface standing nearest the monitor. */
+  .lit-near{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(168deg,var(--bruise),#291A33 60%,var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
+
+  /* ── Type scale ── */
+  .kicker{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ember);display:flex;align-items:center;gap:12px}
+  .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(247,167,69,.35),transparent);max-width:190px}
+  .kicker.center{justify-content:center}
+  .kicker.center::before{content:'';flex:1;height:1px;background:linear-gradient(270deg,rgba(247,167,69,.35),transparent);max-width:120px}
+  .kicker.center::after{max-width:120px}
+  h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
+    line-height:1.14;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
+  .sec-head.kicked h2.sec-title{margin-top:16px}
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:600px;line-height:1.62}
+  .mono-l{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+    font-feature-settings:'tnum' 1,'zero' 1;letter-spacing:-.01em}
+
+  /* ── Buttons. Not painted purple — LIT. The face is a surface in the room and
+     the rim is where the monitor hits it; hover moves the light closer. Ink
+     stays near-white because violet-on-bruise is 4.3:1 and would fail. ── */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;
+    font-family:var(--sans);font-weight:600;font-size:14.5px;letter-spacing:-.005em;
+    padding:13px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
+    transition:background .2s,color .2s;white-space:nowrap}
+  .btn-key{background:linear-gradient(166deg,var(--bruise),#25172E) padding-box,
+      linear-gradient(215deg,var(--flare),rgba(184,106,220,.45) 38%,rgba(242,234,247,.08)) border-box}
+  .btn-key:hover{background:linear-gradient(166deg,#412852,#2C1B36) padding-box,
+      linear-gradient(215deg,#EFA6FF,var(--flare) 40%,rgba(242,234,247,.16)) border-box}
+  .btn-quiet{background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(242,234,247,.22),rgba(242,234,247,.05)) border-box;color:var(--ink-2)}
+  .btn-quiet:hover{color:var(--ink);background:linear-gradient(#221727,#221727) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.5),rgba(242,234,247,.07)) border-box}
+  .btn-lg{padding:16px 30px;font-size:15.5px}
+  .btn-wide{width:100%;padding:15px}
+
+  /* ── Layout ── */
+  .wrap{max-width:1140px;margin:0 auto;padding-left:26px;padding-right:26px}
   section{padding-top:46px;padding-bottom:46px}
-  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#c79bff;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:99px;margin-bottom:22px}
-  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
-  h2.sec-title{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:40px;line-height:1.12;margin-bottom:14px;color:#f6f2ff;text-shadow:0 2px 5px rgba(0,0,0,.45),0 8px 24px rgba(168,85,247,.18)}
-  .sec-sub{font-size:16px;color:#9c9caa;max-width:620px;line-height:1.65}
-  /* Hero */
-  .hero{display:grid;grid-template-columns:1.02fr .98fr;gap:52px;align-items:center;padding-top:52px;padding-bottom:30px}
-  .hero-copy h1{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:60px;line-height:1.06;margin-bottom:22px;color:#f6f2ff;text-shadow:0 2px 6px rgba(0,0,0,.5),0 10px 30px rgba(168,85,247,.22)}
-  .hero-copy p.lead{font-size:18px;color:#b8b8c8;max-width:560px;margin-bottom:30px;line-height:1.6}
-  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px}
-  .hero-note{font-size:13px;color:#5d5d6b}
-  .hero-note b{color:#9c9caa;font-weight:700}
-  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-top:30px}
-  .pill{font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:99px;background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.28);color:#c79bff}
-  /* ── LIVE DEMO ── */
-  .demo-wrap{position:relative}
-  .demo-wrap::before{content:'';position:absolute;inset:-36px 0;background:radial-gradient(60% 60% at 50% 42%,rgba(168,85,247,.28),transparent 70%);filter:blur(14px);z-index:0}
-  .demo{position:relative;z-index:1;border-radius:20px;padding:1px;background:linear-gradient(160deg,rgba(249,67,255,.55),rgba(255,255,255,.09) 30%,rgba(255,255,255,.07) 62%,rgba(124,107,255,.5));box-shadow:0 40px 90px -34px rgba(0,0,0,.85),0 0 70px -30px rgba(168,85,247,.55)}
-  .demo-in{border-radius:19px;background:rgba(11,11,16,.96);overflow:hidden}
-  .demo-bar{display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}
-  .demo-bar i{width:10px;height:10px;border-radius:50%;display:block}
-  .demo-bar .b1{background:#ff5f57}.demo-bar .b2{background:#febc2e}.demo-bar .b3{background:#28c840}
-  .demo-bar span{margin-left:8px;font-size:11px;color:#5d5d6b;font-weight:600}
-  .demo-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.06em;color:#ff5f6e;background:rgba(255,95,110,.1);border:1px solid rgba(255,95,110,.3);padding:4px 10px;border-radius:99px}
-  .demo-live i{width:6px;height:6px;border-radius:50%;background:#ff5f6e;box-shadow:0 0 7px #ff5f6e;animation:blink 1.2s ease-in-out infinite}
-  @keyframes blink{50%{opacity:.35}}
-  .demo-body{padding:15px 15px 14px}
-  .demo-main{min-width:0}
-  .demo-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
-  .demo-ch{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800}
-  .demo-ch .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
-  .demo-score{font-family:'Sora',Inter,system-ui,sans-serif;font-weight:800;font-size:29px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160}
-  .demo-score small{font-family:'Sora',Inter,system-ui,sans-serif;font-size:10.5px;font-weight:700;color:#5d5d6b;letter-spacing:.06em;text-transform:uppercase;margin-right:8px;vertical-align:3px;text-shadow:none}
-  .demo-chart{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.018);overflow:hidden}
+  /* The chapter rule. Two background layers: the void fills the padding box,
+     the gradient shows only through the 1px transparent border — without the
+     first layer the gradient paints the whole block instead of the edge. */
+  .sec-head{max-width:640px;border-top:1px solid transparent;padding-top:24px;
+    background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(90deg,rgba(247,167,69,.5),rgba(242,234,247,.08) 26%,transparent 62%) border-box}
+  .sec-head.kicked{border-top:none;background:none;padding-top:0}
+  .sec-head.center{max-width:640px;margin:0 auto;text-align:center;
+    background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(90deg,transparent,rgba(247,167,69,.45) 50%,transparent) border-box}
+  .sec-head.center .sec-sub{margin:0 auto}
+
+  /* ── Nav. Sits IN the room: same black, one hairline that is brighter on the
+     side the light comes from. No blur, no glass. ── */
+  .nav{position:sticky;top:0;z-index:60;background:var(--void);
+    border-bottom:1px solid transparent;
+    background-image:linear-gradient(var(--void),var(--void)),
+      linear-gradient(270deg,rgba(184,106,220,calc(.30 + var(--lit)*.5)),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
+    background-origin:padding-box,border-box;background-clip:padding-box,border-box;
+    display:flex;align-items:center;gap:18px;padding:13px 26px}
+  .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .nav-logo img{height:26px;border-radius:4px}
+  .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink)}
+  .nav-links{display:flex;align-items:center;gap:2px;margin-left:14px}
+  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
+    color:var(--ink-3);padding:8px 11px;border-radius:3px;transition:color .16s,background .16s}
+  .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+  /* ── SIGNATURE, persistent form. The trigger score never leaves the screen:
+     a live readout welded into the nav, fed by the same loop as the hero demo.
+     Below threshold it burns amber (the lamp); above, it snaps violet. ── */
+  .trig{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 11px;border-radius:3px;
+    border:1px solid transparent;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(247,167,69,calc(.30 + var(--lit)*.6)),rgba(242,234,247,.05)) border-box;
+    margin-right:6px}
+  .trig-k{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .trig-v{font-family:var(--mono);font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;
+    color:var(--ember);min-width:2.2ch;text-align:right;transition:color .3s}
+  .trig.hot .trig-v{color:var(--flare)}
+  .trig svg{display:block;overflow:visible}
+  .trig-line{fill:none;stroke:var(--ember);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;transition:stroke .3s}
+  .trig.hot .trig-line{stroke:var(--flare)}
+
+  /* ══ HERO. Asymmetric on purpose: the copy holds the left, the demo breaks
+     the container on the right and becomes the light source for the page. ══ */
+  .hero{position:relative;display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
+    gap:56px;align-items:center;padding-top:58px;padding-bottom:46px}
+  /* The light itself. Anchored to where the demo panel actually sits, so it
+     reads as spill FROM the panel rather than a decoration floating behind it.
+     Unblurred, low alpha, and it brightens when the trigger fires. */
+  .room-light{display:none}
+  .hero-copy h1{font-family:'Lobster',Georgia,serif;font-weight:400;
+    font-size:clamp(44px,7vw,78px);line-height:1.03;letter-spacing:-.005em;
+    color:var(--ink);margin:20px 0 22px}
+  /* The accent word is LIT, not painted: a solid fill plus the spill it would
+     throw onto the dark around it. No gradient, no stroke. */
+  .accent{color:#B86ADC;-webkit-text-stroke:0;
+    text-shadow:0 0 34px rgba(184,106,220,.42),0 0 10px rgba(184,106,220,.28)}
+  .hero-copy p.lead{font-size:19px;line-height:1.55;color:var(--ink-2);max-width:520px;margin-bottom:32px}
+  .hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .hero-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.02em}
+  .hero-note b{color:var(--ink-2);font-weight:600}
+  /* Tags on a rule, not pills with dots. */
+  .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:34px;border-top:1px solid var(--hair);padding-top:16px}
+  .tag{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ink-3);padding-right:16px;margin-right:16px;border-right:1px solid var(--hair);line-height:1.4}
+  .tag:last-child{border-right:none;margin-right:0;padding-right:0}
+
+  /* ── LIVE DEMO — the light source ── */
+  /* The light in the room. It is a pseudo-element OF THE PANEL, so it always
+     has a position and a falloff that belong to a real object — not a blob
+     floating in the background. Unblurred, low alpha, and it brightens with
+     --lit when the trigger fires. */
+  .demo-wrap{position:relative;min-width:0}
+  .demo-wrap::before{content:'';position:absolute;inset:-22% -26%;pointer-events:none;
+    background:radial-gradient(54% 50% at 54% 42%,rgba(184,106,220,calc(.17 + var(--lit)*.26)),transparent 70%)}
+  .demo{position:relative;border-radius:4px;overflow:hidden;border:1px solid transparent;
+    background:linear-gradient(172deg,#211628,var(--wall) 55%,#150F1B) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,calc(.55 + var(--lit)*.45)),rgba(184,106,220,.18) 34%,rgba(242,234,247,.05) 70%,rgba(242,234,247,.02)) border-box;
+    transition:box-shadow .45s}
+  .demo.hot{box-shadow:0 0 0 1px rgba(210,106,251,.28),0 0 60px -26px rgba(210,106,251,.7)}
+  .demo-bar{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--hair)}
+  .demo-bar .who{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink-3)}
+  .demo-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);
+    font-size:9.5px;font-weight:600;letter-spacing:.18em;color:var(--ember)}
+  .demo-live i{width:5px;height:5px;border-radius:50%;background:var(--ember);
+    box-shadow:0 0 8px var(--ember);animation:tally 2.6s ease-in-out infinite}
+  @keyframes tally{0%,100%{opacity:1}50%{opacity:.32}}
+  .demo-body{padding:15px 16px 13px}
+  .demo-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .demo-ch{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;
+    display:flex;align-items:center;gap:8px;padding-bottom:4px}
+  .demo-ch .pd{width:5px;height:5px;border-radius:50%;background:var(--glow);box-shadow:0 0 8px var(--glow)}
+  .demo-score{text-align:right;line-height:1}
+  .demo-score small{display:block;font-family:var(--mono);font-weight:600;font-size:9.5px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+  /* The brightest number on the page. */
+  .demo-score span{font-family:var(--mono);font-weight:600;font-size:clamp(40px,5vw,56px);
+    font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--ember);
+    transition:color .3s,text-shadow .3s;display:inline-block}
+  .demo.hot .demo-score span{color:var(--flare);text-shadow:0 0 30px rgba(210,106,251,.55)}
+  .demo-chart{position:relative;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+    padding:2px 0;overflow:hidden}
   .demo-chart svg{display:block;width:100%;height:auto}
-  .fired-badge{position:absolute;top:9px;right:9px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:5px 11px;border-radius:99px;box-shadow:0 4px 18px -4px rgba(249,67,255,.8);opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s}
-  .fired-badge.on{opacity:1;transform:none}
-  .demo.hot .demo-in{box-shadow:inset 0 0 0 1px rgba(249,67,255,.35),inset 0 0 44px -18px rgba(249,67,255,.4)}
-  .demo-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-  .dsig{font-size:10px;font-weight:700;color:#5d5d6b;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);padding:4px 9px;border-radius:8px;transition:.25s;letter-spacing:.02em}
-  .dsig.on{background:rgba(168,85,247,.2);color:#f6f6f9;border-color:rgba(168,85,247,.45)}
-  /* demo clip card */
-  .demo-clip{margin-top:11px;display:flex;align-items:center;gap:11px;border:1px solid rgba(46,224,138,.0);background:rgba(255,255,255,.03);border-radius:12px;padding:9px 11px;opacity:0;transform:translateY(10px);transition:opacity .4s,transform .4s,border-color .4s}
+  .fired{position:absolute;top:9px;right:11px;display:inline-flex;align-items:center;gap:7px;
+    font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;color:var(--flare);
+    opacity:0;transform:translateY(-4px);transition:opacity .3s,transform .3s}
+  .fired.on{opacity:1;transform:none}
+  .demo-sigs{display:flex;gap:0;flex-wrap:wrap;margin-top:13px}
+  .dsig{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;color:var(--ink-3);
+    padding-right:13px;margin-right:13px;border-right:1px solid var(--hair);transition:color .3s}
+  .dsig:last-child{border-right:none}
+  .dsig.on{color:var(--ember)}
+  .demo-clip{margin-top:11px;display:flex;align-items:center;gap:11px;padding-top:11px;
+    border-top:1px solid var(--hair);opacity:0;transform:translateY(6px);
+    transition:opacity .45s,transform .45s}
   .demo-clip.show{opacity:1;transform:none}
-  .demo-clip.done{border-color:rgba(46,224,138,.35)}
-  .dc-thumb{position:relative;width:64px;height:38px;border-radius:8px;flex-shrink:0;background:linear-gradient(135deg,#2a1840,#4a1a5d 52%,#1f1730);display:grid;place-items:center}
-  .dc-thumb svg{opacity:.9}
+  .dc-thumb{position:relative;width:50px;height:28px;border-radius:2px;flex-shrink:0;
+    background:linear-gradient(150deg,#3A2348,#231733);display:grid;place-items:center;
+    border:1px solid rgba(242,234,247,.07)}
   .dc-meta{flex:1;min-width:0}
-  .dc-t{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .dc-s{font-size:11px;color:#9c9caa;margin-top:2px;display:flex;align-items:center;gap:6px}
-  .dc-spin{width:10px;height:10px;border:2px solid rgba(255,255,255,.2);border-top-color:#c79bff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+  .dc-t{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+  .dc-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;
+    display:flex;align-items:center;gap:7px;letter-spacing:.08em}
+  .dc-spin{width:9px;height:9px;border:1.5px solid rgba(242,234,247,.16);border-top-color:var(--glow);
+    border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .dc-ok{display:none;color:#2ee08a;font-weight:700}
+  .dc-ok{display:none;color:var(--ember)}
   .demo-clip.done .dc-spin{display:none}
   .demo-clip.done .dc-ok{display:inline-flex;align-items:center;gap:5px}
-  .demo-cap{text-align:center;font-size:12px;color:#5d5d6b;margin-top:14px;position:relative;z-index:1}
-  /* Stats band */
-  .stats-band{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:34px 0 8px}
-  .stat{padding:26px 20px;text-align:center}
-  .stat .n{font-family:'Sora',Inter,system-ui,sans-serif;font-weight:800;font-size:42px;letter-spacing:.02em;line-height:1.1;font-variant-numeric:tabular-nums;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 5px 10px rgba(0,0,0,.42)}
-  .stat .k{font-size:12.5px;color:#9c9caa;font-weight:600;margin-top:7px}
-  .stat .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#2ee08a;box-shadow:0 0 8px #2ee08a;margin-right:8px;vertical-align:4px}
-  /* Glass card */
-  .glass{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:20px;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
-  /* Who it's for */
-  .who-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:40px}
-  .who-card{padding:26px 24px;transition:transform .25s,border-color .25s}
-  .who-card:hover{transform:translateY(-3px);border-color:rgba(168,85,247,.3)}
-  .who-card .ic{width:42px;height:42px;border-radius:12px;background:rgba(168,85,247,.14);color:#c79bff;display:grid;place-items:center;font-size:21px;margin-bottom:16px}
-  .who-card h3{font-size:17px;font-weight:700;margin-bottom:7px}
-  .who-card p{font-size:14px;color:#9c9caa;line-height:1.6}
-  /* Steps */
-  .steps{display:flex;flex-direction:column;gap:16px;margin-top:44px}
-  .step{display:flex;gap:20px;align-items:flex-start;padding:24px 26px}
-  .step-n{flex-shrink:0;width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,rgba(249,67,255,.18),rgba(124,107,255,.18));border:1px solid rgba(168,85,247,.3);color:#c79bff;display:grid;place-items:center;font-size:18px;font-weight:800}
-  .step h3{font-size:18px;font-weight:700;margin-bottom:6px}
-  .step p{font-size:14.5px;color:#9c9caa;line-height:1.65}
-  /* Features */
-  .feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:44px}
-  .feat{padding:26px 24px;transition:transform .25s,border-color .25s}
-  .feat:hover{transform:translateY(-3px);border-color:rgba(168,85,247,.3)}
-  .feat .ic{width:40px;height:40px;border-radius:11px;background:rgba(168,85,247,.13);color:#c79bff;display:grid;place-items:center;margin-bottom:15px}
-  .feat h3{font-size:16px;font-weight:700;margin-bottom:7px}
-  .feat p{font-size:14px;color:#9c9caa;line-height:1.6}
-  /* Formula */
-  .formula{padding:46px 44px;text-align:center}
-  .formula h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:35px;line-height:1.12;margin-bottom:14px;color:#f6f2ff;text-shadow:0 2px 5px rgba(0,0,0,.45),0 8px 22px rgba(168,85,247,.18)}
-  .formula p.lead{font-size:16px;color:#b8b8c8;max-width:680px;margin:0 auto 32px;line-height:1.65}
-  .signal-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
-  .signal{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;padding:11px 18px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
-  .signal .sd{width:9px;height:9px;border-radius:50%}
-  .plus{display:grid;place-items:center;color:#5d5d6b;font-size:18px;font-weight:700;padding:0 2px}
-  .formula-eq{margin-top:30px;font-size:15px;color:#c79bff;font-weight:700;letter-spacing:.01em}
-  /* Pricing */
-  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(276px,1fr));gap:18px;max-width:1120px;margin:44px auto 0}  /* three cards since Free was added; 840px/300px only ever fitted two and wrapped the third */
-  .price-card{position:relative;padding:1px;border-radius:22px;background:linear-gradient(160deg,rgba(249,67,255,.5),rgba(255,255,255,.09) 35%,rgba(255,255,255,.08) 65%,rgba(124,107,255,.45))}
-  .price-card.starter{background:rgba(255,255,255,.09)}
-  .price-pop{position:absolute;top:-11px;left:50%;transform:translateX(-50%);z-index:2;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:4px 12px;border-radius:99px;box-shadow:0 4px 16px -4px rgba(249,67,255,.7);white-space:nowrap}
-  .price-in{border-radius:21px;background:rgba(11,11,16,.94);padding:42px 36px;text-align:center;height:100%;display:flex;flex-direction:column}
-  .price-in .price-list{flex:1}
-  .price-in .price-badge{align-self:center}
-  .price-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#c79bff;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);padding:6px 13px;border-radius:99px;margin-bottom:22px}
-  .price-amt{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:4px}
-  .price-amt .cur{font-size:26px;font-weight:800;color:#9c9caa;align-self:flex-start;margin-top:8px}
-  .price-amt .num{font-family:'Sora',Inter,system-ui,sans-serif;font-weight:800;font-size:74px;letter-spacing:-.02em;line-height:1;color:#f6f2ff;text-shadow:0 1px 0 #3a2160,0 2px 0 #3a2160,0 3px 0 #3a2160,0 4px 0 #3a2160,0 5px 0 #2a1748,0 10px 17px rgba(0,0,0,.48),0 17px 34px rgba(168,85,247,.2)}
-  .price-amt .per{font-size:16px;color:#9c9caa;font-weight:600}
-  .price-sub{font-size:13.5px;color:#9c9caa;margin:12px 0 26px;line-height:1.6}
-  .price-list{text-align:left;display:flex;flex-direction:column;gap:12px;margin-bottom:30px}
-  /* NOT flex. With display:flex every inline <b> becomes its own flex
-     item, so "Monitor up to <b>3 streams</b> at once" laid out as three
-     separate columns and broke mid-phrase. It only became visible when
-     the cards narrowed to fit three across. Absolute-positioning the tick
-     lets the text be one normal inline flow that wraps like a sentence. */
-  .price-list .li{position:relative;padding-left:31px;font-size:14.5px;color:#d8d8e2;line-height:1.5}
-  .price-list .ck{position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:6px;background:rgba(52,211,153,.14);color:#34d399;display:grid;place-items:center;font-size:12px;font-weight:800}
-  .price-promo{font-size:12.5px;color:#5d5d6b;margin-top:14px}
-  .price-promo b{color:#c79bff}
-  /* Final CTA */
-  .final{text-align:center;padding-top:56px;padding-bottom:90px}
-  .final h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:48px;line-height:1.08;margin-bottom:18px;color:#f6f2ff;text-shadow:0 2px 6px rgba(0,0,0,.5),0 10px 28px rgba(168,85,247,.2)}
-  .final p{font-size:17px;color:#9c9caa;max-width:540px;margin:0 auto 32px;line-height:1.6}
-  /* Footer */
-  .footer{border-top:1px solid rgba(255,255,255,.06);padding:36px 24px;text-align:center;font-size:12px;color:#3d3d4a;line-height:1.9}
-  .footer a{color:#5d5d6b}.footer a:hover{color:#9c9caa}
-  .footer .fl{margin-bottom:8px}
-  /* ── Product showcase mockups ── */
-  .shots-top{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:44px}
-  .shot-frame{background:rgba(13,13,18,.72);border:1px solid rgba(255,255,255,.09);border-radius:16px;overflow:hidden;box-shadow:0 26px 64px -26px rgba(0,0,0,.75)}
-  .shot-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)}
-  .shot-bar i{width:10px;height:10px;border-radius:50%;display:block}
-  .shot-bar .b1{background:#ff5f57}.shot-bar .b2{background:#febc2e}.shot-bar .b3{background:#28c840}
-  .shot-bar span{margin-left:8px;font-size:11px;color:#5d5d6b;font-weight:600}
-  .shot-inner{padding:18px}
-  .shot-cap{margin:16px 2px 0}
-  .shot-cap h3{font-size:16px;font-weight:700;margin-bottom:5px}
-  .shot-cap p{font-size:13.5px;color:#9c9caa;line-height:1.55}
-  /* mock: stream bubble */
-  .mk-stream{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:15px}
-  .mk-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-  .mk-nm{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
-  .mk-nm .pd{width:7px;height:7px;border-radius:50%;background:#c79bff;box-shadow:0 0 8px #c79bff}
-  .mk-mt{display:flex;gap:6px;align-items:center;margin-top:7px;flex-wrap:wrap}
-  .mk-chip{font-size:10px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);padding:3px 8px;border-radius:99px}
-  .mk-live{font-size:10px;font-weight:700;color:#2ee08a}
-  .mk-acts{display:flex;gap:6px;flex-shrink:0}
-  .mk-clip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#c79bff;background:rgba(168,85,247,.14);border:1px solid rgba(168,85,247,.3);padding:5px 10px;border-radius:9px}
-  .mk-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#5d5d6b;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:13px}
-  .mk-scorewrap{margin-top:15px}
-  .mk-st{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
-  .mk-sl{font-size:11px;font-weight:600;color:#9c9caa;letter-spacing:.04em;text-transform:uppercase}
-  .mk-sval{font-size:22px;font-weight:800;letter-spacing:-.02em}
-  .mk-track{height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-  .mk-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#a855f7,#f943ff)}
-  .mk-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
-  .mk-sig{font-size:10.5px;font-weight:600;color:#9c9caa;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);padding:4px 9px;border-radius:8px}
-  .mk-sig.on{background:rgba(168,85,247,.18);color:#f6f6f9;border-color:rgba(168,85,247,.3)}
-  .mk-prof{margin-top:15px;border-top:1px solid rgba(255,255,255,.06);padding-top:14px}
-  .mk-pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .mk-pc .k{font-size:9.5px;color:#5d5d6b;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-  .mk-pc .v{font-size:15px;font-weight:700;margin-top:3px}
-  .mk-pc .v small{font-size:9px;color:#5d5d6b;font-weight:500}
-  .mk-cal{display:flex;align-items:center;gap:7px;margin-top:14px;font-size:11.5px;font-weight:600;color:#2ee08a}
-  .mk-cal .ck{width:15px;height:15px;border-radius:5px;background:rgba(46,224,138,.16);display:grid;place-items:center;font-size:10px}
-  /* mock: clip detail */
-  .mk-media{position:relative;height:152px;border-radius:12px;overflow:hidden;display:grid;place-items:center;background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730)}
-  .mk-play{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);display:grid;place-items:center}
-  .mk-badge{position:absolute;top:11px;right:11px;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;background:rgba(8,8,11,.72);border:1px solid rgba(255,255,255,.12);padding:5px 11px;border-radius:99px}
-  .mk-badge .pip{width:7px;height:7px;border-radius:50%}
-  .mk-dhead{display:flex;align-items:center;gap:11px;margin-top:16px}
-  .mk-av{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
-  .mk-dhead h4{font-size:14px;font-weight:700}
-  .mk-dhead .mt{font-size:11.5px;color:#9c9caa;margin-top:2px}
-  .mk-status{font-size:10px;font-weight:700;text-transform:capitalize;padding:4px 10px;border-radius:99px;background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a;flex-shrink:0}
-  .mk-eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#c79bff;margin:18px 0 13px}
-  .mk-bar{margin-bottom:13px}
-  .mk-bh{display:flex;justify-content:space-between;margin-bottom:6px}
-  .mk-bk{font-size:12.5px;color:#d8d8e2;font-weight:500}
-  .mk-bv{font-size:12.5px;font-weight:700}
-  .mk-bt{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-  .mk-bf{height:100%;border-radius:99px;background:linear-gradient(90deg,#a855f7,#f943ff)}
-  /* mock: clip library */
-  .mk-lib{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
-  .mk-card{border:1px solid rgba(255,255,255,.08);border-radius:13px;overflow:hidden;background:rgba(255,255,255,.025)}
-  .mk-cmedia{position:relative;height:100px;display:grid;place-items:center}
-  .mk-cbadge{position:absolute;top:9px;left:9px;font-size:10px;font-weight:700;background:rgba(8,8,11,.68);border:1px solid rgba(255,255,255,.12);padding:3px 9px;border-radius:99px}
-  .mk-cplay{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.28);display:grid;place-items:center}
-  .mk-cbody{padding:11px 12px 13px}
-  .mk-ctitle{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .mk-cmeta{font-size:11px;color:#9c9caa;margin-top:5px;display:flex;justify-content:space-between;align-items:center}
-  .mk-cpill{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:99px;text-transform:capitalize}
-  .mk-cpill.ok{background:rgba(46,224,138,.14);border:1px solid rgba(46,224,138,.3);color:#2ee08a}
-  .mk-cpill.pend{background:rgba(255,194,92,.14);border:1px solid rgba(255,194,92,.3);color:#ffc25c}
-  /* Example clips (admin-curated showcase) */
-  /* Flex, not grid: a grid always left-aligns a partial last row, so a
-     trailing row of 2 clips sat off to the left. Cards keep a fixed share
-     (flex-grow:0) so a short row stays card-sized and just centers. */
-  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:44px}
-  .ex-card{display:block;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);transition:transform .22s,border-color .22s,box-shadow .22s;min-width:0;flex:0 1 calc(25% - 12px)}
-  .ex-card:hover{transform:translateY(-4px);border-color:rgba(168,85,247,.4);box-shadow:0 24px 50px -20px rgba(0,0,0,.7),0 0 40px -18px rgba(168,85,247,.5)}
-  .ex-media{position:relative;height:150px;background:linear-gradient(135deg,#2a1840,#3a1a4d 52%,#1f1730);overflow:hidden}
+  .demo-cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--ink-3);
+    margin-top:14px;text-align:right}
+
+  /* ══ STAT STRIP. Not three equal cards — a readout rail with the numbers
+     hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
+  .stats{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:0;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .stat{padding:24px 0 24px 26px;border-left:1px solid var(--hair)}
+  .stat:first-child{padding-left:0;border-left:none}
+  .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+    font-size:34px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:11px}
+  .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember)}
+  .stat .k{font-size:13px;color:var(--ink-2);margin-top:11px;max-width:26ch;line-height:1.5}
+
+  /* ══ EXAMPLE CLIPS ══ */
+  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:38px}
+  .ex-card{display:block;border-radius:3px;overflow:hidden;min-width:0;flex:0 1 calc(25% - 10.5px);
+    border:1px solid transparent;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.28),rgba(242,234,247,.05) 45%,rgba(242,234,247,.02)) border-box;
+    transition:background .25s}
+  .ex-card:hover{background:linear-gradient(#231829,#231829) padding-box,
+      linear-gradient(215deg,var(--flare),rgba(184,106,220,.3) 40%,rgba(242,234,247,.05)) border-box}
+  .ex-media{position:relative;height:146px;background:linear-gradient(150deg,#2E1C3B,#1A1224);overflow:hidden}
   .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
-  .ex-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(0,0,0,.55))}
+  .ex-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(8,5,11,.72))}
   .ex-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
-  .ex-play span{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;padding-left:3px;background:rgba(20,12,30,.45);border:1.5px solid rgba(255,255,255,.85);color:#fff;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:.2s}
-  .ex-card:hover .ex-play span{background:linear-gradient(135deg,#f943ff,#a855f7);border-color:transparent}
-  .ex-badge{position:absolute;top:9px;right:9px;z-index:2;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#fff;background:rgba(8,8,11,.68);border:1px solid rgba(255,255,255,.14);padding:4px 9px;border-radius:99px}
-  .ex-badge i{width:6px;height:6px;border-radius:50%;background:#2ee08a;display:block}
-  .ex-body{padding:13px 14px 15px}
-  .ex-title{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ex-meta{font-size:11.5px;color:#9c9caa;margin-top:5px;display:flex;gap:6px;align-items:center;min-width:0}
-  .ex-meta b{color:#c79bff;font-weight:700}
+  .ex-play span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;padding-left:3px;
+    background:rgba(14,11,17,.5);border:1px solid rgba(242,234,247,.6);color:var(--ink);transition:.2s}
+  .ex-card:hover .ex-play span{background:var(--flare);border-color:transparent;color:#170A1E}
+  .ex-badge{position:absolute;top:9px;right:9px;z-index:2;font-family:var(--mono);font-weight:600;
+    font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);
+    background:rgba(14,11,17,.72);padding:4px 8px;border-radius:2px}
+  .ex-badge i{display:none}
+  .ex-body{padding:12px 13px 14px}
+  .ex-title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ex-meta{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:5px;
+    display:flex;gap:6px;align-items:center;min-width:0;letter-spacing:.04em}
+  .ex-meta b{color:var(--glow-ink);font-weight:400}
   .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* Example-clip lightbox: watch inline, no redirect */
+
+  /* ══ WHO IT'S FOR — BREAK 1. Not three cards in a row: hairline-ruled rows
+     with a mono label in a fixed left gutter and the prose in a wide right
+     column. Different shape, different density, no icon-in-a-tinted-square. ══ */
+  .who-list{margin-top:40px;border-top:1px solid var(--hair)}
+  .who-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:26px;
+    padding:28px 0;border-bottom:1px solid var(--hair);align-items:start;transition:background .25s}
+  .who-row:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 62%)}
+  .who-l{display:flex;align-items:flex-start;justify-content:center;color:var(--ember);padding-top:2px}
+  .who-l span{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .who-row h3{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px}
+  .who-row p{font-size:15px;color:var(--ink-2);line-height:1.62;max-width:60ch}
+
+  /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
+     amber down the left until step 4, where the clip actually fires and it
+     crosses to violet; that step is the one surface standing in the light. ══ */
+  .steps{margin-top:40px;position:relative}
+  .step{display:grid;grid-template-columns:76px minmax(0,1fr);gap:26px;padding:0 0 34px}
+  .step:last-child{padding-bottom:0}
+  .rail{position:relative;display:flex;justify-content:center}
+  .rail::before{content:'';position:absolute;top:0;bottom:-34px;left:50%;width:1px;
+    background:var(--rail,rgba(247,167,69,.3))}
+  .step:last-child .rail::before{bottom:auto;height:26px}
+  .rail-node{position:relative;z-index:1;margin-top:3px;width:26px;height:26px;border-radius:50%;
+    background:var(--void);border:1px solid var(--node,rgba(247,167,69,.45));
+    display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:11px;
+    color:var(--node-ink,var(--ember))}
+  .step-2 .rail::before,.step-3 .rail::before{--rail:linear-gradient(180deg,rgba(247,167,69,.3),rgba(184,106,220,.4))}
+  .step-3 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
+  .step-4 .rail::before,.step-5 .rail::before{--rail:rgba(184,106,220,.45)}
+  .step-4 .rail-node{--node:var(--flare);--node-ink:var(--flare);
+    box-shadow:0 0 22px -4px rgba(210,106,251,.75)}
+  .step-5 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
+  .step-body{padding:2px 0 0}
+  .step h3{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px}
+  .step p{font-size:15px;color:var(--ink-2);line-height:1.65;max-width:64ch}
+  /* Step 4 is where the threshold is crossed, so it is the panel nearest the
+     light — the only one in this section with a surface at all. */
+  .step-4 .step-body{padding:20px 22px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
+    background:linear-gradient(166deg,#26182F,var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,.5),rgba(184,106,220,.12) 38%,rgba(242,234,247,.03)) border-box}
+
+  /* ══ PRODUCT SHOWCASE ══ */
+  .shots-top{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:40px}
+  .shot-frame{border-radius:3px;overflow:hidden;border:1px solid transparent;
+    background:linear-gradient(178deg,#1D1424,#150F1B) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.055) 42%,rgba(242,234,247,.02)) border-box}
+  .shot-bar{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--hair)}
+  .shot-bar i{width:5px;height:5px;border-radius:50%;background:var(--ember);
+    box-shadow:0 0 7px rgba(247,167,69,.8);flex-shrink:0}
+  .shot-bar span{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .shot-inner{padding:17px}
+  .shot-cap{margin:15px 1px 0}
+  .shot-cap h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:5px}
+  .shot-cap p{font-size:14px;color:var(--ink-2);line-height:1.58}
+  /* mock: stream bubble */
+  .mk-stream{border-radius:3px;padding:15px;border:1px solid var(--hair);background:rgba(242,234,247,.016)}
+  .mk-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .mk-nm{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
+  .mk-nm .pd{width:5px;height:5px;border-radius:50%;background:var(--glow);box-shadow:0 0 8px var(--glow)}
+  .mk-mt{display:flex;gap:12px;align-items:center;margin-top:7px;flex-wrap:wrap}
+  .mk-chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
+  .mk-live{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ember)}
+  .mk-acts{display:flex;gap:7px;flex-shrink:0;align-items:center}
+  .mk-clip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);border:1px solid rgba(184,106,220,.32);
+    padding:5px 9px;border-radius:2px}
+  .mk-x{width:24px;height:24px;border-radius:2px;display:grid;place-items:center;color:var(--ink-3);
+    border:1px solid var(--hair);font-size:12px}
+  .mk-scorewrap{margin-top:16px}
+  .mk-st{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+  .mk-sl{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+  .mk-sval{font-family:var(--mono);font-weight:600;font-size:21px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .mk-track{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
+  .mk-fill{height:100%;background:var(--ember)}
+  .mk-sigs{display:flex;gap:0;flex-wrap:wrap;margin-top:13px}
+  .mk-sig{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--ink-3);
+    padding-right:11px;margin-right:11px;border-right:1px solid var(--hair)}
+  .mk-sig:last-child{border-right:none}
+  .mk-sig.on{color:var(--ember)}
+  .mk-prof{margin-top:16px;border-top:1px solid var(--hair);padding-top:14px}
+  .mk-pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .mk-pc .k{font-family:var(--mono);font-size:9px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em}
+  .mk-pc .v{font-family:var(--mono);font-weight:600;font-size:15px;margin-top:5px;font-variant-numeric:tabular-nums}
+  .mk-pc .v small{font-size:9px;color:var(--ink-3);font-weight:400}
+  .mk-cal{display:flex;align-items:center;gap:8px;margin-top:14px;font-family:var(--mono);
+    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember)}
+  .mk-cal .tk{font-family:var(--sans);letter-spacing:0}
+  /* mock: clip detail */
+  .mk-media{position:relative;height:150px;overflow:hidden;display:grid;place-items:center;
+    background:linear-gradient(150deg,#2E1C3B,#1A1224)}
+  .mk-play{width:46px;height:46px;border-radius:50%;background:rgba(14,11,17,.42);
+    border:1px solid rgba(242,234,247,.45);display:grid;place-items:center}
+  .mk-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.1em;background:rgba(14,11,17,.72);padding:4px 9px;border-radius:2px;color:var(--ember)}
+  .mk-badge .pip{display:none}
+  .mk-dhead{display:flex;align-items:center;gap:11px;margin-top:16px}
+  .mk-av{width:34px;height:34px;border-radius:3px;background:linear-gradient(160deg,#4A2C5C,#2B1A36);
+    border:1px solid rgba(184,106,220,.3);display:grid;place-items:center;font-family:var(--mono);
+    font-size:11px;font-weight:600;color:#E3C2F4;flex-shrink:0}
+  .mk-dhead h4{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+  .mk-dhead .mt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;letter-spacing:.05em}
+  .mk-status{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ember);flex-shrink:0}
+  .mk-eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);margin:20px 0 14px}
+  .mk-bar{margin-bottom:13px}
+  .mk-bh{display:flex;justify-content:space-between;margin-bottom:6px;align-items:baseline}
+  .mk-bk{font-size:13px;color:var(--ink-2)}
+  .mk-bv{font-family:var(--mono);font-weight:600;font-size:12px;font-variant-numeric:tabular-nums}
+  .mk-bt{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
+  .mk-bf{height:100%;background:var(--glow)}
+  /* mock: clip library */
+  .mk-lib{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:13px}
+  .mk-card{border:1px solid var(--hair);border-radius:3px;overflow:hidden;background:rgba(242,234,247,.014)}
+  .mk-cmedia{position:relative;height:96px;display:grid;place-items:center}
+  .mk-cbadge{position:absolute;top:8px;left:8px;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.08em;background:rgba(14,11,17,.7);padding:3px 7px;border-radius:2px}
+  .mk-cplay{width:34px;height:34px;border-radius:50%;background:rgba(14,11,17,.4);
+    border:1px solid rgba(242,234,247,.4);display:grid;place-items:center}
+  .mk-cbody{padding:11px 12px 13px}
+  .mk-ctitle{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mk-cmeta{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:6px;
+    display:flex;justify-content:space-between;align-items:center;letter-spacing:.06em}
+  .mk-cpill{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase}
+  .mk-cpill.ok{color:var(--ember)}
+  .mk-cpill.pend{color:var(--ink-3)}
+
+  /* ══ FORMULA — BREAK 3. Not a centred card of pills: an actual equation.
+     Five measured signals stacked on the left, one score on the right. ══ */
+  .formula{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:50px;
+    align-items:center;margin-top:38px;padding:38px 40px;border-radius:3px;border:1px solid transparent;
+    background:linear-gradient(172deg,#1C1424,#140F1A) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.05) 44%,rgba(242,234,247,.018)) border-box}
+  .signal-row{display:flex;flex-direction:column;gap:0}
+  .signal{display:grid;grid-template-columns:152px minmax(0,1fr);gap:20px;align-items:center;
+    padding:11px 0;border-bottom:1px solid var(--hair)}
+  .signal:last-of-type{border-bottom:none}
+  .signal .sk{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
+  .signal .sb{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
+  .signal .sb i{display:block;height:100%;background:var(--sc,var(--ember))}
+  .plus{display:none}
+  .formula-out{text-align:left;border-left:1px solid var(--hair);padding-left:34px}
+  .formula-out .eq{font-family:var(--mono);font-weight:600;font-size:clamp(46px,6vw,68px);
+    line-height:1;letter-spacing:-.04em;color:var(--flare);font-variant-numeric:tabular-nums;
+    text-shadow:0 0 40px rgba(210,106,251,.4)}
+  .formula-eq{font-size:14.5px;color:var(--ink-2);margin-top:16px;line-height:1.5;max-width:24ch}
+
+  /* ══ FEATURES. Two columns, hairlines instead of cards, mono index instead
+     of an icon in a tinted square. ══ */
+  .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 46px;margin-top:38px;
+    border-top:1px solid var(--hair)}
+  .feat{padding:26px 0;border-bottom:1px solid var(--hair)}
+  .feat .ic{color:var(--ember);margin-bottom:9px;display:block}
+  .feat h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:6px}
+  .feat p{font-size:14.5px;color:var(--ink-2);line-height:1.6}
+
+  /* ══ PRICING. Depth from value, not shadow: Pro stands nearest the monitor
+     and is a lit surface; the other two recede into the wall. ══ */
+  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px;margin:42px auto 0}
+  .price-card{position:relative;border-radius:3px;border:1px solid transparent;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(242,234,247,.16),rgba(242,234,247,.04) 50%,rgba(242,234,247,.015)) border-box}
+  .price-card.pro{background:linear-gradient(168deg,#2A1B35,#1B1221 70%) padding-box,
+      linear-gradient(215deg,var(--flare),rgba(184,106,220,.28) 34%,rgba(242,234,247,.06) 70%,rgba(242,234,247,.02)) border-box}
+  .price-in{padding:34px 30px 32px;height:100%;display:flex;flex-direction:column}
+  .price-pop{position:absolute;top:0;right:0;font-family:var(--mono);font-weight:600;font-size:9.5px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--flare);padding:9px 14px}
+  .price-badge{font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:20px}
+  .price-card.pro .price-badge{color:var(--glow-ink)}
+  .price-amt{display:flex;align-items:baseline;gap:3px}
+  .price-amt .cur{font-family:var(--mono);font-size:22px;color:var(--ink-3);align-self:flex-start;margin-top:9px}
+  .price-amt .num{font-family:var(--mono);font-weight:600;font-size:64px;letter-spacing:-.05em;
+    line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+  .price-card.pro .price-amt .num{color:var(--ember)}
+  .price-amt .per{font-family:var(--mono);font-size:13px;color:var(--ink-3);margin-left:5px}
+  .price-sub{font-size:14px;color:var(--ink-2);margin:14px 0 24px;line-height:1.55}
+  .price-list{flex:1;display:flex;flex-direction:column;gap:11px;margin-bottom:28px;
+    border-top:1px solid var(--hair);padding-top:20px}
+  /* NOT flex on the row. With display:flex every inline <b> becomes its own
+     flex item, so "Monitor up to <b>3 streams</b> at once" laid out as three
+     columns and broke mid-phrase. Absolute-positioning the tick keeps the text
+     one normal inline flow that wraps like a sentence. */
+  .price-list .li{position:relative;padding-left:24px;font-size:14px;color:var(--ink-2);line-height:1.5}
+  .price-list .ck{position:absolute;left:0;top:0;font-family:var(--sans);font-size:12px;color:var(--ember)}
+  .price-list .li b{color:var(--ink);font-weight:600}
+  .price-promo{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--ink-3);margin-top:20px}
+  .price-promo b{color:var(--ember);font-weight:400}
+
+  /* ══ FAQ. Hairline rows, no card. ══ */
+  .faq-list{max-width:780px;margin:38px auto 0;border-top:1px solid var(--hair)}
+  .faq-item{border-bottom:1px solid var(--hair)}
+  .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
+    padding:19px 2px;font-size:16px;font-weight:600;letter-spacing:-.01em;
+    -webkit-tap-highlight-color:transparent;transition:color .16s}
+  .faq-item summary::-webkit-details-marker{display:none}
+  .faq-item summary:hover{color:var(--glow-ink)}
+  .faq-q{flex:1;min-width:0}
+  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:15px;color:var(--ink-3);transition:transform .25s,color .25s}
+  .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
+  .faq-a{padding:0 2px 20px;font-size:14.5px;color:var(--ink-2);line-height:1.72;max-width:70ch}
+  .faq-a b{color:var(--ink);font-weight:600}
+
+  /* ══ FINAL CTA — the room at its brightest ══ */
+  .final{position:relative;text-align:center;padding-top:66px;padding-bottom:86px}
+  .final::before{content:'';position:absolute;left:50%;top:0;width:min(760px,90vw);height:320px;
+    transform:translateX(-50%);pointer-events:none;z-index:-1;
+    background:radial-gradient(50% 60% at 50% 0%,rgba(184,106,220,.2),transparent 70%)}
+  .final h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(34px,5.4vw,58px);
+    line-height:1.06;letter-spacing:-.005em;color:var(--ink);margin-bottom:20px}
+  .final p{font-size:17px;color:var(--ink-2);max-width:530px;margin:0 auto 32px;line-height:1.6}
+
+  /* ══ FOOTER ══ */
+  .footer{border-top:1px solid var(--hair);padding:34px 26px;text-align:center;
+    font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--ink-3);line-height:2.1}
+  .footer a{color:var(--ink-3);border-bottom:1px solid transparent}
+  .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
+  .footer .fl{margin-bottom:6px}
+
+  /* ══ Example-clip lightbox ══ */
   .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:22px}
-  .exl-bg{position:absolute;inset:0;background:rgba(5,4,8,.8);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
-  .exl-card{position:relative;z-index:1;width:min(920px,100%);border-radius:18px;overflow:hidden;background:rgba(13,12,18,.98);border:1px solid rgba(255,255,255,.12);box-shadow:0 40px 90px -30px rgba(0,0,0,.9)}
+  .exl-bg{position:absolute;inset:0;background:rgba(8,5,11,.9)}
+  .exl-card{position:relative;z-index:1;width:min(920px,100%);border-radius:3px;overflow:hidden;
+    background:var(--void);border:1px solid transparent;
+    background-image:linear-gradient(var(--void),var(--void)),linear-gradient(215deg,rgba(210,106,251,.5),rgba(242,234,247,.06));
+    background-origin:padding-box,border-box;background-clip:padding-box,border-box}
   .exl-frame{position:relative;width:100%;padding-bottom:56.25%;background:#000}
   .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
   .exl-meta{display:flex;align-items:center;gap:12px;padding:13px 16px}
-  .exl-title{flex:1;min-width:0;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .exl-out{font-size:12.5px;font-weight:700;color:#a5b4fc;white-space:nowrap}
-  .exl-out:hover{color:#c7d2fe}
-  .exl-close{position:absolute;top:10px;right:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;background:rgba(8,8,11,.7);color:#fff;font-size:17px;line-height:1;display:grid;place-items:center}
-  .exl-close:hover{background:rgba(8,8,11,.95)}
-  /* FAQ accordion */
-  .faq-list{max-width:760px;margin:44px auto 0;display:flex;flex-direction:column;gap:10px}
-  .faq-item{border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);overflow:hidden;transition:border-color .2s}
-  .faq-item[open]{border-color:rgba(168,85,247,.35)}
-  .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:16px 18px;font-size:15px;font-weight:700;-webkit-tap-highlight-color:transparent}
-  .faq-item summary::-webkit-details-marker{display:none}
-  .faq-item summary:hover{color:#fff}
-  .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;width:24px;height:24px;border-radius:8px;background:rgba(168,85,247,.14);color:#c79bff;display:grid;place-items:center;font-size:14px;font-weight:800;transition:transform .25s}
-  .faq-item[open] .faq-c{transform:rotate(45deg)}
-  .faq-a{padding:0 18px 17px;font-size:14px;color:#9c9caa;line-height:1.7;max-width:680px}
-  .faq-a b{color:#d8d8e2}
-  @media(max-width:960px){
-    /* 3 per row (2 gaps ÷ 3 = 10.667px off each card) */
-    .ex-card{flex-basis:calc(33.333% - 10.667px)}
-    .hero{grid-template-columns:minmax(0,1fr);gap:36px;padding-top:48px;padding-bottom:36px}
-    .hero-copy,.demo-wrap,.demo,.demo-in,.demo-main{min-width:0}
-    .demo-head{flex-wrap:wrap;gap:4px 8px}
-    .hero-copy{text-align:center}
-    .hero-copy p.lead{margin-left:auto;margin-right:auto}
-    .hero-ctas,.pills{justify-content:center}
+  .exl-title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .exl-out{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
+  .exl-out:hover{color:var(--flare)}
+  .exl-close{position:absolute;top:9px;right:9px;z-index:2;width:32px;height:32px;border-radius:2px;
+    border:1px solid rgba(242,234,247,.15);cursor:pointer;background:rgba(14,11,17,.8);color:var(--ink);
+    font-size:16px;line-height:1;display:grid;place-items:center}
+  .exl-close:hover{border-color:var(--flare)}
+
+  /* ══ Responsive ══ */
+  @media(max-width:1000px){
+    .hero{grid-template-columns:minmax(0,1fr);gap:44px;padding-top:52px}
+    .ex-card{flex-basis:calc(33.333% - 9.34px)}
+    .formula{grid-template-columns:minmax(0,1fr);gap:30px;padding:32px 28px}
+    .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:26px}
+    .feat-grid{grid-template-columns:1fr;gap:0}
+    .who-row{grid-template-columns:74px minmax(0,1fr);gap:20px}
   }
-  @media(max-width:680px){
-    /* 2 per row (1 gap ÷ 2 = 8px off each card) */
-    .ex-card{flex-basis:calc(50% - 8px)}
+  @media(max-width:720px){
+    section{padding-top:38px;padding-bottom:38px}
+    .wrap{padding-left:20px;padding-right:20px}
+    .ex-card{flex-basis:calc(50% - 7px)}
     .shots-top{grid-template-columns:1fr}
-    .hero-copy h1{font-size:42px;text-shadow:0 2px 5px rgba(0,0,0,.5),0 8px 22px rgba(168,85,247,.2)}
-    .hero-copy p.lead{font-size:16.5px}
-    h2.sec-title{font-size:30px}
-    .formula h2{font-size:26px}
-    .final h2{font-size:34px}
-    section{padding-top:44px;padding-bottom:44px}
-    .nav{padding:14px 14px}
-    .nav-actions{gap:4px}
+    .stats{grid-template-columns:1fr}
+    .stat{padding:20px 0;border-left:none;border-top:1px solid var(--hair)}
+    .stat:first-child{border-top:none}
+    .stat .k{max-width:none}
+    .nav{padding:11px 18px;gap:10px}
+    .nav-links{display:none}
     .nav-logo span{display:none}
-    .nav .nav-link.hide-sm{display:none}
-    .formula{padding:34px 22px}
-    .stats-band{grid-template-columns:1fr;gap:12px}
-    .stat{padding:20px}
-    .stat .n{font-size:36px}
-    .price-amt .num{font-size:46px}
+    .trig{padding:5px 9px;margin-right:2px}
+    .trig-k{display:none}
+    .who-row{grid-template-columns:minmax(0,1fr);gap:10px;padding:24px 0}
+    .who-l{justify-content:flex-start}
+    .step{grid-template-columns:44px minmax(0,1fr);gap:18px}
+    .rail-node{width:22px;height:22px;font-size:10px}
+    .step-4 .step-body{padding:16px 16px;margin-top:-12px}
+    .demo-cap{text-align:left}
+    .price-in{padding:28px 24px}
+    .price-amt .num{font-size:52px}
+    .final{padding-top:52px;padding-bottom:66px}
   }
-  /* Single column on phones — matches where the old auto-fit grid collapsed. */
   @media(max-width:520px){
     .ex-card{flex-basis:100%}
+    .hero-copy p.lead{font-size:17.5px}
+    .hero-ctas{flex-direction:column;align-items:stretch}
+    .hero-ctas .btn{width:100%}
+    /* Vertical rules only work while the row does not wrap. On a phone it
+       always wraps, so the separators become orphans hanging off line ends. */
+    .tags{flex-direction:column;gap:4px}
+    .tag{border-right:none;padding-right:0;margin-right:0}
+    .mk-pgrid{grid-template-columns:repeat(2,1fr)}
   }
-  /* Scroll-reveal + hero intro (motion-safe only) */
+
+  /* ══ MOTION. One orchestrated moment — the trigger firing — and a room that
+     breathes. Nothing else moves. ══ */
+  @media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .demo-live i,.dc-spin{animation:none}
+    .demo-wrap::before,.breathe{animation:none}
+  }
   @media(prefers-reduced-motion:no-preference){
-    .reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)}
-    .reveal.in{opacity:1;transform:none}
-    .hero .eyebrow,.hero-copy h1,.hero-copy .lead,.hero-ctas,.hero-note,.pills{opacity:0;animation:heroIn .8s cubic-bezier(.16,1,.3,1) forwards}
-    .hero-copy h1{animation-delay:.07s}
-    .hero-copy .lead{animation-delay:.15s}
-    .hero-ctas{animation-delay:.23s}
-    .hero-note{animation-delay:.31s}
-    .pills{animation-delay:.39s}
-    .demo-wrap{opacity:0;animation:heroIn .9s cubic-bezier(.16,1,.3,1) .2s forwards}
-    @keyframes heroIn{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+    .demo-wrap::before{animation:breathe 19s ease-in-out infinite}
+    @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "There is a free plan with no card required \u2014 one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="grain" aria-hidden="true"></div>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
-  <div class="nav-actions">
-    <a href="#how" class="nav-link hide-sm">How it works</a>
-    <a href="#examples" class="nav-link hide-sm" id="nav-examples" style="display:none">Example clips</a>
-    <a href="#features" class="nav-link hide-sm">Features</a>
-    <a href="#pricing" class="nav-link hide-sm">Pricing</a>
-    <a href="#faq" class="nav-link hide-sm">FAQ</a>
+  <div class="nav-links">
+    <a href="#how" class="nav-link">How it works</a>
+    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
+    <a href="#features" class="nav-link">Features</a>
+    <a href="#pricing" class="nav-link">Pricing</a>
+    <a href="#faq" class="nav-link">FAQ</a>
+  </div>
+  <div class="nav-right">
+    <!-- The signature, in its persistent form: the live trigger score never
+         leaves the screen. Same loop as the hero demo, same threshold. -->
+    <div class="trig" id="trig" aria-hidden="true">
+      <svg width="42" height="14" viewBox="0 0 42 14"><path class="trig-line" id="trig-line" d="M0,10 L42,10"/></svg>
+      <span class="trig-v" id="trig-v">92</span>
+    </div>
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-grad">Get started</a>
+    <a href="/login" class="btn btn-key" style="padding:10px 18px;font-size:13.5px">Get started</a>
   </div>
 </nav>
 
 <!-- Hero -->
 <header class="wrap hero">
   <div class="hero-copy">
-    <div class="eyebrow"><span class="dot"></span>Automatic clipping for Twitch</div>
+    <div class="kicker">Automatic clipping for Twitch</div>
     <h1>Never miss a <span class="accent">highlight</span> again.</h1>
     <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
     <div class="hero-ctas">
-      <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
-      <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+      <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
+      <a href="#how" class="btn btn-quiet btn-lg">See how it works</a>
     </div>
     <p class="hero-note"><b>Free to start</b> &middot; no card &middot; cancel anytime</p>
-    <div class="pills">
-      <span class="pill">Formula-based — not AI</span>
-      <span class="pill">Works at any channel size</span>
-      <span class="pill">Multiple streams at once</span>
+    <div class="tags">
+      <span class="tag">Formula-based — not AI</span>
+      <span class="tag">Works at any channel size</span>
+      <span class="tag">Multiple streams at once</span>
     </div>
   </div>
 
-  <!-- LIVE DEMO -->
+  <!-- LIVE DEMO — the light source in the room -->
   <div class="demo-wrap">
     <div class="demo" id="demo">
-      <div class="demo-in">
-        <div class="demo-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Highlightz — watching your stream</span><span class="demo-live"><i></i>LIVE</span></div>
-        <div class="demo-body">
-          <div class="demo-main">
-            <div class="demo-head">
-              <div class="demo-ch"><span class="pd"></span>your stream</div>
-              <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
-            </div>
-            <div class="demo-chart">
-              <svg viewBox="0 0 520 150" preserveAspectRatio="none" aria-label="Live trigger score chart">
-                <defs>
-                  <linearGradient id="dArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#a855f7" stop-opacity=".34"/>
-                    <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
-                  </linearGradient>
-                </defs>
-                <line x1="0" y1="42" x2="520" y2="42" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
-                <line x1="0" y1="104" x2="520" y2="104" stroke="rgba(255,255,255,.05)" stroke-width="1"/>
-                <line id="d-thresh" x1="0" y1="64.8" x2="520" y2="64.8" stroke="#5d5d6b" stroke-width="1" stroke-dasharray="5 5"/>
-                <text x="8" y="60" font-size="9" fill="#5d5d6b" font-family="Sora,Inter,system-ui,sans-serif" font-weight="600">trigger threshold</text>
-                <path id="d-area" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#dArea)"/>
-                <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#a855f7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-                <circle id="d-dot" cx="415" cy="17" r="4.5" fill="#f943ff" stroke="#0b0b10" stroke-width="2"/>
-              </svg>
-              <span class="fired-badge on" id="d-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>TRIGGER FIRED</span>
-            </div>
-            <div class="demo-sigs">
-              <span class="dsig on" id="sig-chat">CHAT VELOCITY</span>
-              <span class="dsig on" id="sig-audio">AUDIO SPIKE</span>
-              <span class="dsig on" id="sig-kw">KEYWORDS</span>
-              <span class="dsig" id="sig-sent">SENTIMENT</span>
-            </div>
-            <div class="demo-clip show done" id="d-clip">
-              <div class="dc-thumb"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
-              <div class="dc-meta">
-                <div class="dc-t">Big Reaction — clipped automatically</div>
-                <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
-              </div>
+      <div class="demo-bar"><span class="who">Highlightz — watching your stream</span><span class="demo-live"><i></i>LIVE</span></div>
+      <div class="demo-body">
+        <div class="demo-main">
+          <div class="demo-head">
+            <div class="demo-ch"><span class="pd"></span>your stream</div>
+            <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
+          </div>
+          <div class="demo-chart">
+            <svg viewBox="0 0 520 150" preserveAspectRatio="none" aria-label="Live trigger score chart">
+              <defs>
+                <linearGradient id="dArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#D26AFB" stop-opacity=".26"/>
+                  <stop offset="100%" stop-color="#D26AFB" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <line id="d-thresh" x1="0" y1="64.8" x2="520" y2="64.8" stroke="rgba(242,234,247,.16)" stroke-width="1" stroke-dasharray="3 6"/>
+              <text x="6" y="59" font-size="9" fill="#9C90A6" font-family="Plex,ui-monospace,monospace" letter-spacing="1.1">trigger threshold</text>
+              <path id="d-area" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#dArea)"/>
+              <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#D26AFB" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+              <circle id="d-dot" cx="415" cy="17" r="3.2" fill="#D26AFB"/>
+            </svg>
+            <span class="fired on" id="d-badge">TRIGGER FIRED</span>
+          </div>
+          <div class="demo-sigs">
+            <span class="dsig on" id="sig-chat">CHAT VELOCITY</span>
+            <span class="dsig on" id="sig-audio">AUDIO SPIKE</span>
+            <span class="dsig on" id="sig-kw">KEYWORDS</span>
+            <span class="dsig" id="sig-sent">SENTIMENT</span>
+          </div>
+          <div class="demo-clip show done" id="d-clip">
+            <div class="dc-thumb"><svg width="13" height="13" viewBox="0 0 24 24" fill="#C489E4"><path d="M8 5v14l11-7z"/></svg></div>
+            <div class="dc-meta">
+              <div class="dc-t">Big Reaction — clipped automatically</div>
+              <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
             </div>
           </div>
         </div>
@@ -3991,16 +4231,16 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Stats band -->
 <div class="wrap">
-  <div class="stats-band">
-    <div class="glass stat" id="stat-clips" style="display:none">
-      <div class="n"><span class="live-dot"></span><span id="lp-count">0</span></div>
+  <div class="stats">
+    <div class="stat stat-big" id="stat-clips" style="display:none">
+      <div class="n"><span id="lp-count">0</span></div>
       <div class="k">clips captured and counting</div>
     </div>
-    <div class="glass stat">
+    <div class="stat">
       <div class="n">7</div>
       <div class="k">live signals blended into every score</div>
     </div>
-    <div class="glass stat">
+    <div class="stat">
       <div class="n">1s</div>
       <div class="k">every second of your stream is scored</div>
     </div>
@@ -4009,85 +4249,107 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Example clips (admin-curated; hidden until the showcase has entries) -->
 <section class="wrap" id="examples" style="display:none">
-  <h2 class="sec-title">Real clips, caught automatically</h2>
-  <p class="sec-sub">Not a highlight reel we edited — these were clipped by the formula on live streams and approved in the review queue. Tap any of them to watch on Twitch.</p>
+  <div class="sec-head">
+    <h2 class="sec-title">Real clips, caught automatically</h2>
+    <p class="sec-sub">Not a highlight reel we edited — these were clipped by the formula on live streams and approved in the review queue. Tap any of them to watch on Twitch.</p>
+  </div>
   <div class="ex-grid" id="ex-grid"></div>
 </section>
 
 <!-- Who it's for -->
 <section class="wrap" id="who">
-  <h2 class="sec-title">Built for anyone who clips</h2>
-  <p class="sec-sub">Whether you're growing your own channel or clipping for others, Highlightz does the watching so you can focus on the content.</p>
-  <div class="who-grid">
-    <div class="glass who-card">
-      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg></div>
-      <h3>Streamers</h3>
-      <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips.</p>
+  <div class="sec-head">
+    <h2 class="sec-title">Built for anyone who clips</h2>
+    <p class="sec-sub">Whether you're growing your own channel or clipping for others, Highlightz does the watching so you can focus on the content.</p>
+  </div>
+  <div class="who-list">
+    <div class="who-row">
+      <div class="who-l">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
+      </div>
+      <div>
+        <h3>Streamers</h3>
+        <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips.</p>
+      </div>
     </div>
-    <div class="glass who-card">
-      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg></div>
-      <h3>Clippers &amp; editors</h3>
-      <p>Monitor several channels at once and let the best moments surface themselves. Spend your time editing, not scrubbing VODs.</p>
+    <div class="who-row">
+      <div class="who-l">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg>
+      </div>
+      <div>
+        <h3>Clippers &amp; editors</h3>
+        <p>Monitor several channels at once and let the best moments surface themselves. Spend your time editing, not scrubbing VODs.</p>
+      </div>
     </div>
-    <div class="glass who-card">
-      <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></div>
-      <h3>Community &amp; mod teams</h3>
-      <p>Keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
+    <div class="who-row">
+      <div class="who-l">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+      </div>
+      <div>
+        <h3>Community &amp; mod teams</h3>
+        <p>Keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
+      </div>
     </div>
   </div>
 </section>
 
 <!-- How it works -->
 <section class="wrap" id="how">
-  <h2 class="sec-title">How it works</h2>
-  <p class="sec-sub">Five simple steps from "go live" to a polished clip in your review queue.</p>
+  <div class="sec-head">
+    <h2 class="sec-title">How it works</h2>
+    <p class="sec-sub">Five simple steps from "go live" to a polished clip in your review queue.</p>
+  </div>
+  <!-- The rail IS the score: amber while the stream is below threshold, violet
+       from step 4 on, where the clip actually fires. -->
   <div class="steps">
-    <div class="glass step">
-      <div class="step-n">1</div>
-      <div><h3>Add any live Twitch channel</h3><p>Your own channel, streamers you clip for, or anyone live right now — monitor multiple streams at the same time from one dashboard.</p></div>
+    <div class="step step-1">
+      <div class="rail"><span class="rail-node">1</span></div>
+      <div class="step-body"><h3>Add any live Twitch channel</h3><p>Your own channel, streamers you clip for, or anyone live right now — monitor multiple streams at the same time from one dashboard.</p></div>
     </div>
-    <div class="glass step">
-      <div class="step-n">2</div>
-      <div><h3>A formula scores every second — not AI</h3><p>Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time as the stream unfolds.</p></div>
+    <div class="step step-2">
+      <div class="rail"><span class="rail-node">2</span></div>
+      <div class="step-body"><h3>A formula scores every second — not AI</h3><p>Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time as the stream unfolds.</p></div>
     </div>
-    <div class="glass step">
-      <div class="step-n">3</div>
-      <div><h3>It adapts to every streamer</h3><p>The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger with the same fairness. The more it watches a channel, the sharper its judgment becomes.</p></div>
+    <div class="step step-3">
+      <div class="rail"><span class="rail-node">3</span></div>
+      <div class="step-body"><h3>It adapts to every streamer</h3><p>The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger with the same fairness. The more it watches a channel, the sharper its judgment becomes.</p></div>
     </div>
-    <div class="glass step">
-      <div class="step-n">4</div>
-      <div><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
+    <div class="step step-4">
+      <div class="rail"><span class="rail-node">4</span></div>
+      <div class="step-body"><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
     </div>
-    <div class="glass step">
-      <div class="step-n">5</div>
-      <div><h3>You stay in control</h3><p>Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula quietly tunes itself to your taste with every decision you make.</p></div>
+    <div class="step step-5">
+      <div class="rail"><span class="rail-node">5</span></div>
+      <div class="step-body"><h3>You stay in control</h3><p>Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula quietly tunes itself to your taste with every decision you make.</p></div>
     </div>
   </div>
 </section>
 
 <!-- Product showcase -->
 <section class="wrap" id="product">
-  <h2 class="sec-title">See it in action</h2>
-  <p class="sec-sub">A clean, real-time dashboard that shows you exactly what's happening and why.</p>
+  <div class="sec-head">
+    <h2 class="sec-title">See it in action</h2>
+    <p class="sec-sub">A clean, real-time dashboard that shows you exactly what's happening and why.</p>
+  </div>
   <div class="shots-top">
     <!-- Active stream bubble -->
     <div class="shot">
       <div class="shot-frame">
-        <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Monitoring</span></div>
+        <div class="shot-bar"><i></i><span>Monitoring</span></div>
         <div class="shot-inner">
           <div class="mk-stream">
             <div class="mk-row">
               <div>
                 <div class="mk-nm"><span class="pd"></span>novafps</div>
-                <div class="mk-mt"><span class="mk-chip" style="color:#c79bff;border-color:rgba(168,85,247,.3)">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
+                <div class="mk-mt"><span class="mk-chip" style="color:#C489E4">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
               </div>
               <div class="mk-acts">
-                <span class="mk-clip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
+                <span class="mk-clip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
                 <span class="mk-x">&#215;</span>
               </div>
             </div>
             <div class="mk-scorewrap">
-              <div class="mk-st"><span class="mk-sl">Trigger score</span><span class="mk-sval" style="color:#ffb03a">72.4</span></div>
+              <div class="mk-st"><span class="mk-sl">Trigger score</span><span class="mk-sval" style="color:#F7A745">72.4</span></div>
               <div class="mk-track"><div class="mk-fill" style="width:72%"></div></div>
               <div class="mk-sigs">
                 <span class="mk-sig on">CHAT_VELOCITY: 0.81</span>
@@ -4101,9 +4363,9 @@ LANDING_HTML = """<!DOCTYPE html>
                 <div class="mk-pc"><div class="k">Threshold</div><div class="v">58</div></div>
                 <div class="mk-pc"><div class="k">Velocity</div><div class="v">4.2<small> m/s</small></div></div>
                 <div class="mk-pc"><div class="k">Clips</div><div class="v">37</div></div>
-                <div class="mk-pc"><div class="k">Approval</div><div class="v" style="color:#2ee08a">78%</div></div>
+                <div class="mk-pc"><div class="k">Approval</div><div class="v" style="color:#F7A745">78%</div></div>
               </div>
-              <div class="mk-cal"><span class="ck">&#10003;</span>Calibrated &middot; 142 samples</div>
+              <div class="mk-cal"><span class="tk">&#10003;</span> Calibrated &middot; 142 samples</div>
             </div>
           </div>
         </div>
@@ -4114,22 +4376,22 @@ LANDING_HTML = """<!DOCTYPE html>
     <!-- Clip score breakdown -->
     <div class="shot">
       <div class="shot-frame">
-        <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Clip detail</span></div>
+        <div class="shot-bar"><i></i><span>Clip detail</span></div>
         <div class="shot-inner">
           <div class="mk-media">
-            <div class="mk-play"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div>
-            <span class="mk-badge"><span class="pip" style="background:#2ee08a"></span>84% trigger</span>
+            <div class="mk-play"><svg width="18" height="18" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div>
+            <span class="mk-badge"><span class="pip"></span>84% trigger</span>
           </div>
           <div class="mk-dhead">
             <span class="mk-av">NF</span>
-            <div style="flex:1"><h4>Insane 1v5 clutch to win it</h4><div class="mt">novafps &middot; VALORANT &middot; 2m ago</div></div>
+            <div style="flex:1;min-width:0"><h4>Insane 1v5 clutch to win it</h4><div class="mt">novafps &middot; VALORANT &middot; 2m ago</div></div>
             <span class="mk-status">approved</span>
           </div>
           <div class="mk-eyebrow">Why it fired</div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Chat velocity</span><span class="mk-bv" style="color:#2ee08a">88%</span></div><div class="mk-bt"><div class="mk-bf" style="width:88%"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Audio spike</span><span class="mk-bv" style="color:#ffb03a">73%</span></div><div class="mk-bt"><div class="mk-bf" style="width:73%"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Keyword hits</span><span class="mk-bv" style="color:#ffb03a">61%</span></div><div class="mk-bt"><div class="mk-bf" style="width:61%"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Sentiment</span><span class="mk-bv" style="color:#9c9caa">47%</span></div><div class="mk-bt"><div class="mk-bf" style="width:47%"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Chat velocity</span><span class="mk-bv" style="color:#D26AFB">88%</span></div><div class="mk-bt"><div class="mk-bf" style="width:88%;background:#D26AFB"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Audio spike</span><span class="mk-bv" style="color:#B86ADC">73%</span></div><div class="mk-bt"><div class="mk-bf" style="width:73%"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Keyword hits</span><span class="mk-bv" style="color:#F7A745">61%</span></div><div class="mk-bt"><div class="mk-bf" style="width:61%;background:#F7A745"></div></div></div>
+          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Sentiment</span><span class="mk-bv" style="color:#9C90A6">47%</span></div><div class="mk-bt"><div class="mk-bf" style="width:47%;background:#9C90A6"></div></div></div>
         </div>
       </div>
       <div class="shot-cap"><h3>Every clip, fully explained</h3><p>Open any clip to see the precise breakdown of which signals triggered it — no AI guesswork, just the numbers behind the moment.</p></div>
@@ -4137,25 +4399,25 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 
   <!-- Clip library -->
-  <div class="shot" style="margin-top:20px">
+  <div class="shot" style="margin-top:18px">
     <div class="shot-frame">
-      <div class="shot-bar"><i class="b1"></i><i class="b2"></i><i class="b3"></i><span>Clip library</span></div>
+      <div class="shot-bar"><i></i><span>Clip library</span></div>
       <div class="shot-inner">
         <div class="mk-lib">
           <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(135deg,#2a1840,#3a1a4d)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">96%</span></div>
+            <div class="mk-cmedia" style="background:linear-gradient(150deg,#2E1C3B,#1A1224)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#F7A745">96%</span></div>
             <div class="mk-cbody"><div class="mk-ctitle">Triple kill, no scope</div><div class="mk-cmeta"><span>novafps</span><span class="mk-cpill ok">approved</span></div></div>
           </div>
           <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(135deg,#3a1a4d,#1f1730)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">81%</span></div>
+            <div class="mk-cmedia" style="background:linear-gradient(150deg,#341F42,#1B1224)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#9C90A6">81%</span></div>
             <div class="mk-cbody"><div class="mk-ctitle">Unreal comeback round</div><div class="mk-cmeta"><span>peachy_kat</span><span class="mk-cpill pend">pending</span></div></div>
           </div>
           <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(135deg,#1f2a4d,#2a1840)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#2ee08a">74%</span></div>
+            <div class="mk-cmedia" style="background:linear-gradient(150deg,#27203F,#191226)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#F7A745">74%</span></div>
             <div class="mk-cbody"><div class="mk-ctitle">Clutch ace, full team</div><div class="mk-cmeta"><span>drift_season</span><span class="mk-cpill ok">approved</span></div></div>
           </div>
           <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(135deg,#33184a,#1a2440)"><div class="mk-cplay"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#ffc25c">68%</span></div>
+            <div class="mk-cmedia" style="background:linear-gradient(150deg,#2B1B3B,#181428)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#9C90A6">68%</span></div>
             <div class="mk-cbody"><div class="mk-ctitle">Perfect comedic timing</div><div class="mk-cmeta"><span>moonvale</span><span class="mk-cpill pend">pending</span></div></div>
           </div>
         </div>
@@ -4167,69 +4429,90 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Not AI / formula -->
 <section class="wrap">
-  <div class="glass formula">
-    <div class="eyebrow" style="margin-bottom:18px">100% transparent</div>
-    <h2>A formula you can actually understand</h2>
-    <p class="lead">Highlightz isn't powered by AI guesswork. It's a clear, explainable formula that blends real signals from the stream into a single live score. Every trigger has a reason you can see.</p>
+  <div class="sec-head kicked">
+    <div class="kicker">100% transparent</div>
+    <h2 class="sec-title">A formula you can actually understand</h2>
+    <p class="sec-sub">Highlightz isn't powered by AI guesswork. It's a clear, explainable formula that blends real signals from the stream into a single live score. Every trigger has a reason you can see.</p>
+  </div>
+  <div class="formula">
     <div class="signal-row">
-      <div class="signal"><span class="sd" style="background:#f943ff"></span>Chat speed</div>
+      <div class="signal" style="--sc:#D26AFB"><span class="sk">Chat speed</span><span class="sb"><i style="width:82%"></i></span></div>
       <div class="plus">+</div>
-      <div class="signal"><span class="sd" style="background:#a855f7"></span>Audio spikes</div>
+      <div class="signal" style="--sc:#B86ADC"><span class="sk">Audio spikes</span><span class="sb"><i style="width:64%"></i></span></div>
       <div class="plus">+</div>
-      <div class="signal"><span class="sd" style="background:#7c6bff"></span>Keywords</div>
+      <div class="signal" style="--sc:#9C7BD2"><span class="sk">Keywords</span><span class="sb"><i style="width:47%"></i></span></div>
       <div class="plus">+</div>
-      <div class="signal"><span class="sd" style="background:#22c55e"></span>Viewer surges</div>
+      <div class="signal" style="--sc:#F7A745"><span class="sk">Viewer surges</span><span class="sb"><i style="width:58%"></i></span></div>
       <div class="plus">+</div>
-      <div class="signal"><span class="sd" style="background:#ffcc00"></span>Hype moments</div>
+      <div class="signal" style="--sc:#E08C3A"><span class="sk">Hype moments</span><span class="sb"><i style="width:71%"></i></span></div>
     </div>
-    <div class="formula-eq">= one live highlight score, adapting to each streamer</div>
+    <div class="formula-out">
+      <div class="eq num">84</div>
+      <div class="formula-eq">= one live highlight score, adapting to each streamer</div>
+    </div>
   </div>
 </section>
 
 <!-- Features -->
 <section class="wrap" id="features">
-  <h2 class="sec-title">Everything in the box</h2>
-  <p class="sec-sub">A complete clipping toolkit that runs while you do everything else.</p>
+  <div class="sec-head">
+    <h2 class="sec-title">Everything in the box</h2>
+    <p class="sec-sub">A complete clipping toolkit that runs while you do everything else.</p>
+  </div>
   <div class="feat-grid">
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
-      <h3>Real-time detection</h3>
-      <p>Streams are scored second by second, so highlights are caught the instant they happen — not hours later in a VOD.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
+        <h3>Real-time detection</h3>
+        <p>Streams are scored second by second, so highlights are caught the instant they happen — not hours later in a VOD.</p>
+      </div>
     </div>
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
-      <h3>Multiple streams at once</h3>
-      <p>Watch many channels simultaneously from one dashboard, each with its own independent learning profile.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <h3>Multiple streams at once</h3>
+        <p>Watch many channels simultaneously from one dashboard, each with its own independent learning profile.</p>
+      </div>
     </div>
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></div>
-      <h3>Adaptive per-channel learning</h3>
-      <p>Each streamer gets a personalized baseline. Loud or quiet, fast chat or slow — it's always calibrated fairly.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></span>
+        <h3>Adaptive per-channel learning</h3>
+        <p>Each streamer gets a personalized baseline. Loud or quiet, fast chat or slow — it's always calibrated fairly.</p>
+      </div>
     </div>
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg></div>
-      <h3>Approve / reject queue</h3>
-      <p>Review every clip in one place. Your decisions feed straight back into the formula, sharpening it over time.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12l5 5L20 7"/></svg></span>
+        <h3>Approve / reject queue</h3>
+        <p>Review every clip in one place. Your decisions feed straight back into the formula, sharpening it over time.</p>
+      </div>
     </div>
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div>
-      <h3>Live score analytics</h3>
-      <p>Watch the highlight score rise and fall in real time, with a clear breakdown of which signals are firing.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>
+        <h3>Live score analytics</h3>
+        <p>Watch the highlight score rise and fall in real time, with a clear breakdown of which signals are firing.</p>
+      </div>
     </div>
-    <div class="glass feat">
-      <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></div>
-      <h3>Real Twitch clips, zero risk</h3>
-      <p>Every clip is created through Twitch's official API under your own account — hosted by Twitch, never recorded or re-hosted by us.</p>
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></span>
+        <h3>Real Twitch clips, zero risk</h3>
+        <p>Every clip is created through Twitch's official API under your own account — hosted by Twitch, never recorded or re-hosted by us.</p>
+      </div>
     </div>
   </div>
 </section>
 
 <!-- Pricing -->
 <section class="wrap" id="pricing">
-  <h2 class="sec-title" style="text-align:center">Start free. Pay when it earns it.</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">No card to start, no contracts — cancel anytime.</p>
+  <div class="sec-head center">
+    <h2 class="sec-title">Start free. Pay when it earns it.</h2>
+    <p class="sec-sub">No card to start, no contracts — cancel anytime.</p>
+  </div>
   <div class="price-grid">
-    <div class="price-card starter">
+    <div class="price-card">
       <div class="price-in">
         <span class="price-badge">Free</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">0</span><span class="per">/forever</span></div>
@@ -4241,10 +4524,10 @@ LANDING_HTML = """<!DOCTYPE html>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
         </div>
-        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Start free &#8594;</a>
+        <a href="/login" class="btn btn-quiet btn-wide">Start free &#8594;</a>
       </div>
     </div>
-    <div class="price-card starter">
+    <div class="price-card">
       <div class="price-in">
         <span class="price-badge">Starter</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">10</span><span class="per">/month</span></div>
@@ -4256,10 +4539,10 @@ LANDING_HTML = """<!DOCTYPE html>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
         </div>
-        <a href="/login" class="btn btn-ghost" style="width:100%;padding:14px;font-size:15px">Choose Starter &#8594;</a>
+        <a href="/login" class="btn btn-quiet btn-wide">Choose Starter &#8594;</a>
       </div>
     </div>
-    <div class="price-card">
+    <div class="price-card pro">
       <div class="price-in">
         <span class="price-pop">Most popular</span>
         <span class="price-badge">Highlightz Pro</span>
@@ -4271,17 +4554,19 @@ LANDING_HTML = """<!DOCTYPE html>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span><b>VOD Scanner</b> — find highlights in past broadcasts</div>
         </div>
-        <a href="/login" class="btn btn-grad" style="width:100%;padding:14px;font-size:15px">Go Pro &#8594;</a>
+        <a href="/login" class="btn btn-key btn-wide">Go Pro &#8594;</a>
       </div>
     </div>
   </div>
-  <div class="price-promo" style="text-align:center;margin-top:18px">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
+  <div class="price-promo" style="text-align:center">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
 </section>
 
 <!-- FAQ -->
 <section class="wrap" id="faq">
-  <h2 class="sec-title" style="text-align:center">Frequently asked questions</h2>
-  <p class="sec-sub" style="margin:0 auto;text-align:center">Quick answers to the things people ask before starting.</p>
+  <div class="sec-head center">
+    <h2 class="sec-title">Frequently asked questions</h2>
+    <p class="sec-sub">Quick answers to the things people ask before starting.</p>
+  </div>
   <div class="faq-list">
     <details class="faq-item">
       <summary><span class="faq-q">How does Highlightz know what to clip?</span><span class="faq-c">+</span></summary>
@@ -4330,7 +4615,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap final">
   <h2>Your next viral clip is<br><span class="accent">already happening.</span></h2>
   <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
-  <a href="/login" class="btn btn-grad btn-lg">Start clipping now</a>
+  <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
 </section>
 
 <div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
@@ -4350,24 +4635,6 @@ LANDING_HTML = """<!DOCTYPE html>
   <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
-(function(){
-  if(!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var sel='.sec-title,.sec-sub,.who-card,.step,.feat,.formula,.price-card,.shot,.stat,.faq-item,.final h2,.final p,.final .btn';
-  var els=[].slice.call(document.querySelectorAll(sel));
-  els.forEach(function(el){el.classList.add('reveal');});
-  document.querySelectorAll('.who-grid,.steps,.feat-grid,.stats-band,.faq-list').forEach(function(group){
-    [].slice.call(group.children).forEach(function(child,i){
-      if(child.classList.contains('reveal')) child.style.transitionDelay=(i*0.08)+'s';
-    });
-  });
-  var io=new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}
-    });
-  },{threshold:0.12,rootMargin:'0px 0px -8% 0px'});
-  els.forEach(function(el){io.observe(el);});
-})();
-
 /* ── Live clips counter ── */
 (function(){
   var tile=document.getElementById('stat-clips'), el=document.getElementById('lp-count');
@@ -4407,6 +4674,10 @@ LANDING_HTML = """<!DOCTYPE html>
 (function(){
   var sec=document.getElementById('examples'), grid=document.getElementById('ex-grid'), nav=document.getElementById('nav-examples');
   if(!sec||!grid) return;
+  // Built with RegExp(), not a literal. This string is a Python triple-quoted
+  // block, and Python resolves escapes before the browser ever sees them — a
+  // backslash in a JS regex literal here is a landmine, not an escape.
+  var SLUG=new RegExp('/clip/([^/?#]+)');
   fetch('/landing/showcase').then(function(r){return r.ok?r.json():null;}).then(function(d){
     var clips=(d&&d.clips)||[];
     if(!clips.length) return;
@@ -4419,14 +4690,14 @@ LANDING_HTML = """<!DOCTYPE html>
         if(window.innerWidth<=700) return;
         var src=c.embed_url;
         if(!src && c.twitch_url){
-          var m=/\/clip\/([^\/?#]+)/.exec(c.twitch_url);
+          var m=SLUG.exec(c.twitch_url);
           if(m) src='https://clips.twitch.tv/embed?clip='+m[1];
         }
         if(!src) return;   // no way to embed — let the link do its thing
         ev.preventDefault();
         var lb=document.getElementById('exl');
         var ifr=document.getElementById('exl-iframe');
-        document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' \u2014 '+(c.channel||'');
+        document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' — '+(c.channel||'');
         document.getElementById('exl-out').href=c.twitch_url||'#';
         ifr.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+'&autoplay=true';
         lb.style.display='';
@@ -4440,11 +4711,10 @@ LANDING_HTML = """<!DOCTYPE html>
         media.appendChild(img);
       }
       var play=document.createElement('div'); play.className='ex-play';
-      play.innerHTML='<span><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg></span>';
+      play.innerHTML='<span><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg></span>';
       media.appendChild(play);
       if(c.score>0){
         var badge=document.createElement('span'); badge.className='ex-badge';
-        var dot=document.createElement('i'); badge.appendChild(dot);
         badge.appendChild(document.createTextNode(c.score+'% trigger'));
         media.appendChild(badge);
       }
@@ -4454,7 +4724,7 @@ LANDING_HTML = """<!DOCTYPE html>
       var meta=document.createElement('div'); meta.className='ex-meta';
       var ch=document.createElement('b'); ch.textContent=c.channel||'';
       meta.appendChild(ch);
-      if(c.game){ var g=document.createElement('span'); g.textContent='\u00b7 '+c.game; meta.appendChild(g); }
+      if(c.game){ var g=document.createElement('span'); g.textContent='· '+c.game; meta.appendChild(g); }
       body.appendChild(title); body.appendChild(meta);
       a.appendChild(media); a.appendChild(body);
       grid.appendChild(a);
@@ -4475,11 +4745,20 @@ LANDING_HTML = """<!DOCTYPE html>
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeLb(); });
 })();
 
-/* ── Hero live-capture demo ──
-   A scripted ~11s loop: calm chat + wandering score → chat floods → score
-   spikes past the threshold → TRIGGER badge + window glow → a clip card slides
-   in, spins, flips to "Clip ready". The markup ships the fired end-state, so
-   no-JS and reduced-motion visitors see the finished capture instead of motion. */
+/* ── THE SIGNATURE ──────────────────────────────────────────────────────────
+   The trigger score is the light in the room. One scripted ~11s capture drives
+   it: calm chat and a wandering score, chat floods, the score crosses the
+   threshold, the clip is created. Everything lit on this page reads the same
+   number:
+
+     --lit   0..1 on <html>, how hard the trigger is firing. The nav rim, the
+             hero wash and the demo panel's own rim all scale off it, so when
+             the capture fires the ROOM brightens, not just the widget.
+     .trig   a permanent readout welded into the nav — amber below threshold
+             (the lamp behind you), violet above it (the monitor).
+
+   The markup ships the FIRED end state, so no-JS and reduced-motion visitors
+   see a finished capture rather than an empty frame. ───────────────────────*/
 (function(){
   var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var demo=document.getElementById('demo');
@@ -4488,13 +4767,16 @@ LANDING_HTML = """<!DOCTYPE html>
   var scoreEl=document.getElementById('d-score'), clipCard=document.getElementById('d-clip');
   var sigChat=document.getElementById('sig-chat'), sigAudio=document.getElementById('sig-audio'),
       sigKw=document.getElementById('sig-kw'), sigSent=document.getElementById('sig-sent');
+  var trig=document.getElementById('trig'), trigV=document.getElementById('trig-v'),
+      trigLine=document.getElementById('trig-line');
+  var root=document.documentElement;
   if(!demo||!line||reduce) return;   // static fired-state markup stays as-is
 
   var DUR=11000, WINDOW=8000, W=520, H=150, THRESH=60;
 
   function yFor(s){ return 144 - s*1.32; }
 
-  var samples=[], lastSample=0, fired=false, clipShown=false, clipDone=false, seed=7;
+  var samples=[], lastSample=0, fired=false, clipShown=false, clipDone=false, seed=7, lastLit=-1;
   function rnd(){ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }
 
   function scoreAt(t){
@@ -4518,10 +4800,20 @@ LANDING_HTML = """<!DOCTYPE html>
   function reset(){
     samples=[]; lastSample=0; fired=false; clipShown=false; clipDone=false; seed=7;
     badge.classList.remove('on'); demo.classList.remove('hot');
+    if(trig) trig.classList.remove('hot');
     clipCard.classList.remove('show','done');
     dot.setAttribute('r','0');
   }
   reset();
+
+  // The chart is the only expensive part of the loop. The nav readout is on
+  // screen for the whole page, so it keeps updating; the SVG paths stop the
+  // moment the hero scrolls away.
+  var heroVisible=true;
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(function(es){ heroVisible=es[0].isIntersecting; },
+      {rootMargin:'120px'}).observe(demo);
+  }
 
   var t0=null;
   function frame(now){
@@ -4534,24 +4826,46 @@ LANDING_HTML = """<!DOCTYPE html>
       var s=scoreAt(t);
       samples.push([t,s]);
       while(samples.length&&samples[0][0]<t-WINDOW) samples.shift();
-      scoreEl.textContent=String(Math.round(s));
+      var shown=Math.round(s);
+      scoreEl.textContent=String(shown);
+      if(trigV) trigV.textContent=String(shown);
 
-      var d='',ax,ay;
-      for(var i=0;i<samples.length;i++){
-        ax=((samples[i][0]-(t-WINDOW))/WINDOW)*W;
-        ay=yFor(samples[i][1]);
-        d+=(i===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
+      // One number, one room. Only written when it actually moves — a custom
+      // property on <html> invalidates style for the whole document, so this
+      // must not fire on every single frame.
+      var lit=Math.max(0,Math.min(1,(s-THRESH)/34));
+      var q=Math.round(lit*20)/20;
+      if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
+
+      if(heroVisible){
+        var d='',ax,ay;
+        for(var i=0;i<samples.length;i++){
+          ax=((samples[i][0]-(t-WINDOW))/WINDOW)*W;
+          ay=yFor(samples[i][1]);
+          d+=(i===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
+        }
+        if(samples.length){
+          line.setAttribute('d',d);
+          area.setAttribute('d',d+' L'+W+','+H+' L'+((samples[0][0]-(t-WINDOW))/WINDOW*W).toFixed(1)+','+H+' Z');
+          dot.setAttribute('cx',ax.toFixed(1)); dot.setAttribute('cy',ay.toFixed(1));
+        }
       }
-      if(samples.length){
-        line.setAttribute('d',d);
-        area.setAttribute('d',d+' L'+W+','+H+' L'+((samples[0][0]-(t-WINDOW))/WINDOW*W).toFixed(1)+','+H+' Z');
-        dot.setAttribute('cx',ax.toFixed(1)); dot.setAttribute('cy',ay.toFixed(1));
+
+      // The nav sparkline: the last 14 samples, 42x14.
+      if(trigLine&&samples.length>1){
+        var n=Math.min(14,samples.length), td='';
+        for(var j=0;j<n;j++){
+          var sv=samples[samples.length-n+j][1];
+          td+=(j===0?'M':' L')+((j/(n-1))*42).toFixed(1)+','+(13-(sv/100)*12).toFixed(1);
+        }
+        trigLine.setAttribute('d',td);
       }
 
       if(!fired&&s>=THRESH&&t>4000){
         fired=true;
         badge.classList.add('on'); demo.classList.add('hot');
-        dot.setAttribute('r','4.5');
+        if(trig) trig.classList.add('hot');
+        dot.setAttribute('r','3.2');
       }
       if(fired&&!clipShown&&t>=7100){
         clipShown=true; clipCard.classList.add('show');
@@ -4559,7 +4873,10 @@ LANDING_HTML = """<!DOCTYPE html>
       if(clipShown&&!clipDone&&t>=8700){
         clipDone=true; clipCard.classList.add('done');
       }
-      if(t>=10300){ badge.classList.remove('on'); demo.classList.remove('hot'); }
+      if(t>=10300){
+        badge.classList.remove('on'); demo.classList.remove('hot');
+        if(trig) trig.classList.remove('hot');
+      }
     }
     setSigs(t);
     requestAnimationFrame(frame);

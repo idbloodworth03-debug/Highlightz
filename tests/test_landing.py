@@ -106,13 +106,19 @@ def test_accent_word_is_solid_not_outlined():
     It used to be transparent with a -webkit-text-stroke outline. Two things
     have to stay true or it silently reverts to that look: the fill must not be
     transparent, and no stroke width may come back.
+
+    The hex is the redesign's --glow (#B86ADC, H281 S62), deliberately off
+    Twitch's own #9146FF/#A970FF (H264 S100) — pinned here because "our purple,
+    not Twitch's" is the one colour decision a later edit is most likely to undo
+    by reaching for a familiar value.
     """
-    import re
     css = api.LANDING_HTML
     block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
-    assert "color:#a855f7" in block, "accent must be filled purple"
+    assert "color:#B86ADC" in block, "accent must be filled with our purple"
     assert "color:transparent" not in block
     assert "-webkit-text-stroke:0" in block
+    for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):
+        assert twitch not in css, f"Twitch's own purple {twitch} is back in the palette"
     # The old class name described the opposite behaviour and is fully gone.
     assert ".hollow" not in css and 'class="hollow"' not in css
     # Both accented words still exist in the markup.
@@ -231,8 +237,10 @@ def test_lobster_is_titles_only_and_never_uppercased():
        it by smearing glyphs, the same artefact that made the previous two
        display faces look wrong.
 
-    And it is deliberately scoped to TITLES — the owner asked for clean, normal
-    lettering everywhere else, so numbers/labels/wordmark stay Sora.
+    Scope narrowed in the late-night-room redesign: a characterful display face
+    used on four headings stops being characterful and starts being the page's
+    default voice, so it now appears exactly TWICE — the h1 and the closing
+    line. Section headings are Sora; every number and label is the mono.
     """
     import re
     css = api.LANDING_HTML
@@ -244,71 +252,65 @@ def test_lobster_is_titles_only_and_never_uppercased():
         weight = re.search(r"font-weight:(\d+)", body)
         assert weight and weight.group(1) == "400", f"{sel} would synthesise bold"
 
-    # Scope: the four titles use it...
-    for sel in (".hero-copy h1", "h2.sec-title", ".formula h2", ".final h2"):
-        block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
-        assert "'Lobster'" in block, f"{sel} should be the script face"
+    # Used twice, and only twice. The @font-face block declares the family
+    # rather than using it, so it is not a usage site.
+    users = {m.group(1).strip().split("*/")[-1].strip() for m in
+             re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
+    users = {u for u in users if not u.startswith("@")}
+    assert users == {".hero-copy h1", ".final h2"}, f"Lobster scope drifted: {sorted(users)}"
 
-    # ...and the non-title display bits must NOT.
-    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".demo-score"):
+    # Headings are the text face; data is the instrument face. Neither is the
+    # script face, and neither is Inter.
+    for sel in ("h2.sec-title",):
+        block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
+        assert "var(--sans)" in block, f"{sel} should be the body face"
+    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".demo-score span"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
-        assert "'Sora'" in block, f"{sel} should be Sora"
+        assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
+    # Scoped to font stacks: "Inter" is also a substring of the JSON-LD's
+    # "InteractionCounter", so a whole-document search here reports a
+    # typography regression that is really a schema.org key.
+    stacks = " ".join(re.findall(r"font-family:([^;}]+)", css))
+    assert "Inter" not in stacks, f"Inter is back in a font stack: {stacks[:160]}"
 
-    # The font is self-hosted and preloaded, like the others.
-    assert "/static/fonts/lobster-400.woff2" in css
-    assert 'rel="preload"' in css and "lobster-400.woff2" in css
+    # Fonts are self-hosted and preloaded, so none of them can shift layout.
+    for f in ("lobster-400.woff2", "sora-var.woff2", "plexmono-400.woff2", "plexmono-600.woff2"):
+        assert f"/static/fonts/{f}" in css, f"{f} not referenced"
+        assert f'rel="preload"' in css
+    assert css.count("font-display:swap") == 4, "every face needs font-display:swap"
 
 
-def test_aurora_layer_is_decorative_and_cannot_block_the_page():
-    """The background aurora must stay strictly decorative.
+def test_decoration_can_never_block_the_page():
+    """The old aurora — four blurred purple orbs drifting behind everything —
+    is gone; it was the exact "glow blob" the redesign set out to remove. What
+    replaced it is a grain layer over the page and a light that belongs to the
+    demo panel, and BOTH inherit the aurora's failure mode: a full-bleed
+    decorative layer that starts eating clicks kills every button on the page
+    and is invisible in a screenshot.
 
-    It is a full-viewport fixed layer sitting over the whole landing page, so
-    the ways it can break the site are all about it stopping being *background*:
-
-    * a click-eating overlay (`pointer-events` other than `none`) would make
-      every button on the page dead — the worst possible failure, and invisible
-      in a screenshot;
-    * a z-index at or above 0 would paint it on top of the copy;
-    * animating anything but `transform`/`opacity` forces layout or paint every
-      frame, which on the 1vCPU droplet's visitors reads as a janky page.
-
-    It also has to live on the LANDING page specifically — an earlier revision
-    of this change landed the markup in `_PORTAL_ERROR_HTML` because a blind
-    `replace("<body>", ...)` matched the first `<body>` in the module.
+    So the invariants move with the decoration rather than dying with it.
     """
-    import re
     css = api.LANDING_HTML
 
-    block = css[css.index(".aurora{"):css.index("}", css.index(".aurora{"))]
-    assert "pointer-events:none" in block, "aurora must never intercept clicks"
-    assert "position:fixed" in block
-    z = re.search(r"z-index:(-?\d+)", block)
-    assert z and int(z.group(1)) < 0, "aurora must paint behind all content"
+    grain = css[css.index(".grain{"):css.index("}", css.index(".grain{"))]
+    assert "pointer-events:none" in grain, "grain must never intercept clicks"
+    assert "position:fixed" in grain
+    assert 'class="grain" aria-hidden="true"' in css, "pure decoration must be aria-hidden"
 
-    # It sits under the existing radial wash rather than fighting it for order.
-    body_before = css[css.index("body::before{"):css.index("}", css.index("body::before{"))]
-    bz = re.search(r"z-index:(-?\d+)", body_before)
-    assert bz and int(z.group(1)) < int(bz.group(1)), "aurora must sit below body::before"
+    light = css[css.index(".demo-wrap::before{"):css.index("}", css.index(".demo-wrap::before{"))]
+    assert "pointer-events:none" in light, "the room light must never intercept clicks"
 
-    # Only transform is animated, so every frame is a GPU composite.
-    for name in ("auroraA", "auroraB", "auroraC", "auroraD"):
-        kf = re.search(r"@keyframes " + name + r"\{(.*?)\}\}", css, re.S)
-        assert kf, f"{name} keyframes missing"
-        props = set(re.findall(r"([a-z-]+):", kf.group(1)))
-        assert props <= {"transform"}, f"{name} animates non-composited {props}"
-
-    # Motion is decoration; respect a reduced-motion preference.
-    assert "@media(prefers-reduced-motion:reduce){.aurora i{animation:none}}" in css
-
-    # The markup is on the landing page, and only there.
-    start = css.index('<div class="aurora" aria-hidden="true">')
-    div = css[start:css.index("</div>", start)]
-    assert div.count("<i></i>") == 4, "four blobs expected"
-    # aria-hidden: it is pure decoration, so screen readers must skip it.
-    assert 'aria-hidden="true"' in div
+    # The banned thing itself must not come back.
+    assert ".aurora" not in css, "the drifting glow-blob layer is back"
+    assert "filter:blur(" not in css, "a blurred background layer is back"
     for other in ("_PORTAL_ERROR_HTML", "_PORTAL_NO_BILLING_HTML"):
-        assert 'class="aurora"' not in getattr(api, other), f"aurora leaked into {other}"
+        assert 'class="aurora"' not in getattr(api, other)
+
+    # Ambient motion is decoration: hold it still when asked.
+    assert "@media(prefers-reduced-motion:reduce)" in css
+    assert "prefers-reduced-motion:no-preference" in css
+
 
 
 def test_landing_vertical_rhythm_stays_tight():
