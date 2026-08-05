@@ -184,9 +184,19 @@ button{font-family:inherit;cursor:pointer}
 .rd-filter:hover{color:var(--fg)}
 .rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(168,85,247,.6)}
 .rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;align-content:start;align-items:stretch;min-height:0}
-.rd-clip{border-radius:var(--r-lg);overflow:hidden;background:var(--panel);border:1px solid var(--hair);transition:transform .22s cubic-bezier(.4,0,.2,1),border-color .22s,box-shadow .22s;display:flex;flex-direction:column;height:360px}
+/* min-height, not height. The thumbnail is 16:9 of the COLUMN width, so a card in
+   a wide column is taller than one in a narrow column — a fixed 360px fits at the
+   310px grid minimum and clips the action row (the "Open on Twitch" button) once
+   columns get wider. The grid still stretches every card in a row to the tallest,
+   so rows stay level. */
+.rd-clip{border-radius:var(--r-lg);overflow:hidden;background:var(--panel);border:1px solid var(--hair);transition:transform .22s cubic-bezier(.4,0,.2,1),border-color .22s,box-shadow .22s;display:flex;flex-direction:column;min-height:360px}
 .rd-clip:hover{transform:translateY(-4px);border-color:rgba(199,155,255,.35);box-shadow:var(--shadow-card)}
-.rd-media{position:relative;width:100%;height:0;padding-bottom:56.25%;overflow:hidden}
+/* aspect-ratio, not the height:0 + padding-bottom:56.25% hack. Percentage padding
+   resolves to ZERO while a grid row is being intrinsically sized, so the row came
+   out shorter than the card it had to hold and the thumbnail pushed the buttons
+   out through the bottom edge. aspect-ratio is counted during intrinsic sizing,
+   which is what makes min-height above actually reach the content. */
+.rd-media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden}
 .rd-thumb{position:absolute;inset:0}
 .rd-thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55))}
 .rd-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55));pointer-events:none;z-index:1}
@@ -1008,8 +1018,10 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         </div>
         <div className="rd-clip-actions">
           {clip.status==='pending' ? <>
-            <button className="rd-btn live sm" onClick={e=>{e.stopPropagation();onApprove(clip.id)}}><Icon name="check" size={14}/>Approve</button>
-            <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
+            {/* Guarded: the library no longer passes these, and an unguarded
+                call on a clip that slipped through would white-screen the app. */}
+            <button className="rd-btn live sm" onClick={e=>{e.stopPropagation();onApprove&&onApprove(clip.id)}}><Icon name="check" size={14}/>Approve</button>
+            <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject&&onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
           </> : libraryMode && clip.status==='approved' ? <>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on Twitch</a>}
@@ -1479,38 +1491,53 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   );
 }
 
-function LibraryScreen({ clips, onOpen, onApprove, onReject, onDelete }) {
-  const [f, setF] = useState('all');
+// The library is the ARCHIVE: approved clips only. An undecided clip belongs in
+// Clip Review and nowhere else — showing it in both places let people approve
+// from here and then wonder why the review queue still had work in it, and it
+// buried the clips they had actually kept under a pile of ones they hadn't
+// looked at yet.
+//
+// That is also why there is no status filter row any more. Pending is gone from
+// this screen by definition, and a rejected clip is DELETED server-side (see
+// /clips/{id}/reject) rather than kept with a status — so "Rejected" could never
+// match anything, and "All" and "Approved" were the same button twice. The
+// streamer filter stays: it is the one that still narrows a real list.
+function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
   const [chanFilter, setChanFilter] = useState('all');
-  const allClips = Object.values(clips);
-  // Filterable streamers derive from the clips themselves — a newly-clipped
-  // streamer is selectable the moment their first clip arrives over the WS.
-  const channels = [...new Set(allClips.map(c=>c.channel).filter(Boolean))].sort();
+  const all = Object.values(clips);
+  const approved = all.filter(c=>c.status==='approved');
+  // Filterable streamers derive from the clips themselves — a newly-approved
+  // streamer is selectable the moment their first clip lands over the WS.
+  const channels = [...new Set(approved.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
-  const clipsArr = allClips
-    .filter(c=>(f==='all'||c.status===f)&&(effChan==='all'||c.channel===effChan))
+  const clipsArr = approved
+    .filter(c=>effChan==='all'||c.channel===effChan)
     .sort((a,b)=>(b.created_at||0)-(a.created_at||0));
-  const total = allClips.length;
-  const approvedCount = allClips.filter(c=>c.status==='approved').length;
+  // Pending clips are not listed here, but their existence is worth surfacing —
+  // otherwise hiding them reads as "my clips vanished" rather than "they are one
+  // tab over waiting on you".
+  const pendingCount = all.filter(c=>c.status==='pending').length;
   return (
     <div className="rd-scroll">
       <div className="rd-section-title">
         <h2>Clip library</h2>
-        <span className="cnt">{total} captured · {approvedCount} approved</span>
+        <span className="cnt">{approved.length} approved</span>
         <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          {pendingCount>0 && <button className="rd-btn sm" onClick={()=>onGoReview&&onGoReview()}
+            title="Undecided clips live in Clip Review"
+            style={{background:'rgba(250,204,21,.12)',color:'var(--pending)',border:'1px solid rgba(250,204,21,.25)'}}>
+            <Icon name="grid" size={13}/>{pendingCount} waiting in Clip Review
+          </button>}
           {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
             <option value="all">All streamers</option>
             {channels.map(c=><option key={c} value={c}>{c}</option>)}
           </select>}
-          <div className="rd-filters">
-            {['all','pending','approved','rejected'].map(x=><button key={x} className={'rd-filter'+(f===x?' active':'')} onClick={()=>setF(x)}>{x[0].toUpperCase()+x.slice(1)}</button>)}
-          </div>
         </div>
       </div>
       {clipsArr.length===0
-        ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>Clips you capture will be archived in the library.</div></div>
+        ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
         : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
-            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onApprove={onApprove} onReject={onReject} onDelete={onDelete} libraryMode/>)}
+            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} libraryMode/>)}
           </div>}
     </div>
   );
@@ -1591,7 +1618,7 @@ const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have captured'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -4271,7 +4298,7 @@ function RdApp() {
   else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
-  else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
+  else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(route==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
   else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
