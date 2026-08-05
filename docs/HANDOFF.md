@@ -954,6 +954,32 @@ across each fails a test. One test deliberately checks a NORMAL clip still
 records and teaches — a guard that swallowed ordinary clips would silently stop
 all learning, which is the expensive way to be wrong.
 
+## The landing clip counter is SERVER-RENDERED (2026-08-03)
+
+It used to be fetched by JS after load, and the tile shipped as
+`style="display:none"` containing a literal `0`. Crawlers, link unfurlers and
+AI readers overwhelmingly parse the raw response and never execute JS, so they
+did not merely miss the number — **they saw zero**, which invites "Highlightz
+has captured 0 clips".
+
+`render_landing()` bakes the real count into the response: the visible span,
+the tile's visibility, AND the JSON-LD `interactionStatistic`
+(`InteractionCounter`), which is where a machine actually looks for a count.
+`GET /` must call it — serving `LANDING_HTML` directly puts the bug straight
+back, and there is a test for exactly that.
+
+Three things not to break:
+1. **JSON-LD carries the RAW integer**, never the comma-formatted string. A
+   `"1,234,567"` is not a valid schema.org count and consumers drop it.
+2. **Zero clips leaves the tile hidden.** Advertising a real zero is worse than
+   saying nothing.
+3. **The client animation starts FROM the rendered value**, not from 0.
+   Counting up from zero would wipe the server-rendered number for a second and
+   put a literal `0` back in the DOM — the exact state a crawler might sample.
+
+Verified with JavaScript disabled in a real browser, which is the only way to
+see what a scraper gets.
+
 ## Referrals + free-plan landing (2026-08-03, growth plan items 2 & 5)
 
 **`src/auth/referrals.py`** — signup attribution INDEPENDENT of Stripe. The
