@@ -273,6 +273,21 @@ async def get_valid_twitch_token(user_id: str) -> str | None:
     return access or None
 
 
+def set_miss_notice_dismissed(user_id: str, when: float) -> None:
+    """Remember that the user closed the queue-full notice.
+
+    Persisted rather than kept in the tab, so dismissing it once dismisses it
+    everywhere and it does not reappear on the next page load — which is what
+    made the notice feel broken.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["miss_notice_dismissed_at"] = when
+            _save(users)
+            return
+
+
 def set_ref_once(user_id: str, ref: str) -> bool:
     """Attribute a user to a referrer, FIRST TOUCH ONLY.
 

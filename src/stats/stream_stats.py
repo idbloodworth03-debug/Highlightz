@@ -63,7 +63,12 @@ def record(event: str, clip: dict) -> None:
         channel = clip.get("channel")
         if not uid or not channel:
             return
-        line = {"ts": round(time.time(), 1), "event": event,
+        # NOT rounded. At 1dp a row written at t=1000.06 stores 1000.1, i.e.
+        # 0.04s in its own future — so a "since this moment" comparison could
+        # still count an event that happened before it. That is exactly the
+        # comparison the dismiss-the-notice window does. The bytes saved by
+        # rounding are not worth a timestamp that can lie about ordering.
+        line = {"ts": time.time(), "event": event,
                 "user_id": uid, "channel": channel,
                 "clip_id": clip.get("id"),
                 # created_at, not ts: a clip approved days later still belongs

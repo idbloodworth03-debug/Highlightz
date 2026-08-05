@@ -433,6 +433,9 @@ button{font-family:inherit;cursor:pointer}
 .rd-lost .ic{flex-shrink:0;color:#ff9a52;display:grid;place-items:center}
 .rd-lost .tx{flex:1;min-width:0;font-size:12.8px;line-height:1.5;color:var(--fg-2)}
 .rd-lost .tx b{color:#ff9a52}
+.rd-lost-x{flex-shrink:0;background:none;border:0;color:var(--fg-3);font-size:22px;
+  line-height:1;cursor:pointer;padding:0 2px;transition:color .12s}
+.rd-lost-x:hover{color:var(--fg-1)}
 @media(max-width:640px){.rd-lost{flex-direction:column;align-items:flex-start}}
 .rv{max-width:460px;width:100%;padding:26px 28px;border-radius:20px;
   display:flex;flex-direction:column;gap:12px}
@@ -1307,7 +1310,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   );
 }
 
-function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me }) {
+function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [chanFilter, setChanFilter] = useState('all');
@@ -1353,6 +1356,8 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
           </div>
           {nextPlan && <a className="rd-btn grad" href="/billing/paywall"
             style={{textDecoration:'none',flexShrink:0}}>See plans</a>}
+          <button className="rd-lost-x" onClick={onDismissLost} title="Dismiss"
+            aria-label="Dismiss">×</button>
         </div>}
         <div className="rd-stats">
           <RdStat icon="sparkles" k="Pending review" v={pending} sub="awaiting your call" accent/>
@@ -3990,16 +3995,18 @@ function RdApp() {
       if(data && data.review_prompt) setReviewAsk(p=>p||{clips:0});
       // The event is the live nudge; this is the state, so the notice
       // survives a reload and a reconnect.
+      // REPLACE, never `p=>p||...`. Keeping the first value meant a later
+      // /me could not lower the count or clear the banner, so once it appeared
+      // it stayed for the life of the tab — half of why it felt permanent.
+      // The server counts only misses since the last dismissal, so this both
+      // updates and clears correctly.
       if(data && data.clips_lost_24h > 0)
-        // Carry the next tier here too. The reload path is how most people
-        // will actually see this notice, and without these fields it rendered
-        // the "free up space" fallback and never mentioned upgrading.
-        setLostClips(p=>p||{missed_24h:data.clips_lost_24h, plan:data.plan,
-                            limit:(data.plan_limits||{}).max_pending,
-                            next_plan:(data.next_plan||{}).plan,
-                            next_limit:(data.next_plan||{}).max_pending,
-                            next_price:(data.next_plan||{}).price});
-      else if(data && data.clips_lost_24h === 0) setLostClips(null);
+        setLostClips({missed_24h:data.clips_lost_24h, plan:data.plan,
+                      limit:(data.plan_limits||{}).max_pending,
+                      next_plan:(data.next_plan||{}).plan,
+                      next_limit:(data.next_plan||{}).max_pending,
+                      next_price:(data.next_plan||{}).price});
+      else setLostClips(null);
     }).catch(()=>{});
     // Static config, but it still belongs here: refetchAll runs on every
     // reconnect, so a deploy that changes a platform limit reaches open
@@ -4119,6 +4126,7 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward team scoring ticks to the Training screen's live counter
+        else if(msg.event==='miss_notice_dismissed'){ setLostClips(null); }
         else if(msg.event==='clip_missed'){
           setLostClips(msg);
           flash('Queue full — a highlight on ' + (msg.channel||'your stream') + ' was not clipped');
@@ -4188,6 +4196,11 @@ function RdApp() {
   // "In yours" instead of offering an action the server will refuse.
   const myClipUrls = new Set(Object.values(clips).map(c=>c.twitch_url).filter(Boolean));
 
+  const dismissMissNotice = ()=>{
+    setLostClips(null);                       // instant; the POST is bookkeeping
+    fetch('/me/dismiss-miss-notice',{method:'POST'}).catch(()=>{});
+  };
+
   const grabFeature = async (id)=>{
     try{
       const r = await fetch(`/admin/showcase/${id}/grab`, {method:'POST'});
@@ -4256,7 +4269,7 @@ function RdApp() {
   // backend refuses too (503) — this is not a UI-only gate. Admins get the
   // real screen so the owner can exercise it on prod.
   else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me}}/>;
+  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
   else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onApprove:approveClip,onReject:rejectClip,onDelete:deleteClip}}/>;
   else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;

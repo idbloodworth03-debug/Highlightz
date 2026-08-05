@@ -2506,9 +2506,33 @@ async def notify_clip_missed(user_id: str, channel: str, reason: str = "queue_fu
 
 
 def _clips_lost_24h(uid: str) -> int:
-    """Moments NOT clipped in the last 24h because the queue was full."""
+    """Moments not clipped because the queue was full, since whichever is
+    LATER: 24h ago, or the last time the user dismissed the notice.
+
+    Counting from the dismissal is what makes the X button mean something. A
+    plain 24h window would bring the same notice straight back on the next page
+    load, which is exactly how it behaved before and why it felt broken. New
+    misses after a dismissal still count, so the warning returns when there is
+    something new to warn about.
+    """
     from src.stats import stream_stats
-    return stream_stats.missed_since(uid, time.time() - 86400)
+    from src.auth import users as _miss_store
+    user = _miss_store.get_by_id(uid) or {}
+    since = max(time.time() - 86400, user.get("miss_notice_dismissed_at") or 0)
+    return stream_stats.missed_since(uid, since)
+
+
+@app.post("/me/dismiss-miss-notice")
+async def dismiss_miss_notice(request: Request):
+    """Close the queue-full notice until something new is missed."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user_store.set_miss_notice_dismissed(uid, time.time())
+    # Scoped broadcast so the user's OTHER tabs close it too — dismissing in
+    # one window and having it still sitting there in another is the same
+    # complaint in a different shape.
+    await broadcast({"event": "miss_notice_dismissed"}, user_id=uid)
+    return {"ok": True}
 
 
 def _review_prompt_due(uid: str) -> bool:

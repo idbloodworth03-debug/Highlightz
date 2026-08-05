@@ -104,10 +104,67 @@ def test_the_count_reaches_me_so_the_notice_survives_a_reload():
     assert "clips_lost_24h" in SRC, "the frontend never reads it"
 
 
-def test_zero_losses_clears_a_stale_notice():
-    """Otherwise the banner sticks around after the user frees up space, which
-    turns a true warning into a permanent nag."""
-    assert "data.clips_lost_24h === 0) setLostClips(null)" in SRC
+def test_the_banner_can_be_cleared_and_updated_by_a_later_fetch():
+    """It felt permanent for two reasons and both are asserted here.
+
+    `setLostClips(p=>p||...)` kept the FIRST value, so no later /me could lower
+    the count or clear it — once shown, it stayed for the life of the tab. And
+    there was no else-branch to clear it at all.
+    """
+    assert "setLostClips(p=>p||" not in SRC, \
+        "the banner state is frozen at its first value again"
+    assert "else setLostClips(null);" in SRC, "nothing clears the banner"
+
+
+def test_there_is_a_way_to_dismiss_it():
+    assert "rd-lost-x" in SRC, "the notice has no dismiss control"
+    assert "/me/dismiss-miss-notice" in SRC, "dismissing is not persisted"
+
+
+def test_dismissing_closes_it_in_the_users_other_tabs_too():
+    """Dismissing in one window and finding it still open in another is the
+    same complaint in a different shape."""
+    assert "msg.event==='miss_notice_dismissed'" in SRC
+
+
+def test_dismissal_is_persisted_server_side_not_just_in_the_tab():
+    """A tab-local dismissal comes straight back on the next page load, which
+    is exactly how this behaved before."""
+    import inspect
+    from src.dashboard import api
+    from src.auth import users
+    assert hasattr(users, "set_miss_notice_dismissed")
+    assert "set_miss_notice_dismissed" in inspect.getsource(api.dismiss_miss_notice)
+
+
+def test_the_count_starts_from_the_dismissal_not_a_flat_24h_window():
+    """Counting a flat 24h would bring the same notice back on the next load
+    even though the user just closed it."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api._clips_lost_24h)
+    assert "miss_notice_dismissed_at" in src and "max(" in src
+
+
+def test_a_new_miss_after_dismissing_brings_it_back(monkeypatch, tmp_path):
+    """Dismissing must not silence it forever — only until something new is
+    actually missed."""
+    import time
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(ss, "_LOG_FILE", tmp_path / "s.jsonl")
+    state = {"miss_notice_dismissed_at": 0.0}
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: dict(state, id=uid))
+
+    ss.record(ss.MISSED, _clip(uid="u1"))
+    assert api._clips_lost_24h("u1") == 1
+
+    state["miss_notice_dismissed_at"] = time.time()
+    assert api._clips_lost_24h("u1") == 0, "dismissing did not clear the count"
+
+    ss.record(ss.MISSED, _clip(uid="u1", cid="later"))
+    assert api._clips_lost_24h("u1") == 1, "a new miss did not bring it back"
 
 
 def test_the_missed_event_has_a_handler():

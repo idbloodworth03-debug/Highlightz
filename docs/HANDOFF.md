@@ -902,6 +902,28 @@ also fails if it drifts back to claiming something was deleted.
 - `clips_lost_24h == 0` clears the banner, so a true warning cannot become a
   permanent nag once they free up space.
 
+### Dismissing the notice
+
+It felt permanent for three separate reasons, all fixed together:
+1. **No dismiss control existed at all.**
+2. `setLostClips(p=>p||...)` kept the FIRST value, so no later `/me` could
+   lower the count or clear it — once shown it stayed for the life of the tab.
+   It replaces now, and there is an `else setLostClips(null)`.
+3. The count used a flat 24h window, so even a working dismissal would have
+   been undone by the next page load. `_clips_lost_24h` counts from
+   `max(now-24h, miss_notice_dismissed_at)`.
+
+Dismissal is persisted on the USER (`POST /me/dismiss-miss-notice`), not in the
+tab, and broadcasts `miss_notice_dismissed` so the user's other tabs close it
+too. A new miss after dismissing brings it back — dismissing is not permanent
+silence.
+
+**`stream_stats` timestamps are no longer rounded.** At 1dp a row written at
+t=1000.06 stored 1000.1 — 0.04s in its own future — so a "since this moment"
+comparison could count an event that happened before it. That is exactly the
+comparison the dismissal window makes, and it showed up as a flaky test rather
+than as a bug report.
+
 ## Clip trading between admins (2026-08-03)
 
 **Landing Page tab → Grab.** Copies a featured clip into your own Clip Library
