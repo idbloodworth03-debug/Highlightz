@@ -11,8 +11,11 @@ while refactoring, and the screen goes back to listing everything without
 throwing anything a JSX check or a smoke test would notice.
 """
 
+import inspect
 import re
 from pathlib import Path
+
+from src.dashboard import api
 
 FRONTEND = Path(__file__).resolve().parent.parent / "src/dashboard/aurora_html.py"
 SRC = FRONTEND.read_text()
@@ -99,3 +102,38 @@ def test_clip_card_can_grow_to_fit_its_actions():
     assert "aspect-ratio:16/9" in media.group(1)
     assert "padding-bottom" not in media.group(1), \
         "the percentage-padding aspect hack is back; it breaks intrinsic row sizing"
+
+
+def test_approving_a_clip_stamps_when_it_entered_the_library():
+    """The library sorts on approved_at, so the approve endpoint has to set it.
+
+    created_at is when the clip was CAPTURED. A clip caught on Tuesday and
+    approved today belongs at the top of the library today — sorting by capture
+    time buried it, which read as "approving did nothing".
+    """
+    src = inspect.getsource(api.approve_clip)
+    body = re.sub(r"#.*", "", src)
+    assert 'clip["approved_at"]' in body, "approve does not record when it was approved"
+    # Stamped inside the lock, next to the status change, so the saved record
+    # and the broadcast clip can never disagree about it.
+    assert body.index('clip["status"] = "approved"') < body.index('clip["approved_at"]')
+    assert body.index('clip["approved_at"]') < body.index("_save_clips()"), \
+        "approved_at is set after the save, so a restart would lose it"
+
+
+def test_grabbing_a_clip_stamps_it_too():
+    """Grabbing IS the approval — the clip is created already approved, so it
+    has to record an entry time like any other library arrival."""
+    src = inspect.getsource(api.admin_grab_showcase)
+    assert '"approved_at"' in src, "a grabbed clip never records when it landed"
+
+
+def test_library_sorts_on_approval_time_with_a_capture_time_fallback():
+    body = _library_screen()
+    assert "c.approved_at || c.created_at" in body, \
+        "the library is not sorting on approval time"
+    # The fallback is what makes this safe without a migration: clips approved
+    # before the field existed keep their old relative order instead of all
+    # collapsing to 0 and jumping to the bottom in arbitrary order.
+    assert "b.created_at" not in body.replace("c.approved_at || c.created_at", ""), \
+        "a raw created_at sort is still in the library"

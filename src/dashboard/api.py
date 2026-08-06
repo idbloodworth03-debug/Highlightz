@@ -1621,6 +1621,14 @@ async def approve_clip(request: Request, clip_id: str):
         if not clip or clip.get("user_id") != uid:
             raise HTTPException(status_code=404, detail="Clip not found")
         clip["status"] = "approved"
+        # WHEN it entered the library, which is not when it was captured. The
+        # library sorts on this: a clip caught on Tuesday and approved today
+        # belongs at the top today, because "what did I just keep" is the
+        # question that screen answers. Clips approved before this field
+        # existed have no value and fall back to created_at, which preserves
+        # their existing order relative to each other and puts every new
+        # approval above them.
+        clip["approved_at"] = time.time()
         _save_clips()
     from src.profiles import training_log
     # A grabbed clip was never scored by us for this user — see _is_grabbed.
@@ -3486,6 +3494,11 @@ async def admin_grab_showcase(request: Request, clip_id: str):
             # review queue would ask them to judge a clip they just chose.
             "status":        "approved",
             "created_at":    time.time(),
+            # Grabbing IS the approval, so it stamps approved_at too — without
+            # it a grabbed clip would sort by created_at and land in the same
+            # place, but only by coincidence. Anything that enters the library
+            # records when it entered.
+            "approved_at":   time.time(),
             # The marker every telemetry path checks. Also records who it came
             # from, so "who found this" survives the copy.
             "source":        "grabbed",

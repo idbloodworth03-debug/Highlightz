@@ -1510,9 +1510,20 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
   // streamer is selectable the moment their first clip lands over the WS.
   const channels = [...new Set(approved.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
+  // Newest APPROVAL first, not newest capture. The library is the record of
+  // what you decided to keep, so approving a clip puts it at the top — even if
+  // it was captured days ago and has been sitting in the review queue since.
+  // Sorting by created_at meant a clip you just kept could appear pages down,
+  // which read as "my approval did nothing".
+  //
+  // approved_at is only set from the moment that field shipped; clips approved
+  // before it fall back to created_at. That is deliberate rather than a
+  // migration: their relative order is unchanged, and every new approval
+  // carries a now-timestamp so it sorts above all of them.
+  const at = c => c.approved_at || c.created_at || 0;
   const clipsArr = approved
     .filter(c=>effChan==='all'||c.channel===effChan)
-    .sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+    .sort((a,b)=>at(b)-at(a));
   // Pending clips are not listed here, but their existence is worth surfacing —
   // otherwise hiding them reads as "my clips vanished" rather than "they are one
   // tab over waiting on you".
