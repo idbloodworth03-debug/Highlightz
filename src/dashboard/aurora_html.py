@@ -6,7 +6,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root {
@@ -251,7 +251,11 @@ button{font-family:inherit;cursor:pointer}
   border-right:1px solid var(--hair);background:rgba(10,10,14,.5);
   -webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:6}
 .rd-nav .logo{margin-bottom:18px;display:flex}
-.rd-nav .logo img{height:44px;filter:drop-shadow(0 0 12px rgba(199,155,255,.55))}
+/* The mark is a transparent PNG cropped to its own ink, so `height` is now the
+   height of the GLYPH — under the old plated JPEG the same 44px was mostly
+   empty background with a ~19px mark floating in it. Sizes here and everywhere
+   else were re-picked against the visible mark, not carried over. */
+.rd-nav .logo img{height:34px;filter:drop-shadow(0 0 12px rgba(199,155,255,.45))}
 .rd-navitem{width:88px;height:64px;border-radius:16px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:5px;background:transparent;border:none;
   color:var(--fg-3);font-size:11.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
@@ -3896,7 +3900,7 @@ function WelcomeOverlay({ onClose }) {
     <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
       <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
-          <img src="/static/logo.jpg" alt="Highlightz" style={{height:56,filter:'drop-shadow(0 0 14px rgba(199,155,255,.5))'}}/>
+          <img src="/static/logo-mark.png" alt="Highlightz" style={{height:40,filter:'drop-shadow(0 0 14px rgba(199,155,255,.4))'}}/>
         </div>
         <h1 style={{fontSize:26,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
         <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:26}}>
@@ -4344,7 +4348,7 @@ function RdApp() {
 
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
-        <span className="logo"><img src="/static/logo.jpg" alt="Highlightz"/></span>
+        <span className="logo"><img src="/static/logo-mark.png" alt="Highlightz"/></span>
         {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>{
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what

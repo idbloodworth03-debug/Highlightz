@@ -49,3 +49,8 @@ pytest
 pytest-asyncio
 pytest-mock
 stripe
+# Pillow is TEST/BUILD ONLY — the server never imports PIL. It is here so
+# tests/test_brand_assets.py can open the shipped logo and social card and
+# assert things about the actual pixels (is the mark really transparent, is the
+# preview card really 1200x630). Prod not having it installed is fine.
+Pillow

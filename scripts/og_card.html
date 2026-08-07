@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<!--
+  THE SOCIAL PREVIEW CARD (Open Graph / Twitter / Instagram / Discord).
+
+  WHY THIS FILE IS CHECKED IN. The previous card was a flat PNG with no source.
+  By the time anyone looked at it, it was advertising "7 days free" and
+  "$15/month" — a trial that had been removed and a price that had been retired
+  — in the old gradient-text design. Nobody noticed for months, because the only
+  place that copy existed was inside a binary. Every link shared to Instagram,
+  Facebook, Twitter and Discord was selling an offer that did not exist.
+
+  So the card is now HTML, rendered against the SAME self-hosted fonts and the
+  SAME palette tokens as the live landing page. Regenerate it with:
+
+      node scripts/build_og_card.mjs
+
+  DELIBERATELY NO PRICE ON THE CARD. Quoting a number here is exactly what went
+  wrong: prices change, and a cached OG image is the slowest thing on the
+  internet to correct — Facebook keys its cache on the URL, so a stale card can
+  outlive the offer by months. "Free to start, no card" stays true across every
+  pricing change we would plausibly make, and it is also the single most useful
+  thing a stranger can learn in a thumbnail. A test asserts no retired price or
+  trial ever creeps back in.
+
+  The design is the landing page's own logic, compressed: purple is not paint,
+  it is the light the trigger throws. The score panel on the right is the light
+  SOURCE — the spill on the headline comes from it.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @font-face{font-family:'Lobster';font-style:normal;font-weight:400;src:url(/fonts/lobster-400.woff2) format('woff2')}
+  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;src:url(/fonts/sora-var.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:400;src:url(/fonts/plexmono-400.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:600;src:url(/fonts/plexmono-600.woff2) format('woff2')}
+
+  /* Same seven tokens as LANDING_HTML. If these drift from api.py the card
+     stops matching the page it links to. */
+  :root{
+    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
+    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085);
+    --mono:'Plex',ui-monospace,monospace; --sans:'Sora',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1200px;height:630px;background:var(--void);color:var(--ink);
+    font-family:var(--sans);overflow:hidden;position:relative;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+  /* Real rooms are not flat — the same tile the page uses. */
+  .grain{position:absolute;inset:0;z-index:9;pointer-events:none;opacity:.032;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px 180px}
+
+  /* The light in the room, thrown BY the score panel. One position, one
+     falloff — unblurred and low alpha, because a blurred blob is the tell. */
+  .room-light{position:absolute;top:-170px;right:-120px;width:1050px;height:900px;
+    background:radial-gradient(46% 46% at 72% 34%,rgba(184,106,220,.20),rgba(184,106,220,.055) 45%,transparent 72%);
+    pointer-events:none;z-index:0}
+
+  .card{position:relative;z-index:2;height:100%;display:grid;
+    grid-template-columns:1fr 404px;gap:52px;padding:56px 60px 48px}
+
+  /* ── left: the copy ── */
+  /* Three groups, evenly distributed: brand / copy / tags. Hanging the copy off
+     the bottom (brand margin-bottom:auto) left a dead 160px under the logo. */
+  .left{display:flex;flex-direction:column;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand img{height:30px}
+  .brand span{font-family:var(--mono);font-weight:600;font-size:16px;
+    letter-spacing:.15em;text-transform:uppercase;color:var(--ink)}
+
+  .kicker{font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ember);display:flex;align-items:center;gap:13px}
+  .kicker::after{content:'';flex:1;height:1px;max-width:150px;
+    background:linear-gradient(90deg,rgba(247,167,69,.35),transparent)}
+
+  h1{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:73px;line-height:1.02;
+    letter-spacing:-.005em;margin:20px 0 20px}
+  /* Lit, not painted: a solid fill plus the spill it throws on the dark. */
+  .accent{color:var(--glow);text-shadow:0 0 34px rgba(184,106,220,.45),0 0 10px rgba(184,106,220,.3)}
+
+  .lead{font-size:19.5px;line-height:1.5;color:var(--ink-2);max-width:520px;font-weight:400}
+
+  .tags{display:flex;padding-top:16px;border-top:1px solid var(--hair)}
+  .tag{font-family:var(--mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ink-3);padding-right:15px;margin-right:15px;border-right:1px solid var(--hair);line-height:1.4}
+  .tag:last-child{border-right:none;margin-right:0;padding-right:0}
+  .tag b{color:var(--ink-2);font-weight:600}
+
+  /* ── right: the instrument, which is also the light source ── */
+  .panel{align-self:center;border:1px solid transparent;border-radius:3px;padding:26px 26px 22px;
+    background:linear-gradient(168deg,var(--bruise),#291A33 60%,var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
+  .p-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+  .p-lab{font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .live{font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.14em;
+    color:var(--ink-2);display:flex;align-items:center;gap:6px}
+  .live i{width:6px;height:6px;border-radius:50%;background:var(--flare);
+    box-shadow:0 0 9px rgba(210,106,251,.9);display:block}
+
+  .score{font-family:var(--mono);font-weight:600;font-size:88px;line-height:1;
+    font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1,'zero' 1;
+    letter-spacing:-.03em;color:var(--flare);
+    text-shadow:0 0 40px rgba(210,106,251,.5),0 0 12px rgba(210,106,251,.3);margin:6px 0 2px}
+  .of{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.05em;margin-bottom:14px}
+
+  .chart{position:relative;height:118px;margin-bottom:14px}
+  .chart svg{width:100%;height:100%;display:block}
+  /* Top-LEFT, not top-right: the curve peaks at ~80% of the width, so a badge
+     in the right corner sits directly on the one thing the chart is showing. */
+  .fired{position:absolute;left:0;top:2px;font-family:var(--mono);font-weight:600;font-size:10px;
+    letter-spacing:.15em;color:#1A0E20;background:var(--flare);padding:4px 8px;border-radius:2px}
+
+  .sigs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+  .sig{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.11em;
+    color:var(--ink-3);border:1px solid var(--hair);border-radius:2px;padding:4px 7px}
+  .sig.on{color:var(--glow-ink);border-color:rgba(184,106,220,.42)}
+
+  .made{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid var(--hair);
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-2);letter-spacing:.02em}
+  .made .ok{color:var(--ember);font-weight:600}
+
+  .url{position:absolute;right:60px;bottom:34px;z-index:3;font-family:var(--mono);
+    font-weight:600;font-size:13px;letter-spacing:.13em;color:var(--ink-3);text-transform:lowercase}
+</style>
+</head>
+<body>
+<div class="room-light"></div>
+<div class="grain"></div>
+
+<div class="card">
+  <div class="left">
+    <div class="brand"><img src="/logo-mark.png" alt=""><span>Highlightz</span></div>
+
+    <div class="copy">
+      <div class="kicker">Automatic clipping for Twitch</div>
+      <h1>Never miss a <span class="accent">highlight</span> again.</h1>
+      <p class="lead">Highlightz watches your live stream in real time and clips your best
+        moments automatically &mdash; whether 5 people are watching or 50,000.</p>
+    </div>
+
+    <div class="tags">
+      <span class="tag">Formula-based &mdash; not AI</span>
+      <span class="tag">Works at any channel size</span>
+      <span class="tag"><b>Free to start</b> &middot; no card</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="p-head">
+      <span class="p-lab">Trigger score</span>
+      <span class="live"><i></i>LIVE</span>
+    </div>
+    <div class="score">92</div>
+    <!-- No number on the threshold. It is ADAPTIVE — a quiet chess stream and a
+         loud FPS stream are meant to trigger at the same fairness — so printing
+         a fixed "68" here would contradict the thing the product is selling. -->
+    <div class="p-lab of">threshold crossed</div>
+
+    <div class="chart">
+      <svg viewBox="0 0 520 150" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="a" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#D26AFB" stop-opacity=".26"/>
+            <stop offset="100%" stop-color="#D26AFB" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <line x1="0" y1="64.8" x2="520" y2="64.8" stroke="rgba(242,234,247,.16)" stroke-width="1.4" stroke-dasharray="3 6"/>
+        <path d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#a)"/>
+        <path d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#D26AFB" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="415" cy="17" r="4" fill="#D26AFB"/>
+      </svg>
+      <span class="fired">TRIGGER FIRED</span>
+    </div>
+
+    <div class="sigs">
+      <span class="sig on">CHAT VELOCITY</span>
+      <span class="sig on">AUDIO SPIKE</span>
+      <span class="sig on">KEYWORDS</span>
+      <span class="sig">SENTIMENT</span>
+    </div>
+
+    <!-- Drawn, not typed: U+2713 is not in the Plex Mono subset we ship, so a
+         literal check silently falls back to a mismatched face. -->
+    <div class="made"><svg class="ok" width="13" height="13" viewBox="0 0 24 24" fill="none"
+      stroke="#F7A745" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 6.8"/></svg> Clip created on Twitch</div>
+  </div>
+</div>
+
+<div class="url">highlightz.app</div>
+</body>
+</html>

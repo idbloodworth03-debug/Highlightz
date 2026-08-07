@@ -110,8 +110,15 @@ def test_landing_has_share_card_tags_and_asset():
     from src.dashboard.api import LANDING_HTML, _STATIC_DIR
     assert 'property="og:image"' in LANDING_HTML
     assert 'name="twitter:card"' in LANDING_HTML
-    assert "https://highlightz.app/static/og-card.png" in LANDING_HTML
+    # Versioned, because social platforms cache the preview keyed on the URL —
+    # rewriting the bytes at the old path does not refresh what anyone sees, so
+    # a corrected card has to ship under a new filename. See
+    # tests/test_brand_assets.py for the rest of that story.
+    assert "https://highlightz.app/static/og-card-v2.png" in LANDING_HTML
     # The referenced asset must actually ship.
+    assert (Path(_STATIC_DIR) / "og-card-v2.png").exists()
+    # The retired path stays on disk: links shared before the rename still point
+    # at it, and deleting it turns each of those posts into a broken image.
     assert (Path(_STATIC_DIR) / "og-card.png").exists()
 
 

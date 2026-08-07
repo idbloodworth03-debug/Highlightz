@@ -3858,7 +3858,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
 <meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start, no card required.">
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
@@ -3869,13 +3869,19 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again">
 <meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
-<meta property="og:image" content="https://highlightz.app/static/og-card.png">
+<!-- Preview card: social platforms cache this image keyed on the URL, so the
+     filename must change whenever the art does. Source, build and the full
+     history: scripts/og_card.html, scripts/build_og_card.mjs. -->
+<meta property="og:image" content="https://highlightz.app/static/og-card-v2.png">
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
 <meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
-<meta name="twitter:image" content="https://highlightz.app/static/og-card.png">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card-v2.png">
+<meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <style>
   /* ══════════════════════════════════════════════════════════════════════
      LATE-NIGHT STREAM ROOM
@@ -4022,7 +4028,10 @@ LANDING_HTML = """<!DOCTYPE html>
     background-origin:padding-box,border-box;background-clip:padding-box,border-box;
     display:flex;align-items:center;gap:18px;padding:13px 26px}
   .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
-  .nav-logo img{height:26px;border-radius:4px}
+  /* No border-radius any more: that existed only to round the corners of the
+     plate the old JPEG carried. The mark is transparent now, so there is no
+     rectangle to soften. */
+  .nav-logo img{height:22px}
   .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--ink)}
   .nav-links{display:flex;align-items:center;gap:2px;margin-left:14px}
@@ -4472,13 +4481,13 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/logo.jpg"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "There is a free plan with no card required \u2014 one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
 <nav class="nav">
-  <a href="/" class="nav-logo"><img src="/static/logo.jpg" alt="Highlightz"><span>Highlightz</span></a>
+  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-links">
     <a href="#how" class="nav-link">How it works</a>
     <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
@@ -5227,14 +5236,14 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz - Sign In</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
   .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
-  .logo-wrap img{height:80px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.5))}
+  .logo-wrap img{height:54px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.4))}
   h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
   .sub{font-size:13px;color:#9c9caa;margin-bottom:18px}
   .price-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c79bff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;margin-bottom:22px}
@@ -5261,7 +5270,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
+  <div class="logo-wrap"><img src="/static/logo-mark.png" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
   <div class="price-pill"><span class="dot"></span>Free to start &mdash; no card required</div>
@@ -5296,7 +5305,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz - Subscribe</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
@@ -5317,7 +5326,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
   .cta.ghost:hover{background:rgba(255,255,255,.12);filter:none}
   @media(max-width:520px){.plan-row{grid-template-columns:1fr}}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:20px}
-  .logo-wrap img{height:64px;filter:drop-shadow(0 0 14px rgba(199,155,255,.5))}
+  .logo-wrap img{height:46px;filter:drop-shadow(0 0 14px rgba(199,155,255,.4))}
   .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);color:#c79bff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:22px}
   h1{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:10px}
   .sub{font-size:14px;color:#9c9caa;margin-bottom:32px;line-height:1.6}
@@ -5340,7 +5349,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <div class="card">
-  <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz"></div>
+  <div class="logo-wrap"><img src="/static/logo-mark.png" alt="Highlightz"></div>
   <span class="badge">Highlightz</span>
   <h1>{headline}</h1>
   <p class="sub">Hi {username} — {subline}</p>
@@ -5384,7 +5393,7 @@ TOS_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Terms of Service — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -5393,7 +5402,7 @@ TOS_HTML = """<!DOCTYPE html>
   .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
   .back:hover{color:#c79bff}
   .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
   .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
   h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
   .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
@@ -5411,7 +5420,7 @@ TOS_HTML = """<!DOCTYPE html>
 <div class="wrap">
   <a href="/login" class="back">&#8592; Back to Highlightz</a>
   <div class="logo">
-    <img src="/static/logo.jpg" alt="Highlightz">
+    <img src="/static/logo-mark.png" alt="Highlightz">
     <span>Highlightz</span>
   </div>
   <h1>Terms of Service</h1>
@@ -5508,7 +5517,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy Policy — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -5517,7 +5526,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
   .back:hover{color:#c79bff}
   .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
   .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
   h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
   .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
@@ -5535,7 +5544,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <div class="wrap">
   <a href="/login" class="back">&#8592; Back to Highlightz</a>
   <div class="logo">
-    <img src="/static/logo.jpg" alt="Highlightz">
+    <img src="/static/logo-mark.png" alt="Highlightz">
     <span>Highlightz</span>
   </div>
   <h1>Privacy Policy</h1>
@@ -5609,7 +5618,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cookie Policy — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -5618,7 +5627,7 @@ COOKIES_HTML = """<!DOCTYPE html>
   .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
   .back:hover{color:#c79bff}
   .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:40px;filter:drop-shadow(0 0 10px rgba(199,155,255,.5))}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
   .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
   h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
   .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
@@ -5637,7 +5646,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <div class="wrap">
   <a href="/login" class="back">&#8592; Back to Highlightz</a>
   <div class="logo">
-    <img src="/static/logo.jpg" alt="Highlightz">
+    <img src="/static/logo-mark.png" alt="Highlightz">
     <span>Highlightz</span>
   </div>
   <h1>Cookie Policy</h1>
@@ -5683,7 +5692,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <title>Admin — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -5721,7 +5730,7 @@ ADMIN_HTML = """<!DOCTYPE html>
       linear-gradient(270deg,rgba(184,106,220,.34),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
     background-origin:padding-box,border-box;background-clip:padding-box,border-box}
   .logo{display:flex;align-items:center;gap:10px}
-  .logo img{height:24px;border-radius:4px}
+  .logo img{height:22px}
   .logo span{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase}
   .badge{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--flare);border:1px solid rgba(210,106,251,.35);
@@ -5939,7 +5948,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <div class="grain" aria-hidden="true"></div>
 <div class="topbar">
   <div class="logo">
-    <img src="/static/logo.jpg" alt="Highlightz">
+    <img src="/static/logo-mark.png" alt="Highlightz">
     <span>Highlightz</span>
   </div>
   <span class="badge">Admin</span>
@@ -6823,7 +6832,7 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>404 — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center}
@@ -6881,7 +6890,7 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Streamer Opt-Out — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
 </head>
 <body>
@@ -6912,7 +6921,7 @@ _OPTOUT_CONFIRM_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Confirm Opt-Out — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
 </head>
 <body>
@@ -6942,7 +6951,7 @@ _OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Opted Out — Highlightz</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
 </head>
 <body>
@@ -6962,7 +6971,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Feedback — Highlightz Admin</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px;min-height:100vh}
@@ -7051,7 +7060,7 @@ _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Opt-Out Registry — Highlightz Admin</title>
-<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="icon" type="image/png" href="/static/icon.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px}
