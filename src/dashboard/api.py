@@ -2987,13 +2987,133 @@ async def admin_page(request: Request):
 async def admin_list_users(request: Request):
     _require_admin(request)
     from src.auth import users as user_store
+    from src.billing import plans
     users = user_store.get_all()
-    # Attach stream count per user
     for u in users:
         uid = u["id"]
         u["stream_count"] = sum(1 for s in _streams.values() if s.get("user_id") == uid)
         u["clip_count"] = sum(1 for c in _clips.values() if c.get("user_id") == uid)
+        # The RESOLVED membership, not the raw stored field. Those disagree
+        # constantly and the stored one is the misleading half: a legacy
+        # $15-era subscriber has no `plan` at all but is effectively Pro, an
+        # admin has no subscription but gets Pro, and someone who cancelled
+        # keeps a stale plan="pro" while actually being on Free. The admin
+        # table has to show what the user really has, so it shows this.
+        plan = plans.get_plan(u)
+        u["plan"] = plan
+        limits = plans.PLAN_LIMITS.get(plan, {})
+        u["plan_label"] = limits.get("label", plan.title())
+        u["plan_price"] = limits.get("price", 0)
+        # Paying = money actually arrives. A granted trial and a comped admin
+        # both read as Pro above, and neither belongs in revenue.
+        u["is_paying"] = bool(
+            not u.get("is_admin") and not u.get("is_labeler")
+            and u.get("subscription_status") == "active"
+            and limits.get("price", 0) > 0
+        )
     return users
+
+
+@app.get("/admin/overview")
+async def admin_overview(request: Request):
+    """Platform totals, computed on the server from the real ledgers.
+
+    WHY THIS EXISTS. The admin header used to derive its figures in the browser
+    by summing the user list, and every one of them was wrong in a different
+    way. The worst was "Total Clips": it summed `clip_count`, which is how many
+    clips are in `_clips` RIGHT NOW. That silently excludes every clip that was
+    rejected (deleted on reject), aged out of the queue, or dropped because the
+    queue was full — plus every clip belonging to an admin account, which the
+    sum filtered out. On a system that has caught five figures of clips it was
+    reporting a few hundred.
+
+    The accurate lifetime figure already existed in two places and neither was
+    being read here: the persisted clip counter (the same number the landing
+    page shows) and the stream_stats ledger, which records caught/kept/rejected/
+    aged-out as events and therefore survives deletion. Both are used below.
+
+    Everything here is a count of something that happened, not a count of rows
+    that are still lying around.
+    """
+    _require_admin(request)
+    from src.auth import users as user_store
+    from src.billing import plans
+    from src.stats import stream_stats
+
+    users = user_store.get_all()
+    # Staff accounts are excluded from population and revenue but NOT from the
+    # clip figures — an admin's clips are real clips the system caught.
+    customers = [u for u in users if not u.get("is_admin")]
+
+    by_plan: dict[str, int] = {p: 0 for p in plans.PLAN_LIMITS}
+    paying = trialing = mrr = legacy = 0
+    for u in customers:
+        plan = plans.get_plan(u)
+        by_plan[plan] = by_plan.get(plan, 0) + 1
+        status = u.get("subscription_status")
+        if status == "trialing":
+            trialing += 1
+        elif status == "active":
+            # ENTITLEMENT is not PRICE. A $15-era subscriber has no stored plan
+            # and is grandfathered to Pro so they keep every feature — but they
+            # are not paying $25, and billing them at the Pro price in this
+            # figure would silently inflate MRR by the difference on every one
+            # of them. We do not hold their price locally (Stripe does), so
+            # they are counted as subscribers and left out of the money, and
+            # `mrr_unknown` says how many are missing. MRR is a floor, and the
+            # panel labels it as one.
+            stored = u.get("plan")
+            price = (plans.PLAN_LIMITS.get(plan, {}).get("price", 0)
+                     if stored in plans.PAID_PLANS else 0)
+            paying += 1
+            if price:
+                mrr += price
+            else:
+                legacy += 1
+
+    now = time.time()
+    new_7d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 7 * 86400)
+    new_30d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 30 * 86400)
+
+    rows = stream_stats.all_rows()
+    caught = sum(r.get("caught", 0) for r in rows)
+    kept = sum(r.get("approved", 0) for r in rows)
+    rejected = sum(r.get("rejected", 0) for r in rows)
+    expired = sum(r.get("expired", 0) for r in rows)
+    missed = sum(r.get("missed", 0) for r in rows)
+    reviewed = kept + rejected
+
+    stored = list(_clips.values())
+    return {
+        "users": {
+            "total": len(customers), "admins": len(users) - len(customers),
+            "paying": paying, "trialing": trialing, "by_plan": by_plan,
+            "new_7d": new_7d, "new_30d": new_30d,
+        },
+        "mrr": mrr,
+        # How many active subscribers we could not price locally. MRR is a
+        # floor, not a total, whenever this is non-zero.
+        "mrr_unknown": legacy,
+        "clips": {
+            # The lifetime counter — the same number the landing page shows, so
+            # the two can never quote different totals.
+            "lifetime": get_clip_counter(),
+            # What is on disk now. Deliberately reported next to lifetime
+            # rather than instead of it, because the gap between them IS the
+            # story: rejected, aged out and dropped clips live in that gap.
+            "stored": len(stored),
+            "pending": sum(1 for c in stored if c.get("status") == "pending"),
+            "approved": sum(1 for c in stored if c.get("status") == "approved"),
+            # From the ledger, so these survive the clip being deleted.
+            "caught": caught, "kept": kept, "rejected": rejected,
+            "expired": expired, "missed": missed,
+            "keep_rate": round(kept / reviewed * 100) if reviewed else 0,
+        },
+        "streams": {
+            "registered": len(_streams),
+            "live": sum(1 for s in _streams.values() if s.get("status") == "live"),
+        },
+    }
 
 
 @app.post("/admin/users/{user_id}/grant")
@@ -5361,718 +5481,976 @@ ADMIN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
 <title>Admin — Highlightz</title>
 <link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/plexmono-400.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* The admin panel is an INSTRUMENT, not marketing — same room, same light,
+     but no display face and no glow. Every number is mono because every number
+     here is a measurement you compare against another one. */
+  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
+  :root{
+    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
+    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --good:#4ADE80; --bad:#FF7A8A;
+    --hair:rgba(242,234,247,.085);
+    --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Sora',system-ui,sans-serif;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;min-height:100vh}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.13),transparent 60%)}
-  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);position:sticky;top:0;z-index:10}
-  .logo{display:flex;align-items:center;gap:12px}
-  .logo img{height:30px;filter:drop-shadow(0 0 8px rgba(199,155,255,.5))}
-  .logo span{font-size:16px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
-  .badge{background:rgba(249,67,255,.15);border:1px solid rgba(249,67,255,.3);color:#f943ff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;letter-spacing:.08em;text-transform:uppercase}
-  .nav-link{font-size:13px;color:#5d5d6b;text-decoration:none;transition:.15s}
-  .nav-link:hover{color:#c79bff}
-  .wrap{max-width:1100px;margin:0 auto;padding:36px 24px}
-  h1{font-size:26px;font-weight:800;letter-spacing:-.03em;margin-bottom:6px}
-  .meta{font-size:13px;color:#5d5d6b;margin-bottom:32px}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:36px}
-  .stat{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:20px;text-align:center}
-  .stat-val{font-size:32px;font-weight:800;letter-spacing:-.03em;color:#c79bff}
-  .stat-lbl{font-size:12px;color:#5d5d6b;margin-top:4px}
-  .section{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:18px;overflow:hidden;margin-bottom:28px}
-  .section-head{padding:18px 22px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px;font-weight:700;color:#c79bff;letter-spacing:.04em;text-transform:uppercase}
+  body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
+    font-size:14px;line-height:1.6;min-height:100vh;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+  .grain{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.03;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px 180px}
+  a{text-decoration:none;color:inherit}
+  :focus-visible{outline:2px solid var(--flare);outline-offset:2px;border-radius:3px}
+  ::selection{background:rgba(210,106,251,.3)}
+
+  /* ── Top bar ── */
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
+    padding:12px 26px;background:var(--void);border-bottom:1px solid transparent;
+    background-image:linear-gradient(var(--void),var(--void)),
+      linear-gradient(270deg,rgba(184,106,220,.34),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
+    background-origin:padding-box,border-box;background-clip:padding-box,border-box}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo img{height:24px;border-radius:4px}
+  .logo span{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase}
+  .badge{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--flare);border:1px solid rgba(210,106,251,.35);
+    padding:3px 8px;border-radius:2px}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .tlink{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--ink-3);
+    padding:7px 11px;border-radius:3px;transition:color .15s,background .15s;white-space:nowrap}
+  .tlink:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .tlink .n{color:var(--ember)}
+
+  .wrap{max-width:1240px;margin:0 auto;padding:30px 26px 70px}
+  h1{font-size:25px;font-weight:700;letter-spacing:-.025em}
+  .meta{font-size:13.5px;color:var(--ink-2);margin-top:4px}
+
+  /* ── Overview rail. Not six floating tiles: one ruled strip, uneven weight,
+     each figure carrying the second number that makes it mean something. ── */
+  .rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:26px 0 8px;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .cell{padding:18px 0 18px 20px;border-left:1px solid var(--hair);min-width:0}
+  .cell:first-child{padding-left:0;border-left:none}
+  .cell .v{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+    font-size:27px;letter-spacing:-.03em;line-height:1.1;color:var(--ink)}
+  .cell.hot .v{color:var(--ember)}
+  .cell .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);margin-top:9px}
+  .cell .s{font-size:12px;color:var(--ink-2);margin-top:5px;line-height:1.4;
+    min-height:2.8em;padding-right:14px}
+
+  /* ── Tabs ── */
+  .tabs{display:flex;gap:0;margin:30px 0 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);background:none;border:none;border-bottom:2px solid transparent;
+    padding:12px 16px;cursor:pointer;transition:color .16s,border-color .16s;margin-bottom:-1px}
+  .tab:hover{color:var(--ink-2)}
+  .tab.on{color:var(--ink);border-bottom-color:var(--flare)}
+  .tab .c{color:var(--ink-3);margin-left:7px}
+  .tab.on .c{color:var(--ember)}
+  .panel{display:none;padding-top:24px}
+  .panel.on{display:block}
+  .lede{font-size:13.5px;color:var(--ink-2);max-width:74ch;margin-bottom:18px;line-height:1.6}
+  .lede b{color:var(--ink);font-weight:600}
+  .block{margin-bottom:44px}
+  .block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .block-head h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .block-head .c{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--ink-3)}
+
+  /* ── Toolbar ── */
+  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .field{background:var(--wall);border:1px solid var(--hair);color:var(--ink);border-radius:3px;
+    padding:8px 11px;font-size:13px;font-family:var(--sans);flex:1 1 260px;max-width:340px;min-width:0}
+  .field::placeholder{color:var(--ink-3)}
+  .field:focus{outline:none;border-color:rgba(184,106,220,.5)}
+  .chips{display:flex;gap:0;border:1px solid var(--hair);border-radius:3px;overflow:hidden}
+  .chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-3);background:none;border:none;border-right:1px solid var(--hair);
+    padding:8px 12px;cursor:pointer;transition:.15s}
+  .chip:last-child{border-right:none}
+  .chip:hover{color:var(--ink-2);background:rgba(242,234,247,.04)}
+  .chip.on{color:var(--void);background:var(--ember);font-weight:600}
+  .spacer{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+
+  /* ── Tables ── */
+  .tw{overflow-x:auto}
   table{width:100%;border-collapse:collapse}
-  th{text-align:left;font-size:11px;font-weight:700;color:#5d5d6b;text-transform:uppercase;letter-spacing:.06em;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.05)}
-  td{padding:13px 18px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
-  tr:last-child td{border-bottom:none}
-  .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;background:rgba(199,155,255,.15)}
-  .avatar-wrap{display:flex;align-items:center;gap:10px}
-  .username{font-weight:600}
-  .account-id{font-size:11px;color:#5d5d6b;margin-top:2px;font-family:monospace}
-  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;letter-spacing:.04em}
-  .pill-active{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);color:#34d399}
-  .pill-inactive{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171}
-  .pill-none{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#9c9caa}
-  .pill-admin{background:rgba(249,67,255,.12);border:1px solid rgba(249,67,255,.25);color:#f943ff}
-  .pill-trial{background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:#c79bff}
-  .actions{display:flex;gap:8px;flex-wrap:wrap}
-  .btn{font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;border:none;cursor:pointer;transition:.15s}
-  .btn-grant{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.25)}
-  .btn-grant:hover{background:rgba(52,211,153,.25)}
-  .btn-trial{background:rgba(168,85,247,.15);color:#c79bff;border:1px solid rgba(168,85,247,.3);font-family:inherit}
-  .btn-trial:hover{background:rgba(168,85,247,.25)}
-  .btn-trial option{background:#16161c;color:#e8e8f0}
-  .btn-revoke{background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.2)}
-  .btn-revoke:hover{background:rgba(239,68,68,.22)}
-  .btn-delete{background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.15)}
-  .btn-delete:hover{background:rgba(239,68,68,.18)}
-  .btn-details{background:rgba(199,155,255,.1);color:#c79bff;border:1px solid rgba(199,155,255,.2)}
-  .btn-details:hover{background:rgba(199,155,255,.2)}
-  .empty{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
-  .loading{padding:40px;text-align:center;color:#5d5d6b;font-size:13px}
-  .toast{position:fixed;bottom:24px;right:24px;background:rgba(30,30,40,.95);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:999}
+  th{text-align:left;font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--ink-3);
+    text-transform:uppercase;letter-spacing:.16em;padding:0 14px 10px 0;border-bottom:1px solid var(--hair);
+    white-space:nowrap}
+  th:last-child{padding-right:0}
+  td{padding:13px 14px 13px 0;font-size:13.5px;border-bottom:1px solid var(--hair);vertical-align:middle}
+  td:last-child{padding-right:0}
+  tbody tr:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 70%)}
+  tr.u-row{cursor:pointer}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+  .dim{color:var(--ink-3)}
+  .who{display:flex;align-items:center;gap:11px;min-width:0}
+  .avatar{width:30px;height:30px;border-radius:3px;object-fit:cover;flex-shrink:0;
+    background:linear-gradient(150deg,#3A2348,#231733);border:1px solid var(--hair)}
+  .username{font-weight:600;letter-spacing:-.01em}
+  .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;letter-spacing:.03em}
+
+  /* ── Plan + status marks. Text, not filled pills: a table of eight coloured
+     lozenges is unreadable, and the plan is the thing you scan for. ── */
+  .plan{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .plan-pro{color:var(--flare)}
+  .plan-starter{color:var(--glow-ink)}
+  .plan-free{color:var(--ink-3)}
+  .plan-note{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px;letter-spacing:.06em}
+  .plan-note.pay{color:var(--good)}
+  .plan-note.trial{color:var(--ember)}
+  .plan-note.lapsed{color:var(--bad)}
+  .tagm{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ember);border:1px solid rgba(247,167,69,.3);padding:1px 6px;border-radius:2px;margin-left:7px}
+  .tagm.adm{color:var(--flare);border-color:rgba(210,106,251,.35)}
+
+  /* ── Buttons ── */
+  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:6px 12px;border-radius:3px;
+    cursor:pointer;border:1px solid var(--hair);background:var(--wall);color:var(--ink-2);
+    transition:.15s;white-space:nowrap}
+  .btn:hover{color:var(--ink);border-color:rgba(184,106,220,.45)}
+  .btn-key{border-color:rgba(210,106,251,.5);color:var(--ink);
+    background:linear-gradient(166deg,var(--bruise),#25172E)}
+  .btn-key:hover{background:linear-gradient(166deg,#412852,#2C1B36);border-color:#EFA6FF}
+  .btn-good{color:var(--good);border-color:rgba(74,222,128,.3)}
+  .btn-good:hover{color:var(--good);border-color:rgba(74,222,128,.6)}
+  .btn-bad{color:var(--bad);border-color:rgba(255,122,138,.28)}
+  .btn-bad:hover{color:var(--bad);border-color:rgba(255,122,138,.6)}
+  select.btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+  select.btn option{background:#16121C;color:var(--ink);font-family:var(--sans)}
+  .acts{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .empty,.loading{padding:34px 0;text-align:center;color:var(--ink-3);font-size:13px}
+  .err{color:var(--bad);font-size:13px;padding:20px 0}
+
+  /* ── Sortable header ── */
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--ink-2)}
+  th.sortable.on{color:var(--ember)}
+  tr.expandable{cursor:pointer}
+  .drill{background:rgba(242,234,247,.02)}
+  .drill td{padding:16px 0}
+  .bar{flex:1;height:3px;background:rgba(242,234,247,.08);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--glow)}
+
+  /* ── Toast ── */
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--wall);border:1px solid var(--hair);
+    border-radius:3px;padding:12px 18px;font-size:13px;font-weight:600;opacity:0;transform:translateY(6px);
+    transition:.22s;pointer-events:none;z-index:999}
   .toast.show{opacity:1;transform:none}
-  .toast.ok{border-color:rgba(52,211,153,.4);color:#34d399}
-  .toast.err{border-color:rgba(239,68,68,.4);color:#f87171}
-  /* ── User detail modal ── */
-  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.2s}
-  .modal-bg.open{opacity:1;pointer-events:all}
-  .modal{background:#111118;border:1px solid rgba(255,255,255,.1);border-radius:20px;width:100%;max-width:780px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7)}
-  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid rgba(255,255,255,.07)}
-  .modal-title{font-size:15px;font-weight:700;color:#f6f6f9}
-  .modal-sub{font-size:12px;color:#5d5d6b;margin-top:2px}
-  .modal-close{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#9c9caa;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
-  .modal-close:hover{background:rgba(255,255,255,.12);color:#f6f6f9}
-  .modal-body{overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:24px}
-  .detail-section-head{font-size:11px;font-weight:700;color:#c79bff;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
-  .stream-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .stream-name{font-size:14px;font-weight:700}
-  .stream-meta{font-size:12px;color:#9c9caa;margin-top:3px}
-  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-  .dot-live{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.6)}
-  .dot-offline{background:#5d5d6b}
-  .dot-starting{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,.5)}
-  .clip-row{display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
-  .clip-row:last-child{border-bottom:none}
-  .clip-ch{font-weight:600}
-  .clip-title{font-size:12px;color:#9c9caa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
-  .clip-score{font-size:12px;color:#c79bff;font-weight:700;white-space:nowrap}
-  .clip-link{font-size:12px;color:#7c6bff;text-decoration:none;white-space:nowrap}
-  .clip-link:hover{color:#c79bff}
-  .pill-pending{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#fbbf24}
-  .pill-approved{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.2);color:#34d399}
+  .toast.ok{border-color:rgba(74,222,128,.45);color:var(--good)}
+  .toast.err{border-color:rgba(255,122,138,.45);color:var(--bad)}
+
+  /* ── User drawer. A drawer, not a centred modal: it holds the identity, the
+     billing facts and the rare/destructive actions, so it is a place you read
+     top to bottom rather than a dialog you dismiss. ── */
+  .scrim{position:fixed;inset:0;background:rgba(6,4,9,.72);z-index:100;opacity:0;
+    pointer-events:none;transition:.2s}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:101;
+    background:var(--void);border-left:1px solid transparent;
+    background-image:linear-gradient(var(--void),var(--void)),
+      linear-gradient(200deg,rgba(210,106,251,.45),rgba(242,234,247,.06) 60%,rgba(242,234,247,.02));
+    background-origin:padding-box,border-box;background-clip:padding-box,border-box;
+    display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;
+    transition:transform .26s cubic-bezier(.4,0,.2,1),visibility .26s}
+  .drawer.open{transform:none;visibility:visible}
+  .drawer-head{display:flex;align-items:flex-start;gap:12px;padding:20px 24px;border-bottom:1px solid var(--hair)}
+  .drawer-head h3{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .drawer-head .s{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:4px;letter-spacing:.05em}
+  .x{margin-left:auto;width:28px;height:28px;border-radius:3px;background:var(--wall);
+    border:1px solid var(--hair);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0}
+  .x:hover{color:var(--ink);border-color:rgba(210,106,251,.5)}
+  .drawer-body{overflow-y:auto;padding:22px 24px 40px;display:flex;flex-direction:column;gap:26px}
+  .dh{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);padding-bottom:9px;border-bottom:1px solid var(--hair);margin-bottom:13px}
+  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:7px 14px;font-size:13px}
+  .kv dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+  .kv dd{color:var(--ink-2);word-break:break-word}
+  .kv dd b{color:var(--ink);font-weight:600}
+  .srow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair);font-size:13px}
+  .srow:last-child{border-bottom:none}
+  .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
+  .dot-offline{background:var(--ink-3)}
+  .dot-starting{background:var(--ember);box-shadow:0 0 7px rgba(247,167,69,.6)}
+  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;
+    padding:9px 0;border-bottom:1px solid var(--hair);font-size:13px}
+  .crow:last-child{border-bottom:none}
+  .ct{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:3px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.03em}
+  .danger{border:1px solid rgba(255,122,138,.22);border-radius:3px;padding:16px 18px}
+  .danger .dh{border-bottom-color:rgba(255,122,138,.22);color:var(--bad)}
+  .danger p{font-size:12.5px;color:var(--ink-3);margin-bottom:13px;line-height:1.55}
+
+  @media(max-width:980px){
+    .rail{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .cell:nth-child(4){padding-left:0;border-left:none}
+    .cell:nth-child(-n+3){border-bottom:1px solid var(--hair)}
+  }
+  @media(max-width:660px){
+    .wrap{padding:22px 16px 60px}
+    .topbar{padding:10px 16px;gap:8px}
+    .logo span{display:none}
+    .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .cell{padding-left:16px}
+    .cell:nth-child(odd){padding-left:0;border-left:none}
+    .cell:nth-child(-n+4){border-bottom:1px solid var(--hair)}
+    .field{max-width:none;width:100%}
+    .acts{justify-content:flex-start}
+    .topbar{flex-wrap:wrap;row-gap:4px}
+    .topbar-right{margin-left:0;width:100%;justify-content:flex-start;gap:0}
+    .tlink{padding:6px 9px;font-size:11px}
+    .tab{padding:10px 11px;font-size:10.5px}
+    /* User | Membership | Actions only. Streams, clips and joined-date are all
+       in the drawer, and keeping them here just pushed the actions off-screen. */
+    #u-wrap th:nth-child(n+3),#u-wrap td:nth-child(n+3){display:none}
+    /* Seven filters do not fit 390px, and a clipped row of them reads as
+       broken rather than as scrollable. */
+    .chips{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+    .chip{flex:0 0 auto}
+    .kv{grid-template-columns:minmax(0,1fr);gap:2px 0}
+    .kv dd{margin-bottom:9px}
+  }
 </style>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 <div class="topbar">
   <div class="logo">
     <img src="/static/logo.jpg" alt="Highlightz">
     <span>Highlightz</span>
-    <span class="badge">Admin</span>
   </div>
-  <a href="/" class="nav-link">&#8592; Dashboard</a>
+  <span class="badge">Admin</span>
+  <div class="topbar-right">
+    <a href="/admin/optout" class="tlink">Opt-out registry</a>
+    <a href="/admin/feedback-page" id="feedback-link" class="tlink">Feedback</a>
+    <a href="/" class="tlink">&#8592; Dashboard</a>
+  </div>
 </div>
+
 <div class="wrap">
-  <h1>Admin Panel</h1>
-  <p class="meta">User management and platform overview</p>
-  <div class="stats" id="stats">
-    <div class="stat"><div class="stat-val" id="s-total">—</div><div class="stat-lbl">Total Users</div></div>
-    <div class="stat"><div class="stat-val" id="s-active">—</div><div class="stat-lbl">Active Subscribers</div></div>
-    <div class="stat"><div class="stat-val" id="s-streams">—</div><div class="stat-lbl">Monitored Streams</div></div>
-    <div class="stat"><div class="stat-val" id="s-clips">—</div><div class="stat-lbl">Total Clips</div></div>
+  <h1>Admin</h1>
+  <p class="meta">Platform overview, memberships and user management.</p>
+
+  <!-- Overview. Every figure comes from /admin/overview, computed on the
+       server from the real ledgers — see that endpoint for why the browser is
+       no longer allowed to add these up itself. -->
+  <div class="rail" id="rail">
+    <div class="cell"><div class="v" id="ov-users">&mdash;</div><div class="k">Users</div><div class="s" id="ov-users-s"></div></div>
+    <div class="cell"><div class="v" id="ov-paying">&mdash;</div><div class="k">Paying</div><div class="s" id="ov-paying-s"></div></div>
+    <div class="cell hot"><div class="v" id="ov-mrr">&mdash;</div><div class="k">MRR</div><div class="s" id="ov-mrr-s"></div></div>
+    <div class="cell hot"><div class="v" id="ov-clips">&mdash;</div><div class="k">Clips caught</div><div class="s" id="ov-clips-s"></div></div>
+    <div class="cell"><div class="v" id="ov-keep">&mdash;</div><div class="k">Keep rate</div><div class="s" id="ov-keep-s"></div></div>
+    <div class="cell"><div class="v" id="ov-live">&mdash;</div><div class="k">Live now</div><div class="s" id="ov-live-s"></div></div>
   </div>
-  <div class="section">
-    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <span>Users</span>
-      <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:#9c9caa;cursor:pointer">
-        <input type="checkbox" id="show-all-users" onchange="renderUsers()" style="cursor:pointer">
-        Show inactive users
-      </label>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-tab="users">Users<span class="c" id="tc-users"></span></button>
+    <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
+    <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
+    <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
+  </div>
+
+  <!-- ── USERS ── -->
+  <div class="panel on" id="panel-users">
+    <div class="toolbar">
+      <input class="field" id="u-search" placeholder="Search name, Twitch login or email">
+      <div class="chips" id="u-chips">
+        <button class="chip on" data-f="active">Active</button>
+        <button class="chip" data-f="pro">Pro</button>
+        <button class="chip" data-f="starter">Starter</button>
+        <button class="chip" data-f="free">Free</button>
+        <button class="chip" data-f="trialing">Trial</button>
+        <button class="chip" data-f="lapsed">Lapsed</button>
+        <button class="chip" data-f="all">All</button>
+      </div>
+      <span class="spacer" id="u-count"></span>
     </div>
-    <div id="table-wrap" class="loading">Loading...</div>
+    <div class="tw"><div id="u-wrap" class="loading">Loading&hellip;</div></div>
   </div>
-  <div class="section" style="margin-top:16px">
-    <div class="section-head">Promo Codes</div>
-    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Signups attributed to each promo code (recorded from Stripe at checkout). Payouts are manual — Stripe's redemption count stays the source of truth.</p>
-    <div id="promo-wrap" class="loading">Loading...</div>
+
+  <!-- ── GROWTH: referrals and promo codes answer the same question, so they
+       stopped being two sections on opposite ends of a long scroll. ── -->
+  <div class="panel" id="panel-growth">
+    <div class="block">
+      <div class="block-head"><h2>Referrals</h2><span class="c" id="rf-c"></span></div>
+      <p class="lede">
+        Signups per person, from <code>?ref=</code> links and typed codes alike.
+        <b>Still active wk2</b> is the column that matters &mdash; signups say who
+        is good at getting attention, retention says whose lane brought people who
+        actually needed this. Users who signed up less than 7 days ago are
+        excluded from that column entirely rather than counted as churned.
+      </p>
+      <div class="tw"><div id="rf-wrap" class="loading">Loading&hellip;</div></div>
+    </div>
+    <div class="block">
+      <div class="block-head"><h2>Promo codes</h2><span class="c" id="pr-c"></span></div>
+      <p class="lede">Signups attributed to each promo code (recorded from Stripe at checkout). Payouts are manual &mdash; Stripe's redemption count stays the source of truth.</p>
+      <div class="tw"><div id="pr-wrap" class="loading">Loading&hellip;</div></div>
+    </div>
   </div>
-  <div class="section" style="margin-top:16px">
-    <div class="section-head" id="rf-head">Referrals</div>
-    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
-      Signups per person, from <code>?ref=</code> links and typed codes alike.
-      <b>Still active wk2</b> is the column that matters &mdash; signups say who
-      is good at getting attention, retention says whose lane brought people who
-      actually needed this. Users who signed up less than 7 days ago are
-      excluded from that column entirely rather than counted as churned.
-    </p>
-    <div id="rf-wrap" class="loading">Loading...</div>
-  </div>
-  <div class="section" style="margin-top:16px">
-    <div class="section-head" id="cr-head">Clip Record</div>
-    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
-      What Highlightz caught per channel and how much of it was kept — the
+
+  <!-- ── CLIP RECORD ── -->
+  <div class="panel" id="panel-clips">
+    <div class="block-head"><h2>Clip record</h2><span class="c" id="cr-c"></span></div>
+    <p class="lede">
+      What Highlightz caught per channel and how much of it was kept &mdash; the
       numbers to show a streamer. Counted from a dedicated ledger, so rejected
       and aged-out clips still count as caught. Click a column to sort; click a
       row to see it broken down per stream.
     </p>
-    <input id="cr-filter" placeholder="Filter by channel or user"
-      style="width:100%;max-width:320px;margin-bottom:12px;background:rgba(255,255,255,.05);
-             border:1px solid rgba(255,255,255,.1);color:#f6f6f9;border-radius:10px;
-             padding:9px 12px;font-size:13px;font-family:inherit">
-    <div id="cr-wrap" class="loading">Loading...</div>
+    <div class="toolbar"><input class="field" id="cr-filter" placeholder="Filter by channel or user"></div>
+    <div class="tw"><div id="cr-wrap" class="loading">Loading&hellip;</div></div>
   </div>
-  <div class="section" style="margin-top:16px">
-    <div class="section-head" id="reviews-head">Reviews</div>
-    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">
+
+  <!-- ── REVIEWS ── -->
+  <div class="panel" id="panel-reviews">
+    <div class="block-head"><h2>Reviews</h2><span class="c" id="rv-c"></span></div>
+    <p class="lede">
       Star ratings from users, asked after 25 approved clips. A review is only
       publishable if the user ticked the consent box AND you approve it here.
-      The average shown is over APPROVED reviews only — that is the number that
+      The average shown is over APPROVED reviews only &mdash; that is the number that
       would ever appear as a rating on the site, so it has to match what a
       visitor can actually read.
     </p>
-    <div id="reviews-wrap" class="loading">Loading...</div>
-  </div>
-  <div class="section" style="margin-top:16px">
-    <div class="section-head">Opt-Out Registry</div>
-    <p style="font-size:13px;color:#9c9caa;margin-bottom:12px">Streamers who have verified and opted out of being clipped.</p>
-    <a href="/admin/optout" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Opt-Out Registry &#8594;</a>
-    <a href="/admin/feedback-page" id="feedback-link" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none">View Feedback &#8594;</a>
-    <script>
-      // ── Referrals ────────────────────────────────────────────────────
-      async function loadReferrals(){
-        const wrap = document.getElementById('rf-wrap');
-        let d;
-        try { d = await (await fetch('/admin/referrals')).json(); }
-        catch (e) { wrap.innerHTML = '<p style="color:#f87171">Could not load referrals.</p>'; return; }
-        const rows = d.rows || [];
-        const head = document.getElementById('rf-head');
-        if (head) head.textContent = 'Referrals (' + (d.total || 0) + ' users)';
-        wrap.innerHTML = '<table><thead><tr><th>Who</th><th>Signups</th>'
-          + '<th>Connected a channel</th><th>Still active wk2</th><th>Paid</th>'
-          + '<th>Link</th></tr></thead><tbody>'
-          + rows.map(r => {
-              const link = r.ref === 'direct' ? '<span style="color:#5d5d6b">-</span>'
-                : '<code style="font-size:11.5px;color:#9c9caa">highlightz.app/?ref='
-                  + rvEsc(r.ref) + '</code>';
-              return '<tr><td style="font-weight:600">' + rvEsc(r.label) + '</td>'
-                + '<td>' + r.signups + '</td>'
-                + '<td>' + r.connected + '</td>'
-                + '<td style="color:#34d399;font-weight:700">' + r.active_wk2 + '</td>'
-                + '<td>' + r.paid + '</td>'
-                + '<td>' + link + '</td></tr>';
-            }).join('')
-          + '</tbody></table>';
-      }
-      loadReferrals();
-
-      // ── Clip Record ──────────────────────────────────────────────────
-      // Same rules as the reviews block below: no backslashes, no inline
-      // onclick. Sorting and expansion run off data- attributes and delegated
-      // listeners.
-      let CR_ROWS = [], CR_SORT = 'caught', CR_DESC = true, CR_OPEN = null;
-
-      const CR_COLS = [
-        ['channel',  'Channel'],
-        ['username', 'User'],
-        ['caught',   'Caught'],
-        ['approved', 'Kept'],
-        ['rejected', 'Rejected'],
-        ['expired',  'Aged out'],
-        ['kept_pct', 'Keep rate'],
-        ['last_at',  'Last clip'],
-      ];
-
-      function crWhen(ts){
-        if(!ts) return '-';
-        const d = new Date(ts * 1000);
-        return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' '
-             + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-      }
-
-      function crSorted(){
-        const q = (document.getElementById('cr-filter').value || '').toLowerCase();
-        const rows = CR_ROWS.filter(r =>
-          !q || String(r.channel).toLowerCase().indexOf(q) >= 0
-             || String(r.username).toLowerCase().indexOf(q) >= 0);
-        // Text columns compare as text, numbers as numbers. Sorting 'caught'
-        // as a string puts 9 above 40, which is the kind of wrong nobody
-        // notices until they quote the wrong figure at a streamer.
-        const textCol = CR_SORT === 'channel' || CR_SORT === 'username';
-        rows.sort((a, b) => {
-          const x = a[CR_SORT], y = b[CR_SORT];
-          const cmp = textCol
-            ? String(x).toLowerCase().localeCompare(String(y).toLowerCase())
-            : (Number(x) || 0) - (Number(y) || 0);
-          return CR_DESC ? -cmp : cmp;
-        });
-        return rows;
-      }
-
-      function crRender(){
-        const wrap = document.getElementById('cr-wrap');
-        const rows = crSorted();
-        const head = document.getElementById('cr-head');
-        if (head) head.textContent = 'Clip Record (' + CR_ROWS.length + ' channels)';
-        if (!CR_ROWS.length) {
-          wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">Nothing recorded yet. '
-            + 'Counting starts from the first clip caught after this shipped.</p>';
-          return;
-        }
-        if (!rows.length) { wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">No match.</p>'; return; }
-
-        const arrow = k => CR_SORT === k ? (CR_DESC ? ' \u25be' : ' \u25b4') : '';
-        let html = '<table><thead><tr>' + CR_COLS.map(c =>
-          '<th class="cr-sort" data-k="' + c[0] + '" style="cursor:pointer;'
-          + (CR_SORT === c[0] ? 'color:#c79bff' : '') + '">' + c[1] + arrow(c[0])
-          + '</th>').join('') + '</tr></thead><tbody>';
-
-        rows.forEach(r => {
-          const key = r.user_id + '|' + r.channel;
-          html += '<tr class="cr-row" data-key="' + rvEsc(key) + '" style="cursor:pointer">'
-            + '<td style="font-weight:600">' + rvEsc(r.channel) + '</td>'
-            + '<td style="color:#9c9caa">' + rvEsc(r.username) + '</td>'
-            + '<td>' + r.caught + '</td>'
-            + '<td style="color:#34d399;font-weight:700">' + r.approved + '</td>'
-            + '<td>' + r.rejected + '</td>'
-            + '<td style="color:#5d5d6b">' + r.expired + '</td>'
-            + '<td>' + (r.caught ? r.kept_pct + '%' : '-') + '</td>'
-            + '<td style="color:#9c9caa">' + crWhen(r.last_at) + '</td></tr>';
-          if (CR_OPEN === key) {
-            const ss = r.sessions || [];
-            let inner = '<div class="detail-section-head">Per stream ('
-              + ss.length + ')</div>';
-            if (r.expired) {
-              inner += '<p style="font-size:12px;color:#9c9caa;margin-bottom:8px">'
-                + r.expired + ' aged out before review, so the keep rate counts them '
-                + 'as not kept. Of what was actually reviewed: '
-                + r.kept_of_reviewed_pct + '%.</p>';
-            }
-            inner += ss.map(s =>
-              '<div style="display:flex;align-items:center;gap:12px;padding:5px 0;font-size:12.5px">'
-              + '<span style="width:120px;color:#9c9caa;flex-shrink:0">' + crWhen(s.started_at) + '</span>'
-              + '<span style="flex:1;height:7px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden">'
-              + '<i style="display:block;height:100%;width:'
-              + (s.caught ? (s.approved / s.caught * 100) : 0)
-              + '%;background:linear-gradient(90deg,#a855f7,#f943ff)"></i></span>'
-              + '<span style="width:150px;flex-shrink:0;text-align:right">'
-              + s.approved + ' kept of ' + s.caught
-              + (s.caught ? ' (' + s.kept_pct + '%)' : '') + '</span></div>').join('');
-            html += '<tr><td colspan="' + CR_COLS.length + '" style="background:rgba(255,255,255,.02)">'
-              + inner + '</td></tr>';
-          }
-        });
-        wrap.innerHTML = html + '</tbody></table>';
-      }
-
-      async function loadClipRecord(){
-        try {
-          const d = await (await fetch('/admin/stream-stats')).json();
-          CR_ROWS = d.rows || [];
-        } catch (e) {
-          document.getElementById('cr-wrap').innerHTML =
-            '<p style="color:#f87171">Could not load the clip record.</p>';
-          return;
-        }
-        crRender();
-      }
-
-      document.getElementById('cr-wrap').addEventListener('click', (e) => {
-        const th = e.target.closest('.cr-sort');
-        if (th) {
-          const k = th.dataset.k;
-          // Same column toggles direction; a new column starts descending,
-          // because "who has the most" is what you want first every time
-          // except on the two text columns.
-          if (CR_SORT === k) CR_DESC = !CR_DESC;
-          else { CR_SORT = k; CR_DESC = (k !== 'channel' && k !== 'username'); }
-          crRender();
-          return;
-        }
-        const tr = e.target.closest('.cr-row');
-        if (tr) { CR_OPEN = (CR_OPEN === tr.dataset.key) ? null : tr.dataset.key; crRender(); }
-      });
-      document.getElementById('cr-filter').addEventListener('input', crRender);
-      loadClipRecord();
-
-      function rvEsc(t){ const d=document.createElement('div'); d.textContent=t==null?'':String(t); return d.innerHTML; }
-      const RV_STAR = String.fromCharCode(9733);
-      function rvStars(n){ return '<span style="color:#ffc75a;letter-spacing:1px">'
-        + RV_STAR.repeat(n) + '<span style="color:#3a3a45">' + RV_STAR.repeat(5-n) + '</span></span>'; }
-
-      // NO INLINE onclick AND NO BACKSLASHES IN THIS BLOCK. The whole file is a
-      // Python triple-quoted string, so an escape written for JS is eaten by
-      // Python first: onclick="rvApprove(<escaped quote>ID<escaped quote>)"
-      // reached the browser as rvApprove(''), a syntax error that killed the
-      // entire script and left the section stuck on "Loading...". Buttons carry
-      // data- attributes and one delegated listener reads them.
-      function rvRow(r){
-        // Consent is the user's decision and is NOT overridable here. The
-        // publish button only exists for reviews they agreed to publish;
-        // offering it otherwise invites putting someone's words on the public
-        // site by accident.
-        const act = r.publish_consent
-          ? '<button class="btn rv-act" data-id="' + rvEsc(r.id) + '" data-on="'
-              + (!r.approved) + '">' + (r.approved ? 'Unpublish' : 'Publish') + '</button>'
-          : '<span style="font-size:11px;color:#5d5d6b">no consent</span>';
-        return '<tr><td>' + rvStars(r.stars) + '</td>'
-          + '<td style="max-width:340px;white-space:pre-wrap">' + rvEsc(r.comment || '-') + '</td>'
-          + '<td>' + rvEsc(r.username || r.user_id) + '</td>'
-          + '<td>' + (r.publish_consent ? rvEsc(r.display_name || 'Highlightz user')
-                                        : '<span style="color:#5d5d6b">-</span>') + '</td>'
-          + '<td>' + act + ' <button class="btn rv-del" data-id="' + rvEsc(r.id)
-          + '">Delete</button></td></tr>';
-      }
-
-      async function loadReviews(){
-        const wrap = document.getElementById('reviews-wrap');
-        let d;
-        try { d = await (await fetch('/admin/reviews')).json(); }
-        catch (e) { wrap.innerHTML = '<p style="color:#f87171">Could not load reviews.</p>'; return; }
-        const rows = d.reviews || [], agg = d.aggregate || {count:0, average:0};
-        const head = document.getElementById('reviews-head');
-        if (head) head.textContent = 'Reviews (' + rows.length + ')'
-          + (agg.count ? ' - ' + agg.average + RV_STAR + ' from ' + agg.count + ' published' : '');
-        if (!rows.length) {
-          wrap.innerHTML = '<p style="font-size:13px;color:#5d5d6b">Nothing yet. '
-            + 'The prompt appears at 25 approved clips.</p>';
-          return;
-        }
-        wrap.innerHTML = '<table><thead><tr><th>Rating</th><th>Comment</th>'
-          + '<th>User</th><th>Shows as</th><th>Public</th></tr></thead><tbody>'
-          + rows.map(rvRow).join('') + '</tbody></table>';
-      }
-
-      document.getElementById('reviews-wrap').addEventListener('click', async function (e) {
-        const act = e.target.closest('.rv-act'), del = e.target.closest('.rv-del');
-        if (act) {
-          await fetch('/admin/reviews/' + act.dataset.id + '/approve', {method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({approved: act.dataset.on === 'true'})});
-          loadReviews();
-        } else if (del) {
-          if (!confirm('Delete this review permanently?')) return;
-          await fetch('/admin/reviews/' + del.dataset.id, {method:'DELETE'});
-          loadReviews();
-        }
-      });
-
-      loadReviews();
-
-      fetch('/admin/feedback').then(r=>r.json()).then(fb=>{
-        const unread=fb.filter(f=>!f.read).length;
-        if(unread>0){const el=document.getElementById('feedback-link');if(el)el.textContent='View Feedback ('+unread+' new) →';}
-      }).catch(()=>{});
-    </script>
+    <div class="tw"><div id="rv-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 </div>
-<!-- User detail modal -->
-<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-head">
-      <div>
-        <div class="modal-title" id="modal-title">User Details</div>
-        <div class="modal-sub" id="modal-sub"></div>
-      </div>
-      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-name">
+  <div class="drawer-head">
+    <div>
+      <h3 id="dr-name">User</h3>
+      <div class="s" id="dr-sub"></div>
     </div>
-    <div class="modal-body" id="modal-body"><div class="loading">Loading...</div></div>
+    <button class="x" id="dr-close" aria-label="Close">&#x2715;</button>
   </div>
-</div>
+  <div class="drawer-body" id="dr-body"><div class="loading">Loading&hellip;</div></div>
+</aside>
 
 <div class="toast" id="toast"></div>
 <script>
-function esc(s){const d=document.createElement('div');d.appendChild(document.createTextNode(String(s)));return d.innerHTML;}
-const fmt = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'N/A';
-const fmtTs = ts => ts ? new Date(ts * 1000).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE SCRIPT BLOCK, ZERO BACKSLASHES, ZERO INLINE HANDLERS.
 
-function pill(status, isAdmin) {
-  if (isAdmin) return '<span class="pill pill-admin">Admin</span>';
-  if (status === 'trialing') return '<span class="pill pill-trial">Trial</span>';
-  if (status === 'active') return '<span class="pill pill-active">Active</span>';
-  if (status === 'inactive' || status === 'canceled') return '<span class="pill pill-inactive">Inactive</span>';
-  return '<span class="pill pill-none">No Sub</span>';
-}
+   This whole page is a Python triple-quoted string, so Python resolves escapes
+   before the browser ever sees them. An inline handler written as
+   approve(<escaped-quote>ID<escaped-quote>) once arrived as approve(''), a
+   SyntaxError that killed the entire script and left every section stuck on
+   "Loading..." with nothing in the test suite noticing. The structural fix is
+   to have nothing for Python to eat: every handler is a delegated listener
+   reading data- attributes, and there is no backslash in here at all. Tests
+   assert both, and the assertions are substring checks — so this comment
+   cannot name the attribute it is describing.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-function toast(msg, ok=true) {
+// ── helpers ─────────────────────────────────────────────────────────────────
+function rvEsc(t){ const d=document.createElement('div'); d.textContent = t==null ? '' : String(t); return d.innerHTML; }
+const esc = rvEsc;
+const n0 = v => (Number(v)||0).toLocaleString('en-US');
+const fmt = ts => ts ? new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+const fmtTs = ts => ts ? new Date(ts*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+const RV_STAR = String.fromCharCode(9733);
+
+function toast(msg, ok){
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.className = 'toast show ' + (ok ? 'ok' : 'err');
-  setTimeout(() => el.className = 'toast', 2800);
+  el.className = 'toast show ' + (ok === false ? 'err' : 'ok');
+  setTimeout(() => { el.className = 'toast'; }, 2800);
 }
-
-async function api(url, method='GET') {
-  const r = await fetch(url, {method, credentials:'same-origin'});
-  if (!r.ok) throw new Error(await r.text());
+async function api(url, method){
+  const r = await fetch(url, {method: method || 'GET', credentials:'same-origin'});
+  if(!r.ok) throw new Error(await r.text());
   return r.json();
 }
-
-async function grant(idx) {
-  const u = _users[idx]; if (!u) return;
-  try {
-    await api('/admin/users/' + u.id + '/grant', 'POST');
-    toast('Access granted');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
+function fail(id, what){
+  const el = document.getElementById(id);
+  if(el){ el.className = 'err'; el.textContent = 'Could not load ' + what + '.'; }
 }
 
-async function toggleLabeler(idx) {
-  const u = _users[idx]; if (!u) return;
-  const on = !u.is_labeler;
-  if (!confirm((on ? 'Grant ' : 'Revoke ') + 'training-studio access for ' + u.username + '?')) return;
-  try {
-    await api('/admin/users/' + u.id + '/labeler?on=' + on, 'POST');
-    toast(on ? 'Trainer access granted' : 'Trainer access revoked');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
+// ── tabs ────────────────────────────────────────────────────────────────────
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab'); if(!b) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t === b));
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('on', p.id === 'panel-' + b.dataset.tab));
+});
+
+// ── overview ────────────────────────────────────────────────────────────────
+// Read straight from the server. The header used to be computed in the browser
+// by summing the user list, and "Total Clips" counted only clips still sitting
+// in storage — every rejected, aged-out and dropped clip was invisible, and
+// admin-owned clips were filtered out on top of that.
+async function loadOverview(){
+  let d;
+  try { d = await api('/admin/overview'); } catch(e){ return; }
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+  const u = d.users || {}, c = d.clips || {}, s = d.streams || {}, bp = u.by_plan || {};
+  set('ov-users', n0(u.total));
+  set('ov-users-s', n0(u.new_7d) + ' joined this week · ' + n0(u.admins) + ' staff');
+  set('ov-paying', n0(u.paying));
+  set('ov-paying-s', n0(bp.pro) + ' Pro · ' + n0(bp.starter) + ' Starter · ' + n0(u.trialing) + ' on trial');
+  // A legacy subscriber's price is not in our records, so MRR says so rather
+  // than pricing them at the tier they were grandfathered into.
+  set('ov-mrr', '$' + n0(d.mrr) + (d.mrr_unknown ? '+' : ''));
+  set('ov-mrr-s', d.mrr_unknown
+    ? 'per month · ' + n0(d.mrr_unknown) + ' legacy subscriber' + (d.mrr_unknown === 1 ? '' : 's') + ' not priced here'
+    : 'per month, active subscriptions only');
+  set('ov-clips', n0(c.lifetime));
+  // The gap between lifetime and stored is the whole point of showing both.
+  set('ov-clips-s', n0(c.stored) + ' in storage now · ' + n0(c.pending) + ' awaiting review');
+  set('ov-keep', c.keep_rate + '%');
+  set('ov-keep-s', n0(c.kept) + ' kept of ' + n0(c.kept + c.rejected) + ' reviewed · ' + n0(c.expired) + ' aged out');
+  set('ov-live', n0(s.live));
+  set('ov-live-s', n0(s.registered) + ' streams registered');
 }
 
-async function toggleAdmin(idx) {
-  const u = _users[idx]; if (!u) return;
-  const on = !u.is_admin;
-  const msg = on
-    ? 'Make ' + u.username + ' a FULL ADMIN? They get the admin portal, control over every user (grant/revoke/delete), and free access. Only do this for someone you completely trust.'
-    : 'Revoke admin access for ' + u.username + '?';
-  if (!confirm(msg)) return;
-  try {
-    await api('/admin/users/' + u.id + '/admin?on=' + on, 'POST');
-    toast(on ? u.username + ' is now an admin' : 'Admin access revoked');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
+// ── users ───────────────────────────────────────────────────────────────────
+let USERS = [], ME = '', U_FILTER = 'active', U_Q = '';
+
+function planClass(p){ return p === 'pro' ? 'plan-pro' : p === 'starter' ? 'plan-starter' : 'plan-free'; }
+
+// One line under the plan saying WHY they are on it. Without this a row reading
+// "Pro" is ambiguous between a paying customer, a comped admin, a granted trial
+// and a legacy grandfathered subscriber — four situations you act on
+// differently.
+function planNote(u){
+  if(u.is_admin) return ['Staff — comped', ''];
+  if(u.is_labeler) return ['Trainer — comped', ''];
+  const st = u.subscription_status;
+  if(st === 'trialing') return ['Trial' + (u.trial_ends_at ? ' ends ' + fmt(u.trial_ends_at) : ''), 'trial'];
+  if(st === 'active') return [u.plan_price ? '$' + u.plan_price + '/mo' : 'Granted', u.plan_price ? 'pay' : ''];
+  if(st === 'inactive' || st === 'canceled') return ['Lapsed — on free', 'lapsed'];
+  return ['Never subscribed', ''];
 }
 
-async function grantTrial(idx, sel) {
-  const u = _users[idx]; if (!u) return;
-  const days = parseInt(sel.value, 10);
-  sel.value = '';                       // reset so the same option can be re-picked
-  if (!days) return;
-  if (!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
-  try {
-    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
-      method: 'POST', credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({days}),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    toast('Trial granted — ' + days + ' days');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
+function userState(u){
+  if(u.is_admin) return 'admin';
+  const st = u.subscription_status;
+  if(st === 'trialing') return 'trialing';
+  if(st === 'active') return 'active';
+  if(st === 'inactive' || st === 'canceled') return 'lapsed';
+  return 'none';
 }
 
-async function revoke(idx) {
-  const u = _users[idx]; if (!u) return;
-  if (!confirm('Revoke access for this user?')) return;
-  try {
-    await api('/admin/users/' + u.id + '/revoke', 'POST');
-    toast('Access revoked');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
-}
-
-async function del(idx) {
-  const u = _users[idx]; if (!u) return;
-  if (!confirm('Permanently delete ' + u.username + ' and all their data? This cannot be undone.')) return;
-  try {
-    await api('/admin/users/' + u.id, 'DELETE');
-    toast('User deleted');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
-}
-
-async function stripeSync(idx) {
-  const u = _users[idx]; if (!u) return;
-  try {
-    const r = await api('/admin/users/' + u.id + '/stripe-sync', 'POST');
-    toast(r.synced ? 'Synced: ' + r.app_status : 'No subscription found');
-    load();
-  } catch(e) { toast('Error: ' + e.message, false); }
-}
-
-let _users = [];
-let _meId = '';   // own user id — the self row never gets a Revoke Admin button
-fetch('/me').then(r => r.json()).then(m => { _meId = m.user_id || ''; renderUsers(); }).catch(() => {});
-
-// A user counts as "active" if they have an active or trialing subscription.
-// Admins always show (it's the operator's own accounts).
-function isActiveUser(u) {
-  return u.is_admin || u.subscription_status === 'active' || u.subscription_status === 'trialing';
-}
-
-async function load() {
-  _users = await api('/admin/users');
-  const users = _users;
-  // Stats count real customers only — admin accounts are excluded
-  const customers = users.filter(u => !u.is_admin);
-  const total = customers.length;
-  const active = customers.filter(u => u.subscription_status === 'active' || u.subscription_status === 'trialing').length;
-  const streams = customers.reduce((a,u) => a + (u.stream_count||0), 0);
-  const clips = customers.reduce((a,u) => a + (u.clip_count||0), 0);
-  document.getElementById('s-total').textContent = total;
-  document.getElementById('s-active').textContent = active;
-  document.getElementById('s-streams').textContent = streams;
-  document.getElementById('s-clips').textContent = clips;
-
-  renderUsers();
-  renderPromo(customers);
-}
-
-function renderPromo(customers) {
-  const wrap = document.getElementById('promo-wrap');
-  if (!wrap) return;
-  const byCode = {};
-  customers.forEach(u => {
-    if (!u.promo_code) return;
-    const k = u.promo_code;
-    byCode[k] = byCode[k] || { signups: 0, active: 0 };
-    byCode[k].signups++;
-    if (u.subscription_status === 'active') byCode[k].active++;
-  });
-  const codes = Object.keys(byCode).sort((a, b) => byCode[b].signups - byCode[a].signups);
-  if (!codes.length) {
-    wrap.innerHTML = '<div class="empty">No promo-code signups yet. Codes are attributed automatically when a subscriber uses one at checkout.</div>';
-    wrap.className = '';
-    return;
+function userMatches(u){
+  if(U_Q){
+    const hay = ((u.username||'') + ' ' + (u.twitch_login||'') + ' ' + (u.email||'') + ' ' + (u.promo_code||'')).toLowerCase();
+    if(hay.indexOf(U_Q) < 0) return false;
   }
+  const st = userState(u);
+  if(U_FILTER === 'all') return true;
+  // "Active" means someone currently getting the paid product, staff included —
+  // that is the working set, and it is the default because a list dominated by
+  // signed-up-once accounts buries the people who are actually using this.
+  if(U_FILTER === 'active') return st === 'admin' || st === 'active' || st === 'trialing';
+  if(U_FILTER === 'trialing') return st === 'trialing';
+  if(U_FILTER === 'lapsed') return st === 'lapsed';
+  return u.plan === U_FILTER;
+}
+
+function renderUsers(){
+  const wrap = document.getElementById('u-wrap');
+  if(!USERS.length){ wrap.className='empty'; wrap.textContent='No users yet.'; return; }
+  const rows = USERS.map((u,i) => [u,i]).filter(p => userMatches(p[0]));
+  document.getElementById('u-count').textContent = rows.length + ' of ' + USERS.length;
+  document.getElementById('tc-users').textContent = USERS.length;
+  if(!rows.length){ wrap.className='empty'; wrap.textContent='No users match that filter.'; return; }
   wrap.className = '';
-  wrap.innerHTML = '<table><thead><tr>' +
-    '<th>Code</th><th>Signups</th><th>Active now</th><th>Est. payout ($5/signup)</th>' +
-    '</tr></thead><tbody>' +
-    codes.map(c => '<tr>' +
-      '<td><span style="font-weight:700;color:#c79bff">' + esc(c) + '</span></td>' +
-      '<td>' + byCode[c].signups + '</td>' +
-      '<td>' + byCode[c].active + '</td>' +
-      '<td>$' + (byCode[c].signups * 5) + '</td>' +
-    '</tr>').join('') + '</tbody></table>';
-}
 
-function renderUsers() {
-  const users = _users || [];
-  const showAll = document.getElementById('show-all-users') && document.getElementById('show-all-users').checked;
-
-  if (!users.length) {
-    document.getElementById('table-wrap').innerHTML = '<div class="empty">No users yet.</div>';
-    return;
-  }
-
-  // Keep each row's index into the full _users array so grant/revoke/del/viewUser
-  // (which read _users[idx]) stay correct even when the list is filtered.
-  const visible = users.map((u, idx) => [u, idx]).filter(([u]) => showAll || isActiveUser(u));
-
-  if (!visible.length) {
-    document.getElementById('table-wrap').innerHTML = '<div class="empty">No active users. Tick &ldquo;Show inactive users&rdquo; to see everyone.</div>';
-    return;
-  }
-
-  const rows = visible.map(([u, idx]) => {
+  let html = '<table><thead><tr><th>User</th><th>Membership</th><th>Streams</th>'
+    + '<th>Clips</th><th>Joined</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
+  rows.forEach(pair => {
+    const u = pair[0], i = pair[1];
+    const st = userState(u);
+    const note = planNote(u);
     const avatar = u.avatar_url
       ? '<img class="avatar" src="' + esc(u.avatar_url) + '" alt="">'
-      : '<div class="avatar"></div>';
-    const sub = u.subscription_status || 'none';
-    const isAdmin = u.is_admin;
-    const canGrant = !isAdmin && sub !== 'active' && sub !== 'trialing';
-    const canRevoke = !isAdmin && (sub === 'active' || sub === 'trialing');
-    // Timed trial: available for anyone without a paid subscription — including
-    // users already on a trial (granting again extends/replaces the window).
-    const canTrial = !isAdmin && sub !== 'active';
-    const trialNote = sub === 'trialing' && u.trial_ends_at
-      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Trial ends ' + fmt(u.trial_ends_at) + '</div>' : '';
-    const stripeNote = (u.stripe_customer_id
-      ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">Stripe: ' + esc(u.stripe_customer_id) + '</div>' : '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">No Stripe ID</div>')
-      + (u.email ? '<div style="font-size:11px;color:#a0a0b0;margin-top:2px">' + esc(u.email) + '</div>' : '')
-      + (u.promo_code ? '<div style="font-size:11px;color:#c79bff;margin-top:2px">Promo: ' + esc(u.promo_code) + '</div>' : '');
-    return '<tr>' +
-      '<td><div class="avatar-wrap">' + avatar + '<div><div class="username">' + esc(u.username) + '</div>' +
-        '<div class="account-id">' + (u.twitch_login ? 'Twitch: ' + esc(u.twitch_login) : 'Password auth') + '</div>' +
-        stripeNote + '</div></div></td>' +
-      '<td>' + pill(sub, isAdmin) + trialNote + '</td>' +
-      '<td>' + (u.stream_count || 0) + '</td>' +
-      '<td>' + (u.clip_count || 0) + '</td>' +
-      '<td>' + fmt(u.created_at) + '</td>' +
-      '<td><div class="actions">' +
-        '<button class="btn btn-details" onclick="viewUser(' + idx + ')">Details</button>' +
-        (canGrant ? '<button class="btn btn-grant" onclick="grant(' + idx + ')">Grant</button>' : '') +
-        (canTrial ? '<select class="btn btn-trial" onchange="grantTrial(' + idx + ', this)">' +
-          '<option value="">' + (sub === 'trialing' ? 'Extend trial…' : 'Trial…') + '</option>' +
-          '<option value="3">3 days</option><option value="7">1 week</option>' +
-          '<option value="14">2 weeks</option><option value="30">1 month</option>' +
-          '<option value="90">3 months</option></select>' : '') +
-        (canRevoke ? '<button class="btn btn-revoke" onclick="revoke(' + idx + ')">Revoke</button>' : '') +
-        (u.stripe_customer_id && !isAdmin ? '<button class="btn" style="background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.3);color:#a5b4fc" onclick="stripeSync(' + idx + ')">Stripe Sync</button>' : '') +
-        (!isAdmin ? '<button class="btn" style="background:rgba(168,85,247,.15);border-color:rgba(168,85,247,.3);color:#c79bff" onclick="toggleLabeler(' + idx + ')">' + (u.is_labeler ? 'Revoke Trainer' : 'Make Trainer') + '</button>' : '') +
-        (!isAdmin ? '<button class="btn" style="background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.3);color:#fbbf24" onclick="toggleAdmin(' + idx + ')">Make Admin</button>' : '') +
-        (isAdmin && u.id !== _meId ? '<button class="btn btn-delete" onclick="toggleAdmin(' + idx + ')">Revoke Admin</button>' : '') +
-        (!isAdmin ? '<button class="btn btn-delete" onclick="del(' + idx + ')">Delete</button>' : '') +
-      '</div></td>' +
-    '</tr>';
-  }).join('');
+      : '<span class="avatar"></span>';
+    const marks = (u.is_admin ? '<span class="tagm adm">Admin</span>' : '')
+                + (u.is_labeler ? '<span class="tagm">Trainer</span>' : '');
+    // Only the three actions you take from a LIST live here. Promote, sync,
+    // delete are one-at-a-time decisions you make after looking at someone, so
+    // they moved into the drawer where you can see who they are first.
+    const canGrant  = !u.is_admin && st !== 'active' && st !== 'trialing';
+    const canRevoke = !u.is_admin && (st === 'active' || st === 'trialing');
+    const canTrial  = !u.is_admin && st !== 'active';
+    let acts = '<button class="btn u-open" data-i="' + i + '">Details</button>';
+    if(canGrant)  acts += '<button class="btn btn-good u-grant" data-i="' + i + '">Grant</button>';
+    if(canTrial)  acts += '<select class="btn u-trial" data-i="' + i + '">'
+      + '<option value="">' + (st === 'trialing' ? 'Extend…' : 'Trial…') + '</option>'
+      + '<option value="3">3 days</option><option value="7">1 week</option>'
+      + '<option value="14">2 weeks</option><option value="30">1 month</option>'
+      + '<option value="90">3 months</option></select>';
+    if(canRevoke) acts += '<button class="btn btn-bad u-revoke" data-i="' + i + '">Revoke</button>';
 
-  document.getElementById('table-wrap').innerHTML =
-    '<table><thead><tr>' +
-    '<th>User</th><th>Status</th><th>Streams</th><th>Clips</th><th>Joined</th><th>Actions</th>' +
-    '</tr></thead><tbody>' + rows + '</tbody></table>';
+    html += '<tr class="u-row" data-i="' + i + '">'
+      + '<td><div class="who">' + avatar + '<div style="min-width:0"><div class="username">'
+        + esc(u.username) + marks + '</div><div class="sub">'
+        + (u.twitch_login ? '@' + esc(u.twitch_login) : 'password auth')
+        + (u.email ? ' · ' + esc(u.email) : '') + '</div></div></div></td>'
+      + '<td><span class="plan ' + planClass(u.plan) + '">' + esc(u.plan_label || u.plan) + '</span>'
+        + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div></td>'
+      + '<td class="num">' + (u.stream_count||0) + '</td>'
+      + '<td class="num">' + (u.clip_count||0) + '</td>'
+      + '<td class="dim">' + fmt(u.created_at) + '</td>'
+      + '<td><div class="acts">' + acts + '</div></td></tr>';
+  });
+  wrap.innerHTML = html + '</tbody></table>';
 }
 
-function closeModal() {
-  document.getElementById('modal-bg').classList.remove('open');
+async function loadUsers(){
+  try { USERS = await api('/admin/users'); }
+  catch(e){ fail('u-wrap', 'users'); return; }
+  renderUsers();
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.getElementById('u-search').addEventListener('input', e => {
+  U_Q = (e.target.value || '').toLowerCase().trim(); renderUsers();
+});
+document.getElementById('u-chips').addEventListener('click', e => {
+  const c = e.target.closest('.chip'); if(!c) return;
+  U_FILTER = c.dataset.f;
+  document.querySelectorAll('#u-chips .chip').forEach(x => x.classList.toggle('on', x === c));
+  renderUsers();
+});
 
-function dotClass(status) {
-  if (status === 'live') return 'dot dot-live';
-  if (status === 'starting' || status === 'reconnecting') return 'dot dot-starting';
+document.getElementById('u-wrap').addEventListener('click', async e => {
+  const t = e.target.closest('.u-open, .u-grant, .u-revoke, .u-row');
+  if(!t) return;
+  const u = USERS[Number(t.dataset.i)]; if(!u) return;
+  // The row itself opens the drawer, but only when the click did not land on a
+  // control inside it — otherwise Grant would also slide the drawer open.
+  if(t.classList.contains('u-row')){
+    if(e.target.closest('button, select, a')) return;
+    return openUser(u);
+  }
+  if(t.classList.contains('u-open')) return openUser(u);
+  if(t.classList.contains('u-grant')){
+    try { await api('/admin/users/' + u.id + '/grant', 'POST'); toast('Access granted'); refresh(); }
+    catch(err){ toast('Error: ' + err.message, false); }
+    return;
+  }
+  if(t.classList.contains('u-revoke')){
+    if(!confirm('Revoke access for ' + u.username + '?')) return;
+    try { await api('/admin/users/' + u.id + '/revoke', 'POST'); toast('Access revoked'); refresh(); }
+    catch(err){ toast('Error: ' + err.message, false); }
+  }
+});
+
+document.getElementById('u-wrap').addEventListener('change', async e => {
+  const sel = e.target.closest('.u-trial'); if(!sel) return;
+  const u = USERS[Number(sel.dataset.i)]; if(!u) return;
+  const days = parseInt(sel.value, 10);
+  sel.value = '';                        // reset so the same option can be re-picked
+  if(!days) return;
+  if(!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
+  try {
+    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({days}) });
+    if(!r.ok) throw new Error(await r.text());
+    toast('Trial granted — ' + days + ' days'); refresh();
+  } catch(err){ toast('Error: ' + err.message, false); }
+});
+
+// ── user drawer ─────────────────────────────────────────────────────────────
+let DR_USER = null;
+
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('scrim').classList.remove('open');
+  DR_USER = null;
+}
+document.getElementById('dr-close').addEventListener('click', closeDrawer);
+document.getElementById('scrim').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDrawer(); });
+
+function dotClass(s){
+  if(s === 'live') return 'dot dot-live';
+  if(s === 'starting' || s === 'reconnecting') return 'dot dot-starting';
   return 'dot dot-offline';
 }
 
-async function viewUser(idx) {
-  const u = _users[idx];
-  const uid = u.id;
-  document.getElementById('modal-title').textContent = u.username;
-  document.getElementById('modal-sub').textContent = (u.twitch_login ? '@' + u.twitch_login + ' · ' : '') + 'Streams & clips';
-  document.getElementById('modal-body').innerHTML = '<div class="loading">Loading...</div>';
-  document.getElementById('modal-bg').classList.add('open');
+async function openUser(u){
+  DR_USER = u;
+  document.getElementById('dr-name').textContent = u.username;
+  document.getElementById('dr-sub').textContent =
+    (u.twitch_login ? '@' + u.twitch_login + ' · ' : '') + (u.plan_label || u.plan);
+  document.getElementById('dr-body').innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+
+  const note = planNote(u);
+  const st = userState(u);
+  // The same three membership actions the table offers. Duplicated on purpose:
+  // the table row is a desktop convenience and disappears on a phone, so the
+  // drawer has to be able to do everything on its own.
+  let mem = '';
+  if(!u.is_admin){
+    if(st !== 'active' && st !== 'trialing') mem += '<button class="btn btn-good dr-grant">Grant access</button>';
+    if(st !== 'active') mem += '<select class="btn dr-trial">'
+      + '<option value="">' + (st === 'trialing' ? 'Extend trial…' : 'Grant trial…') + '</option>'
+      + '<option value="3">3 days</option><option value="7">1 week</option>'
+      + '<option value="14">2 weeks</option><option value="30">1 month</option>'
+      + '<option value="90">3 months</option></select>';
+    if(st === 'active' || st === 'trialing') mem += '<button class="btn btn-bad dr-revoke">Revoke access</button>';
+  }
+  let html = '<div><div class="dh">Membership</div><dl class="kv">'
+    + '<dt>Plan</dt><dd><b>' + esc(u.plan_label || u.plan) + '</b> — ' + esc(note[0]) + '</dd>'
+    + '<dt>Status</dt><dd>' + esc(u.subscription_status || 'none') + '</dd>'
+    + '<dt>Stripe</dt><dd>' + (u.stripe_customer_id ? esc(u.stripe_customer_id) : 'no customer record') + '</dd>'
+    + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
+    + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
+    + '<dt>Email</dt><dd>' + (u.email ? esc(u.email) : '—') + '</dd>'
+    + '<dt>Joined</dt><dd>' + fmt(u.created_at) + '</dd>'
+    + '<dt>User id</dt><dd>' + esc(u.id) + '</dd>'
+    + '</dl>'
+    + (mem ? '<div class="acts" style="justify-content:flex-start;margin-top:16px">' + mem + '</div>' : '')
+    + '</div>';
 
   const [streams, clips] = await Promise.all([
-    api('/admin/users/' + uid + '/streams').catch(() => []),
-    api('/admin/users/' + uid + '/clips').catch(() => []),
+    api('/admin/users/' + u.id + '/streams').catch(() => []),
+    api('/admin/users/' + u.id + '/clips').catch(() => []),
   ]);
+  if(DR_USER !== u) return;              // drawer moved on while we were loading
 
-  // ── Streams section ──
-  let streamsHtml = '<div><div class="detail-section-head">Monitored Streams (' + streams.length + ')</div>';
-  if (!streams.length) {
-    streamsHtml += '<div style="font-size:13px;color:#5d5d6b;padding:12px 0">No streams currently registered.</div>';
-  } else {
-    streamsHtml += streams.map(s => {
-      const status = s.status || 'offline';
-      return '<div class="stream-card">' +
-        '<div>' +
-          '<div class="stream-name">' + esc(s.channel) + '</div>' +
-          '<div class="stream-meta">' + esc(s.platform) + ' · preset: ' + esc(s.preset || 'default') + '</div>' +
-        '</div>' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          '<div class="' + dotClass(status) + '"></div>' +
-          '<span style="font-size:12px;color:#9c9caa;text-transform:capitalize">' + esc(status) + '</span>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+  html += '<div><div class="dh">Monitored streams (' + streams.length + ')</div>';
+  html += streams.length
+    ? streams.map(s => '<div class="srow"><span class="' + dotClass(s.status||'offline') + '"></span>'
+        + '<span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
+        + '<span class="ct">' + esc(s.platform) + ' · preset ' + esc(s.preset || 'default') + '</span></span>'
+        + '<span class="dim" style="font-size:12px;text-transform:capitalize">' + esc(s.status||'offline') + '</span></div>').join('')
+    : '<div class="dim" style="font-size:13px">No streams registered.</div>';
+  html += '</div>';
+
+  const pend = clips.filter(c => c.status === 'pending').length;
+  const appr = clips.filter(c => c.status === 'approved').length;
+  html += '<div><div class="dh">Recent clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>';
+  if(clips.length) html += '<div class="dim" style="font-size:12px;margin-bottom:10px">'
+    + appr + ' approved · ' + pend + ' pending</div>';
+  html += clips.length
+    ? clips.map(c => '<div class="crow"><span style="min-width:0"><b>' + esc(c.channel) + '</b>'
+        + '<span class="ct">' + esc(c.clip_title || c.stream_title || '') + ' · ' + fmtTs(c.created_at) + '</span></span>'
+        + '<span class="num" style="font-size:12px;color:var(--glow-ink)">' + Math.round(c.virality_score||0) + '%</span>'
+        + (c.twitch_url ? '<a class="btn" href="' + esc(c.twitch_url) + '" target="_blank" rel="noopener">Watch ↗</a>'
+                        : '<span class="dim" style="font-size:12px">no link</span>')
+        + '</div>').join('')
+    : '<div class="dim" style="font-size:13px">No clips yet.</div>';
+  html += '</div>';
+
+  if(!u.is_admin || u.id !== ME){
+    html += '<div class="danger"><div class="dh">Admin actions</div>'
+      + '<p>These change what someone can do, or remove them entirely. They live here rather than in the table so you are always looking at the account before you act on it.</p>'
+      + '<div class="acts" style="justify-content:flex-start">';
+    if(!u.is_admin){
+      html += '<button class="btn dr-labeler">' + (u.is_labeler ? 'Revoke trainer' : 'Make trainer') + '</button>';
+      html += '<button class="btn dr-admin">Make admin</button>';
+    } else if(u.id !== ME){
+      html += '<button class="btn btn-bad dr-admin">Revoke admin</button>';
+    }
+    if(u.stripe_customer_id && !u.is_admin) html += '<button class="btn dr-sync">Sync with Stripe</button>';
+    if(!u.is_admin) html += '<button class="btn btn-bad dr-del">Delete account</button>';
+    html += '</div></div>';
   }
-  streamsHtml += '</div>';
-
-  // ── Clips section ──
-  let clipsHtml = '<div><div class="detail-section-head">Recent Clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>';
-  if (!clips.length) {
-    clipsHtml += '<div style="font-size:13px;color:#5d5d6b;padding:12px 0">No clips yet.</div>';
-  } else {
-    const pending   = clips.filter(c => c.status === 'pending').length;
-    const approved  = clips.filter(c => c.status === 'approved').length;
-    clipsHtml += '<div style="font-size:12px;color:#9c9caa;margin-bottom:12px">' +
-      approved + ' approved · ' + pending + ' pending</div>';
-    clipsHtml += clips.map(c => {
-      const statusPill = c.status === 'approved'
-        ? '<span class="pill pill-approved" style="font-size:10px;padding:2px 8px">Approved</span>'
-        : '<span class="pill pill-pending" style="font-size:10px;padding:2px 8px">Pending</span>';
-      const link = c.twitch_url
-        ? '<a class="clip-link" href="' + esc(c.twitch_url) + '" target="_blank" rel="noopener">Watch ↗</a>'
-        : '<span style="font-size:12px;color:#5d5d6b">No link</span>';
-      const title = c.clip_title || c.stream_title || '';
-      return '<div class="clip-row">' +
-        '<div>' +
-          '<div class="clip-ch">' + esc(c.channel) + ' <span style="font-size:11px;color:#5d5d6b;font-weight:400">' + fmtTs(c.created_at) + '</span></div>' +
-          (title ? '<div class="clip-title">' + esc(title) + '</div>' : '') +
-        '</div>' +
-        '<div class="clip-score">Viral ' + Math.round(c.virality_score || 0) + '%</div>' +
-        statusPill +
-        link +
-      '</div>';
-    }).join('');
-  }
-  clipsHtml += '</div>';
-
-  document.getElementById('modal-body').innerHTML = streamsHtml + clipsHtml;
+  document.getElementById('dr-body').innerHTML = html;
 }
 
-load();
+document.getElementById('dr-body').addEventListener('click', async e => {
+  const u = DR_USER; if(!u) return;
+  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del');
+  if(!b) return;
+  try {
+    if(b.classList.contains('dr-grant')){
+      await api('/admin/users/' + u.id + '/grant', 'POST');
+      toast('Access granted'); closeDrawer(); refresh(); return;
+    }
+    if(b.classList.contains('dr-revoke')){
+      if(!confirm('Revoke access for ' + u.username + '?')) return;
+      await api('/admin/users/' + u.id + '/revoke', 'POST');
+      toast('Access revoked'); closeDrawer(); refresh(); return;
+    }
+    if(b.classList.contains('dr-labeler')){
+      const on = !u.is_labeler;
+      if(!confirm((on ? 'Grant ' : 'Revoke ') + 'training-studio access for ' + u.username + '?')) return;
+      await api('/admin/users/' + u.id + '/labeler?on=' + on, 'POST');
+      toast(on ? 'Trainer access granted' : 'Trainer access revoked');
+    } else if(b.classList.contains('dr-admin')){
+      const on = !u.is_admin;
+      const msg = on
+        ? 'Make ' + u.username + ' a FULL ADMIN? They get the admin portal, control over every user (grant/revoke/delete), and free access. Only do this for someone you completely trust.'
+        : 'Revoke admin access for ' + u.username + '?';
+      if(!confirm(msg)) return;
+      await api('/admin/users/' + u.id + '/admin?on=' + on, 'POST');
+      toast(on ? u.username + ' is now an admin' : 'Admin access revoked');
+    } else if(b.classList.contains('dr-sync')){
+      const r = await api('/admin/users/' + u.id + '/stripe-sync', 'POST');
+      toast(r.synced ? 'Synced: ' + r.app_status : 'No subscription found');
+    } else if(b.classList.contains('dr-del')){
+      if(!confirm('Permanently delete ' + u.username + ' and all their data? This cannot be undone.')) return;
+      await api('/admin/users/' + u.id, 'DELETE');
+      toast('User deleted');
+    }
+    closeDrawer(); refresh();
+  } catch(err){ toast('Error: ' + err.message, false); }
+});
+
+document.getElementById('dr-body').addEventListener('change', async e => {
+  const sel = e.target.closest('.dr-trial'); const u = DR_USER;
+  if(!sel || !u) return;
+  const days = parseInt(sel.value, 10);
+  sel.value = '';
+  if(!days) return;
+  if(!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
+  try {
+    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({days}) });
+    if(!r.ok) throw new Error(await r.text());
+    toast('Trial granted — ' + days + ' days'); closeDrawer(); refresh();
+  } catch(err){ toast('Error: ' + err.message, false); }
+});
+
+// ── growth: referrals + promo codes ─────────────────────────────────────────
+async function loadReferrals(){
+  let d;
+  try { d = await api('/admin/referrals'); } catch(e){ fail('rf-wrap', 'referrals'); return; }
+  const rows = d.rows || [], wrap = document.getElementById('rf-wrap');
+  document.getElementById('rf-c').textContent = (d.total || 0) + ' users attributed';
+  document.getElementById('tc-growth').textContent = rows.length;
+  if(!rows.length){ wrap.className='empty'; wrap.textContent='Nothing attributed yet.'; return; }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr><th>Who</th><th>Signups</th><th>Connected a channel</th>'
+    + '<th>Still active wk2</th><th>Paid</th><th>Link</th></tr></thead><tbody>'
+    + rows.map(r => '<tr><td style="font-weight:600">' + rvEsc(r.label) + '</td>'
+        + '<td class="num">' + r.signups + '</td>'
+        + '<td class="num">' + r.connected + '</td>'
+        + '<td class="num" style="color:var(--good)">' + r.active_wk2 + '</td>'
+        + '<td class="num">' + r.paid + '</td>'
+        + '<td class="dim" style="font-family:var(--mono);font-size:11.5px">'
+        + (r.ref === 'direct' ? '—' : 'highlightz.app/?ref=' + rvEsc(r.ref)) + '</td></tr>').join('')
+    + '</tbody></table>';
+}
+
+function renderPromo(){
+  const wrap = document.getElementById('pr-wrap');
+  const byCode = {};
+  USERS.filter(u => !u.is_admin).forEach(u => {
+    if(!u.promo_code) return;
+    const k = u.promo_code;
+    byCode[k] = byCode[k] || {signups:0, active:0};
+    byCode[k].signups++;
+    if(u.subscription_status === 'active') byCode[k].active++;
+  });
+  const codes = Object.keys(byCode).sort((a,b) => byCode[b].signups - byCode[a].signups);
+  document.getElementById('pr-c').textContent = codes.length + ' codes';
+  if(!codes.length){
+    wrap.className = 'empty';
+    wrap.textContent = 'No promo-code signups yet. Codes are attributed automatically when a subscriber uses one at checkout.';
+    return;
+  }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr><th>Code</th><th>Signups</th><th>Active now</th>'
+    + '<th>Est. payout ($5/signup)</th></tr></thead><tbody>'
+    + codes.map(c => '<tr><td style="font-weight:600;color:var(--glow-ink)">' + esc(c) + '</td>'
+        + '<td class="num">' + byCode[c].signups + '</td>'
+        + '<td class="num">' + byCode[c].active + '</td>'
+        + '<td class="num">$' + (byCode[c].signups * 5) + '</td></tr>').join('')
+    + '</tbody></table>';
+}
+
+// ── clip record ─────────────────────────────────────────────────────────────
+let CR_ROWS = [], CR_SORT = 'caught', CR_DESC = true, CR_OPEN = null;
+const CR_COLS = [
+  ['channel','Channel'], ['username','User'], ['caught','Caught'], ['approved','Kept'],
+  ['rejected','Rejected'], ['expired','Aged out'], ['kept_pct','Keep rate'], ['last_at','Last clip'],
+];
+const CR_TEXT = {channel:1, username:1};
+
+function crWhen(ts){
+  if(!ts) return '—';
+  const d = new Date(ts*1000);
+  return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' '
+       + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+}
+
+function crSorted(){
+  const q = (document.getElementById('cr-filter').value || '').toLowerCase();
+  const rows = CR_ROWS.filter(r => !q
+    || String(r.channel).toLowerCase().indexOf(q) >= 0
+    || String(r.username).toLowerCase().indexOf(q) >= 0);
+  // Text columns compare as text, numbers as numbers. Sorting 'caught' as a
+  // string puts 9 above 40, which is the kind of wrong nobody notices until
+  // they quote the wrong figure at a streamer.
+  rows.sort((a,b) => {
+    const x = a[CR_SORT], y = b[CR_SORT];
+    const cmp = CR_TEXT[CR_SORT]
+      ? String(x).toLowerCase().localeCompare(String(y).toLowerCase())
+      : (Number(x)||0) - (Number(y)||0);
+    return CR_DESC ? -cmp : cmp;
+  });
+  return rows;
+}
+
+function crRender(){
+  const wrap = document.getElementById('cr-wrap');
+  document.getElementById('cr-c').textContent = CR_ROWS.length + ' channels';
+  document.getElementById('tc-clips').textContent = CR_ROWS.length;
+  if(!CR_ROWS.length){
+    wrap.className = 'empty';
+    wrap.textContent = 'Nothing recorded yet. Counting starts from the first clip caught after this shipped.';
+    return;
+  }
+  const rows = crSorted();
+  if(!rows.length){ wrap.className='empty'; wrap.textContent='No match.'; return; }
+  wrap.className = '';
+  const arrow = k => CR_SORT === k ? (CR_DESC ? ' ▾' : ' ▴') : '';
+  let html = '<table><thead><tr>' + CR_COLS.map(c =>
+      '<th class="sortable cr-sort' + (CR_SORT === c[0] ? ' on' : '') + '" data-k="' + c[0] + '">'
+      + c[1] + arrow(c[0]) + '</th>').join('') + '</tr></thead><tbody>';
+  rows.forEach(r => {
+    const key = r.user_id + '|' + r.channel;
+    html += '<tr class="expandable cr-row" data-key="' + rvEsc(key) + '">'
+      + '<td style="font-weight:600">' + rvEsc(r.channel) + '</td>'
+      + '<td class="dim">' + rvEsc(r.username) + '</td>'
+      + '<td class="num">' + r.caught + '</td>'
+      + '<td class="num" style="color:var(--good)">' + r.approved + '</td>'
+      + '<td class="num">' + r.rejected + '</td>'
+      + '<td class="num dim">' + r.expired + '</td>'
+      + '<td class="num">' + (r.caught ? r.kept_pct + '%' : '—') + '</td>'
+      + '<td class="dim">' + crWhen(r.last_at) + '</td></tr>';
+    if(CR_OPEN === key){
+      const ss = r.sessions || [];
+      let inner = '<div class="dh">Per stream (' + ss.length + ')</div>';
+      if(r.expired){
+        inner += '<p class="dim" style="font-size:12px;margin-bottom:10px">' + r.expired
+          + ' aged out before review, so the keep rate counts them as not kept. '
+          + 'Of what was actually reviewed: ' + r.kept_of_reviewed_pct + '%.</p>';
+      }
+      inner += ss.map(s => '<div style="display:flex;align-items:center;gap:12px;padding:5px 0;font-size:12.5px">'
+        + '<span class="dim" style="width:118px;flex-shrink:0;font-family:var(--mono);font-size:11px">' + crWhen(s.started_at) + '</span>'
+        + '<span class="bar"><i style="width:' + (s.caught ? (s.approved/s.caught*100) : 0) + '%"></i></span>'
+        + '<span class="num" style="width:150px;flex-shrink:0;text-align:right;font-size:12px">'
+        + s.approved + ' kept of ' + s.caught + (s.caught ? ' (' + s.kept_pct + '%)' : '') + '</span></div>').join('');
+      html += '<tr class="drill"><td colspan="' + CR_COLS.length + '">' + inner + '</td></tr>';
+    }
+  });
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+async function loadClipRecord(){
+  try { const d = await api('/admin/stream-stats'); CR_ROWS = d.rows || []; }
+  catch(e){ fail('cr-wrap', 'the clip record'); return; }
+  crRender();
+}
+
+document.getElementById('cr-wrap').addEventListener('click', e => {
+  const th = e.target.closest('.cr-sort');
+  if(th){
+    const k = th.dataset.k;
+    // Same column toggles direction; a new column starts descending, because
+    // "who has the most" is what you want first every time except on the two
+    // text columns.
+    if(CR_SORT === k) CR_DESC = !CR_DESC;
+    else { CR_SORT = k; CR_DESC = !CR_TEXT[k]; }
+    crRender();
+    return;
+  }
+  const tr = e.target.closest('.cr-row');
+  if(tr){ CR_OPEN = (CR_OPEN === tr.dataset.key) ? null : tr.dataset.key; crRender(); }
+});
+document.getElementById('cr-filter').addEventListener('input', crRender);
+
+// ── reviews ─────────────────────────────────────────────────────────────────
+function rvStars(n){
+  return '<span style="color:var(--ember);letter-spacing:1px">' + RV_STAR.repeat(n)
+    + '<span style="color:#3A3242">' + RV_STAR.repeat(5-n) + '</span></span>';
+}
+
+function rvRow(r){
+  // Consent is the user's decision and is NOT overridable here. The publish
+  // button only exists for reviews they agreed to publish; offering it
+  // otherwise invites putting someone's words on the public site by accident.
+  const act = r.publish_consent
+    ? '<button class="btn rv-act" data-id="' + rvEsc(r.id) + '" data-on="' + (!r.approved) + '">'
+      + (r.approved ? 'Unpublish' : 'Publish') + '</button>'
+    : '<span class="dim" style="font-size:11px">no consent</span>';
+  return '<tr><td>' + rvStars(r.stars) + '</td>'
+    + '<td style="max-width:340px;white-space:pre-wrap">' + rvEsc(r.comment || '—') + '</td>'
+    + '<td class="dim">' + rvEsc(r.username || r.user_id) + '</td>'
+    + '<td>' + (r.publish_consent ? rvEsc(r.display_name || 'Highlightz user')
+                                  : '<span class="dim">—</span>') + '</td>'
+    + '<td><div class="acts" style="justify-content:flex-start">' + act
+    + ' <button class="btn btn-bad rv-del" data-id="' + rvEsc(r.id) + '">Delete</button></div></td></tr>';
+}
+
+async function loadReviews(){
+  const wrap = document.getElementById('rv-wrap');
+  let d;
+  try { d = await api('/admin/reviews'); } catch(e){ fail('rv-wrap', 'reviews'); return; }
+  const rows = d.reviews || [], agg = d.aggregate || {count:0, average:0};
+  document.getElementById('rv-c').textContent = rows.length + ' total'
+    + (agg.count ? ' · ' + agg.average + RV_STAR + ' from ' + agg.count + ' published' : '');
+  document.getElementById('tc-reviews').textContent = rows.length;
+  if(!rows.length){
+    wrap.className = 'empty';
+    wrap.textContent = 'Nothing yet. The prompt appears at 25 approved clips.';
+    return;
+  }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr><th>Rating</th><th>Comment</th><th>User</th>'
+    + '<th>Shows as</th><th>Public</th></tr></thead><tbody>'
+    + rows.map(rvRow).join('') + '</tbody></table>';
+}
+
+document.getElementById('rv-wrap').addEventListener('click', async e => {
+  const act = e.target.closest('.rv-act'), del = e.target.closest('.rv-del');
+  if(act){
+    await fetch('/admin/reviews/' + act.dataset.id + '/approve', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({approved: act.dataset.on === 'true'})});
+    loadReviews();
+  } else if(del){
+    if(!confirm('Delete this review permanently?')) return;
+    await fetch('/admin/reviews/' + del.dataset.id, {method:'DELETE'});
+    loadReviews();
+  }
+});
+
+// ── boot ────────────────────────────────────────────────────────────────────
+// refresh() is what every mutating action calls, so a grant/revoke/delete
+// updates the header figures too — the old page reloaded only the user table
+// and left the totals stale until you hit F5.
+async function refresh(){
+  await loadUsers();
+  renderPromo();
+  loadOverview();
+}
+
+fetch('/me').then(r => r.json()).then(m => { ME = m.user_id || ''; }).catch(() => {});
+fetch('/admin/feedback').then(r => r.json()).then(fb => {
+  const unread = (fb || []).filter(f => !f.read).length;
+  const el = document.getElementById('feedback-link');
+  if(el && unread > 0) el.innerHTML = 'Feedback <span class="n">(' + unread + ')</span>';
+}).catch(() => {});
+
+refresh();
+loadReferrals();
+loadClipRecord();
+loadReviews();
 </script>
 </body>
 </html>"""
