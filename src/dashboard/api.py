@@ -75,7 +75,9 @@ def _referral_paths() -> set[str]:
     return {f"/{k}" for k in all_keys()} | {f"/r/{k}" for k in all_keys()}
 
 
-_AUTH_PREFIXES = ("/auth/", "/billing/")
+# "/i/" is the invite link: a signed-out stranger clicking it is the
+# entire point, so it must never be bounced to /login first.
+_AUTH_PREFIXES = ("/auth/", "/billing/", "/i/")
 _STATIC_PREFIX = "/static"
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -665,6 +667,9 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # moment it exists: the code rode the session cookie out to twitch.tv and
     # back, and the session-fixation clear is three lines away.
     pending_ref = request.session.get("ref")
+    # Same window, same reason: an invite code lives in the session only for the
+    # round trip to twitch.tv and back, and session.clear() is a few lines away.
+    pending_invite = request.session.get("invite")
 
     is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
     user = user_store.upsert_twitch_user(
@@ -683,6 +688,8 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         # attribution.
         if user_store.set_ref_once(user["id"], pending_ref):
             log.info("referral_attributed", user_id=user["id"], ref=pending_ref)
+    if pending_invite:
+        _redeem_invite(pending_invite, user)
 
     # Clear any existing session before setting new auth data (session fixation)
     request.session.clear()
@@ -694,6 +701,62 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     request.session["subscription_status"] = user.get("subscription_status", "none")
     request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
     return RedirectResponse("/")
+
+
+def _redeem_invite(code: str, user: dict) -> bool:
+    """Apply an invite's membership to a freshly signed-in user.
+
+    Never raises: a bad, spent or expired code must leave the person signed in
+    on the free tier rather than bouncing them out of an OAuth flow they just
+    completed. The link failing is recoverable; being dumped back at /login
+    after connecting Twitch is what makes someone give up.
+
+    An admin is skipped rather than downgraded — they already have everything,
+    and spending a use on them would burn the invite for its real recipient.
+    """
+    from src.auth import invites, users as user_store
+    from src.billing import plans
+    try:
+        if user.get("is_admin"):
+            return False
+        inv = invites.claim(code, user["id"], user.get("username", ""))
+        if not inv or inv.plan not in plans.PAID_PLANS:
+            return False
+        if inv.days:
+            user_store.grant_trial(user["id"], inv.days, inv.plan)
+        else:
+            user_store.grant_plan(user["id"], inv.plan)
+        log.info("invite_redeemed", user_id=user["id"], code=code,
+                 plan=inv.plan, days=inv.days)
+        return True
+    except Exception as exc:
+        log.warning("invite_redeem_failed", code=code, error=str(exc))
+        return False
+
+
+@app.get("/i/{code}")
+async def invite_link(request: Request, code: str):
+    """Public entry point for an invite. Stashes the code and sends the visitor
+    into the normal Twitch sign-in; the membership is applied on the way back.
+
+    Deliberately NOT gated: the whole point is that a signed-out stranger clicks
+    it. It also never says anything about billing — someone who was told they
+    are being given access should not meet a price on the way in.
+    """
+    from src.auth import invites
+    inv = invites.get(code)
+    if inv and inv.is_live():
+        request.session["invite"] = code
+    # An already-signed-in user gets it applied without another OAuth round trip.
+    if request.session.get("auth"):
+        from src.auth import users as user_store
+        uid = request.session.get("user_id", "")
+        u = user_store.get_by_id(uid) if uid else None
+        if u and inv:
+            _redeem_invite(code, u)
+            request.session.pop("invite", None)
+        return RedirectResponse("/", status_code=302)
+    return RedirectResponse("/auth/twitch", status_code=302)
 
 
 @app.get("/me")
@@ -3057,6 +3120,56 @@ async def admin_list_users(request: Request):
     return users
 
 
+class InviteRequest(BaseModel):
+    plan: str
+    days: int = 0                 # 0 = no end date
+    note: str = ""
+    max_uses: int = 1
+    ttl_days: int = 30            # how long the LINK works, not the membership
+
+
+@app.post("/admin/invites", status_code=201)
+async def admin_create_invite(request: Request, body: InviteRequest):
+    """Mint an invite link that grants a membership on sign-in."""
+    _require_admin(request)
+    from src.auth import invites
+    from src.billing import plans
+    if body.plan not in plans.PAID_PLANS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown plan {body.plan!r} — choose one of {', '.join(plans.PAID_PLANS)}.")
+    if not 0 <= body.days <= 365:
+        raise HTTPException(status_code=400, detail="days must be between 0 and 365")
+    if not 1 <= body.max_uses <= 100:
+        raise HTTPException(status_code=400, detail="max_uses must be between 1 and 100")
+    try:
+        inv = invites.create(plan=body.plan, days=body.days, note=body.note,
+                             max_uses=body.max_uses, ttl_days=body.ttl_days,
+                             created_by=request.session.get("user_id", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return inv.public()
+
+
+@app.get("/admin/invites")
+async def admin_list_invites(request: Request):
+    _require_admin(request)
+    from src.auth import invites
+    return {"invites": [i.public() for i in invites.all_invites()]}
+
+
+@app.delete("/admin/invites/{code}", status_code=204)
+async def admin_revoke_invite(request: Request, code: str):
+    """Kill a link. Memberships already claimed through it are untouched —
+    revoking a link is not a way to take someone's plan away, and pretending
+    otherwise would make this button do two things at once."""
+    _require_admin(request)
+    from src.auth import invites
+    if not invites.revoke(code):
+        raise HTTPException(status_code=404, detail="Invite not found")
+    return Response(status_code=204)
+
+
 @app.get("/admin/overview")
 async def admin_overview(request: Request):
     """Platform totals, computed on the server from the real ledgers.
@@ -5151,13 +5264,13 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo.jpg" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="price-pill"><span class="dot"></span>From $10/month — cancel anytime</div>
+  <div class="price-pill"><span class="dot"></span>Free to start &mdash; no card required</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
-  <p class="price-note">Renews monthly. Cancel anytime through the billing portal.</p>
+  <p class="price-note">Signing in is free. Paid plans are optional and start at $10/month.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -5882,6 +5995,23 @@ ADMIN_HTML = """<!DOCTYPE html>
        stopped being two sections on opposite ends of a long scroll. ── -->
   <div class="panel" id="panel-growth">
     <div class="block">
+      <div class="block-head"><h2>Invite links</h2><span class="c" id="iv-c"></span></div>
+      <p class="lede">
+        Hand someone a membership without ever showing them a price. They click
+        the link, sign in with Twitch, and the plan is already on their account
+        when the dashboard loads &mdash; no payment page, nothing to cancel.
+        <b>Single use and 30-day expiry by default</b>, because a link that
+        grants Pro to everyone who sees it is one screenshot from being public.
+      </p>
+      <div class="toolbar">
+        <select class="btn" id="iv-plan"></select>
+        <select class="btn" id="iv-days"></select>
+        <input class="field" id="iv-note" placeholder="Who is it for? (optional)" maxlength="80">
+        <button class="btn btn-key" id="iv-make">Create link</button>
+      </div>
+      <div class="tw"><div id="iv-wrap" class="loading">Loading&hellip;</div></div>
+    </div>
+    <div class="block">
       <div class="block-head"><h2>Referrals</h2><span class="c" id="rf-c"></span></div>
       <p class="lede">
         Signups per person, from <code>?ref=</code> links and typed codes alike.
@@ -6362,6 +6492,99 @@ document.getElementById('dr-body').addEventListener('click', async e => {
   } catch(err){ toast('Error: ' + err.message, false); }
 });
 
+// ── invite links ────────────────────────────────────────────────────────────
+// The point of these is that the recipient never sees a billing page. Comping
+// someone used to mean telling them to sign in first, and the sign-in page
+// advertised a monthly price — being promised free access and then shown a
+// price above a Connect-your-Twitch button is the exact shape of a scam.
+(function initInviteForm(){
+  const plan = document.getElementById('iv-plan'), days = document.getElementById('iv-days');
+  if(!plan || !days) return;
+  plan.innerHTML = PLAN_OPTIONS.map(p => '<option value="' + p[0] + '">' + p[1] + '</option>').join('');
+  plan.value = 'pro';
+  days.innerHTML = DURATIONS.map(d => '<option value="' + d[0] + '">' + d[1] + '</option>').join('');
+})();
+
+function inviteUrl(code){ return location.origin + '/i/' + code; }
+
+function ivRow(i){
+  const url = inviteUrl(i.code);
+  const who = i.claims && i.claims.length
+    ? i.claims.map(c => rvEsc(c.username || c.user_id)).join(', ')
+    : '<span class="dim">unclaimed</span>';
+  const state = i.live
+    ? '<span class="st" style="color:var(--good)">Live</span>'
+    : '<span class="st">' + (i.expired ? 'Expired' : 'Used up') + '</span>';
+  return '<tr><td><span class="num" style="font-size:12px">' + rvEsc(url) + '</span>'
+    + (i.note ? '<span class="ct">' + rvEsc(i.note) + '</span>' : '') + '</td>'
+    + '<td><span class="plan ' + planClass(i.plan) + '">' + rvEsc(i.plan) + '</span>'
+    + '<div class="plan-note">' + (i.days ? i.days + ' days' : 'no end date') + '</div></td>'
+    + '<td>' + state + '<div class="plan-note">' + i.uses_left + ' of ' + i.max_uses + ' left</div></td>'
+    + '<td>' + who + '</td>'
+    + '<td><div class="acts"><button class="btn iv-copy" data-url="' + rvEsc(url) + '">Copy</button>'
+    + '<button class="btn btn-bad iv-del" data-code="' + rvEsc(i.code) + '">Revoke</button></div></td></tr>';
+}
+
+async function loadInvites(){
+  const wrap = document.getElementById('iv-wrap');
+  if(!wrap) return;
+  let d;
+  try { d = await api('/admin/invites'); } catch(e){ fail('iv-wrap', 'invite links'); return; }
+  const rows = d.invites || [];
+  document.getElementById('iv-c').textContent =
+    rows.filter(i => i.live).length + ' live of ' + rows.length;
+  if(!rows.length){
+    wrap.className = 'empty';
+    wrap.textContent = 'No invite links yet. Create one above and send it to someone.';
+    return;
+  }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr><th>Link</th><th>Grants</th><th>Status</th>'
+    + '<th>Claimed by</th><th style="text-align:right">Actions</th></tr></thead><tbody>'
+    + rows.map(ivRow).join('') + '</tbody></table>';
+}
+
+document.getElementById('iv-make').addEventListener('click', async () => {
+  const plan = document.getElementById('iv-plan').value;
+  const days = parseInt(document.getElementById('iv-days').value, 10) || 0;
+  const note = document.getElementById('iv-note').value;
+  try {
+    const r = await fetch('/admin/invites', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({plan, days, note, max_uses:1, ttl_days:30})});
+    if(!r.ok) throw new Error(await r.text());
+    const inv = await r.json();
+    document.getElementById('iv-note').value = '';
+    // Straight to the clipboard: the link is the whole deliverable, and making
+    // someone hunt for it in a table they just created is a needless step.
+    copyText(inviteUrl(inv.code), 'Invite link copied');
+    loadInvites();
+  } catch(err){ toast('Error: ' + err.message, false); }
+});
+
+function copyText(text, msg){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(() => toast(msg))
+      .catch(() => toast(text, true));
+    return;
+  }
+  // Clipboard API needs a secure context; without one, show the link so it can
+  // still be selected by hand rather than silently doing nothing.
+  toast(text, true);
+}
+
+document.getElementById('iv-wrap').addEventListener('click', async e => {
+  const cp = e.target.closest('.iv-copy'), del = e.target.closest('.iv-del');
+  if(cp) return copyText(cp.dataset.url, 'Invite link copied');
+  if(del){
+    if(!confirm('Revoke this link? Anyone who already claimed it keeps their membership.')) return;
+    try { await fetch('/admin/invites/' + encodeURIComponent(del.dataset.code),
+                      {method:'DELETE', credentials:'same-origin'});
+          toast('Link revoked'); loadInvites(); }
+    catch(err){ toast('Error: ' + err.message, false); }
+  }
+});
+
 // ── growth: referrals + promo codes ─────────────────────────────────────────
 async function loadReferrals(){
   let d;
@@ -6587,6 +6810,7 @@ fetch('/admin/feedback').then(r => r.json()).then(fb => {
 
 refresh();
 loadReferrals();
+loadInvites();
 loadClipRecord();
 loadReviews();
 </script>
