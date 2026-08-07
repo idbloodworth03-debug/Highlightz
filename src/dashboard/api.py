@@ -3040,11 +3040,18 @@ async def admin_list_users(request: Request):
         limits = plans.PLAN_LIMITS.get(plan, {})
         u["plan_label"] = limits.get("label", plan.title())
         u["plan_price"] = limits.get("price", 0)
+        # How they came to be on it — "granted" means an admin comped them.
+        u["plan_source"] = u.get("plan_source") or ("stripe" if u.get("stripe_customer_id") else "")
         # Paying = money actually arrives. A granted trial and a comped admin
-        # both read as Pro above, and neither belongs in revenue.
+        # both read as Pro above, and neither belongs in revenue. The
+        # discriminator is a STRIPE CUSTOMER, not the plan: now that an admin
+        # can comp someone Starter, the stored plan alone would price a gift at
+        # $10/mo. No customer behind the account means no money.
         u["is_paying"] = bool(
             not u.get("is_admin") and not u.get("is_labeler")
             and u.get("subscription_status") == "active"
+            and u.get("stripe_customer_id")
+            and u.get("plan_source") != "granted"
             and limits.get("price", 0) > 0
         )
     return users
@@ -3082,7 +3089,7 @@ async def admin_overview(request: Request):
     customers = [u for u in users if not u.get("is_admin")]
 
     by_plan: dict[str, int] = {p: 0 for p in plans.PLAN_LIMITS}
-    paying = trialing = mrr = legacy = 0
+    paying = trialing = mrr = legacy = comped = 0
     for u in customers:
         plan = plans.get_plan(u)
         by_plan[plan] = by_plan.get(plan, 0) + 1
@@ -3098,6 +3105,13 @@ async def admin_overview(request: Request):
             # they are counted as subscribers and left out of the money, and
             # `mrr_unknown` says how many are missing. MRR is a floor, and the
             # panel labels it as one.
+            # A comped membership is not revenue. Since an admin can now grant
+            # a specific tier, the stored plan is no longer proof of payment —
+            # a Stripe customer is. Without one the account is a gift and is
+            # left out of both the count and the money.
+            if not u.get("stripe_customer_id") or u.get("plan_source") == "granted":
+                comped += 1
+                continue
             stored = u.get("plan")
             price = (plans.PLAN_LIMITS.get(plan, {}).get("price", 0)
                      if stored in plans.PAID_PLANS else 0)
@@ -3124,6 +3138,9 @@ async def admin_overview(request: Request):
         "users": {
             "total": len(customers), "admins": len(users) - len(customers),
             "paying": paying, "trialing": trialing, "by_plan": by_plan,
+            # Permanently comped accounts — access granted by an admin with no
+            # Stripe behind it. Counted apart from both paying and trialing.
+            "comped": comped,
             "new_7d": new_7d, "new_30d": new_30d,
         },
         "mrr": mrr,
@@ -3153,21 +3170,39 @@ async def admin_overview(request: Request):
 
 
 @app.post("/admin/users/{user_id}/grant")
-async def admin_grant_access(request: Request, user_id: str):
+async def admin_grant_access(request: Request, user_id: str, plan: str = "pro"):
+    """Comp a user a specific membership, permanently and without Stripe.
+
+    `plan` defaults to pro because that is what this endpoint did before it
+    could take one — a bookmarked call or an older tab must keep behaving
+    exactly as it did rather than silently start handing out a lesser tier.
+    """
     _require_admin(request)
     from src.auth import users as user_store
-    user_store.update_subscription(user_id, None, "active")
+    from src.billing import plans
+    if plan not in plans.PAID_PLANS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown plan {plan!r} — choose one of {', '.join(plans.PAID_PLANS)}.")
+    if not user_store.grant_plan(user_id, plan):
+        raise HTTPException(status_code=404, detail="User not found")
+    label = plans.PLAN_LIMITS[plan]["label"]
+    log.info("admin_plan_granted", user_id=user_id, plan=plan,
+             by=request.session.get("user_id"))
     # Realtime: the granted user's open tab should clear the paywall/banner live.
     await broadcast(
         {"event": "subscription_active",
-         "message": "Access granted — your subscription is active."},
+         "message": f"You've been given {label} access."},
         user_id=user_id,
     )
-    return {"ok": True}
+    return {"ok": True, "plan": plan}
 
 
 class TrialGrantRequest(BaseModel):
     days: int
+    # Which membership the trial grants. None keeps the original behaviour of
+    # showcasing the full product.
+    plan: str | None = None
 
 
 @app.post("/admin/users/{user_id}/grant-trial")
@@ -3187,16 +3222,23 @@ async def admin_grant_trial(request: Request, user_id: str, body: TrialGrantRequ
         raise HTTPException(status_code=400, detail="Admins already have full access")
     if user.get("subscription_status") == "active":
         raise HTTPException(status_code=400, detail="User already has an active subscription")
-    user_store.grant_trial(user_id, body.days)
-    log.info("admin_trial_granted", user_id=user_id, days=body.days,
+    from src.billing import plans
+    if body.plan is not None and body.plan not in plans.PAID_PLANS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown plan {body.plan!r} — choose one of {', '.join(plans.PAID_PLANS)}.")
+    user_store.grant_trial(user_id, body.days, body.plan)
+    label = plans.PLAN_LIMITS[body.plan]["label"] if body.plan else "full"
+    log.info("admin_trial_granted", user_id=user_id, days=body.days, plan=body.plan,
              by=request.session.get("user_id"))
     # Realtime: the granted user's open tab should clear the paywall/banner live.
     await broadcast(
         {"event": "subscription_active",
-         "message": f"You've been given {body.days} day{'s' if body.days != 1 else ''} of free access."},
+         "message": f"You've been given {body.days} day{'s' if body.days != 1 else ''} "
+                    f"of {label} access."},
         user_id=user_id,
     )
-    return {"ok": True, "days": body.days}
+    return {"ok": True, "days": body.days, "plan": body.plan}
 
 
 @app.post("/admin/users/{user_id}/revoke")
@@ -5957,7 +5999,8 @@ async function loadOverview(){
   set('ov-users', n0(u.total));
   set('ov-users-s', n0(u.new_7d) + ' joined this week · ' + n0(u.admins) + ' staff');
   set('ov-paying', n0(u.paying));
-  set('ov-paying-s', n0(bp.pro) + ' Pro · ' + n0(bp.starter) + ' Starter · ' + n0(u.trialing) + ' on trial');
+  set('ov-paying-s', n0(bp.pro) + ' Pro · ' + n0(bp.starter) + ' Starter · '
+    + n0(u.trialing) + ' on trial' + (u.comped ? ' · ' + n0(u.comped) + ' comped' : ''));
   // A legacy subscriber's price is not in our records, so MRR says so rather
   // than pricing them at the tier they were grandfathered into.
   set('ov-mrr', '$' + n0(d.mrr) + (d.mrr_unknown ? '+' : ''));
@@ -5976,6 +6019,13 @@ async function loadOverview(){
 // ── users ───────────────────────────────────────────────────────────────────
 let USERS = [], ME = '', U_FILTER = 'active', U_Q = '';
 
+// The comp-able tiers. Kept next to the table and the drawer so the two can
+// never offer different memberships; the server validates against PAID_PLANS
+// regardless, so an edit here cannot invent a plan.
+const PLAN_OPTIONS = [['starter', 'Starter'], ['pro', 'Pro']];
+const DURATIONS = [['0','Forever'],['3','3 days'],['7','1 week'],
+                   ['14','2 weeks'],['30','1 month'],['90','3 months']];
+
 function planClass(p){ return p === 'pro' ? 'plan-pro' : p === 'starter' ? 'plan-starter' : 'plan-free'; }
 
 // One line under the plan saying WHY they are on it. Without this a row reading
@@ -5987,7 +6037,11 @@ function planNote(u){
   if(u.is_labeler) return ['Trainer — comped', ''];
   const st = u.subscription_status;
   if(st === 'trialing') return ['Trial' + (u.trial_ends_at ? ' ends ' + fmt(u.trial_ends_at) : ''), 'trial'];
-  if(st === 'active') return [u.plan_price ? '$' + u.plan_price + '/mo' : 'Granted', u.plan_price ? 'pay' : ''];
+  // A comped tier and a paid one look identical without this — and they are
+  // the two you most need to tell apart when reading the table.
+  if(st === 'active') return u.plan_source === 'granted'
+    ? ['Granted — comped', '']
+    : [u.plan_price ? '$' + u.plan_price + '/mo' : 'Granted', u.plan_price ? 'pay' : ''];
   if(st === 'inactive' || st === 'canceled') return ['Lapsed — on free', 'lapsed'];
   return ['Never subscribed', ''];
 }
@@ -6044,7 +6098,13 @@ function renderUsers(){
     const canRevoke = !u.is_admin && (st === 'active' || st === 'trialing');
     const canTrial  = !u.is_admin && st !== 'active';
     let acts = '<button class="btn u-open" data-i="' + i + '">Details</button>';
-    if(canGrant)  acts += '<button class="btn btn-good u-grant" data-i="' + i + '">Grant</button>';
+    // A plan picker, not a Grant button. It used to comp everyone Pro because
+    // the endpoint took no tier — so "grant access" and "grant Pro" were the
+    // same action and there was no way to hand someone Starter.
+    if(canGrant)  acts += '<select class="btn btn-good u-grant" data-i="' + i + '">'
+      + '<option value="">Grant…</option>'
+      + PLAN_OPTIONS.map(p => '<option value="' + p[0] + '">' + p[1] + '</option>').join('')
+      + '</select>';
     if(canTrial)  acts += '<select class="btn u-trial" data-i="' + i + '">'
       + '<option value="">' + (st === 'trialing' ? 'Extend…' : 'Trial…') + '</option>'
       + '<option value="3">3 days</option><option value="7">1 week</option>'
@@ -6084,7 +6144,7 @@ document.getElementById('u-chips').addEventListener('click', e => {
 });
 
 document.getElementById('u-wrap').addEventListener('click', async e => {
-  const t = e.target.closest('.u-open, .u-grant, .u-revoke, .u-row');
+  const t = e.target.closest('.u-open, .u-revoke, .u-row');
   if(!t) return;
   const u = USERS[Number(t.dataset.i)]; if(!u) return;
   // The row itself opens the drawer, but only when the click did not land on a
@@ -6094,11 +6154,6 @@ document.getElementById('u-wrap').addEventListener('click', async e => {
     return openUser(u);
   }
   if(t.classList.contains('u-open')) return openUser(u);
-  if(t.classList.contains('u-grant')){
-    try { await api('/admin/users/' + u.id + '/grant', 'POST'); toast('Access granted'); refresh(); }
-    catch(err){ toast('Error: ' + err.message, false); }
-    return;
-  }
   if(t.classList.contains('u-revoke')){
     if(!confirm('Revoke access for ' + u.username + '?')) return;
     try { await api('/admin/users/' + u.id + '/revoke', 'POST'); toast('Access revoked'); refresh(); }
@@ -6106,24 +6161,41 @@ document.getElementById('u-wrap').addEventListener('click', async e => {
   }
 });
 
-document.getElementById('u-wrap').addEventListener('change', async e => {
-  const sel = e.target.closest('.u-trial'); if(!sel) return;
-  const u = USERS[Number(sel.dataset.i)]; if(!u) return;
-  const days = parseInt(sel.value, 10);
-  sel.value = '';                        // reset so the same option can be re-picked
-  if(!days) return;
-  if(!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
+// One helper for every grant, from either the table or the drawer, so the two
+// cannot drift apart. days=0 means a permanent comp.
+async function grantMembership(u, plan, days){
+  const label = (PLAN_OPTIONS.find(p => p[0] === plan) || [plan, plan])[1];
+  const how = days ? days + ' day' + (days === 1 ? '' : 's') + ' of ' + label
+                   : label + ' (no end date)';
+  if(!confirm('Give ' + u.username + ' ' + how + '?')) return;
   try {
-    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
-      method:'POST', credentials:'same-origin',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({days}) });
-    if(!r.ok) throw new Error(await r.text());
-    toast('Trial granted — ' + days + ' days'); refresh();
+    if(days){
+      const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({days, plan}) });
+      if(!r.ok) throw new Error(await r.text());
+    } else {
+      await api('/admin/users/' + u.id + '/grant?plan=' + encodeURIComponent(plan), 'POST');
+    }
+    toast('Granted ' + how); refresh();
   } catch(err){ toast('Error: ' + err.message, false); }
+}
+
+document.getElementById('u-wrap').addEventListener('change', async e => {
+  const sel = e.target.closest('.u-trial, .u-grant'); if(!sel) return;
+  const u = USERS[Number(sel.dataset.i)]; if(!u) return;
+  const val = sel.value;
+  sel.value = '';                        // reset so the same option can be re-picked
+  if(!val) return;
+  if(sel.classList.contains('u-grant')) return grantMembership(u, val, 0);
+  // The quick trial in the table stays Pro — it is the showcase default, and
+  // picking a tier as well belongs in the drawer where there is room for it.
+  return grantMembership(u, 'pro', parseInt(val, 10));
 });
 
 // ── user drawer ─────────────────────────────────────────────────────────────
-let DR_USER = null;
+let DR_USER = null, DR_STATE = '';
 
 function closeDrawer(){
   document.getElementById('drawer').classList.remove('open');
@@ -6151,18 +6223,30 @@ async function openUser(u){
 
   const note = planNote(u);
   const st = userState(u);
+  DR_STATE = st;
   // The same three membership actions the table offers. Duplicated on purpose:
   // the table row is a desktop convenience and disappears on a phone, so the
   // drawer has to be able to do everything on its own.
+  // Pick a tier AND a duration, then grant. Two coupled choices in one control
+  // rather than a Grant button that silently meant Pro and a separate trial
+  // dropdown that also silently meant Pro — between them there was no way to
+  // comp anyone Starter at all.
   let mem = '';
   if(!u.is_admin){
-    if(st !== 'active' && st !== 'trialing') mem += '<button class="btn btn-good dr-grant">Grant access</button>';
-    if(st !== 'active') mem += '<select class="btn dr-trial">'
-      + '<option value="">' + (st === 'trialing' ? 'Extend trial…' : 'Grant trial…') + '</option>'
-      + '<option value="3">3 days</option><option value="7">1 week</option>'
-      + '<option value="14">2 weeks</option><option value="30">1 month</option>'
-      + '<option value="90">3 months</option></select>';
-    if(st === 'active' || st === 'trialing') mem += '<button class="btn btn-bad dr-revoke">Revoke access</button>';
+    mem += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      + '<select class="btn dr-plan">'
+      + PLAN_OPTIONS.map(p => '<option value="' + p[0] + '"'
+          + (p[0] === u.plan ? ' selected' : '') + '>' + p[1] + '</option>').join('')
+      + '</select>'
+      + '<select class="btn dr-days">'
+      + DURATIONS.map(d => '<option value="' + d[0] + '">' + d[1] + '</option>').join('')
+      + '</select>'
+      + '<button class="btn btn-good dr-grant">'
+      + (st === 'active' || st === 'trialing' ? 'Change membership' : 'Grant membership')
+      + '</button>'
+      + (st === 'active' || st === 'trialing'
+          ? '<button class="btn btn-bad dr-revoke">Revoke</button>' : '')
+      + '</div>';
   }
   let html = '<div><div class="dh">Membership</div><dl class="kv">'
     + '<dt>Plan</dt><dd><b>' + esc(u.plan_label || u.plan) + '</b> — ' + esc(note[0]) + '</dd>'
@@ -6237,8 +6321,16 @@ document.getElementById('dr-body').addEventListener('click', async e => {
   if(!b) return;
   try {
     if(b.classList.contains('dr-grant')){
-      await api('/admin/users/' + u.id + '/grant', 'POST');
-      toast('Access granted'); closeDrawer(); refresh(); return;
+      const body = document.getElementById('dr-body');
+      const plan = body.querySelector('.dr-plan').value;
+      const days = parseInt(body.querySelector('.dr-days').value, 10) || 0;
+      // A timed grant on someone who is already active would be refused by the
+      // server ("already has an active subscription"), so clear them first —
+      // otherwise "give this paying user a month of Starter" is a dead button.
+      if(days && DR_STATE === 'active') await api('/admin/users/' + u.id + '/revoke', 'POST');
+      closeDrawer();
+      await grantMembership(u, plan, days);
+      return;
     }
     if(b.classList.contains('dr-revoke')){
       if(!confirm('Revoke access for ' + u.username + '?')) return;
@@ -6267,22 +6359,6 @@ document.getElementById('dr-body').addEventListener('click', async e => {
       toast('User deleted');
     }
     closeDrawer(); refresh();
-  } catch(err){ toast('Error: ' + err.message, false); }
-});
-
-document.getElementById('dr-body').addEventListener('change', async e => {
-  const sel = e.target.closest('.dr-trial'); const u = DR_USER;
-  if(!sel || !u) return;
-  const days = parseInt(sel.value, 10);
-  sel.value = '';
-  if(!days) return;
-  if(!confirm('Give ' + u.username + ' ' + days + ' days of free access?')) return;
-  try {
-    const r = await fetch('/admin/users/' + u.id + '/grant-trial', {
-      method:'POST', credentials:'same-origin',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({days}) });
-    if(!r.ok) throw new Error(await r.text());
-    toast('Trial granted — ' + days + ' days'); closeDrawer(); refresh();
   } catch(err){ toast('Error: ' + err.message, false); }
 });
 

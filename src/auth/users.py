@@ -418,12 +418,16 @@ def set_promo_code(user_id: str, code: str) -> None:
             return
 
 
-def grant_trial(user_id: str, days: int) -> dict | None:
-    """Admin-granted timed trial: full access until trial_ends_at, app-managed
-    with no Stripe subscription behind it. Expiry is enforced by the auth
-    middleware and the idle reaper, which flip the user to 'expired' and stop
-    their streams once the clock runs out. Granting again extends/replaces the
-    window (trial_ends_at is measured from now).
+def grant_trial(user_id: str, days: int, plan: str | None = None) -> dict | None:
+    """Admin-granted timed trial: access until trial_ends_at, app-managed with
+    no Stripe subscription behind it. Expiry is enforced by the auth middleware
+    and the idle reaper, which flip the user to 'expired' and stop their streams
+    once the clock runs out. Granting again extends/replaces the window
+    (trial_ends_at is measured from now).
+
+    `plan` picks WHICH membership the trial grants. Omitted keeps the original
+    behaviour — the trial showcases the full product — so every trial granted
+    before this argument existed still resolves to Pro.
 
     Returns the public user dict, or None if the user doesn't exist."""
     users = _load()
@@ -431,6 +435,34 @@ def grant_trial(user_id: str, days: int) -> dict | None:
         if u["id"] == user_id:
             u["subscription_status"] = "trialing"
             u["trial_ends_at"]       = time.time() + days * 86400
+            if plan:
+                u["plan"] = plan
+                # NEVER touch stripe_customer_id here. That field is what tells
+                # revenue apart from generosity: a granted membership has no
+                # customer behind it, and pricing one would inflate MRR.
+                u["plan_source"] = "granted"
+            _save(users)
+            return _public(u)
+    return None
+
+
+def grant_plan(user_id: str, plan: str) -> dict | None:
+    """Comp a user a specific membership, with no end date and no Stripe.
+
+    Separate from update_subscription() because that one is the WEBHOOK's entry
+    point: it is called with a real Stripe customer and must not be taught to
+    invent plans. This is the admin's entry point, and it records plan_source so
+    the panel and the revenue figures can tell a comped Pro from a paying one.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["subscription_status"] = "active"
+            u["plan"]                = plan
+            u["plan_source"]         = "granted"
+            # A comp replaces any previous trial window; leaving trial_ends_at
+            # set would have the middleware expire a permanent grant.
+            u.pop("trial_ends_at", None)
             _save(users)
             return _public(u)
     return None

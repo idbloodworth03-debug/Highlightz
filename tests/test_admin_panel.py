@@ -34,12 +34,22 @@ PEOPLE = {
     # the operator
     "boss":   {"id": "boss", "username": "boss", "is_admin": True,
                "created_at": NOW - 400 * 86400},
-    # a paying Pro subscriber
+    # a paying Pro subscriber. The stripe_customer_id is not decoration: it is
+    # what separates revenue from generosity now that an admin can comp a
+    # specific tier, so every genuinely paying fixture must carry one exactly
+    # as the Stripe webhook would set it.
     "nova":   {"id": "nova", "username": "nova", "subscription_status": "active",
-               "plan": "pro", "created_at": NOW - 60 * 86400},
+               "plan": "pro", "stripe_customer_id": "cus_nova",
+               "created_at": NOW - 60 * 86400},
     # a paying Starter subscriber
     "kat":    {"id": "kat", "username": "kat", "subscription_status": "active",
-               "plan": "starter", "created_at": NOW - 3 * 86400},
+               "plan": "starter", "stripe_customer_id": "cus_kat",
+               "created_at": NOW - 3 * 86400},
+    # comped Starter by an admin: active and on a priced tier, but nobody is
+    # paying for it. Reads identically to `kat` apart from plan_source.
+    "gifted": {"id": "gifted", "username": "gifted", "subscription_status": "active",
+               "plan": "starter", "plan_source": "granted",
+               "created_at": NOW - 10 * 86400},
     # an admin-granted trial: reads as Pro, pays nothing
     "moon":   {"id": "moon", "username": "moon", "subscription_status": "trialing",
                "created_at": NOW - 2 * 86400},
@@ -48,7 +58,7 @@ PEOPLE = {
                "plan": "pro", "created_at": NOW - 200 * 86400},
     # a $15-era subscriber with NO stored plan — grandfathered to pro
     "legacy": {"id": "legacy", "username": "legacy", "subscription_status": "active",
-               "created_at": NOW - 500 * 86400},
+               "stripe_customer_id": "cus_legacy", "created_at": NOW - 500 * 86400},
     # signed up, never subscribed
     "lurker": {"id": "lurker", "username": "lurker", "created_at": NOW - 1 * 86400},
 }
@@ -164,6 +174,7 @@ def test_mrr_counts_only_money_that_actually_arrives(client):
     assert d["mrr"] == 35, d["mrr"]
     assert d["users"]["paying"] == 3           # nova, kat and the legacy sub
     assert d["users"]["trialing"] == 1
+    assert d["users"]["comped"] == 1, "the comped Starter is being counted as a customer"
 
 
 def test_a_legacy_subscriber_is_never_priced_at_the_tier_they_were_given(client):
@@ -187,7 +198,7 @@ def test_the_legacy_subscriber_is_counted_as_the_plan_they_actually_have(client)
     d = _overview(client, counter=1)
     # nova (pro), legacy (grandfathered pro), moon (trial resolves to pro)
     assert d["users"]["by_plan"]["pro"] == 3, d["users"]["by_plan"]
-    assert d["users"]["by_plan"]["starter"] == 1
+    assert d["users"]["by_plan"]["starter"] == 2   # kat pays, gifted is comped
     # drift cancelled (back to free) and lurker never subscribed
     assert d["users"]["by_plan"]["free"] == 2
 
@@ -200,8 +211,8 @@ def test_staff_are_excluded_from_the_population_but_counted_separately(client):
 
 def test_new_signups_are_windowed(client):
     d = _overview(client, counter=1)
-    assert d["users"]["new_7d"] == 3      # kat, moon, lurker
-    assert d["users"]["new_30d"] == 3
+    assert d["users"]["new_7d"] == 3          # kat, moon, lurker
+    assert d["users"]["new_30d"] == 4         # ...plus the comped account at 10 days
 
 
 # ── membership on the user list ──────────────────────────────────────────────
@@ -233,6 +244,7 @@ def test_is_paying_separates_customers_from_comped_and_trialling_accounts(client
     assert u["nova"]["is_paying"] is True
     assert u["kat"]["is_paying"] is True
     assert u["legacy"]["is_paying"] is True
+    assert u["gifted"]["is_paying"] is False, "a comped Starter is being counted as revenue"
     assert u["boss"]["is_paying"] is False, "the admin is being counted as revenue"
     assert u["moon"]["is_paying"] is False, "a granted trial is being counted as revenue"
     assert u["drift"]["is_paying"] is False

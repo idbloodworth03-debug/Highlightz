@@ -63,7 +63,12 @@ def get_plan(user: dict | None) -> str:
 
     status = user.get("subscription_status")
     if status == "trialing":
-        return "pro"            # admin-granted trials showcase the full product
+        # A trial granted with an explicit tier honours it, so an admin can comp
+        # someone Starter for a month. Without one it stays Pro — that is the
+        # original behaviour (a trial showcases the full product), and it is
+        # what every trial granted before tiers were selectable resolves to.
+        plan = user.get("plan")
+        return plan if plan in PAID_PLANS else "pro"
     if status != "active":
         return FREE_PLAN        # never subscribed, cancelled, or lapsed
 
