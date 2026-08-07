@@ -14,10 +14,11 @@ import pytest
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
     from src.dashboard import api
     from src.auth import users as user_store
+    from src.stats import stream_stats
 
     people = {
         "free_user":  {"id": "free_user", "username": "freddy",
@@ -35,6 +36,17 @@ def client(monkeypatch):
     async def _noop(*a, **k): return None
     monkeypatch.setattr(api, "broadcast", _noop)
 
+    # Module-level state. The tests that add streams and clips have to start
+    # from empty and leave nothing behind, or they pass alone and fail in the
+    # suite — which is exactly how the first version of them behaved.
+    monkeypatch.setattr(stream_stats, "_LOG_FILE", tmp_path / "stats.jsonl")
+    monkeypatch.setattr(api, "_save_clips", lambda: None)
+    monkeypatch.setattr(api, "_delete_clip_file", lambda c: None)
+    monkeypatch.setattr(api, "increment_clip_counter", lambda n=1: None)
+    monkeypatch.setattr(api, "is_opted_out", lambda ch: False, raising=False)
+    api._clips.clear()
+    api._streams.clear()
+
     c = TestClient(api.app)
 
     def login(uid):
@@ -49,7 +61,11 @@ def client(monkeypatch):
         return c
 
     c.login = login
-    return c
+    c.api = api
+    c.stats = stream_stats
+    yield c
+    api._clips.clear()
+    api._streams.clear()
 
 
 def test_a_user_with_no_subscription_reaches_the_dashboard(client):
@@ -118,3 +134,92 @@ def test_being_signed_out_is_still_refused(client):
     anon = TestClient(api.app)
     r = anon.get("/me", headers={"accept": "application/json"})
     assert r.status_code == 401
+
+
+# ── the tier as the user experiences it ──────────────────────────────────────
+
+def test_the_one_stream_allowance_is_enforced_and_explains_itself(client):
+    """Hitting the limit is the moment upgrading means something concrete, so
+    the refusal names the next tier instead of just saying no."""
+    c = client.login("free_user")
+    first = c.post("/streams", json={"channel": "chan1", "platform": "twitch",
+                                     "preset": "default"})
+    assert first.status_code in (200, 201), first.text
+    second = c.post("/streams", json={"channel": "chan2", "platform": "twitch",
+                                      "preset": "default"})
+    assert second.status_code == 429, second.text
+    assert "Starter" in second.text and "$10" in second.text
+
+
+def test_the_pending_cap_drops_the_new_clip_and_says_so(client, monkeypatch):
+    """The free tier's real constraint. A full queue must REFUSE the new clip
+    rather than evict an older one — the user chose to keep those — and the
+    miss has to reach them, or the cap just looks like the detector going
+    quiet.
+    """
+    import asyncio, time
+    api, stream_stats = client.api, client.stats
+
+    events = []
+
+    async def _bc(msg, user_id=None):
+        events.append(msg.get("event"))
+
+    monkeypatch.setattr(api, "broadcast", _bc)
+
+    async def fill():
+        for i in range(20):
+            await api.notify_clip_ready({
+                "id": f"c{i}", "user_id": "free_user", "channel": "novafps",
+                "status": "pending",
+                # Spaced past the 45s dedup window, or the second clip onward is
+                # discarded as a duplicate and the cap is never reached — which
+                # is exactly how a first draft of this test "passed".
+                "created_at": time.time() + i * 120,
+                "twitch_url": f"https://clips.twitch.tv/{i}", "trigger_score": 80})
+
+    asyncio.run(fill())
+    held = [c for c in api._clips.values() if c.get("user_id") == "free_user"]
+    assert len(held) == 15, f"the free queue did not stop at 15: {len(held)}"
+    assert events.count("clip_ready") == 15
+    assert events.count("clip_missed") == 5, "the user was never told about the misses"
+    rows = [r for r in stream_stats.all_rows() if r["user_id"] == "free_user"]
+    assert sum(r["caught"] for r in rows) == 15
+    assert sum(r["missed"] for r in rows) == 5
+
+
+def test_the_account_screen_never_tells_a_free_user_they_have_nothing():
+    """Free is a PLAN, not the absence of one.
+
+    The status row said "No subscription" in the dim/inactive colour for
+    everyone on the free tier, so a new signup opened Account and the most
+    prominent line told them they had nothing — which reads as the product
+    being broken rather than as the tier working. The wording predates the free
+    tier, when no subscription really did mean no access.
+    """
+    import re
+    from src.dashboard import aurora_html
+    src = aurora_html.DASHBOARD_HTML
+    m = re.search(r"const subLabel\s*=(.*?);\n", src, re.S)
+    assert m, "the subscription label is gone"
+    labels = m.group(1)
+    assert "No subscription" not in labels, \
+        "a free user is being told they have no subscription again"
+    assert "Free plan" in labels, "the free tier is not named as a plan"
+    # A lapsed subscriber still has the product; the label has to say where
+    # they landed rather than leaving them to guess.
+    assert labels.count("on Free") >= 2, "lapsed states do not say they are on free"
+
+    # And it must not be painted in the warning colour. Only a real billing
+    # problem earns that.
+    m2 = re.search(r"const subColor\s*=(.*?);\n", src, re.S)
+    assert m2 and "var(--fg-3)" not in m2.group(1), \
+        "the free plan is being shown in the inactive colour again"
+
+
+def test_the_membership_line_is_written_for_one_stream():
+    """The free tier is the only plan with a singular allowance, and it is the
+    plan the most people see."""
+    from src.dashboard import aurora_html
+    assert "max_streams===1?'':'s'" in aurora_html.DASHBOARD_HTML.replace(" ", ""), \
+        "the stream count is not pluralised, so free reads 'Up to 1 streams'"

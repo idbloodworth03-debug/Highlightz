@@ -1861,9 +1861,22 @@ function AccountScreen({ me }) {
   const sub        = me.subscription_status || 'none';
   const trialDays  = me.trial_days_left || 0;
   const isTrial    = sub === 'trialing';
+  // FREE IS A PLAN, NOT THE ABSENCE OF ONE. This row used to read
+  // "No subscription" in the dim/inactive colour for everyone on the free
+  // tier — so a new signup opened Account and the most prominent line on the
+  // screen told them they had nothing, which reads as the product being
+  // broken rather than as the tier working. The wording predates the free
+  // tier, when no subscription really did mean no access. Lapsed states say
+  // where the user landed for the same reason: they still have the product.
   const subLabel   = isTrial ? `Free trial — ${trialDays} day${trialDays===1?'':'s'} left`
-    : ({active:'Active',canceled:'Canceled',past_due:'Past due',expired:'Trial ended',none:'No subscription'}[sub] || sub);
-  const subColor   = (sub==='active'||sub==='trialing') ? 'var(--live)' : sub==='past_due' ? 'var(--pending)' : 'var(--fg-3)';
+    : ({active:'Active', past_due:'Past due', expired:'Trial ended — on Free',
+        canceled:'Canceled — on Free', inactive:'Canceled — on Free',
+        none:'Free plan — active'}[sub] || sub);
+  const subColor   = (sub==='active'||sub==='trialing') ? 'var(--live)'
+    : sub==='past_due' ? 'var(--pending)'
+    // Free and lapsed are working states, not warnings. Only a genuine billing
+    // problem gets the alarm colour.
+    : 'var(--fg-2)';
   const isSubscribed = sub==='active'||sub==='trialing';
 
   const hasTwitch  = !!(me.twitch_login);
@@ -1892,11 +1905,14 @@ function AccountScreen({ me }) {
           <div className="desc">Your plan and billing.</div>
           <div className="rd-field">
             <div><div className="fl">Plan status</div></div>
-            <span style={{fontWeight:700,color:subColor,textTransform:'capitalize'}}>{subLabel}</span>
+            {/* No capitalize: the labels are written with the casing they
+                should have, and title-casing them turns "Trial ended — on
+                Free" into "Trial Ended — On Free". */}
+            <span style={{fontWeight:700,color:subColor}}>{subLabel}</span>
           </div>
           {me.plan_label && <div className="rd-field">
             <div><div className="fl">Membership</div>
-              <div className="fd">{me.plan_limits ? `Up to ${me.plan_limits.max_streams} streams · ${me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
+              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
             </div>
             <span style={{fontWeight:700,color:'var(--acc)'}}>{me.plan_label}</span>
           </div>}
