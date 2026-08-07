@@ -3243,10 +3243,19 @@ async def admin_user_streams(request: Request, user_id: str):
 
 @app.get("/admin/users/{user_id}/clips")
 async def admin_user_clips(request: Request, user_id: str):
-    """Admin: most recent clips for a specific user (capped at 100)."""
+    """Admin: a user's clips, approved first, newest first within each group.
+
+    APPROVED FIRST IS A SERVER-SIDE DECISION, not a display one. The list is
+    capped at 100, so ordering it in the browser would come too late: a user
+    with a full pending queue can easily have 100 unreviewed clips newer than
+    every clip they ever kept, and a purely chronological cap would hand the
+    admin panel a page with zero approved clips on it. Sorting before the slice
+    guarantees the clips they kept are the ones that survive it.
+    """
     _require_admin(request)
     clips = [c for c in _clips.values() if c.get("user_id") == user_id]
-    clips.sort(key=lambda c: c.get("created_at", 0), reverse=True)
+    clips.sort(key=lambda c: (c.get("status") != "approved",
+                              -(c.get("approved_at") or c.get("created_at") or 0)))
     return clips[:100]
 
 
@@ -5685,9 +5694,19 @@ ADMIN_HTML = """<!DOCTYPE html>
   .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
   .dot-offline{background:var(--ink-3)}
   .dot-starting{background:var(--ember);box-shadow:0 0 7px rgba(247,167,69,.6)}
-  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;
-    padding:9px 0;border-bottom:1px solid var(--hair);font-size:13px}
+  /* Approved clips are the ones that mattered, so they lead the list and are
+     marked. Colour alone would not be enough — the status word carries the same
+     information for anyone who cannot see the difference between the rules. */
+  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:12px;align-items:center;
+    padding:9px 0 9px 11px;border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
+    font-size:13px}
   .crow:last-child{border-bottom:none}
+  .crow.ok{border-left-color:var(--good);
+    background:linear-gradient(90deg,rgba(74,222,128,.06),transparent 45%)}
+  .crow .st{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .crow.ok .st{color:var(--good)}
+  .crow.ok b{color:var(--ink)}
   .ct{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:3px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.03em}
   .danger{border:1px solid rgba(255,122,138,.22);border-radius:3px;padding:16px 18px}
@@ -6141,14 +6160,21 @@ async function openUser(u){
   const appr = clips.filter(c => c.status === 'approved').length;
   html += '<div><div class="dh">Recent clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>';
   if(clips.length) html += '<div class="dim" style="font-size:12px;margin-bottom:10px">'
-    + appr + ' approved · ' + pend + ' pending</div>';
+    + appr + ' approved · ' + pend + ' pending'
+    + (clips.length === 100 ? ' · showing the first 100, approved first' : '') + '</div>';
+  // The server already returns these approved-first (see admin_user_clips for
+  // why that cannot be left to the browser); this just marks the two groups.
   html += clips.length
-    ? clips.map(c => '<div class="crow"><span style="min-width:0"><b>' + esc(c.channel) + '</b>'
+    ? clips.map(c => {
+        const ok = c.status === 'approved';
+        return '<div class="crow' + (ok ? ' ok' : '') + '"><span style="min-width:0"><b>' + esc(c.channel) + '</b>'
         + '<span class="ct">' + esc(c.clip_title || c.stream_title || '') + ' · ' + fmtTs(c.created_at) + '</span></span>'
+        + '<span class="st">' + (ok ? 'Approved' : esc(c.status || 'pending')) + '</span>'
         + '<span class="num" style="font-size:12px;color:var(--glow-ink)">' + Math.round(c.virality_score||0) + '%</span>'
         + (c.twitch_url ? '<a class="btn" href="' + esc(c.twitch_url) + '" target="_blank" rel="noopener">Watch ↗</a>'
                         : '<span class="dim" style="font-size:12px">no link</span>')
-        + '</div>').join('')
+        + '</div>';
+      }).join('')
     : '<div class="dim" style="font-size:13px">No clips yet.</div>';
   html += '</div>';
 

@@ -252,3 +252,77 @@ def test_the_price_travels_with_the_plan(client):
 def test_platform_wide_figures_are_admin_only(client, path):
     """Both endpoints span every user on the system."""
     assert client.login("nova").get(path).status_code == 403
+
+
+# ── the per-user clip list in the details drawer ─────────────────────────────
+
+def _seed_clips(api, n_pending=2, n_approved=2):
+    api._clips.clear()
+    # Every PENDING clip is newer than every APPROVED one. A chronological sort
+    # puts them all on top, which is the behaviour being replaced.
+    for i in range(n_approved):
+        api._clips[f"ok{i}"] = {"id": f"ok{i}", "user_id": "nova", "channel": "novafps",
+                                "status": "approved", "created_at": 1000 + i,
+                                "approved_at": 5000 + i}
+    for i in range(n_pending):
+        api._clips[f"pd{i}"] = {"id": f"pd{i}", "user_id": "nova", "channel": "novafps",
+                                "status": "pending", "created_at": 90000 + i}
+
+
+def test_approved_clips_lead_the_list_even_when_pending_ones_are_newer(client):
+    """The drawer answers "what did this user keep", so the kept clips come
+    first. Sorting by capture time buried them under an unreviewed queue."""
+    _seed_clips(client.api)
+    got = client.login("boss").get("/admin/users/nova/clips").json()
+    assert [c["status"] for c in got] == ["approved", "approved", "pending", "pending"]
+
+
+def test_within_each_group_the_most_recent_decision_is_first(client):
+    _seed_clips(client.api)
+    got = client.login("boss").get("/admin/users/nova/clips").json()
+    approved = [c["id"] for c in got if c["status"] == "approved"]
+    assert approved == ["ok1", "ok0"], "approved clips are not newest-first"
+
+
+def test_the_hundred_cap_cannot_starve_the_approved_clips(client):
+    """This is why the ordering is on the SERVER. The list is capped at 100, so
+    a user with a full pending queue can have 100 unreviewed clips newer than
+    every clip they ever kept — order it in the browser and the panel receives a
+    page with no approved clips on it at all.
+    """
+    _seed_clips(client.api, n_pending=150, n_approved=3)
+    got = client.login("boss").get("/admin/users/nova/clips").json()
+    assert len(got) == 100
+    assert sum(1 for c in got if c["status"] == "approved") == 3, \
+        "the cap swallowed the approved clips"
+    assert [c["status"] for c in got[:3]] == ["approved"] * 3
+
+
+def test_a_clip_approved_before_approved_at_existed_still_sorts(client):
+    """Clips approved before that field shipped fall back to created_at rather
+    than collapsing to 0 and sorting below everything.
+
+    The fixture has to make the fallback CHANGE the order or it proves nothing:
+    the unstamped clip is the newer one, so dropping the fallback sends it to
+    the bottom instead of the top. An earlier version of this test used an
+    unstamped clip that was already last, and the mutation passed.
+    """
+    client.api._clips.clear()
+    client.api._clips["unstamped"] = {"id": "unstamped", "user_id": "nova", "channel": "c",
+                                      "status": "approved", "created_at": 9000}
+    client.api._clips["stamped"] = {"id": "stamped", "user_id": "nova", "channel": "c",
+                                    "status": "approved", "created_at": 100,
+                                    "approved_at": 4000}
+    got = client.login("boss").get("/admin/users/nova/clips").json()
+    assert [c["id"] for c in got] == ["unstamped", "stamped"], \
+        "a clip with no approved_at fell to the bottom instead of using its capture time"
+
+
+def test_the_panel_marks_approved_clips_with_more_than_colour(client):
+    """Colour alone fails anyone who cannot distinguish the two rules, so the
+    row also carries the status as a word."""
+    html = client.api.ADMIN_HTML
+    assert ".crow.ok{" in html, "approved rows have no distinct treatment"
+    assert "var(--good)" in html[html.index(".crow.ok{"):html.index(".crow.ok{") + 200]
+    assert "'Approved'" in html and "class=\"st\"" in html, \
+        "the status word is gone, leaving colour as the only signal"
