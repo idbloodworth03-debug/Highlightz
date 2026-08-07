@@ -260,11 +260,20 @@ async def sweep_dead_clips_task() -> None:
 
 
 async def auto_delete_old_clips() -> None:
-    """Daily task: delete approved clips older than 30 days to free disk space."""
+    """Daily task: delete approved clips older than 30 days to free disk space.
+
+    SWEEPS SHORTLY AFTER BOOT, THEN DAILY. The loop used to sleep for a full day
+    BEFORE its first pass, which meant it only ever ran on a process that had
+    been up for 24 uninterrupted hours. During any active development period —
+    where a deploy restarts the service several times a day — the sweep never
+    executed at all and the clips directory only ever grew. Deleting is
+    idempotent, so running it on every boot is safe; the short initial delay
+    just keeps it out of the way while workers are starting.
+    """
     import time
     MAX_AGE = 30 * 86400  # 30 days in seconds
+    await asyncio.sleep(180)          # let startup settle, then sweep
     while True:
-        await asyncio.sleep(86400)  # run once per day
         try:
             now = time.time()
             # Identify and remove all stale clips under a single lock acquisition
@@ -288,6 +297,10 @@ async def auto_delete_old_clips() -> None:
                 log.info("auto_deleted_old_clips", count=len(to_delete))
         except Exception as exc:
             log.error("auto_delete_error", error=str(exc))
+        # At the END of the body, not the start: the sweep has already run once
+        # by the time we get here. Moving it without adding this back would
+        # turn the loop into a busy spin on a single shared vCPU.
+        await asyncio.sleep(86400)
 
 
 async def run_dashboard() -> None:

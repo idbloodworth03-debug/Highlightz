@@ -798,7 +798,11 @@ const fmtDur     = s  => s  ? Math.round(s)+'s' : '';
 const thumbFor   = ch => { let h=0; for(const c of (ch||'')) h=(h*31+c.charCodeAt(0))%360; return `linear-gradient(135deg,hsl(${h} 55% 22%),hsl(${(h+42)%360} 60% 11%))`; };
 // Twitch hands us a small ~480px preview; request a 1280x720 variant for crisp
 // cards. If that size 404s, the <img> onError falls back to the original URL.
-const hiResThumb = url => (url||'').replace(/-preview-\d+x\d+\./, '-preview-1280x720.');
+const RE_PREVIEW = new RegExp('-preview-[0-9]+x[0-9]+[.]');
+const hiResThumb = url => (url||'').replace(RE_PREVIEW, '-preview-1280x720.');
+// Strips a filename extension. Same reason as RE_PREVIEW: written as a literal
+// it needs a backslash, and a backslash in this file is Python's, not JS's.
+const RE_EXT = new RegExp('[.][^.]+$');
 
 // Thumbnail load failed. Freshly-created Twitch clips 404 until Twitch finishes
 // generating the preview frame (and the 1280x720 upscale may never exist), so we
@@ -2677,7 +2681,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (clip.filename || 'clip').replace(/\.[^.]+$/, '') + `-${ratio.replace(':', 'x')}.${ext}`;
+    a.download = (clip.filename || 'clip').replace(RE_EXT, '') + `-${ratio.replace(':', 'x')}.${ext}`;
     document.body.appendChild(a); a.click(); a.remove();
     // Revoke late: revoking immediately can cancel the download in some browsers.
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -2805,7 +2809,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       const { blob, ext } = await exportRecorder();
       if (cancelRef.current) { setDone(''); return; }
       if (!blob.size) throw new Error('Export produced an empty file.');
-      const name = (clip.filename || 'clip').replace(/\.[^.]+$/, '')
+      const name = (clip.filename || 'clip').replace(RE_EXT, '')
                    + '-' + ratio.replace(':', 'x') + '.' + ext;
       setOutFile({ blob, ext, name });
       download(blob, ext);

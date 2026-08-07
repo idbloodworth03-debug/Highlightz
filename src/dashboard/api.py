@@ -269,8 +269,34 @@ _ws_lock   = asyncio.Lock()
 # Track the last time each user made an authenticated request or sent a WS ping.
 # Streams persist through browser closes — only the idle reaper or liveness
 # check stops them (not WebSocket disconnect).
-_user_last_active: dict[str, float] = {}
+#
+# PERSISTED, because it used to be memory-only and the reaper reads a MISSING
+# entry as "active right now". Every restart therefore wiped the clock and gave
+# every abandoned stream another full 8 hours — so during any period of
+# frequent deploys the reaper effectively never fired and dead streams held
+# their slot against the process-wide capacity limit forever.
+_ACTIVITY_FILE = Path(settings.local_storage_path) / "user_activity.json"
+
+
+def _load_activity() -> dict[str, float]:
+    try:
+        raw = json.loads(_ACTIVITY_FILE.read_text())
+        return {str(k): float(v) for k, v in raw.items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+
+
+_user_last_active: dict[str, float] = _load_activity()
 _IDLE_STREAM_TIMEOUT = 28800  # 8 hours
+
+
+def _save_activity() -> None:
+    """Called from the reaper's own 5-minute tick, so this costs one small
+    write per five minutes rather than one per request."""
+    try:
+        _atomic_write(_ACTIVITY_FILE, json.dumps(_user_last_active))
+    except Exception as exc:      # never let bookkeeping break the reaper
+        log.warning("activity_save_failed", error=str(exc))
 
 # ── Login rate-limit ──────────────────────────────────────────────────────────
 # Simple in-process counter: IP → (attempts, window_start)
@@ -2034,13 +2060,23 @@ async def idle_stream_reaper() -> None:
                             await broadcast({"event": "subscription_expired"}, user_id=uid)
                         continue
 
-                # Idle timeout — stop if no HTTP activity in 8 hours
-                last_active = _user_last_active.get(uid, now)
+                # Idle timeout — stop if no HTTP activity in 8 hours.
+                # A user with a registered stream and NO activity record has
+                # not been seen since before the record existed, so fall back
+                # to when the stream was added rather than to `now`. Defaulting
+                # to now is what let an abandoned stream survive indefinitely:
+                # it always looked like the user had just been here.
+                fallback = max((s.get("added_at", 0) for s in _streams.values()
+                                if s.get("user_id") == uid), default=now) or now
+                last_active = _user_last_active.get(uid, fallback)
                 if now - last_active > _IDLE_STREAM_TIMEOUT:
                     log.info("idle_stream_reaper_stopping", user=uid,
                              idle_minutes=round((now - last_active) / 60))
                     await _stop_user_streams_now(uid)
                     await broadcast({"event": "streams_paused_idle"}, user_id=uid)
+            # Persist the clock on the reaper's own tick, so a restart resumes
+            # where it left off instead of granting everyone a fresh 8 hours.
+            _save_activity()
         except Exception as exc:
             log.error("idle_stream_reaper_error", error=str(exc))
 
