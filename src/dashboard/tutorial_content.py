@@ -85,11 +85,14 @@ HERO_MEDIA = Media(
     # a video aspect ratio, and the box reserves space from these numbers — get
     # it wrong and the page either letterboxes or jumps when the file loads.
     width=1440, height=810,
-    alt="A sixty-second tour of Highlightz, from adding a channel to approving a clip.",
+    alt="A short tour of Highlightz, from picking a channel to approving a clip.",
+    # Describes what the silent recording shows, in order. The video has no
+    # narration, so this is not a nicety — it is how the tour reads with sound
+    # off, which is how most people will meet it.
     caption=(
-        "Sixty-second tour: a channel is added on Live Streams, the trigger score "
-        "climbs as chat reacts, a clip fires automatically, and it lands in Clip "
-        "Review waiting to be approved."
+        "The whole flow in twenty seconds: a channel is picked on Live Streams, the "
+        "trigger score climbs as chat reacts, the clip that fired is approved in "
+        "Clip Review, and it turns up in the Clip Library."
     ),
 )
 

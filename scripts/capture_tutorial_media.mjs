@@ -38,7 +38,7 @@
 
 import { chromium } from 'playwright';
 import { randomBytes } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, existsSync, rmSync, renameSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,11 @@ const KEEP = process.argv.includes('--keep');
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
+// Video records at 16:9, matching the width/height tutorial_content.py declares
+// for kind="video". Recording at the 16:10 screenshot size instead would make
+// the page reserve a box the file does not fit, and every video would sit
+// letterboxed inside it.
+const VIDEO_VP = { width: 1440, height: 810 };
 
 /**
  * The dashboard pulls React, ReactDOM and Babel from unpkg at runtime — there
@@ -180,6 +185,34 @@ function resolveFfmpeg() {
   return { bin: null, h264: false };
 }
 
+/**
+ * Seconds of black at the head of a recording.
+ *
+ * Playwright starts the recorder the instant the context opens, which is before
+ * the first navigation has painted anything — so every take begins with two or
+ * three seconds of pure black. Left in, the hero video opens on a blank
+ * rectangle and the poster frame extracted from it is blank too, which is
+ * exactly what it looks like when a video is broken.
+ *
+ * blackdetect reports the black run rather than us guessing a constant, so this
+ * keeps working if startup gets slower or faster.
+ */
+function leadingBlackSeconds(bin, file) {
+  if (!bin) return 0;
+  try {
+    const r = spawnSync(bin,
+      ['-i', file, '-vf', 'blackdetect=d=0.1:pix_th=0.12', '-f', 'null', '-'],
+      { encoding: 'utf8' });
+    const text = (r.stderr || '') + (r.stdout || '');
+    // Only a run that starts at 0 is the startup blank; a black frame later in
+    // the take is real content (a transition) and must not be cut.
+    const m = text.match(/black_start:0(?:\.0+)?\s+black_end:([0-9.]+)/);
+    return m ? Math.max(0, parseFloat(m[1]) - 0.1) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function waitForServer(ms = 45000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -195,8 +228,13 @@ async function waitForServer(ms = 45000) {
 /** Seeded API + a frozen clock. Registered newest-last because Playwright
  *  matches the most recently added route first — so the catch-all goes FIRST
  *  and the specific routes below it win. */
-async function seed(ctx) {
+async function seed(ctx, opts = {}) {
+  // Screenshots want the score to climb once and then hold still, so the value
+  // in the file is the same on every run. Video wants it to keep moving for the
+  // length of the take, or the stream sits frozen for forty seconds.
+  const LOOP = opts.loopScores ? 'true' : 'false';
   await ctx.addInitScript(`(function(){
+    var HZ_LOOP = ${LOOP};
     try { localStorage.setItem('hz_welcome_seen','1'); } catch (e) {}
     var fixed = ${PINNED_NOW};
     var RealDate = Date;
@@ -218,10 +256,19 @@ async function seed(ctx) {
       var s = this;
       s.readyState = 1; s.send = function(){}; s.close = function(){};
       setTimeout(function(){ if (s.onopen) s.onopen(); }, 20);
-      var curve = [31,34,38,42,47,53,60,68,75,83,89,94];
+      // Climb, fire, settle back down — one full cycle of what a viewer is
+      // being told happens, so a looping video shows the whole story.
+      var curve = HZ_LOOP
+        ? [31,34,38,42,47,53,60,68,75,83,89,94,92,86,74,63,55,48,42,37,33,30,
+           32,36,41,46,52,59,67,74,82,88,93,90,84,72,61,53,46,40,35,31]
+        : [31,34,38,42,47,53,60,68,75,83,89,94];
       var i = 0;
       var t = setInterval(function(){
-        if (!s.onmessage || i >= curve.length) { if (i >= curve.length) clearInterval(t); return; }
+        if (!s.onmessage) return;
+        if (i >= curve.length) {
+          if (!HZ_LOOP) { clearInterval(t); return; }
+          i = 0;                                  // keep the stream alive
+        }
         var v = curve[i++];
         [['novaplays', v], ['kestrel', Math.max(12, Math.round(v * 0.62))]].forEach(function(pair){
           s.onmessage({ data: JSON.stringify({
@@ -316,7 +363,7 @@ function assertVendorPresent() {
   }
 }
 
-async function newCtx(browser, viewport, extra = {}) {
+async function newCtx(browser, viewport, extra = {}, seedOpts = {}) {
   const ctx = await browser.newContext({
     viewport, deviceScaleFactor: 2, colorScheme: 'dark', ...extra,
   });
@@ -324,7 +371,7 @@ async function newCtx(browser, viewport, extra = {}) {
   // unreliable in Chromium — the cookie is accepted by addCookies and then
   // silently never sent, which looks exactly like a bad signature.
   await ctx.addCookies([{ name: 'session', value: SESSION, url: BASE }]);
-  await seed(ctx);
+  await seed(ctx, seedOpts);
   return ctx;
 }
 
@@ -413,8 +460,47 @@ const SHOTS = [
   ['10-account', async (page) => { await goto(page, '/'); await tab(page, 'Account'); }],
 ];
 
-/** Multi-step flows worth a moving picture. */
+/** Multi-step flows worth a moving picture.
+ *
+ *  These are silent screen recordings, not edited films — there is no
+ *  voiceover and no music. That is why every video on the page carries a
+ *  visible text description: the tutorial has to work with sound off anyway,
+ *  so a silent capture loses nothing a reader needed.
+ */
 const VIDEOS = [
+  ['00-overview', async (page) => {
+    // The whole product in one take: a channel is chosen, the score climbs
+    // past the threshold, the clip that fired is reviewed and approved, and
+    // it turns up in the library. Paced slowly on purpose — this plays as a
+    // muted loop in the hero, so a viewer has to be able to follow it without
+    // a scrubber.
+    await goto(page, '/');
+    await tab(page, 'Live Streams');
+    await page.waitForTimeout(1500);
+
+    const input = page.locator('.rd-input').first();
+    await input.click();
+    await input.type('atlas', { delay: 110 });
+    await page.waitForTimeout(1600);          // suggestions open
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(2600);          // the score climbs
+
+    await tab(page, 'Clip Review');
+    await page.waitForTimeout(2200);
+    const approve = page.locator('button', { hasText: /^Approve$/ }).first();
+    if (await approve.count()) {
+      await approve.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(900);
+      await approve.hover();
+      await page.waitForTimeout(700);
+      await approve.click();
+      await page.waitForTimeout(2000);
+    }
+
+    await tab(page, 'Clip Library');
+    await page.waitForTimeout(2600);
+  }],
+
   ['04-approve', async (page) => {
     await goto(page, '/');
     await tab(page, 'Clip Review');
@@ -482,11 +568,11 @@ try {
   }
 
   for (const [name, fn] of VIDEOS) {
-    const ctx = await newCtx(browser, DESKTOP, {
-      recordVideo: { dir: TMP, size: DESKTOP },
+    const ctx = await newCtx(browser, VIDEO_VP, {
+      recordVideo: { dir: TMP, size: VIDEO_VP },
       // 1x for video: 2x doubles the encode for no visible gain at this size.
       deviceScaleFactor: 1,
-    });
+    }, { loopScores: true });
     const page = await ctx.newPage();
     try {
       await fn(page);
@@ -501,14 +587,30 @@ try {
     const src = raw[0];
     const webm = join(OUT, name + '.webm');
     renameSync(src, webm);
+
+    // Trim the startup blank before anything else consumes this file.
+    const lead = leadingBlackSeconds(FF.bin, webm);
+    if (lead > 0.2 && FF.bin) {
+      const trimmed = join(TMP, name + '-trim.webm');
+      try {
+        execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', String(lead),
+          '-i', webm, '-c:v', 'libvpx', '-b:v', '1400k', '-an', trimmed],
+          { stdio: 'ignore' });
+        renameSync(trimmed, webm);
+        console.log('  trimmed', lead.toFixed(1) + 's of leading black');
+      } catch (e) { failed.push(name + ' trim: ' + e.message); }
+    }
     done.push(name + '.webm');
     console.log('  video', name + '.webm');
 
     if (FF.bin) {
       const poster = join(OUT, name + '-poster.jpg');
       try {
-        execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-i', webm,
-          '-ss', '00:00:01.0', '-frames:v', '1', '-q:v', '3', poster], { stdio: 'ignore' });
+        // A second in, not frame zero: the first frame after a trim can still
+        // be mid-repaint, and the poster is the only thing a reduced-motion
+        // visitor ever sees.
+        execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', '1.0', '-i', webm,
+          '-frames:v', '1', '-q:v', '3', poster], { stdio: 'ignore' });
         done.push(name + '-poster.jpg');
         console.log('  poster', name + '-poster.jpg');
       } catch (e) { failed.push(name + ' poster: ' + e.message); }
@@ -568,10 +670,13 @@ if (failed.length) {
 }
 console.log([
   '',
-  'CANNOT BE AUTOMATED — record these by hand:',
-  '  00-overview.mp4      the 60-second narrated tour (needs editing, not a screen grab)',
-  '  Twitch OAuth consent third-party page, needs real credentials',
-  '  Stripe checkout      third-party page, needs a real payment session',
-  '  Stripe billing portal third-party page, needs a real customer',
-  '  a real clip firing   needs a genuinely live stream to react to',
+  'CANNOT BE AUTOMATED — these need credentials or a live stream:',
+  '  Twitch OAuth consent  Twitch\'s own domain; needs a real login typed in',
+  '  Stripe checkout       needs live or test Stripe keys and a real session',
+  '  Stripe billing portal needs a real Stripe customer',
+  '  a genuinely live clip the videos above are seeded, not a real broadcast',
+  '',
+  'Everything else on the page is produced by this script. The videos are silent',
+  'screen recordings — if you want narration over 00-overview.mp4, re-record it',
+  'yourself; the page shows a text description under every video either way.',
 ].join('\n'));
