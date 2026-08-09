@@ -28,18 +28,20 @@
  * the tutorial would document a UI nobody else has. The seeded user is a
  * plain Pro subscriber.
  *
- * VIDEO. Playwright records .webm. The .mp4 twin needs an H.264 encoder, which
- * the ffmpeg bundled with Playwright does not ship — so the script looks for a
- * real ffmpeg (see resolveFfmpeg) and, if it cannot find one with libx264,
- * writes the .webm anyway and tells you the .mp4 is missing rather than dying.
- * The page falls back to <source> order, so webm-only still plays everywhere
- * except older Safari.
+ * VIDEO IS NOT RECORDED BY PLAYWRIGHT. Its recordVideo writes VP8 at roughly
+ * 150 kb/s, which at 1440x810 turns small UI labels into grey smudges, and no
+ * re-encode recovers detail that was never captured. Frames come from Chrome's
+ * DevTools screencast instead (see startScreencast) at JPEG quality 92, then
+ * ffmpeg encodes them once to mp4 + webm. Capture also starts only after the
+ * dashboard is painted, which is why there is no longer a black intro to trim.
+ * Needs a real ffmpeg with libx264; the one bundled with Playwright has VP8
+ * only. See resolveFfmpeg.
  */
 
 import { chromium } from 'playwright';
 import { randomBytes } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, existsSync, rmSync, renameSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -475,6 +477,97 @@ const SHOTS = [
   ['10-account', async (page) => { await goto(page, '/'); await tab(page, 'Account'); }],
 ];
 
+/**
+ * Capture frames via Chrome's DevTools screencast instead of Playwright's
+ * built-in recorder.
+ *
+ * WHY. Playwright's recordVideo writes VP8 at roughly 150 kb/s. At 1440x810
+ * that is nowhere near enough for small UI text — labels turn to grey smudges,
+ * and no amount of re-encoding afterwards recovers detail that was never
+ * captured. CDP hands back JPEG frames at quality 92 (~17KB each, so an order
+ * of magnitude more information) and, crucially, only starts when told — so the
+ * recording begins on a fully painted dashboard rather than on a black frame.
+ *
+ * Frames arrive only when the page repaints, so their spacing is irregular.
+ * Timestamps are kept and turned into per-frame durations for ffmpeg's concat
+ * demuxer, which then resamples to a constant 25fps.
+ */
+async function startScreencast(ctx, page, dir) {
+  const cdp = await ctx.newCDPSession(page);
+  const frames = [];
+  cdp.on('Page.screencastFrame', async (f) => {
+    const file = join(dir, String(frames.length).padStart(5, '0') + '.jpg');
+    try {
+      writeFileSync(file, Buffer.from(f.data, 'base64'));
+      frames.push({ file, t: f.metadata.timestamp });
+      // Without the ack Chrome stops sending after a couple of frames.
+      await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId });
+    } catch { /* page may be closing */ }
+  });
+  await cdp.send('Page.startScreencast', {
+    format: 'jpeg', quality: 92, maxWidth: VIDEO_VP.width,
+    maxHeight: VIDEO_VP.height, everyNthFrame: 1,
+  });
+  return {
+    stop: async () => {
+      try { await cdp.send('Page.stopScreencast'); } catch { /* already gone */ }
+      await page.waitForTimeout(250);          // let in-flight frames land
+      return frames;
+    },
+  };
+}
+
+/** Encode captured frames to mp4 + webm + poster. */
+function encodeFrames(name, dir, frames, done, failed) {
+  const mp4 = join(OUT, name + '.mp4');
+  const webm = join(OUT, name + '.webm');
+  const poster = join(OUT, name + '-poster.jpg');
+
+  if (!FF.bin) { failed.push(name + ': no ffmpeg, cannot encode frames'); return; }
+
+  // Per-frame durations from real timestamps, so the tour plays at the speed it
+  // was performed rather than at whatever rate frames happened to arrive.
+  let list = '';
+  for (let i = 0; i < frames.length; i++) {
+    const next = frames[i + 1];
+    const d = next ? Math.max(0.02, Math.min(1.5, next.t - frames[i].t)) : 0.1;
+    list += "file '" + frames[i].file + "'\nduration " + d.toFixed(3) + '\n';
+  }
+  list += "file '" + frames[frames.length - 1].file + "'\n";
+  const listFile = join(dir, 'frames.txt');
+  writeFileSync(listFile, list);
+
+  const common = ['-f', 'concat', '-safe', '0', '-i', listFile,
+                  '-r', '25', '-fps_mode', 'cfr'];
+  try {
+    execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...common,
+      '-c:v', 'libx264', '-preset', 'slow', '-crf', '18',
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4],
+      { stdio: 'ignore' });
+    done.push(name + '.mp4');
+    console.log('  video', name + '.mp4');
+  } catch (e) { failed.push(name + ' mp4: ' + e.message); }
+
+  try {
+    const vp9 = ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
+                 '-deadline', 'good', '-cpu-used', '2', '-row-mt', '1'];
+    const vp8 = ['-c:v', 'libvpx', '-crf', '8', '-b:v', '4M'];
+    execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...common,
+      ...(FF.vp9 ? vp9 : vp8), '-an', webm], { stdio: 'ignore' });
+    done.push(name + '.webm');
+    console.log('  video', name + '.webm', FF.vp9 ? '(vp9)' : '(vp8)');
+  } catch (e) { failed.push(name + ' webm: ' + e.message); }
+
+  try {
+    // The very first captured frame is already a painted dashboard, so it makes
+    // an honest poster — no need to hunt for a non-black one any more.
+    execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-i', frames[0].file,
+      '-q:v', '2', poster], { stdio: 'ignore' });
+    done.push(name + '-poster.jpg');
+    console.log('  poster', name + '-poster.jpg');
+  } catch (e) { failed.push(name + ' poster: ' + e.message); }
+}
+
 /** Multi-step flows worth a moving picture.
  *
  *  These are silent screen recordings, not edited films — there is no
@@ -488,11 +581,8 @@ const VIDEOS = [
     // past the threshold, the clip that fired is reviewed and approved, and
     // it turns up in the library. Paced slowly on purpose — this plays as a
     // muted loop in the hero, so a viewer has to be able to follow it without
-    // a scrubber.
-    await goto(page, '/');
-    await tab(page, 'Live Streams');
-    await page.waitForTimeout(1500);
-
+    // a scrubber. The runner has already opened Live Streams; capture starts
+    // on a painted dashboard, so this begins mid-scene by design.
     const input = page.locator('.rd-input').first();
     await input.click();
     await input.type('atlas', { delay: 110 });
@@ -516,7 +606,6 @@ const VIDEOS = [
   }],
 
   ['04-approve', async (page) => {
-    await goto(page, '/');
     await tab(page, 'Clip Review');
     await page.waitForTimeout(1200);
     const approve = page.locator('button', { hasText: /^Approve$/ }).first();
@@ -581,99 +670,41 @@ try {
   }
 
   for (const [name, fn] of VIDEOS) {
-    const ctx = await newCtx(browser, VIDEO_VP, {
-      recordVideo: { dir: TMP, size: VIDEO_VP },
-      // 2x, then recorded down to VIDEO_VP: the browser renders text at double
-      // density and the recorder supersamples it, which is most of the
-      // difference between legible UI labels and grey smudges at this size.
-      deviceScaleFactor: 2,
-    }, { loopScores: true });
+    const ctx = await newCtx(browser, VIDEO_VP, { deviceScaleFactor: 2 },
+                             { loopScores: true });
     const page = await ctx.newPage();
+    const frameDir = join(TMP, name);
+    mkdirSync(frameDir, { recursive: true });
+
     try {
+      // Get the app fully on screen BEFORE a single frame is captured. This is
+      // what removes the black intro at the source, instead of trying to detect
+      // and trim it afterwards — which never worked reliably, because the first
+      // real frames of this UI are a near-black background that blackdetect
+      // cannot tell apart from an unpainted one.
+      await goto(page, '/');
+      await tab(page, 'Live Streams');
+      await page.waitForTimeout(1200);
+
+      const shot = await startScreencast(ctx, page, frameDir);
       await fn(page);
+      await page.waitForTimeout(400);
+      const frames = await shot.stop();
+      console.log('  captured', frames.length, 'frames for', name);
+
+      if (frames.length < 5) {
+        failed.push(name + ': only ' + frames.length + ' frames captured');
+      } else {
+        encodeFrames(name, frameDir, frames, done, failed);
+      }
     } catch (e) {
       failed.push(name + ': ' + e.message);
       console.log('  FAILED', name, '-', e.message);
     }
-    await ctx.close();                       // flush: the file only lands on close
-
-    // Newest file, and TMP is emptied at the end of every iteration. Both
-    // matter: the raw capture is no longer renamed out of TMP (both outputs are
-    // encoded FROM it), so without a sweep the second video would re-encode the
-    // first one's recording — which is exactly what happened, and produced two
-    // byte-identical files for clips of different lengths.
-    const raw = readdirSync(TMP)
-      .filter(f => f.endsWith('.webm'))
-      .map(f => join(TMP, f))
-      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-    if (!raw.length) { failed.push(name + ': no video produced'); continue; }
-    const rawFile = raw[0];                       // stays in TMP, never shipped
-    const webm = join(OUT, name + '.webm');
-    const mp4 = join(OUT, name + '.mp4');
-    const lead = leadingBlackSeconds(FF.bin, rawFile);
-
-    if (!FF.bin) {
-      renameSync(rawFile, webm);
-      done.push(name + '.webm');
-      console.log('  video', name + '.webm', '(no ffmpeg — untrimmed, VP8 as recorded)');
-      continue;
-    }
-
-    // ONE ENCODE PER OUTPUT, BOTH FROM THE ORIGINAL RECORDING.
-    //
-    // The first version of this trimmed the webm in place (re-encoding it to
-    // VP8 at a fixed 1400k) and then built the mp4 *from that file*. Two lossy
-    // generations, the second at a bitrate far too low for 1440x810 of small
-    // UI text — the result was 491 kb/s of mush. Both outputs now come
-    // straight from the raw capture with the trim applied as an input seek, so
-    // nothing is encoded twice.
-    //
-    // Constant frame rate matters as much as bitrate here: the recorder emits
-    // variable timing, and a VFR file plays back with visible micro-stutter
-    // even when every frame is present.
-    const trim = lead > 0.2 ? ['-ss', String(lead)] : [];
-    if (lead > 0.2) console.log('  trimming', lead.toFixed(1) + 's of leading black');
-
-    try {
-      execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...trim, '-i', rawFile,
-        '-c:v', 'libx264', '-preset', 'slow', '-crf', '20',
-        '-r', '25', '-fps_mode', 'cfr',
-        // yuv420p + faststart: without both, Safari refuses the file and the
-        // browser must download it all before showing a frame.
-        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4],
-        { stdio: 'ignore' });
-      done.push(name + '.mp4');
-      console.log('  video', name + '.mp4');
-    } catch (e) { failed.push(name + ' mp4: ' + e.message); }
-
-    try {
-      // VP9 at constant quality, not VP8 at a fixed bitrate. VP8 has to be told
-      // a number that is wrong for at least part of the clip; -crf with -b:v 0
-      // spends bits where the picture needs them, which on flat dark UI with
-      // sharp text is most of the win.
-      const vp9 = ['-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
-                   '-deadline', 'good', '-cpu-used', '2', '-row-mt', '1'];
-      const vp8 = ['-c:v', 'libvpx', '-crf', '10', '-b:v', '3M'];
-      execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...trim, '-i', rawFile,
-        ...(FF.vp9 ? vp9 : vp8), '-r', '25', '-fps_mode', 'cfr', '-an', webm],
-        { stdio: 'ignore' });
-      done.push(name + '.webm');
-      console.log('  video', name + '.webm', FF.vp9 ? '(vp9)' : '(vp8)');
-    } catch (e) { failed.push(name + ' webm: ' + e.message); }
-
-    try {
-      // A second in, not frame zero: the first frame after a trim can still be
-      // mid-repaint, and the poster is all a reduced-motion visitor ever sees.
-      execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', '1.0', '-i', mp4,
-        '-frames:v', '1', '-q:v', '2', join(OUT, name + '-poster.jpg')],
-        { stdio: 'ignore' });
-      done.push(name + '-poster.jpg');
-      console.log('  poster', name + '-poster.jpg');
-    } catch (e) { failed.push(name + ' poster: ' + e.message); }
-
-    // Sweep, so the next iteration cannot pick this recording up again.
-    for (const f of readdirSync(TMP)) rmSync(join(TMP, f), { force: true });
+    await ctx.close();
+    rmSync(frameDir, { recursive: true, force: true });
   }
+
 } finally {
   if (browser) await browser.close();
   rmSync(TMP, { recursive: true, force: true });
