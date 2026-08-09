@@ -39,7 +39,7 @@
 import { chromium } from 'playwright';
 import { randomBytes } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, existsSync, rmSync, renameSync, readdirSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync, renameSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -179,10 +179,12 @@ function resolveFfmpeg() {
     try {
       const enc = execFileSync(bin, ['-hide_banner', '-encoders'],
         { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      if (enc.includes('libx264')) return { bin, h264: true };
+      if (enc.includes('libx264')) {
+        return { bin, h264: true, vp9: enc.includes('libvpx-vp9') };
+      }
     } catch { /* not this one */ }
   }
-  return { bin: null, h264: false };
+  return { bin: null, h264: false, vp9: false };
 }
 
 /**
@@ -277,7 +279,9 @@ async function seed(ctx, opts = {}) {
                          keywords: pair[1] * 0.22, sentiment: pair[1] * 0.16 },
           })});
         });
-      }, 120);
+      // 60ms, not 120: at 25fps a 120ms tick moves the score on every third
+      // frame, which reads as a stutter rather than a climb.
+      }, 60);
     };
   })();`);
 
@@ -378,6 +382,17 @@ async function newCtx(browser, viewport, extra = {}, seedOpts = {}) {
 async function goto(page, path) {
   await page.goto(BASE + path, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);            // let the SPA settle
+}
+
+/** Scroll an element into view over ~600ms instead of teleporting to it.
+ *  scrollIntoViewIfNeeded jumps in a single frame, which in a recording reads
+ *  as a hard cut and is the main thing that made the tour feel jerky. */
+async function glideTo(page, locator) {
+  const box = await locator.boundingBox();
+  if (!box) return;
+  await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'smooth' }),
+    Math.max(0, box.y + (await page.evaluate(() => window.scrollY)) - 220));
+  await page.waitForTimeout(900);
 }
 
 /** Jump straight to a dashboard tab by clicking its nav button.
@@ -489,8 +504,7 @@ const VIDEOS = [
     await page.waitForTimeout(2200);
     const approve = page.locator('button', { hasText: /^Approve$/ }).first();
     if (await approve.count()) {
-      await approve.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(900);
+      await glideTo(page, approve);
       await approve.hover();
       await page.waitForTimeout(700);
       await approve.click();
@@ -507,8 +521,7 @@ const VIDEOS = [
     await page.waitForTimeout(1200);
     const approve = page.locator('button', { hasText: /^Approve$/ }).first();
     if (await approve.count()) {
-      await approve.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(800);
+      await glideTo(page, approve);
       await approve.hover();
       await page.waitForTimeout(600);
       await approve.click();
@@ -570,8 +583,10 @@ try {
   for (const [name, fn] of VIDEOS) {
     const ctx = await newCtx(browser, VIDEO_VP, {
       recordVideo: { dir: TMP, size: VIDEO_VP },
-      // 1x for video: 2x doubles the encode for no visible gain at this size.
-      deviceScaleFactor: 1,
+      // 2x, then recorded down to VIDEO_VP: the browser renders text at double
+      // density and the recorder supersamples it, which is most of the
+      // difference between legible UI labels and grey smudges at this size.
+      deviceScaleFactor: 2,
     }, { loopScores: true });
     const page = await ctx.newPage();
     try {
@@ -582,53 +597,82 @@ try {
     }
     await ctx.close();                       // flush: the file only lands on close
 
-    const raw = readdirSync(TMP).filter(f => f.endsWith('.webm')).map(f => join(TMP, f));
+    // Newest file, and TMP is emptied at the end of every iteration. Both
+    // matter: the raw capture is no longer renamed out of TMP (both outputs are
+    // encoded FROM it), so without a sweep the second video would re-encode the
+    // first one's recording — which is exactly what happened, and produced two
+    // byte-identical files for clips of different lengths.
+    const raw = readdirSync(TMP)
+      .filter(f => f.endsWith('.webm'))
+      .map(f => join(TMP, f))
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
     if (!raw.length) { failed.push(name + ': no video produced'); continue; }
-    const src = raw[0];
+    const rawFile = raw[0];                       // stays in TMP, never shipped
     const webm = join(OUT, name + '.webm');
-    renameSync(src, webm);
+    const mp4 = join(OUT, name + '.mp4');
+    const lead = leadingBlackSeconds(FF.bin, rawFile);
 
-    // Trim the startup blank before anything else consumes this file.
-    const lead = leadingBlackSeconds(FF.bin, webm);
-    if (lead > 0.2 && FF.bin) {
-      const trimmed = join(TMP, name + '-trim.webm');
-      try {
-        execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', String(lead),
-          '-i', webm, '-c:v', 'libvpx', '-b:v', '1400k', '-an', trimmed],
-          { stdio: 'ignore' });
-        renameSync(trimmed, webm);
-        console.log('  trimmed', lead.toFixed(1) + 's of leading black');
-      } catch (e) { failed.push(name + ' trim: ' + e.message); }
+    if (!FF.bin) {
+      renameSync(rawFile, webm);
+      done.push(name + '.webm');
+      console.log('  video', name + '.webm', '(no ffmpeg — untrimmed, VP8 as recorded)');
+      continue;
     }
-    done.push(name + '.webm');
-    console.log('  video', name + '.webm');
 
-    if (FF.bin) {
-      const poster = join(OUT, name + '-poster.jpg');
-      try {
-        // A second in, not frame zero: the first frame after a trim can still
-        // be mid-repaint, and the poster is the only thing a reduced-motion
-        // visitor ever sees.
-        execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', '1.0', '-i', webm,
-          '-frames:v', '1', '-q:v', '3', poster], { stdio: 'ignore' });
-        done.push(name + '-poster.jpg');
-        console.log('  poster', name + '-poster.jpg');
-      } catch (e) { failed.push(name + ' poster: ' + e.message); }
+    // ONE ENCODE PER OUTPUT, BOTH FROM THE ORIGINAL RECORDING.
+    //
+    // The first version of this trimmed the webm in place (re-encoding it to
+    // VP8 at a fixed 1400k) and then built the mp4 *from that file*. Two lossy
+    // generations, the second at a bitrate far too low for 1440x810 of small
+    // UI text — the result was 491 kb/s of mush. Both outputs now come
+    // straight from the raw capture with the trim applied as an input seek, so
+    // nothing is encoded twice.
+    //
+    // Constant frame rate matters as much as bitrate here: the recorder emits
+    // variable timing, and a VFR file plays back with visible micro-stutter
+    // even when every frame is present.
+    const trim = lead > 0.2 ? ['-ss', String(lead)] : [];
+    if (lead > 0.2) console.log('  trimming', lead.toFixed(1) + 's of leading black');
 
-      if (FF.h264) {
-        const mp4 = join(OUT, name + '.mp4');
-        try {
-          execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-i', webm,
-            '-c:v', 'libx264', '-preset', 'slow', '-crf', '25',
-            // yuv420p + faststart: without both, Safari refuses the file and
-            // the browser has to download it all before the first frame.
-            '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4],
-            { stdio: 'ignore' });
-          done.push(name + '.mp4');
-          console.log('  video', name + '.mp4');
-        } catch (e) { failed.push(name + ' mp4: ' + e.message); }
-      }
-    }
+    try {
+      execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...trim, '-i', rawFile,
+        '-c:v', 'libx264', '-preset', 'slow', '-crf', '20',
+        '-r', '25', '-fps_mode', 'cfr',
+        // yuv420p + faststart: without both, Safari refuses the file and the
+        // browser must download it all before showing a frame.
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4],
+        { stdio: 'ignore' });
+      done.push(name + '.mp4');
+      console.log('  video', name + '.mp4');
+    } catch (e) { failed.push(name + ' mp4: ' + e.message); }
+
+    try {
+      // VP9 at constant quality, not VP8 at a fixed bitrate. VP8 has to be told
+      // a number that is wrong for at least part of the clip; -crf with -b:v 0
+      // spends bits where the picture needs them, which on flat dark UI with
+      // sharp text is most of the win.
+      const vp9 = ['-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
+                   '-deadline', 'good', '-cpu-used', '2', '-row-mt', '1'];
+      const vp8 = ['-c:v', 'libvpx', '-crf', '10', '-b:v', '3M'];
+      execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...trim, '-i', rawFile,
+        ...(FF.vp9 ? vp9 : vp8), '-r', '25', '-fps_mode', 'cfr', '-an', webm],
+        { stdio: 'ignore' });
+      done.push(name + '.webm');
+      console.log('  video', name + '.webm', FF.vp9 ? '(vp9)' : '(vp8)');
+    } catch (e) { failed.push(name + ' webm: ' + e.message); }
+
+    try {
+      // A second in, not frame zero: the first frame after a trim can still be
+      // mid-repaint, and the poster is all a reduced-motion visitor ever sees.
+      execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-ss', '1.0', '-i', mp4,
+        '-frames:v', '1', '-q:v', '2', join(OUT, name + '-poster.jpg')],
+        { stdio: 'ignore' });
+      done.push(name + '-poster.jpg');
+      console.log('  poster', name + '-poster.jpg');
+    } catch (e) { failed.push(name + ' poster: ' + e.message); }
+
+    // Sweep, so the next iteration cannot pick this recording up again.
+    for (const f of readdirSync(TMP)) rmSync(join(TMP, f), { force: true });
   }
 } finally {
   if (browser) await browser.close();
