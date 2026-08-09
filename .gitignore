@@ -8,6 +8,11 @@ clips/
 *.mp4
 *.ts
 *.m3u8
+# ...except the tutorial's own media, which is a shipped site asset rather than
+# a captured clip. Without this the walkthrough's videos are silently dropped
+# from every commit, the .mp4 is missing on the server, and the page falls back
+# to "video coming soon" placeholders that look exactly like unfinished work.
+!src/dashboard/static/tutorial/*.mp4
 
 # Python
 __pycache__/

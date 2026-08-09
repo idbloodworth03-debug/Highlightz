@@ -13,6 +13,7 @@ middleware quietly swallowing it, and the /{slug} catch-all shadowing the route.
 
 import re
 from html.parser import HTMLParser
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -255,6 +256,48 @@ def test_a_missing_media_file_renders_a_labelled_placeholder_not_a_broken_image(
     assert "coming soon" in out.lower()
     assert "does-not-exist-99.png" in out
     assert "<img" not in out, "a missing file must not render an <img> that 404s"
+
+
+def test_every_captured_media_file_is_actually_committed():
+    """THE BUG THIS EXISTS FOR. .gitignore carries `*.mp4` to keep captured
+    Twitch clips out of the repo, and it swallowed the tutorial's own videos.
+    Everything passed locally — the files were on disk, the page rendered them,
+    the audit found two videos — and the deploy shipped a page with "video
+    coming soon" placeholders, because the .mp4s had never been in a commit.
+
+    Presence on disk proves nothing about what reaches the server. This checks
+    the index instead.
+    """
+    import subprocess
+    media_dir = Path(__file__).resolve().parents[1] / "src" / "dashboard" / "static" / "tutorial"
+    if not media_dir.is_dir():
+        pytest.skip("no media captured yet")
+    on_disk = {f.name for f in media_dir.iterdir() if f.is_file() and not f.name.startswith(".")}
+    if not on_disk:
+        pytest.skip("no media captured yet")
+    tracked = subprocess.run(
+        ["git", "ls-files", str(media_dir)],
+        capture_output=True, text=True, cwd=media_dir.parents[3],   # repo root
+    )
+    if tracked.returncode != 0:
+        pytest.skip("git not available")
+    committed = {Path(p).name for p in tracked.stdout.split()}
+    missing = sorted(on_disk - committed)
+    assert not missing, (
+        "these media files exist locally but are not tracked by git, so they "
+        f"will be absent on the server: {missing}")
+
+
+def test_a_video_survives_a_missing_mp4_as_long_as_the_webm_is_there():
+    """Fallout from the same bug: the video block was keyed on the .mp4, so a
+    missing one blanked a video whose .webm plays everywhere but Safari."""
+    from src.dashboard.tutorial_html import media_html
+    real = next(m for m in C.all_media() if m.kind == "video")
+    out = media_html(real)
+    if "tm-ph" in out:
+        pytest.skip("no video captured yet")
+    assert "<video" in out
+    assert 'type="video/webm"' in out or 'type="video/mp4"' in out
 
 
 def test_the_lightbox_is_a_native_dialog(page):

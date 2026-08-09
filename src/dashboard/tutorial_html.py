@@ -75,16 +75,23 @@ def media_html(m: "C.Media | None") -> str:
     box_open = ('<figure class="tm" style="--tm-w:' + str(m.width)
                 + ";--tm-h:" + str(m.height) + '">')
 
-    if not _exists(m.src):
+    webm = m.stem + ".webm"
+    # A video needs EITHER encoding, not specifically the mp4. Keying the whole
+    # block on m.src meant a missing .mp4 blanked a video whose .webm was sitting
+    # right there and plays in every browser but Safari — which is exactly what
+    # happened when .gitignore's `*.mp4` rule quietly dropped them from the
+    # commit: the server had the webm and still drew "coming soon".
+    have = _exists(m.src) or (m.kind == "video" and _exists(webm))
+    if not have:
         return box_open + _placeholder(m) + "</figure>"
 
     if m.kind == "video":
         poster = _MEDIA_URL + m.poster_src if _exists(m.poster_src) else ""
-        webm = m.stem + ".webm"
         sources = ""
         if _exists(webm):
             sources += '<source src="' + _MEDIA_URL + webm + '" type="video/webm">'
-        sources += '<source src="' + _MEDIA_URL + m.src + '" type="video/mp4">'
+        if _exists(m.src):
+            sources += '<source src="' + _MEDIA_URL + m.src + '" type="video/mp4">'
         # autoplay+muted+loop makes it read like a GIF; the reduced-motion
         # branch in _JS strips autoplay and leaves the poster showing.
         vid = (
