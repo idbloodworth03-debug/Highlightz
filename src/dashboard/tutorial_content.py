@@ -78,22 +78,16 @@ HERO_LEAD = (
     "This page walks through every screen — from connecting your account to "
     "approving your first clip — using the exact buttons you will see."
 )
+# STILLS, NOT VIDEO. Screen recordings of this dashboard came out soft and
+# juddery: Chrome's screencast only emits a frame when the page repaints, so a
+# mostly-static UI captures at ~16fps no matter how it is encoded. A screenshot
+# has none of those problems — it is pixel-exact, loads instantly, and a reader
+# following along wants to compare a still against their own screen anyway.
 HERO_MEDIA = Media(
-    src="00-overview.mp4",
-    kind="video",
-    # 16:9, not the 1440x900 (16:10) the screenshots use. Video is authored at
-    # a video aspect ratio, and the box reserves space from these numbers — get
-    # it wrong and the page either letterboxes or jumps when the file loads.
-    width=1440, height=810,
-    alt="A short tour of Highlightz, from picking a channel to approving a clip.",
-    # Describes what the silent recording shows, in order. The video has no
-    # narration, so this is not a nicety — it is how the tour reads with sound
-    # off, which is how most people will meet it.
-    caption=(
-        "The whole flow in twenty seconds: a channel is picked on Live Streams, the "
-        "trigger score climbs as chat reacts, the clip that fired is approved in "
-        "Clip Review, and it turns up in the Clip Library."
-    ),
+    src="00-overview.png",
+    alt="The Highlightz dashboard on the Live Streams tab: a monitored channel with "
+        "a live trigger score of 94, its score chart climbing past the threshold, "
+        "and the clips it has caught listed below.",
 )
 
 
@@ -189,15 +183,9 @@ QUICKSTART: tuple[Section, ...] = (
             "Click **Approve** to keep it, or **Reject** to bin it.",
         ),
         media=Media(
-            src="04-approve.mp4",
-            kind="video",
-            width=1440, height=810,
-            alt="A clip in the review queue being played and then approved.",
-            caption=(
-                "A pending clip is played inside the review card, then Approve is "
-                "clicked. The clip disappears from the queue and the Clip Library "
-                "count goes up by one."
-            ),
+            src="04-approve.png",
+            alt="A pending clip in the review queue with its trigger score, title and "
+                "channel, and the Approve and Reject buttons beneath it.",
         ),
         tip=(
             "Rejecting is not wasted effort. Every reject raises that channel's "

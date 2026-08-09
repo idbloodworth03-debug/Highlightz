@@ -288,16 +288,41 @@ def test_every_captured_media_file_is_actually_committed():
         f"will be absent on the server: {missing}")
 
 
-def test_a_video_survives_a_missing_mp4_as_long_as_the_webm_is_there():
-    """Fallout from the same bug: the video block was keyed on the .mp4, so a
-    missing one blanked a video whose .webm plays everywhere but Safari."""
-    from src.dashboard.tutorial_html import media_html
-    real = next(m for m in C.all_media() if m.kind == "video")
-    out = media_html(real)
-    if "tm-ph" in out:
-        pytest.skip("no video captured yet")
+def test_the_page_uses_stills_rather_than_video():
+    """Deliberate: screen recordings of this dashboard came out soft and juddery
+    because Chrome only emits a screencast frame when the page repaints, so a
+    mostly-static UI captures at ~16fps whatever it is encoded at. Stills are
+    pixel-exact. This pins the decision so a future capture change does not
+    quietly reintroduce video without someone re-reading that reasoning."""
+    assert all(m.kind == "image" for m in C.all_media())
+    from src.dashboard.tutorial_html import render
+    assert "<video" not in render()
+
+
+def test_the_renderer_still_handles_video_correctly_if_one_is_ever_added(
+        tmp_path, monkeypatch):
+    """The media component keeps its video branch even though nothing uses it
+    today, so exercise it against fabricated files rather than leaving it as
+    untested code that will be wrong the day someone needs it."""
+    from src.dashboard import tutorial_html as th
+    monkeypatch.setattr(th, "_MEDIA_DIR", tmp_path)
+    for name in ("demo.mp4", "demo.webm", "demo-poster.jpg"):
+        (tmp_path / name).write_bytes(b"x")
+    out = th.media_html(C.Media(
+        src="demo.mp4", kind="video", width=1440, height=810,
+        alt="A demonstration clip used only by this test.",
+        caption="Describes the clip so it is usable with the sound off."))
     assert "<video" in out
-    assert 'type="video/webm"' in out or 'type="video/mp4"' in out
+    for attr in ("muted", "loop", "playsinline", 'preload="metadata"', "poster="):
+        assert attr in out, f"video missing {attr}"
+    assert 'type="video/webm"' in out and 'type="video/mp4"' in out
+
+    # And it must not blank out when only one encoding is present.
+    (tmp_path / "demo.mp4").unlink()
+    only_webm = th.media_html(C.Media(src="demo.mp4", kind="video",
+                                      alt="A demonstration clip used only by this test.",
+                                      caption="Describes the clip for sound-off use."))
+    assert "<video" in only_webm and "tm-ph" not in only_webm
 
 
 def test_the_lightbox_is_a_native_dialog(page):

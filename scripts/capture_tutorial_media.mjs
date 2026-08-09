@@ -28,14 +28,13 @@
  * the tutorial would document a UI nobody else has. The seeded user is a
  * plain Pro subscriber.
  *
- * VIDEO IS NOT RECORDED BY PLAYWRIGHT. Its recordVideo writes VP8 at roughly
- * 150 kb/s, which at 1440x810 turns small UI labels into grey smudges, and no
- * re-encode recovers detail that was never captured. Frames come from Chrome's
- * DevTools screencast instead (see startScreencast) at JPEG quality 92, then
- * ffmpeg encodes them once to mp4 + webm. Capture also starts only after the
- * dashboard is painted, which is why there is no longer a black intro to trim.
- * Needs a real ffmpeg with libx264; the one bundled with Playwright has VP8
- * only. See resolveFfmpeg.
+ * STILLS ONLY — NO VIDEO. Screen recordings of this dashboard were soft and
+ * juddery, and the cause was not the encoder: Chrome emits a screencast frame
+ * only when the page repaints, so a mostly-static UI captures at roughly 16fps
+ * however it is compressed afterwards. Screenshots have none of that problem,
+ * they are pixel-exact, and a reader following along is comparing a still
+ * against their own screen anyway. The video path was removed rather than left
+ * switched off.
  */
 
 import { chromium } from 'playwright';
@@ -56,11 +55,6 @@ const KEEP = process.argv.includes('--keep');
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
-// Video records at 16:9, matching the width/height tutorial_content.py declares
-// for kind="video". Recording at the 16:10 screenshot size instead would make
-// the page reserve a box the file does not fit, and every video would sit
-// letterboxed inside it.
-const VIDEO_VP = { width: 1440, height: 810 };
 
 /**
  * The dashboard pulls React, ReactDOM and Babel from unpkg at runtime — there
@@ -189,34 +183,6 @@ function resolveFfmpeg() {
   return { bin: null, h264: false, vp9: false };
 }
 
-/**
- * Seconds of black at the head of a recording.
- *
- * Playwright starts the recorder the instant the context opens, which is before
- * the first navigation has painted anything — so every take begins with two or
- * three seconds of pure black. Left in, the hero video opens on a blank
- * rectangle and the poster frame extracted from it is blank too, which is
- * exactly what it looks like when a video is broken.
- *
- * blackdetect reports the black run rather than us guessing a constant, so this
- * keeps working if startup gets slower or faster.
- */
-function leadingBlackSeconds(bin, file) {
-  if (!bin) return 0;
-  try {
-    const r = spawnSync(bin,
-      ['-i', file, '-vf', 'blackdetect=d=0.1:pix_th=0.12', '-f', 'null', '-'],
-      { encoding: 'utf8' });
-    const text = (r.stderr || '') + (r.stdout || '');
-    // Only a run that starts at 0 is the startup blank; a black frame later in
-    // the take is real content (a transition) and must not be cut.
-    const m = text.match(/black_start:0(?:\.0+)?\s+black_end:([0-9.]+)/);
-    return m ? Math.max(0, parseFloat(m[1]) - 0.1) : 0;
-  } catch {
-    return 0;
-  }
-}
-
 async function waitForServer(ms = 45000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -232,14 +198,17 @@ async function waitForServer(ms = 45000) {
 /** Seeded API + a frozen clock. Registered newest-last because Playwright
  *  matches the most recently added route first — so the catch-all goes FIRST
  *  and the specific routes below it win. */
-async function seed(ctx, opts = {}) {
-  // Screenshots want the score to climb once and then hold still, so the value
-  // in the file is the same on every run. Video wants it to keep moving for the
-  // length of the take, or the stream sits frozen for forty seconds.
-  const LOOP = opts.loopScores ? 'true' : 'false';
+async function seed(ctx) {
+  // The score climbs once and then holds, so the number baked into every
+  // screenshot is identical on each run.
   await ctx.addInitScript(`(function(){
-    var HZ_LOOP = ${LOOP};
+    // Dismiss the first-run overlay. Without this it covers the whole app and
+    // every nav click fails with "div intercepts pointer events" — the
+    // 02-welcome shot deliberately puts it back.
     try { localStorage.setItem('hz_welcome_seen','1'); } catch (e) {}
+
+    // Freeze the clock, so relative timestamps ("2h ago") are identical on
+    // every run and a re-capture is not a diff in every file.
     var fixed = ${PINNED_NOW};
     var RealDate = Date;
     function FakeDate(){
@@ -250,6 +219,7 @@ async function seed(ctx, opts = {}) {
     FakeDate.now = function(){ return fixed; };
     FakeDate.parse = RealDate.parse; FakeDate.UTC = RealDate.UTC;
     window.Date = FakeDate;
+
     // A stub socket, but NOT a silent one. The live trigger score arrives only
     // over the WebSocket, so a socket that never speaks leaves every stream
     // reading "0.0 — engine waiting for first update", and the Live Streams
@@ -260,19 +230,12 @@ async function seed(ctx, opts = {}) {
       var s = this;
       s.readyState = 1; s.send = function(){}; s.close = function(){};
       setTimeout(function(){ if (s.onopen) s.onopen(); }, 20);
-      // Climb, fire, settle back down — one full cycle of what a viewer is
-      // being told happens, so a looping video shows the whole story.
-      var curve = HZ_LOOP
-        ? [31,34,38,42,47,53,60,68,75,83,89,94,92,86,74,63,55,48,42,37,33,30,
-           32,36,41,46,52,59,67,74,82,88,93,90,84,72,61,53,46,40,35,31]
-        : [31,34,38,42,47,53,60,68,75,83,89,94];
+      // One climb past the threshold, then it stops so the page holds still.
+      var curve = [31,34,38,42,47,53,60,68,75,83,89,94];
       var i = 0;
       var t = setInterval(function(){
         if (!s.onmessage) return;
-        if (i >= curve.length) {
-          if (!HZ_LOOP) { clearInterval(t); return; }
-          i = 0;                                  // keep the stream alive
-        }
+        if (i >= curve.length) { clearInterval(t); return; }
         var v = curve[i++];
         [['novaplays', v], ['kestrel', Math.max(12, Math.round(v * 0.62))]].forEach(function(pair){
           s.onmessage({ data: JSON.stringify({
@@ -369,7 +332,7 @@ function assertVendorPresent() {
   }
 }
 
-async function newCtx(browser, viewport, extra = {}, seedOpts = {}) {
+async function newCtx(browser, viewport, extra = {}) {
   const ctx = await browser.newContext({
     viewport, deviceScaleFactor: 2, colorScheme: 'dark', ...extra,
   });
@@ -377,24 +340,13 @@ async function newCtx(browser, viewport, extra = {}, seedOpts = {}) {
   // unreliable in Chromium — the cookie is accepted by addCookies and then
   // silently never sent, which looks exactly like a bad signature.
   await ctx.addCookies([{ name: 'session', value: SESSION, url: BASE }]);
-  await seed(ctx, seedOpts);
+  await seed(ctx);
   return ctx;
 }
 
 async function goto(page, path) {
   await page.goto(BASE + path, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);            // let the SPA settle
-}
-
-/** Scroll an element into view over ~600ms instead of teleporting to it.
- *  scrollIntoViewIfNeeded jumps in a single frame, which in a recording reads
- *  as a hard cut and is the main thing that made the tour feel jerky. */
-async function glideTo(page, locator) {
-  const box = await locator.boundingBox();
-  if (!box) return;
-  await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'smooth' }),
-    Math.max(0, box.y + (await page.evaluate(() => window.scrollY)) - 220));
-  await page.waitForTimeout(900);
 }
 
 /** Jump straight to a dashboard tab by clicking its nav button.
@@ -475,146 +427,27 @@ const SHOTS = [
 
   ['09-settings', async (page) => { await goto(page, '/'); await tab(page, 'Settings'); }],
   ['10-account', async (page) => { await goto(page, '/'); await tab(page, 'Account'); }],
-];
 
-/**
- * Capture frames via Chrome's DevTools screencast instead of Playwright's
- * built-in recorder.
- *
- * WHY. Playwright's recordVideo writes VP8 at roughly 150 kb/s. At 1440x810
- * that is nowhere near enough for small UI text — labels turn to grey smudges,
- * and no amount of re-encoding afterwards recovers detail that was never
- * captured. CDP hands back JPEG frames at quality 92 (~17KB each, so an order
- * of magnitude more information) and, crucially, only starts when told — so the
- * recording begins on a fully painted dashboard rather than on a black frame.
- *
- * Frames arrive only when the page repaints, so their spacing is irregular.
- * Timestamps are kept and turned into per-frame durations for ffmpeg's concat
- * demuxer, which then resamples to a constant 25fps.
- */
-async function startScreencast(ctx, page, dir) {
-  const cdp = await ctx.newCDPSession(page);
-  const frames = [];
-  cdp.on('Page.screencastFrame', async (f) => {
-    const file = join(dir, String(frames.length).padStart(5, '0') + '.jpg');
-    try {
-      writeFileSync(file, Buffer.from(f.data, 'base64'));
-      frames.push({ file, t: f.metadata.timestamp });
-      // Without the ack Chrome stops sending after a couple of frames.
-      await cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId });
-    } catch { /* page may be closing */ }
-  });
-  await cdp.send('Page.startScreencast', {
-    format: 'jpeg', quality: 92, maxWidth: VIDEO_VP.width,
-    maxHeight: VIDEO_VP.height, everyNthFrame: 1,
-  });
-  return {
-    stop: async () => {
-      try { await cdp.send('Page.stopScreencast'); } catch { /* already gone */ }
-      await page.waitForTimeout(250);          // let in-flight frames land
-      return frames;
-    },
-  };
-}
-
-/** Encode captured frames to mp4 + webm + poster. */
-function encodeFrames(name, dir, frames, done, failed) {
-  const mp4 = join(OUT, name + '.mp4');
-  const webm = join(OUT, name + '.webm');
-  const poster = join(OUT, name + '-poster.jpg');
-
-  if (!FF.bin) { failed.push(name + ': no ffmpeg, cannot encode frames'); return; }
-
-  // Per-frame durations from real timestamps, so the tour plays at the speed it
-  // was performed rather than at whatever rate frames happened to arrive.
-  let list = '';
-  for (let i = 0; i < frames.length; i++) {
-    const next = frames[i + 1];
-    const d = next ? Math.max(0.02, Math.min(1.5, next.t - frames[i].t)) : 0.1;
-    list += "file '" + frames[i].file + "'\nduration " + d.toFixed(3) + '\n';
-  }
-  list += "file '" + frames[frames.length - 1].file + "'\n";
-  const listFile = join(dir, 'frames.txt');
-  writeFileSync(listFile, list);
-
-  const common = ['-f', 'concat', '-safe', '0', '-i', listFile,
-                  '-r', '25', '-fps_mode', 'cfr'];
-  try {
-    execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...common,
-      '-c:v', 'libx264', '-preset', 'slow', '-crf', '18',
-      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4],
-      { stdio: 'ignore' });
-    done.push(name + '.mp4');
-    console.log('  video', name + '.mp4');
-  } catch (e) { failed.push(name + ' mp4: ' + e.message); }
-
-  try {
-    const vp9 = ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
-                 '-deadline', 'good', '-cpu-used', '2', '-row-mt', '1'];
-    const vp8 = ['-c:v', 'libvpx', '-crf', '8', '-b:v', '4M'];
-    execFileSync(FF.bin, ['-y', '-loglevel', 'error', ...common,
-      ...(FF.vp9 ? vp9 : vp8), '-an', webm], { stdio: 'ignore' });
-    done.push(name + '.webm');
-    console.log('  video', name + '.webm', FF.vp9 ? '(vp9)' : '(vp8)');
-  } catch (e) { failed.push(name + ' webm: ' + e.message); }
-
-  try {
-    // The very first captured frame is already a painted dashboard, so it makes
-    // an honest poster — no need to hunt for a non-black one any more.
-    execFileSync(FF.bin, ['-y', '-loglevel', 'error', '-i', frames[0].file,
-      '-q:v', '2', poster], { stdio: 'ignore' });
-    done.push(name + '-poster.jpg');
-    console.log('  poster', name + '-poster.jpg');
-  } catch (e) { failed.push(name + ' poster: ' + e.message); }
-}
-
-/** Multi-step flows worth a moving picture.
- *
- *  These are silent screen recordings, not edited films — there is no
- *  voiceover and no music. That is why every video on the page carries a
- *  visible text description: the tutorial has to work with sound off anyway,
- *  so a silent capture loses nothing a reader needed.
- */
-const VIDEOS = [
+  // Hero. Shot last in the flow order but framed as the "what is this" image:
+  // Live Streams with the score at the top of its climb, which is the one view
+  // that shows the whole product working at a glance.
   ['00-overview', async (page) => {
-    // The whole product in one take: a channel is chosen, the score climbs
-    // past the threshold, the clip that fired is reviewed and approved, and
-    // it turns up in the library. Paced slowly on purpose — this plays as a
-    // muted loop in the hero, so a viewer has to be able to follow it without
-    // a scrubber. The runner has already opened Live Streams; capture starts
-    // on a painted dashboard, so this begins mid-scene by design.
-    const input = page.locator('.rd-input').first();
-    await input.click();
-    await input.type('atlas', { delay: 110 });
-    await page.waitForTimeout(1600);          // suggestions open
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(2600);          // the score climbs
-
-    await tab(page, 'Clip Review');
-    await page.waitForTimeout(2200);
-    const approve = page.locator('button', { hasText: /^Approve$/ }).first();
-    if (await approve.count()) {
-      await glideTo(page, approve);
-      await approve.hover();
-      await page.waitForTimeout(700);
-      await approve.click();
-      await page.waitForTimeout(2000);
-    }
-
-    await tab(page, 'Clip Library');
-    await page.waitForTimeout(2600);
+    await goto(page, '/');
+    await tab(page, 'Live Streams');
+    await page.waitForTimeout(2200);        // let the seeded score finish climbing
   }],
 
+  // The approve step. Hovering the button first so the shot carries its hover
+  // state — it reads as "this is the thing you click" rather than a flat list.
   ['04-approve', async (page) => {
+    await goto(page, '/');
     await tab(page, 'Clip Review');
-    await page.waitForTimeout(1200);
     const approve = page.locator('button', { hasText: /^Approve$/ }).first();
     if (await approve.count()) {
-      await glideTo(page, approve);
+      await approve.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
       await approve.hover();
-      await page.waitForTimeout(600);
-      await approve.click();
-      await page.waitForTimeout(1800);
+      await page.waitForTimeout(500);
     }
   }],
 ];
@@ -669,42 +502,6 @@ try {
     }
   }
 
-  for (const [name, fn] of VIDEOS) {
-    const ctx = await newCtx(browser, VIDEO_VP, { deviceScaleFactor: 2 },
-                             { loopScores: true });
-    const page = await ctx.newPage();
-    const frameDir = join(TMP, name);
-    mkdirSync(frameDir, { recursive: true });
-
-    try {
-      // Get the app fully on screen BEFORE a single frame is captured. This is
-      // what removes the black intro at the source, instead of trying to detect
-      // and trim it afterwards — which never worked reliably, because the first
-      // real frames of this UI are a near-black background that blackdetect
-      // cannot tell apart from an unpainted one.
-      await goto(page, '/');
-      await tab(page, 'Live Streams');
-      await page.waitForTimeout(1200);
-
-      const shot = await startScreencast(ctx, page, frameDir);
-      await fn(page);
-      await page.waitForTimeout(400);
-      const frames = await shot.stop();
-      console.log('  captured', frames.length, 'frames for', name);
-
-      if (frames.length < 5) {
-        failed.push(name + ': only ' + frames.length + ' frames captured');
-      } else {
-        encodeFrames(name, frameDir, frames, done, failed);
-      }
-    } catch (e) {
-      failed.push(name + ': ' + e.message);
-      console.log('  FAILED', name, '-', e.message);
-    }
-    await ctx.close();
-    rmSync(frameDir, { recursive: true, force: true });
-  }
-
 } finally {
   if (browser) await browser.close();
   rmSync(TMP, { recursive: true, force: true });
@@ -749,9 +546,7 @@ console.log([
   '  Twitch OAuth consent  Twitch\'s own domain; needs a real login typed in',
   '  Stripe checkout       needs live or test Stripe keys and a real session',
   '  Stripe billing portal needs a real Stripe customer',
-  '  a genuinely live clip the videos above are seeded, not a real broadcast',
+  '  a genuinely live clip the screenshots are seeded, not a real broadcast',
   '',
-  'Everything else on the page is produced by this script. The videos are silent',
-  'screen recordings — if you want narration over 00-overview.mp4, re-record it',
-  'yourself; the page shows a text description under every video either way.',
+  'Everything else on the page is produced by this script.',
 ].join('\n'));
