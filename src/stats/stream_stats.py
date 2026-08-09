@@ -48,6 +48,19 @@ EXPIRED  = "expired"     # aged out of the queue unreviewed
 # (the user never saw it). Folding it into either would corrupt the keep
 # rate that gets shown to streamers.
 MISSED   = "missed"
+# The user emptied their review queue without judging what was in it. Its own
+# event for two reasons, both of which would be bugs if it reused an existing
+# one:
+#   * NOT rejected — a rejection means "I watched this and it was bad", which
+#     raises the channel threshold and drags down the keep rate shown to
+#     streamers. Clearing says nothing about whether the formula was right.
+#   * NOT expired — evictions_since() counts EXPIRED to decide whether to show
+#     "your queue filled up and you lost clips". Reusing it would accuse the
+#     product of losing work every time a user tidied up on purpose.
+# Recorded anyway (rather than nothing) so CAUGHT still reconciles against the
+# sum of its outcomes; a cleared clip is accounted for, just not blamed on
+# anyone.
+CLEARED  = "cleared"
 
 # A gap this long on one channel starts a new session. Four hours is longer
 # than any break inside a single broadcast and shorter than the gap between

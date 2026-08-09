@@ -1799,6 +1799,51 @@ async def delete_clip_endpoint(request: Request, clip_id: str):
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
 
 
+@app.post("/clips/clear-pending")
+async def clear_pending_clips(request: Request):
+    """Empty the review queue without judging anything in it.
+
+    WHY THIS IS NOT "REJECT ALL". Rejecting means "I watched this and it was
+    bad": it raises the channel's trigger threshold, trims that clip's signal
+    weights, writes a REJECTED training example, and counts against the keep
+    rate a streamer is shown. A user who skips a backlog to get fresh clips has
+    made none of those statements — punishing the formula for their impatience
+    would teach it the wrong lesson from the one action most likely to be taken
+    in bulk.
+
+    So this follows the same rule as DELETE /clips/{id} and bulk-cull: remove
+    the clip, touch nothing that learns. The only ledger entry is CLEARED,
+    which exists so the caught-vs-outcomes books still balance without the
+    clips being counted as rejections or as queue evictions.
+
+    PENDING ONLY. Approved clips are the user's library, not their inbox — a
+    button labelled "clear the queue" must never reach into it.
+    """
+    uid = _current_user_id(request)
+    removed: list[dict] = []
+    async with _data_lock:
+        for clip_id, clip in list(_clips.items()):
+            if clip.get("user_id") != uid or clip.get("status") != "pending":
+                continue
+            removed.append(_clips.pop(clip_id))
+        if removed:
+            _save_clips()
+
+    from src.stats import stream_stats
+    for clip in removed:
+        _delete_clip_file(clip)
+        # Grabbed clips never taught the formula, and they do not belong in the
+        # channel's outcome ledger either — same carve-out as reject/approve.
+        if not _is_grabbed(clip):
+            stream_stats.record(stream_stats.CLEARED, clip)
+        # Realtime contract: every open tab drops the clip immediately. Reusing
+        # clip_removed means no new event name and no new frontend branch.
+        await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
+
+    log.info("clips_cleared", uid=uid, removed=len(removed))
+    return {"removed": len(removed)}
+
+
 @app.post("/clips/bulk-cull")
 async def bulk_cull_clips(request: Request, body: BulkCullBody):
     """Remove all clips for the current user whose score is below min_score."""

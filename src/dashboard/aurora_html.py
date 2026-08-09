@@ -1333,6 +1333,58 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   );
 }
 
+function ClearQueueButton({ pending }) {
+  // Two-step, not window.confirm: a native dialog is unstyleable, blocks the
+  // whole tab, and reads as a browser warning rather than part of the app.
+  // Arming inline also lets the count sit in the confirm text, which is the
+  // one number that decides whether someone actually wants to do this.
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy]   = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    // Disarm on its own so a half-pressed destructive button never sits
+    // waiting to be hit by a stray click minutes later.
+    const t = setTimeout(()=>setArmed(false), 6000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      await fetch('/clips/clear-pending', {method:'POST'});
+      // No local state surgery: the server broadcasts clip_removed per clip and
+      // the existing handler drops each one, so every open tab converges the
+      // same way. Mutating here as well would race that.
+    } catch (e) { /* the socket resync on reconnect is the backstop */ }
+    setBusy(false); setArmed(false);
+  };
+
+  if (!armed) {
+    return (
+      <button className="rd-btn sm" onClick={()=>setArmed(true)}
+        title="Empty the review queue without rejecting anything"
+        style={{background:'rgba(255,255,255,.06)',border:'1px solid var(--hair)',color:'var(--fg-2)'}}>
+        <Icon name="trash" size={13}/>Clear queue
+      </button>
+    );
+  }
+  return (
+    <span style={{display:'inline-flex',gap:6,alignItems:'center'}}>
+      <span style={{fontSize:12,color:'var(--fg-2)',fontWeight:600}}>
+        Clear {pending} clip{pending===1?'':'s'}?
+      </span>
+      <button className="rd-btn sm" disabled={busy} onClick={run}
+        style={{background:'rgba(239,68,68,.16)',border:'1px solid rgba(239,68,68,.5)',color:'#fca5a5'}}>
+        {busy ? 'Clearing…' : 'Yes, clear'}
+      </button>
+      <button className="rd-btn sm" disabled={busy} onClick={()=>setArmed(false)}
+        style={{background:'rgba(255,255,255,.06)',border:'1px solid var(--hair)',color:'var(--fg-2)'}}>
+        Cancel
+      </button>
+    </span>
+  );
+}
+
 function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
@@ -1399,6 +1451,7 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
                 {showCull && <CullPanel clips={clips} onDone={()=>setShowCull(false)}/>}
               </div>
             )}
+            {pending > 0 && <ClearQueueButton pending={pending}/>}
             {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
               <option value="all">All streamers</option>
               {channels.map(c=><option key={c} value={c}>{c}</option>)}
