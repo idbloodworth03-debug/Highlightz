@@ -66,7 +66,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
-                  "/landing/showcase", "/robots.txt", "/sitemap.xml"}
+                  "/landing/showcase", "/robots.txt", "/sitemap.xml", "/tutorial"}
 # Short referral links. Open, because the whole point is that a signed-out
 # stranger clicks them — if the auth middleware bounced them to /login first,
 # the ref would be gone before any handler saw it.
@@ -3465,6 +3465,25 @@ async def cookies_page():
     return HTMLResponse(COOKIES_HTML)
 
 
+@app.get("/tutorial", response_class=HTMLResponse)
+async def tutorial_page():
+    """The public walkthrough. In _OPEN_PATHS, so a signed-out visitor reads it.
+
+    MUST STAY ABOVE `@app.get("/{slug}")` — that catch-all matches any
+    single-segment path, and FastAPI resolves in declaration order, so a route
+    declared after it never runs. Registered below the referral handler this
+    would 404 on a path that plainly exists, which is a maddening bug to find.
+
+    Rendered per request rather than cached in a module constant because the
+    renderer probes the filesystem for each media file: capture a screenshot
+    and the placeholder becomes the real image on the next load, with no
+    restart. The page is a few hundred KB of string building on a route almost
+    nobody hits twice in a row.
+    """
+    from src.dashboard.tutorial_html import render
+    return HTMLResponse(render())
+
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception):
     if request.headers.get("accept", "").startswith("application/json"):
@@ -3706,7 +3725,7 @@ async def robots_txt():
 
 @app.get("/sitemap.xml")
 async def sitemap_xml():
-    pages = ["/", "/tos", "/privacy", "/cookies", "/opt-out"]
+    pages = ["/", "/tutorial", "/tos", "/privacy", "/cookies", "/opt-out"]
     urls = "".join(
         f"<url><loc>https://highlightz.app{p}</loc></url>" for p in pages)
     xml = ('<?xml version="1.0" encoding="UTF-8"?>'
@@ -4494,6 +4513,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#features" class="nav-link">Features</a>
     <a href="#pricing" class="nav-link">Pricing</a>
     <a href="#faq" class="nav-link">FAQ</a>
+    <a href="/tutorial" class="nav-link">Tutorial</a>
   </div>
   <div class="nav-right">
     <!-- The signature, in its persistent form: the live trigger score never
@@ -4958,6 +4978,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <h2>Your next viral clip is<br><span class="accent">already happening.</span></h2>
   <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
+  <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
 </section>
 
 <div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
@@ -4974,7 +4995,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <footer class="footer">
   <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
-  <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
+  <a href="/tutorial">Tutorial</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
 /* ── Live clips counter ── */

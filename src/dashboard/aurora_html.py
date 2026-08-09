@@ -237,6 +237,9 @@ button{font-family:inherit;cursor:pointer}
 .rd-grid-empty{grid-column:1/-1;text-align:center;padding:70px 0;color:var(--fg-3)}
 .rd-grid-empty .ic{display:flex;justify-content:center;margin-bottom:16px;color:var(--fg-3)}
 .rd-grid-empty .big{font-size:18px;font-weight:700;color:var(--fg);margin-bottom:8px;letter-spacing:-.01em}
+.rd-emptylink{display:inline-block;margin-top:16px;font-size:13px;font-weight:600;color:var(--acc);
+  padding:8px 15px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s}
+.rd-emptylink:hover{background:rgba(255,255,255,.05);border-color:var(--acc);color:var(--fg)}
 .rd-toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,90px);opacity:0;
   display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:var(--r-pill);
   background:rgba(18,14,24,.85);border:1px solid rgba(199,155,255,.35);color:var(--fg);font-size:13px;font-weight:500;
@@ -1411,7 +1414,12 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
         </div>
         <div className="rd-grid">
           {shown.length===0
-            ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div></div>
+            ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div>
+                {/* New here? This is the one screen a first-time user reliably
+                    lands on with nothing to do, so it is where the walkthrough
+                    belongs. New tab: the dashboard is a long-lived SPA holding
+                    a live socket, and navigating away throws that state out. */}
+                <a href="/tutorial" target="_blank" rel="noopener" className="rd-emptylink">Read the walkthrough →</a></div>
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
         </div>
       </section>
