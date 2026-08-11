@@ -61,6 +61,11 @@ MISSED   = "missed"
 # sum of its outcomes; a cleared clip is accounted for, just not blamed on
 # anyone.
 CLEARED  = "cleared"
+# A destructive action was taken back within the undo window. The rows it
+# already wrote stay — this is append-only telemetry and rewriting history is
+# how ledgers start disagreeing with themselves — so this marks them as
+# retracted instead, leaving anything that reads the log able to correct for it.
+UNDONE   = "undone"
 
 # A gap this long on one channel starts a new session. Four hours is longer
 # than any break inside a single broadcast and shorter than the gap between

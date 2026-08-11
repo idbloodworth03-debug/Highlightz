@@ -49,6 +49,7 @@ except ImportError:
     )
 
 from config.settings import settings
+from src.dashboard import undo
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
@@ -1698,6 +1699,69 @@ async def list_clips(request: Request, status: str | None = None, channel: str |
     return clips
 
 
+# MUST STAY ABOVE @app.get("/clips/{clip_id}") — FastAPI resolves in
+# declaration order, so a literal /clips/undo declared after the
+# parameterised route is matched as clip_id="undo" and 404s.
+@app.get("/clips/undo")
+async def undoable(request: Request):
+    """What the user could still take back, for the toast to render."""
+    uid = _current_user_id(request)
+    entry = undo.peek(uid, on_drop=_drop_undo_entry)
+    return entry.public() if entry else {}
+
+
+@app.post("/clips/undo")
+async def undo_last(request: Request, entry_id: str | None = None):
+    """Put back the clips from the last destructive action, and un-teach it.
+
+    Restoring the clips is the easy half. The half that matters is the profile:
+    a reject raises that channel's trigger threshold and trims the weights of
+    whichever signals fired, so an accidental bulk reject leaves the detector
+    measurably worse on that channel. The profile's scoring state is written
+    back from a snapshot taken before the nudge rather than by subtracting the
+    step off again — record_clip clamps at both ends, so the arithmetic is not
+    reversible but the snapshot is exact.
+    """
+    uid   = _current_user_id(request)
+    entry = undo.pop(uid, entry_id, on_drop=_drop_undo_entry)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Nothing left to undo")
+
+    async with _data_lock:
+        restored = []
+        for clip in entry.clips:
+            if clip["id"] in _clips:
+                continue                      # already back; never double-add
+            _clips[clip["id"]] = clip
+            restored.append(clip)
+        if restored:
+            _save_clips()
+
+    from src.profiles.manager import get_profile_manager
+    pm = get_profile_manager(uid)
+    for channel, snap in entry.profiles_before.items():
+        profile = await pm.load(channel)
+        if profile:
+            undo.restore_profile(profile, snap)
+            await pm.save(profile)
+            await broadcast({"event": "profile_updated",
+                             "profile": profile.to_dict()}, user_id=uid)
+
+    # The ledger is append-only telemetry, so the reject rows stay. This marks
+    # them as taken back rather than rewriting history — the count of undone
+    # actions is then available to anything that wants to correct for it.
+    from src.stats import stream_stats
+    for clip in restored:
+        if not _is_grabbed(clip):
+            stream_stats.record(stream_stats.UNDONE, clip)
+
+    for clip in restored:
+        await broadcast({"event": "clip_ready", "clip": clip}, user_id=uid)
+
+    log.info("undo_applied", uid=uid, kind=entry.kind, restored=len(restored))
+    return {"restored": len(restored), "kind": entry.kind}
+
+
 @app.get("/clips/{clip_id}")
 async def get_clip(request: Request, clip_id: str):
     uid  = _current_user_id(request)
@@ -1749,6 +1813,22 @@ async def approve_clip(request: Request, clip_id: str):
     return clip
 
 
+def _drop_undo_entry(entry) -> None:
+    """An entry has fallen out of the buffer — now the files can really go."""
+    for url in entry.held_files:
+        _delete_clip_file({"storage_url": url})
+
+
+def _hold_files(clips: list[dict]) -> list[str]:
+    """storage_urls to keep on disk while the action is still undoable.
+
+    Deleting the .mp4 at reject time would make undo restore a record pointing
+    at a file that no longer exists — a clip that looks fine in the grid and
+    plays nothing. Twitch-hosted clips have no storage_url and are unaffected.
+    """
+    return [c["storage_url"] for c in clips if c.get("storage_url")]
+
+
 @app.post("/clips/{clip_id}/reject")
 async def reject_clip(request: Request, clip_id: str):
     from src.profiles.manager import get_profile_manager
@@ -1764,7 +1844,8 @@ async def reject_clip(request: Request, clip_id: str):
         training_log.log_outcome(clip, training_log.REJECTED)
         from src.stats import stream_stats
         stream_stats.record(stream_stats.REJECTED, clip)
-    _delete_clip_file(clip)
+    # File deletion is deferred to when the undo entry expires — unlinking the
+    # .mp4 now would let undo restore a record pointing at nothing.
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the rejection is always recorded, matching
@@ -1773,10 +1854,21 @@ async def reject_clip(request: Request, clip_id: str):
     # Never teach a channel's profile from a grabbed clip: the formula did not
     # produce it, so the decision says nothing about whether the formula was
     # right, and it would drift that channel's threshold on borrowed evidence.
+    profiles_before = {}
     if profile and not _is_grabbed(clip):
+        # Snapshot first: record_clip clamps the threshold and every weight, so
+        # subtracting the step back off later would not always land where we
+        # started. This is what makes an accidental reject fully reversible —
+        # including the damage it does to the channel's detector.
+        profiles_before[clip["channel"]] = undo.snapshot_profile(profile)
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+
+    undo.push(undo.UndoEntry(
+        user_id=uid, kind="reject", label="Rejected 1 clip",
+        clips=[clip], profiles_before=profiles_before,
+        held_files=_hold_files([clip])), on_drop=_drop_undo_entry)
     return {"status": "deleted", "clip_id": clip_id}
 
 
@@ -1801,7 +1893,9 @@ async def delete_clip_endpoint(request: Request, clip_id: str):
             raise HTTPException(status_code=404, detail="Clip not found")
         _clips.pop(clip_id)
         _save_clips()
-    _delete_clip_file(clip)
+    undo.push(undo.UndoEntry(
+        user_id=uid, kind="delete", label="Deleted 1 clip",
+        clips=[clip], held_files=_hold_files([clip])), on_drop=_drop_undo_entry)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
 
 
@@ -1837,7 +1931,7 @@ async def clear_pending_clips(request: Request):
 
     from src.stats import stream_stats
     for clip in removed:
-        _delete_clip_file(clip)
+        # File deletion deferred until the undo entry expires.
         # Grabbed clips never taught the formula, and they do not belong in the
         # channel's outcome ledger either — same carve-out as reject/approve.
         if not _is_grabbed(clip):
@@ -1845,6 +1939,12 @@ async def clear_pending_clips(request: Request):
         # Realtime contract: every open tab drops the clip immediately. Reusing
         # clip_removed means no new event name and no new frontend branch.
         await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
+
+    if removed:
+        undo.push(undo.UndoEntry(
+            user_id=uid, kind="clear",
+            label=f"Cleared {len(removed)} clip" + ("" if len(removed) == 1 else "s"),
+            clips=removed, held_files=_hold_files(removed)), on_drop=_drop_undo_entry)
 
     log.info("clips_cleared", uid=uid, removed=len(removed))
     return {"removed": len(removed)}
@@ -1864,13 +1964,20 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
             score = float(clip.get("score") or clip.get("trigger_score", 0))  # VOD clips store 'score'; live clips store 'trigger_score'
             if score < min_score:
                 to_remove.append(clip_id)
+        culled = []
         for clip_id in to_remove:
-            _delete_clip_file(_clips.pop(clip_id))
+            culled.append(_clips.pop(clip_id))
         if to_remove:
             _save_clips()
 
     for clip_id in to_remove:
         await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+
+    if culled:
+        undo.push(undo.UndoEntry(
+            user_id=uid, kind="cull",
+            label=f"Culled {len(culled)} clip" + ("" if len(culled) == 1 else "s"),
+            clips=culled, held_files=_hold_files(culled)), on_drop=_drop_undo_entry)
 
     log.info("bulk_cull", uid=uid, removed=len(to_remove), min_score=min_score)
     return {"removed": len(to_remove), "min_score": min_score}

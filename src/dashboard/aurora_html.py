@@ -262,6 +262,20 @@ button{font-family:inherit;cursor:pointer}
   background:rgba(18,14,24,.85);border:1px solid rgba(199,155,255,.35);color:var(--fg);font-size:13px;font-weight:500;
   -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 40px -12px rgba(0,0,0,.7);z-index:50;transition:all .35s cubic-bezier(.34,1.56,.64,1)}
 .rd-toast.show{transform:translate(-50%,0);opacity:1}
+.rd-undo{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;
+  display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:12px;
+  background:rgba(18,18,24,.96);border:1px solid var(--hair-2);
+  box-shadow:0 10px 34px rgba(0,0,0,.5);font-size:13px;color:var(--fg);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+.rd-undo .ico{display:flex;color:var(--fg-3)}
+.rd-undo .msg{font-weight:600}
+.rd-undo .act{background:rgba(168,85,247,.18);border:1px solid var(--acc);color:var(--acc);
+  font-weight:700;font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer}
+.rd-undo .act:hover{background:rgba(168,85,247,.3);color:var(--fg)}
+.rd-undo .left{font-size:11px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:26px}
+.rd-undo .x{background:none;border:none;color:var(--fg-3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+.rd-undo .x:hover{color:var(--fg)}
+@media(max-width:600px){.rd-undo{left:12px;right:12px;transform:none;justify-content:center}}
 .rd-toast .ico{width:24px;height:24px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#fff}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -1061,6 +1075,29 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
           </span>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function UndoToast({ entry, onUndo, onDismiss }) {
+  // Counts down so the offer visibly has a deadline, rather than lingering as a
+  // button whose behaviour silently changes when the server-side window lapses.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [entry && entry.id]);
+  if (!entry) return null;
+  const left = Math.max(0, Math.round((entry.expires_at * 1000 - now) / 1000));
+  if (left <= 0) return null;
+  const mins = Math.floor(left / 60);
+  return (
+    <div className="rd-undo">
+      <span className="ico"><Icon name="trash" size={13}/></span>
+      <span className="msg">{entry.label}</span>
+      <button className="act" onClick={onUndo}>Undo</button>
+      <span className="left">{mins > 0 ? mins + 'm' : left + 's'}</span>
+      <button className="x" onClick={onDismiss} aria-label="Dismiss">×</button>
     </div>
   );
 }
@@ -4178,6 +4215,29 @@ function RdApp() {
     toastTimer.current = setTimeout(()=>setToast(''), 3000);
   }, []);
 
+  // UNDO. Rather than every destructive button remembering to offer it, this
+  // hangs off clip_removed — the one event all four of them (reject, delete,
+  // cull, clear queue) already broadcast. One hook point, and any future
+  // destructive action gets undo for free. Debounced because clearing a queue
+  // emits one event per clip and the buffer only has one entry to report.
+  const [undoable, setUndoable] = useState(null);
+  const undoTimer = useRef(null);
+  const checkUndo = useCallback(() => {
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => {
+      fetch('/clips/undo').then(r=>r.ok?r.json():null)
+        .then(d => setUndoable(d && d.id ? d : null)).catch(()=>{});
+    }, 400);
+  }, []);
+  const doUndo = useCallback(() => {
+    const id = undoable && undoable.id;
+    setUndoable(null);
+    fetch('/clips/undo' + (id ? '?entry_id=' + encodeURIComponent(id) : ''), {method:'POST'})
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) flash('Restored ' + d.restored + ' clip' + (d.restored===1?'':'s')); })
+      .catch(()=>{});
+  }, [undoable, flash]);
+
   // Single source of truth for loading all live state. Called once on mount and
   // again on every WebSocket (re)connect so the UI fully self-heals after any
   // disconnect (laptop sleep, network blip, server restart on deploy) without a
@@ -4264,6 +4324,7 @@ function RdApp() {
         // usage stats) can react live to clip changes without their own socket.
         if(['clip_ready','clip_updated','clip_removed'].includes(msg.event))
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        if(msg.event==='clip_removed') checkUndo();
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));
@@ -4539,6 +4600,7 @@ function RdApp() {
       </div>
       {reviewAsk && <ReviewPrompt clips={reviewAsk.clips}
         onClose={()=>setReviewAsk(null)}/>}
+      <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
