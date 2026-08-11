@@ -4103,7 +4103,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
-<meta property="og:title" content="Highlightz — Clip up to 10 streams at once, automatically">
+<meta property="og:title" content="Highlightz — Never miss a highlight again, on 10 streams at once">
 <meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
@@ -4112,7 +4112,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Highlightz — clip 10 streams at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
+<meta property="og:image:alt" content="Highlightz — never miss a highlight again, on every channel at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
 <meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
@@ -4750,8 +4750,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <header class="wrap hero">
   <div class="hero-copy">
     <div class="kicker">Automatic Twitch clipping — for clippers and streamers</div>
-    <h1>Clip <span class="accent" style="white-space:nowrap">10 streams</span> at once.</h1>
-    <p class="lead">You can only watch one stream at a time. Highlightz watches all of them — every channel you clip for, plus your own — scoring each one second by second and creating the Twitch clip the moment something pops. <b>Up to 10 channels at the same time on Pro.</b></p>
+    <h1>Never miss a <span class="accent">highlight</span> again.</h1>
+    <p class="lead">On every channel at once. You can only watch one stream at a time — Highlightz watches all of them, every streamer you clip for plus your own, scoring each one second by second and creating the Twitch clip the moment something pops. <b>Up to 10 channels at the same time on Pro.</b></p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
       <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>

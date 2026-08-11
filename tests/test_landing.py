@@ -167,9 +167,12 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     starter = PLAN_LIMITS["starter"]["max_streams"]
     pro     = PLAN_LIMITS["pro"]["max_streams"]
 
-    # The headline promise, in the three places a visitor cannot miss.
-    assert f">{pro} streams</span> at once." in html          # the h1
-    assert f"Up to {pro} channels at once" in html            # hero tag
+    # Above the fold, in the three places a visitor cannot miss. The h1 is the
+    # brand slogan and deliberately carries no number — so the hero has to say
+    # it in the lead, or the page's main claim lives only in the pricing table.
+    assert "Never miss a <span class=\"accent\">highlight</span> again." in html
+    assert f"Up to {pro} channels at the same time on Pro." in html   # hero lead
+    assert f"Up to {pro} channels at once" in html                    # hero tag
     assert f"channels watched at once on Pro &mdash; {starter} on Starter" in html
 
     # The pricing cards, which is where the paid tiers have to be unambiguous.
