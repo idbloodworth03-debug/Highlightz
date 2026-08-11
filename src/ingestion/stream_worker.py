@@ -93,6 +93,10 @@ class StreamWorker:
         self._last_profile_save: float = 0.0
         self._last_threshold_decay: float = 0.0
         self._tasks: list[asyncio.Task] = []
+        # The preset actually in force. Starts as whatever was chosen when the
+        # stream was added and is re-resolved each time the channel goes live —
+        # see _resolve_preset.
+        self._preset: str = config.preset
 
     async def start(self) -> None:
         self._running = True
@@ -177,6 +181,60 @@ class StreamWorker:
             log.info("streamer_research_no_clips", channel=self._config.channel)
         await pm.save(p)
 
+    async def _resolve_preset(self, stream_key: str) -> None:
+        """Re-pick the preset now that the channel is live and Twitch knows it.
+
+        The pick used to happen once, in POST /streams. Twitch only reports a
+        category and a viewer count for a LIVE channel, so adding one that was
+        offline — a clipper queueing up the afternoon's roster, which is the
+        normal case — always fell back to "default" and stayed there for good.
+        The same lookup at go-live has the real answer.
+
+        It also tracks a mid-session category change: a streamer who opens on
+        Just Chatting and switches to Valorant gets the fps preset on the next
+        session instead of being scored as a talk show all week.
+
+        ONLY when the stored preset is "default", matching POST /streams: an
+        explicit choice is a decision and must never be silently overridden.
+        (Neither place can tell "chose Default" from "left it on Default" — the
+        stream record does not carry that. Same rule in both, so at least the
+        behaviour is consistent.)
+        """
+        chosen = self._config.preset
+        if chosen == "default" and self._stream_info is not None:
+            from src.trigger.rules import auto_preset
+            chosen = auto_preset(getattr(self._stream_info, "game", "") or "",
+                                 getattr(self._stream_info, "viewer_count", 0) or 0)
+        self._preset = chosen
+
+        # Record it on the profile so every later load decays toward the right
+        # seed, including loads from paths that never see a WorkerConfig.
+        if self._profile is not None and self._profile.preset != chosen:
+            self._profile.preset = chosen
+            await get_profile_manager(self._config.user_id).save(self._profile)
+
+        # Log every outcome, not just the interesting one. The previous version
+        # logged only when it picked something other than "default", so the most
+        # common result was invisible and "is auto-preset working?" could not be
+        # answered from the journal at all.
+        log.info("preset_resolved", channel=self._config.channel,
+                 preset=chosen, configured=self._config.preset,
+                 game=getattr(self._stream_info, "game", ""),
+                 viewers=getattr(self._stream_info, "viewer_count", 0))
+
+        # Realtime contract: the stream card shows the preset, so a tab that is
+        # already open has to see the change without a refresh.
+        if chosen == self._config.preset:
+            return
+        from src.dashboard import api as dashboard_api
+        record = dashboard_api._streams.get(stream_key)
+        if record is None:
+            return
+        record["preset"] = chosen
+        await dashboard_api.broadcast(
+            {"event": "stream_updated", "stream": record},
+            user_id=self._config.user_id)
+
     async def _run_session(self) -> None:
         channel = self._config.channel
         self._session_start = time.time()
@@ -196,6 +254,8 @@ class StreamWorker:
             "status": "live",
         }, user_id=self._config.user_id)
 
+        await self._resolve_preset(_sk)
+
         # Audio-only loudness probe (no recording). Disabled if the operator
         # turns off audio detection — the engine then runs chat-only.
         if settings.enable_audio_detection:
@@ -211,7 +271,7 @@ class StreamWorker:
             on_score=self._on_score,
             profile=self._profile,
             buffer=self._buffer,
-            preset=self._config.preset,
+            preset=self._preset,
         )
 
         chat_task = asyncio.create_task(self._run_chat(), name=f"chat-{channel}")
@@ -330,7 +390,7 @@ class StreamWorker:
                 self._last_threshold_decay = self._last_profile_save
             elif self._last_profile_save - self._last_threshold_decay >= 3600:
                 from src.trigger.rules import get_rules
-                seed_threshold = get_rules(self._config.channel, self._config.preset).trigger_threshold
+                seed_threshold = get_rules(self._config.channel, self._preset).trigger_threshold
                 current = self._profile.trigger_threshold
                 # Single decay implementation, shared with the load-time
                 # catch-up in ProfileManager.load — two copies would drift.

@@ -2109,14 +2109,23 @@ async def _auto_preset_for(channel: str) -> str:
             if close:
                 await close()
     except Exception as exc:
+        # Almost always "channel is not live" — get_stream_info raises for an
+        # offline channel, and Twitch has no category or viewer count to give
+        # for one. Not a failure: the worker re-resolves at go-live.
         log.info("preset_auto_skipped", channel=channel, reason=str(exc)[:120])
         return "default"
 
     chosen = auto_preset(getattr(info, "game", "") or "",
                          getattr(info, "viewer_count", 0) or 0)
-    if chosen != "default":
-        log.info("preset_auto_selected", channel=channel, preset=chosen,
-                 game=getattr(info, "game", ""), viewers=getattr(info, "viewer_count", 0))
+    # Logged on EVERY outcome, including "default". The previous version logged
+    # only when it picked something else, so the most common result left no
+    # trace at all and an empty journal was indistinguishable from a feature
+    # that was never deployed — which is exactly how it read when we went
+    # looking. The inputs are logged too, so a bad pick can be explained
+    # without reproducing it.
+    log.info("preset_auto_selected", channel=channel, preset=chosen,
+             game=getattr(info, "game", ""),
+             viewers=getattr(info, "viewer_count", 0))
     return chosen
 
 

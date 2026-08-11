@@ -73,7 +73,14 @@ class ProfileManager:
                     before = profile.trigger_threshold
                     try:
                         from src.trigger.rules import get_rules
-                        seed = get_rules(channel, "default").trigger_threshold
+                        # The channel's OWN preset, not "default". Hardcoding
+                        # "default" here meant every load dragged the threshold
+                        # toward 63 no matter what preset the channel was being
+                        # scored under, undoing the worker's hourly decay toward
+                        # the real seed. A "small" channel would creep down to
+                        # 50 while monitored and get yanked back on the next
+                        # deploy, so the preset never actually took hold.
+                        seed = get_rules(channel, profile.preset).trigger_threshold
                         # Seed the clock from the file's mtime for profiles
                         # written before last_decay_ts existed, so a channel
                         # neglected for days recovers on THIS load rather than
@@ -88,7 +95,7 @@ class ProfileManager:
                                      user=self._user_id, hours=round(hrs, 1),
                                      threshold_from=round(before, 2),
                                      threshold_to=round(profile.trigger_threshold, 2),
-                                     seed=seed)
+                                     seed=seed, preset=profile.preset)
                     except Exception as exc:
                         log.warning("profile_decay_catchup_failed",
                                     channel=channel, error=str(exc))

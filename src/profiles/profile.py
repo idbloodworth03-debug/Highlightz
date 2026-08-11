@@ -112,6 +112,22 @@ class StreamerProfile:
     # Wall-clock of the last decay tick. Decay is a function of ELAPSED TIME,
     # not of monitoring uptime — see decay_elapsed. 0.0 = never decayed.
     last_decay_ts: float = 0.0
+    # Which rules preset this channel is being scored under, recorded ON the
+    # profile rather than looked up by every caller.
+    #
+    # Decay mean-reverts the threshold toward the preset's seed, so anything
+    # that decays has to know the preset. ProfileManager.load does — and it used
+    # to hardcode "default", pulling every channel toward 63 while the worker's
+    # own hourly decay pulled toward the real preset's seed. The two fought, and
+    # since a deploy restarts the service and runs load(), the load side won:
+    # "small" channels were dragged back to a big-channel bar every deploy.
+    #
+    # Passing the preset into load() instead would have fixed only the callers
+    # that happen to know it; the reject/approve/undo paths do not. Storing it
+    # here means every load gets the right seed with no argument to forget.
+    # Old profiles deserialise to "default", which is what they were already
+    # being decayed toward, so nothing moves on the first load after upgrade.
+    preset: str = "default"
 
     # ── Per-signal learned weight multipliers (1.0 = unchanged) ──────────
     # Nudged by record_clip() based on which signals fired in each clip.
