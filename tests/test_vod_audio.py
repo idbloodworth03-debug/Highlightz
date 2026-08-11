@@ -198,3 +198,44 @@ def test_the_pass_is_off_by_default():
     audio track, so a box opts in rather than inheriting it."""
     from config.settings import Settings
     assert Settings().vod_audio_enabled is False
+
+
+# ── the "is it hung?" surface ────────────────────────────────────────────────
+
+def test_the_scan_reports_a_phase_for_every_stage():
+    """The screen labels the stage it is in. A stage that reports no phase falls
+    back to "Scoring moments…", which during a multi-minute audio decode tells
+    the user the wrong thing is slow."""
+    import inspect
+    src = inspect.getsource(analyzer.run_vod_analysis)
+    for phase in ('"phase": "fetch"', '"phase": "audio"', '"phase": "score"'):
+        assert phase in src, f"no progress report carries {phase}"
+
+
+def test_the_progress_bar_animates_independently_of_the_percentage():
+    """The audio decode reports once per 30s of decoded audio, so the percentage
+    genuinely sits still for long stretches. A bar that only moves with progress
+    is indistinguishable from a hung job."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "rd-track working" in html, "the sweep class is never applied"
+    assert "@keyframes rdScan" in html
+    assert "prefers-reduced-motion" in html
+
+
+def test_elapsed_time_is_driven_by_the_browser_not_the_server():
+    """The decisive signal. Sweep and percentage both come from the server, so
+    if the job or socket died they would freeze together and look exactly like a
+    slow scan. A locally-ticked counter keeps moving only while the page is
+    alive."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index("function ScanActivity")
+    block = html[i:i + 1200]
+    assert "setInterval" in block and "Date.now()" in block
+
+
+def test_elapsed_time_survives_reopening_the_tab_mid_scan():
+    """created_at (the server's start) must win over the client stamp, or
+    reconnecting halfway through a 6-minute scan restarts the clock at 0s and
+    hides how long it has really been going."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "job.created_at ? job.created_at * 1000" in html

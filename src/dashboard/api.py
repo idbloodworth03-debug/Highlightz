@@ -808,7 +808,13 @@ async def me(request: Request):
         "next_plan":           _next_tier(user),
         "features":            {"uploads": settings.uploads_enabled,
                                 "clip_import": settings.clip_import_enabled,
-                                "captions": settings.captions_enabled},
+                                "captions": settings.captions_enabled,
+                                # Exposed so the VOD screen can describe what a
+                                # scan actually does. With audio on it decodes
+                                # the stream's sound, which the old copy ("no
+                                # video download needed", chat signals only)
+                                # flatly contradicts.
+                                "vod_audio": settings.vod_audio_enabled},
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",

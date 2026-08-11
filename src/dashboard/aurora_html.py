@@ -137,6 +137,23 @@ button{font-family:inherit;cursor:pointer}
 .rd-fill{height:100%;border-radius:var(--r-pill);transition:background .6s;position:relative}
 .rd-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:14px;background:rgba(255,255,255,.5);filter:blur(5px);opacity:.7}
 .rd-thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(255,255,255,.65);box-shadow:0 0 5px rgba(255,255,255,.45);border-radius:1px;pointer-events:none}
+/* A sweep across the whole track, not a fill animation, because the percentage
+   can legitimately sit still for minutes: the audio decode reports every 30s of
+   decoded audio, and a bar that has not moved since the last update is
+   indistinguishable from a hung job. This keeps moving regardless of progress,
+   and works at 0% where a fill-based shimmer would have nothing to shimmer. */
+.rd-track.working::after{content:'';position:absolute;top:0;bottom:0;width:36%;
+  background:linear-gradient(90deg,transparent,rgba(199,155,255,.5),transparent);
+  animation:rdScan 1.7s ease-in-out infinite;pointer-events:none}
+@keyframes rdScan{0%{left:-36%}100%{left:100%}}
+.rd-livedot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);
+  margin-right:7px;vertical-align:middle;animation:rdBreathe 1.4s ease-in-out infinite}
+@keyframes rdBreathe{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){
+  /* Still legible without motion: the elapsed counter alone proves liveness. */
+  .rd-track.working::after{animation:none;opacity:.25}
+  .rd-livedot{animation:none;opacity:.9}
+}
 .rd-sigs{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
 .rd-sig{font-size:10px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
 /* Training studio sliders */
@@ -3719,7 +3736,72 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   );
 }
 
+function ScanActivity({ job }) {
+  // Ticks locally once a second. This is the part that actually answers "is it
+  // hung?": the sweep and the percentage both come from the server, so if the
+  // job or the socket died they would freeze together and look identical to a
+  // slow scan. A counter driven by the browser's own clock keeps moving only
+  // while the tab is alive, and stops the moment the job reports done.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // created_at (the server's own start time) wins, so reopening the tab or
+  // reconnecting mid-scan shows how long the job has REALLY been running
+  // instead of restarting the clock. started_at is only the fallback for a job
+  // first seen over the socket, which carries no created_at.
+  const startedAt = job.created_at ? job.created_at * 1000 : (job.started_at || now);
+  const secs = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const mins = Math.floor(secs / 60);
+  const elapsed = mins > 0 ? mins + 'm ' + (secs % 60) + 's' : secs + 's';
+
+  // Named per phase because "Scanning chat…" through a multi-minute audio
+  // decode is actively misleading — the user is told the wrong thing is slow.
+  const LABEL = {
+    fetch: 'Reading chat replay…',
+    audio: 'Listening to the stream…',
+    score: 'Scoring moments…',
+  };
+  const label = LABEL[job.phase] || 'Scoring moments…';
+  const detail = job.phase === 'audio' && job.audio_seconds
+    ? Math.floor(job.audio_seconds / 60) + ' min of audio decoded'
+    : (job.phase === 'fetch' && job.messages
+        ? job.messages.toLocaleString() + ' messages'
+        : '');
+
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
+                   fontSize:12,color:'var(--fg-2)',marginBottom:6,gap:10}}>
+        <span style={{minWidth:0}}>
+          <span className="rd-livedot"/>{label}
+          {detail && <span style={{color:'var(--fg-3)'}}> · {detail}</span>}
+        </span>
+        <span style={{fontVariantNumeric:'tabular-nums',flexShrink:0,color:'var(--fg-3)'}}>
+          {elapsed} · {Math.round(job.progress||0)}%
+        </span>
+      </div>
+      <div className="rd-track working" style={{height:6}}>
+        <div className="rd-fill" style={{width:(job.progress||0)+'%',background:'var(--grad)',
+                                         transition:'width .5s ease'}}/>
+      </div>
+      {job.phase === 'audio' && (
+        <div style={{fontSize:11,color:'var(--fg-3)',marginTop:6,lineHeight:1.5}}>
+          Audio scans take a few minutes — the stream is being listened to so loud
+          moments get caught even when chat is quiet. You can leave this tab.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VodScreen({ clips, me }) {
+  // Whether this box decodes VOD audio (VOD_AUDIO_ENABLED). It changes both what
+  // a scan does and how long it takes, so the screen describes the scan it is
+  // actually running rather than the chat-only one it used to be.
+  const audioOn = !!(me && me.features && me.features.vod_audio);
   const [url, setUrl]         = useState('');
   const [preset, setPreset]   = useState('default');
   const [jobs, setJobs]       = useState([]);
@@ -3742,7 +3824,15 @@ function VodScreen({ clips, me }) {
       try {
         const msg = JSON.parse(e.detail);
         if(msg.event==='vod_progress'){
-          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,progress:msg.progress,...(msg.vod_title?{vod_title:msg.vod_title,channel:msg.channel,duration:msg.duration,game:msg.game}:{})}:j));
+          setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,progress:msg.progress,
+            // phase/messages/audio_seconds ride along in the broadcast already
+            // (api.py spreads **meta); they were being dropped here, which is
+            // why the label always read "Scanning chat".
+            ...(msg.phase?{phase:msg.phase}:{}),
+            ...(msg.messages!==undefined?{messages:msg.messages}:{}),
+            ...(msg.audio_seconds!==undefined?{audio_seconds:msg.audio_seconds}:{}),
+            started_at: j.started_at || Date.now(),
+            ...(msg.vod_title?{vod_title:msg.vod_title,channel:msg.channel,duration:msg.duration,game:msg.game}:{})}:j));
         } else if(msg.event==='vod_moment'){
           setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,moments:[...(j.moments||[]),msg.moment]}:j));
         } else if(msg.event==='vod_done'){
@@ -3823,7 +3913,7 @@ function VodScreen({ clips, me }) {
 
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="video" size={15}/></span>Analyze a VOD</h3>
-          <div className="desc">Paste a Twitch VOD URL and the bot will scan the full chat replay to find highlight moments — no video download needed.</div>
+          <div className="desc">Paste a Twitch VOD URL and the bot will scan it for highlight moments{audioOn?' — chat replay plus the stream\u2019s audio.':' — no video download needed.'}</div>
           <div style={{display:'flex',flexDirection:'column',gap:12,marginTop:4}}>
             <input
               className="rd-input"
@@ -3847,7 +3937,7 @@ function VodScreen({ clips, me }) {
           </div>
           {err && <div style={{marginTop:10,padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13}}>{err}</div>}
           <div style={{marginTop:14,padding:'10px 13px',borderRadius:10,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>
-            <strong style={{color:'var(--fg-2)'}}>How it works:</strong> The bot downloads the full chat replay for the VOD, then scans it second-by-second using the same scoring engine as live monitoring — chat velocity, keywords, sentiment. When the score crosses the threshold, a moment is found. Each moment links directly to that exact timestamp in the VOD. Clips show up in your review queue automatically.
+            <strong style={{color:'var(--fg-2)'}}>How it works:</strong> The bot pulls the VOD{audioOn?' chat replay and its audio track':' chat replay'}, then scans second-by-second with the same scoring engine as live monitoring — chat velocity, keywords, sentiment{audioOn?', and audio spikes':''}. When the score crosses the threshold, a moment is found. Each moment links to that exact timestamp in the VOD, and lands in your review queue automatically.{audioOn?' Audio scans take a few minutes; nothing is recorded or stored — only loudness is measured.':''}
           </div>
         </div>
 
@@ -3873,17 +3963,7 @@ function VodScreen({ clips, me }) {
               </div>
             </div>
 
-            {job.status==='running' && (
-              <div style={{marginBottom:14}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--fg-2)',marginBottom:6}}>
-                  <span>Scanning chat…</span>
-                  <span style={{fontVariantNumeric:'tabular-nums'}}>{Math.round(job.progress||0)}%</span>
-                </div>
-                <div className="rd-track" style={{height:6}}>
-                  <div className="rd-fill" style={{width:(job.progress||0)+'%',background:'var(--grad)'}}/>
-                </div>
-              </div>
-            )}
+            {job.status==='running' && <ScanActivity job={job}/>}
 
             {job.status==='failed' && (
               <div style={{padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13,marginBottom:12}}>
