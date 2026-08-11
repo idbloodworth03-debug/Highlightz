@@ -258,7 +258,47 @@ def _percentile(values: list[float], pctl: float) -> float:
     return ordered[idx]
 
 
-def _vod_threshold(profile, rules) -> tuple[float, float]:
+# AUDIO_SPIKE's weight in the live engine (engine.py base_weights). Mirrored
+# rather than imported because the live table is built inside evaluate() with
+# per-profile multipliers applied; a test asserts the two stay equal.
+VOD_AUDIO_WEIGHT = 22
+
+# Fraction of the live threshold a scan demands, by how much of the pool it can
+# actually score. See _threshold_scale for the derivation.
+_CHAT_ONLY_SCALE = 0.62
+_AUDIO_SCALE     = 0.87
+
+
+def _threshold_scale(with_audio: bool) -> float:
+    """How much of the live threshold a VOD scan should demand.
+
+    The live bar is calibrated against the full 110-point pool. A scan that
+    scores a smaller pool has to lower the bar by the same proportion or it can
+    never trigger — the anchor, unchanged since the original design, is
+    scale = 0.50 x (this scan's ceiling / 57.6), where the ceiling is the pool
+    times the multi-signal bonus.
+
+      chat only   : (38+5+5+10) x 1.25 = 72.5  -> 0.50 x 72.5/57.6  = 0.63
+      with audio  : (58+22)     x 1.25 = 100.0 -> 0.50 x 100.0/57.6 = 0.87
+
+    RAISING THE BAR ALONGSIDE THE POOL IS THE POINT, not a side effect. Audio
+    lifts every loud moment's score; if the bar stayed at 0.63 the scan would
+    simply trigger on everything and the extra signal would buy nothing but
+    noise. Moving both together means audio changes WHICH moments win, not how
+    many. And a scan can still not come back empty: the percentile floor
+    (_VOD_PCTL) is applied as min(absolute, percentile), so it can only ever add
+    candidates back.
+
+    Both values are the tuned constants, not the formula's raw output. The
+    chat-only scale stays at exactly the 0.62 that shipped and was calibrated
+    against real scans; recomputing it would land on 0.629 and quietly raise the
+    bar on every chat-only scan, which is the wrong direction and not a change
+    anyone asked for. test_vod_audio.py checks both against the anchor.
+    """
+    return _AUDIO_SCALE if with_audio else _CHAT_ONLY_SCALE
+
+
+def _vod_threshold(profile, rules, with_audio: bool = False) -> tuple[float, float]:
     """(score threshold, spike multiplier) for a VOD scan.
 
     Uses the channel's LEARNED values when a profile exists — the user's
@@ -287,7 +327,7 @@ def _vod_threshold(profile, rules) -> tuple[float, float]:
         if profile is not None and profile.velocity_samples >= 30
         else rules.velocity_multiplier
     )
-    return base * 0.62, spike_mult
+    return base * _threshold_scale(with_audio), spike_mult
 
 
 # How many moments a scan may keep. Raised 2026-08 from 3/hour (max 12) after a
@@ -341,6 +381,7 @@ def _score_window(
     rules,
     acceleration: float = 1.0,
     spike_multiplier: float | None = None,
+    audio_score: float | None = None,
 ) -> tuple[float, dict]:
     """
     Score a sliding window of chat messages relative to a long-term baseline,
@@ -397,7 +438,16 @@ def _score_window(
         sent_score * W["SENTIMENT"] +
         homo_score * W["EMOTE_HOMOGENEITY"]
     )
-    active = sum(1 for v in (vel_score, kw_score, sent_score, homo_score) if v > 0.5)
+    # Audio joins the multi-signal count as well as the sum: a loud reaction
+    # with moderate chat is exactly the case this whole pass exists to catch,
+    # and leaving it out of `active` would deny it the bonus that a chat-only
+    # moment of the same strength receives.
+    if audio_score is not None:
+        raw += audio_score * VOD_AUDIO_WEIGHT
+    contributors = [vel_score, kw_score, sent_score, homo_score]
+    if audio_score is not None:
+        contributors.append(audio_score)
+    active = sum(1 for v in contributors if v > 0.5)
     if active >= scoring.MULTI_SIGNAL_MIN_ACTIVE:
         raw *= scoring.MULTI_SIGNAL_BONUS
     score = min(raw, 100)
@@ -407,12 +457,15 @@ def _score_window(
     if clip_it_senders >= scoring.CLIP_IT_MIN_SENDERS:
         score = max(score, scoring.CLIP_IT_FLOOR)
 
-    return score, {
+    breakdown = {
         "CHAT_VELOCITY":     round(vel_score, 3),
         "KEYWORD":           round(kw_score, 3),
         "SENTIMENT":         round(sent_score, 3),
         "EMOTE_HOMOGENEITY": round(homo_score, 3),
     }
+    if audio_score is not None:
+        breakdown["AUDIO_SPIKE"] = round(audio_score, 3)
+    return score, breakdown
 
 
 async def run_vod_analysis(
@@ -462,7 +515,38 @@ async def run_vod_analysis(
         # user's approve/reject history sets the threshold, and the profile's
         # variance sets the spike multiplier. Preset values are cold-start only.
         profile = await _load_profile(user_id, chan)
-        threshold, spike_mult = _vod_threshold(profile, rules)
+
+        # ── audio pass ────────────────────────────────────────────────────────
+        # The heaviest non-chat signal the live engine has, and the reason a scan
+        # used to miss moments where the streamer reacted loudly over calm chat.
+        # Decoding is the slow part of a scan (minutes, not seconds), so it runs
+        # before scoring and reports progress of its own. Off by default: it is a
+        # real change in what a scan costs on a small box, so it is switched on
+        # deliberately rather than inherited.
+        audio_scores: dict[int, float] = {}
+        if settings.vod_audio_enabled:
+            from src.vod import vod_audio
+            await on_progress(12.0, {"phase": "audio", "audio_seconds": 0})
+
+            def _audio_tick(secs: int) -> None:
+                # Fire-and-forget: on_progress is async and this is called from
+                # the decode loop, which must not await the websocket.
+                pct = 12.0 + min(28.0, (secs / max(duration, 1.0)) * 28.0)
+                asyncio.create_task(
+                    on_progress(pct, {"phase": "audio", "audio_seconds": secs}))
+
+            db_timeline = await vod_audio.extract_db_timeline(
+                vod_url, on_progress=_audio_tick)
+            audio_scores = vod_audio.score_timeline(db_timeline)
+            log.info("vod_audio_ready", vod_id=vod_id,
+                     seconds=len(audio_scores),
+                     covered=round(len(audio_scores) / max(duration, 1.0), 2))
+
+        # Only claim the audio pool if audio actually arrived. A failed decode
+        # must leave the bar exactly where a chat-only scan expects it, or a
+        # missing binary would quietly halve the moments a user gets.
+        with_audio = bool(audio_scores)
+        threshold, spike_mult = _vod_threshold(profile, rules, with_audio=with_audio)
 
         WINDOW    = 15.0    # scoring window in seconds
         LT_WIN    = 300.0   # long-term baseline window
@@ -591,9 +675,20 @@ async def run_vod_analysis(
                     accel    = (recent_n / half) / max(older_n / half, 1e-6) if older_n > 0 else 1.0
                 else:
                     accel = 1.0
+                # Peak over the window, not the mean: a scream is a transient,
+                # and averaging it across 15s of ordinary talking erases exactly
+                # the thing being measured. Mirrors the live engine, which reads
+                # a rolling peak rather than an average level.
+                win_audio = None
+                if with_audio:
+                    lo = int(offset - WINDOW)
+                    win_audio = max(
+                        (audio_scores.get(t, 0.0) for t in range(lo, int(offset) + 1)),
+                        default=0.0)
                 score, breakdown = _score_window(
                     window, len(lt_deq), lt_actual, WINDOW, clip_it_senders, rules,
-                    acceleration=accel, spike_multiplier=spike_mult)
+                    acceleration=accel, spike_multiplier=spike_mult,
+                    audio_score=win_audio)
 
                 if score > peak_score:
                     peak_score = score

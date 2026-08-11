@@ -112,6 +112,11 @@ class Settings(BaseSettings):
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
     max_concurrent_streams: int = 20
+    # Decode a VOD's audio during a scan so AUDIO_SPIKE — the heaviest non-chat
+    # signal the live engine has — contributes to VOD moments too. Off by
+    # default because it changes a scan from seconds to minutes and pulls the
+    # whole audio track: switch it on deliberately per box.
+    vod_audio_enabled: bool = False
 
     # Twitch OAuth (primary login + per-user clip creation)
     twitch_redirect_uri: str = "https://highlightz.app/auth/twitch/callback"
