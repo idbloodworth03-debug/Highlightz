@@ -59,17 +59,49 @@ def _m(off, score):
 
 
 def test_top_moments_keeps_best_in_chronological_order():
-    moments = [_m(100, 31), _m(400, 55), _m(900, 33), _m(1400, 48),
-               _m(1900, 30.5), _m(2400, 61), _m(2900, 34)]
-    kept = analyzer._top_moments(moments, duration_secs=3600)   # cap = 3
-    assert [m["score"] for m in kept] == [55, 48, 61]           # top-3 by score…
-    assert [m["offset_seconds"] for m in kept] == [400, 1400, 2400]  # …in time order
+    """Ranking, not the cap, decides WHICH moments survive: the cap is set high
+    enough that it rarely binds, so this forces it by supplying more moments
+    than a one-hour VOD may keep."""
+    n = analyzer._moment_cap(3600)
+    moments = [_m(i * 100, 30 + i) for i in range(n + 4)]
+    kept = analyzer._top_moments(moments, duration_secs=3600)
+    assert len(kept) == n
+    # The four lowest-scoring are dropped; the rest come back in time order.
+    assert [m["score"] for m in kept] == [30 + i for i in range(4, n + 4)]
+    assert [m["offset_seconds"] for m in kept] == sorted(
+        m["offset_seconds"] for m in kept)
 
 
-def test_top_moments_scales_with_duration_and_caps_at_12():
-    many = [_m(i * 100, 30 + i * 0.1) for i in range(60)]
-    assert len(analyzer._top_moments(many, duration_secs=2 * 3600)) == 6   # 3/hr
-    assert len(analyzer._top_moments(many, duration_secs=10 * 3600)) == 12  # hard cap
+def test_the_cap_scales_with_duration_and_stops_at_a_ceiling():
+    many = [_m(i * 100, 30 + i * 0.1) for i in range(400)]
+    per_hr = analyzer._VOD_MOMENTS_PER_HOUR
+    assert len(analyzer._top_moments(many, duration_secs=2 * 3600)) == 2 * per_hr
+    assert len(analyzer._top_moments(many, duration_secs=100 * 3600)) == \
+        analyzer._VOD_MOMENTS_MAX
+
+
+def test_the_cap_is_no_longer_the_thing_limiting_a_normal_scan():
+    """THE BUG THIS REGRESSES. At 3/hour a 3-hour VOD kept 9 moments while the
+    90s cooldown already allowed 120 and the live bot on the same stream had no
+    cap at all — so ranking was discarding most qualifying moments before the
+    user saw them. The cap must sit well clear of what the cooldown permits."""
+    for hours in (1, 2, 3, 4):
+        secs = hours * 3600
+        cooldown_allows = secs / 90.0          # COOLDOWN in run_vod_analysis
+        assert analyzer._moment_cap(secs) >= 3 * hours * 3, (
+            f"{hours}h VOD cap is back near the old 3/hour rate")
+        assert analyzer._moment_cap(secs) < cooldown_allows, (
+            "cap should stay a ranking step, not exceed what the scan can emit")
+
+
+def test_both_cap_sites_agree():
+    """The final trim and the mid-scan percentile top-up used to each spell the
+    formula out, so they could drift apart and the top-up would add moments the
+    trim then threw away."""
+    import inspect
+    src = inspect.getsource(analyzer.run_vod_analysis)
+    assert "_moment_cap(duration)" in src
+    assert "min(12" not in src, "the top-up still has its own hardcoded cap"
 
 
 def test_top_moments_short_vod_min_three():
@@ -85,7 +117,9 @@ async def test_scan_emits_only_top_moments(monkeypatch):
         return None
     monkeypatch.setattr(analyzer, "_load_profile", _none)
 
-    # 20-min VOD (cap=3) with five separated same-shape hype bursts.
+    # 20-min VOD with five separated same-shape hype bursts. At the current
+    # rate a 20-minute VOD's cap is the _MIN_VOD_MOMENTS floor, so all five
+    # bursts fit and the scan should surface every one of them.
     msgs = [{"offset": float(t), "text": "just chatting normally here",
              "author": f"b{t % 15}"} for t in range(0, 1200)]
     for start in (300, 450, 600, 750, 900):
@@ -109,7 +143,11 @@ async def test_scan_emits_only_top_moments(monkeypatch):
         await analyzer.run_vod_analysis("1", "chan", "balanced", "u",
                                         noop, on_moment, on_done, noop)
 
-    assert len(emitted) == 3                       # 5 found → top-3 kept
+    # Five separated bursts qualify; a 20-minute VOD's cap decides how many are
+    # kept. Asserted against the cap itself so this test tracks the rate rather
+    # than pinning a number that has to be edited every time it is tuned.
+    assert len(emitted) == analyzer._moment_cap(1200)
+    assert len(emitted) >= 4, "a 20-minute VOD should keep more than the old 3"
     assert emitted == done[0]                      # on_done gets the same survivors
     offs = [m["offset_seconds"] for m in emitted]
     assert offs == sorted(offs)                    # chronological emission

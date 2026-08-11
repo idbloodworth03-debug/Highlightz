@@ -290,12 +290,42 @@ def _vod_threshold(profile, rules) -> tuple[float, float]:
     return base * 0.62, spike_mult
 
 
+# How many moments a scan may keep. Raised 2026-08 from 3/hour (max 12) after a
+# side-by-side run: the live bot on the same stream produced several times more
+# clips than a scan of its VOD, and this cap — not the score bar and not the
+# cooldown — was doing almost all of that cutting. On a 3-hour VOD the 90s
+# cooldown already allows up to 120 moments and the old cap kept 9, so the
+# ranking step was discarding ~90% of qualifying moments before the user ever
+# saw them. The live path has no equivalent cap at all; it is bounded by the
+# cooldown and by the plan's pending-clip queue.
+#
+# The cap is kept (a VOD scan is a search, so ranking still matters and an
+# unbounded scan of an 8-hour stream would bury the good moments), just set
+# where it stops being the binding constraint. VOD is Pro-only, and Pro's
+# review queue holds 200, so even a long scan at this rate fits comfortably.
+_VOD_MOMENTS_PER_HOUR = 12
+_VOD_MOMENTS_MAX      = 60
+
+
+def _moment_cap(duration_secs: float) -> int:
+    """Ceiling on kept moments for a VOD of this length.
+
+    One definition, used by both the mid-scan percentile top-up and the final
+    trim. It used to be written out twice with the same magic numbers, which is
+    one edit away from the top-up and the trim disagreeing about how many
+    moments are allowed.
+    """
+    per_hour = (duration_secs / 3600.0) * _VOD_MOMENTS_PER_HOUR
+    return int(min(_VOD_MOMENTS_MAX, max(_MIN_VOD_MOMENTS, per_hour)))
+
+
 def _top_moments(moments: list[dict], duration_secs: float) -> list[dict]:
-    """Keep only the best moments of a scan: rank by score and cap at
-    ~3/hour (min 3, max 12), returned in chronological order. Emitting every
-    above-threshold run buries the good moments under mediocre ones — a
-    3-hour VOD should surface its highlights, not its entire pulse."""
-    cap = int(min(12, max(3, (duration_secs / 3600.0) * 3)))
+    """Keep the best moments of a scan: rank by score, cap by duration, and
+    return in chronological order. Emitting every above-threshold run buries the
+    good moments under mediocre ones — but the cap has to sit well above what a
+    normal stream produces, or it becomes the thing deciding how many clips a
+    user gets rather than the scoring does."""
+    cap = _moment_cap(duration_secs)
     if len(moments) <= cap:
         return moments
     best = sorted(moments, key=lambda m: m["score"], reverse=True)[:cap]
@@ -656,7 +686,7 @@ async def run_vod_analysis(
         # Effective bar = min(absolute, percentile): it can only ADD candidates,
         # and _top_moments still ranks and caps them, so a healthy scan keeps
         # exactly the moments it already had.
-        cap = int(min(12, max(_MIN_VOD_MOMENTS, (duration / 3600.0) * 3)))
+        cap = _moment_cap(duration)
         if score_timeline:
             scores_all = list(score_timeline.values())
             pctl_bar = (_percentile(scores_all, _VOD_PCTL)
