@@ -1971,6 +1971,36 @@ async def stream_suggestions(request: Request, q: str = ""):
                         if p["login"].lower() not in monitored][:8]}
 
 
+async def _auto_preset_for(channel: str) -> str:
+    """Pick a preset from the channel's live category and size, or "default".
+
+    Fails soft in every direction: an offline channel, a Twitch hiccup or a
+    category we have no opinion about all return "default", which is exactly
+    what the user would have got anyway. Adding a stream must never fail
+    because a nicety could not be computed.
+    """
+    from src.trigger.rules import auto_preset
+    try:
+        from src.ingestion.platform.twitch import TwitchPlatform
+        platform = TwitchPlatform()
+        try:
+            info = await asyncio.wait_for(platform.get_stream_info(channel), timeout=6.0)
+        finally:
+            close = getattr(platform, "close", None)
+            if close:
+                await close()
+    except Exception as exc:
+        log.info("preset_auto_skipped", channel=channel, reason=str(exc)[:120])
+        return "default"
+
+    chosen = auto_preset(getattr(info, "game", "") or "",
+                         getattr(info, "viewer_count", 0) or 0)
+    if chosen != "default":
+        log.info("preset_auto_selected", channel=channel, preset=chosen,
+                 game=getattr(info, "game", ""), viewers=getattr(info, "viewer_count", 0))
+    return chosen
+
+
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
@@ -1985,6 +2015,23 @@ async def add_stream(request: Request, req: StreamRequest):
     from src.auth.optout import is_opted_out
     if req.platform == "twitch" and is_opted_out(req.channel):
         raise HTTPException(status_code=403, detail=f"{req.channel} has opted out of clipping on Highlightz")
+    # AUTO-PRESET, resolved before the lock — this makes a Twitch call, and
+    # awaiting a network round-trip while holding _data_lock would stall every
+    # other clip in the pipeline.
+    #
+    # WHY IT EXISTS. The dropdown defaults to "default" and most people never
+    # touch it, so the per-genre tuning in rules.py almost never reached the
+    # streams it was written for. The group that failed hardest were small
+    # channels, whose thin chat is exactly what the "small" preset compensates
+    # for. Twitch returns the category and the concurrent viewer count in the
+    # same lookup we already need, so pick for them.
+    #
+    # ONLY when the user left it on "default": an explicit choice is a decision
+    # and must never be silently overridden.
+    preset = req.preset
+    if preset == "default" and req.platform == "twitch":
+        preset = await _auto_preset_for(req.channel)
+
     stream_key = f"{uid}:{req.channel}"
     async with _data_lock:
         if stream_key in _streams:
@@ -2013,7 +2060,7 @@ async def add_stream(request: Request, req: StreamRequest):
         record = {
             "channel":         req.channel,
             "platform":        req.platform,
-            "preset":          req.preset,
+            "preset":          preset,
             "status":          "starting",
             "user_id":         uid,
             # Needed by _enforce_stream_limit to decide which streams survive a
@@ -2025,7 +2072,7 @@ async def add_stream(request: Request, req: StreamRequest):
         _save_streams()
     await broadcast({"event": "stream_added", "stream": record}, user_id=uid)
     if _publish_new_stream:
-        await _publish_new_stream(req.channel, req.platform, req.preset, uid)
+        await _publish_new_stream(req.channel, req.platform, preset, uid)
     return record
 
 

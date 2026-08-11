@@ -271,3 +271,83 @@ def get_rules(channel: str, preset: str = "default") -> ChannelRules:
     if channel.lower() in CHANNEL_OVERRIDES:
         return CHANNEL_OVERRIDES[channel.lower()]
     return PRESETS.get(preset, PRESETS["default"])
+
+
+# ── automatic preset selection ────────────────────────────────────────────────
+# Presets were only ever chosen by hand, from a dropdown, at the moment a
+# channel was added. Most people leave it on Default, which means the tuning
+# work in the table above almost never reached the streams it was written for —
+# and the group it failed hardest were small channels, whose thin chat is
+# exactly what "small" exists to compensate for.
+#
+# Twitch already tells us both facts we need (game category and concurrent
+# viewers) in the same StreamInfo we fetch to start monitoring, so the pick can
+# be made for the user instead.
+
+# Concurrent viewers below which chat is too thin to score like a big channel.
+# 50 is a judgement, not a measurement: it is roughly where a 15s window starts
+# holding enough messages for a velocity ratio to mean something rather than be
+# one person typing. Named so it can be moved when there is data to move it by.
+SMALL_CHANNEL_VIEWERS = 50
+
+# Twitch category -> preset. Matched case-insensitively on a normalised name, so
+# "Counter-Strike 2" and "counter-strike 2" both land. Substring matching is
+# deliberate: Twitch renames categories (Counter-Strike: GO -> Counter-Strike 2,
+# FIFA -> EA Sports FC) and an exact table would silently rot at every rename.
+GAME_PRESETS: tuple[tuple[str, str], ...] = (
+    # FPS — fast, frequent, short reaction windows
+    ("counter-strike", "fps"), ("valorant", "fps"), ("call of duty", "fps"),
+    ("apex legends", "fps"), ("overwatch", "fps"), ("rainbow six", "fps"),
+    ("fortnite", "fps"), ("pubg", "fps"), ("battlefield", "fps"),
+    ("halo", "fps"), ("escape from tarkov", "fps"), ("destiny", "fps"),
+    ("the finals", "fps"), ("delta force", "fps"), ("marvel rivals", "fps"),
+    # MOBA — long setups, payoff at the end of a fight, so a long pre-roll
+    ("league of legends", "moba"), ("dota", "moba"), ("smite", "moba"),
+    ("teamfight tactics", "moba"), ("heroes of the storm", "moba"),
+    # Strategy / slow — chat barely moves, so the multiplier is high
+    ("chess", "chess"), ("starcraft", "chess"), ("age of empires", "chess"),
+    ("civilization", "chess"), ("total war", "chess"), ("hearthstone", "chess"),
+    ("magic: the gathering", "chess"), ("go", "chess"),
+    # Gambling — bursty, all-or-nothing reactions
+    ("slots", "casino"), ("virtual casino", "casino"), ("poker", "casino"),
+    # IRL — long, meandering, big post-roll
+    ("irl", "irl"), ("travel", "irl"), ("outdoors", "irl"),
+    ("food & drink", "irl"), ("special events", "irl"), ("asmr", "irl"),
+    # Watching sport — the reaction lands almost before the play does
+    ("sports", "sports"), ("football", "sports"), ("basketball", "sports"),
+    ("boxing", "sports"), ("mma", "sports"), ("wrestling", "sports"),
+    # Talk / variety
+    ("just chatting", "variety"), ("art", "variety"), ("music", "variety"),
+    ("games + demos", "variety"), ("talk shows", "variety"),
+    ("makers & crafting", "variety"),
+)
+
+
+def preset_for_game(game: str) -> str | None:
+    """Preset for a Twitch category name, or None if we have no opinion."""
+    g = (game or "").strip().lower()
+    if not g:
+        return None
+    for needle, preset in GAME_PRESETS:
+        if needle in g:
+            return preset
+    return None
+
+
+def auto_preset(game: str = "", viewer_count: int = 0) -> str:
+    """Best preset for a channel from what Twitch tells us about it.
+
+    SIZE BEATS GENRE, deliberately. A 20-viewer Valorant channel has more in
+    common with another 20-viewer channel than with a 20,000-viewer Valorant
+    channel: the binding problem is that a 15s window holds three messages, not
+    that the game is fast. "small" drops the bar 63 -> 50 and the spike
+    multiplier 2.5 -> 1.6, which is what a thin chat needs; the genre presets
+    mostly tune roll lengths, which matter far less when nothing is firing at
+    all.
+
+    Returns "default" rather than guessing when the category is unknown — an
+    unfamiliar game is not evidence for any particular preset.
+    """
+    if 0 < viewer_count < SMALL_CHANNEL_VIEWERS:
+        return "small"
+    return preset_for_game(game) or "default"
