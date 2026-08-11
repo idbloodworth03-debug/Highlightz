@@ -1846,7 +1846,6 @@ async def reject_clip(request: Request, clip_id: str):
         stream_stats.record(stream_stats.REJECTED, clip)
     # File deletion is deferred to when the undo entry expires — unlinking the
     # .mp4 now would let undo restore a record pointing at nothing.
-    await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the rejection is always recorded, matching
     # the approve path — see note there.
@@ -1863,12 +1862,19 @@ async def reject_clip(request: Request, clip_id: str):
         profiles_before[clip["channel"]] = undo.snapshot_profile(profile)
         profile.record_clip(approved=False, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
-        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
 
+    # PUSH BEFORE BROADCAST. clip_removed is what makes the tab ask what it can
+    # undo, so the entry has to already be there when it asks. Broadcasting
+    # first left a window — here, a profile load and save — in which the answer
+    # was "nothing", and the undo offer was silently lost.
     undo.push(undo.UndoEntry(
         user_id=uid, kind="reject", label="Rejected 1 clip",
         clips=[clip], profiles_before=profiles_before,
         held_files=_hold_files([clip])), on_drop=_drop_undo_entry)
+
+    await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+    if profiles_before:
+        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     return {"status": "deleted", "clip_id": clip_id}
 
 
@@ -1936,15 +1942,19 @@ async def clear_pending_clips(request: Request):
         # channel's outcome ledger either — same carve-out as reject/approve.
         if not _is_grabbed(clip):
             stream_stats.record(stream_stats.CLEARED, clip)
-        # Realtime contract: every open tab drops the clip immediately. Reusing
-        # clip_removed means no new event name and no new frontend branch.
-        await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
 
+    # Before the broadcasts, not after — clip_removed is what prompts the tab to
+    # ask what it can undo, and the entry has to exist by then.
     if removed:
         undo.push(undo.UndoEntry(
             user_id=uid, kind="clear",
             label=f"Cleared {len(removed)} clip" + ("" if len(removed) == 1 else "s"),
             clips=removed, held_files=_hold_files(removed)), on_drop=_drop_undo_entry)
+
+    for clip in removed:
+        # Realtime contract: every open tab drops the clip immediately. Reusing
+        # clip_removed means no new event name and no new frontend branch.
+        await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
 
     log.info("clips_cleared", uid=uid, removed=len(removed))
     return {"removed": len(removed)}
@@ -1970,14 +1980,15 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
         if to_remove:
             _save_clips()
 
-    for clip_id in to_remove:
-        await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
-
+    # Before the broadcasts — see the note in reject_clip.
     if culled:
         undo.push(undo.UndoEntry(
             user_id=uid, kind="cull",
             label=f"Culled {len(culled)} clip" + ("" if len(culled) == 1 else "s"),
             clips=culled, held_files=_hold_files(culled)), on_drop=_drop_undo_entry)
+
+    for clip_id in to_remove:
+        await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
 
     log.info("bulk_cull", uid=uid, removed=len(to_remove), min_score=min_score)
     return {"removed": len(to_remove), "min_score": min_score}

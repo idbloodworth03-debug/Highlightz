@@ -183,6 +183,32 @@ def test_the_file_is_deleted_once_the_undo_window_passes(client, monkeypatch):
     assert client.deleted == ["/data/clips/c1.mp4"]
 
 
+# ── the offer has to exist by the time the tab asks for it ───────────────────
+
+@pytest.mark.parametrize("act", [
+    lambda c: c.post("/clips/c1/reject"),
+    lambda c: c.delete("/clips/c1"),
+    lambda c: c.post("/clips/clear-pending"),
+    lambda c: c.post("/clips/bulk-cull", json={"min_score": 99}),
+])
+def test_the_undo_entry_exists_before_clip_removed_goes_out(client, monkeypatch, act):
+    """clip_removed is what makes the tab ask what it can undo. Broadcasting it
+    before pushing the entry left a window — on reject, a profile load and save
+    — in which the answer was "nothing" and the toast never appeared. Racy, so
+    it looked like undo just did not work sometimes."""
+    seen: list[bool] = []
+
+    async def _spy(msg, **kw):
+        if msg.get("event") == "clip_removed":
+            seen.append(client.undo.peek("u1") is not None)
+    monkeypatch.setattr(client.api, "broadcast", _spy)
+
+    client.add("c1", score=10.0)
+    act(client)
+    assert seen, "no clip_removed was broadcast at all"
+    assert all(seen), "clip_removed went out before the action was undoable"
+
+
 # ── scoping and safety ───────────────────────────────────────────────────────
 
 def test_a_stale_toast_cannot_undo_the_wrong_action(client):
