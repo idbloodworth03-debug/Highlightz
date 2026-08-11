@@ -121,11 +121,18 @@ def test_the_preview_image_is_the_versioned_url():
     bytes at the old path does not refresh what anyone sees, so a corrected card
     MUST ship under a new filename or the stale one keeps being served."""
     from src.dashboard.api import LANDING_HTML as html
+    urls = set()
     for tag in ("og:image", "twitter:image"):
         m = re.search(rf'{tag}"\s+content="([^"]+)"', html)
         assert m, f"{tag} is missing entirely"
-        assert m.group(1).endswith("/static/og-card-v2.png"), \
-            f"{tag} points at {m.group(1)} — the retired path is cached and will not refresh"
+        urls.add(m.group(1))
+        # Deliberately NOT pinned to a version number. Pinning it means every
+        # new card edits this test, and a test you edit to make a change is not
+        # guarding the change — what matters is that the URL carries a version
+        # at all, so a corrected card is served from a path no cache has seen.
+        assert re.search(r"/static/og-card-v\d+\.png$", m.group(1)), \
+            f"{tag} points at {m.group(1)} — an unversioned path is cached and will not refresh"
+    assert len(urls) == 1, f"og:image and twitter:image disagree: {urls}"
 
 
 def test_the_declared_preview_image_actually_exists_and_is_the_declared_size():
@@ -147,10 +154,15 @@ def test_the_retired_card_was_rewritten_rather_than_deleted():
     """Links shared before the rename still point at the old path. Deleting it
     breaks every one of those posts; leaving the ORIGINAL there keeps serving
     "7 days free / $15 a month". So it stays, with the corrected art on it."""
-    old, new = STATIC / "og-card.png", STATIC / "og-card-v2.png"
-    assert old.exists(), "the retired path 404s — previously shared links are now broken images"
-    assert old.read_bytes() == new.read_bytes(), \
-        "the retired path still holds different (stale) artwork"
+    from src.dashboard.api import LANDING_HTML as html
+    current = STATIC / re.search(
+        r'og:image"\s+content="[^"]+/([^"/]+)"', html).group(1)
+    retired = [p for p in STATIC.glob("og-card*.png") if p != current]
+    assert retired, "no retired card on disk — has the card never been reversioned?"
+    for old in retired:
+        assert old.read_bytes() == current.read_bytes(), (
+            f"{old.name} still holds stale artwork; a crawler revalidating an "
+            f"old share would re-serve it")
 
 
 def test_the_card_never_quotes_a_retired_price_or_trial():
@@ -168,7 +180,10 @@ def test_the_card_quotes_no_price_at_all():
     the cache is not ours to clear — so the card sells "free to start" instead."""
     body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
     assert not re.search(r"\$\s*\d", body), "a price crept onto the social card"
-    assert "free to start" in body.lower()
+    # It has to still say the thing that replaced the price: there is a free
+    # tier and you do not need a card. The exact wording is free to change.
+    assert "free on" in body.lower() or "free to start" in body.lower()
+    assert "no card" in body.lower()
 
 
 def test_the_card_does_not_invent_a_fixed_trigger_threshold():
@@ -201,8 +216,11 @@ def test_the_card_is_regenerable():
     """A checked-in binary with no source is how this went wrong. The build has
     to exist and has to name the file the meta tags actually point at."""
     build = (Path(__file__).resolve().parents[1] / "scripts" / "build_og_card.mjs")
+    from src.dashboard.api import LANDING_HTML as html
     assert build.exists(), "the card is a binary with no way to rebuild it"
-    assert "og-card-v2.png" in build.read_text(encoding="utf-8")
+    declared = re.search(r'og:image"\s+content="[^"]+/([^"/]+)"', html).group(1)
+    assert declared in build.read_text(encoding="utf-8"), \
+        f"the build writes some other file than the {declared} the page declares"
     assert CARD_SRC.exists()
 
 

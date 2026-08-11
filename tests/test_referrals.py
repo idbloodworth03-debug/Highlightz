@@ -102,7 +102,7 @@ def test_the_landing_page_advertises_the_free_plan():
     from src.dashboard.api import LANDING_HTML
     assert "Start free" in LANDING_HTML
     assert "no card" in LANDING_HTML.lower()
-    assert "Monitor <b>1 stream</b>" in LANDING_HTML
+    assert "Monitor <b>1 channel</b>" in LANDING_HTML
     assert "15 pending clips" in LANDING_HTML
 
 

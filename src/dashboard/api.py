@@ -21,6 +21,7 @@ import secrets
 import tempfile
 import time
 import uuid
+from html import unescape
 from typing import Any
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
@@ -4091,8 +4092,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch Clipper | Auto-Clip Your Stream Highlights</title>
-<meta name="description" content="Highlightz watches your Twitch stream live and clips highlights automatically — chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start, no card required.">
+<title>Highlightz — Automatic Twitch Clipper | Monitor Up To 10 Channels At Once</title>
+<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free on one channel, no card required.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -4102,20 +4103,20 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
-<meta property="og:title" content="Highlightz — Never miss a highlight again">
-<meta property="og:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
+<meta property="og:title" content="Highlightz — Clip up to 10 streams at once, automatically">
+<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
-<meta property="og:image" content="https://highlightz.app/static/og-card-v2.png">
+<meta property="og:image" content="https://highlightz.app/static/og-card-v3.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
+<meta property="og:image:alt" content="Highlightz — clip 10 streams at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping with a transparent formula — not AI. Free to start, no card required.">
-<meta name="twitter:image" content="https://highlightz.app/static/og-card-v2.png">
+<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card-v3.png">
 <meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <style>
   /* ══════════════════════════════════════════════════════════════════════
@@ -4384,7 +4385,9 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ STAT STRIP. Not three equal cards — a readout rail with the numbers
      hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
-  .stats{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:0;
+  /* auto-flow, not fixed columns: the clip-count tile is hidden until there is
+     a number to show, and a fixed template would leave its column empty. */
+  .stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   .stat{padding:24px 0 24px 26px;border-left:1px solid var(--hair)}
   .stat:first-child{padding-left:0;border-left:none}
@@ -4673,7 +4676,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .wrap{padding-left:20px;padding-right:20px}
     .ex-card{flex-basis:calc(50% - 7px)}
     .shots-top{grid-template-columns:1fr}
-    .stats{grid-template-columns:1fr}
+    .stats{grid-auto-flow:row;grid-auto-columns:auto}
     .stat{padding:20px 0;border-left:none;border-top:1px solid var(--hair)}
     .stat:first-child{border-top:none}
     .stat .k{max-width:none}
@@ -4717,7 +4720,7 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 </style>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How does Highlightz know what to clip?", "acceptedAnswer": {"@type": "Answer", "text": "It watches your stream's live signals \u2014 chat speed, audio spikes, keywords, viewer surges, and hype moments \u2014 and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against your normal, not someone else's. When the score crosses your channel's threshold, the clip fires."}}, {"@type": "Question", "name": "Is this AI?", "acceptedAnswer": {"@type": "Answer", "text": "No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why."}}, {"@type": "Question", "name": "Do you record or store my stream?", "acceptedAnswer": {"@type": "Answer", "text": "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API \u2014 the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video."}}, {"@type": "Question", "name": "Is this allowed on Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page."}}, {"@type": "Question", "name": "How long are the clips?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch clips capture roughly the last 30 seconds around the moment \u2014 our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor."}}, {"@type": "Question", "name": "Does it work for small channels?", "acceptedAnswer": {"@type": "Answer", "text": "Yes \u2014 this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers."}}, {"@type": "Question", "name": "How many channels can I watch at once?", "acceptedAnswer": {"@type": "Answer", "text": "Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile \u2014 your own channel, streamers you clip for, or anyone live right now."}}, {"@type": "Question", "name": "How does billing work?", "acceptedAnswer": {"@type": "Answer", "text": "There is a free plan with no card required \u2014 one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal \u2014 no contracts, no cancellation hoops."}}, {"@type": "Question", "name": "What if I don't like the clips it takes?", "acceptedAnswer": {"@type": "Answer", "text": "Every clip lands in your review queue first \u2014 approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste."}}, {"@type": "Question", "name": "Do you support platforms other than Twitch?", "acceptedAnswer": {"@type": "Answer", "text": "Twitch is fully supported today. More platforms are on the roadmap \u2014 follow along in the app for updates."}}]}</script>
+<!--FAQ_SCHEMA-->
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -4746,29 +4749,29 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Hero -->
 <header class="wrap hero">
   <div class="hero-copy">
-    <div class="kicker">Automatic clipping for Twitch</div>
-    <h1>Never miss a <span class="accent">highlight</span> again.</h1>
-    <p class="lead">Highlightz watches your live stream in real time and clips your best moments automatically — whether 5 people are watching or 50,000. Seconds later the clip is on Twitch, ready for you to approve.</p>
+    <div class="kicker">Automatic Twitch clipping — for clippers and streamers</div>
+    <h1>Clip <span class="accent" style="white-space:nowrap">10 streams</span> at once.</h1>
+    <p class="lead">You can only watch one stream at a time. Highlightz watches all of them — every channel you clip for, plus your own — scoring each one second by second and creating the Twitch clip the moment something pops. <b>Up to 10 channels at the same time on Pro.</b></p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
-      <a href="#how" class="btn btn-quiet btn-lg">See how it works</a>
+      <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
     </div>
-    <p class="hero-note"><b>Free to start</b> &middot; no card &middot; cancel anytime</p>
+    <p class="hero-note"><b>Free on 1 channel</b> &middot; no card &middot; 3 channels from $10/mo</p>
     <div class="tags">
+      <span class="tag">Up to 10 channels at once</span>
       <span class="tag">Formula-based — not AI</span>
       <span class="tag">Works at any channel size</span>
-      <span class="tag">Multiple streams at once</span>
     </div>
   </div>
 
   <!-- LIVE DEMO — the light source in the room -->
   <div class="demo-wrap">
     <div class="demo" id="demo">
-      <div class="demo-bar"><span class="who">Highlightz — watching your stream</span><span class="demo-live"><i></i>LIVE</span></div>
+      <div class="demo-bar"><span class="who">Highlightz — monitoring 4 channels</span><span class="demo-live"><i></i>LIVE</span></div>
       <div class="demo-body">
         <div class="demo-main">
           <div class="demo-head">
-            <div class="demo-ch"><span class="pd"></span>your stream</div>
+            <div class="demo-ch"><span class="pd"></span>novafps</div>
             <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
           </div>
           <div class="demo-chart">
@@ -4803,16 +4806,16 @@ LANDING_HTML = """<!DOCTYPE html>
         </div>
       </div>
     </div>
-    <div class="demo-cap">Live demo — this is what a capture looks like, start to finish.</div>
+    <div class="demo-cap">Live demo — one of the channels, start to finish. Every channel you add gets its own score, signals and profile.</div>
   </div>
 </header>
 
 <!-- Stats band -->
 <div class="wrap">
   <div class="stats">
-    <div class="stat stat-big" id="stat-clips" style="display:none">
-      <div class="n"><span id="lp-count">0</span></div>
-      <div class="k">clips captured and counting</div>
+    <div class="stat">
+      <div class="n">10</div>
+      <div class="k">channels watched at once on Pro &mdash; 3 on Starter</div>
     </div>
     <div class="stat">
       <div class="n">7</div>
@@ -4820,7 +4823,13 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="stat">
       <div class="n">1s</div>
-      <div class="k">every second of your stream is scored</div>
+      <div class="k">every second of every channel is scored</div>
+    </div>
+    <!-- Last, not first: hidden until there is a real number, and a hidden
+         first child would leave a stray divider at the edge of the band. -->
+    <div class="stat stat-big" id="stat-clips" style="display:none">
+      <div class="n"><span id="lp-count">0</span></div>
+      <div class="k">clips captured and counting</div>
     </div>
   </div>
 </div>
@@ -4837,26 +4846,26 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Who it's for -->
 <section class="wrap" id="who">
   <div class="sec-head">
-    <h2 class="sec-title">Built for anyone who clips</h2>
-    <p class="sec-sub">Whether you're growing your own channel or clipping for others, Highlightz does the watching so you can focus on the content.</p>
+    <h2 class="sec-title">Built for clippers first</h2>
+    <p class="sec-sub">If clipping is how you grow — or how you get paid — your ceiling is how many streams you can sit through. Highlightz removes that ceiling. It works just as well pointed at your own channel.</p>
   </div>
   <div class="who-list">
-    <div class="who-row">
-      <div class="who-l">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
-      </div>
-      <div>
-        <h3>Streamers</h3>
-        <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips.</p>
-      </div>
-    </div>
     <div class="who-row">
       <div class="who-l">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg>
       </div>
       <div>
         <h3>Clippers &amp; editors</h3>
-        <p>Monitor several channels at once and let the best moments surface themselves. Spend your time editing, not scrubbing VODs.</p>
+        <p>Point it at every streamer on your list — 3 at once on Starter, 10 on Pro — and let the best moments surface themselves. Each channel learns its own baseline, so a quiet variety streamer and a screaming FPS streamer both trigger fairly. Clips land in one review queue, created under your own Twitch account, ready to cut. You spend your night editing instead of scrubbing.</p>
+      </div>
+    </div>
+    <div class="who-row">
+      <div class="who-l">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
+      </div>
+      <div>
+        <h3>Streamers</h3>
+        <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips. Add your alt, your co-streamers, or the friends you raid, and the clips come to you.</p>
       </div>
     </div>
     <div class="who-row">
@@ -4864,8 +4873,8 @@ LANDING_HTML = """<!DOCTYPE html>
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
       </div>
       <div>
-        <h3>Community &amp; mod teams</h3>
-        <p>Keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
+        <h3>Orgs, community &amp; mod teams</h3>
+        <p>Cover every member of the roster at the same time and keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
       </div>
     </div>
   </div>
@@ -4875,14 +4884,14 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap" id="how">
   <div class="sec-head">
     <h2 class="sec-title">How it works</h2>
-    <p class="sec-sub">Five simple steps from "go live" to a polished clip in your review queue.</p>
+    <p class="sec-sub">Five simple steps from "they went live" to a clip in your review queue — running on every channel you add, at the same time.</p>
   </div>
   <!-- The rail IS the score: amber while the stream is below threshold, violet
        from step 4 on, where the clip actually fires. -->
   <div class="steps">
     <div class="step step-1">
       <div class="rail"><span class="rail-node">1</span></div>
-      <div class="step-body"><h3>Add any live Twitch channel</h3><p>Your own channel, streamers you clip for, or anyone live right now — monitor multiple streams at the same time from one dashboard.</p></div>
+      <div class="step-body"><h3>Add every channel you clip for</h3><p>Streamers you clip for, your own channel, or anyone live right now. Paste a name and it starts watching — up to 3 channels at once on Starter and 10 on Pro, all in one dashboard, all running in parallel. You do not have to be watching, or even online.</p></div>
     </div>
     <div class="step step-2">
       <div class="rail"><span class="rail-node">2</span></div>
@@ -5035,9 +5044,16 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap" id="features">
   <div class="sec-head">
     <h2 class="sec-title">Everything in the box</h2>
-    <p class="sec-sub">A complete clipping toolkit that runs while you do everything else.</p>
+    <p class="sec-sub">A complete clipping toolkit that runs on every channel at once, while you do everything else.</p>
   </div>
   <div class="feat-grid">
+    <div class="feat">
+      <div>
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <h3>Up to 10 channels at once</h3>
+        <p>1 channel free, 3 on Starter, 10 on Pro — watched simultaneously from one dashboard, each with its own independent learning profile. Nothing queues behind anything else.</p>
+      </div>
+    </div>
     <div class="feat">
       <div>
         <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
@@ -5047,23 +5063,16 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
     <div class="feat">
       <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
-        <h3>Multiple streams at once</h3>
-        <p>Watch many channels simultaneously from one dashboard, each with its own independent learning profile.</p>
-      </div>
-    </div>
-    <div class="feat">
-      <div>
         <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></span>
         <h3>Adaptive per-channel learning</h3>
-        <p>Each streamer gets a personalized baseline. Loud or quiet, fast chat or slow — it's always calibrated fairly.</p>
+        <p>Every channel you add gets its own baseline and its own threshold. Loud or quiet, fast chat or slow — each one is calibrated fairly and independently.</p>
       </div>
     </div>
     <div class="feat">
       <div>
         <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12l5 5L20 7"/></svg></span>
-        <h3>Approve / reject queue</h3>
-        <p>Review every clip in one place. Your decisions feed straight back into the formula, sharpening it over time.</p>
+        <h3>One queue for every channel</h3>
+        <p>Clips from all your channels land in a single review queue — 15 pending free, 50 on Starter, 200 on Pro. Your decisions feed straight back into that channel's formula, sharpening it over time.</p>
       </div>
     </div>
     <div class="feat">
@@ -5086,18 +5095,18 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="wrap" id="pricing">
   <div class="sec-head center">
-    <h2 class="sec-title">Start free. Pay when it earns it.</h2>
-    <p class="sec-sub">No card to start, no contracts — cancel anytime.</p>
+    <h2 class="sec-title">More channels, more clips.</h2>
+    <p class="sec-sub">Every plan is the full product — paid tiers just point it at more streamers at the same time. No card to start, no contracts, cancel anytime.</p>
   </div>
   <div class="price-grid">
     <div class="price-card">
       <div class="price-in">
         <span class="price-badge">Free</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">0</span><span class="per">/forever</span></div>
-        <div class="price-sub">The real product on one channel. No card.</div>
+        <div class="price-sub">The real product on <b>1 channel</b>. No card.</div>
         <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Monitor <b>1 channel</b></div>
           <div class="li"><span class="ck">&#10003;</span>Automatic clip detection, live on Twitch</div>
-          <div class="li"><span class="ck">&#10003;</span>Monitor <b>1 stream</b></div>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>15 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
@@ -5109,10 +5118,10 @@ LANDING_HTML = """<!DOCTYPE html>
       <div class="price-in">
         <span class="price-badge">Starter</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">10</span><span class="per">/month</span></div>
-        <div class="price-sub">Everything you need to stop missing highlights.</div>
+        <div class="price-sub">For clipping a small roster &mdash; <b>3&times; the coverage</b>.</div>
         <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Monitor <b>3 channels at once</b></div>
           <div class="li"><span class="ck">&#10003;</span>Everything in Free</div>
-          <div class="li"><span class="ck">&#10003;</span>Monitor up to <b>3 streams</b> at once</div>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>50 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
@@ -5125,10 +5134,10 @@ LANDING_HTML = """<!DOCTYPE html>
         <span class="price-pop">Most popular</span>
         <span class="price-badge">Highlightz Pro</span>
         <div class="price-amt"><span class="cur">$</span><span class="num">25</span><span class="per">/month</span></div>
-        <div class="price-sub">The full toolkit for serious clippers.</div>
+        <div class="price-sub">The full toolkit for serious clippers &mdash; <b>10&times; the coverage</b>.</div>
         <div class="price-list">
+          <div class="li"><span class="ck">&#10003;</span>Monitor <b>10 channels at once</b></div>
           <div class="li"><span class="ck">&#10003;</span>Everything in Starter</div>
-          <div class="li"><span class="ck">&#10003;</span>Monitor up to <b>10 streams</b> at once</div>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span><b>VOD Scanner</b> — find highlights in past broadcasts</div>
         </div>
@@ -5146,6 +5155,18 @@ LANDING_HTML = """<!DOCTYPE html>
     <p class="sec-sub">Quick answers to the things people ask before starting.</p>
   </div>
   <div class="faq-list">
+    <details class="faq-item">
+      <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">One on the free plan, <b>3 at the same time on Starter</b>, and <b>10 at the same time on Pro</b>. They all run in parallel — nothing waits in line behind anything else — and each channel keeps its own independent learning profile, so watching ten does not blunt any one of them.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Can I clip channels I don't own?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">Yes — that's what most people use it for. Add any live Twitch channel and Highlightz clips it through Twitch's official Clips API using your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. The clip is hosted by Twitch and attributed to you, the same as a manual clip. Streamers who would rather not be clipped through Highlightz can opt out at any time on our opt-out page, and we honour it immediately.</div>
+    </details>
+    <details class="faq-item">
+      <summary><span class="faq-q">Do I have to be watching for it to work?</span><span class="faq-c">+</span></summary>
+      <div class="faq-a">No. Highlightz runs on our servers, not in your browser, so your tab can be closed and your PC can be off. Add a channel before the streamer is even live and it keeps checking every 30 seconds until they are, then watches the whole broadcast and leaves the clips in your queue for when you get back. The one thing it asks is that you check in: if an account shows no activity at all for 8 hours, its streams are stopped so slots aren't held open by abandoned sessions.</div>
+    </details>
     <details class="faq-item">
       <summary><span class="faq-q">How does Highlightz know what to clip?</span><span class="faq-c">+</span></summary>
       <div class="faq-a">It watches your stream's live signals — chat speed, audio spikes, keywords, viewer surges, and hype moments — and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against <b>your</b> normal, not someone else's. When the score crosses your channel's threshold, the clip fires.</div>
@@ -5171,12 +5192,8 @@ LANDING_HTML = """<!DOCTYPE html>
       <div class="faq-a">Yes — this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers.</div>
     </details>
     <details class="faq-item">
-      <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Up to 10 at the same time on Pro (3 on Starter), each with its own independent learning profile — your own channel, streamers you clip for, or anyone live right now.</div>
-    </details>
-    <details class="faq-item">
       <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">There is a <b>free plan with no card required</b> — one monitored stream and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 streams, 50-clip queue) and Pro at $25/month (10 streams, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
+      <div class="faq-a">There is a <b>free plan with no card required</b> — one monitored channel and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 channels at once, 50-clip queue) and Pro at $25/month (10 channels at once, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
@@ -5191,8 +5208,8 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <!-- Final CTA -->
 <section class="wrap final">
-  <h2>Your next viral clip is<br><span class="accent">already happening.</span></h2>
-  <p>Connect your Twitch account and add your first channel — Highlightz catches every highlight automatically, from the very first stream.</p>
+  <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
+  <p>Connect your Twitch account and add your first channel free — then point Highlightz at the whole roster and let it catch the highlights on all of them at once.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
   <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
 </section>
@@ -5465,6 +5482,38 @@ LANDING_HTML = """<!DOCTYPE html>
 </script>
 </body>
 </html>"""
+
+
+def _faq_schema(html: str) -> str:
+    """Build the FAQPage JSON-LD from the FAQ the page actually shows.
+
+    It used to be a hand-written duplicate sitting in <head>, several thousand
+    characters away from the markup it described. Editing the visible FAQ
+    without editing the copy left Google reading answers the page no longer
+    gave — which is the specific thing structured-data penalties exist for, and
+    it is invisible in the browser so nothing catches it. Deriving it means the
+    two cannot disagree.
+    """
+    items = []
+    for block in re.findall(
+            r'<details class="faq-item">(.*?)</details>', html, re.S):
+        q = re.search(r'<span class="faq-q">(.*?)</span>', block, re.S)
+        a = re.search(r'<div class="faq-a">(.*?)</div>', block, re.S)
+        if not q or not a:
+            continue
+        # Schema wants prose, not markup: <b> and friends are presentation, and
+        # the entities (&mdash;, &middot;) have to be real characters or they
+        # end up double-escaped inside the JSON string.
+        text = unescape(re.sub(r"<[^>]+>", "", a.group(1))).strip()
+        items.append({"@type": "Question",
+                      "name": unescape(q.group(1)).strip(),
+                      "acceptedAnswer": {"@type": "Answer", "text": text}})
+    blob = json.dumps({"@context": "https://schema.org",
+                       "@type": "FAQPage", "mainEntity": items})
+    return '<script type="application/ld+json">' + blob + "</script>"
+
+
+LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTML), 1)
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">

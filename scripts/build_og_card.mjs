@@ -26,13 +26,14 @@ import { dirname, join, extname } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STATIC = join(HERE, '..', 'src', 'dashboard', 'static');
-const OUT = join(STATIC, 'og-card-v2.png');
-// The retired path is overwritten with the SAME artwork. It stays on disk
-// because links shared before the rename still point at it — deleting it turns
-// every one of those posts into a broken image. Rewriting it means that if a
-// crawler ever does revalidate an old share, it picks up the corrected card
-// instead of re-serving the "7 days free / $15 a month" one.
-const LEGACY = join(STATIC, 'og-card.png');
+const OUT = join(STATIC, 'og-card-v3.png');
+// The retired paths are overwritten with the SAME artwork. They stay on disk
+// because links shared before each rename still point at them — deleting one
+// turns every one of those posts into a broken image. Rewriting them means that
+// if a crawler ever does revalidate an old share, it picks up the current card
+// instead of re-serving the "7 days free / $15 a month" one, or the v2 card
+// that sold the product to streamers rather than clippers.
+const LEGACY = [join(STATIC, 'og-card.png'), join(STATIC, 'og-card-v2.png')];
 
 const TYPES = { '.woff2': 'font/woff2', '.png': 'image/png',
                 '.html': 'text/html; charset=utf-8', '.jpg': 'image/jpeg' };
@@ -76,5 +77,6 @@ await page.screenshot({ path: OUT, scale: 'css' });
 await browser.close();
 server.close();
 
-await copyFile(OUT, LEGACY);
-console.log('wrote', OUT, '\nwrote', LEGACY, '(retired path, same artwork)');
+for (const old of LEGACY) await copyFile(OUT, old);
+console.log('wrote', OUT);
+for (const old of LEGACY) console.log('wrote', old, '(retired path, same artwork)');

@@ -135,14 +135,68 @@ def test_landing_has_inline_clip_lightbox():
     assert "parent='+location.hostname" in html  # Twitch embed parent param
 
 
-def test_landing_has_faq_with_ten_items():
+def test_landing_faq_answers_what_clippers_ask_first():
     html = api.LANDING_HTML
     assert 'id="faq"' in html
-    assert html.count('class="faq-item"') == 10
+    assert html.count('class="faq-item"') == 12
     # A few key answers exist and stay honest
     assert "Is this AI?" in html and "transparent mathematical formula" in html
     assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
     assert "roughly the last 30 seconds" in html   # no over-promising on length
+    # Clippers are the primary audience, so the three things they ask before
+    # signing up must be answered without opening every accordion. Order
+    # matters: these are the first three items on the page.
+    order = [html.index(q) for q in ("How many channels can I watch at once?",
+                                     "Can I clip channels I don't own?",
+                                     "Do I have to be watching for it to work?")]
+    assert order == sorted(order)
+    assert order[0] < html.index("How does Highlightz know what to clip?")
+
+
+def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
+    """The page now sells on "how many channels at once", and repeats the
+    numbers in the hero, the stats band, the steps, the features, the pricing
+    cards and the FAQ. Changing PLAN_LIMITS without touching the copy would
+    leave a dozen places advertising a cap the product does not enforce, so
+    every number is checked against the source of truth rather than typed in
+    here as a literal."""
+    from src.billing.plans import PLAN_LIMITS
+    html = api.LANDING_HTML
+
+    free    = PLAN_LIMITS["free"]["max_streams"]
+    starter = PLAN_LIMITS["starter"]["max_streams"]
+    pro     = PLAN_LIMITS["pro"]["max_streams"]
+
+    # The headline promise, in the three places a visitor cannot miss.
+    assert f">{pro} streams</span> at once." in html          # the h1
+    assert f"Up to {pro} channels at once" in html            # hero tag
+    assert f"channels watched at once on Pro &mdash; {starter} on Starter" in html
+
+    # The pricing cards, which is where the paid tiers have to be unambiguous.
+    assert f"Monitor <b>{free} channel</b>" in html
+    assert f"Monitor <b>{starter} channels at once</b>" in html
+    assert f"Monitor <b>{pro} channels at once</b>" in html
+
+    # No stale "up to N streams" survives anywhere on the page.
+    import re
+    for n in re.findall(r"(?:up to|Monitor)\s*<?b?>?\s*(\d+)\s*(?:streams?|channels?)",
+                        html, re.I):
+        assert int(n) in (free, starter, pro), f"advertises {n}, not a real plan limit"
+
+
+def test_the_run_unattended_claim_matches_the_code():
+    """The FAQ promises a channel added while the streamer is offline will be
+    picked up when they go live, and admits to an 8-hour idle stop. Both are
+    real behaviours, not marketing — if either changes the copy is a lie."""
+    from pathlib import Path
+    worker = Path("src/ingestion/stream_worker.py").read_text()
+    # The session loop retries rather than exiting when the channel is offline.
+    assert "worker_reconnecting" in worker and "await asyncio.sleep(30)" in worker
+    assert "every 30 seconds" in api.LANDING_HTML
+
+    api_src = Path("src/dashboard/api.py").read_text()
+    assert "idle_stream_reaper" in api_src
+    assert "8 hours" in api.LANDING_HTML
 
 
 def test_seo_layer():
@@ -157,8 +211,16 @@ def test_seo_layer():
         types.add(data.get("@type"))
     assert types == {"SoftwareApplication", "FAQPage"}
     faq = [_json.loads(b) for b in blocks if _json.loads(b)["@type"] == "FAQPage"][0]
-    assert len(faq["mainEntity"]) == 10
     assert all("<" not in q["acceptedAnswer"]["text"] for q in faq["mainEntity"])  # plain text
+    # The schema is DERIVED from the visible FAQ, so assert they agree rather
+    # than counting to a literal. Serving Google answers the page no longer
+    # gives is invisible in a browser and is what structured-data penalties are
+    # for; a hardcoded count would not have caught the drift, only the drift's
+    # size. Every question on the page, in page order, and nothing extra.
+    shown = _re.findall(r'<span class="faq-q">(.*?)</span>', html, _re.S)
+    assert [q["name"] for q in faq["mainEntity"]] == [
+        __import__("html").unescape(q).strip() for q in shown]
+    assert faq["mainEntity"], "the FAQ schema is empty"
     # Crawler surface
     assert "/robots.txt" in api._OPEN_PATHS and "/sitemap.xml" in api._OPEN_PATHS
 

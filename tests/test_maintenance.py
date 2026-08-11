@@ -114,9 +114,12 @@ def test_landing_has_share_card_tags_and_asset():
     # rewriting the bytes at the old path does not refresh what anyone sees, so
     # a corrected card has to ship under a new filename. See
     # tests/test_brand_assets.py for the rest of that story.
-    assert "https://highlightz.app/static/og-card-v2.png" in LANDING_HTML
+    import re
+    m = re.search(r'og:image"\s+content="https://highlightz\.app/static/'
+                  r'(og-card-v\d+\.png)"', LANDING_HTML)
+    assert m, "og:image is missing, off-domain, or on an unversioned path"
     # The referenced asset must actually ship.
-    assert (Path(_STATIC_DIR) / "og-card-v2.png").exists()
+    assert (Path(_STATIC_DIR) / m.group(1)).exists()
     # The retired path stays on disk: links shared before the rename still point
     # at it, and deleting it turns each of those posts into a broken image.
     assert (Path(_STATIC_DIR) / "og-card.png").exists()
