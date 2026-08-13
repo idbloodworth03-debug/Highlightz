@@ -60,7 +60,7 @@ def test_library_does_not_offer_approve_or_reject():
 
 def test_library_is_mounted_without_approve_or_reject_handlers():
     """The guard above is only real if the call site stopped passing them."""
-    m = re.search(r"route==='library'\) screen=<LibraryScreen[^;]*;", SRC)
+    m = re.search(r"view==='library'\) screen=<LibraryScreen[^;]*;", SRC)
     assert m, "library route dispatch not found"
     mount = m.group(0)
     assert "onApprove" not in mount and "onReject" not in mount, \
@@ -72,7 +72,7 @@ def test_library_is_mounted_without_approve_or_reject_handlers():
 def test_review_screen_still_judges_clips():
     """The other half of the split: moving pending out of the library is only
     correct while Clip Review still has the buttons."""
-    m = re.search(r"route==='review'\) screen=<ReviewScreen[^;]*;", SRC)
+    m = re.search(r"view==='review'\) screen=<ReviewScreen[^;]*;", SRC)
     assert m, "review route dispatch not found"
     assert "onApprove:approveClip" in m.group(0)
     assert "onReject:rejectClip" in m.group(0)

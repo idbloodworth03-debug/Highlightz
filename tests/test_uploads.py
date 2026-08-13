@@ -396,3 +396,81 @@ def test_me_reports_the_flag_so_the_dashboard_can_mirror_it(client, monkeypatch)
     # Plan entitlement and release state are separate axes: a Pro user is
     # entitled to a feature that is not switched on yet.
     assert me["plan_limits"]["uploads"] is True
+
+
+# ── the held-back tabs must not be reachable at all ──────────────────────────
+#
+# The backend has always refused (503 / 403), so this was never exploitable.
+# But the Clip Editor and Scheduler were both listed in the sidebar for every
+# user: the Editor showed an under-construction screen, and the Scheduler
+# rendered its REAL UI — the three-step explainer, the To post / Done tabs, the
+# empty queue — with only a footnote that the Editor was off. An unreleased
+# feature was browsable. They are hidden outright now, admins excepted.
+
+def _nav_entry(tab: str) -> str:
+    """The NAV entry for a tab, from the rendered dashboard."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index("const NAV=[")
+    nav = html[i:html.index("];", i)]
+    j = nav.index(f"label:'{tab}'")
+    return nav[nav.rindex("{", 0, j):nav.index("}", j) + 1]
+
+
+def test_both_held_back_tabs_are_gated_in_the_nav():
+    for tab in ("Clip Editor", "Scheduler"):
+        assert "needs:" in _nav_entry(tab), (
+            f"the {tab} nav entry has no gate, so it renders for everyone")
+
+
+def test_the_nav_filter_actually_honours_the_gate():
+    """A `needs` key nothing reads is worse than no key — it looks handled."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "!n.needs||tabOn[n.needs]" in html.replace(" ", "").replace("\n", "")
+
+
+def test_the_gate_map_is_built_from_the_flags_that_carry_the_admin_bypass():
+    """tabOn must be derived from uploadsOn/clipTabOn, which already fold in
+    `me.is_admin`. Building it from me.features directly would lock the owner
+    out of the screens they need to exercise on prod."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index("const tabOn =")
+    line = html[i:html.index("\n", i)]
+    assert "clipTabOn" in line and "uploadsOn" in line
+    assert "me.features" not in line
+
+
+def test_the_route_is_normalised_so_a_hidden_screen_cannot_be_rendered():
+    """Defence in depth. `route` lives only in React state today, so the nav is
+    the sole way in — but that is a property of the current code, not a
+    guarantee. A deep link or a restored route must not walk into an
+    unreleased screen."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    flat = html.replace(" ", "").replace("\n", "")
+    assert "route==='uploads'&&!clipTabOn" in flat
+    assert "route==='schedule'&&!uploadsOn" in flat
+
+
+def test_the_screen_dispatch_reads_the_normalised_route_not_the_raw_one():
+    """Normalising into a variable the dispatch never reads is exactly the kind
+    of dead safeguard that reads as protection and provides none."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    for screen in ("schedule", "uploads", "review"):
+        assert f"view==='{screen}'" in html, f"{screen} still dispatches on route"
+
+
+def test_the_scheduler_write_route_is_refused_at_the_api_not_just_hidden():
+    """The UI gate is a courtesy; this is the one that matters. If the hiding
+    ever regresses, a user must still not be able to create schedule items."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.publish_schedule_add)
+    assert "_require_upload_access" in src
+
+
+def test_uploads_stay_off_by_default():
+    """Nothing here is released. If a default ever flips to True, every gate
+    above opens at once and this is the test that says so."""
+    from config.settings import Settings
+    s = Settings.model_fields
+    assert s["uploads_enabled"].default is False
+    assert s["clip_import_enabled"].default is False

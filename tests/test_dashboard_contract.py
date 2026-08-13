@@ -34,7 +34,11 @@ def _head_routes() -> set[str]:
 
 
 def _dispatch_routes() -> set[str]:
-    return set(re.findall(r"route==='(\w+)'", SRC))
+    # `view`, not `route`: the dispatch reads a normalised route so a held-back
+    # tab cannot be rendered even if something points at it. Matching on
+    # `route===` here would find only the two gate conditions and report every
+    # other tab as unwired.
+    return set(re.findall(r"view==='(\w+)'", SRC))
 
 
 def test_every_nav_tab_has_a_header_entry():

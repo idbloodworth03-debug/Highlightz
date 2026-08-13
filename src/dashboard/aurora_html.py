@@ -1745,7 +1745,7 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',needs:'clip'},{id:'schedule',label:'Scheduler',icon:'clock',needs:'uploads'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
@@ -4520,6 +4520,17 @@ function RdApp() {
   // The tab is worth showing if EITHER half is live. Import is complete on its
   // own (browse every clip on your channel); uploads are what's held back.
   const clipTabOn = uploadsOn || importOn;
+  // Which held-back tabs this user may see. Both entries already fold in the
+  // admin bypass via uploadsOn/importOn, so an admin sees everything.
+  const tabOn = { clip: clipTabOn, uploads: uploadsOn };
+  // The screen actually rendered. Held-back tabs are hidden from the nav, so
+  // `route` should never point at one — but normalise rather than trust that.
+  // `route` lives only in React state today, which makes the nav the sole way
+  // in; that is a property of the current code, not a guarantee, and a future
+  // deep link or restored route would otherwise walk into an unreleased
+  // screen. Falls back to the review queue, the app's default landing tab.
+  const view = ((route==='uploads' && !clipTabOn) || (route==='schedule' && !uploadsOn))
+    ? 'review' : route;
 
   let screen;
   // Kick is temporarily closed off while automated clipping is built — show a
@@ -4528,21 +4539,18 @@ function RdApp() {
   // stats so it's also gated while Kick is under construction.
   // KICK_BLOCKED is the single source of truth, shared with the nav below so
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
-  if(activePlatform==='kick' && KICK_BLOCKED.includes(route)) screen=<KickUnderConstruction/>;
-  // Clip Editor is built but held back until editing/publishing exist. The
-  // backend refuses too (503) — this is not a UI-only gate. Admins get the
-  // real screen so the owner can exercise it on prod.
-  else if(route==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(route==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
-  else if(route==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
-  else if(route==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
-  else if(route==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
-  else if(route==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
-  else if(route==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
-  else if(route==='training') screen=<TrainingScreen/>;
-  else if(route==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} myUrls={myClipUrls}/>;
-  else if(route==='account') screen=<AccountScreen me={me}/>;
-  else if(route==='feedback') screen=<FeedbackScreen/>;
+  if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
+  else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
+  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
+  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
+  else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
+  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
+  else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
+  else if(view==='training') screen=<TrainingScreen/>;
+  else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} myUrls={myClipUrls}/>;
+  else if(view==='account') screen=<AccountScreen me={me}/>;
+  else if(view==='feedback') screen=<FeedbackScreen/>;
   else screen=<SettingsScreen {...{streams}}/>;
 
   return (
@@ -4551,7 +4559,15 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo-mark.png" alt="Highlightz"/></span>
-        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>{
+        {/* `needs` hides a tab until its release flag is on. Both held-back
+            tabs used to be listed for everyone: the Clip Editor showed an
+            under-construction screen, but the Scheduler rendered its real UI
+            with a note that the Editor was off — so an unreleased feature was
+            browsable. Hidden outright now; the flags already carry an admin
+            bypass, so admins keep both and nothing changes for them. */}
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))
+                     &&(!n.adminOnly||(me&&me.is_admin))
+                     &&(!n.needs||tabOn[n.needs])).map(n=>{
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what
           // actually stops the click; the class only makes that visible.
