@@ -1745,7 +1745,7 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',needs:'clip'},{id:'schedule',label:'Scheduler',icon:'clock',needs:'uploads'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',adminOnly:true},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
@@ -4520,17 +4520,17 @@ function RdApp() {
   // The tab is worth showing if EITHER half is live. Import is complete on its
   // own (browse every clip on your channel); uploads are what's held back.
   const clipTabOn = uploadsOn || importOn;
-  // Which held-back tabs this user may see. Both entries already fold in the
-  // admin bypass via uploadsOn/importOn, so an admin sees everything.
-  const tabOn = { clip: clipTabOn, uploads: uploadsOn };
-  // The screen actually rendered. Held-back tabs are hidden from the nav, so
-  // `route` should never point at one — but normalise rather than trust that.
-  // `route` lives only in React state today, which makes the nav the sole way
-  // in; that is a property of the current code, not a guarantee, and a future
-  // deep link or restored route would otherwise walk into an unreleased
-  // screen. Falls back to the review queue, the app's default landing tab.
-  const view = ((route==='uploads' && !clipTabOn) || (route==='schedule' && !uploadsOn))
-    ? 'review' : route;
+  // Clip Editor and Scheduler are ADMIN ONLY, full stop. Not gated on the
+  // release flags: UPLOADS_ENABLED was set true in production, which handed
+  // every Pro subscriber a working Editor and Scheduler. Tying visibility to a
+  // flag means one env edit silently ships an unreleased feature again, so the
+  // owner is the only one who sees these until that is a deliberate decision.
+  const adminOnlyTabs = ['uploads', 'schedule'];
+  // The screen actually rendered. The nav is the only way in today (`route`
+  // lives in React state alone), but that is a property of the current code,
+  // not a guarantee — normalise so a future deep link or restored route cannot
+  // walk into one of these. Falls back to the review queue.
+  const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review' : route;
 
   let screen;
   // Kick is temporarily closed off while automated clipping is built — show a
@@ -4559,15 +4559,7 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo-mark.png" alt="Highlightz"/></span>
-        {/* `needs` hides a tab until its release flag is on. Both held-back
-            tabs used to be listed for everyone: the Clip Editor showed an
-            under-construction screen, but the Scheduler rendered its real UI
-            with a note that the Editor was off — so an unreleased feature was
-            browsable. Hidden outright now; the flags already carry an admin
-            bypass, so admins keep both and nothing changes for them. */}
-        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))
-                     &&(!n.adminOnly||(me&&me.is_admin))
-                     &&(!n.needs||tabOn[n.needs])).map(n=>{
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>{
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what
           // actually stops the click; the class only makes that visible.

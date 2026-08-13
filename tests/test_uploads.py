@@ -398,14 +398,14 @@ def test_me_reports_the_flag_so_the_dashboard_can_mirror_it(client, monkeypatch)
     assert me["plan_limits"]["uploads"] is True
 
 
-# ── the held-back tabs must not be reachable at all ──────────────────────────
+# ── the held-back tabs are admin-only ────────────────────────────────────────
 #
-# The backend has always refused (503 / 403), so this was never exploitable.
-# But the Clip Editor and Scheduler were both listed in the sidebar for every
-# user: the Editor showed an under-construction screen, and the Scheduler
-# rendered its REAL UI — the three-step explainer, the To post / Done tabs, the
-# empty queue — with only a footnote that the Editor was off. An unreleased
-# feature was browsable. They are hidden outright now, admins excepted.
+# Both were listed in the sidebar for every user: the Clip Editor showed an
+# under-construction screen, but the Scheduler rendered its REAL UI with only a
+# footnote that the Editor was off. Worse, UPLOADS_ENABLED was set true in
+# production, so every Pro subscriber had a fully working Editor and Scheduler.
+# Gating on the release flag was therefore not enough — one env edit re-opened
+# it. These are adminOnly now, independent of any flag.
 
 def _nav_entry(tab: str) -> str:
     """The NAV entry for a tab, from the rendered dashboard."""
@@ -416,38 +416,28 @@ def _nav_entry(tab: str) -> str:
     return nav[nav.rindex("{", 0, j):nav.index("}", j) + 1]
 
 
-def test_both_held_back_tabs_are_gated_in_the_nav():
+def test_both_tabs_are_admin_only_in_the_nav():
     for tab in ("Clip Editor", "Scheduler"):
-        assert "needs:" in _nav_entry(tab), (
-            f"the {tab} nav entry has no gate, so it renders for everyone")
+        assert "adminOnly:true" in _nav_entry(tab), (
+            f"the {tab} nav entry is not adminOnly, so it renders for everyone")
 
 
-def test_the_nav_filter_actually_honours_the_gate():
-    """A `needs` key nothing reads is worse than no key — it looks handled."""
-    from src.dashboard.aurora_html import DASHBOARD_HTML as html
-    assert "!n.needs||tabOn[n.needs]" in html.replace(" ", "").replace("\n", "")
-
-
-def test_the_gate_map_is_built_from_the_flags_that_carry_the_admin_bypass():
-    """tabOn must be derived from uploadsOn/clipTabOn, which already fold in
-    `me.is_admin`. Building it from me.features directly would lock the owner
-    out of the screens they need to exercise on prod."""
-    from src.dashboard.aurora_html import DASHBOARD_HTML as html
-    i = html.index("const tabOn =")
-    line = html[i:html.index("\n", i)]
-    assert "clipTabOn" in line and "uploadsOn" in line
-    assert "me.features" not in line
+def test_the_gate_does_not_depend_on_a_release_flag():
+    """The whole point. Gating on features.uploads is what let UPLOADS_ENABLED
+    =true in prod hand the Editor and Scheduler to every Pro subscriber."""
+    for tab in ("Clip Editor", "Scheduler"):
+        entry = _nav_entry(tab)
+        assert "needs:" not in entry, f"{tab} is still flag-gated"
 
 
 def test_the_route_is_normalised_so_a_hidden_screen_cannot_be_rendered():
     """Defence in depth. `route` lives only in React state today, so the nav is
     the sole way in — but that is a property of the current code, not a
-    guarantee. A deep link or a restored route must not walk into an
-    unreleased screen."""
+    guarantee. A deep link or restored route must not reach these screens."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     flat = html.replace(" ", "").replace("\n", "")
-    assert "route==='uploads'&&!clipTabOn" in flat
-    assert "route==='schedule'&&!uploadsOn" in flat
+    assert "adminOnlyTabs=['uploads','schedule']" in flat
+    assert "adminOnlyTabs.includes(route)&&!(me&&me.is_admin)" in flat
 
 
 def test_the_screen_dispatch_reads_the_normalised_route_not_the_raw_one():
@@ -459,17 +449,15 @@ def test_the_screen_dispatch_reads_the_normalised_route_not_the_raw_one():
 
 
 def test_the_scheduler_write_route_is_refused_at_the_api_not_just_hidden():
-    """The UI gate is a courtesy; this is the one that matters. If the hiding
-    ever regresses, a user must still not be able to create schedule items."""
+    """The UI gate is a courtesy; this is the one that matters."""
     import inspect
     from src.dashboard import api
-    src = inspect.getsource(api.publish_schedule_add)
-    assert "_require_upload_access" in src
+    assert "_require_upload_access" in inspect.getsource(api.publish_schedule_add)
 
 
-def test_uploads_stay_off_by_default():
-    """Nothing here is released. If a default ever flips to True, every gate
-    above opens at once and this is the test that says so."""
+def test_uploads_stay_off_by_default_in_code():
+    """The code default. Production overrode it to true, which is why the nav
+    gate no longer trusts it — but a False default is still the right one."""
     from config.settings import Settings
     s = Settings.model_fields
     assert s["uploads_enabled"].default is False
