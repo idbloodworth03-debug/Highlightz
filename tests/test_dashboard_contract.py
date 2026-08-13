@@ -412,3 +412,59 @@ def test_caption_position_and_size_are_driven_by_the_editor_not_hardcoded():
     o = o[:o.index("});") + 3]
     for k in ("capSize", "capPos", "capHighlight", "fill"):
         assert k in o, f"{k} never reaches paintFrame, so the control does nothing"
+
+
+# ── adding several streams in a row ──────────────────────────────────────────
+#
+# Suggestions are picked on mousedown with preventDefault so the input keeps
+# focus. pick() then closed the dropdown — and an already-focused input fires
+# no onFocus when clicked, so there was no way to reopen it. Adding a second
+# channel meant clicking away and clicking back in. That is the ordinary flow
+# for the primary audience: a clipper adding a roster.
+
+def test_picking_a_suggestion_does_not_dead_end_the_dropdown():
+    """pick() must not just close the list. Closing it while the caret is still
+    in the box is the dead end — nothing can reopen it."""
+    # Whole line, not up to the first ';' — the buggy version was a multi-
+    # statement body and a [^;]+ capture stopped before the offending call,
+    # so the test passed against the exact code it exists to reject.
+    m = re.search(r"const pick = \(login\) =>.*", SRC)
+    assert m, "pick() not found"
+    assert "setSuggOpen(false)" not in m.group(0), (
+        "pick() closes the dropdown while the input still holds focus — "
+        "the user has to click out and back in to add another channel")
+
+
+def test_the_list_is_reopened_only_while_the_caret_is_still_in_the_box():
+    """Reopening unconditionally would pop an orphaned dropdown after the
+    'Monitor stream' button (which does move focus), and would fight a user who
+    clicked elsewhere while the add request was still in flight."""
+    assert "document.activeElement === inputRef.current" in SRC
+    assert "ref={inputRef}" in SRC
+
+
+def test_the_refresh_waits_for_the_add_to_land():
+    """/streams/suggest filters against the channels the server already has, so
+    refreshing before the POST returns re-offers the channel just picked and
+    the next click 409s."""
+    m = re.search(r"const addChannel = async \(login\) => \{(.*?)\n  \};", SRC, re.S)
+    assert m, "addChannel() not found"
+    body = m.group(1)
+    assert "await onAdd(" in body, "the add is not awaited"
+    assert body.index("await onAdd(") < body.index("reopenIfFocused()"), \
+        "the suggestions are refreshed before the add lands"
+
+
+def test_repeat_clicks_are_swallowed_while_an_add_is_in_flight():
+    """The list stays open during the request, so the row just clicked is still
+    under the cursor. Without a guard a double-click posts the same channel
+    twice and the second one 409s."""
+    m = re.search(r"const addChannel = async \(login\) => \{(.*?)\n  \};", SRC, re.S)
+    assert "if (adding" in m.group(1)
+
+
+def test_clicking_an_already_focused_input_can_reopen_the_list():
+    """onFocus does not fire on an already-focused input, so Escape (or any
+    other dismissal) would otherwise leave the box permanently inert."""
+    assert re.search(r"onClick=\{\(\)=>\{ if\(canSugg && !suggOpen\)", SRC), \
+        "no click handler to reopen the suggestions"

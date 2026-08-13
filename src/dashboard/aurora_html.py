@@ -1267,13 +1267,14 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                           selected, onSelect }) {
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
-  const add = () => { if(ch.trim()){onAdd(ch.trim(),preset,activePlatform);setCh('');setSuggOpen(false);} };
   // Streamer suggestions: zero state = recently monitored + popular-now;
   // typing = Twitch partial-name search (debounced). Twitch-only — the data
   // source is Helix, so the dropdown stays away on other platforms.
   const [sugg, setSugg] = useState(null);
   const [suggOpen, setSuggOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const suggT = useRef(null);
+  const inputRef = useRef(null);
   const canSugg = activePlatform === 'twitch';
   const fetchSugg = (q) => {
     fetch('/streams/suggest' + (q ? '?q=' + encodeURIComponent(q) : ''))
@@ -1286,7 +1287,37 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
     clearTimeout(suggT.current);
     suggT.current = setTimeout(() => fetchSugg(v.trim()), v.trim() ? 250 : 0);
   };
-  const pick = (login) => { onAdd(login, preset, activePlatform); setCh(''); setSuggOpen(false); };
+  // Re-open the list after an add, but ONLY if the caret is still in the box.
+  // Suggestions are picked on mousedown with preventDefault, so the input never
+  // loses focus — and an already-focused input fires no onFocus when you click
+  // it again. Closing the dropdown on pick therefore left it shut with no way
+  // to reopen except clicking away and clicking back in, which is exactly what
+  // adding a second channel used to require. Guarded on activeElement so the
+  // "Monitor stream" button (which does move focus) doesn't pop an orphaned
+  // dropdown, and so a user who clicks elsewhere during the request is left
+  // alone when it finishes.
+  const reopenIfFocused = () => {
+    if (!canSugg) return;
+    if (inputRef.current && document.activeElement === inputRef.current) {
+      setSuggOpen(true);
+      fetchSugg('');
+    }
+  };
+  // AWAIT the add before refreshing: /streams/suggest filters against the
+  // channels the server already has, so refetching first would re-offer the one
+  // just picked and the next click would 409. `adding` swallows repeat clicks
+  // while that request is in flight — the list stays open, so the same row is
+  // still under the cursor.
+  const addChannel = async (login) => {
+    if (adding || !login) return;
+    setAdding(true);
+    setCh('');
+    try { await onAdd(login, preset, activePlatform); }
+    finally { setAdding(false); }
+    reopenIfFocused();
+  };
+  const add = () => { if(ch.trim()){ setSuggOpen(false); addChannel(ch.trim()); } };
+  const pick = (login) => addChannel(login);
   const fmtViewers = (v) => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '' + v;
   const streamsArr = Object.values(streams);
   return (
@@ -1300,8 +1331,13 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
           <div className="rd-addrow">
             <div className="rd-suggwrap">
               <input className="rd-input" placeholder="search a streamer" value={ch}
+                ref={inputRef}
                 onChange={e=>onChInput(e.target.value)}
                 onFocus={()=>{ if(canSugg){ setSuggOpen(true); fetchSugg(ch.trim()); } }}
+                /* onFocus does not fire on an already-focused input, so a click
+                   into the box after dismissing the list (Escape, or an add)
+                   would otherwise do nothing. */
+                onClick={()=>{ if(canSugg && !suggOpen){ setSuggOpen(true); fetchSugg(ch.trim()); } }}
                 onBlur={()=>setTimeout(()=>setSuggOpen(false),150)}
                 onKeyDown={e=>{ if(e.key==='Enter') add(); if(e.key==='Escape') setSuggOpen(false); }}/>
               {suggOpen && sugg && (
