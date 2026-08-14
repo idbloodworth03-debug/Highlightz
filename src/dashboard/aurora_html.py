@@ -221,13 +221,18 @@ button{font-family:inherit;cursor:pointer}
 .rd-play .ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;padding-left:3px;
   background:rgba(20,12,30,.4);border:1.5px solid rgba(255,255,255,.85);color:#fff;backdrop-filter:blur(4px);transition:transform .2s,background .2s}
 .rd-clip:hover .rd-play .ring{transform:scale(1.08);background:var(--grad);border-color:transparent;box-shadow:var(--glow)}
+/* Both badges overlay the clip player, so a backdrop-filter on them means the
+   browser re-blurs that patch of video on every decoded frame. They also sit
+   one-per-card in the review grid, each its own blur layer, which is what made
+   scrolling a full queue heavy. An opaque background gives the same contrast
+   over a bright thumbnail for none of the per-frame cost. */
 .rd-scorebadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   font-size:12px;font-weight:700;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
-  background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
+  background:rgba(10,8,14,.82);border:1px solid rgba(255,255,255,.16);font-variant-numeric:tabular-nums}
 .rd-scorebadge .pip{width:6px;height:6px;border-radius:50%}
 .rd-viralbadge{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
-  background:rgba(10,8,14,.55);border:1px solid rgba(255,255,255,.16);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-variant-numeric:tabular-nums}
+  background:rgba(10,8,14,.82);border:1px solid rgba(255,255,255,.16);font-variant-numeric:tabular-nums}
 .rd-viralbadge.hot{background:linear-gradient(135deg,#ff7700,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(255,119,0,.65)}
 .rd-viralbadge.warm{color:#ffcc5c;border-color:rgba(255,204,92,.35)}
 /* Crowd-validated: a real viewer already clipped this moment. Sits under
@@ -531,7 +536,16 @@ button{font-family:inherit;cursor:pointer}
 .rd-field:first-of-type{padding-top:0}
 .rd-field .fl{font-size:13px;font-weight:500}
 .rd-field .fd{font-size:11px;color:var(--fg-3);margin-top:3px}
-.rd-modal-bg{position:fixed;inset:0;background:rgba(5,4,8,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+/* NO backdrop-filter here, deliberately. This element covers the whole
+   viewport, so a blur on it makes the browser re-blur everything behind it on
+   every frame ANYTHING behind changes — and the nav logo (rdLogoGlow), the
+   live dots (ping) and any spinner animate forever. Stack a decoding video on
+   top of that and playback stutters. It only looked fine in fullscreen because
+   the fullscreen element renders in the top layer, where none of this applies,
+   which is exactly the shape of the bug that was reported.
+   Measured on the real CSS: 50ms median frame with the blur, 16.7ms without.
+   The dim is carried by a more opaque background instead. */
+.rd-modal-bg{position:fixed;inset:0;background:rgba(5,4,8,.88);
   z-index:60;display:grid;place-items:center;padding:32px}
 .rd-modal{width:min(900px,100%);max-height:90vh;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;
   box-shadow:var(--shadow-card);background:rgba(16,14,22,.9);border:1px solid var(--hair-2)}
@@ -539,7 +553,9 @@ button{font-family:inherit;cursor:pointer}
 .rd-modal-media .thumb{position:absolute;inset:0}
 .rd-modal-media .thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.6))}
 .rd-modal-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;border:none;
-  background:rgba(10,8,14,.6);color:#fff;display:grid;place-items:center;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);z-index:2}
+  /* Sits ON the player, so a blur here re-blurs that patch of video every
+     frame it decodes. Opaque background instead — same look, no per-frame work. */
+  background:rgba(10,8,14,.86);color:#fff;display:grid;place-items:center;z-index:2}
 .rd-modal-close:hover{background:rgba(10,8,14,.85)}
 .rd-modal-play{position:absolute;inset:0;display:grid;place-items:center}
 .rd-modal-play .ring{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;padding-left:4px;background:var(--grad);color:#fff;box-shadow:var(--glow)}

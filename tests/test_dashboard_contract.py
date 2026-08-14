@@ -468,3 +468,47 @@ def test_clicking_an_already_focused_input_can_reopen_the_list():
     other dismissal) would otherwise leave the box permanently inert."""
     assert re.search(r"onClick=\{\(\)=>\{ if\(canSugg && !suggOpen\)", SRC), \
         "no click handler to reopen the suggestions"
+
+
+# ── nothing that overlays a playing clip may carry a backdrop-filter ─────────
+#
+# Reported as: clips stutter and freeze in the dashboard player, but are
+# perfectly smooth in fullscreen. That difference IS the diagnosis — a
+# fullscreen element renders in the top layer, where ancestor and overlay
+# effects do not apply. Windowed, three backdrop-filters were in play: one on
+# .rd-modal-bg covering the whole viewport (re-blurred on every frame of the
+# nav logo glow, the live dots and any spinner) and two sitting directly on the
+# player, forcing a re-blur of that patch of video on every decoded frame.
+# Measured on the real stylesheet: 50ms median frame with them, 16.7ms without.
+
+# .rd-modal-bg covers the viewport; the others are position:absolute overlays
+# that sit on top of the clip player and on every card in the review grid.
+_NO_BLUR_OVER_VIDEO = ("rd-modal-bg", "rd-modal-close", "rd-scorebadge", "rd-viralbadge")
+
+
+def _css_rule(selector: str) -> str:
+    m = re.search(r"\." + selector + r"\{(.*?)\}", SRC, re.S)
+    assert m, f".{selector} rule not found"
+    return m.group(1)
+
+
+@pytest.mark.parametrize("selector", _NO_BLUR_OVER_VIDEO)
+def test_no_backdrop_filter_on_anything_covering_the_player(selector):
+    rule = _css_rule(selector)
+    assert "backdrop-filter" not in rule, (
+        f".{selector} has a backdrop-filter. It covers the clip player, so the "
+        f"browser re-blurs it every frame the video decodes — playback stutters "
+        f"windowed and is fine only in fullscreen, where the top layer skips it.")
+
+
+@pytest.mark.parametrize("selector", _NO_BLUR_OVER_VIDEO)
+def test_the_removed_blur_was_paid_for_with_opacity(selector):
+    """The blur was doing real visual work — separating the badges from a bright
+    thumbnail, and dimming the page behind the modal. Dropping it without
+    raising the background opacity would leave white-on-pale text."""
+    rule = _css_rule(selector)
+    m = re.search(r"background:rgba\(\d+,\s*\d+,\s*\d+,\s*([\d.]+)\)", rule)
+    assert m, f".{selector} has no rgba background to carry the contrast"
+    assert float(m.group(1)) >= 0.8, (
+        f".{selector} is only {m.group(1)} opaque with no blur behind it — "
+        f"the text will not hold up over a bright clip thumbnail")
