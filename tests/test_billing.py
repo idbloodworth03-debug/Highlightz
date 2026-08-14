@@ -162,20 +162,32 @@ def test_apply_subscription_event_mismatch_targets_customer_owner(monkeypatch):
     assert calls["by_user"] == [("user_X", "cus_A", "active")]
 
 
-def test_paywall_copy_never_promises_free_days():
+def test_paywall_only_promises_free_days_to_someone_who_can_still_have_them():
+    """A self-serve 7-day trial exists again, so the 'new' variant SHOULD sell
+    it. The rule this test has always been protecting is narrower than "never
+    say free": never dangle free days in front of somebody who cannot get them.
+
+    Offering another week to a user whose trial just ended is the chargeback
+    waiting to happen — they click through expecting free and get a card form.
+    Same for a returning subscriber.
+    """
     from src.dashboard.api import _paywall_copy
     variants = {k: _paywall_copy(k) for k in ("new", "returning", "trial_ended")}
+
+    new = " ".join(variants["new"].values()).lower()
+    assert "7 days free" in new or "days free" in new, \
+        "the new-user paywall should sell the trial that actually exists"
+
+    for kind in ("returning", "trial_ended"):
+        joined = " ".join(variants[kind].values()).lower()
+        assert "days free" not in joined and "7 days" not in joined, \
+            f"the {kind} paywall offers free days to someone who cannot have them"
+
     for kind, c in variants.items():
-        joined = " ".join(c.values()).lower()
-        # No self-serve trial exists — promising free days is a chargeback
-        # waiting to happen. (Mentioning that a granted trial *ended* is fine.)
-        assert "free trial" not in c["headline"].lower() or kind == "trial_ended"
-        assert "days free" not in joined and "7-day" not in joined
         assert "from $10/month" in c["subline"]
         # No variant leaves template placeholders behind.
         assert all("{" not in v for v in c.values())
-    assert "trial has ended" in variants["trial_ended"]["headline"].lower() or \
-           "trial" in variants["trial_ended"]["headline"].lower()
+    assert "trial" in variants["trial_ended"]["headline"].lower()
     assert "welcome back" in variants["returning"]["subline"].lower()
 
 

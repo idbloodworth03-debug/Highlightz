@@ -34,7 +34,7 @@ def clean(tmp_path, monkeypatch):
 
     from src.auth import users as us
     monkeypatch.setattr(us, "get_by_id",
-                        lambda uid: {"id": uid, "subscription_status": "none"})  # free: 15
+                        lambda uid: {"id": uid, "subscription_status": "none", "grandfathered": True})  # free: 15
     api._clips.clear()
     yield sent
     api._clips.clear()

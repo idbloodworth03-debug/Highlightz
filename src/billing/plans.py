@@ -35,7 +35,26 @@ PLAN RESOLUTION (get_plan) — the ordering matters and each rule is load-bearin
 FREE_PLAN = "free"
 LEGACY_PAID_PLAN = "pro"      # what a pre-tiers subscriber is grandfathered to
 
+# How long a self-serve trial lasts. New signups get this automatically, with no
+# card — the single source of truth for the number, so the landing page, the
+# paywall and the signup path cannot drift apart.
+TRIAL_DAYS = 7
+
+# The state a NEW account lands in once its trial runs out: no streams, no
+# queue, nothing. Expressed as a plan with zero limits rather than as a new
+# gate, because every access check in the product already asks limits_for()
+# what this user may do — add_stream, the pending cap, the VOD gate and the
+# Clip Editor gate all fail naturally against zeroes. A separate "locked"
+# branch would have to be added to each of them and would be forgotten in one.
+LOCKED_PLAN = "locked"
+
 PLAN_LIMITS: dict[str, dict] = {
+    "locked":  {"label": "Trial ended", "price": 0, "max_streams": 0,
+                "max_pending": 0, "vod": False, "uploads": False},
+    # LEGACY ONLY. Nothing new ever lands here: accounts that existed before the
+    # trial cutover are marked `grandfathered` and keep this permanently, so
+    # nobody who was already using the product loses it. New signups get a
+    # 7-day trial and then `locked`.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
                 "max_pending": 15, "vod": False, "uploads": False},
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
@@ -57,7 +76,13 @@ ACTIVE_STATUSES = ("active", "trialing")
 def get_plan(user: dict | None) -> str:
     """Resolve the effective plan for a user dict (public or full)."""
     if not user:
-        return FREE_PLAN
+        # No user in hand — a deleted account still holding a live session, or a
+        # lookup that missed. The least access, not the free tier: both real
+        # callers pass get_by_id(uid), which returns None exactly when the
+        # account is gone, and handing that case a stream slot is failing open
+        # on billing. (An empty dict is falsy and lands here too, which is the
+        # correct answer for it.)
+        return LOCKED_PLAN
     if user.get("is_admin") or user.get("is_labeler"):
         return "pro"
 
@@ -70,7 +95,16 @@ def get_plan(user: dict | None) -> str:
         plan = user.get("plan")
         return plan if plan in PAID_PLANS else "pro"
     if status != "active":
-        return FREE_PLAN        # never subscribed, cancelled, or lapsed
+        # Never subscribed, cancelled, lapsed, or an expired trial.
+        #
+        # GRANDFATHERED accounts — everyone who existed before the self-serve
+        # trial replaced the free tier — keep the free plan indefinitely. That
+        # flag is set once, by a migration at boot, and never on a new account.
+        # It is an explicit mark rather than a date comparison or an inference
+        # from `status` because a lapsed NEW subscriber must land on `locked`
+        # while a legacy user on the identical status keeps free, and no amount
+        # of reading created_at or subscription_status can tell those apart.
+        return FREE_PLAN if user.get("grandfathered") else LOCKED_PLAN
 
     plan = user.get("plan")
     if plan in PAID_PLANS:

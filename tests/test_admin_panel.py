@@ -55,12 +55,16 @@ PEOPLE = {
                "created_at": NOW - 2 * 86400},
     # cancelled: stored plan still says pro, but they are on free now
     "drift":  {"id": "drift", "username": "drift", "subscription_status": "inactive",
+               "grandfathered": True,
                "plan": "pro", "created_at": NOW - 200 * 86400},
     # a $15-era subscriber with NO stored plan — grandfathered to pro
     "legacy": {"id": "legacy", "username": "legacy", "subscription_status": "active",
                "stripe_customer_id": "cus_legacy", "created_at": NOW - 500 * 86400},
-    # signed up, never subscribed
-    "lurker": {"id": "lurker", "username": "lurker", "created_at": NOW - 1 * 86400},
+    # signed up, never subscribed, and predates the trial cutover — so still on
+    # the grandfathered free tier. A lurker who signed up AFTER it would read as
+    # `locked` once their 7 days ran out, which is a different persona.
+    "lurker": {"id": "lurker", "username": "lurker", "grandfathered": True,
+               "created_at": NOW - 1 * 86400},
 }
 
 

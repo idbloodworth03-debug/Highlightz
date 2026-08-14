@@ -22,9 +22,9 @@ def client(monkeypatch, tmp_path):
 
     people = {
         "free_user":  {"id": "free_user", "username": "freddy",
-                       "subscription_status": "none"},
+                       "subscription_status": "none", "grandfathered": True},
         "lapsed":     {"id": "lapsed", "username": "larry",
-                       "subscription_status": "inactive", "plan": "pro"},
+                       "subscription_status": "inactive", "grandfathered": True, "plan": "pro"},
         "pro_user":   {"id": "pro_user", "username": "patty",
                        "subscription_status": "active", "plan": "pro"},
         "legacy":     {"id": "legacy", "username": "lena",

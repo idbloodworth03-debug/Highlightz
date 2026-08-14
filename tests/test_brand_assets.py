@@ -165,24 +165,32 @@ def test_the_retired_card_was_rewritten_rather_than_deleted():
             f"old share would re-serve it")
 
 
-def test_the_card_never_quotes_a_retired_price_or_trial():
+def test_the_card_never_quotes_a_retired_price():
     """The exact failure being prevented. A price baked into a cached image is
-    the slowest thing on the internet to correct."""
-    src = CARD_SRC.read_text(encoding="utf-8")
-    body = src.split("-->", 1)[1]          # skip the header comment, which names them
-    for dead in ("7 days free", "7-day", "$15", "free trial"):
-        assert dead.lower() not in body.lower(), \
-            f"the social card says {dead!r} — that offer does not exist"
+    the slowest thing on the internet to correct.
+
+    NOT a blanket ban on mentioning a trial any more: the self-serve 7-day trial
+    is real again and the card sells it. What must never come back is $15, the
+    price that was retired — and any trial claim has to match TRIAL_DAYS, which
+    is the check below, because a cached card quoting the wrong number is the
+    same bug wearing different clothes."""
+    from src.billing.plans import TRIAL_DAYS
+    body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
+    assert "$15" not in body, "the social card quotes the retired price"
+    import re as _re
+    for n in _re.findall(r"(\d+)\s*days? free", body, _re.I):
+        assert int(n) == TRIAL_DAYS, \
+            f"the card advertises a {n}-day trial but TRIAL_DAYS is {TRIAL_DAYS}"
 
 
 def test_the_card_quotes_no_price_at_all():
-    """Not just the retired ones. Any number here will outlive the offer, because
-    the cache is not ours to clear — so the card sells "free to start" instead."""
+    """Any PRICE here will outlive the offer, because the cache is not ours to
+    clear — so the card sells the trial instead."""
+    from src.billing.plans import TRIAL_DAYS
     body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
     assert not re.search(r"\$\s*\d", body), "a price crept onto the social card"
-    # It has to still say the thing that replaced the price: there is a free
-    # tier and you do not need a card. The exact wording is free to change.
-    assert "free on" in body.lower() or "free to start" in body.lower()
+    # It still has to say the thing that replaced the price.
+    assert f"{TRIAL_DAYS} days free" in body.lower()
     assert "no card" in body.lower()
 
 
@@ -229,7 +237,9 @@ def test_the_preview_text_matches_the_free_tier_that_actually_shipped():
     for tag in ("og:description", "twitter:description"):
         m = re.search(rf'{tag}"\s+content="([^"]+)"', html)
         assert m, f"{tag} is missing"
-        assert "7 day" not in m.group(1).lower()
+        # "7 day" is ALLOWED again: the self-serve 7-day trial is back and is
+        # what the page actually sells. What must never come back is the
+        # RETIRED offer this test was written for — the $15 single price.
         assert "$15" not in m.group(1)
 
 

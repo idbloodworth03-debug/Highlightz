@@ -358,7 +358,15 @@ def test_the_title_and_description_are_useful_lengths(page):
     assert 70 < len(desc) <= 200, f"description is {len(desc)} chars"
 
 
-def test_the_page_never_promises_a_trial_or_a_retired_price(page):
-    """The same failure the social card had: copy that outlives the offer."""
-    for dead in ("7 days free", "7-day", "$15", "free trial"):
-        assert dead.lower() not in page.lower(), f"the tutorial says {dead!r}"
+def test_the_page_never_promises_a_retired_price_or_the_wrong_trial(page):
+    """The same failure the social card had: copy that outlives the offer.
+
+    The 7-day trial is real again, so saying so is correct — but the NUMBER has
+    to come from TRIAL_DAYS. A page confidently quoting a trial length the code
+    does not grant is the same class of bug as the retired $15."""
+    from src.billing.plans import TRIAL_DAYS
+    import re as _re
+    assert "$15" not in page, "the tutorial quotes the retired price"
+    for n in _re.findall(r"(\d+)\s*days? free", page, _re.I):
+        assert int(n) == TRIAL_DAYS, \
+            f"the tutorial advertises a {n}-day trial but TRIAL_DAYS is {TRIAL_DAYS}"

@@ -1363,10 +1363,10 @@ async def admin_set_admin(request: Request, user_id: str, on: bool = True):
 # ── Stripe billing ─────────────────────────────────────────────────────────────
 
 def _paywall_copy(kind: str) -> dict:
-    """Honest paywall copy — there is no self-serve free trial anymore, so the
-    page never promises free days. Variants: 'trial_ended' for users whose
-    admin-granted trial ran out, 'returning' for past subscribers, 'new' for
-    everyone else."""
+    """Paywall copy. A self-serve 7-day trial exists again, so 'new' may promise
+    free days — but only to someone who has not had one. Variants: 'trial_ended'
+    for users whose trial ran out (never offer them another), 'returning' for
+    past subscribers, 'new' for everyone else."""
     if kind == "trial_ended":
         return {
             "headline": "Your free trial has ended",
@@ -1382,9 +1382,10 @@ def _paywall_copy(kind: str) -> dict:
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     return {
-        "headline": "Pick your plan",
-        "subline":  ("start capturing your best streaming moments automatically — "
-                     "from $10/month, cancel anytime."),
+        "headline": "Start your 7 days free",
+        "subline":  ("capture your best streaming moments automatically — the whole "
+                     "product for a week, no credit card. Then from $10/month, "
+                     "cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -2843,7 +2844,10 @@ def _next_tier(user: dict | None) -> dict | None:
     is nothing above it, and an upgrade button that leads nowhere is worse
     than no button."""
     from src.billing.plans import PLAN_LIMITS, get_plan
-    nxt = {"free": "starter", "starter": "pro"}.get(get_plan(user))
+    # "locked" — a new account whose 7-day trial ran out — must map to Starter.
+    # Without it the upgrade prompt vanishes for exactly the person the paywall
+    # exists to convert, which is how a caught-by-test regression looks.
+    nxt = {"locked": "starter", "free": "starter", "starter": "pro"}.get(get_plan(user))
     if not nxt:
         return None
     return {"plan": nxt, "label": PLAN_LIMITS[nxt]["label"],
@@ -4164,7 +4168,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Monitor Up To 10 Channels At Once</title>
-<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free on one channel, no card required.">
+<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. 7 days free, no credit card required.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -4175,19 +4179,19 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again, on 10 streams at once">
-<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
+<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. 7 days free, no credit card required.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
-<meta property="og:image" content="https://highlightz.app/static/og-card-v3.png">
+<meta property="og:image" content="https://highlightz.app/static/og-card-v4.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Highlightz — never miss a highlight again, on every channel at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free on one channel, no card required.">
-<meta name="twitter:image" content="https://highlightz.app/static/og-card-v3.png">
+<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. 7 days free, no credit card required.">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card-v4.png">
 <meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <style>
   /* ══════════════════════════════════════════════════════════════════════
@@ -4996,7 +5000,7 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan, Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "7-day free trial with no card, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
@@ -5045,7 +5049,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
       <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
     </div>
-    <p class="hero-note"><b>Free on 1 channel</b> &middot; no card &middot; 3 channels from $10/mo</p>
+    <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
     <div class="tags">
       <span class="tag">Up to 10 channels at once</span>
       <span class="tag">Formula-based — not AI</span>
@@ -5385,22 +5389,22 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="band-sand seam" id="pricing"><div class="wrap">
   <div class="sec-head center">
     <h2 class="sec-title">More channels, more clips.</h2>
-    <p class="sec-sub">Every plan is the full product — paid tiers just point it at more streamers at the same time. No card to start, no contracts, cancel anytime.</p>
+    <p class="sec-sub">Every plan is the full product — paid tiers just point it at more streamers at the same time. Start with 7 days free, no card, no contracts, cancel anytime.</p>
   </div>
   <div class="price-grid">
     <div class="price-card">
       <div class="price-in">
-        <span class="price-badge">Free</span>
-        <div class="price-amt"><span class="cur">$</span><span class="num">0</span><span class="per">/forever</span></div>
-        <div class="price-sub">The real product on <b>1 channel</b>. No card.</div>
+        <span class="price-badge">Free trial</span>
+        <div class="price-amt"><span class="cur"></span><span class="num">7</span><span class="per">days free</span></div>
+        <div class="price-sub">The <b>whole product</b>, free for a week. No card.</div>
         <div class="price-list">
-          <div class="li"><span class="ck">&#10003;</span>Monitor <b>1 channel</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Automatic clip detection, live on Twitch</div>
-          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>15 pending clips</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
-          <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
+          <div class="li"><span class="ck">&#10003;</span><b>Everything in Pro</b> for 7 days</div>
+          <div class="li"><span class="ck">&#10003;</span>Monitor <b>10 channels at once</b></div>
+          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
+          <div class="li"><span class="ck">&#10003;</span><b>VOD Scanner</b> included</div>
+          <div class="li"><span class="ck">&#10003;</span>No credit card required</div>
         </div>
-        <a href="/login" class="btn btn-quiet btn-wide">Start free &#8594;</a>
+        <a href="/login" class="btn btn-quiet btn-wide">Start free trial &#8594;</a>
       </div>
     </div>
     <div class="price-card">
@@ -5410,7 +5414,7 @@ LANDING_HTML = """<!DOCTYPE html>
         <div class="price-sub">For clipping a small roster &mdash; <b>3&times; the coverage</b>.</div>
         <div class="price-list">
           <div class="li"><span class="ck">&#10003;</span>Monitor <b>3 channels at once</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Everything in Free</div>
+          <div class="li"><span class="ck">&#10003;</span>Everything the trial gave you</div>
           <div class="li"><span class="ck">&#10003;</span>Review queue for <b>50 pending clips</b></div>
           <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
           <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
@@ -5446,7 +5450,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="faq-list">
     <details class="faq-item">
       <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">One on the free plan, <b>3 at the same time on Starter</b>, and <b>10 at the same time on Pro</b>. They all run in parallel — nothing waits in line behind anything else — and each channel keeps its own independent learning profile, so watching ten does not blunt any one of them.</div>
+      <div class="faq-a">Ten during your free trial, <b>3 at the same time on Starter</b>, and <b>10 at the same time on Pro</b>. They all run in parallel — nothing waits in line behind anything else — and each channel keeps its own independent learning profile, so watching ten does not blunt any one of them.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">Can I clip channels I don't own?</span><span class="faq-c">+</span></summary>
@@ -5482,7 +5486,7 @@ LANDING_HTML = """<!DOCTYPE html>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">There is a <b>free plan with no card required</b> — one monitored channel and a 15-clip review queue, for as long as you like. Paid plans are Starter at $10/month (3 channels at once, 50-clip queue) and Pro at $25/month (10 channels at once, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
+      <div class="faq-a">You get <b>7 days free with no credit card</b> — the full Pro product, so you can see whether the detector actually works on your channels before paying anything. After that, Starter is $10/month (3 channels at once, 50-clip queue) and Pro is $25/month (10 channels at once, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
     </details>
     <details class="faq-item">
       <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
@@ -5958,7 +5962,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo-mark.png" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="price-pill"><span class="dot"></span>Free to start &mdash; no card required</div>
+  <div class="price-pill"><span class="dot"></span>7 days free &mdash; no card required</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>

@@ -234,7 +234,8 @@ def test_the_sign_in_page_does_not_quote_a_price_as_the_headline():
     from src.dashboard.api import LOGIN_HTML as html
     assert "From $10/month" not in html
     assert "Renews monthly." not in html
-    assert "Free to start" in html, "the sign-in page does not say signing in is free"
+    assert "7 days free" in html, \
+        "the sign-in page does not say what signing in actually gets you"
     assert "no card required" in html
 
 

@@ -19,17 +19,31 @@ def test_get_plan_resolution_rules():
     # active subscription — stripping features from someone who already paid
     # for full access is not an acceptable outcome of a pricing change.
     assert get_plan({"subscription_status": "active"}) == "pro"
-    # A stored plan WITHOUT an active subscription is a lapsed subscriber and
-    # drops to free. Honouring the stored plan would hand a former customer Pro
-    # forever; locking them out entirely is what the free tier exists to avoid.
-    assert get_plan({"plan": "pro"}) == "free"
-    assert get_plan({"subscription_status": "inactive", "plan": "starter"}) == "free"
-    # Garbage falls to free, not to paid — failing open on billing is the
-    # expensive direction.
-    assert get_plan({"plan": "enterprise"}) == "free"
+    # WITHOUT an active subscription the answer now depends on ONE flag.
+    #
+    # The free tier was replaced by a self-serve 7-day trial, but every account
+    # that existed beforehand was grandfathered and keeps free access. So a
+    # lapsed subscriber who predates the cutover still lands on free — honouring
+    # the stored plan would hand a former customer Pro forever, and locking out
+    # someone who has been using the free tier for months is not something a
+    # pricing change may do silently.
+    assert get_plan({"plan": "pro", "grandfathered": True}) == "free"
+    assert get_plan({"subscription_status": "inactive", "plan": "starter",
+                     "grandfathered": True}) == "free"
+    # A NEW account in the same state has no free tier to fall back to: its
+    # trial ended, so it locks. This is the pair that no amount of reading
+    # created_at or subscription_status could separate — hence the flag.
+    assert get_plan({"plan": "pro"}) == "locked"
+    assert get_plan({"subscription_status": "expired"}) == "locked"
+    # Garbage falls to the LEAST access, not to paid — failing open on billing
+    # is the expensive direction.
+    assert get_plan({"plan": "enterprise"}) == "locked"
+    assert get_plan({"plan": "enterprise", "grandfathered": True}) == "free"
     assert get_plan({"subscription_status": "active", "plan": "enterprise"}) == "pro"
-    assert get_plan(None) == "free"
-    assert get_plan({}) == "free"
+    # No user in hand is the least access, not the free tier — a deleted account
+    # still holding a session must not keep a stream slot.
+    assert get_plan(None) == "locked"
+    assert get_plan({}) == "locked"
     # Labelers are the training team and need the real product unpaid.
     assert get_plan({"is_labeler": True}) == "pro"
 
@@ -40,7 +54,10 @@ def test_limits_shape():
     assert (s["max_streams"], s["max_pending"], s["vod"]) == (3, 50, False)
     assert (p["max_streams"], p["max_pending"], p["vod"]) == (10, 200, True)
     assert limits_for({"subscription_status": "active", "plan": "starter"})["max_streams"] == 3
-    assert limits_for({})["max_streams"] == 1
+    # An empty/unknown user is LOCKED, not free — see get_plan. A deleted
+    # account holding a live session must not keep a stream slot.
+    assert limits_for({})["max_streams"] == 0
+    assert limits_for({"grandfathered": True})["max_streams"] == 1
 
 
 def test_free_is_one_stream_because_a_stream_is_the_scarce_resource():
@@ -123,10 +140,13 @@ def test_realtime_is_not_a_paid_feature():
 
 
 def test_a_lapsed_subscriber_keeps_the_free_allowance():
+    # NOTE: "keeps" now means "if they predate the trial cutover". A lapsed
+    # subscriber who signed up AFTER it has no free tier to fall back to and
+    # lands on `locked` — covered in test_get_plan_resolution_rules.
     """They drop to free, not out. Stopping every stream would take away the
     one a free user is entitled to."""
     from src.billing.plans import limits_for
-    lapsed = {"subscription_status": "inactive", "plan": "pro"}
+    lapsed = {"subscription_status": "inactive", "plan": "pro", "grandfathered": True}
     assert limits_for(lapsed)["max_streams"] == 1
 
 
@@ -145,7 +165,11 @@ def test_the_stream_limit_trim_keeps_the_oldest_streams():
     real_get, real_save = us.get_by_id, api._save_streams
     real_pub = api._publish_remove_stream
     try:
-        us.get_by_id = lambda uid: {"subscription_status": "none"}   # free: 1 stream
+        # A grandfathered legacy account: free tier, 1 stream. Without the flag
+        # this user would be `locked` (0 streams) and ALL THREE would stop,
+        # which is a different test.
+        us.get_by_id = lambda uid: {"subscription_status": "none",
+                                    "grandfathered": True}   # free: 1 stream
         api._save_streams = lambda: None
         api._publish_remove_stream = None
         stopped = asyncio.run(api._enforce_stream_limit("u1"))

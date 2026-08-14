@@ -56,8 +56,11 @@ def test_landing_stats_route_is_public():
 def test_landing_html_has_price_counter_and_demo():
     html = api.LANDING_HTML
     assert ">10<" in html and ">25<" in html        # both tier prices shown
-    # No self-serve trial exists — the page must not advertise free days.
-    assert "free trial" not in html.lower() and "days free" not in html.lower()
+    # A self-serve trial exists again, so the page SHOULD advertise free days.
+    # This assertion was the exact inverse while the free tier was the offer.
+    assert "7 days free" in html.lower() or "days free" in html.lower()
+    # What must stay gone is the retired single price.
+    assert "$15" not in html
     assert 'id="lp-count"' in html                   # live counter element
     assert "/landing/stats" in html                  # fed by the public endpoint
     assert 'id="demo"' in html and "TRIGGER FIRED" in html   # live capture demo
@@ -182,7 +185,11 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     assert f"channels watched at once on Pro &mdash; {starter} on Starter" in html
 
     # The pricing cards, which is where the paid tiers have to be unambiguous.
-    assert f"Monitor <b>{free} channel</b>" in html
+    # The first card is no longer the free TIER but the 7-day trial, and a trial
+    # grants Pro — so it advertises Pro's channel count, not free's 1. `free` is
+    # still read from PLAN_LIMITS above because the tier still exists for
+    # grandfathered accounts; it just is not what the page sells.
+    assert f"Monitor <b>{pro} channels at once</b>" in html
     assert f"Monitor <b>{starter} channels at once</b>" in html
     assert f"Monitor <b>{pro} channels at once</b>" in html
 

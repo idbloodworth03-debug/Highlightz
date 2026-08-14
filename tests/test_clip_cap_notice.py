@@ -179,7 +179,8 @@ def test_me_reports_the_misses(monkeypatch, tmp_path):
     from src.dashboard import api
     from src.auth import users as user_store
 
-    people = {"free": {"id": "free", "username": "f", "subscription_status": "none"}}
+    people = {"free": {"id": "free", "username": "f", "subscription_status": "none",
+                       "grandfathered": True}}
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: people.get(uid))
     for i in range(4):
         ss.record(ss.MISSED, _clip(uid="free", cid=f"c{i}"))
@@ -207,5 +208,5 @@ def test_the_next_tier_reaches_me_so_the_reload_path_can_sell():
 def test_pro_has_no_next_tier():
     from src.dashboard import api
     assert api._next_tier({"subscription_status": "active", "plan": "pro"}) is None
-    nxt = api._next_tier({"subscription_status": "none"})
+    nxt = api._next_tier({"subscription_status": "none", "grandfathered": True})
     assert nxt["plan"] == "starter" and nxt["max_pending"] == 50 and nxt["price"] == 10

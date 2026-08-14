@@ -11,6 +11,10 @@ import json
 import logging
 import os
 import secrets
+
+# The trial length lives with the plans, so the signup path and the landing
+# page cannot disagree about how many days a new user gets.
+from src.billing.plans import TRIAL_DAYS
 import shutil
 import tempfile
 import time
@@ -212,9 +216,11 @@ def upsert_twitch_user(
         _save(users)
         return _public(existing)
 
-    # Brand-new account: begins with no access and goes through the paywall →
-    # checkout ($15/month, billed immediately). Free access exists only as an
-    # admin-granted timed trial (grant_trial).
+    # Brand-new account: starts a 7-day self-serve trial, no card. This is the
+    # only place a trial is granted automatically; grant_trial stays for admin
+    # comps. It is tied to the Twitch id and this branch only runs when no
+    # account exists for that id, so signing in again does not restart the
+    # clock — re-trialling would need a whole new Twitch account.
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -228,13 +234,45 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        "subscription_status":  "active" if is_admin else "none",
-        "trial_ends_at":        0,
+        "subscription_status":  "active" if is_admin else "trialing",
+        "trial_ends_at":        0 if is_admin else now + TRIAL_DAYS * 86400,
+        # Explicitly NOT grandfathered: this account never had the free tier, so
+        # when its trial runs out it locks rather than falling back to free.
+        "grandfathered":        False,
         "created_at":           now,
     }
     users.append(user)
     _save(users)
     return _public(user)
+
+
+def grandfather_existing_accounts() -> int:
+    """Mark every account that predates the self-serve trial as grandfathered.
+
+    The free tier was replaced by a 7-day trial. Without this, `get_plan` would
+    drop every non-paying account that already existed onto the locked plan the
+    moment this deploys — including people mid-session and, worse, subscribers
+    who had merely lapsed, who up to now kept using the product on free.
+
+    Runs once at boot and is idempotent: an account that already carries the
+    flag is skipped, and new accounts are created with it explicitly False, so
+    a second run can never hand a new user the legacy free tier.
+
+    Deliberately NOT a date comparison. A lapsed NEW subscriber and a legacy
+    free user can sit on the identical subscription_status, and created_at
+    cannot separate them once the cutover moment has passed — only an explicit
+    mark, written once, can.
+    """
+    users = _load()
+    marked = 0
+    for u in users:
+        if "grandfathered" not in u:
+            u["grandfathered"] = True
+            marked += 1
+    if marked:
+        _save(users)
+        _ulog.info("grandfathered %d existing accounts onto the legacy free tier", marked)
+    return marked
 
 
 def _store_refreshed_tokens(user_id: str, access_token: str, refresh_token: str, expires_in: int) -> None:

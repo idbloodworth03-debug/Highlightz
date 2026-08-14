@@ -117,7 +117,7 @@ QUICKSTART: tuple[Section, ...] = (
         media=Media(
             src="01-signin.png",
             alt="The Highlightz sign-in card with a Continue with Twitch button and a "
-                "badge reading Free to start, no card required.",
+                "badge reading 7 days free, no card required.",
         ),
         tip=(
             "Sign in with the account you want the clips on. Whichever Twitch "
@@ -445,7 +445,7 @@ FAQ: tuple[tuple[str, str], ...] = (
 
 CTA_TITLE = "Start clipping"
 CTA_BODY = (
-    "Free to start, no card required. Add one channel and let it watch a stream — "
+    "7 days free, no card required. Add your channels and let it watch a stream — "
     "that is the fastest way to see whether the detector works on your content."
 )
 CTA_BUTTON = "Start clipping now"

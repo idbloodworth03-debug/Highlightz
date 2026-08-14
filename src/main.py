@@ -384,6 +384,10 @@ async def main() -> None:
     # Seed admin account from existing password if no users exist yet
     from src.auth import users as user_store
     user_store.ensure_admin_exists(settings.dashboard_password)
+    # One-time, idempotent: everyone who existed before the self-serve trial
+    # replaced the free tier keeps free access permanently. Must run BEFORE any
+    # request is served, or a legacy user could be told their trial ended.
+    user_store.grandfather_existing_accounts()
 
     tasks = [
         asyncio.create_task(run_dashboard(), name="dashboard"),

@@ -17,10 +17,15 @@
   DELIBERATELY NO PRICE ON THE CARD. Quoting a number here is exactly what went
   wrong: prices change, and a cached OG image is the slowest thing on the
   internet to correct — Facebook keys its cache on the URL, so a stale card can
-  outlive the offer by months. "Free to start, no card" stays true across every
-  pricing change we would plausibly make, and it is also the single most useful
-  thing a stranger can learn in a thumbnail. A test asserts no retired price or
-  trial ever creeps back in.
+  outlive the offer by months. A test asserts no retired price creeps back in.
+
+  THE TRIAL LENGTH IS THE ONE EXCEPTION, added knowingly. "7 days free" is the
+  single most useful thing a stranger can learn from a thumbnail, and it is what
+  the product actually sells. It is also, by this file's own argument, exactly
+  the kind of claim that rots — so if TRIAL_DAYS ever changes, this card MUST be
+  regenerated under a NEW filename (bump OUT in build_og_card.mjs) or every
+  previously shared link keeps advertising the old offer. That is not a
+  hypothetical: it is what happened last time, with "7 days free / $15 a month".
 
   The design is the landing page's own logic, compressed: purple is not paint,
   it is the light the trigger throws. The score panel on the right is the light
@@ -146,7 +151,7 @@
     <div class="tags">
       <span class="tag"><b>Up to 10 channels</b> at once</span>
       <span class="tag">Formula-based &mdash; not AI</span>
-      <span class="tag"><b>Free on 1</b> &middot; no card</span>
+      <span class="tag"><b>7 days free</b> &middot; no card</span>
     </div>
   </div>
 

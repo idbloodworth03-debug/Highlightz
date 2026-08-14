@@ -100,10 +100,12 @@ def test_the_landing_page_advertises_the_free_plan():
     $10/$25 with no free option contradicts the product they are signing up
     for."""
     from src.dashboard.api import LANDING_HTML
-    assert "Start free" in LANDING_HTML
-    assert "no card" in LANDING_HTML.lower()
-    assert "Monitor <b>1 channel</b>" in LANDING_HTML
-    assert "15 pending clips" in LANDING_HTML
+    # The free ENTRY POINT is now a 7-day trial rather than a free tier, but the
+    # thing this test protects is unchanged: an outreach signup must not land on
+    # a page that asks for money with no way to try the product first.
+    assert "Start free trial" in LANDING_HTML
+    assert "no credit card" in LANDING_HTML.lower()
+    assert "7" in LANDING_HTML and "days free" in LANDING_HTML.lower()
 
 
 def test_the_structured_data_matches_what_is_actually_offered():
