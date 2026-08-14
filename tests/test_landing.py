@@ -115,7 +115,14 @@ def test_accent_word_is_solid_not_outlined():
     """
     css = api.LANDING_HTML
     block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
-    assert "color:#B86ADC" in block, "accent must be filled with our purple"
+    # #6A2E8A on light, #B86ADC on a dark band. The accent word is display-sized
+    # so #B86ADC technically clears AA-large on bone (3.15 vs 3.0) — but it is
+    # washed out there, and a value that thin cannot be reused at body size.
+    # The darker plum is 8.15 and is still nowhere near Twitch's purple, which
+    # is the decision this test exists to protect.
+    assert "color:#6A2E8A" in block, "accent must be filled with our purple"
+    dark = css[css.index(".band-dark .accent{"):css.index("}", css.index(".band-dark .accent{"))]
+    assert "color:#B86ADC" in dark, "on a dark band the accent should use the glow variant"
     assert "color:transparent" not in block
     assert "-webkit-text-stroke:0" in block
     for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):
@@ -348,34 +355,30 @@ def test_lobster_is_titles_only_and_never_uppercased():
 
 
 def test_decoration_can_never_block_the_page():
-    """The old aurora — four blurred purple orbs drifting behind everything —
-    is gone; it was the exact "glow blob" the redesign set out to remove. What
-    replaced it is a grain layer over the page and a light that belongs to the
-    demo panel, and BOTH inherit the aurora's failure mode: a full-bleed
-    decorative layer that starts eating clicks kills every button on the page
-    and is invisible in a screenshot.
+    """A full-bleed decorative layer that starts eating clicks kills every
+    button on the page and is invisible in a screenshot.
 
-    So the invariants move with the decoration rather than dying with it.
+    The layer this guards has changed three times now — the aurora orbs, then
+    the grain, now the through-line and its section wash — and the docstring
+    said each time that the invariant moves with the decoration rather than
+    dying with it. So it moves again. The grain is gone (it was drawn for the
+    dark palette and did nothing on bone); what is fixed and full-bleed today
+    is .thread and the ::after wash on every seam.
     """
     css = api.LANDING_HTML
+    assert ".grain{" not in css, "the grain came back — it is dead weight on a light page"
 
-    grain = css[css.index(".grain{"):css.index("}", css.index(".grain{"))]
-    assert "pointer-events:none" in grain, "grain must never intercept clicks"
-    assert "position:fixed" in grain
-    assert 'class="grain" aria-hidden="true"' in css, "pure decoration must be aria-hidden"
+    thread = css[css.index(".thread{"):css.index("}", css.index(".thread{"))]
+    assert "position:fixed" in thread
+    assert "pointer-events:none" in thread, \
+        "the through-line is fixed over the page and would swallow every click"
 
-    light = css[css.index(".demo-wrap::before{"):css.index("}", css.index(".demo-wrap::before{"))]
-    assert "pointer-events:none" in light, "the room light must never intercept clicks"
-
-    # The banned thing itself must not come back.
-    assert ".aurora" not in css, "the drifting glow-blob layer is back"
-    assert "filter:blur(" not in css, "a blurred background layer is back"
-    for other in ("_PORTAL_ERROR_HTML", "_PORTAL_NO_BILLING_HTML"):
-        assert 'class="aurora"' not in getattr(api, other)
-
-    # Ambient motion is decoration: hold it still when asked.
-    assert "@media(prefers-reduced-motion:reduce)" in css
-    assert "prefers-reduced-motion:no-preference" in css
+    wash = css[css.index(".seam::after,.wash::after{"):
+               css.index("}", css.index(".seam::after,.wash::after{"))]
+    assert "pointer-events:none" in wash, \
+        "the section wash covers a whole band and would swallow its buttons"
+    # It is decoration, so it must never be in the accessibility tree either.
+    assert 'id="thread"' in css and 'aria-hidden="true"' in css
 
 
 

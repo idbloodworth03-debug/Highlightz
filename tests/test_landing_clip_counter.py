@@ -23,7 +23,10 @@ def counted(monkeypatch):
 
 
 def _visible_number(html: str) -> str:
-    m = re.search(r'id="lp-count">([^<]*)<', html)
+    # Attribute-tolerant: the span also carries data-count for the count-up
+    # animation. The contract is "the number is in the raw HTML", not "the
+    # element has no attributes".
+    m = re.search(r'id="lp-count"[^>]*>([^<]*)<', html)
     assert m, "the counter element is gone"
     return m.group(1)
 

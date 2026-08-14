@@ -3967,8 +3967,8 @@ def render_landing(html: str | None = None) -> str:
     html = html.replace(
         '<div class="stat stat-big" id="stat-clips" style="display:none">',
         '<div class="stat stat-big" id="stat-clips">', 1)
-    html = html.replace('<span id="lp-count">0</span>',
-                        f'<span id="lp-count">{pretty}</span>', 1)
+    html = html.replace('<span id="lp-count" data-count="0">0</span>',
+                        f'<span id="lp-count" data-count="{total}">{pretty}</span>', 1)
     html = html.replace('"userInteractionCount": 0',
                         f'"userInteractionCount": {total}', 1)
     return html
@@ -4191,30 +4191,55 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <style>
   /* ══════════════════════════════════════════════════════════════════════
-     LATE-NIGHT STREAM ROOM
-     The page is a dark room at 1am. A desk lamp behind you throws AMBER.
-     The monitor throws VIOLET — but only when something fires. That is the
-     whole colour logic: purple is not paint, it is the light a trigger makes.
+     DAYLIT ROOM, LIT MONITORS
+     The room is bright now. The page is warm bone; the PRODUCT is dark — the
+     demo, the dashboard mockups, the formula, the clip cards are monitors
+     sitting on a light desk. That inversion is the whole idea: purple was
+     competing with a dark page and losing, and now it is the only light
+     source in a bright room, so it finally reads.
 
-     PALETTE (7)
-       --void   #0E0B11  the unlit wall. Plum-black (H270), not blue-black.
-       --wall   #1B1221  a panel sitting in shadow
-       --bruise #33203F  a surface turned toward the light
-       --glow   #B86ADC  the light the monitor throws. H281 S62 — deliberately
-                         NOT Twitch's H264 S100, and desaturated because light
-                         on a matte wall loses saturation
-       --flare  #D26AFB  threshold crossed; the hottest moment on the page
-       --ember  #F7A745  the lamp behind you. Warm counterpoint, and the
-                         BELOW-threshold state of every score on the page
-       --ink    #F2EAF7  type, warmed toward the room's violet
+     Every colour is a PAIR, because the page has two surfaces. The light
+     variants are the ones that carry text on bone; the dark variants only
+     ever appear on a panel. Measured, not eyeballed — the light theme is
+     where muted text quietly fails:
 
-     TYPE
-       Lobster  display, twice on the whole page (h1, closing line)
-       Sora     body + section headings (700, tightened for dark)
+       ON LIGHT (contrast vs --bone #F8F5F0)
+         --ink       #171219  headings                      16.98
+         --ink-2     #4A4150  body                           8.93
+         --muted     #6E6472  labels, meta                   5.18  AA
+         --plum      #6A2E8A  purple AS TEXT/UI              8.15
+         --ember-ink #A55C09  warm counterpoint as text      4.67  AA
+
+       ON DARK (contrast vs --void #0E0B11)
+         --iris      #B86ADC  purple as LIGHT                5.71
+         --ember     #F7A745  warm counterpoint as light     9.83
+         --flare     #D26AFB  threshold crossed, hottest point
+
+     --iris on bone is 3.15 and --ember on bone is 1.83: both FAIL body text
+     on light. They are barred from it structurally — if you want purple type
+     on bone, it is --plum. That pairing is the single thing that keeps this
+     from becoming an unreadable light theme.
+
+     SURFACES
+       --bone  #F8F5F0  page
+       --sand  #EFE9E1  alternating band. 1.11 against bone — meant to be
+                        felt, not seen. A visible stripe is just the long
+                        list again in new paint.
+       --void  #0E0B11  panels, and exactly ONE full-dark section (the
+                        formula), where the content is genuinely instrument-
+                        like and the darkness is earned rather than rhythmic.
+
+     TYPE — three faces, all already self-hosted and subset. No new files:
+     adding a face to look like type work costs bytes and CLS for nothing.
+       Lobster    display, TWICE on the page (h1, closing line)
+       Sora       body + section headings
        Plex Mono  every number, score, label — the instrument face
 
-     Light on dark reads heavier: body sits at 400 where the old page used
-     500/600, headings tighten to -.025em, and labels open up to .16em.
+     MOTION — one curve for the entire site, no exceptions.
+       --ease  cubic-bezier(.16,1,.3,1)
+       150ms micro / 300ms transition / 600-800ms entrance
+       transform and opacity ONLY. Entrances go on grouped CHILDREN, never on
+       section containers — the same fade-up on every section is the tell.
      ══════════════════════════════════════════════════════════════════════ */
 
   /* Self-hosted, subsetted — no third-party font dependency. */
@@ -4232,15 +4257,40 @@ LANDING_HTML = """<!DOCTYPE html>
   @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
 
   :root{
-    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
-    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
-    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
-    --hair:rgba(242,234,247,.085);
+    /* surfaces */
+    --bone:#F8F5F0; --sand:#EFE9E1; --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
+    /* INKS — light-surface values. The dark-context block below re-declares
+       these SAME NAMES, so every existing rule using var(--ink-3) resolves
+       correctly in both worlds without being rewritten. That is the whole
+       reason this inversion is safe: the cascade does the work, not a
+       hundred hand-edited declarations. */
+    --ink:#171219; --ink-2:#4A4150; --ink-3:#6E6472;
+    --hair:rgba(23,18,25,.10); --hair-2:rgba(23,18,25,.16);
+    /* purple and ember AS TEXT on light. Never --iris/--ember here: 3.15 and
+       1.83 against bone. */
+    --plum:#6A2E8A; --ember-ink:#A55C09;
+    /* purple and ember AS LIGHT. Only legible on a panel. */
+    --iris:#B86ADC; --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
     --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
     --sans:'Sora',system-ui,sans-serif;
+    --display:'Lobster',Georgia,serif;
+    /* ONE curve, whole site. Durations are the only thing that varies. */
+    --ease:cubic-bezier(.16,1,.3,1);
+    --t-micro:150ms; --t-move:300ms; --t-enter:600ms;
+    /* Measure. Text sections hold this; product sections deliberately do not. */
+    --measure:65ch;
     /* 0..1 — how hard the trigger is firing right now. Everything that is
-       "light" on this page reads from this one number. */
+       "light" on this page reads from this one number, including the
+       through-line's section wash. It is the product's own mechanic driving
+       the page's lighting, which is the point. */
     --lit:0;
+  }
+  @media(prefers-reduced-motion:reduce){
+    /* Not "less motion" — none. One place, no exceptions, so no animation
+       added later can quietly opt itself out of this. */
+    *,*::before,*::after{
+      animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important}
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth;overflow-x:clip}
@@ -4253,16 +4303,103 @@ LANDING_HTML = """<!DOCTYPE html>
      `html{overflow-x:clip}` above already suppresses sideways scroll, and
      `clip` (unlike `hidden`) does NOT create a scroll container, so sticky
      keeps working. Same fix already applied to /tutorial. */
-  body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
-    font-size:15.5px;line-height:1.68;
+  body{background:var(--bone);color:var(--ink-2);font-family:var(--sans);font-weight:400;
+    font-size:16.5px;line-height:1.65;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 
-  /* ── Grain. Real rooms are not flat. One tiled turbulence tile at 3%, sitting
-     over everything so panels get tooth too. No blend mode: on this palette
-     overlay just crushes the darks and bands. ── */
-  .grain{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.032;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size:180px 180px}
+  /* ── Surfaces. A container declares which world it is in and RE-DECLARES the
+     ink tokens; everything inside then resolves correctly with no rule
+     changes. Add a dark panel by putting it on this list, not by rewriting
+     its colours. ── */
+  .band-sand{background:var(--sand)}
+  /* A band that also carries .wrap is max-width-constrained, so the colour
+     would only paint the centred column. This paints it edge to edge behind
+     the content without changing the nesting. 100vw is safe because
+     html{overflow-x:clip} already suppresses sideways scroll. */
+  .seam{position:relative;isolation:isolate}
+  .band-sand.wrap,.band-dark.wrap{background:transparent}
+  .band-sand.wrap::before,.band-dark.wrap::before{
+    content:'';position:absolute;inset:0 auto;top:0;bottom:0;left:50%;width:100vw;
+    transform:translateX(-50%);z-index:-1}
+  .band-sand.wrap::before{background:var(--sand)}
+  .band-dark.wrap::before{background:var(--void)}
+
+  /* ── THE THROUGH-LINE. Hairline weight, small mono readout, no chrome. It
+     costs one fixed element and it is the thing people remember. ── */
+  .thread{position:fixed;right:clamp(14px,2.2vw,34px);top:50%;transform:translateY(-50%);
+    z-index:55;display:none;flex-direction:column;align-items:center;gap:12px;
+    pointer-events:none}
+  @media(min-width:900px){ .thread{display:flex} }
+  .thread-rail{position:relative;width:1px;height:min(42vh,340px);
+    background:linear-gradient(180deg,transparent,var(--hair-2) 12%,var(--hair-2) 88%,transparent)}
+  /* Fill is scaled, never resized: transform only, so it never triggers layout. */
+  .thread-fill{position:absolute;left:-1px;bottom:0;width:3px;height:100%;
+    transform-origin:50% 100%;transform:scaleY(var(--lit));border-radius:2px;
+    background:linear-gradient(180deg,var(--flare),var(--plum));
+    box-shadow:0 0 10px rgba(184,106,220,calc(.25 + var(--lit)*.55));
+    transition:transform var(--t-move) var(--ease)}
+  /* The threshold: the line the score has to cross for a clip to fire. */
+  .thread-thresh{position:absolute;left:-4px;right:-4px;bottom:62%;height:1px;
+    background:var(--ember-ink);opacity:.5}
+  .thread-read{font-family:var(--mono);text-align:center;line-height:1}
+  .thread-score{display:block;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;
+    color:var(--ink-2)}
+  .thread.fired .thread-score{color:var(--plum)}
+  .thread-lab{display:block;margin-top:3px;font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3)}
+  /* The fire: a wash of purple over the section being entered. Opacity only. */
+  .seam::after,.wash::after{content:'';position:absolute;left:50%;transform:translateX(-50%);
+    width:100vw;top:0;height:100%;pointer-events:none;z-index:0;opacity:0;
+    background:radial-gradient(120% 60% at 50% 0%,rgba(184,106,220,.16),transparent 70%);
+    transition:opacity 700ms var(--ease)}
+  .seam.lit::after,.wash.lit::after{opacity:1}
+  @media(prefers-reduced-motion:reduce){ .thread{display:none} }
+
+  /* ── HERO. Fills the viewport and runs edge to edge; the demo widget is the
+     best asset on the page and it was boxed into a 1140 column. ── */
+  .hero-band{min-height:calc(100svh - 60px);display:grid;align-content:center;
+    max-width:none;padding-left:clamp(20px,5vw,90px);padding-right:clamp(20px,5vw,90px)}
+  @media(min-width:1200px){
+    .hero-band{grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:clamp(40px,5vw,88px)}
+  }
+  @media(min-width:1600px){ .hero-band{padding-left:6vw;padding-right:6vw} }
+  .band-dark,.panel,.demo,.shot-frame,.exl-card{
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
+    color:var(--ink-2)}
+  .band-dark{background:var(--void)}
+  .band-dark h1,.band-dark h2,.band-dark h3,
+  .panel h1,.panel h2,.panel h3{color:var(--ink)}
+  /* The instrument panel itself: dark object on a light desk. The shadow is
+     what sells it as sitting ON the page rather than cut into it. */
+  .panel{background:var(--void);border:1px solid rgba(23,18,25,.14);border-radius:18px;
+    box-shadow:0 1px 2px rgba(23,18,25,.05),0 18px 40px -22px rgba(23,18,25,.45),
+               0 0 0 1px rgba(242,234,247,.04) inset}
+
+  /* ── Full-bleed. Sections that break the container use this rather than
+     negative margins, so they cannot reintroduce horizontal overflow. ── */
+  .bleed{width:100%;max-width:none;padding-left:0;padding-right:0}
+
+  /* ── Entrances. On grouped CHILDREN only — never a section container. The
+     same fade-up on every section is the thing that reads as a template.
+     Runs once: the observer unobserves after firing. ── */
+  .rise{opacity:0;transform:translateY(14px);
+    transition:opacity var(--t-enter) var(--ease),transform var(--t-enter) var(--ease)}
+  .rise.in{opacity:1;transform:none}
+
+  /* ── Focus. Visible on both surfaces, and never removed. ── */
+  a:focus-visible,button:focus-visible,summary:focus-visible,details:focus-visible{
+    outline:2px solid var(--plum);outline-offset:3px;border-radius:4px}
+  .band-dark a:focus-visible,.band-dark button:focus-visible,
+  .band-dark summary:focus-visible{outline-color:var(--iris)}
+
+  /* GRAIN REMOVED. It was drawn for the dark palette — its own comment says
+     the tile exists so panels "get tooth" on a near-black wall. On bone it is
+     invisible at 3% and it was still a full-viewport fixed layer sitting above
+     everything at z-index 9, which is exactly the sort of always-on paint that
+     the demo widget cannot afford. Nothing else about the design depended on
+     it: the room's texture now comes from the surface change between bone,
+     sand and the instrument panels. */
 
   a{text-decoration:none;color:inherit}
   ::selection{background:rgba(210,106,251,.3);color:#fff}
@@ -4288,7 +4425,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ── Type scale ── */
   .kicker{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ember);display:flex;align-items:center;gap:12px}
+    text-transform:uppercase;color:var(--ember-ink);display:flex;align-items:center;gap:12px}
   .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(247,167,69,.35),transparent);max-width:190px}
   .kicker.center{justify-content:center}
   .kicker.center::before{content:'';flex:1;height:1px;background:linear-gradient(270deg,rgba(247,167,69,.35),transparent);max-width:120px}
@@ -4309,40 +4446,68 @@ LANDING_HTML = """<!DOCTYPE html>
     font-family:var(--sans);font-weight:600;font-size:14.5px;letter-spacing:-.005em;
     padding:13px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
     transition:background .2s,color .2s;white-space:nowrap}
-  .btn-key{background:linear-gradient(166deg,var(--bruise),#25172E) padding-box,
-      linear-gradient(215deg,var(--flare),rgba(184,106,220,.45) 38%,rgba(242,234,247,.08)) border-box}
-  .btn-key:hover{background:linear-gradient(166deg,#412852,#2C1B36) padding-box,
-      linear-gradient(215deg,#EFA6FF,var(--flare) 40%,rgba(242,234,247,.16)) border-box}
-  .btn-quiet{background:linear-gradient(var(--wall),var(--wall)) padding-box,
-      linear-gradient(215deg,rgba(242,234,247,.22),rgba(242,234,247,.05)) border-box;color:var(--ink-2)}
-  .btn-quiet:hover{color:var(--ink);background:linear-gradient(#221727,#221727) padding-box,
-      linear-gradient(215deg,rgba(184,106,220,.5),rgba(242,234,247,.07)) border-box}
+  .btn-key{background:linear-gradient(168deg,#7B3A9E,#5B2472);border-color:transparent;
+    color:#FFF9FE;box-shadow:0 1px 2px rgba(23,18,25,.18),0 10px 24px -12px rgba(106,46,138,.6)}
+  .btn-key:hover{background:linear-gradient(168deg,#8B44B2,#6A2E8A);
+    transform:translateY(-1px);box-shadow:0 2px 4px rgba(23,18,25,.16),0 16px 30px -12px rgba(106,46,138,.7)}
+  /* A real press state — the button moves back down and the shadow collapses. */
+  .btn-key:active{transform:translateY(1px) scale(.995);
+    box-shadow:0 1px 2px rgba(23,18,25,.22),0 4px 10px -6px rgba(106,46,138,.5)}
+  .btn-quiet{background:var(--bone);border:1px solid rgba(23,18,25,.20);color:var(--ink)}
+  .btn-quiet:hover{color:var(--plum);border-color:rgba(106,46,138,.45);
+    background:rgba(106,46,138,.05);transform:translateY(-1px)}
+  .btn-quiet:active{transform:translateY(1px) scale(.995)}
+  /* On a dark band the quiet button inverts back. */
+  .band-dark .btn-quiet{background:transparent;border-color:rgba(242,234,247,.24);color:var(--ink)}
+  .band-dark .btn-quiet:hover{color:#FFF;border-color:var(--iris);background:rgba(184,106,220,.12)}
   .btn-lg{padding:16px 30px;font-size:15.5px}
   .btn-wide{width:100%;padding:15px}
 
   /* ── Layout ── */
-  .wrap{max-width:1140px;margin:0 auto;padding-left:26px;padding-right:26px}
+  /* ── WIDTHS. The old page ran one 1140px column from top to bottom, which is
+   most of why it read as a list: every section had the same silhouette. Now a
+   section declares its own measure and the rhythm comes from the difference.
+   Text stays readable, product goes wide, three sections break out entirely. ── */
+  .wrap{width:100%;max-width:1140px;margin:0 auto;
+    padding-left:clamp(20px,4.5vw,72px);padding-right:clamp(20px,4.5vw,72px)}
+  .wrap.narrow{max-width:min(760px,100%)}          /* pricing, closing */
+  .wrap.reading{max-width:min(78ch,100%)}          /* FAQ, prose */
+  .wrap.wide{max-width:min(1560px,94vw)}           /* product, showcase */
+  .wrap.full{max-width:none;padding-left:0;padding-right:0}
+  /* On a big screen, actually use it — wider gutters and a wider product
+     measure, rather than a 1140 column marooned in 1920. */
+  @media(min-width:1440px){
+    .wrap{max-width:1280px}
+    .wrap.wide{max-width:min(1720px,94vw)}
+  }
+  @media(min-width:1800px){
+    .wrap{max-width:1360px}
+    body{font-size:17px}
+  }
   section{padding-top:46px;padding-bottom:46px}
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
      first layer the gradient paints the whole block instead of the edge. */
-  .sec-head{max-width:640px;border-top:1px solid transparent;padding-top:24px;
-    background:linear-gradient(var(--void),var(--void)) padding-box,
-      linear-gradient(90deg,rgba(247,167,69,.5),rgba(242,234,247,.08) 26%,transparent 62%) border-box}
+  .sec-head{max-width:var(--measure);border-top:1px solid var(--hair);padding-top:24px}
   .sec-head.kicked{border-top:none;background:none;padding-top:0}
-  .sec-head.center{max-width:640px;margin:0 auto;text-align:center;
-    background:linear-gradient(var(--void),var(--void)) padding-box,
-      linear-gradient(90deg,transparent,rgba(247,167,69,.45) 50%,transparent) border-box}
+  .sec-head.center{max-width:var(--measure);margin:0 auto;text-align:center;
+    border-top:1px solid var(--hair)}
   .sec-head.center .sec-sub{margin:0 auto}
 
   /* ── Nav. Sits IN the room: same black, one hairline that is brighter on the
      side the light comes from. No blur, no glass. ── */
-  .nav{position:sticky;top:0;z-index:60;background:var(--void);
-    border-bottom:1px solid transparent;
-    background-image:linear-gradient(var(--void),var(--void)),
-      linear-gradient(270deg,rgba(184,106,220,calc(.30 + var(--lit)*.5)),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
-    background-origin:padding-box,border-box;background-clip:padding-box,border-box;
+  .nav{position:sticky;top:0;z-index:60;
+    background:rgba(248,245,240,.82);
+    -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);
+    border-bottom:1px solid var(--hair);
     display:flex;align-items:center;gap:18px;padding:13px 26px}
+  /* The hairline under the nav is the through-line's first appearance: it
+     brightens as the score climbs, so the mechanic is visible before you have
+     scrolled anywhere. Transform/opacity only — this is a colour on a 1px box,
+     not a layout property. */
+  .nav::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(106,46,138,calc(.25 + var(--lit)*.75)) 50%,transparent);
+    opacity:calc(.35 + var(--lit)*.65);transition:opacity var(--t-move) var(--ease)}
   .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
   /* No border-radius any more: that existed only to round the corners of the
      plate the old JPEG carried. The mark is transparent now, so there is no
@@ -4386,7 +4551,10 @@ LANDING_HTML = """<!DOCTYPE html>
     color:var(--ink);margin:20px 0 22px}
   /* The accent word is LIT, not painted: a solid fill plus the spill it would
      throw onto the dark around it. No gradient, no stroke. */
-  .accent{color:#B86ADC;-webkit-text-stroke:0;
+  .accent{color:#6A2E8A;-webkit-text-stroke:0;text-shadow:none}
+  /* On a DARK band the same word switches to the glow variant, where the halo
+     belongs and reads. One class, two surfaces. */
+  .band-dark .accent{color:#B86ADC;
     text-shadow:0 0 34px rgba(184,106,220,.42),0 0 10px rgba(184,106,220,.28)}
   .hero-copy p.lead{font-size:19px;line-height:1.55;color:var(--ink-2);max-width:520px;margin-bottom:32px}
   .hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
@@ -4473,7 +4641,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .stat:first-child{padding-left:0;border-left:none}
   .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
     font-size:34px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:11px}
-  .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember)}
+  .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
   .stat .k{font-size:13px;color:var(--ink-2);margin-top:11px;max-width:26ch;line-height:1.5}
 
   /* ══ EXAMPLE CLIPS ══ */
@@ -4826,7 +4994,6 @@ LANDING_HTML = """<!DOCTYPE html>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-links">
@@ -4850,7 +5017,20 @@ LANDING_HTML = """<!DOCTYPE html>
 </nav>
 
 <!-- Hero -->
-<header class="wrap hero">
+<!-- ── THE THROUGH-LINE ──────────────────────────────────────────────────────
+     One fixed hairline carrying a live trigger score down the page edge. This
+     is not a scroll-progress bar with a number bolted on: it writes --lit, the
+     same variable every light source on this page already reads from, so the
+     page's lighting IS the product's mechanic. It crosses the threshold at
+     section boundaries and fires, washing the section being entered.
+     Hidden under 900px and inert under prefers-reduced-motion. -->
+<div class="thread" id="thread" aria-hidden="true">
+  <div class="thread-rail"><span class="thread-fill" id="thread-fill"></span>
+    <span class="thread-thresh"></span></div>
+  <div class="thread-read"><span class="thread-score" id="thread-score">0</span>
+    <span class="thread-lab">score</span></div>
+</div>
+<header class="wrap hero hero-band">
   <div class="hero-copy">
     <div class="kicker">Automatic Twitch clipping — for clippers and streamers</div>
     <h1>Never miss a <span class="accent">highlight</span> again.</h1>
@@ -4917,28 +5097,28 @@ LANDING_HTML = """<!DOCTYPE html>
 <div class="wrap">
   <div class="stats">
     <div class="stat">
-      <div class="n">10</div>
+      <div class="n" data-count="10">10</div>
       <div class="k">channels watched at once on Pro &mdash; 3 on Starter</div>
     </div>
     <div class="stat">
-      <div class="n">7</div>
+      <div class="n" data-count="7">7</div>
       <div class="k">live signals blended into every score</div>
     </div>
     <div class="stat">
-      <div class="n">1s</div>
+      <div class="n" data-count="1" data-suffix="s">1s</div>
       <div class="k">every second of every channel is scored</div>
     </div>
     <!-- Last, not first: hidden until there is a real number, and a hidden
          first child would leave a stray divider at the edge of the band. -->
     <div class="stat stat-big" id="stat-clips" style="display:none">
-      <div class="n"><span id="lp-count">0</span></div>
+      <div class="n"><span id="lp-count" data-count="0">0</span></div>
       <div class="k">clips captured and counting</div>
     </div>
   </div>
 </div>
 
 <!-- Example clips (admin-curated; hidden until the showcase has entries) -->
-<section class="wrap" id="examples" style="display:none">
+<section class="wrap full band-sand seam" id="examples" style="display:none">
   <div class="sec-head">
     <h2 class="sec-title">Real clips, caught automatically</h2>
     <p class="sec-sub">Not a highlight reel we edited — these were clipped by the formula on live streams and approved in the review queue. Tap any of them to watch on Twitch.</p>
@@ -4947,7 +5127,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- Who it's for -->
-<section class="wrap" id="who">
+<section class="wrap wide" id="who">
   <div class="sec-head">
     <h2 class="sec-title">Built for clippers first</h2>
     <p class="sec-sub">If clipping is how you grow — or how you get paid — your ceiling is how many streams you can sit through. Highlightz removes that ceiling. It works just as well pointed at your own channel.</p>
@@ -4984,7 +5164,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- How it works -->
-<section class="wrap" id="how">
+<section class="wrap band-sand seam" id="how">
   <div class="sec-head">
     <h2 class="sec-title">How it works</h2>
     <p class="sec-sub">Five simple steps from "they went live" to a clip in your review queue — running on every channel you add, at the same time.</p>
@@ -5016,7 +5196,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- Product showcase -->
-<section class="wrap" id="product">
+<section class="wrap wide" id="product">
   <div class="sec-head">
     <h2 class="sec-title">See it in action</h2>
     <p class="sec-sub">A clean, real-time dashboard that shows you exactly what's happening and why.</p>
@@ -5118,7 +5298,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- Not AI / formula -->
-<section class="wrap">
+<section class="band-dark seam" id="formula"><div class="wrap">
   <div class="sec-head kicked">
     <div class="kicker">100% transparent</div>
     <h2 class="sec-title">A formula you can actually understand</h2>
@@ -5141,10 +5321,10 @@ LANDING_HTML = """<!DOCTYPE html>
       <div class="formula-eq">= one live highlight score, adapting to each streamer</div>
     </div>
   </div>
-</section>
+</div></section>
 
 <!-- Features -->
-<section class="wrap" id="features">
+<section class="wrap wide" id="features">
   <div class="sec-head">
     <h2 class="sec-title">Everything in the box</h2>
     <p class="sec-sub">A complete clipping toolkit that runs on every channel at once, while you do everything else.</p>
@@ -5196,7 +5376,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- Pricing -->
-<section class="wrap" id="pricing">
+<section class="band-sand seam" id="pricing"><div class="wrap">
   <div class="sec-head center">
     <h2 class="sec-title">More channels, more clips.</h2>
     <p class="sec-sub">Every plan is the full product — paid tiers just point it at more streamers at the same time. No card to start, no contracts, cancel anytime.</p>
@@ -5249,10 +5429,10 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
   </div>
   <div class="price-promo" style="text-align:center">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
-</section>
+</div></section>
 
 <!-- FAQ -->
-<section class="wrap" id="faq">
+<section class="wrap reading" id="faq">
   <div class="sec-head center">
     <h2 class="sec-title">Frequently asked questions</h2>
     <p class="sec-sub">Quick answers to the things people ask before starting.</p>
@@ -5310,12 +5490,12 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- Final CTA -->
-<section class="wrap final">
+<section class="band-dark final-band seam"><div class="wrap narrow final">
   <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
   <p>Connect your Twitch account and add your first channel free — then point Highlightz at the whole roster and let it catch the highlights on all of them at once.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
   <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
-</section>
+</div></section>
 
 <div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
   <div class="exl-bg" id="exl-bg"></div>
@@ -5581,6 +5761,116 @@ LANDING_HTML = """<!DOCTYPE html>
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+})();
+</script>
+
+<script>
+/* ── THE THROUGH-LINE + COUNT-UP ───────────────────────────────────────────
+   Everything here is rAF-throttled and writes only --lit, transforms and
+   opacity. No layout property is animated anywhere in this block.
+   NOTE: this whole file is a Python triple-quoted string, so a single
+   backslash would be eaten before the browser ever sees it. There are none. */
+(function(){
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var root = document.documentElement;
+
+  /* ── count-up: stat digits animate once, staggered, when scrolled into view */
+  function countUp(el, delay){
+    var raw = el.getAttribute('data-count');
+    var target = parseFloat(raw);
+    if (isNaN(target)) return;
+    var suffix = el.getAttribute('data-suffix') || '';
+    if (reduce){ el.textContent = target.toLocaleString() + suffix; return; }
+    var dur = 900, t0 = 0;
+    function step(ts){
+      if (!t0) t0 = ts;
+      var k = Math.min(1, (ts - t0) / dur);
+      var eased = 1 - Math.pow(1 - k, 3);
+      var v = target * eased;
+      el.textContent = (target >= 100 ? Math.round(v).toLocaleString()
+                                      : (Math.round(v * 10) / 10).toString().replace('.0','')) + suffix;
+      if (k < 1) requestAnimationFrame(step);
+    }
+    setTimeout(function(){ requestAnimationFrame(step); }, delay);
+  }
+
+  var seen = new WeakSet();
+  var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (!e.isIntersecting || seen.has(e.target)) return;
+      seen.add(e.target);
+      var el = e.target;
+      if (el.classList.contains('rise')){ el.classList.add('in'); io.unobserve(el); return; }
+      if (el.hasAttribute('data-count')){
+        countUp(el, parseInt(el.getAttribute('data-delay') || '0', 10));
+        io.unobserve(el);
+      }
+    });
+  }, { rootMargin: '0px 0px -12% 0px', threshold: 0.2 }) : null;
+
+  if (io){
+    /* Entrances go on grouped CHILDREN only — stat digits, clip cards, feature
+       blocks. Never on a section container: the same fade-up on every section
+       is exactly what makes a page read as a template. */
+    Array.prototype.forEach.call(document.querySelectorAll('.rise'), function(el, i){
+      el.style.transitionDelay = (Math.min(i, 6) * 70) + 'ms';
+      io.observe(el);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-count]'), function(el, i){
+      el.setAttribute('data-delay', (i * 80).toString());
+      io.observe(el);
+    });
+  }
+
+  /* ── the score itself. One rAF-throttled scroll read; writes --lit and the
+     readout, and fires a wash when it crosses the threshold entering a band. */
+  var thread = document.getElementById('thread');
+  var scoreEl = document.getElementById('thread-score');
+  var seams = Array.prototype.slice.call(document.querySelectorAll('.seam, .wash'));
+  var ticking = false, lastFired = -1;
+
+  function frame(){
+    ticking = false;
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var y = window.scrollY || window.pageYOffset;
+    var prog = h > 0 ? Math.min(1, Math.max(0, y / h)) : 0;
+
+    /* The score is not the scroll position. It rides a wave so it rises and
+       falls the way a real trigger score does, and peaks at section seams. */
+    var mid = window.innerHeight * 0.5;
+    var nearest = 1;
+    for (var i = 0; i < seams.length; i++){
+      var r = seams[i].getBoundingClientRect();
+      var d = Math.abs(r.top - mid) / window.innerHeight;
+      if (d < nearest) nearest = d;
+    }
+    var closeness = Math.max(0, 1 - nearest);
+    /* Two components. A slow continuous drift so the score is never static —
+       a trigger score that sits on one number reads as broken — plus a peak as
+       a section seam passes the middle of the viewport, which is where the
+       threshold gets crossed and the wash fires. */
+    var drift = 0.30 + 0.16 * Math.sin(prog * 18.0);
+    var lit = Math.max(0.06, Math.min(1, drift + closeness * 0.52));
+    root.style.setProperty('--lit', lit.toFixed(3));
+    if (scoreEl) scoreEl.textContent = Math.round(lit * 100);
+
+    var over = lit > 0.62;
+    if (thread) thread.classList.toggle('fired', over);
+
+    /* Wash the section being entered, once per crossing. */
+    for (var j = 0; j < seams.length; j++){
+      var rect = seams[j].getBoundingClientRect();
+      var entering = rect.top < window.innerHeight * 0.72 && rect.bottom > window.innerHeight * 0.25;
+      seams[j].classList.toggle('lit', entering && over);
+    }
+  }
+  function onScroll(){ if (!ticking){ ticking = true; requestAnimationFrame(frame); } }
+
+  if (!reduce){
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    frame();
+  } else if (thread){ thread.style.display = 'none'; }
 })();
 </script>
 </body>
@@ -6334,7 +6624,6 @@ ADMIN_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
 <div class="topbar">
   <div class="logo">
     <img src="/static/logo-mark.png" alt="Highlightz">
