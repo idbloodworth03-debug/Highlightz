@@ -115,14 +115,12 @@ def test_accent_word_is_solid_not_outlined():
     """
     css = api.LANDING_HTML
     block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
-    # #6A2E8A on light, #B86ADC on a dark band. The accent word is display-sized
-    # so #B86ADC technically clears AA-large on bone (3.15 vs 3.0) — but it is
-    # washed out there, and a value that thin cannot be reused at body size.
-    # The darker plum is 8.15 and is still nowhere near Twitch's purple, which
-    # is the decision this test exists to protect.
-    assert "color:#6A2E8A" in block, "accent must be filled with our purple"
-    dark = css[css.index(".band-dark .accent{"):css.index("}", css.index(".band-dark .accent{"))]
-    assert "color:#B86ADC" in dark, "on a dark band the accent should use the glow variant"
+    # #B86ADC — 5.35:1 on the charcoal page base. The page briefly went light,
+    # which forced a darker plum (#6A2E8A) because the glow only managed 3.15
+    # against bone; on charcoal the glow is both readable and the right look,
+    # so it is back. What has not changed across either theme is the decision
+    # this test exists to protect: ours, not Twitch's.
+    assert "color:#B86ADC" in block, "accent must be filled with our purple"
     assert "color:transparent" not in block
     assert "-webkit-text-stroke:0" in block
     for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):

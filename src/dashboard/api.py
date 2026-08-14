@@ -4257,19 +4257,23 @@ LANDING_HTML = """<!DOCTYPE html>
   @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
 
   :root{
-    /* surfaces */
-    --bone:#F8F5F0; --sand:#EFE9E1; --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
-    /* INKS — light-surface values. The dark-context block below re-declares
-       these SAME NAMES, so every existing rule using var(--ink-3) resolves
-       correctly in both worlds without being rewritten. That is the whole
-       reason this inversion is safe: the cascade does the work, not a
-       hundred hand-edited declarations. */
-    --ink:#171219; --ink-2:#4A4150; --ink-3:#6E6472;
-    --hair:rgba(23,18,25,.10); --hair-2:rgba(23,18,25,.16);
-    /* purple and ember AS TEXT on light. Never --iris/--ember here: 3.15 and
-       1.83 against bone. */
-    --plum:#6A2E8A; --ember-ink:#A55C09;
-    /* purple and ember AS LIGHT. Only legible on a panel. */
+    /* SURFACES — three tones of the same warm plum-black, lightest to darkest.
+       The page is dark again, but a step warmer and lighter than the old
+       #0E0B11 so the panels can sit BELOW it and read as lit objects. */
+    --bone:#17131C;   /* page base — warm charcoal, plum-tinted */
+    --sand:#1E1826;   /* the alternating band, one step up */
+    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
+    /* INKS — one set, light on dark, checked against ALL THREE surface tones:
+         --ink   #F2EAF7  15.60 / 14.74 / 16.65
+         --ink-2 #B9AEC4   8.65 /  8.17 /  9.23
+         --ink-3 #9C90A6   6.07 /  5.73 /  6.47   (dimmest text, still AA)
+       against base / band / panel respectively. */
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
+    /* Kept as names so nothing that referenced them breaks, but on a dark page
+       purple and ember ARE the readable variants — no darker step is needed. */
+    --plum:#B86ADC; --ember-ink:#F7A745;
+    /* purple and ember as light. */
     --iris:#B86ADC; --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
     --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
     --sans:'Sora',system-ui,sans-serif;
@@ -4372,9 +4376,10 @@ LANDING_HTML = """<!DOCTYPE html>
   .panel h1,.panel h2,.panel h3{color:var(--ink)}
   /* The instrument panel itself: dark object on a light desk. The shadow is
      what sells it as sitting ON the page rather than cut into it. */
-  .panel{background:var(--void);border:1px solid rgba(23,18,25,.14);border-radius:18px;
-    box-shadow:0 1px 2px rgba(23,18,25,.05),0 18px 40px -22px rgba(23,18,25,.45),
-               0 0 0 1px rgba(242,234,247,.04) inset}
+  .panel{background:var(--void);border:1px solid rgba(242,234,247,.10);border-radius:18px;
+    box-shadow:0 18px 44px -22px rgba(0,0,0,.75),
+               0 0 0 1px rgba(242,234,247,.04) inset,
+               0 1px 0 rgba(242,234,247,.06) inset}
 
   /* ── Full-bleed. Sections that break the container use this rather than
      negative margins, so they cannot reintroduce horizontal overflow. ── */
@@ -4447,15 +4452,16 @@ LANDING_HTML = """<!DOCTYPE html>
     padding:13px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
     transition:background .2s,color .2s;white-space:nowrap}
   .btn-key{background:linear-gradient(168deg,#7B3A9E,#5B2472);border-color:transparent;
-    color:#FFF9FE;box-shadow:0 1px 2px rgba(23,18,25,.18),0 10px 24px -12px rgba(106,46,138,.6)}
+    color:#FFF9FE;box-shadow:0 10px 26px -10px rgba(184,106,220,.55),
+      0 0 0 1px rgba(242,234,247,.10) inset}
   .btn-key:hover{background:linear-gradient(168deg,#8B44B2,#6A2E8A);
     transform:translateY(-1px);box-shadow:0 2px 4px rgba(23,18,25,.16),0 16px 30px -12px rgba(106,46,138,.7)}
   /* A real press state — the button moves back down and the shadow collapses. */
   .btn-key:active{transform:translateY(1px) scale(.995);
     box-shadow:0 1px 2px rgba(23,18,25,.22),0 4px 10px -6px rgba(106,46,138,.5)}
-  .btn-quiet{background:var(--bone);border:1px solid rgba(23,18,25,.20);color:var(--ink)}
-  .btn-quiet:hover{color:var(--plum);border-color:rgba(106,46,138,.45);
-    background:rgba(106,46,138,.05);transform:translateY(-1px)}
+  .btn-quiet{background:rgba(242,234,247,.04);border:1px solid rgba(242,234,247,.20);color:var(--ink)}
+  .btn-quiet:hover{color:#FFF;border-color:rgba(184,106,220,.6);
+    background:rgba(184,106,220,.12);transform:translateY(-1px)}
   .btn-quiet:active{transform:translateY(1px) scale(.995)}
   /* On a dark band the quiet button inverts back. */
   .band-dark .btn-quiet{background:transparent;border-color:rgba(242,234,247,.24);color:var(--ink)}
@@ -4497,7 +4503,7 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ── Nav. Sits IN the room: same black, one hairline that is brighter on the
      side the light comes from. No blur, no glass. ── */
   .nav{position:sticky;top:0;z-index:60;
-    background:rgba(248,245,240,.82);
+    background:rgba(23,19,28,.78);
     -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);
     border-bottom:1px solid var(--hair);
     display:flex;align-items:center;gap:18px;padding:13px 26px}
@@ -4506,7 +4512,7 @@ LANDING_HTML = """<!DOCTYPE html>
      scrolled anywhere. Transform/opacity only — this is a colour on a 1px box,
      not a layout property. */
   .nav::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
-    background:linear-gradient(90deg,transparent,rgba(106,46,138,calc(.25 + var(--lit)*.75)) 50%,transparent);
+    background:linear-gradient(90deg,transparent,rgba(184,106,220,calc(.28 + var(--lit)*.72)) 50%,transparent);
     opacity:calc(.35 + var(--lit)*.65);transition:opacity var(--t-move) var(--ease)}
   .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
   /* No border-radius any more: that existed only to round the corners of the
@@ -4551,11 +4557,11 @@ LANDING_HTML = """<!DOCTYPE html>
     color:var(--ink);margin:20px 0 22px}
   /* The accent word is LIT, not painted: a solid fill plus the spill it would
      throw onto the dark around it. No gradient, no stroke. */
-  .accent{color:#6A2E8A;-webkit-text-stroke:0;text-shadow:none}
-  /* On a DARK band the same word switches to the glow variant, where the halo
-     belongs and reads. One class, two surfaces. */
-  .band-dark .accent{color:#B86ADC;
+  .accent{color:#B86ADC;-webkit-text-stroke:0;
     text-shadow:0 0 34px rgba(184,106,220,.42),0 0 10px rgba(184,106,220,.28)}
+  /* The page is dark throughout now, so there is no second surface for the
+     accent to switch on — one value, and the halo can stay. */
+  .band-dark .accent{color:#B86ADC}
   .hero-copy p.lead{font-size:19px;line-height:1.55;color:var(--ink-2);max-width:520px;margin-bottom:32px}
   .hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
   .hero-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.02em}

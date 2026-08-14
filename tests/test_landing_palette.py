@@ -68,7 +68,7 @@ def _hsl(hexstr: str) -> tuple[float, float, float]:
 
 
 DARK_SURFACES  = ("void", "wall", "bruise")
-LIGHT_SURFACES = ("bone", "sand")
+PAGE_TONES = ("bone", "sand")   # page base and its alternating band
 
 
 def test_every_token_is_declared():
@@ -79,10 +79,14 @@ def test_every_token_is_declared():
 
 
 @pytest.mark.parametrize("ink", ["ink", "ink-2", "ink-3"])
-@pytest.mark.parametrize("surface", LIGHT_SURFACES)
-def test_light_surface_copy_passes_aa(ink, surface):
-    """The page is bone now, and muted text on a LIGHT background is the
-    classic place a light theme fails — it looks tasteful and is unreadable."""
+@pytest.mark.parametrize("surface", PAGE_TONES)
+def test_page_tone_copy_passes_aa(ink, surface):
+    """The two PAGE tones, as distinct from the darker panel tones below.
+
+    The names --bone and --sand are historical: they were a warm off-white and
+    a sand during the light experiment, and are now #17131C and #1E1826. The
+    values moved, the job did not — page base and its alternating band — so the
+    tokens kept their names rather than churning every rule that reads them."""
     t = _tokens()
     ratio = contrast(t[ink], t[surface])
     assert ratio >= 4.5, f"--{ink} on --{surface} is {ratio:.2f}:1, under AA"
@@ -167,20 +171,23 @@ def test_surfaces_are_warm_not_blue_black():
 def test_purple_is_light_not_paint():
     """Exactly ONE control on this page is a solid purple: the primary CTA.
 
-    This test used to assert the opposite — that no control is a purple fill,
-    because on the old dark page a rim-lit surface read beautifully. On bone it
-    read as nothing at all: the first render of the light theme had an
-    invisible primary button. So the rule is inverted DELIBERATELY, and
-    narrowed rather than dropped, because the thing it was protecting is still
-    worth protecting — a page where every control is a purple slab is every
-    other tool in this category.
+    This started as the opposite rule — no control is a purple fill — which was
+    right for a rim-lit dark page. The light experiment broke it (an unlit rim
+    is invisible on bone) and the rule was inverted. The page then came back to
+    charcoal, and the solid CTA stayed, because it turned out to be better on
+    both: at 1.69:1 against the page a rim-only primary was always weak, and
+    the fill is what makes it the obvious next action.
+
+    Narrowed rather than dropped, because what it was protecting still matters:
+    a page where every control is a purple slab is every other tool in this
+    category.
     """
     key = CSS[CSS.index(".btn-key{"):CSS.index("}", CSS.index(".btn-key{"))]
     assert "linear-gradient(168deg,#7B3A9E,#5B2472)" in key, \
-        "the primary CTA should be a solid plum on the light page"
+        "the primary CTA should be a solid plum"
     # And it is the ONLY one. The quiet button stays a surface.
     quiet = CSS[CSS.index(".btn-quiet{"):CSS.index("}", CSS.index(".btn-quiet{"))]
-    assert "var(--bone)" in quiet and "#7B3A9E" not in quiet, \
+    assert "#7B3A9E" not in quiet and "linear-gradient" not in quiet, \
         "the secondary button became a purple fill too — that is the slab page"
 
 
