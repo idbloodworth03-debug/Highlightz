@@ -4424,8 +4424,13 @@ function RdApp() {
           flash(msg.message||'A clip could not be captured.');
         }
         else if(msg.event==='stream_error'){
-          // A stream session hit an error and is reconnecting.
-          flash(msg.message||'A stream hit an error — reconnecting.');
+          // A stream session hit a REAL error and is reconnecting. A channel
+          // that is merely offline no longer comes through here at all — it
+          // arrives as stream_status "offline", which is what it always was.
+          // msg.error, not msg.message: the backend has only ever sent `error`,
+          // so this always fell through to the generic string and the specific
+          // reason was never shown to anyone.
+          flash(msg.error||'A stream hit an error — reconnecting.');
         }
         // Forward VOD events to VodScreen via custom event
         else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){

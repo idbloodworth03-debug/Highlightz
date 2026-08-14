@@ -4182,8 +4182,17 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth;overflow-x:clip}
+  /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
+     which makes <body> a scroll container — and position:sticky then resolves
+     against BODY's scrollport instead of the viewport. Body's scrollport does
+     not scroll, so the sticky nav simply scrolls away with the page, taking
+     the "Get started" button with it. Measured before removing this: the nav
+     sat at y=0, then y=-1554 after scrolling 2500px.
+     `html{overflow-x:clip}` above already suppresses sideways scroll, and
+     `clip` (unlike `hidden`) does NOT create a scroll container, so sticky
+     keeps working. Same fix already applied to /tutorial. */
   body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
-    font-size:15.5px;line-height:1.68;overflow-x:hidden;
+    font-size:15.5px;line-height:1.68;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 
   /* ── Grain. Real rooms are not flat. One tiled turbulence tile at 3%, sitting
@@ -4703,6 +4712,29 @@ LANDING_HTML = """<!DOCTYPE html>
     .price-in{padding:28px 24px}
     .price-amt .num{font-size:52px}
     .final{padding-top:52px;padding-bottom:66px}
+  }
+  /* The section links collapse at 900, not 720. Measured at 768: logo 205 +
+     links 349 + right group 293 + padding 44 = 891, so everything from 721 to
+     ~900 pushed the right-hand group off the edge — Sign in and Get started
+     included. It was invisible rather than fixed: body{overflow-x:hidden} was
+     clipping it, so on every tablet and small laptop the primary CTA simply
+     was not there. The links are convenience anchors on a single-scroll page;
+     the button is the conversion.
+     940, not 900: at 901 the group still overflowed by 22px, so the real
+     requirement is ~925 and this leaves headroom for a wider CTA label. */
+  @media(max-width:940px){
+    .nav-links{display:none}
+  }
+  @media(max-width:560px){
+    /* The live trigger sparkline is the nav's signature, but it is decorative
+       and it is 90px wide. Below ~560 the nav is logo(94) + trig(90) +
+       Sign in(52) + Get started(124) + padding(36) = 396 > a 390px phone, and
+       the overflow lands on the RIGHT — which is the Get started button. That
+       used to be invisible because body{overflow-x:hidden} clipped it away;
+       with the sticky-nav fix the clipping is honest, so the CTA has to
+       actually fit. Dropping the sparkline gets it to 324 with room spare, and
+       keeps both links. */
+    .nav-right .trig{display:none}
   }
   @media(max-width:520px){
     .ex-card{flex-basis:100%}

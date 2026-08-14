@@ -1,10 +1,11 @@
 import asyncio
 import aiohttp
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (retry, retry_if_not_exception_type, stop_after_attempt,
+                      wait_exponential)
 
 from config.settings import settings
-from .base import BasePlatform, StreamInfo
+from .base import BasePlatform, StreamInfo, ChannelOffline
 
 log = structlog.get_logger(__name__)
 
@@ -45,7 +46,14 @@ class TwitchPlatform(BasePlatform):
             "Authorization": f"Bearer {token}",
         }
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    # "Not live" is an ANSWER, not a failure — retrying it just asks Helix the
+    # same question three times with backoff and burns quota that every user's
+    # clipping shares. Only transient faults (network, 5xx, 401 refresh) are
+    # worth a retry. Excluding it also means callers see ChannelOffline itself
+    # rather than a RetryError wrapping it, which is what made the offline case
+    # indistinguishable from a real fault at the catch site.
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10),
+           retry=retry_if_not_exception_type(ChannelOffline))
     async def get_stream_info(self, channel: str) -> StreamInfo:
         token = await self._get_token()
         session = await self._ensure_session()
@@ -63,7 +71,7 @@ class TwitchPlatform(BasePlatform):
 
         streams = data.get("data", [])
         if not streams:
-            raise ValueError(f"Channel '{channel}' is not live on Twitch")
+            raise ChannelOffline(f"Channel '{channel}' is not live on Twitch")
 
         stream = streams[0]
         stream_url = f"https://www.twitch.tv/{channel}"

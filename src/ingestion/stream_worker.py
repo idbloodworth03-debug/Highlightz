@@ -12,7 +12,7 @@ from typing import Callable
 
 from config.settings import settings
 from src.ingestion.audio_meter import AudioMeter
-from src.ingestion.platform.base import BasePlatform, StreamInfo
+from src.ingestion.platform.base import BasePlatform, ChannelOffline, StreamInfo
 from src.chat.platform.twitch_chat import TwitchChatMonitor
 from src.chat.platform.youtube_chat import YouTubeChatMonitor
 from src.trigger.engine import TriggerEngine
@@ -110,10 +110,19 @@ class StreamWorker:
                  threshold=round(self._profile.trigger_threshold, 3))
 
         while self._running:
+            # Offline is the expected outcome, not a fault — see ChannelOffline.
+            # Separating the two is what stops a waiting channel from logging a
+            # traceback and flashing "a stream hit an error" at the user every
+            # 30 seconds, while a genuine fault still says so loudly.
+            offline = False
             try:
                 await self._run_session()
             except asyncio.CancelledError:
                 break
+            except ChannelOffline:
+                offline = True
+                log.info("stream_not_live", channel=self._config.channel,
+                         retry_in=30)
             except Exception as exc:
                 log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
                 from src.dashboard import api as dashboard_api
@@ -123,15 +132,20 @@ class StreamWorker:
                     "error": "Stream session ended unexpectedly. Reconnecting…",
                 }, user_id=self._config.user_id)
             if self._running:
-                log.info("worker_reconnecting", channel=self._config.channel, delay=30)
+                # "offline" is an existing status the card already renders, so
+                # this needs no new event and no new frontend branch — it just
+                # stops mislabelling a waiting channel as reconnecting.
+                status = "offline" if offline else "reconnecting"
+                if not offline:
+                    log.info("worker_reconnecting", channel=self._config.channel, delay=30)
                 from src.dashboard import api as dashboard_api
                 _sk = f"{self._config.user_id}:{self._config.channel}" if self._config.user_id else self._config.channel
                 if _sk in dashboard_api._streams:
-                    dashboard_api._streams[_sk]["status"] = "reconnecting"
+                    dashboard_api._streams[_sk]["status"] = status
                 await dashboard_api.broadcast({
                     "event": "stream_status",
                     "channel": self._config.channel,
-                    "status": "reconnecting",
+                    "status": status,
                 }, user_id=self._config.user_id)
                 await asyncio.sleep(30)
 
@@ -337,7 +351,11 @@ class StreamWorker:
                 continue
             if not is_live:
                 log.info("stream_ended", channel=self._config.channel)
-                raise RuntimeError("stream_offline")
+                # A broadcast ending is the normal end of a session, not a
+                # crash. RuntimeError here landed in the generic handler and
+                # produced a traceback plus an error toast every single time a
+                # streamer went to bed.
+                raise ChannelOffline(f"{self._config.channel} ended its broadcast")
 
     async def _profile_update_loop(self) -> None:
         """Periodically sample current metrics into the profile baseline."""

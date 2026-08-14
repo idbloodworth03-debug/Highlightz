@@ -3,7 +3,7 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.settings import settings
-from .base import BasePlatform, StreamInfo
+from .base import BasePlatform, StreamInfo, ChannelOffline
 
 log = structlog.get_logger(__name__)
 
@@ -57,7 +57,7 @@ class YouTubePlatform(BasePlatform):
         data = await self._search_live_video(channel_id)
         items = data.get("items", [])
         if not items:
-            raise ValueError(f"Channel '{channel}' is not live on YouTube")
+            raise ChannelOffline(f"Channel '{channel}' is not live on YouTube")
 
         video_id = items[0]["id"]["videoId"]
         snippet = items[0]["snippet"]

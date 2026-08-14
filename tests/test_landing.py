@@ -8,6 +8,7 @@ current clip store), then incremented on every stored clip / VOD moment.
 """
 
 import json
+import re
 
 import pytest
 
@@ -390,3 +391,36 @@ def test_landing_vertical_rhythm_stays_tight():
     pads = [int(v) for v in re.findall(r"padding-(?:top|bottom):(\d+)px", block)]
     assert len(pads) == 2, "section should set top and bottom padding explicitly"
     assert max(pads) <= 50, f"section padding crept back up: {pads}"
+
+
+def test_the_body_is_not_a_scroll_container():
+    """position:sticky resolves against the nearest SCROLLING ancestor. Setting
+    overflow-x on <body> computes overflow-y to `auto`, which makes body one —
+    and body's scrollport does not scroll, so the sticky nav scrolled away with
+    the page, taking the Get started button with it. Measured before the fix:
+    nav at y=0, then y=-1554 after scrolling 2500px.
+
+    `html{overflow-x:clip}` suppresses sideways scroll WITHOUT creating a
+    scroll container, which is why the fix belongs there and not here."""
+    html = api.LANDING_HTML
+    body = re.search(r"\n  body\{(.*?)\}", html, re.S)
+    assert body, "body rule not found"
+    assert "overflow-x" not in body.group(1), (
+        "overflow-x on body makes it a scroll container and breaks the sticky nav")
+    assert "html{scroll-behavior:smooth;overflow-x:clip}" in html, (
+        "nothing suppresses sideways scroll now that body no longer does")
+
+
+def test_the_nav_collapses_before_it_can_push_the_cta_off_screen():
+    """The section links used to collapse at 720px, but the full nav needs
+    ~925px (logo 205 + links 349 + right group 293 + padding 44). Every width
+    from 721 to ~925 pushed Sign in and Get started past the right edge, and
+    body{overflow-x:hidden} clipped them away silently — so on tablets and
+    small laptops the primary CTA was simply absent. Nobody would report that;
+    it just looks like a nav without a button."""
+    html = api.LANDING_HTML
+    m = re.search(r"@media\(max-width:(\d+)px\)\{\s*\.nav-links\{display:none\}", html)
+    assert m, "no breakpoint collapses .nav-links"
+    assert int(m.group(1)) >= 925, (
+        f".nav-links collapse at {m.group(1)}px, but the full nav needs ~925px — "
+        f"between the two the Get started button is pushed off the edge")

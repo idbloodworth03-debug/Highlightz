@@ -4,7 +4,7 @@ import aiohttp
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from .base import BasePlatform, StreamInfo
+from .base import BasePlatform, StreamInfo, ChannelOffline
 
 log = structlog.get_logger(__name__)
 
@@ -32,12 +32,12 @@ class KickPlatform(BasePlatform):
 
         # data is an array; expect at least one entry
         if not data or not isinstance(data, list):
-            raise ValueError(f"Channel '{channel}' not found on Kick")
+            raise ChannelOffline(f"Channel '{channel}' not found on Kick")
 
         entry = data[0]
         livestream = entry.get("livestream")
         if livestream is None:
-            raise ValueError(f"Channel '{channel}' is not live on Kick")
+            raise ChannelOffline(f"Channel '{channel}' is not live on Kick")
 
         chatroom = entry.get("chatroom", {})
         chat_channel_id = str(chatroom.get("id", channel))
