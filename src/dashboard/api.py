@@ -2090,6 +2090,69 @@ async def stream_suggestions(request: Request, q: str = ""):
                         if p["login"].lower() not in monitored][:8]}
 
 
+# Fraction of the global pool held back so somebody with NO streams can always
+# start one. Below this much headroom the pool is "tight" and heavy users get
+# cut back first.
+_CAPACITY_RESERVE_FRAC = 0.15
+# Log a warning once utilisation passes this, so the owner finds out the box is
+# filling up before a customer does.
+_CAPACITY_WARN_FRAC    = 0.80
+
+
+def _check_server_capacity(uid: str) -> None:
+    """Guard the box's total stream count, fairly.
+
+    max_concurrent_streams is a REAL resource guard — every worker holds a chat
+    socket, an evaluation loop and (with audio detection on) a streamlink and
+    an ffmpeg subprocess, on one vCPU. It is not a number to raise casually.
+
+    The problem was never the cap, it was who it refused. A flat
+    `len(_streams) >= cap` is first-come-first-served, so two Pro users at ten
+    channels each fill the entire pool and the THIRD customer is refused their
+    very first stream — while the page sells "10 channels at once". The person
+    turned away is the one using nothing.
+
+    So: anyone with no streams may always start one while the pool is not
+    literally full, and once headroom drops into the reserve, the users already
+    above their fair share are the ones told to wait. Capacity still degrades,
+    but it degrades onto the heaviest user instead of the newest.
+    """
+    cap   = max(1, settings.max_concurrent_streams)
+    total = len(_streams)
+
+    if total >= cap:
+        log.error("server_capacity_full", total=total, cap=cap)
+        raise HTTPException(
+            status_code=503,
+            detail="The server is at capacity right now. Try again in a few "
+                   "minutes — this is our limit, not your plan's.",
+        )
+
+    if total >= int(cap * _CAPACITY_WARN_FRAC):
+        log.warning("server_capacity_high", total=total, cap=cap,
+                    users=len({k.split(":", 1)[0] for k in _streams}))
+
+    if cap - total > max(1, int(cap * _CAPACITY_RESERVE_FRAC)):
+        return                      # plenty of room; plan limits govern
+
+    mine  = sum(1 for k in _streams if k.startswith(f"{uid}:"))
+    users = len({k.split(":", 1)[0] for k in _streams}) or 1
+    fair  = max(1, cap // users)
+    # Somebody with no streams is never caught here: `fair` is at least 1, so
+    # `mine >= fair` cannot hold at zero. That is the guarantee — a new customer
+    # always gets their first channel while any room exists — and it falls out
+    # of the arithmetic rather than needing a special case. An explicit
+    # `if mine == 0: return` used to sit above this; it never changed an
+    # outcome, and a dead branch that looks load-bearing is worse than none.
+    if mine >= fair:
+        raise HTTPException(
+            status_code=429,
+            detail=f"The server is nearly full, so channel slots are being "
+                   f"shared out — you have {mine}. Remove one to add another, "
+                   f"or try again shortly.",
+        )
+
+
 async def _auto_preset_for(channel: str) -> str:
     """Pick a preset from the channel's live category and size, or "default".
 
@@ -2183,8 +2246,7 @@ async def add_stream(request: Request, req: StreamRequest):
                 detail=f"Stream limit reached ({limits['max_streams']} max on your plan)."
                        f" Remove a stream to add a new one.{upgrade}",
             )
-        if len(_streams) >= settings.max_concurrent_streams:
-            raise HTTPException(status_code=503, detail="Server stream capacity reached. Try again later.")
+        _check_server_capacity(uid)
         record = {
             "channel":         req.channel,
             "platform":        req.platform,
