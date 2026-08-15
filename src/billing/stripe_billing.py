@@ -166,8 +166,17 @@ async def create_portal_url(customer_id: str) -> str:
     return session.url
 
 
-async def cancel_customer_subscriptions(customer_id: str) -> int:
-    """Cancel all active Stripe subscriptions for a customer. Returns count cancelled."""
+async def cancel_customer_subscriptions(customer_id: str) -> int | None:
+    """Cancel all active Stripe subscriptions for a customer.
+
+    Returns the number cancelled, or None if Stripe could not be reached.
+
+    That distinction is the point. This used to return 0 for BOTH "there was
+    nothing to cancel" and "the API call blew up", which are opposite facts: one
+    means the customer is not being charged, the other means they are and we do
+    not know it. An admin revoking access needs to be told the difference, or
+    they walk away believing billing stopped when it did not.
+    """
     if not settings.stripe_secret_key or not customer_id:
         return 0
     try:
@@ -184,7 +193,7 @@ async def cancel_customer_subscriptions(customer_id: str) -> int:
         return cancelled
     except Exception as exc:
         log.error("stripe_cancel_failed", customer=customer_id, error=str(exc))
-        return 0
+        return None          # NOT 0 — see the docstring; this one means "unknown"
 
 
 def extract_price_id(event: dict) -> str | None:

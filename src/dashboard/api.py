@@ -3648,8 +3648,30 @@ async def admin_grant_trial(request: Request, user_id: str, body: TrialGrantRequ
 
 @app.post("/admin/users/{user_id}/revoke")
 async def admin_revoke_access(request: Request, user_id: str):
+    """Revoke access AND stop the billing that paid for it.
+
+    Revoking used to touch only our own records, so a revoked user lost the
+    product and kept being charged for it every month — the worst of both, and
+    the fastest route to a chargeback. Their Stripe subscription is cancelled
+    here too.
+
+    ORDER: Stripe first, because we still hold the customer id and want its real
+    answer; then revoke locally REGARDLESS of what Stripe said. Removing access
+    is the admin's actual intent and it must not become contingent on Stripe
+    being up. If the cancel failed, the revoke still happens and the response
+    says so, so the admin knows to cancel by hand rather than assuming it is
+    done.
+    """
     _require_admin(request)
     from src.auth import users as user_store
+
+    db_user  = user_store.get_by_id(user_id)
+    customer = (db_user or {}).get("stripe_customer_id") or ""
+    cancelled: int | None = 0
+    if customer:
+        from src.billing.stripe_billing import cancel_customer_subscriptions
+        cancelled = await cancel_customer_subscriptions(customer)
+
     user_store.update_subscription(user_id, None, "inactive")
     # Stop their streams immediately and tell any open session live, rather than
     # waiting up to 5 min for the idle reaper to notice the lapsed subscription.
@@ -3659,7 +3681,14 @@ async def admin_revoke_access(request: Request, user_id: str):
          "message": "Your access has been revoked — streams have been stopped."},
         user_id=user_id,
     )
-    return {"ok": True}
+    if cancelled is None:
+        log.error("revoke_stripe_cancel_failed", user=user_id, customer=customer)
+    else:
+        log.info("admin_revoked", user=user_id, stripe_cancelled=cancelled)
+    # None is surfaced, not swallowed: the admin has to know billing may still
+    # be running.
+    return {"ok": True, "stripe_cancelled": cancelled,
+            "stripe_ok": cancelled is not None}
 
 
 @app.delete("/admin/users/{user_id}")
@@ -3669,6 +3698,7 @@ async def admin_delete_user(request: Request, user_id: str):
     if user_id == request.session.get("user_id"):
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     from src.auth import users as user_store
+    db_user = user_store.get_by_id(user_id)      # read before the record is gone
     await _stop_user_streams_now(user_id)
     async with _data_lock:
         to_delete = [c for c in list(_clips.values()) if c.get("user_id") == user_id]
@@ -3681,8 +3711,27 @@ async def admin_delete_user(request: Request, user_id: str):
     for k in stale:
         _streams.pop(k, None)
     _save_streams()
+
+    # Cancel billing BEFORE the record goes. The stripe_customer_id is the only
+    # handle we have on their subscription, and user_store.delete destroys it —
+    # so a delete that skipped this left the customer being charged forever with
+    # nothing on our side left to find them by. The self-service delete path has
+    # always done this; the admin path did not.
+    customer = (db_user or {}).get("stripe_customer_id") or ""
+    cancelled: int | None = 0
+    if customer:
+        from src.billing.stripe_billing import cancel_customer_subscriptions
+        cancelled = await cancel_customer_subscriptions(customer)
+    if cancelled is None:
+        # Deliberately loud and deliberately NOT fatal: refusing to delete would
+        # leave the admin unable to remove an account because Stripe is down.
+        # But this is the last moment the customer id exists, so it goes in the
+        # log where it can still be acted on.
+        log.error("admin_delete_stripe_cancel_failed", user=user_id, customer=customer)
+
     user_store.delete(user_id)
-    return {"ok": True}
+    return {"ok": True, "stripe_cancelled": cancelled,
+            "stripe_ok": cancelled is not None}
 
 
 @app.post("/admin/users/{user_id}/stripe-sync")
@@ -7027,8 +7076,21 @@ document.getElementById('u-wrap').addEventListener('click', async e => {
   }
   if(t.classList.contains('u-open')) return openUser(u);
   if(t.classList.contains('u-revoke')){
-    if(!confirm('Revoke access for ' + u.username + '?')) return;
-    try { await api('/admin/users/' + u.id + '/revoke', 'POST'); toast('Access revoked'); refresh(); }
+    if(!confirm('Revoke access for ' + u.username + '? This also cancels their Stripe subscription.')) return;
+    try {
+      var res = await api('/admin/users/' + u.id + '/revoke', 'POST');
+      // A Stripe failure is the one outcome that must NOT read as success:
+      // access is gone either way, but if the cancel did not land the customer
+      // is still being charged and only this message will say so.
+      if(res && res.stripe_ok === false){
+        toast('Access revoked, but the Stripe cancel FAILED — cancel it manually', false);
+      } else if(res && res.stripe_cancelled > 0){
+        toast('Access revoked and Stripe subscription cancelled');
+      } else {
+        toast('Access revoked (no active Stripe subscription)');
+      }
+      refresh();
+    }
     catch(err){ toast('Error: ' + err.message, false); }
   }
 });
