@@ -2625,11 +2625,83 @@ _RECONCILE_INTERVAL = 3600     # hourly; drift is measured in minutes, not secon
 _RECONCILE_GAP      = 0.4      # pause between customers (1 vCPU, Stripe rate limits)
 
 
-async def subscription_reconcile_task() -> None:
-    """Background task: make the local subscription state match Stripe."""
+def reconcile_skip_reason(user: dict) -> str | None:
+    """Why this account must NOT be reconciled against Stripe, or None.
+
+    Shared by the hourly sweep and the admin's manual sync so the two cannot
+    drift apart — they used to be separate implementations, and the manual one
+    had a bug the sweep did not.
+    """
+    if not user.get("stripe_customer_id"):
+        return "no Stripe customer is linked to this account"
+    # App-managed access has no Stripe subscription behind it. Reconciling it
+    # would revoke an admin-granted trial or comp the moment Stripe reported no
+    # live subscription — which is always, because there never was one.
+    if user.get("subscription_status") == "trialing":
+        return "access is an in-app trial or comp, not a Stripe subscription"
+    if user.get("is_admin") or user.get("is_labeler"):
+        return "admins and trainers are not billed through Stripe"
+    return None
+
+
+async def reconcile_one_user(user: dict) -> dict:
+    """Make one account's local state match Stripe. Returns what happened.
+
+    Applies drift in BOTH directions and broadcasts a visible change to that
+    user's open tabs — an access change they can see has to reach them live,
+    the same as the webhook path does it.
+    """
     from src.auth import users as _rc_store
     from src.billing.plans import get_plan
     from src.billing.stripe_billing import authoritative_subscription
+
+    uid   = user["id"]
+    cust  = user.get("stripe_customer_id") or ""
+    truth = await authoritative_subscription(cust)
+    if truth is None:
+        # NOT "no subscription" — we could not ask. Changing anything here is
+        # how a Stripe outage cancels paying customers.
+        return {"ok": False, "reason": "Stripe could not be reached", "drift": []}
+
+    was   = get_plan(user)
+    drift = []
+    if truth["status"] != user.get("subscription_status"):
+        drift.append(("status", user.get("subscription_status"), truth["status"]))
+        _rc_store.update_subscription(uid, cust, truth["status"])
+    if truth["plan"] and truth["plan"] != user.get("plan"):
+        drift.append(("plan", user.get("plan"), truth["plan"]))
+        _rc_store.set_plan(uid, truth["plan"])
+
+    result = {"ok": True, "drift": drift, "stripe_status": truth["raw"],
+              "app_status": truth["status"], "plan": truth["plan"],
+              "subscription": truth["subscription"], "reason": ""}
+    if not drift:
+        return result
+
+    log.warning("subscription_drift_corrected", user_id=uid, customer=cust,
+                stripe_status=truth["raw"], drift=drift)
+    now = get_plan(_rc_store.get_by_id(uid))
+    result["plan_before"], result["plan_after"] = was, now
+    if now == was:
+        return result
+    if now in ("locked", "free"):
+        asyncio.create_task(_enforce_stream_limit(uid))
+        await broadcast(
+            {"event": "subscription_expired",
+             "message": "Your subscription has ended. You are on the free plan "
+                        "now — your clips are still here."},
+            user_id=uid)
+    else:
+        await broadcast(
+            {"event": "subscription_active",
+             "message": f"Your {now.title()} plan is active."},
+            user_id=uid)
+    return result
+
+
+async def subscription_reconcile_task() -> None:
+    """Background task: make the local subscription state match Stripe."""
+    from src.auth import users as _rc_store
 
     while True:
         await asyncio.sleep(_RECONCILE_INTERVAL)
@@ -2638,57 +2710,13 @@ async def subscription_reconcile_task() -> None:
         checked = fixed = 0
         try:
             for user in _rc_store.get_all():
-                cust = user.get("stripe_customer_id")
-                if not cust:
+                if reconcile_skip_reason(user):
                     continue
-                # App-managed access has no Stripe subscription behind it.
-                # Reconciling these would revoke an admin-granted trial or comp
-                # the moment Stripe reported no live subscription — which is
-                # always, because there never was one.
-                if user.get("subscription_status") == "trialing":
-                    continue
-                if user.get("is_admin") or user.get("is_labeler"):
-                    continue
-
                 await asyncio.sleep(_RECONCILE_GAP)
-                truth = await authoritative_subscription(cust)
                 checked += 1
-                if truth is None:
-                    continue          # Stripe unreachable — NOT "no subscription"
-
-                uid  = user["id"]
-                was  = get_plan(user)
-                drift = []
-                if truth["status"] != user.get("subscription_status"):
-                    drift.append(("status", user.get("subscription_status"), truth["status"]))
-                    _rc_store.update_subscription(uid, cust, truth["status"])
-                if truth["plan"] and truth["plan"] != user.get("plan"):
-                    drift.append(("plan", user.get("plan"), truth["plan"]))
-                    _rc_store.set_plan(uid, truth["plan"])
-                if not drift:
-                    continue
-
-                fixed += 1
-                log.warning("subscription_drift_corrected", user_id=uid,
-                            customer=cust, stripe_status=truth["raw"], drift=drift)
-
-                now = get_plan(_rc_store.get_by_id(uid))
-                if now == was:
-                    continue
-                # Realtime contract: a correction the user can see has to reach
-                # their open tab, exactly like the webhook path does it.
-                if now in ("locked", "free"):
-                    asyncio.create_task(_enforce_stream_limit(uid))
-                    await broadcast(
-                        {"event": "subscription_expired",
-                         "message": "Your subscription has ended. You are on the "
-                                    "free plan now — your clips are still here."},
-                        user_id=uid)
-                else:
-                    await broadcast(
-                        {"event": "subscription_active",
-                         "message": f"Your {now.title()} plan is active."},
-                        user_id=uid)
+                result = await reconcile_one_user(user)
+                if result["ok"] and result["drift"]:
+                    fixed += 1
         except Exception as exc:
             log.error("subscription_reconcile_failed", error=str(exc))
         if checked:
@@ -4058,7 +4086,21 @@ async def admin_delete_user(request: Request, user_id: str):
 
 @app.post("/admin/users/{user_id}/stripe-sync")
 async def admin_stripe_sync(request: Request, user_id: str):
-    """Manually re-sync a user's Stripe subscription status from Stripe's API."""
+    """Manually re-sync one user's subscription from Stripe, now.
+
+    Runs the SAME reconciliation the hourly sweep does, rather than its own
+    version of it. Its own version had four bugs the sweep did not:
+
+      * `limit: 1` with no status filter read whatever subscription Stripe
+        returned first as the truth — and a cancelled duplicate can be newer
+        than the live one, so syncing a healthy customer could cancel them.
+      * A customer with no subscriptions returned "no subscriptions found" and
+        changed nothing, so syncing a lapsed account left it active forever —
+        the exact case an admin reaches for this button to fix.
+      * It never synced the PLAN, only the status, so a tier that drifted
+        stayed drifted.
+      * It changed the user's access without telling their open tab.
+    """
     _require_admin(request)
     from src.auth import users as user_store
     if not settings.stripe_secret_key:
@@ -4066,26 +4108,24 @@ async def admin_stripe_sync(request: Request, user_id: str):
     user = user_store.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    customer_id = user.get("stripe_customer_id")
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe customer ID linked to this user")
+    skip = reconcile_skip_reason(user)
+    if skip:
+        # Refused rather than applied: "sync from Stripe" on a comped account
+        # would otherwise revoke the comp the admin themselves granted.
+        raise HTTPException(status_code=400, detail=f"Nothing to sync — {skip}.")
     try:
-        import stripe
-        client = stripe.StripeClient(settings.stripe_secret_key)
-        subs = client.subscriptions.list(params={"customer": customer_id, "limit": 1})
-        items = subs.data if hasattr(subs, "data") else []
-        if not items:
-            return {"synced": False, "reason": "No subscriptions found for this customer"}
-        sub = items[0]
-        raw = sub.get("status", "") if isinstance(sub, dict) else sub.status
-        from src.billing.stripe_billing import ACTIVE_STATUSES
-        status = "active" if raw in ACTIVE_STATUSES else ("inactive" if raw in ("canceled", "unpaid", "incomplete_expired") else raw)
-        user_store.update_subscription(user_id, customer_id, status)
-        log.info("admin_stripe_sync", user_id=user_id, customer=customer_id, status=status)
-        return {"synced": True, "stripe_status": raw, "app_status": status}
+        result = await reconcile_one_user(user)
     except Exception as exc:
         log.error("admin_stripe_sync_error", user_id=user_id, error=str(exc))
         raise HTTPException(status_code=502, detail="Stripe API error — check server logs")
+    if not result["ok"]:
+        raise HTTPException(status_code=502, detail=result["reason"])
+    log.info("admin_stripe_sync", user_id=user_id,
+             customer=user.get("stripe_customer_id"),
+             status=result["app_status"], drift=result["drift"])
+    return {"synced": True, "stripe_status": result["stripe_status"],
+            "app_status": result["app_status"], "plan": result["plan"],
+            "changed": [d[0] for d in result["drift"]]}
 
 
 @app.get("/admin/users/{user_id}/streams")
@@ -7213,7 +7253,14 @@ function toast(msg, ok){
 }
 async function api(url, method){
   const r = await fetch(url, {method: method || 'GET', credentials:'same-origin'});
-  if(!r.ok) throw new Error(await r.text());
+  if(!r.ok){
+    // FastAPI puts the human-readable reason in `detail`. Showing the raw body
+    // made every refusal read as a stack trace to the person who caused it.
+    const body = await r.text();
+    let msg = body;
+    try { const d = JSON.parse(body); if(d && d.detail) msg = d.detail; } catch(e) {}
+    throw new Error(msg || ('HTTP ' + r.status));
+  }
   return r.json();
 }
 function fail(id, what){
@@ -7608,7 +7655,12 @@ document.getElementById('dr-body').addEventListener('click', async e => {
       toast(on ? u.username + ' is now an admin' : 'Admin access revoked');
     } else if(b.classList.contains('dr-sync')){
       const r = await api('/admin/users/' + u.id + '/stripe-sync', 'POST');
-      toast(r.synced ? 'Synced: ' + r.app_status : 'No subscription found');
+      const changed = r.changed || [];
+      // "No subscription found" used to be the answer for a cancelled customer,
+      // which is exactly when this button DID something. Say what moved.
+      toast(changed.length
+        ? 'Synced — ' + changed.join(' and ') + ' now ' + r.app_status + (r.plan ? ' / ' + r.plan : '')
+        : 'Already in sync (' + r.app_status + ')');
     } else if(b.classList.contains('dr-del')){
       if(!confirm('Permanently delete ' + u.username + ' and all their data? This cannot be undone.')) return;
       await api('/admin/users/' + u.id, 'DELETE');
