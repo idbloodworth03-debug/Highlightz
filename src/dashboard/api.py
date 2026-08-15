@@ -1142,6 +1142,77 @@ async def admin_feedback_mark_read(request: Request, feedback_id: str):
                 return {"ok": True}
     raise HTTPException(status_code=404, detail="Not found")
 
+class _FeedbackReply(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/admin/feedback/{feedback_id}/reply")
+async def admin_feedback_reply(request: Request, feedback_id: str, body: _FeedbackReply):
+    """Answer a piece of feedback, in the app.
+
+    NOT email. Twitch OAuth hands us no address, so the only emails we hold are
+    the ones Stripe gave us for people who have PAID — which excludes trial
+    users, who are exactly the people most likely to write in. An in-app reply
+    reaches everybody, needs no mail service, and rides the socket that is
+    already there.
+    """
+    _require_admin(request)
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Reply is required")
+
+    async with _data_lock:
+        entry = next((f for f in _feedback if f["id"] == feedback_id), None)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        entry.setdefault("replies", []).append({
+            "message":    msg,
+            "at":         time.time(),
+            "from_admin": True,
+        })
+        # Answering it IS reading it — leaving it unread would keep the badge lit
+        # on something already dealt with.
+        entry["read"] = True
+        # Their unread marker, cleared when they open the tab.
+        entry["reply_unread"] = True
+        _save_feedback()
+
+    uid = entry.get("user_id") or ""
+    # Realtime contract: the reply has to reach an open tab without a refresh,
+    # and the nav badge has to light up for the RECIPIENT, not for admins.
+    await broadcast({"event": "feedback_reply", "feedback_id": feedback_id,
+                     "message": msg}, user_id=uid)
+    log.info("feedback_replied", feedback_id=feedback_id, to_user=uid)
+    return {"ok": True}
+
+
+@app.get("/feedback/mine")
+async def feedback_mine(request: Request):
+    """This user's own feedback, with any replies. Scoped to the caller."""
+    uid = _current_user_id(request)
+    mine = [f for f in _feedback if f.get("user_id") == uid]
+    mine.sort(key=lambda f: f.get("created_at") or 0, reverse=True)
+    return [{"id": f["id"], "category": f.get("category", "General"),
+             "message": f.get("message", ""), "created_at": f.get("created_at", 0),
+             "replies": f.get("replies", []),
+             "reply_unread": bool(f.get("reply_unread"))} for f in mine]
+
+
+@app.post("/feedback/mark-read")
+async def feedback_mark_replies_read(request: Request):
+    """Clear this user's reply badge once they have actually seen the thread."""
+    uid = _current_user_id(request)
+    async with _data_lock:
+        touched = 0
+        for f in _feedback:
+            if f.get("user_id") == uid and f.get("reply_unread"):
+                f["reply_unread"] = False
+                touched += 1
+        if touched:
+            _save_feedback()
+    return {"ok": True, "cleared": touched}
+
+
 @app.delete("/admin/feedback/{feedback_id}")
 async def admin_feedback_delete(request: Request, feedback_id: str):
     _require_admin(request)
@@ -1155,13 +1226,23 @@ async def admin_feedback_delete(request: Request, feedback_id: str):
 
 @app.get("/feedback/unread-count")
 async def feedback_unread_count(request: Request):
-    """Admin-only: number of unread feedback items (used for nav badge)."""
+    """The nav badge, which now means two different things by role.
+
+    For an ADMIN it is unanswered feedback. For everyone else it is replies
+    they have not read yet — previously this returned 0 for non-admins, so a
+    user could be answered and never find out. Same endpoint because the nav
+    asks one question ("is there anything for me on the Feedback tab?") and the
+    answer just depends on who is asking.
+    """
     from src.auth import users as user_store
     uid = request.session.get("user_id", "")
     db_user = user_store.get_by_id(uid) if uid else None
-    if not db_user or not db_user.get("is_admin"):
+    if db_user and db_user.get("is_admin"):
+        return {"count": sum(1 for f in _feedback if not f.get("read"))}
+    if not uid:
         return {"count": 0}
-    return {"count": sum(1 for f in _feedback if not f.get("read"))}
+    return {"count": sum(1 for f in _feedback
+                         if f.get("user_id") == uid and f.get("reply_unread"))}
 
 
 # ── Blind training studio ─────────────────────────────────────────────────────
@@ -7847,6 +7928,17 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   <h1>User Feedback</h1>
   <span class="badge" id="unread-badge" style="display:none"></span>
 </div>
+<style>
+  .fb-reply{margin:10px 0 0;padding:9px 12px;border-left:2px solid #a855f7;
+    background:rgba(168,85,247,.07);border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
+  .fb-reply b{display:block;font-size:11px;color:#c79bff;margin-bottom:3px}
+  .fb-replybox{display:flex;gap:8px;margin-top:10px;align-items:flex-start}
+  .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:13px;
+    padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.04);color:inherit}
+  .fb-replybox textarea:focus{outline:2px solid #a855f7;outline-offset:1px}
+  .btn-reply{background:#7c3aed;border-color:transparent;color:#fff;white-space:nowrap}
+</style>
 <div class="fb-list" id="list"><p class="empty">Loading…</p></div>
 <div class="toast" id="toast"></div>
 <script>
@@ -7870,6 +7962,13 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
           <span class="fb-time">${fmt(f.created_at)}</span>
         </div>
         <div class="fb-msg">${esc(f.message)}</div>
+        ${(f.replies||[]).map(r=>`
+          <div class="fb-reply"><b>You replied</b><div>${esc(r.message)}</div>
+            <span class="fb-time">${fmt(r.at)}</span></div>`).join('')}
+        <div class="fb-replybox">
+          <textarea id="rp-${f.id}" rows="2" placeholder="Write a reply — they see it in the app"></textarea>
+          <button class="btn btn-reply" onclick="reply('${f.id}')">Send reply</button>
+        </div>
         <div class="fb-actions">
           ${f.read?'':`<button class="btn btn-read" onclick="markRead('${f.id}')">Mark read</button>`}
           <button class="btn btn-del" onclick="del('${f.id}')">Delete</button>
@@ -7880,6 +7979,21 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   async function markRead(id){
     try{await api('/admin/feedback/'+id+'/read','POST');items.find(f=>f.id===id).read=true;render();toast('Marked as read');}
     catch{toast('Error');}
+  }
+  async function reply(id){
+    const box=document.getElementById('rp-'+id);
+    const msg=(box.value||'').trim();
+    if(!msg){toast('Write something first');return;}
+    try{
+      const r=await fetch('/admin/feedback/'+id+'/reply',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+      if(!r.ok)throw new Error(r.status);
+      const f=items.find(x=>x.id===id);
+      if(f){ f.replies=(f.replies||[]).concat([{message:msg,at:Date.now()/1000}]); f.read=true; }
+      box.value='';
+      render();
+      toast('Reply sent — they will see it in the app');
+    }catch{toast('Error sending reply');}
   }
   async function del(id){
     try{await api('/admin/feedback/'+id,'DELETE');items=items.filter(f=>f.id!==id);render();toast('Deleted');}

@@ -2215,8 +2215,25 @@ function AccountScreen({ me }) {
   );
 }
 
-function FeedbackScreen() {
+function FeedbackScreen({ onSeen }) {
   const CATEGORIES = ['General','Bug report','Feature request','Question'];
+  // The user's own threads. Fetched on mount and again whenever a reply
+  // arrives over the socket, so an open tab updates without a refresh.
+  const [threads, setThreads] = useState([]);
+  const loadThreads = useCallback(()=>{
+    fetch('/feedback/mine').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(Array.isArray(d)) setThreads(d); }).catch(()=>{});
+  }, []);
+  useEffect(()=>{
+    loadThreads();
+    // Opening the tab IS reading them — clear the badge, then tell the shell so
+    // the nav count drops without waiting for the next poll.
+    fetch('/feedback/mark-read', {method:'POST'})
+      .then(()=>{ if(onSeen) onSeen(); }).catch(()=>{});
+    const onReply = ()=>{ loadThreads(); };
+    window.addEventListener('hz_fb_reply', onReply);
+    return ()=>window.removeEventListener('hz_fb_reply', onReply);
+  }, [loadThreads, onSeen]);
   const [category, setCategory] = useState('General');
   const [message, setMessage]   = useState('');
   const [sending, setSending]   = useState(false);
@@ -2251,7 +2268,7 @@ function FeedbackScreen() {
               <div style={{fontSize:32,marginBottom:12}}>✓</div>
               <div style={{fontWeight:700,marginBottom:8}}>Thanks for your feedback!</div>
               <div style={{fontSize:13,color:'var(--fg-3)',marginBottom:20}}>We'll review it shortly.</div>
-              <button className="rd-btn" onClick={()=>setSent(false)}>Send another</button>
+              <button className="rd-btn" onClick={()=>{setSent(false);loadThreads();}}>Send another</button>
             </div>
           ) : (
             <>
@@ -2287,6 +2304,35 @@ function FeedbackScreen() {
             </>
           )}
         </div>
+
+        {threads.length > 0 &&
+          <div className="rd-card glass" style={{marginTop:16}}>
+            <h3><span className="si"><Icon name="chat" size={15}/></span>Your messages</h3>
+            <div className="desc">Anything you have sent us, and our replies.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:14,marginTop:14}}>
+              {threads.map(t=>(
+                <div key={t.id} style={{border:'1px solid var(--hair)',borderRadius:10,padding:'12px 14px',
+                    background:t.reply_unread?'rgba(168,85,247,.07)':'transparent'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                    <span style={{fontFamily:'ui-monospace,monospace',fontSize:10.5,letterSpacing:'.12em',
+                      textTransform:'uppercase',color:'var(--fg-3)'}}>{t.category}</span>
+                    <span style={{fontSize:11,color:'var(--fg-3)'}}>{fmtTime(t.created_at)}</span>
+                    {t.reply_unread && <span className="navbadge" style={{position:'static'}}>new</span>}
+                  </div>
+                  <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>
+                  {(t.replies||[]).map((r,ri)=>(
+                    <div key={ri} style={{marginTop:10,paddingLeft:12,
+                        borderLeft:'2px solid var(--acc)'}}>
+                      <div style={{fontSize:11,fontWeight:700,color:'var(--acc)',marginBottom:3}}>
+                        Highlightz replied</div>
+                      <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{r.message}</div>
+                      <div style={{fontSize:11,color:'var(--fg-3)',marginTop:3}}>{fmtTime(r.at)}</div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>}
       </div>
     </div>
   );
@@ -4272,6 +4318,13 @@ function RdApp() {
   // cull, clear queue) already broadcast. One hook point, and any future
   // destructive action gets undo for free. Debounced because clearing a queue
   // emits one event per clip and the buffer only has one entry to report.
+  // Unread FEEDBACK REPLIES for this user (for an admin the same endpoint
+  // reports unanswered feedback instead — see the server).
+  const [fbUnread, setFbUnread] = useState(0);
+  const loadFbUnread = useCallback(()=>{
+    fetch('/feedback/unread-count').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) setFbUnread(d.count||0); }).catch(()=>{});
+  }, []);
   const [undoable, setUndoable] = useState(null);
   const undoTimer = useRef(null);
   const checkUndo = useCallback(() => {
@@ -4295,6 +4348,7 @@ function RdApp() {
   // disconnect (laptop sleep, network blip, server restart on deploy) without a
   // manual page refresh — anything that changed during the gap is pulled fresh.
   const refetchAll = useCallback(()=>{
+    loadFbUnread();
     Promise.all([fetch('/clips').then(r=>r.json()), fetch('/streams').then(r=>r.json())])
       .then(([ca,sa])=>{
         setClips(Object.fromEntries(ca.map(c=>[c.id,c])));
@@ -4377,6 +4431,13 @@ function RdApp() {
         if(['clip_ready','clip_updated','clip_removed'].includes(msg.event))
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         if(msg.event==='clip_removed') checkUndo();
+        // An answer to your feedback. Light the nav badge immediately and let
+        // the Feedback screen pull the thread — it may not even be open.
+        if(msg.event==='feedback_reply'){
+          loadFbUnread();
+          window.dispatchEvent(new CustomEvent('hz_fb_reply'));
+          flash('You have a reply to your feedback');
+        }
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));
@@ -4607,7 +4668,7 @@ function RdApp() {
   else if(view==='training') screen=<TrainingScreen/>;
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} myUrls={myClipUrls}/>;
   else if(view==='account') screen=<AccountScreen me={me}/>;
-  else if(view==='feedback') screen=<FeedbackScreen/>;
+  else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
   else screen=<SettingsScreen {...{streams}}/>;
 
   return (
@@ -4627,6 +4688,7 @@ function RdApp() {
             className={'rd-navitem'+(route===n.id?' active':'')+(blocked?' blocked':'')}
             onClick={()=>{ if(blocked) return; setRoute(n.id); setNavOpen(false); }}>
             {n.id==='review'&&pending>0&&!blocked&&<span className="navbadge">{pending}</span>}
+            {n.id==='feedback'&&fbUnread>0&&<span className="navbadge">{fbUnread}</span>}
             <span className="ic"><Icon name={n.icon} size={22}/></span>
             <span>{n.label}</span>
           </button>
