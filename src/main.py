@@ -397,6 +397,10 @@ async def main() -> None:
         asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
+        # Webhooks are the only writer of subscription state, so a delivery
+        # missed during a deploy would otherwise be wrong forever.
+        asyncio.create_task(dashboard_api.subscription_reconcile_task(),
+                            name="billing-reconcile"),
     ]
 
     # Restore streams that were running before the last shutdown

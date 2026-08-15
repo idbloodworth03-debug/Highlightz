@@ -182,6 +182,73 @@ async def change_subscription_price(customer_id: str, new_price_id: str) -> str 
         return None
 
 
+async def authoritative_subscription(customer_id: str) -> dict | None:
+    """What Stripe currently believes about this customer, for reconciliation.
+
+    Returns {"status": <our status>, "plan": <plan or None>, "raw": <stripe
+    status>, "subscription": <id>} — or None if Stripe could not be reached.
+    None is NOT "no subscription": a customer with none returns a dict with
+    status "inactive". The caller must be able to tell those apart or a Stripe
+    outage would cancel everybody.
+
+    Picks the most relevant subscription rather than the newest, because a
+    customer can hold a cancelled duplicate that is newer than the live one —
+    which is exactly what `admin_stripe_sync` (limit 1, no status filter) got
+    wrong, reading a dead duplicate as the truth.
+    """
+    if not (settings.stripe_secret_key and customer_id):
+        return None
+    try:
+        client = _client()
+        subs = client.subscriptions.list(
+            params={"customer": customer_id, "status": "all", "limit": 20})
+        items = subs.data if hasattr(subs, "data") else []
+    except Exception as exc:
+        log.warning("stripe_authoritative_lookup_failed",
+                    customer=customer_id, error=str(exc))
+        return None
+
+    def _g(obj, key, default=None):
+        return (obj.get(key, default) if isinstance(obj, dict)
+                else getattr(obj, key, default))
+
+    best, best_rank = None, -1
+    # Live states first, most-committed first. Anything else is an ending.
+    order = ("active", "trialing", "past_due", "incomplete")
+    for s in items:
+        raw = _g(s, "status", "") or ""
+        rank = len(order) - order.index(raw) if raw in order else 0
+        if rank > best_rank:
+            best, best_rank = s, rank
+
+    if best is None:
+        return {"status": "inactive", "plan": None, "raw": "none", "subscription": ""}
+
+    raw = _g(best, "status", "") or ""
+    if raw in ACTIVE_STATUSES:
+        status = "active"
+    elif raw in ("canceled", "unpaid", "incomplete_expired"):
+        status = "inactive"
+    else:
+        status = raw
+
+    price_id = None
+    raw_items = _g(best, "items") or {}
+    data = (raw_items.get("data") if isinstance(raw_items, dict)
+            else getattr(raw_items, "data", None)) or []
+    for line in data:
+        price = _g(line, "price")
+        if isinstance(price, dict) and price.get("id"):
+            price_id = price["id"]
+        elif isinstance(price, str) and price:
+            price_id = price
+        if price_id:
+            break
+
+    return {"status": status, "plan": plan_for_price(price_id), "raw": raw,
+            "subscription": _g(best, "id", "") or ""}
+
+
 async def live_subscription_status(customer_id: str) -> str | None:
     """Best-effort LIVE check of a customer's subscription state, for the
     checkout guard: right after a payment there's a window where Stripe knows

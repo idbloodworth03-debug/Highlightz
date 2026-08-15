@@ -2610,6 +2610,91 @@ async def _stop_user_streams_now(uid: str) -> None:
 
 
 
+# ── Subscription reconciliation ───────────────────────────────────────────────
+# Stripe is the only writer of subscription state, and until now it only wrote
+# via webhook. That makes a missed delivery PERMANENT and invisible: the
+# endpoint is down through a deploy, or an event errors past Stripe's retries,
+# and the account is wrong forever with nothing to notice it. Every billing bug
+# found in this audit was also, underneath, a bug that nothing would have
+# detected on its own.
+#
+# This walks the accounts that have a Stripe customer and fixes drift both ways
+# — restoring access somebody paid for AND removing access somebody stopped
+# paying for.
+_RECONCILE_INTERVAL = 3600     # hourly; drift is measured in minutes, not seconds
+_RECONCILE_GAP      = 0.4      # pause between customers (1 vCPU, Stripe rate limits)
+
+
+async def subscription_reconcile_task() -> None:
+    """Background task: make the local subscription state match Stripe."""
+    from src.auth import users as _rc_store
+    from src.billing.plans import get_plan
+    from src.billing.stripe_billing import authoritative_subscription
+
+    while True:
+        await asyncio.sleep(_RECONCILE_INTERVAL)
+        if not settings.stripe_secret_key:
+            continue
+        checked = fixed = 0
+        try:
+            for user in _rc_store.get_all():
+                cust = user.get("stripe_customer_id")
+                if not cust:
+                    continue
+                # App-managed access has no Stripe subscription behind it.
+                # Reconciling these would revoke an admin-granted trial or comp
+                # the moment Stripe reported no live subscription — which is
+                # always, because there never was one.
+                if user.get("subscription_status") == "trialing":
+                    continue
+                if user.get("is_admin") or user.get("is_labeler"):
+                    continue
+
+                await asyncio.sleep(_RECONCILE_GAP)
+                truth = await authoritative_subscription(cust)
+                checked += 1
+                if truth is None:
+                    continue          # Stripe unreachable — NOT "no subscription"
+
+                uid  = user["id"]
+                was  = get_plan(user)
+                drift = []
+                if truth["status"] != user.get("subscription_status"):
+                    drift.append(("status", user.get("subscription_status"), truth["status"]))
+                    _rc_store.update_subscription(uid, cust, truth["status"])
+                if truth["plan"] and truth["plan"] != user.get("plan"):
+                    drift.append(("plan", user.get("plan"), truth["plan"]))
+                    _rc_store.set_plan(uid, truth["plan"])
+                if not drift:
+                    continue
+
+                fixed += 1
+                log.warning("subscription_drift_corrected", user_id=uid,
+                            customer=cust, stripe_status=truth["raw"], drift=drift)
+
+                now = get_plan(_rc_store.get_by_id(uid))
+                if now == was:
+                    continue
+                # Realtime contract: a correction the user can see has to reach
+                # their open tab, exactly like the webhook path does it.
+                if now in ("locked", "free"):
+                    asyncio.create_task(_enforce_stream_limit(uid))
+                    await broadcast(
+                        {"event": "subscription_expired",
+                         "message": "Your subscription has ended. You are on the "
+                                    "free plan now — your clips are still here."},
+                        user_id=uid)
+                else:
+                    await broadcast(
+                        {"event": "subscription_active",
+                         "message": f"Your {now.title()} plan is active."},
+                        user_id=uid)
+        except Exception as exc:
+            log.error("subscription_reconcile_failed", error=str(exc))
+        if checked:
+            log.info("subscription_reconcile_done", checked=checked, corrected=fixed)
+
+
 async def idle_stream_reaper() -> None:
     """Background task: stop stream workers for users idle longer than 8 hours,
     and enforce subscription/trial expiry for any user with active streams.
