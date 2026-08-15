@@ -1423,6 +1423,7 @@ async def billing_checkout(request: Request, plan: str = "pro"):
     active-subscription guard below sends them into the app).
     """
     from src.billing.stripe_billing import create_checkout_url
+    from src.billing.plans import get_plan
     from src.auth import users as user_store
     if not settings.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
@@ -1443,7 +1444,33 @@ async def billing_checkout(request: Request, plan: str = "pro"):
     # with no Stripe subscription behind it, so it may proceed to checkout —
     # the live-status check below still catches any real Stripe subscription.)
     if db_user and db_user.get("subscription_status") == "active":
-        return RedirectResponse("/")
+        # ALREADY SUBSCRIBED. This used to redirect to "/" and do nothing, which
+        # is why upgrades never landed: a Starter customer clicked Go Pro, was
+        # bounced back to the dashboard, and stayed on Starter with no error and
+        # no charge. The comment said tier changes happen in the Stripe portal,
+        # but the pricing card points here.
+        #
+        # A second Checkout is NOT the fix — that mints a second subscription
+        # and bills them twice. Change the price on the subscription they
+        # already have.
+        from src.billing.stripe_billing import change_subscription_price
+        cust = db_user.get("stripe_customer_id") or ""
+        current = get_plan(db_user)
+        if current == plan:
+            return RedirectResponse("/?plan=unchanged")
+        changed = await change_subscription_price(cust, price_id) if cust else None
+        if not changed:
+            # Never report success we did not get. Send them to the portal,
+            # where they can change tier themselves, rather than back to a
+            # dashboard that still shows the old plan.
+            log.error("upgrade_failed", user=uid, from_plan=current, to_plan=plan,
+                      customer=cust)
+            return RedirectResponse("/billing/portal")
+        user_store.set_plan(uid, plan)
+        log.info("plan_changed_in_place", user=uid, from_plan=current, to_plan=plan)
+        await broadcast({"event": "subscription_active",
+                         "message": f"You are on {plan.title()} now."}, user_id=uid)
+        return RedirectResponse("/?plan=" + plan)
     # Webhook-latency window: the user may have JUST paid (Stripe knows, our DB
     # doesn't yet). Ask Stripe live before selling them a second subscription —
     # and self-heal the DB so they get straight into the app.
@@ -1664,6 +1691,24 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             # store it — this is how upgrades/downgrades through the portal
             # take effect. Unknown prices leave the stored plan untouched
             # (legacy $15 maps to 'pro' inside plan_for_price).
+            # DOUBLE-BILLING SWEEP. A brand-new subscription for a customer who
+            # already has one means a duplicate got through — the checkout guard
+            # fails open on a Stripe error, and two tabs can both reach checkout
+            # inside the webhook-latency window. Kill the others NOW, seconds
+            # after it appears, rather than letting the customer discover it as
+            # a second charge at the end of the month. Keeps the newest, which
+            # is the tier they just chose.
+            if event.get("type") == "customer.subscription.created":
+                from src.billing.stripe_billing import cancel_duplicate_subscriptions
+                obj = event.get("data", {}).get("object", {}) or {}
+                new_sub_id = obj.get("id") or ""
+                if cust_id and new_sub_id:
+                    killed = await cancel_duplicate_subscriptions(cust_id, new_sub_id)
+                    if killed:
+                        log.error("double_billing_prevented", user_id=user_id,
+                                  customer=cust_id, cancelled=killed)
+            # Membership tier: map the subscription's price id to a plan and
+            # store it.
             plan = plan_for_price(extract_price_id(event))
             if plan:
                 user_store.set_plan(user_id, plan)

@@ -56,6 +56,94 @@ async def create_checkout_url(user_id: str, username: str, price_id: str,
     return session.url
 
 
+async def cancel_duplicate_subscriptions(customer_id: str, keep_id: str) -> int:
+    """Cancel every ACTIVE subscription for this customer except `keep_id`.
+
+    The last line of defence against double billing. Even with tier changes
+    done in place, a second subscription can still be created: the checkout
+    guard asks Stripe whether the customer is already subscribed and
+    deliberately FAILS OPEN on error, so a Stripe hiccup lets a second checkout
+    through; and two tabs can both reach checkout inside the webhook-latency
+    window.
+
+    Runs on customer.subscription.created, so a duplicate is killed seconds
+    after it appears rather than at the end of the month when the customer sees
+    two charges. Returns the number cancelled.
+    """
+    if not settings.stripe_secret_key or not customer_id or not keep_id:
+        return 0
+    try:
+        client = _client()
+        subs = client.subscriptions.list(
+            params={"customer": customer_id, "status": "active", "limit": 20})
+        items = subs.data if hasattr(subs, "data") else []
+        killed = 0
+        for sub in items:
+            sub_id = sub.get("id") if isinstance(sub, dict) else sub.id
+            if sub_id == keep_id:
+                continue
+            client.subscriptions.cancel(sub_id)
+            killed += 1
+            log.warning("duplicate_subscription_cancelled",
+                        customer=customer_id, cancelled=sub_id, kept=keep_id)
+        return killed
+    except Exception as exc:
+        log.error("duplicate_cancel_failed", customer=customer_id, error=str(exc))
+        return 0
+
+
+async def change_subscription_price(customer_id: str, new_price_id: str) -> str | None:
+    """Move a customer's EXISTING subscription onto a different price, in place.
+
+    This is how a tier change has to work. Opening a Checkout session in
+    mode=subscription creates a SECOND subscription every time — reusing the
+    customer only means both land on the same customer — so an upgrade through
+    checkout leaves the old tier running and the customer paying for both. That
+    is the double-charge.
+
+    Updating the subscription item instead keeps exactly one subscription, and
+    Stripe prorates: the customer is credited the unused part of the old tier
+    and charged the difference, immediately.
+
+    Returns the subscription id that was changed, or None if there was nothing
+    to change or Stripe could not be reached — the caller must treat None as
+    "the upgrade did NOT happen" and not report success.
+    """
+    if not settings.stripe_secret_key or not customer_id or not new_price_id:
+        return None
+    try:
+        client = _client()
+        subs = client.subscriptions.list(
+            params={"customer": customer_id, "status": "active", "limit": 10})
+        items = subs.data if hasattr(subs, "data") else []
+        if not items:
+            return None
+        # Newest first — if duplicates already exist from the old checkout bug,
+        # the most recent one is the tier the customer last chose.
+        def _created(x):
+            return (x.get("created") if isinstance(x, dict) else getattr(x, "created", 0)) or 0
+        items.sort(key=_created, reverse=True)
+        sub = items[0]
+        sub_id = sub.get("id") if isinstance(sub, dict) else sub.id
+        raw = sub.get("items") if isinstance(sub, dict) else sub.items
+        line = (raw.get("data") if isinstance(raw, dict) else raw.data)[0]
+        item_id = line.get("id") if isinstance(line, dict) else line.id
+
+        client.subscriptions.update(sub_id, params={
+            "items": [{"id": item_id, "price": new_price_id}],
+            # Bill the difference now rather than silently at the next cycle —
+            # the customer asked for the upgrade and expects it to take effect.
+            "proration_behavior": "always_invoice",
+        })
+        log.info("stripe_subscription_price_changed",
+                 customer=customer_id, subscription=sub_id, price=new_price_id)
+        return sub_id
+    except Exception as exc:
+        log.error("stripe_price_change_failed",
+                  customer=customer_id, price=new_price_id, error=str(exc))
+        return None
+
+
 async def live_subscription_status(customer_id: str) -> str | None:
     """Best-effort LIVE check of a customer's subscription state, for the
     checkout guard: right after a payment there's a window where Stripe knows
