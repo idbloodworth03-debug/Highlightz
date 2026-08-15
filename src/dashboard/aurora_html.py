@@ -2220,6 +2220,22 @@ function FeedbackScreen({ onSeen }) {
   // The user's own threads. Fetched on mount and again whenever a reply
   // arrives over the socket, so an open tab updates without a refresh.
   const [threads, setThreads] = useState([]);
+  const [replyTo, setReplyTo]   = useState('');   // thread id being answered
+  const [replyMsg, setReplyMsg] = useState('');
+  const [replyErr, setReplyErr] = useState('');
+  const sendReply = async (id) => {
+    const msg = replyMsg.trim();
+    if(!msg){ setReplyErr('Write something first.'); return; }
+    setReplyErr('');
+    try {
+      const r = await fetch('/feedback/' + encodeURIComponent(id) + '/reply', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ message: msg }),
+      });
+      if(!r.ok){ const d = await r.json().catch(()=>({})); setReplyErr(d.detail||'Failed to send.'); return; }
+      setReplyMsg(''); setReplyTo(''); loadThreads();
+    } catch { setReplyErr('Network error — try again.'); }
+  };
   const loadThreads = useCallback(()=>{
     fetch('/feedback/mine').then(r=>r.ok?r.json():null)
       .then(d=>{ if(Array.isArray(d)) setThreads(d); }).catch(()=>{});
@@ -2322,13 +2338,30 @@ function FeedbackScreen({ onSeen }) {
                   <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>
                   {(t.replies||[]).map((r,ri)=>(
                     <div key={ri} style={{marginTop:10,paddingLeft:12,
-                        borderLeft:'2px solid var(--acc)'}}>
-                      <div style={{fontSize:11,fontWeight:700,color:'var(--acc)',marginBottom:3}}>
-                        Highlightz replied</div>
+                        borderLeft:'2px solid '+(r.from_admin===false?'var(--hair-2)':'var(--acc)')}}>
+                      <div style={{fontSize:11,fontWeight:700,marginBottom:3,
+                          color:r.from_admin===false?'var(--fg-3)':'var(--acc)'}}>
+                        {r.from_admin===false?'You':'Highlightz'}</div>
                       <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{r.message}</div>
                       <div style={{fontSize:11,color:'var(--fg-3)',marginTop:3}}>{fmtTime(r.at)}</div>
                     </div>
                   ))}
+                  {replyTo===t.id ? (
+                    <div style={{marginTop:12}}>
+                      <textarea className="rd-input" rows={3} value={replyMsg} autoFocus
+                        onChange={e=>setReplyMsg(e.target.value)}
+                        placeholder="Write your reply…"
+                        style={{width:'100%',resize:'vertical',fontFamily:'inherit',fontSize:13.5}}/>
+                      {replyErr && <div style={{fontSize:12,color:'var(--bad)',marginTop:6}}>{replyErr}</div>}
+                      <div style={{display:'flex',gap:8,marginTop:8}}>
+                        <button className="rd-btn grad" onClick={()=>sendReply(t.id)}>Send reply</button>
+                        <button className="rd-btn" onClick={()=>{setReplyTo('');setReplyMsg('');setReplyErr('');}}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="rd-btn" style={{marginTop:12}}
+                      onClick={()=>{setReplyTo(t.id);setReplyMsg('');setReplyErr('');}}>Reply</button>
+                  )}
                 </div>
               ))}
             </div>
@@ -4437,6 +4470,13 @@ function RdApp() {
           loadFbUnread();
           window.dispatchEvent(new CustomEvent('hz_fb_reply'));
           flash('You have a reply to your feedback');
+        }
+        // The other direction — a user answered on their thread. Only admins
+        // receive this (it is fanned out by id, never broadcast to everyone).
+        if(msg.event==='feedback_new'){
+          loadFbUnread();
+          window.dispatchEvent(new CustomEvent('hz_fb_reply'));
+          flash((msg.username||'Someone') + ' replied to their feedback');
         }
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){

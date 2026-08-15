@@ -1198,6 +1198,83 @@ async def feedback_mine(request: Request):
              "reply_unread": bool(f.get("reply_unread"))} for f in mine]
 
 
+async def _notify_admins(event: dict) -> None:
+    """Push an event to every admin's open tabs.
+
+    broadcast() targets one user or EVERYONE, and everyone is wrong here — a
+    reply on someone's support thread must not land on every socket. So it is
+    fanned out to the admins by id.
+    """
+    from src.auth import users as user_store
+    try:
+        for u in user_store.get_all():
+            if u.get("is_admin"):
+                await broadcast(event, user_id=u["id"])
+    except Exception as exc:            # never let a notification break a reply
+        log.warning("admin_notify_failed", error=str(exc))
+
+
+# Bounded so one thread cannot grow forever — this is a support conversation,
+# not a chat room, and _feedback is held in memory and rewritten on every save.
+_MAX_THREAD_REPLIES = 50
+
+
+@app.post("/feedback/{feedback_id}/reply", status_code=201)
+async def feedback_user_reply(request: Request, feedback_id: str, body: _FeedbackReply):
+    """The user answering back on their OWN thread.
+
+    Same shape as the admin reply, opposite direction — from_admin False. The
+    entry is marked UNREAD again so it returns to the admin's queue: a reply
+    that did not reopen the thread would be filed as answered and never seen.
+    """
+    uid = _current_user_id(request)
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    # Validate BEFORE spending the cooldown slot. Two reasons: a probe for an id
+    # that is not yours has to look identical to a probe for one that does not
+    # exist (a 429 on one and a 404 on the other confirms the id is real), and a
+    # refused request must not burn the caller's next ten seconds.
+    async with _data_lock:
+        entry = next((f for f in _feedback if f["id"] == feedback_id), None)
+        if entry is None or entry.get("user_id") != uid:
+            raise HTTPException(status_code=404, detail="Not found")
+        if len(entry.get("replies", [])) >= _MAX_THREAD_REPLIES:
+            raise HTTPException(status_code=429,
+                                detail="This conversation is full — start a new message")
+
+    now = time.time()
+    # Same lock and same dict as /feedback, so replying on a thread is not a way
+    # around the cooldown on new feedback.
+    async with _feedback_rate_lock:
+        last = _feedback_last_submit.get(uid, 0)
+        if now - last < _FEEDBACK_COOLDOWN:
+            raise HTTPException(status_code=429,
+                                detail="Please wait a moment before sending more")
+        _feedback_last_submit[uid] = now
+
+    async with _data_lock:
+        # Re-resolve: the entry could have been deleted while the rate lock was held.
+        entry = next((f for f in _feedback if f["id"] == feedback_id), None)
+        if entry is None or entry.get("user_id") != uid:
+            raise HTTPException(status_code=404, detail="Not found")
+        replies = entry.setdefault("replies", [])
+        if len(replies) >= _MAX_THREAD_REPLIES:
+            raise HTTPException(status_code=429,
+                                detail="This conversation is full — start a new message")
+        replies.append({"message": msg, "at": now, "from_admin": False})
+        entry["read"] = False           # back into the admin's queue
+        _save_feedback()
+
+    # Realtime: the admin's badge has to light up without a refresh, or a reply
+    # sits unseen until they happen to reload.
+    await _notify_admins({"event": "feedback_new", "feedback_id": feedback_id,
+                          "username": entry.get("username", "")})
+    log.info("feedback_user_replied", feedback_id=feedback_id, user_id=uid)
+    return {"ok": True}
+
+
 @app.post("/feedback/mark-read")
 async def feedback_mark_replies_read(request: Request):
     """Clear this user's reply badge once they have actually seen the thread."""
@@ -7932,6 +8009,10 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   .fb-reply{margin:10px 0 0;padding:9px 12px;border-left:2px solid #a855f7;
     background:rgba(168,85,247,.07);border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
   .fb-reply b{display:block;font-size:11px;color:#c79bff;margin-bottom:3px}
+  /* A reply FROM the user reads as inbound: neutral rail, no purple. Same
+     colour for both directions would make a thread unreadable at a glance. */
+  .fb-reply.from-user{border-left-color:rgba(255,255,255,.25);background:rgba(255,255,255,.04)}
+  .fb-reply.from-user b{color:#9c9caa}
   .fb-replybox{display:flex;gap:8px;margin-top:10px;align-items:flex-start}
   .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:13px;
     padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
@@ -7963,7 +8044,9 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
         </div>
         <div class="fb-msg">${esc(f.message)}</div>
         ${(f.replies||[]).map(r=>`
-          <div class="fb-reply"><b>You replied</b><div>${esc(r.message)}</div>
+          <div class="fb-reply${r.from_admin===false?' from-user':''}">
+            <b>${r.from_admin===false?esc(f.username||'They')+' replied':'You replied'}</b>
+            <div>${esc(r.message)}</div>
             <span class="fb-time">${fmt(r.at)}</span></div>`).join('')}
         <div class="fb-replybox">
           <textarea id="rp-${f.id}" rows="2" placeholder="Write a reply — they see it in the app"></textarea>

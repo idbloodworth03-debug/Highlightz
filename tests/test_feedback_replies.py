@@ -28,6 +28,10 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "_FEEDBACK_FILE", tmp_path / "feedback.json")
     monkeypatch.setattr(api, "_feedback", [])
     monkeypatch.setattr(api, "_save_feedback", lambda: None)
+    # Module-level and NOT reset between requests in production, which is the
+    # point of it — but it would otherwise carry one test's cooldown into the
+    # next and every second test would see a spurious 429.
+    monkeypatch.setattr(api, "_feedback_last_submit", {})
 
     sent = []
 
@@ -146,3 +150,91 @@ def test_replying_to_something_that_does_not_exist_is_a_404(env):
 def test_an_empty_reply_is_refused(env):
     r = env["admin"].post("/admin/feedback/fb1/reply", json={"message": "   "})
     assert r.status_code == 400
+
+
+# ── the user can answer back: it is a thread, not a one-way reply ────────────
+
+def test_a_user_can_reply_on_their_own_thread(env):
+    env["admin"].post("/admin/feedback/fb1/reply", json={"message": "Yes."})
+    r = env["user"].post("/feedback/fb1/reply", json={"message": "Great, thanks!"})
+    assert r.status_code == 201
+    replies = env["api"]._feedback[0]["replies"]
+    assert [x["message"] for x in replies] == ["Yes.", "Great, thanks!"]
+    assert replies[0]["from_admin"] is True and replies[1]["from_admin"] is False
+
+
+def test_a_user_reply_reopens_the_thread_for_the_admin(env):
+    """The quiet failure: someone answers a question, the item stays marked
+    read, and their reply is filed as dealt-with and never seen again."""
+    env["admin"].post("/admin/feedback/fb1/reply", json={"message": "Yes."})
+    assert env["admin"].get("/feedback/unread-count").json()["count"] == 0
+    env["user"].post("/feedback/fb1/reply", json={"message": "One more thing…"})
+    assert env["admin"].get("/feedback/unread-count").json()["count"] == 1
+
+
+def test_a_user_reply_reaches_the_admins_open_tab(env):
+    """Realtime contract. Without this the admin only learns about it on their
+    next reload."""
+    env["user"].post("/feedback/fb1/reply", json={"message": "Hello?"})
+    events = [(m.get("event"), uid) for m, uid in env["sent"]]
+    assert ("feedback_new", "boss") in events, "no admin was notified"
+
+
+def test_the_admin_notification_is_not_broadcast_to_everyone(env):
+    """user_id=None here would put one customer's support thread on every
+    socket in the product."""
+    env["user"].post("/feedback/fb1/reply", json={"message": "Hello?"})
+    for msg, uid in env["sent"]:
+        if msg.get("event") == "feedback_new":
+            assert uid is not None, "the notification went to every connected client"
+            assert uid == "boss"
+
+
+def test_a_user_cannot_reply_on_someone_elses_thread(env):
+    env["api"]._feedback.append({
+        "id": "fb2", "user_id": "someone_else", "username": "other",
+        "category": "General", "message": "private", "created_at": time.time(),
+        "read": True})
+    r = env["user"].post("/feedback/fb2/reply", json={"message": "sneaking in"})
+    assert r.status_code == 404, "replied onto another user's thread"
+    other = next(f for f in env["api"]._feedback if f["id"] == "fb2")
+    assert not other.get("replies")
+
+
+def test_a_missing_thread_and_someone_elses_look_identical(env):
+    """Different codes would confirm whether an id belongs to a real thread."""
+    env["api"]._feedback.append({
+        "id": "fb2", "user_id": "someone_else", "message": "x",
+        "created_at": time.time(), "read": True})
+    assert env["user"].post("/feedback/fb2/reply", json={"message": "hi"}).status_code == \
+           env["user"].post("/feedback/nope/reply", json={"message": "hi"}).status_code == 404
+
+
+def test_a_thread_cannot_grow_without_limit(env, monkeypatch):
+    """_feedback is held in memory and rewritten whole on every save. This is a
+    support conversation, not a chat room."""
+    from src.dashboard import api
+    monkeypatch.setattr(api, "_FEEDBACK_COOLDOWN", 0)
+    env["api"]._feedback[0]["replies"] = [
+        {"message": "x", "at": 0, "from_admin": False} for _ in range(api._MAX_THREAD_REPLIES)]
+    r = env["user"].post("/feedback/fb1/reply", json={"message": "one more"})
+    assert r.status_code == 429
+
+
+def test_the_reply_rate_limit_is_shared_with_new_feedback(env):
+    """Otherwise the cooldown on /feedback is trivially sidestepped by replying
+    on an existing thread instead."""
+    from src.dashboard import api
+    assert env["user"].post("/feedback/fb1/reply", json={"message": "one"}).status_code == 201
+    assert env["user"].post("/feedback/fb1/reply", json={"message": "two"}).status_code == 429
+    assert env["user"].post("/feedback", json={"message": "three"}).status_code == 429
+
+
+def test_both_sides_of_the_thread_are_labelled(env):
+    """A thread where you cannot tell who said what is worse than no thread."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "r.from_admin===false?'You':'Highlightz'" in html
+    from src.dashboard.api import _ADMIN_FEEDBACK_HTML as admin
+    assert "from-user" in admin, "the admin panel renders both directions identically"
+    assert "r.from_admin===false?' from-user':''" in admin, \
+        "the class is defined but never applied — both directions render the same"
