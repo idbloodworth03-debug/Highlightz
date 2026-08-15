@@ -21,13 +21,46 @@ if not settings.stripe_secret_key:
 
 import stripe                                  # noqa: E402
 
-client = stripe.StripeClient(settings.stripe_secret_key)
+_raw = stripe.StripeClient(settings.stripe_secret_key)
+# Newer SDKs moved everything under .v1 and warn loudly on the old path.
+client = getattr(_raw, "v1", _raw)
 
 LIVE = ("active", "trialing", "past_due", "incomplete")
 
 
 def g(obj, key, default=None):
-    return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+    """Field access that works on dicts AND StripeObjects.
+
+    StripeObject is not a dict subclass, so an isinstance(x, dict) test says
+    False and the value falls through as if it were already an id string —
+    which then explodes the first time it is sliced.
+    """
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    try:
+        return getattr(obj, key, default)
+    except Exception:
+        return default
+
+
+def as_id(x) -> str:
+    """An id out of whatever Stripe handed back: a bare id string, an expanded
+    object, or a StripeObject."""
+    if not x:
+        return ""
+    if isinstance(x, str):
+        return x
+    return str(g(x, "id", "") or "")
+
+
+def as_list(x) -> list:
+    if not x:
+        return []
+    if isinstance(x, list):
+        return x
+    return list(g(x, "data", []) or [])
 
 
 # ── everything Stripe holds ──────────────────────────────────────────────────
@@ -37,44 +70,41 @@ while True:
     if cursor:
         params["starting_after"] = cursor
     page = client.subscriptions.list(params=params)
-    data = page.data if hasattr(page, "data") else []
+    data = as_list(page)
     subs.extend(data)
     if not (g(page, "has_more") and data):
         break
-    cursor = g(data[-1], "id")
+    cursor = as_id(data[-1])
 
 print(f"key: {'LIVE' if settings.stripe_secret_key.startswith('sk_live') else 'TEST'} mode")
 print(f"{len(subs)} subscription(s) in Stripe\n")
 
-price_name = {settings.stripe_price_id_starter: "starter",
-              settings.stripe_price_id_pro: "pro",
-              settings.stripe_price_id: "legacy"}
+# Only CONFIGURED prices. Building this unfiltered maps "" -> whichever price
+# env var is unset, so a subscription with no line items reads as that tier.
+price_name = {pid: name for pid, name in (
+    (settings.stripe_price_id_starter, "starter"),
+    (settings.stripe_price_id_pro,     "pro"),
+    (settings.stripe_price_id,         "legacy"),
+) if pid}
 
 by_customer = defaultdict(list)
 rows = []
 for s in subs:
-    sid    = g(s, "id", "")
-    status = g(s, "status", "")
-    cust   = g(s, "customer", "")
-    if isinstance(cust, dict):
-        cust = cust.get("id", "")
-    meta   = g(s, "metadata") or {}
-    uid    = (meta.get("user_id") if isinstance(meta, dict) else None) or ""
-    items  = g(s, "items") or {}
-    data   = (items.get("data") if isinstance(items, dict) else g(items, "data")) or []
-    price  = ""
-    if data:
-        p = g(data[0], "price")
-        price = (p.get("id") if isinstance(p, dict) else p) or ""
+    sid    = as_id(s)
+    status = str(g(s, "status", "") or "")
+    cust   = as_id(g(s, "customer", ""))
+    uid    = str(g(g(s, "metadata"), "user_id", "") or "")
+    data   = as_list(g(s, "items"))
+    price  = as_id(g(data[0], "price")) if data else ""
     rows.append({"id": sid, "status": status, "customer": cust, "user_id": uid,
-                 "tier": price_name.get(price, price[:18] or "?")})
+                 "tier": price_name.get(price, (price[:16] if price else "?"))})
     if status in LIVE:
         by_customer[cust].append(sid)
 
-hdr = f"{'subscription':<30}{'status':<12}{'customer':<22}{'tier':<10}{'metadata user_id'}"
+hdr = f"{'subscription':<30}{'status':<12}{'customer':<22}{'tier':<18}{'metadata user_id'}"
 print(hdr); print("-" * len(hdr))
 for r in sorted(rows, key=lambda r: (r["status"] != "active", r["customer"])):
-    print(f"{r['id']:<30}{r['status']:<12}{r['customer']:<22}{r['tier']:<10}"
+    print(f"{r['id']:<30}{r['status']:<12}{r['customer']:<22}{r['tier']:<18}"
           f"{r['user_id'] or '*** MISSING ***'}")
 
 # ── the two failure modes ────────────────────────────────────────────────────
@@ -105,7 +135,7 @@ for r in rows:
     email = ""
     try:
         c = client.customers.retrieve(r["customer"])
-        email = g(c, "email") or ""
+        email = str(g(c, "email", "") or "")
     except Exception as exc:
         email = f"(lookup failed: {exc})"
     print(f"  {r['id']}  {r['status']:<10} {r['customer']}")
