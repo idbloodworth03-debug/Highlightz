@@ -495,3 +495,29 @@ def test_the_clip_player_is_sized_from_the_viewport_not_a_fixed_920():
     frame = html[html.index(".exl-frame{"):html.index("}", html.index(".exl-frame{"))]
     assert "aspect-ratio:16/9" in frame
     assert "padding-bottom:56.25%" not in frame, "the two sizing methods would fight"
+
+
+def test_the_lightbox_is_revealed_before_the_player_loads():
+    """THE reason showcase clips played at 360p.
+
+    Twitch's clip embed chooses its rendition from the player's size when it
+    BOOTS. #exl starts display:none, so assigning src before revealing it meant
+    the player measured itself at 0x0, took the lowest rendition, and a
+    30-second clip ended long before ABR could climb. Measured in Chromium:
+    0x0 at src-assignment, 1438x809 one frame later.
+
+    Widening the player did nothing on its own — it was never the size the
+    player saw. Order is the fix, and it is invisible in a screenshot: the clip
+    plays either way, just badly.
+    """
+    html = api.LANDING_HTML
+    i = html.index("var lb=document.getElementById('exl');")
+    block = html[i:i + 1400]
+    reveal = block.index("lb.style.display='';")
+    load = block.index("ifr.src=src+")
+    assert reveal < load, \
+        "the player is loaded while its container is still display:none — it will boot at 0x0"
+    # A reflow between the two, or the browser may batch the style change and
+    # the iframe still has no dimensions when src is assigned.
+    reflow = block.index("void lb.offsetHeight;")
+    assert reveal < reflow < load, "no forced layout between revealing and loading"

@@ -5603,9 +5603,19 @@ LANDING_HTML = """<!DOCTYPE html>
         var ifr=document.getElementById('exl-iframe');
         document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' — '+(c.channel||'');
         document.getElementById('exl-out').href=c.twitch_url||'#';
-        ifr.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+'&autoplay=true';
+        // ORDER MATTERS, and it is the whole reason clips played at 360p.
+        // Twitch's clip embed chooses its rendition from the player's size when
+        // it BOOTS, and #exl starts display:none — so assigning src first meant
+        // the player measured itself at 0x0, picked the lowest rendition, and a
+        // 30-second clip ended long before ABR could climb. Measured: 0x0 at
+        // src-assignment, 1438x809 a frame later.
+        // So: reveal, force a synchronous reflow so the iframe really has its
+        // dimensions, and only then load. void offsetHeight is the reflow —
+        // reading a layout property flushes pending style changes.
         lb.style.display='';
         document.body.style.overflow='hidden';
+        void lb.offsetHeight;
+        ifr.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+'&autoplay=true';
       });
       var media=document.createElement('div'); media.className='ex-media';
       if(c.thumbnail_url){
