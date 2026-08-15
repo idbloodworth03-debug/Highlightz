@@ -112,11 +112,37 @@ def _save(users: list[dict]) -> None:
                 os.replace(tmp_bak, _BACKUP_FILE)
             except OSError:
                 pass
+        # Whose file is it? Captured BEFORE the replace, because the temp file
+        # is owned by whoever is running us — and that is not always the
+        # service. An admin script run from a root shell would otherwise leave
+        # users.json as 600 root:root, and the service (which does not run as
+        # root) then cannot read its own user database. That is not theoretical:
+        # it took the site down, because ensure_admin_exists() reads this file
+        # at startup and a PermissionError there kills the process.
+        prev_owner = None
+        try:
+            if _USERS_FILE.exists():
+                st = os.stat(_USERS_FILE)
+                prev_owner = (st.st_uid, st.st_gid)
+        except OSError:
+            pass
+
         os.replace(tmp, _USERS_FILE)
         try:
             os.chmod(_USERS_FILE, 0o600)
         except OSError:
             pass
+        # Hand it back to the original owner. Only root can do this, which is
+        # exactly the case that needs it — a non-root writer already owns the
+        # file and the chown would be a no-op anyway.
+        if prev_owner and os.geteuid() == 0:
+            for target in (_USERS_FILE, _BACKUP_FILE):
+                try:
+                    if target.exists() and (os.stat(target).st_uid,
+                                            os.stat(target).st_gid) != prev_owner:
+                        os.chown(target, *prev_owner)
+                except OSError as exc:
+                    _ulog.warning("users_chown_failed", path=str(target), error=str(exc))
         _ulog.debug("users_saved", count=len(users))
     except Exception:
         try:
