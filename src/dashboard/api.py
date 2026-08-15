@@ -4905,11 +4905,22 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ Example-clip lightbox ══ */
   .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:22px}
   .exl-bg{position:absolute;inset:0;background:rgba(8,5,11,.9)}
-  .exl-card{position:relative;z-index:1;width:min(920px,100%);border-radius:3px;overflow:hidden;
+  /* Twitch's clip embed picks its rendition by ADAPTIVE BITRATE, and player
+     size is the main input — there is no documented URL parameter to force
+     quality on a clip embed. A 920px player on a 1440 or 1920 screen was
+     asking Twitch for a low rendition and then displaying it in a box with
+     room to spare. Sizing by the viewport lets it request the best the clip
+     actually has. Bounded by HEIGHT as well as width so the 16:9 frame always
+     fits on a short screen instead of running off the bottom. */
+  .exl-card{position:relative;z-index:1;border-radius:3px;overflow:hidden;
+    width:min(1440px, calc((100vh - 150px) * 16 / 9), 100%);
     background:var(--void);border:1px solid transparent;
     background-image:linear-gradient(var(--void),var(--void)),linear-gradient(215deg,rgba(210,106,251,.5),rgba(242,234,247,.06));
     background-origin:padding-box,border-box;background-clip:padding-box,border-box}
-  .exl-frame{position:relative;width:100%;padding-bottom:56.25%;background:#000}
+  /* aspect-ratio rather than the padding-bottom trick: the card is now sized by
+     height as well as width, and the two would fight — padding-bottom is a
+     percentage of WIDTH and cannot honour a height cap. */
+  .exl-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000}
   .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
   .exl-meta{display:flex;align-items:center;gap:12px;padding:13px 16px}
   .exl-title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -5567,6 +5578,10 @@ LANDING_HTML = """<!DOCTYPE html>
   // block, and Python resolves escapes before the browser ever sees them — a
   // backslash in a JS regex literal here is a landmine, not an escape.
   var SLUG=new RegExp('/clip/([^/?#]+)');
+  // Same construction, same reason: a backslash in a regex literal here is
+  // Python's, not JavaScript's, and would be eaten before the browser sees it.
+  var RE_PREVIEW=new RegExp('-preview-[0-9]+x[0-9]+[.]');
+  function hiResThumb(u){ return (u||'').replace(RE_PREVIEW,'-preview-1280x720.'); }
   fetch('/landing/showcase').then(function(r){return r.ok?r.json():null;}).then(function(d){
     var clips=(d&&d.clips)||[];
     if(!clips.length) return;
@@ -5595,8 +5610,28 @@ LANDING_HTML = """<!DOCTYPE html>
       var media=document.createElement('div'); media.className='ex-media';
       if(c.thumbnail_url){
         var img=document.createElement('img'); img.loading='lazy'; img.alt='';
-        img.src=c.thumbnail_url;
-        img.onerror=function(){ img.remove(); };
+        img.decoding='async';
+        // ALWAYS ask for the largest variant. Twitch stores the showcase
+        // thumbnail at its default ~480x272, but these cards render about
+        // 380x146 CSS px — which is 760x292 of real pixels on a 2x display, so
+        // the stored URL is upscaled and visibly soft on every modern screen.
+        // Swapping the size segment asks Twitch's CDN for the 1280x720 master.
+        var hi=hiResThumb(c.thumbnail_url);
+        img.src=hi;
+        // Step DOWN rather than giving up. The 1280 variant is not guaranteed:
+        // a freshly-created clip 404s until Twitch finishes generating its
+        // preview frames, and some older clips never got the large size. The
+        // previous handler removed the image outright, so a single missing
+        // upscale left a card with no picture at all — worse than the soft one
+        // it replaced. hi-res -> stored -> the gradient the panel already has.
+        img.onerror=function(){
+          if(hi!==c.thumbnail_url && img.getAttribute('data-tried')!=='1'){
+            img.setAttribute('data-tried','1');
+            img.src=c.thumbnail_url;
+            return;
+          }
+          img.remove();
+        };
         media.appendChild(img);
       }
       var play=document.createElement('div'); play.className='ex-play';

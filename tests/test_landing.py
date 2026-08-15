@@ -432,3 +432,66 @@ def test_the_nav_collapses_before_it_can_push_the_cta_off_screen():
     assert int(m.group(1)) >= 925, (
         f".nav-links collapse at {m.group(1)}px, but the full nav needs ~925px — "
         f"between the two the Get started button is pushed off the edge")
+
+
+# ── the showcase clips load at the best quality available ────────────────────
+
+def test_the_showcase_asks_twitch_for_the_large_thumbnail():
+    """Twitch stores the showcase thumbnail at ~480x272, but these cards render
+    about 380x146 CSS px — 760x292 of real pixels on a 2x display. The stored
+    URL was being upscaled by the browser and looked soft on every modern
+    screen. Swapping the size segment asks the CDN for the 1280x720 master."""
+    html = api.LANDING_HTML
+    assert "-preview-1280x720." in html, "the showcase no longer requests the large variant"
+    # The RESULT has to be used, not merely computed. Asserting that
+    # hiResThumb(...) appears anywhere passes happily against `var hi = ...`
+    # followed by `img.src = c.thumbnail_url`, which is the bug.
+    assert "var hi=hiResThumb(c.thumbnail_url);" in html
+    assert "img.src=hi;" in html, "the upgraded URL is computed but not used"
+
+
+def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():
+    """The 1280 variant is NOT guaranteed: a freshly-created clip 404s until
+    Twitch finishes generating its previews, and some older clips never got the
+    size at all. The original handler removed the <img> outright, so one missing
+    upscale left a card with no picture — strictly worse than the soft one it
+    replaced."""
+    html = api.LANDING_HTML
+    i = html.index("img.onerror=function(){")
+    block = html[i:i + 400]
+    # The GUARD, not just the strings inside it — neutering the condition to
+    # if(false) leaves every one of these substrings in place while removing
+    # the behaviour entirely.
+    assert "if(hi!==c.thumbnail_url && img.getAttribute('data-tried')!=='1'){" in block, \
+        "the step-down guard is gone or neutered"
+    assert "img.src=c.thumbnail_url;" in block, "no step-down to the stored URL"
+    assert "data-tried','1'" in block, "nothing stops the fallback looping on itself"
+
+
+def test_the_regex_is_built_not_written_as_a_literal():
+    """This file is a Python triple-quoted string, so Python resolves escapes
+    before the browser sees them. A regex literal here would need a backslash,
+    which Python would eat — the same trap already documented for SLUG."""
+    html = api.LANDING_HTML
+    assert "RE_PREVIEW=new RegExp(" in html
+    assert "-preview-[0-9]+x[0-9]+[.]" in html, "character classes, not escapes"
+
+
+def test_the_clip_player_is_sized_from_the_viewport_not_a_fixed_920():
+    """Twitch's clip embed picks its rendition by adaptive bitrate, and player
+    size is the main input — there is no URL parameter that forces quality on a
+    clip embed. A fixed 920px player on a 1920 screen asks Twitch for a low
+    rendition and then shows it in a box with room to spare."""
+    html = api.LANDING_HTML
+    # The STANDALONE rule. ".exl-card{" also appears inside the dark-context
+    # selector list (.band-dark,.panel,.demo,.shot-frame,.exl-card{), which
+    # index() finds first and which carries no sizing at all.
+    i = html.index("\n  .exl-card{position:relative")
+    card = html[i:html.index("}", i)]
+    assert "min(1440px" in card, "the player is capped small again"
+    assert "100vh" in card, "the player is not bounded by height — it will overflow a short screen"
+    # aspect-ratio, because padding-bottom is a percentage of WIDTH and cannot
+    # honour the height cap the card now carries.
+    frame = html[html.index(".exl-frame{"):html.index("}", html.index(".exl-frame{"))]
+    assert "aspect-ratio:16/9" in frame
+    assert "padding-bottom:56.25%" not in frame, "the two sizing methods would fight"
