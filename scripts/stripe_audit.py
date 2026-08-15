@@ -145,6 +145,54 @@ for r in rows:
 if not orphans:
     print("  none — every live subscription is linked to an account")
 
+# ── the same person billed under SEPARATE customers ──────────────────────────
+# The duplicate check above keys on customer, which is the wrong axis when the
+# app never stores a customer id: every checkout then mints a NEW customer, so
+# one person ends up with several customers holding one subscription each. That
+# reads as "nobody billed twice" while they were charged two or three times.
+by_meta_user = defaultdict(list)
+for r in rows:
+    if r["user_id"]:
+        by_meta_user[r["user_id"]].append(r)
+
+print(f"\n{'=' * 72}\nONE PERSON SPREAD ACROSS SEVERAL STRIPE CUSTOMERS\n{'=' * 72}")
+spread = {u: rs for u, rs in by_meta_user.items()
+          if len({r['customer'] for r in rs}) > 1}
+if spread:
+    for uid, rs in spread.items():
+        who = by_id.get(uid)
+        live_n = sum(1 for r in rs if r["status"] in LIVE)
+        print(f"  {who['username'] if who else uid}: {len(rs)} subscriptions across "
+              f"{len({r['customer'] for r in rs})} customers ({live_n} live now)")
+        for r in sorted(rs, key=lambda r: r["status"] != "active"):
+            print(f"      {r['id']}  {r['status']:<10} {r['customer']}  {r['tier']}")
+    print("\n  Each extra customer is a separate checkout that charged them again.")
+    print("  Refunds for the cancelled ones are a manual Stripe job.")
+else:
+    print("  none")
+
+# ── is the webhook even configured? ──────────────────────────────────────────
+# Decisive for the root cause: a customer id is written by exactly one thing,
+# the webhook. Zero stored customers across every account points at the events
+# never arriving, and this says whether Stripe was ever told where to send them.
+print(f"\n{'=' * 72}\nWEBHOOK ENDPOINTS REGISTERED WITH STRIPE\n{'=' * 72}")
+try:
+    eps = as_list(client.webhook_endpoints.list(params={"limit": 20}))
+    if not eps:
+        print("  NONE. Stripe has nowhere to send subscription events, which is")
+        print("  why no account has a customer id and why checkout keeps minting")
+        print("  a new customer every time.")
+    for e in eps:
+        events = g(e, "enabled_events") or []
+        events = list(events) if not isinstance(events, list) else events
+        wanted = [x for x in events
+                  if x == "*" or str(x).startswith("customer.subscription")]
+        print(f"  {as_id(e)}  status={g(e, 'status', '?')}")
+        print(f"      url={g(e, 'url', '?')}")
+        print(f"      subscription events: {', '.join(map(str, wanted)) or '*** NONE ENABLED ***'}")
+except Exception as exc:
+    print(f"  (could not list endpoints: {exc})")
+
 print(f"\n{'=' * 72}")
 print(f"Stripe live subscriptions : {sum(1 for r in rows if r['status'] in LIVE)}")
 print(f"Accounts with a customer  : {len(linked)}")
