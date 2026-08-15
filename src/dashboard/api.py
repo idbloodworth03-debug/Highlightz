@@ -1790,6 +1790,32 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             _stripe_processed[event_id] = now
 
     cust_id, user_id, status = sync_subscription_event(event)
+
+    # A subscription ENDING is not the same as a customer leaving. Our own
+    # duplicate sweep cancels the extra subscription and Stripe then sends a
+    # deleted event for it; the customer's real subscription is still running
+    # and still being charged. Acting on that event locked them out — the fix
+    # for double billing was causing it. Same shape when somebody cancels one
+    # of two subscriptions in the portal.
+    #
+    # Only skip on a positive True. None means Stripe could not be reached, and
+    # treating "unknown" as "another one is live" would let real cancellations
+    # pile up unapplied during a Stripe outage.
+    from src.billing.plans import GRACE_STATUSES
+    if cust_id and status and status not in ("active", "trialing") \
+            and status not in GRACE_STATUSES:
+        from src.billing.stripe_billing import has_other_live_subscription
+        ended_sub_id = (event.get("data", {}).get("object", {}) or {}).get("id") or ""
+        others = await has_other_live_subscription(cust_id, ended_sub_id)
+        if others is True:
+            log.info("stripe_subscription_ended_but_customer_still_active",
+                     customer=cust_id, ended=ended_sub_id,
+                     event_type=event.get("type"))
+            return {"received": True}
+        if others is None:
+            log.warning("stripe_other_subscription_unknown_applying_lapse",
+                        customer=cust_id, ended=ended_sub_id)
+
     if cust_id and status:
         # Resolve the user this event ACTUALLY affects. On a customer mismatch
         # (metadata names user X but X's stored customer is different — e.g. a
@@ -1803,7 +1829,15 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
         # Kill active streams immediately when subscription lapses — don't wait
         # for idle reaper — and tell the open tab (realtime contract: the lapse
         # must reach the user live, mirroring admin revoke).
-        if status not in ("active", "trialing") and user_id:
+        if status in GRACE_STATUSES and user_id:
+            # Mid-collection, not gone: a card being retried, or a first payment
+            # that has not confirmed yet. Their status is recorded (so the admin
+            # panel and a later reconcile see the truth) but nothing is taken
+            # away — no streams stopped, and above all no "your subscription has
+            # ended" toast fired at somebody in the middle of buying it.
+            log.info("stripe_subscription_in_grace", user_id=user_id,
+                     customer=cust_id, status=status)
+        elif status not in ("active", "trialing") and user_id:
             # Down to free, not out. Only the streams beyond the free limit stop.
             asyncio.create_task(_enforce_stream_limit(user_id))
             await broadcast(

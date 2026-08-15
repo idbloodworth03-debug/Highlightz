@@ -92,6 +92,44 @@ async def cancel_duplicate_subscriptions(customer_id: str, keep_id: str) -> int:
         return 0
 
 
+async def has_other_live_subscription(customer_id: str, exclude_id: str) -> bool | None:
+    """Does this customer still have a LIVE subscription other than `exclude_id`?
+
+    Guards the lapse path. A `customer.subscription.deleted` event says one
+    subscription ended — NOT that the customer stopped paying. Our own duplicate
+    sweep cancels the extra subscription, and Stripe then sends a deleted event
+    for it; acting on that blindly locks out a customer whose real subscription
+    is still running and still being charged. Same shape when a customer cancels
+    one of two in the portal.
+
+    Tri-state on purpose: True (another one is live — do not touch their access),
+    False (that really was the last one), None (Stripe unreachable, we do not
+    know). The caller must not read None as False — that is the whole reason
+    this does not just return a bool.
+    """
+    if not (settings.stripe_secret_key and customer_id):
+        return None
+    try:
+        client = _client()
+        subs = client.subscriptions.list(
+            params={"customer": customer_id, "status": "all", "limit": 20})
+        items = subs.data if hasattr(subs, "data") else []
+        for s in items:
+            sid    = (s.get("id") if isinstance(s, dict) else getattr(s, "id", "")) or ""
+            status = (s.get("status") if isinstance(s, dict) else getattr(s, "status", "")) or ""
+            if sid and sid == exclude_id:
+                continue
+            # past_due counts as live: the card is being retried, the customer
+            # has not cancelled, and Stripe is still trying to collect.
+            if status in ("active", "trialing", "past_due"):
+                return True
+        return False
+    except Exception as exc:
+        log.warning("stripe_other_subscription_check_failed",
+                    customer=customer_id, error=str(exc))
+        return None
+
+
 async def change_subscription_price(customer_id: str, new_price_id: str) -> str | None:
     """Move a customer's EXISTING subscription onto a different price, in place.
 

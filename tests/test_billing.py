@@ -53,8 +53,11 @@ def test_unpaid_and_incomplete_expired_map_to_inactive():
 
 
 def test_past_due_passes_through_for_gating():
-    # past_due is not active → the middleware gate treats it as no-access, but we
-    # keep the raw status so the user can be recovered when payment succeeds.
+    # The raw status is preserved rather than collapsed to inactive, which is
+    # what lets the grace handling in plans.GRACE_STATUSES tell "the card is
+    # being retried" apart from "they cancelled". (It no longer means
+    # no-access, as the original version of this comment said — see
+    # test_billing_grace.py for what past_due now grants.)
     _, _, status = sb.sync_subscription_event(
         _sub_event("customer.subscription.updated", "past_due"))
     assert status == "past_due"
