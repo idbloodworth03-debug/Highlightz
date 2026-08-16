@@ -489,6 +489,12 @@ _JS = """
 
 # ── page ─────────────────────────────────────────────────────────────────────
 
+# The design system, exported so sibling pages (/compare) lay out in the same
+# building rather than inventing a second look. One definition, one place to
+# change a token.
+BASE_CSS = _CSS
+
+
 _TITLE = "How to use Highlightz — full walkthrough & setup guide"
 _DESC = ("Step-by-step guide to Highlightz: connect Twitch, monitor a live channel, "
          "review and approve automatic clips, scan past VODs, and manage your plan. "
@@ -538,6 +544,7 @@ def render() -> str:
   <div class="nav-links">
     <a href="/#how" class="nav-link">How it works</a>
     <a href="/tutorial" class="nav-link on">Tutorial</a>
+    <a href="/compare" class="nav-link">Compare</a>
     <a href="/#features" class="nav-link">Features</a>
     <a href="/#pricing" class="nav-link">Pricing</a>
     <a href="/#faq" class="nav-link">FAQ</a>
@@ -609,7 +616,7 @@ def render() -> str:
 
 <footer class="footer">
   <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
-  <a href="/tutorial">Tutorial</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
+  <a href="/tutorial">Tutorial</a> &middot; <a href="/compare">Compare</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 
 <script>""" + _JS + """</script>

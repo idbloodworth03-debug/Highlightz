@@ -68,7 +68,8 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
-                  "/landing/showcase", "/robots.txt", "/sitemap.xml", "/tutorial"}
+                  "/landing/showcase", "/robots.txt", "/sitemap.xml", "/tutorial",
+                  "/compare"}
 # Short referral links. Open, because the whole point is that a signed-out
 # stranger clicks them — if the auth middleware bounced them to /login first,
 # the ref would be gone before any handler saw it.
@@ -4187,6 +4188,19 @@ async def tutorial_page():
     return HTMLResponse(render())
 
 
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_page():
+    """Highlightz against Opus Clip and Eklipse. Public, so it can be linked
+    and indexed.
+
+    MUST STAY ABOVE `@app.get("/{slug}")` for the same reason /tutorial does —
+    the catch-all matches any single-segment path and FastAPI resolves in
+    declaration order.
+    """
+    from src.dashboard.compare_html import render
+    return HTMLResponse(render())
+
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception):
     if request.headers.get("accept", "").startswith("application/json"):
@@ -4428,7 +4442,7 @@ async def robots_txt():
 
 @app.get("/sitemap.xml")
 async def sitemap_xml():
-    pages = ["/", "/tutorial", "/tos", "/privacy", "/cookies", "/opt-out"]
+    pages = ["/", "/tutorial", "/compare", "/tos", "/privacy", "/cookies", "/opt-out"]
     urls = "".join(
         f"<url><loc>https://highlightz.app{p}</loc></url>" for p in pages)
     xml = ('<?xml version="1.0" encoding="UTF-8"?>'
@@ -5435,6 +5449,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#pricing" class="nav-link">Pricing</a>
     <a href="#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
+    <a href="/compare" class="nav-link">Compare</a>
   </div>
   <div class="nav-right">
     <!-- The signature, in its persistent form: the live trigger score never
@@ -5943,7 +5958,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <footer class="footer">
   <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
-  <a href="/tutorial">Tutorial</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
+  <a href="/tutorial">Tutorial</a> &middot; <a href="/compare">Compare</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
 /* ── Live clips counter ── */
