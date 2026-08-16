@@ -4550,8 +4550,15 @@ function RdApp() {
         // Forward team scoring ticks to the Training screen's live counter
         else if(msg.event==='miss_notice_dismissed'){ setLostClips(null); }
         else if(msg.event==='clip_missed'){
-          setLostClips(msg);
-          flash('Queue full — a highlight on ' + (msg.channel||'your stream') + ' was not clipped');
+          // Two different causes, two different messages. A backlog is not a
+          // full queue: the upgrade banner would be telling them to buy a
+          // bigger queue to fix something a bigger queue does not touch.
+          if(msg.reason==='backlog'){
+            flash('Too many moments at once — one on ' + (msg.channel||'your stream') + ' could not be captured in time');
+          } else {
+            setLostClips(msg);
+            flash('Queue full — a highlight on ' + (msg.channel||'your stream') + ' was not clipped');
+          }
         }
         else if(msg.event==='review_prompt'){ setReviewAsk({clips: msg.clips||0}); }
         else if(msg.event==='reviews_updated'){ /* landing page only; nothing to do here */ }

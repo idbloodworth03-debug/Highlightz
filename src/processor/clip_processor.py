@@ -16,6 +16,16 @@ from .metadata import ClipMetadata
 log = structlog.get_logger(__name__)
 
 
+class TwitchAuthExpiredError(RuntimeError):
+    """The user's Twitch authorisation is gone and cannot be refreshed.
+
+    Distinct from a generic failure because the CALLER has to behave
+    differently: this never succeeds until the user signs in again, so retrying
+    burns the moment and the "it will try again" message is untrue. Mirrors
+    ClipNotAuthorizedError, which exists for the same reason.
+    """
+
+
 class ClipProcessor:
     def __init__(self, storage=None, buffers=None) -> None:
         # storage/buffers kept for call-site compatibility; no longer used.
@@ -49,7 +59,8 @@ class ClipProcessor:
     async def _process_twitch(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
         token = await user_store.get_valid_twitch_token(job.user_id)
         if not token:
-            raise RuntimeError(f"No valid Twitch token for user '{job.user_id}' — re-login required")
+            raise TwitchAuthExpiredError(
+                f"No valid Twitch token for user '{job.user_id}' — re-login required")
 
         broadcaster_id = self._broadcaster_cache.get(channel)
         if not broadcaster_id:

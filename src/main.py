@@ -22,7 +22,7 @@ from src.ingestion.platform.twitch import TwitchPlatform
 from src.ingestion.platform.youtube import YouTubePlatform
 from src.ingestion.platform.kick import KickPlatform
 from src.queue.job_queue import JobQueue
-from src.processor.clip_processor import ClipProcessor
+from src.processor.clip_processor import ClipProcessor, TwitchAuthExpiredError
 from src.output import twitch_clips
 
 log = structlog.get_logger(__name__)
@@ -148,13 +148,24 @@ async def listen_for_new_streams(redis) -> None:
 MAX_CLIP_JOB_AGE_SECS = 90.0
 
 
+# Backoff for when REDIS is unreachable. blpop normally blocks for its timeout,
+# so a healthy idle loop spins about five times a minute. When Redis is down it
+# raises immediately instead, and without a pause the loop retried 6,500 times a
+# second in testing, writing a full traceback each time — on a 1vCPU box that is
+# CPU starvation and a disk-filling log, from a Redis blip.
+_QUEUE_RETRY_START = 1.0
+_QUEUE_RETRY_MAX   = 30.0
+
+
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
     log.info("clip_processor_started")
+    queue_backoff = _QUEUE_RETRY_START
     while True:
         job = None
         try:
             job = await _queue.pop(timeout=5)
+            queue_backoff = _QUEUE_RETRY_START   # the queue answered; reset
             if job is None:
                 continue
             age = time.time() - job.created_at
@@ -164,6 +175,14 @@ async def run_clip_processor() -> None:
                 # instead of grinding through a stale backlog.
                 log.warning("clip_job_stale_dropped", clip_id=job.clip_id,
                             channel=job.channel, age_s=round(age, 1))
+                # Tell them. This is a moment we did not clip, exactly like a
+                # full queue, and it was invisible: the only trace was this log
+                # line, so the user saw a highlight go by with no clip and no
+                # explanation. The reason differs from queue_full — upgrading
+                # does not fix a backlog — so it is passed through and the
+                # frontend says something different.
+                await dashboard_api.notify_clip_missed(job.user_id, job.channel,
+                                                       reason="backlog")
                 continue
             # Queue full? Do not clip at all. Checked HERE, before the Helix
             # call, for two reasons: creating the clip and then discarding our
@@ -186,6 +205,31 @@ async def run_clip_processor() -> None:
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
+        except TwitchAuthExpiredError:
+            # Same shape as ClipNotAuthorizedError and for the same reason: this
+            # NEVER succeeds until the user re-authorises, so retrying is waste
+            # and the generic "it'll try again on the next moment" message is a
+            # lie that leaves them waiting for clips that cannot come.
+            _uid = getattr(job, "user_id", "") if job else ""
+            _ch  = getattr(job, "channel", "") if job else ""
+            log.warning("clip_token_expired", channel=_ch, user_id=_uid)
+            if _ch:
+                try:
+                    await dashboard_api.stop_stream_internal(_ch, _uid)
+                except Exception:
+                    log.warning("token_expired_stop_failed", channel=_ch)
+            if _uid:
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": _ch or "that channel",
+                         "message": ("Your Twitch connection has expired, so we "
+                                     "cannot create clips. Sign out and back in "
+                                     "to reconnect. Monitoring stopped.")},
+                        user_id=_uid,
+                    )
+                except Exception:
+                    pass
+            continue
         except twitch_clips.ClipNotAuthorizedError:
             # The broadcaster has clipping restricted. This will NEVER succeed,
             # so retrying is pure waste: before this branch existed the bot
@@ -224,6 +268,12 @@ async def run_clip_processor() -> None:
             # clip that fails to capture (ghost clip, rate-limit, token expiry)
             # silently never appears, with no explanation — the realtime contract
             # requires the user to learn about it live.
+            if job is None:
+                # The failure was in pop(), not in processing a job — Redis is
+                # unreachable. Pause before retrying, escalating to a cap.
+                await asyncio.sleep(queue_backoff)
+                queue_backoff = min(queue_backoff * 2, _QUEUE_RETRY_MAX)
+                continue
             _uid = getattr(job, "user_id", "") if job else ""
             if _uid:
                 _ch = getattr(job, "channel", "") or "your stream"
