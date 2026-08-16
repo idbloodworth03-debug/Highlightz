@@ -182,6 +182,62 @@ async def change_subscription_price(customer_id: str, new_price_id: str) -> str 
         return None
 
 
+async def live_subscriptions_by_user() -> list[dict] | None:
+    """Every LIVE subscription Stripe holds, keyed by the account that bought it.
+
+    The subscription's own metadata carries user_id — set by create_checkout_url
+    — so Stripe can tell us who a subscription belongs to even when we have no
+    customer id stored for them. That is the whole point: the customer id is
+    written by the webhook, so if the webhook never fires we never learn it, and
+    the next checkout mints ANOTHER customer. Reading the link back off Stripe
+    breaks that loop without needing the webhook to work at all.
+
+    Returns None if Stripe could not be reached and [] if it was asked and holds
+    nothing live. Today's caller treats both the same — adopt nobody — so the
+    distinction is not load-bearing here; it is kept because the two facts are
+    genuinely different and the next caller may well need to tell them apart,
+    the way authoritative_subscription() already does.
+    """
+    if not settings.stripe_secret_key:
+        return None
+    try:
+        client = _client()
+        subs = client.subscriptions.list(params={"status": "all", "limit": 100})
+        items = subs.data if hasattr(subs, "data") else []
+    except Exception as exc:
+        log.warning("stripe_live_subscription_scan_failed", error=str(exc))
+        return None
+
+    def _g(obj, key, default=None):
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _id(x) -> str:
+        if not x:
+            return ""
+        return x if isinstance(x, str) else str(_g(x, "id", "") or "")
+
+    out = []
+    for s in items:
+        status = str(_g(s, "status", "") or "")
+        if status not in ("active", "trialing", "past_due"):
+            continue
+        uid = str(_g(_g(s, "metadata"), "user_id", "") or "")
+        if not uid:
+            continue
+        raw_items = _g(s, "items") or {}
+        data = (raw_items.get("data") if isinstance(raw_items, dict)
+                else _g(raw_items, "data")) or []
+        price = _id(_g(data[0], "price")) if data else ""
+        out.append({"subscription": _id(s), "customer": _id(_g(s, "customer")),
+                    "user_id": uid, "status": status,
+                    "plan": plan_for_price(price)})
+    return out
+
+
 async def authoritative_subscription(customer_id: str) -> dict | None:
     """What Stripe currently believes about this customer, for reconciliation.
 

@@ -2718,10 +2718,68 @@ async def subscription_reconcile_task() -> None:
                 result = await reconcile_one_user(user)
                 if result["ok"] and result["drift"]:
                     fixed += 1
+            adopted = await _adopt_orphaned_subscriptions()
+            if adopted:
+                fixed += adopted
         except Exception as exc:
             log.error("subscription_reconcile_failed", error=str(exc))
         if checked:
             log.info("subscription_reconcile_done", checked=checked, corrected=fixed)
+
+
+async def _adopt_orphaned_subscriptions() -> int:
+    """Link live subscriptions to accounts that have no Stripe customer stored.
+
+    THE LOOP THIS BREAKS. A customer id is written by the webhook and nothing
+    else. When the webhook does not fire — and on this account it never did,
+    because the Stripe endpoint had no customer.subscription.* events enabled
+    while still returning 200 to everything it was sent — the account keeps no
+    customer id. /billing/checkout then sees no customer, passes customer_id
+    None, and Stripe mints a BRAND NEW customer for the next purchase. The same
+    person ends up billed two or three times across separate customer records,
+    and the duplicate guard never fires because it searches within one customer.
+
+    Stripe already knows the answer: create_checkout_url stamps user_id into the
+    subscription's metadata, so the link can be read back without the webhook
+    ever working. Reconciling from that makes the whole billing path survive a
+    misconfigured (or deleted, or silently 200-ing) webhook endpoint.
+    """
+    from src.auth import users as _rc_store
+    from src.billing.plans import get_plan
+    from src.billing.stripe_billing import live_subscriptions_by_user
+
+    subs = await live_subscriptions_by_user()
+    if not subs:
+        return 0                    # None = unreachable, [] = nothing live
+    by_id = {u["id"]: u for u in _rc_store.get_all()}
+    adopted = 0
+    for s in subs:
+        user = by_id.get(s["user_id"])
+        if user is None:
+            continue                # a deleted account; not ours to fix
+        existing = user.get("stripe_customer_id")
+        if existing and existing != s["customer"]:
+            # Already pointing somewhere else. Overwriting would silently move
+            # this person's billing to a different customer record.
+            log.warning("orphan_subscription_customer_conflict",
+                        user_id=user["id"], stored=existing, found=s["customer"])
+            continue
+        if existing and user.get("subscription_status") == "active":
+            continue                # already known and correct
+        was = get_plan(user)
+        _rc_store.update_subscription(user["id"], s["customer"], "active")
+        if s["plan"]:
+            _rc_store.set_plan(user["id"], s["plan"])
+        adopted += 1
+        log.warning("orphan_subscription_adopted", user_id=user["id"],
+                    customer=s["customer"], subscription=s["subscription"],
+                    plan=s["plan"] or "legacy")
+        now = get_plan(_rc_store.get_by_id(user["id"]))
+        if now != was:
+            await broadcast({"event": "subscription_active",
+                             "message": f"Your {now.title()} plan is active."},
+                            user_id=user["id"])
+    return adopted
 
 
 async def idle_stream_reaper() -> None:
