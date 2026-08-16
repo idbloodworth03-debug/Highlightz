@@ -87,19 +87,20 @@ def test_outbound_competitor_links_do_not_pass_ranking(page):
         assert 'target="_blank"' in tag
 
 
-def test_unconfirmed_prices_say_so_on_the_page(page):
-    """While PRICES_CONFIRMED is False the page quotes figures nobody has
-    checked against the source. The reader is entitled to know that."""
-    if not C.PRICES_CONFIRMED:
-        assert "not yet re-verified" in page.lower() or "not been confirmed" in page.lower(), \
-            "unverified prices are presented as fact"
-
-
-def test_confirming_prices_removes_the_caveat(monkeypatch):
-    """The flag has to actually do something, or it is decoration."""
-    monkeypatch.setattr(C, "PRICES_CONFIRMED", True)
+def test_unconfirmed_prices_say_so_on_the_page(monkeypatch):
+    """The flag has to work in the direction that matters. Prices are confirmed
+    today, so the live page carries no caveat — but the moment somebody edits a
+    figure they have not checked and drops the flag, the page must say so
+    rather than presenting it as fact."""
+    monkeypatch.setattr(C, "PRICES_CONFIRMED", False)
     from src.dashboard.compare_html import render
-    assert "not yet re-verified" not in render().lower()
+    assert "not yet re-verified" in render().lower(), \
+        "unverified prices would be presented as fact"
+
+
+def test_the_confirmed_page_carries_no_caveat(page):
+    assert "not yet re-verified" not in page.lower()
+    assert C.PRICES_CONFIRMED, "prices are marked unconfirmed"
 
 
 # ── our own numbers, pinned to the source of truth ───────────────────────────
