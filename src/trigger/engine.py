@@ -39,7 +39,13 @@ class TriggerEngine:
         on_trigger: OnTrigger,
         on_score: OnScore | None = None,
         profile=None,
-        buffer=None,    # VideoBuffer | None
+        # AudioMeter | None — a transient loudness probe, NOT a video buffer.
+        # This said "VideoBuffer | None" and was the only thing in the codebase
+        # still pointing at src/ingestion/video_buffer.py, which nothing ever
+        # constructed. A stale annotation naming a module that appears to buffer
+        # stream video is the first thing anyone auditing the no-re-hosting
+        # claim would find, so the module is gone and this says what is passed.
+        buffer=None,
         preset: str = "default",
     ) -> None:
         self.channel = channel
