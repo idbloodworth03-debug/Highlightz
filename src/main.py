@@ -388,6 +388,10 @@ async def main() -> None:
     # replaced the free tier keeps free access permanently. Must run BEFORE any
     # request is served, or a legacy user could be told their trial ended.
     user_store.grandfather_existing_accounts()
+    # Seed the trial ledger from accounts that predate it, or every existing
+    # user could still delete-and-return for another free week.
+    from src.auth import trial_ledger as _trial_ledger
+    _trial_ledger.backfill_from_existing_accounts()
 
     tasks = [
         asyncio.create_task(run_dashboard(), name="dashboard"),

@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from config.settings import settings
+from src.auth._jsonstore import atomic_write_json
 
 _USERS_FILE = Path(settings.local_storage_path) / "users.json"
 
@@ -95,61 +96,11 @@ def _load() -> list[dict]:
 
 
 def _save(users: list[dict]) -> None:
-    _USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Write to temp file first, then atomically replace
-    fd, tmp = tempfile.mkstemp(dir=_USERS_FILE.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(users, f, indent=2)
-        # Keep a one-step-behind backup before overwriting
-        if _USERS_FILE.exists():
-            try:
-                # Write to a temp file first so the backup is never world-readable
-                fd2, tmp_bak = tempfile.mkstemp(dir=_USERS_FILE.parent, suffix=".bak.tmp")
-                os.close(fd2)
-                shutil.copyfile(_USERS_FILE, tmp_bak)
-                os.chmod(tmp_bak, 0o600)
-                os.replace(tmp_bak, _BACKUP_FILE)
-            except OSError:
-                pass
-        # Whose file is it? Captured BEFORE the replace, because the temp file
-        # is owned by whoever is running us — and that is not always the
-        # service. An admin script run from a root shell would otherwise leave
-        # users.json as 600 root:root, and the service (which does not run as
-        # root) then cannot read its own user database. That is not theoretical:
-        # it took the site down, because ensure_admin_exists() reads this file
-        # at startup and a PermissionError there kills the process.
-        prev_owner = None
-        try:
-            if _USERS_FILE.exists():
-                st = os.stat(_USERS_FILE)
-                prev_owner = (st.st_uid, st.st_gid)
-        except OSError:
-            pass
-
-        os.replace(tmp, _USERS_FILE)
-        try:
-            os.chmod(_USERS_FILE, 0o600)
-        except OSError:
-            pass
-        # Hand it back to the original owner. Only root can do this, which is
-        # exactly the case that needs it — a non-root writer already owns the
-        # file and the chown would be a no-op anyway.
-        if prev_owner and os.geteuid() == 0:
-            for target in (_USERS_FILE, _BACKUP_FILE):
-                try:
-                    if target.exists() and (os.stat(target).st_uid,
-                                            os.stat(target).st_gid) != prev_owner:
-                        os.chown(target, *prev_owner)
-                except OSError as exc:
-                    _ulog.warning("users_chown_failed", path=str(target), error=str(exc))
-        _ulog.debug("users_saved", count=len(users))
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    """Atomic, 0600, previous owner preserved — see src/auth/_jsonstore.py for
+    why that last part matters (a root-run admin script once made this file
+    unreadable to the service and took the whole site down)."""
+    atomic_write_json(_USERS_FILE, users, backup_path=_BACKUP_FILE)
+    _ulog.debug("users_saved", count=len(users))
 
 
 _SECRET_FIELDS = ("password_hash", "salt", "tw_access", "tw_refresh", "kick_access", "kick_refresh")
@@ -244,9 +195,19 @@ def upsert_twitch_user(
 
     # Brand-new account: starts a 7-day self-serve trial, no card. This is the
     # only place a trial is granted automatically; grant_trial stays for admin
-    # comps. It is tied to the Twitch id and this branch only runs when no
-    # account exists for that id, so signing in again does not restart the
-    # clock — re-trialling would need a whole new Twitch account.
+    # comps.
+    #
+    # ONE TRIAL PER TWITCH ACCOUNT, ENFORCED OUTSIDE users.json. This branch only
+    # runs when no account exists for the id, so signing in again never restarts
+    # the clock — but DELETE /account is user-facing, and deleting the row makes
+    # this branch reachable again. The ledger is the record that deletion cannot
+    # reach; without it the 7-day trial is renewable forever by anyone who
+    # notices. A returning burner lands on `expired`, which get_plan resolves to
+    # `locked`, so they see the paywall rather than another free week.
+    from src.auth import trial_ledger
+    trial_used = (not is_admin) and trial_ledger.has_used_trial("twitch", twitch_id)
+    grant_trial_now = (not is_admin) and not trial_used
+
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -260,8 +221,9 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        "subscription_status":  "active" if is_admin else "trialing",
-        "trial_ends_at":        0 if is_admin else now + TRIAL_DAYS * 86400,
+        "subscription_status":  ("active" if is_admin
+                                 else ("trialing" if grant_trial_now else "expired")),
+        "trial_ends_at":        (now + TRIAL_DAYS * 86400) if grant_trial_now else 0,
         # Explicitly NOT grandfathered: this account never had the free tier, so
         # when its trial runs out it locks rather than falling back to free.
         "grandfathered":        False,
@@ -269,6 +231,12 @@ def upsert_twitch_user(
     }
     users.append(user)
     _save(users)
+    # Recorded AFTER the account is safely written: a ledger entry with no
+    # account behind it would burn somebody's trial on a failed signup.
+    if grant_trial_now:
+        trial_ledger.record_trial("twitch", twitch_id)
+    elif trial_used:
+        _ulog.info("trial_reuse_blocked twitch_login=%s", login)
     return _public(user)
 
 
