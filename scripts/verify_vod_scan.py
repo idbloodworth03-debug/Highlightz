@@ -10,9 +10,12 @@ checked here.
     venv/bin/python scripts/verify_vod_scan.py https://www.twitch.tv/videos/123456789
     venv/bin/python scripts/verify_vod_scan.py lacy            # latest VOD for a channel
     venv/bin/python scripts/verify_vod_scan.py lacy --no-audio
+    venv/bin/python scripts/verify_vod_scan.py lacy --minutes=20
+    venv/bin/python scripts/verify_vod_scan.py lacy --full        # the whole VOD
 
-Pick a SHORT vod for the first run. The audio pass decodes the whole thing, so
-a six-hour stream takes many minutes; --no-audio skips it and checks the rest.
+Only the first 10 minutes of the VOD are scanned unless --full is given: a
+six-hour VOD is ~11 minutes of chat paging before the audio pass even begins,
+and the question here is "does this work", not "how many moments are in it".
 Read-only: it creates no clips and writes nothing to the database.
 """
 import asyncio
@@ -29,6 +32,16 @@ from src.vod import analyzer                  # noqa: E402
 
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 NO_AUDIO = "--no-audio" in sys.argv
+
+# Scan only the first N minutes. A full six-hour VOD is ~11 minutes of chat
+# paging before the audio pass even starts, which is a fine thing for the
+# product to do and a terrible thing to sit and watch when the question is
+# merely "does this work at all". Ten minutes of a real VOD answers that.
+MINUTES = 10.0
+for a in sys.argv[1:]:
+    if a.startswith("--minutes="):
+        MINUTES = float(a.split("=", 1)[1])
+FULL = "--full" in sys.argv
 if not args:
     sys.exit("usage: verify_vod_scan.py VOD_ID_OR_URL_OR_CHANNEL [--no-audio]")
 
@@ -133,9 +146,24 @@ if not ok:
 if NO_AUDIO:
     settings.vod_audio_enabled = False
 
+# Clamp the duration the analyzer is told about. fetch_vod_chat pages until it
+# reaches `duration`, so a smaller number simply stops it early — the same real
+# code path on the same real VOD, just less of it.
+if not FULL:
+    _real_info = analyzer.fetch_vod_info
+    async def _clamped_info(vid, token):
+        info = await _real_info(vid, token)
+        if info and info.get("duration", 0) > MINUTES * 60:
+            print(f"  (VOD is {info['duration'] / 3600:.1f}h — scanning the first "
+                  f"{MINUTES:.0f} min; pass --full for all of it)")
+            info = dict(info, duration=MINUTES * 60)
+        return info
+    analyzer.fetch_vod_info = _clamped_info
+
 print()
 print("=" * 70)
-print(f"LIVE SCAN  vod {vod_id}   audio={'on' if audio_on else 'off'}")
+print(f"LIVE SCAN  vod {vod_id}   audio={'on' if audio_on else 'off'}"
+      + ("   FULL" if FULL else f"   first {MINUTES:.0f} min"))
 print("=" * 70)
 
 state = {"moments": [], "errors": [], "done": False, "audio_secs": 0,
