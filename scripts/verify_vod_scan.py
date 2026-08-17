@@ -98,13 +98,25 @@ ff = shutil.which(settings.ffmpeg_path)
 check("streamlink is installed", bool(sl), sl or f"'{settings.streamlink_path}' not on PATH")
 check("ffmpeg is installed", bool(ff), ff or f"'{settings.ffmpeg_path}' not on PATH")
 
-for name, path in (("streamlink", sl), ("ffmpeg", ff)):
+# ffmpeg wants -version (single dash) and EXITS NON-ZERO on --version after
+# printing its banner, so keying off the exit code alone reported a perfectly
+# working ffmpeg as broken. What actually proves the binary runs is that it
+# printed its own version string.
+for name, path, flag in (("streamlink", sl, "--version"),
+                         ("ffmpeg", ff, "-version")):
     if not path:
         continue
     try:
-        out = subprocess.run([path, "--version"], capture_output=True, timeout=20)
-        check(f"{name} runs", out.returncode == 0,
-              (out.stdout or out.stderr).decode(errors="replace").splitlines()[0][:60])
+        out = subprocess.run([path, flag], capture_output=True, timeout=20)
+        text = (out.stdout or b"").decode(errors="replace") \
+             + (out.stderr or b"").decode(errors="replace")
+        first = next((l for l in text.splitlines() if l.strip()), "")
+        # Either signal is enough, and neither alone is: streamlink exits 0 but
+        # prints "streamlink 8.4.0" with no the word "version" in it, while
+        # ffmpeg given a flag it dislikes exits NON-zero after printing its
+        # version banner. Requiring both is what produced the false FAIL.
+        check(f"{name} runs",
+              out.returncode == 0 or "version" in text.lower(), first[:60])
     except Exception as exc:
         check(f"{name} runs", False, str(exc))
 
