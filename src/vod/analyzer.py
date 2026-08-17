@@ -535,8 +535,14 @@ async def run_vod_analysis(
                 asyncio.create_task(
                     on_progress(pct, {"phase": "audio", "audio_seconds": secs}))
 
+            # Rebuilt from vod_id, which is the only identifier this function
+            # receives — the caller parses the user's input down to the numeric
+            # id before dispatching, so the original URL never arrives here.
+            # This line referenced a bare `vod_url` that was never a parameter
+            # and never assigned, so every scan raised NameError the moment the
+            # audio pass was switched on.
             db_timeline = await vod_audio.extract_db_timeline(
-                vod_url, on_progress=_audio_tick)
+                f"https://www.twitch.tv/videos/{vod_id}", on_progress=_audio_tick)
             audio_scores = vod_audio.score_timeline(db_timeline)
             log.info("vod_audio_ready", vod_id=vod_id,
                      seconds=len(audio_scores),
