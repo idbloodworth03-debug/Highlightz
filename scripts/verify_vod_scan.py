@@ -6,8 +6,10 @@ the external binaries exist, and whether the live Twitch responses match what
 the analyzer expects. Both are facts about this machine, so they can only be
 checked here.
 
-    /opt/highlightz/venv/bin/python scripts/verify_vod_scan.py <vod_id_or_url>
-    /opt/highlightz/venv/bin/python scripts/verify_vod_scan.py <vod> --no-audio
+    venv/bin/python scripts/verify_vod_scan.py 123456789
+    venv/bin/python scripts/verify_vod_scan.py https://www.twitch.tv/videos/123456789
+    venv/bin/python scripts/verify_vod_scan.py lacy            # latest VOD for a channel
+    venv/bin/python scripts/verify_vod_scan.py lacy --no-audio
 
 Pick a SHORT vod for the first run. The audio pass decodes the whole thing, so
 a six-hour stream takes many minutes; --no-audio skips it and checks the rest.
@@ -28,11 +30,57 @@ from src.vod import analyzer                  # noqa: E402
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 NO_AUDIO = "--no-audio" in sys.argv
 if not args:
-    sys.exit("usage: verify_vod_scan.py <vod_id_or_url> [--no-audio]")
+    sys.exit("usage: verify_vod_scan.py VOD_ID_OR_URL_OR_CHANNEL [--no-audio]")
 
-vod_id = analyzer.parse_vod_id(args[0]) or args[0].strip()
+async def _latest_vod_for_channel(login: str) -> str | None:
+    """Most recent archived VOD for a channel, so the caller can pass a channel
+    name instead of hunting for a VOD id on twitch.tv."""
+    import aiohttp
+    from src.output import twitch_clips
+    # Any failure here is a diagnosis, not a crash: an app-token 403 means the
+    # Twitch credentials are wrong, which is exactly the kind of thing this
+    # script exists to report clearly rather than as a traceback.
+    try:
+        token = await analyzer._get_app_token()
+        bid = await twitch_clips.resolve_broadcaster_id(login)
+    except Exception as exc:
+        print(f"  could not reach Twitch: {exc}")
+        return None
+    if not token:
+        print("  could not get a Twitch app token — check TWITCH_CLIENT_ID "
+              "and TWITCH_CLIENT_SECRET in .env")
+        return None
+    if not bid:
+        print(f"  Twitch has no channel called {login!r}")
+        return None
+    hdrs = {"Client-ID": settings.twitch_client_id,
+            "Authorization": f"Bearer {token}"}
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(f"{twitch_clips.HELIX_BASE}/videos", headers=hdrs,
+                                params={"user_id": bid, "type": "archive",
+                                        "first": "1"}) as resp:
+                if resp.status != 200:
+                    print(f"  Twitch returned {resp.status} listing that channel's VODs")
+                    return None
+                data = (await resp.json()).get("data") or []
+    except Exception as exc:
+        print(f"  could not list VODs: {exc}")
+        return None
+    return data[0]["id"] if data else None
+
+
+target = args[0].strip()
+vod_id = analyzer.parse_vod_id(target) or target
 if not vod_id.isdigit():
-    sys.exit(f"could not read a VOD id out of {args[0]!r}")
+    # Not a VOD id or URL — treat it as a channel name and find their latest.
+    print(f"looking up the most recent VOD for channel {vod_id!r} ...")
+    found = asyncio.run(_latest_vod_for_channel(vod_id.lstrip("@")))
+    if not found:
+        sys.exit(f"no archived VOD found for {vod_id!r} — pass a VOD url or id "
+                 f"instead, e.g. https://www.twitch.tv/videos/123456789")
+    print(f"  using VOD {found}")
+    vod_id = found
 
 ok = True
 def check(label, passed, detail=""):
