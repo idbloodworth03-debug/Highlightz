@@ -541,8 +541,13 @@ async def run_vod_analysis(
             # This line referenced a bare `vod_url` that was never a parameter
             # and never assigned, so every scan raised NameError the moment the
             # audio pass was switched on.
+            # info["url"] rather than a second f-string: fetch_vod_info already
+            # builds the canonical VOD URL, and duplicating that construction
+            # here is how the two drift apart. The original line referenced a
+            # bare `vod_url` that was never a parameter and never assigned, so
+            # every scan raised NameError once the audio pass was switched on.
             db_timeline = await vod_audio.extract_db_timeline(
-                f"https://www.twitch.tv/videos/{vod_id}", on_progress=_audio_tick)
+                info["url"], on_progress=_audio_tick)
             audio_scores = vod_audio.score_timeline(db_timeline)
             log.info("vod_audio_ready", vod_id=vod_id,
                      seconds=len(audio_scores),

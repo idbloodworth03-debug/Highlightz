@@ -38,8 +38,12 @@ def scan(monkeypatch, tmp_path):
 
     async def _token(): return "apptoken"
     async def _info(vod_id, token):
-        return {"channel": "lacy", "duration": 3600.0, "title": "big stream",
-                "thumbnail_url": "", "game": "VALORANT", "id": vod_id}
+        # Mirrors the real fetch_vod_info return shape exactly — see
+        # test_the_stub_matches_the_real_fetch_vod_info_contract below, which
+        # fails if this drifts from the function it stands in for.
+        return {"id": vod_id, "title": "big stream", "channel": "lacy",
+                "game": "VALORANT", "duration": 3600.0, "thumbnail_url": "",
+                "url": f"https://www.twitch.tv/videos/{vod_id}"}
     async def _chat(vod_id, duration=0, on_progress=None):
         # The real shape fetch_vod_chat returns: offset / text / author.
         return [{"offset": 100 + (i % 20), "text": "POGGERS INSANE CLIP IT",
@@ -63,6 +67,22 @@ def scan(monkeypatch, tmp_path):
         return out
 
     return run
+
+
+def _returned_keys(fn) -> set:
+    """String keys of the dict a function RETURNS.
+
+    Scoped to `return` statements on purpose: walking every dict literal in the
+    body also picks up the request headers, which are not part of the contract
+    and made this compare Authorization and Client-ID against the payload.
+    """
+    import ast
+    keys = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            keys |= {k.value for k in node.value.keys
+                     if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    return keys
 
 
 def test_a_scan_with_audio_enabled_does_not_crash(scan):
@@ -149,3 +169,69 @@ def test_the_analyzer_defines_every_name_it_uses():
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
     undefined = sorted(used - defined)
     assert undefined == [], f"run_vod_analysis uses undefined names: {undefined}"
+
+
+def test_the_analyzer_only_reads_keys_fetch_vod_info_actually_returns():
+    """The gap a stubbed test cannot see by itself.
+
+    Every test in this file feeds the analyzer a FAKE info dict. If that dict
+    and the real fetch_vod_info disagree, the tests pass and production raises
+    KeyError — which is the same failure mode as the vod_url bug, one layer
+    out. So the two are compared directly: every key the analyzer reads off
+    `info` must be a key fetch_vod_info puts in it.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("src/vod/analyzer.py").read_text())
+
+    fetch = next(n for n in ast.walk(tree)
+                 if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                 and n.name == "fetch_vod_info")
+    returned = _returned_keys(fetch)
+    assert returned, "could not read fetch_vod_info's return shape"
+
+    analysis = next(n for n in ast.walk(tree)
+                    if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                    and n.name == "run_vod_analysis")
+    read = set()
+    for node in ast.walk(analysis):
+        # info["x"] and info.get("x")
+        if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                and node.value.id == "info"
+                and isinstance(node.slice, ast.Constant)):
+            read.add(node.slice.value)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "info" and node.args
+                and isinstance(node.args[0], ast.Constant)):
+            read.add(node.args[0].value)
+
+    assert read, "the analyzer stopped reading info at all — has it been renamed?"
+    missing = sorted(read - returned)
+    assert missing == [], \
+        f"run_vod_analysis reads {missing} off info, which fetch_vod_info never returns"
+
+
+def test_the_stub_in_this_file_matches_that_contract():
+    """And the stub must match too, or these tests are exercising a shape
+    production never produces."""
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("src/vod/analyzer.py").read_text())
+    fetch = next(n for n in ast.walk(tree)
+                 if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                 and n.name == "fetch_vod_info")
+    real = _returned_keys(fetch)
+
+    stub = ast.parse(pathlib.Path(__file__).read_text())
+    fn = next(n for n in ast.walk(stub)
+              if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+              and n.name == "_info")
+    stub_keys = _returned_keys(fn)
+
+    assert stub_keys == real, (
+        f"the stub has drifted from fetch_vod_info — "
+        f"missing {sorted(real - stub_keys)}, extra {sorted(stub_keys - real)}")
