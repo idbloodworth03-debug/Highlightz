@@ -5055,6 +5055,29 @@ LANDING_HTML = """<!DOCTYPE html>
   .hero-note b{color:var(--ink-2);font-weight:600}
   /* Tags on a rule, not pills with dots. */
   .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:34px;border-top:1px solid var(--hair);padding-top:16px}
+  /* ── NO AI badge — the hero's first claim ──────────────────────────────
+     Sits ABOVE the slogan because it is the one thing that separates this
+     from every other clipping tool, and burying it in the tag row (where it
+     lived) meant nobody read it. Links to #formula: the claim is only worth
+     making if the reader can immediately go and check it. */
+  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:20px;
+    padding:9px 16px 9px 12px;border-radius:99px;text-decoration:none;
+    border:1px solid rgba(247,167,69,.38);
+    background:linear-gradient(90deg,rgba(247,167,69,.12),rgba(247,167,69,.03));
+    transition:border-color .2s var(--ease),background .2s var(--ease)}
+  .no-ai:hover{border-color:rgba(247,167,69,.62);
+    background:linear-gradient(90deg,rgba(247,167,69,.18),rgba(247,167,69,.05))}
+  .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.14em;
+    color:var(--ember);white-space:nowrap}
+  .no-ai-t{font-size:13.5px;line-height:1.35;color:var(--ink-2)}
+  .no-ai-t b{color:var(--ink)}
+  @media (max-width:560px){
+    .no-ai{gap:9px;padding:8px 13px 8px 10px}
+    .no-ai-x{font-size:11.5px}
+    .no-ai-t{font-size:12.5px}
+  }
+  .tag.tag-key{color:var(--ember);border-right-color:rgba(247,167,69,.3)}
+
   .tag{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
     color:var(--ink-3);padding-right:16px;margin-right:16px;border-right:1px solid var(--hair);line-height:1.4}
   .tag:last-child{border-right:none;margin-right:0;padding-right:0}
@@ -5538,16 +5561,20 @@ LANDING_HTML = """<!DOCTYPE html>
 <header class="wrap hero hero-band">
   <div class="hero-copy">
     <div class="kicker">Automatic Twitch clipping — for clippers and streamers</div>
+    <a href="#formula" class="no-ai">
+      <span class="no-ai-x">NO AI</span>
+      <span class="no-ai-t"><b>A formula you can read</b> — not a guess you have to trust</span>
+    </a>
     <h1>Never miss a <span class="accent">highlight</span> again.</h1>
-    <p class="lead">On every channel at once. You can only watch one stream at a time — Highlightz watches all of them, every streamer you clip for plus your own, scoring each one second by second and creating the Twitch clip the moment something pops. <b>Up to 10 channels at the same time on Pro.</b></p>
+    <p class="lead">No AI deciding for you. Chat speed, audio spikes, keywords and hype are measured every second and added into one score you can watch move — and when it crosses the line, the Twitch clip is made. Highlightz does that on every channel you clip for plus your own, all at once. <b>Up to 10 channels at the same time on Pro.</b></p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
       <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
     </div>
     <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
     <div class="tags">
+      <span class="tag tag-key">Zero AI — pure math</span>
       <span class="tag">Up to 10 channels at once</span>
-      <span class="tag">Formula-based — not AI</span>
       <span class="tag">Works at any channel size</span>
     </div>
   </div>
