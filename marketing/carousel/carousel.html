@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#222;font-family:'Inter','Liberation Sans',system-ui,sans-serif}
+.slide{
+  position:relative;width:1080px;height:1350px;background:#08080B;color:#F6F6F9;
+  padding:120px;display:flex;flex-direction:column;overflow:hidden;margin:0 0 40px;
+}
+.slide::before{content:'';position:absolute;inset:0;z-index:0;
+  background:radial-gradient(760px 480px at 12% -8%,rgba(168,85,247,.20),transparent 62%),
+             radial-gradient(680px 420px at 96% 6%,rgba(249,67,255,.11),transparent 58%),
+             radial-gradient(700px 560px at 50% 112%,rgba(124,107,255,.13),transparent 62%)}
+.slide::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+  background-image:radial-gradient(rgba(255,255,255,.04) 1.5px,transparent 1.5px);
+  background-size:34px 34px;
+  -webkit-mask-image:radial-gradient(760px 560px at 50% 0%,#000 10%,transparent 78%)}
+.inner{position:relative;z-index:1;display:flex;flex-direction:column;height:100%;width:100%}
+h1{font-weight:900;letter-spacing:-.04em;line-height:.98}
+.h-hook{font-size:118px}
+.h-std{font-size:92px;letter-spacing:-.035em;line-height:1.0}
+.acc{color:#A855F7}
+.body{font-size:42px;line-height:1.45;color:#9C9CAA;font-weight:500;max-width:820px}
+.eyebrow{font-size:27px;letter-spacing:.12em;text-transform:uppercase;color:#9C9CAA;font-weight:700}
+.muted{color:#5D5D6B}
+.spacer{flex:1}
+.num{position:absolute;right:120px;bottom:96px;z-index:2;font-size:26px;color:#5D5D6B;font-weight:600;letter-spacing:.04em}
+
+/* s1 bars */
+.bars{display:flex;align-items:flex-end;gap:20px;height:150px}
+.bars i{display:block;width:56px;border-radius:8px 8px 0 0;background:#2A2A33}
+.bars i.on{background:linear-gradient(180deg,#F943FF,#A855F7)}
+
+/* s2 chart */
+.chartwrap{position:relative;margin-top:44px}
+.pills{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
+.pill{font-size:29px;font-weight:700;padding:16px 26px;border-radius:99px;
+  background:rgba(168,85,247,.11);border:1px solid rgba(168,85,247,.34);color:#D9BAFF}
+.foot{font-size:25px;color:#5D5D6B;margin-top:26px;font-weight:500}
+
+/* s3 receipt */
+.receipt{margin-top:40px;border:1px solid rgba(255,255,255,.09);border-radius:20px;
+  background:rgba(255,255,255,.025);padding:34px 38px}
+.row{display:flex;justify-content:space-between;align-items:baseline;
+  font-family:'JetBrains Mono','DejaVu Sans Mono',monospace;font-size:31px;
+  padding:11px 0;color:#9C9CAA;font-weight:400}
+.row.hot{color:#F6F6F9}
+.row.hot b{color:#A855F7;font-weight:700}
+.row span:last-child{font-weight:700;color:#D8D8E2}
+.row.hot span:last-child{color:#A855F7}
+.rule{height:1px;background:rgba(255,255,255,.14);margin:16px 0}
+.total{display:flex;justify-content:space-between;align-items:baseline;
+  font-family:'JetBrains Mono','DejaVu Sans Mono',monospace;font-size:56px;font-weight:700;color:#F6F6F9}
+
+/* placeholder for real screenshots */
+.ph{border:3px dashed rgba(168,85,247,.55);border-radius:18px;background:rgba(168,85,247,.055);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:30px}
+.ph .lab{font-size:31px;font-weight:800;color:#C79BFF;letter-spacing:.02em}
+.ph .sub{font-size:24px;color:#5D5D6B;font-weight:600}
+
+/* s5 timeline */
+.tl{height:66px;border-radius:12px;background:rgba(255,255,255,.09);position:relative;overflow:hidden;margin-top:52px}
+.tl i{position:absolute;right:0;top:0;bottom:0;width:26px;background:linear-gradient(180deg,#F943FF,#A855F7)}
+.tllabels{display:flex;justify-content:space-between;margin-top:20px;font-size:28px;font-weight:600}
+
+/* s6 chips */
+.flow{margin-top:24px}
+.flowlab{font-size:25px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:#5D5D6B;margin-bottom:14px}
+.chips{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chip{font-size:24px;font-weight:700;padding:14px 20px;border-radius:12px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);color:#9C9CAA;white-space:nowrap}
+.chip.kill{border-color:rgba(255,255,255,.07);color:#5D5D6B}
+.chip.win{background:linear-gradient(135deg,rgba(249,67,255,.22),rgba(124,107,255,.22));
+  border-color:rgba(199,155,255,.5);color:#F6F6F9}
+.arrow{color:#3D3D4A;font-size:26px;font-weight:700}
+.tag{font-size:23px;color:#5D5D6B;font-weight:600;margin-top:10px;font-style:italic}
+
+/* s7 */
+.btn{width:100%;height:112px;border-radius:18px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#F943FF 0%,#A855F7 52%,#7C6BFF 100%);
+  color:#fff;font-size:46px;font-weight:900;letter-spacing:-.01em;
+  box-shadow:0 22px 60px -18px rgba(168,85,247,.75);margin-top:40px}
+.fine{font-size:26px;color:#5D5D6B;text-align:center;margin-top:26px;font-weight:600}
+.logo{width:96px;height:96px;border-radius:26px;display:grid;place-items:center;margin:0 auto;
+  background:linear-gradient(135deg,#F943FF,#A855F7 55%,#7C6BFF);
+  box-shadow:0 16px 44px -12px rgba(168,85,247,.8)}
+</style>
+</head>
+<body>
+
+<!-- ══ SLIDE 1 — HOOK ══ -->
+<div class="slide" id="s1"><div class="inner">
+  <div class="spacer"></div>
+  <h1 class="h-hook">Clipping pays<br>per view.<br>You post<br><span class="acc">three.</span></h1>
+  <p class="body" style="margin-top:50px">That's not a talent gap.<br>That's a math problem.</p>
+  <div class="spacer"></div>
+  <div class="bars"><i style="height:132px"></i><i style="height:110px"></i><i class="on" style="height:30px"></i></div>
+</div><div class="num">1/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 2 — THE MONEY IS REAL ══ -->
+<div class="slide" id="s2"><div class="inner">
+  <div class="eyebrow">The opportunity</div>
+  <h1 class="h-std" style="margin-top:26px">The payout scales<br>with volume.</h1>
+  <p class="body" style="margin-top:34px">Most clipping programs pay on views. Some per thousand, some per approved clip. Rates change by program. Posting more is the only lever you control.</p>
+  <div class="chartwrap">
+    <svg width="840" height="330" viewBox="0 0 840 330" fill="none">
+      <defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#A855F7" stop-opacity=".34"/>
+        <stop offset="100%" stop-color="#A855F7" stop-opacity="0"/></linearGradient></defs>
+      <line x1="70" y1="270" x2="820" y2="270" stroke="rgba(255,255,255,.12)" stroke-width="2"/>
+      <line x1="70" y1="20" x2="70" y2="270" stroke="rgba(255,255,255,.12)" stroke-width="2"/>
+      <path d="M70,258 L220,238 L370,196 L520,140 L670,80 L820,34 L820,270 L70,270 Z" fill="url(#g2)"/>
+      <path d="M70,258 L220,238 L370,196 L520,140 L670,80 L820,34" stroke="#A855F7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <circle cx="820" cy="34" r="11" fill="#F943FF" stroke="#08080B" stroke-width="5"/>
+      <text x="70" y="310" font-family="Inter,sans-serif" font-size="25" font-weight="700" fill="#5D5D6B">CLIPS POSTED &rarr;</text>
+      <text x="18" y="150" font-family="Inter,sans-serif" font-size="25" font-weight="700" fill="#5D5D6B" transform="rotate(-90 18 150)" text-anchor="middle">SHOTS AT VIEWS</text>
+    </svg>
+  </div>
+  <div class="pills">
+    <span class="pill">per 1K views</span>
+    <span class="pill">per approved clip</span>
+    <span class="pill">affiliate split</span>
+  </div>
+  <div class="foot">Rates and terms vary by program.</div>
+</div><div class="num">2/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 3 — THE REAL COST ══ -->
+<div class="slide" id="s3"><div class="inner">
+  <div class="eyebrow">What one clip costs</div>
+  <h1 class="h-std" style="margin-top:24px;font-size:84px">One clip eats<br>your whole night.</h1>
+  <div class="receipt" style="margin-top:32px;padding:28px 34px">
+    <div class="row hot"><b>Hunt the VOD for a moment</b><span>45 min</span></div>
+    <div class="row"><span>Trim it</span><span>5 min</span></div>
+    <div class="row"><span>Reframe to vertical</span><span>10 min</span></div>
+    <div class="row"><span>Captions + fix errors</span><span>10 min</span></div>
+    <div class="row"><span>Hook text</span><span>5 min</span></div>
+    <div class="row"><span>Export</span><span>5 min</span></div>
+    <div class="row"><span>Upload + write caption</span><span>10 min</span></div>
+    <div class="rule"></div>
+    <div class="total"><span>TOTAL</span><span>90 MIN</span></div>
+  </div>
+  <p class="body" style="margin-top:30px;font-size:38px">Ninety minutes. For one post. And most of it happens before you even open the editor.</p>
+</div><div class="num">3/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 4 — THE MATH ══ -->
+<div class="slide" id="s4"><div class="inner">
+  <div class="eyebrow">The gap</div>
+  <h1 class="h-std" style="margin-top:26px">263 moments.<br>24 hours.<br><span class="acc">Two channels.</span></h1>
+  <p class="body" style="margin-top:34px">That's one account, one day. The moments were never the bottleneck. Keeping up with them was.</p>
+  <div class="spacer"></div>
+  <div class="ph" style="height:250px">
+    <div class="lab">DROP BANNER CROP HERE</div>
+    <div class="sub">Clip Review queue-full banner &middot; full width, unmodified</div>
+  </div>
+  <div class="foot" style="text-align:center">One account, two channels monitored, 24 hours.</div>
+  <div class="spacer"></div>
+</div><div class="num">4/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 5 — THE REFRAME ══ -->
+<div class="slide" id="s5"><div class="inner">
+  <div class="spacer"></div>
+  <h1 class="h-std">You don't have<br>an effort problem.</h1>
+  <p class="body" style="margin-top:38px">You have a throughput problem. The villain isn't you. It's scrubbing six hours of VOD to find four seconds.</p>
+  <div class="tl"><i></i></div>
+  <div class="tllabels">
+    <span class="muted">6 hours you watched</span>
+    <span class="acc">4 seconds you kept</span>
+  </div>
+  <div class="spacer"></div>
+</div><div class="num">5/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 6 — THE SOLUTION ══ -->
+<div class="slide" id="s6"><div class="inner">
+  <div class="eyebrow">The fix</div>
+  <h1 class="h-std" style="margin-top:22px">Start at the<br>good part.</h1>
+  <p class="body" style="margin-top:26px;font-size:34px">Highlightz watches the stream live and clips moments as they happen &mdash; real Twitch clips, under your account. You open a queue, not a VOD.</p>
+  <div class="ph" style="height:236px;margin-top:28px">
+    <div class="lab">DROP NASA TRIGGER-SCORE CHART HERE</div>
+    <div class="sub">Chart panel only &middot; crop out &ldquo;Total clips 0&rdquo; row</div>
+  </div>
+  <div class="flow">
+    <div class="flowlab">Old way</div>
+    <div class="chips">
+      <span class="chip kill">Watch 6 hrs</span><span class="arrow">&rarr;</span>
+      <span class="chip kill">Hunt moments</span><span class="arrow">&rarr;</span>
+      <span class="chip">Edit</span><span class="arrow">&rarr;</span>
+      <span class="chip">Post</span>
+    </div>
+    <div class="tag">the unpaid part</div>
+  </div>
+  <div class="flow">
+    <div class="flowlab" style="color:#C79BFF">With Highlightz</div>
+    <div class="chips">
+      <span class="chip win">Open your queue</span><span class="arrow">&rarr;</span>
+      <span class="chip">Edit</span><span class="arrow">&rarr;</span>
+      <span class="chip">Post</span>
+    </div>
+    <div class="tag" style="color:#C79BFF">already done</div>
+  </div>
+  <div class="pills" style="margin-top:26px;flex-wrap:nowrap">
+    <span class="pill" style="font-size:24px;padding:13px 20px">Not AI &mdash; a formula you can see</span>
+    <span class="pill" style="font-size:24px;padding:13px 20px">Multiple channels at once</span>
+  </div>
+</div><div class="num">6/7 &rarr;</div></div>
+
+<!-- ══ SLIDE 7 — CTA ══ -->
+<div class="slide" id="s7"><div class="inner">
+  <div class="spacer"></div>
+  <div class="logo"><svg width="46" height="46" viewBox="0 0 24 24" fill="#fff"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+  <h1 class="h-std" style="text-align:center;margin-top:44px">Start free.<br>Right now.</h1>
+  <p class="body" style="margin-top:32px;text-align:center;margin-left:auto;margin-right:auto">One channel, free. $10/month for three, $25 for ten. The clips you don't post this week are views you never get back.</p>
+  <div class="ph" style="height:150px;margin-top:40px">
+    <div class="lab">DROP STATS ROW CROP HERE</div>
+    <div class="sub">97 pending &middot; 45 approved &middot; 2 active &middot; 73 avg trigger</div>
+  </div>
+  <div class="btn">highlightz.app</div>
+  <div class="fine">Free plan &middot; upgrade anytime &middot; cancel anytime</div>
+  <div class="spacer"></div>
+</div></div>
+
+</body>
+</html>
