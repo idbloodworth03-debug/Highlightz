@@ -141,6 +141,48 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 # Middleware stack is LIFO — SessionMiddleware added last runs first,
 # so the cookie is parsed before AuthMiddleware inspects the session.
+class HeadRequestMiddleware(BaseHTTPMiddleware):
+    """Answer HEAD wherever GET is answered.
+
+    FastAPI's @app.get registers GET only. Plain Starlette Routes add HEAD
+    automatically; APIRoute does not — so EVERY page on this site returned 405
+    to a HEAD request while returning 200 to GET. Only /static worked, because
+    StaticFiles handles it itself.
+
+    That is not a technicality. `curl -I` sends HEAD, and so do uptime monitors,
+    link checkers and some crawlers — all of which would have read this site as
+    broken. It was found by running `curl -sI https://highlightz.app/favicon.ico`
+    to confirm the favicon fix and getting 405 instead of 200.
+
+    HEAD is dispatched as GET and the body dropped, keeping the original
+    Content-Length, which is what RFC 9110 asks for: identical headers to the
+    GET, no body.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method != "HEAD":
+            return await call_next(request)
+        request.scope["method"] = "GET"
+        response = await call_next(request)
+
+        # Drain the body so the length is known, then discard it.
+        body = b""
+        if hasattr(response, "body_iterator"):
+            async for chunk in response.body_iterator:
+                body += chunk if isinstance(chunk, bytes) else chunk.encode()
+        else:
+            body = getattr(response, "body", b"") or b""
+
+        headers = dict(response.headers)
+        headers["content-length"] = str(len(body))
+        return Response(content=b"", status_code=response.status_code,
+                        headers=headers)
+
+
+# Registered AFTER AuthMiddleware so it runs BEFORE it: Starlette applies
+# middleware in reverse, and the method has to read as GET by the time the auth
+# gate and the routes see it.
+app.add_middleware(HeadRequestMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
     SessionMiddleware,
