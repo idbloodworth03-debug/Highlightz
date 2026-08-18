@@ -26,7 +26,7 @@ Three slides have dashed placeholders where real product screenshots go:
 | Slide | Asset | Crop notes |
 |---|---|---|
 | 4 | Clip Review queue-full banner | Banner strip only. **Do not** include the stats row — the banner says "full at 200" while the tile says "97 pending", which reads as a contradiction. |
-| 6 | Live Streams trigger-score chart (NASA) | Chart panel only. **Crop out "Total clips 0" / "Approval rate —"** — reads as "produces nothing" in an ad. |
+| 6 | Live Streams trigger-score chart | Chart panel only. **Crop out any "Total clips 0" / "Approval rate —"** — reads as "produces nothing" in an ad. Shoot it against a **face-free channel** (institutional//your own test channel) so no streamer's likeness ends up in a paid ad. |
 | 7 | Clip Review stats row | The four tiles alone, no banner above. |
 
 ## ⚠️ VERIFY PRICING/OFFER BEFORE SPENDING MONEY ON THIS
