@@ -4479,6 +4479,31 @@ async def landing_stats():
     return {"clips_total": get_clip_counter()}
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve the icon at the domain root as well as via <link rel="icon">.
+
+    Google's favicon crawler asks for /favicon.ico at the root in ADDITION to
+    reading the link tag, and a 404 here is the most common reason a site shows
+    the default globe in search results instead of its own mark. The link tag
+    was correct all along; this path simply did not exist.
+
+    Kept as a route rather than a file so there is one icon on disk — a second
+    copy at the root is the kind of thing that silently goes stale when the
+    logo changes.
+    """
+    icon = _STATIC_DIR / "icon.png"
+    if not icon.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        icon,
+        media_type="image/png",
+        # A favicon changes about never, and Google re-fetches it on its own
+        # schedule; a long cache keeps it out of the request path entirely.
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
     """Crawler policy: index the public marketing/legal pages, keep the
