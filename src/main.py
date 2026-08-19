@@ -8,6 +8,7 @@ Runs concurrently:
 """
 
 import asyncio
+import collections
 import json
 import time
 import structlog
@@ -309,8 +310,42 @@ async def sweep_dead_clips_task() -> None:
         await asyncio.sleep(6 * 3600)
 
 
+# How long a clip stays in Highlightz, by what the user did with it.
+#
+# WHAT IS ACTUALLY BEING DELETED, which differs by kind and is worth being
+# precise about before shortening anything:
+#
+#   live clips  — Highlightz does not host video. The clip was created on
+#                 Twitch through Helix with the user's own token, so expiry
+#                 removes OUR record and the clip stays on their Twitch
+#                 account. Ageing one out costs them a row in a queue, not
+#                 the clip.
+#   VOD moments — NOT a created clip. The record is a timestamp into the VOD
+#                 (twitch_url is /videos/<id>?t=<secs>), so deleting it does
+#                 lose the finding, recoverable only by rescanning. It still
+#                 gets the same 7 days, because the thing it points AT is on a
+#                 shorter clock than we are: Twitch keeps VODs 7 days for most
+#                 channels, 14 for Affiliates, 60 for Partners. A month-old
+#                 moment mostly links to a VOD that no longer exists.
+#
+# PENDING IS SHORTER THAN APPROVED ON PURPOSE. Approved means the user looked
+# at it and kept it, so it is theirs for a month. Pending means nobody has
+# looked at it in a week, and a review queue full of week-old moments is not a
+# queue anybody works through — it is what makes people stop opening the tab.
+# Expiring them also frees room against max_pending, so a stale backlog stops
+# costing the user clips they would rather have caught today.
+CLIP_RETENTION = {
+    "approved": 30 * 86400,
+    "pending":   7 * 86400,
+}
+# Rejected clips are absent deliberately: /reject deletes them at the moment of
+# rejection, so there is never an aged rejected clip for this to find. Any
+# status not listed here is never expired — see the float("inf") default, which
+# is what keeps a new status from silently inheriting a deletion policy.
+
+
 async def auto_delete_old_clips() -> None:
-    """Daily task: delete approved clips older than 30 days to free disk space.
+    """Daily task: expire clips past their retention to free disk and queue room.
 
     SWEEPS SHORTLY AFTER BOOT, THEN DAILY. The loop used to sleep for a full day
     BEFORE its first pass, which meant it only ever ran on a process that had
@@ -319,9 +354,14 @@ async def auto_delete_old_clips() -> None:
     executed at all and the clips directory only ever grew. Deleting is
     idempotent, so running it on every boot is safe; the short initial delay
     just keeps it out of the way while workers are starting.
+
+    NOTHING IS RECORDED IN stream_stats. An expired clip is not an approval and
+    it is emphatically not a rejection — the user never rendered a verdict on
+    it. Writing either would move the keep rate shown to streamers on the
+    strength of clips nobody ever looked at, which is the same trap
+    notify_clip_missed exists to avoid.
     """
     import time
-    MAX_AGE = 30 * 86400  # 30 days in seconds
     await asyncio.sleep(180)          # let startup settle, then sweep
     while True:
         try:
@@ -330,7 +370,8 @@ async def auto_delete_old_clips() -> None:
             async with dashboard_api._data_lock:
                 to_delete = [
                     c for c in list(dashboard_api._clips.values())
-                    if c.get("status") == "approved" and now - c.get("created_at", now) > MAX_AGE
+                    if now - c.get("created_at", now)
+                    > CLIP_RETENTION.get(c.get("status"), float("inf"))
                 ]
                 for clip in to_delete:
                     dashboard_api._clips.pop(clip["id"], None)
@@ -344,7 +385,9 @@ async def auto_delete_old_clips() -> None:
                     user_id=clip.get("user_id"),
                 )
             if to_delete:
-                log.info("auto_deleted_old_clips", count=len(to_delete))
+                by_status = collections.Counter(c.get("status") for c in to_delete)
+                log.info("auto_deleted_old_clips", count=len(to_delete),
+                         **{f"expired_{k}": v for k, v in by_status.items()})
         except Exception as exc:
             log.error("auto_delete_error", error=str(exc))
         # At the END of the body, not the start: the sweep has already run once
