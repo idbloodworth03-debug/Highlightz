@@ -1575,7 +1575,13 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
         {lostN > 0 && <div className="rd-lost">
           <span className="ic"><Icon name="zap" size={16}/></span>
           <div className="tx">
-            <b>Your review queue is full{lost.limit ? ' at ' + lost.limit + ' clips' : ''}.</b>{' '}
+            {/* The cap is only named when it is a real number. The admin cap is
+                a large sentinel, and "full at 1000000000 clips" both reads as a
+                bug and asserts a state that account cannot reach. The server
+                suppresses this notice entirely for an uncapped queue; this is
+                the second line of defence, so the sentinel cannot print raw
+                whichever path put it here. */}
+            <b>Your review queue is full{lost.limit && lost.limit < 1000000000 ? ' at ' + lost.limit + ' clips' : ''}.</b>{' '}
             {lostN === 1
               ? 'A highlight was not clipped, because there was no room left in your queue.'
               : lostN + ' highlights were not clipped in the last 24 hours, because there was no room left in your queue.'}

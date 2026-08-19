@@ -3467,7 +3467,16 @@ def _clips_lost_24h(uid: str) -> int:
     """
     from src.stats import stream_stats
     from src.auth import users as _miss_store
+    from src.billing.plans import UNLIMITED_PENDING, limits_for
     user = _miss_store.get_by_id(uid) or {}
+    # A queue that cannot fill cannot have been full. Misses recorded against
+    # this account are from BEFORE the cap was lifted, and the notice reads in
+    # the present tense off the CURRENT cap — so an admin was being told "your
+    # review queue is full at 1000000000 clips", asserting a state that is now
+    # impossible and printing the sentinel as though it were a real number.
+    # Suppressed here rather than in the banner so no client can render it.
+    if limits_for(user)["max_pending"] >= UNLIMITED_PENDING:
+        return 0
     since = max(time.time() - 86400, user.get("miss_notice_dismissed_at") or 0)
     return stream_stats.missed_since(uid, since)
 

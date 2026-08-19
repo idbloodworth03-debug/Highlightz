@@ -186,3 +186,72 @@ def test_the_frontend_threshold_matches_the_backend_sentinel():
     without the template, the dashboard silently starts printing the number."""
     from src.dashboard.aurora_html import DASHBOARD_HTML
     assert f"max_pending >= {UNLIMITED_PENDING}" in DASHBOARD_HTML
+
+
+# ── the queue-full notice must not fire on an uncapped queue ─────────────────
+#
+# REPORTED FROM PRODUCTION, as: "Your review queue is full at 1000000000
+# clips. 2 highlights were not clipped in the last 24 hours."
+#
+# Two faults in one banner. It printed the sentinel as though it were a real
+# number, and it asserted in the present tense a state the account can no
+# longer reach — the misses behind it were recorded BEFORE the cap was lifted,
+# while the number beside them was read from the CURRENT cap. Lifting the cap
+# did not clear the history, so the two disagreed.
+
+def _misses(monkeypatch, uid, n, at):
+    from src.stats import stream_stats
+    monkeypatch.setattr(stream_stats, "missed_since", lambda u, since: n)
+
+
+def test_an_admin_is_never_told_their_queue_is_full(monkeypatch):
+    """The queue cannot fill, so no count of past misses should reach the
+    banner. Suppressed server-side so no client can render it."""
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: _admin())
+    _misses(monkeypatch, "a1", 2, 0)
+    assert api._clips_lost_24h("a1") == 0
+
+
+def test_a_normal_user_still_gets_their_real_miss_count(monkeypatch):
+    """The blast radius. Suppressing the notice for admins must not suppress
+    it for the people it exists to warn — and to sell to."""
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: _pro())
+    _misses(monkeypatch, "u1", 2, 0)
+    assert api._clips_lost_24h("u1") == 2
+
+
+def test_a_free_user_still_gets_their_real_miss_count(monkeypatch):
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": "u3", "subscription_status": "none",
+                                     "grandfathered": True})
+    _misses(monkeypatch, "u3", 7, 0)
+    assert api._clips_lost_24h("u3") == 7
+
+
+def test_the_banner_never_prints_the_sentinel_as_a_number():
+    """Second line of defence: whatever path puts a limit in front of this
+    template, a sentinel must not render as digits."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    assert f"lost.limit && lost.limit < {UNLIMITED_PENDING}" in DASHBOARD_HTML, \
+        "the queue-full banner prints lost.limit unguarded"
+
+
+def test_the_suppression_reads_the_shared_limit_not_a_role_check():
+    """is_admin is the reason the cap is unlimited, but the cap is the reason
+    the notice is wrong. Keying on the limit means anything else that ever
+    gets an uncapped queue is covered without remembering to add it here."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api._clips_lost_24h)
+    assert "UNLIMITED_PENDING" in src and "limits_for" in src
+    assert "is_admin" not in src, \
+        "the suppression checks the role instead of the actual cap"
