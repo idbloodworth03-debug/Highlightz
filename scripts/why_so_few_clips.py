@@ -77,9 +77,20 @@ if recent:
             names[u["id"]] = u.get("twitch_login") or u.get("username") or u["id"]
     except Exception as exc:
         print(f"      (could not read the user store: {exc})")
+    # And the split WITHIN an account, because the Clips screen does not show
+    # one number either: it has All / Pending / Approved filters and the
+    # Library view renders approved only. So "I have 30 clips" and "you have
+    # 76 clips" can both be true of the same account and the same day — one is
+    # a tab, the other is the row count. Printing the tabs is what closes that
+    # last gap without anybody having to guess which view was being read.
     by_user = collections.Counter(c.get("user_id", "?") for c in recent)
+    print(f"      {'account':<24}{'all':>5}{'pending':>9}{'approved':>10}{'rejected':>10}")
     for uid, n in by_user.most_common(15):
-        print(f"      {names.get(uid, uid)[:24]:<24}{n:>4}")
+        mine = [c for c in recent if c.get("user_id") == uid]
+        st = collections.Counter(c.get("status", "?") for c in mine)
+        print(f"      {names.get(uid, uid)[:24]:<24}{n:>5}"
+              f"{st.get('pending', 0):>9}{st.get('approved', 0):>10}"
+              f"{st.get('rejected', 0):>10}")
 
 # ── the journal: what the engine actually did ────────────────────────────────
 # Deliberately NOT the same window as the clip count. journald rotates on size,
