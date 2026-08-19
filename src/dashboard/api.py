@@ -643,6 +643,15 @@ async def notify_clip_ready(clip: dict) -> None:
             log.info("clip_dropped_queue_full", clip_id=clip.get("id"),
                      channel=channel, pending=len(user_pending), cap=pending_cap)
             _delete_clip_file(clip)
+            # COUNTED ANYWAY, and it is not a fudge: notify_clip_ready runs
+            # AFTER the processor already created the clip on Twitch, so this
+            # clip was genuinely captured. It is discarded here only because the
+            # user's review queue filled in the race between pending_room() and
+            # this check. The counter's contract is "every clip the system has
+            # ever captured, regardless of later approve/reject/delete" — a clip
+            # deleted for capacity is exactly that case, so omitting it was an
+            # undercount against the counter's own definition.
+            increment_clip_counter()
         else:
             _clips[clip["id"]] = clip
             _save_clips()
