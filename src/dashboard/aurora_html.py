@@ -2136,7 +2136,10 @@ function AccountScreen({ me }) {
           </div>
           {me.plan_label && <div className="rd-field">
             <div><div className="fl">Membership</div>
-              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
+              {/* The admin cap is a large sentinel, not a real number, so it is
+                  named rather than printed — "1000000000 pending clips" reads
+                  as a bug, which is how anyone seeing it would report it. */}
+              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending >= 1000000000 ? 'unlimited' : me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
             </div>
             <span style={{fontWeight:700,color:'var(--acc)'}}>{me.plan_label}</span>
           </div>}

@@ -66,6 +66,17 @@ PLAN_LIMITS: dict[str, dict] = {
 PAID_PLANS = ("starter", "pro")
 DEFAULT_PLAN = FREE_PLAN
 
+# The pending-clip cap for admins: effectively none.
+#
+# A LARGE INT RATHER THAN math.inf, and that is not a style preference. This
+# number is serialised into the /me payload, and json.dumps(float("inf"))
+# emits the bare token `Infinity`, which is not valid JSON — the browser's
+# JSON.parse throws on it, so every fetch of /me would fail and the dashboard
+# would come up empty for exactly the account that has to be able to fix
+# things. An int serialises cleanly and compares the same way against a queue
+# nobody will ever fill.
+UNLIMITED_PENDING = 1_000_000_000
+
 # Statuses that mean "this person is currently paying us" (or has been granted
 # the equivalent). Anything else — none, inactive, expired, cancelled, a typo
 # from a future Stripe change — falls through to free rather than to paid,
@@ -157,7 +168,28 @@ def get_plan(user: dict | None) -> str:
 
 
 def limits_for(user: dict | None) -> dict:
-    return PLAN_LIMITS[get_plan(user)]
+    """The limits actually in force for this user.
+
+    ADMINS HAVE NO PENDING-CLIP CAP. Everything that enforces the cap —
+    pending_room() before the Twitch clip is created, the second check in
+    notify_clip_ready, the queue meter and the /me payload — reads it from
+    here, so lifting it in this one place lifts it everywhere rather than
+    leaving a path that still refuses at 200.
+
+    Done here rather than by giving admins their own entry in PLAN_LIMITS: the
+    plan NAME is load-bearing elsewhere (billing copy, upgrade prompts,
+    is_paid, the Stripe reconciler all switch on it), and inventing an "admin"
+    plan would make every one of those places grow a case for a plan nobody is
+    billed for. get_plan() keeps saying "pro" and only the number changes.
+
+    Returns a COPY. PLAN_LIMITS holds one shared dict per plan, so building the
+    override by mutating the value would rewrite the cap for every pro user on
+    the box, permanently and invisibly.
+    """
+    limits = PLAN_LIMITS[get_plan(user)]
+    if user and user.get("is_admin"):
+        return {**limits, "max_pending": UNLIMITED_PENDING}
+    return limits
 
 
 def is_paid(user: dict | None) -> bool:
