@@ -65,8 +65,34 @@ if recent:
     for ch, n in by_ch.most_common(10):
         print(f"      {ch:<24}{n:>4}")
 
+    # THE SPLIT THAT ACTUALLY ANSWERS "I only have 30 clips". /clips filters to
+    # the caller's own user_id, so the dashboard number is one account's share
+    # of this total, not the total. A healthy box with a quiet owner account
+    # looks identical to a broken box until these are shown side by side.
+    print("  by account (this is what each person sees on their dashboard):")
+    names = {}
+    try:
+        from src.auth import users as user_store
+        for u in user_store.get_all():
+            names[u["id"]] = u.get("twitch_login") or u.get("username") or u["id"]
+    except Exception as exc:
+        print(f"      (could not read the user store: {exc})")
+    by_user = collections.Counter(c.get("user_id", "?") for c in recent)
+    for uid, n in by_user.most_common(15):
+        print(f"      {names.get(uid, uid)[:24]:<24}{n:>4}")
+
 # ── the journal: what the engine actually did ────────────────────────────────
-hr(f"WHAT THE ENGINE DID  (journal, last {DAYS:.0f} days)")
+# Deliberately NOT the same window as the clip count. journald rotates on size,
+# so on a 2GB box "30 days ago" usually returns whatever survived rotation —
+# and paging 30 days of a chatty service through this process takes minutes for
+# an answer that a week gives just as well. Overridable when a longer look is
+# genuinely wanted.
+JOURNAL_DAYS = min(DAYS, 7.0)
+for a in sys.argv[1:]:
+    if a.startswith("--journal-days="):
+        JOURNAL_DAYS = float(a.split("=", 1)[1])
+
+hr(f"WHAT THE ENGINE DID  (journal, last {JOURNAL_DAYS:.0f} days)")
 
 EVENTS = ["trigger_fired", "trigger_suppressed_cooldown", "twitch_clip_ready",
           "clip_processor_error", "clip_job_stale_dropped",
@@ -76,9 +102,9 @@ EVENTS = ["trigger_fired", "trigger_suppressed_cooldown", "twitch_clip_ready",
 counts = {}
 try:
     out = subprocess.run(
-        ["journalctl", "-u", "highlightz", "--since", f"{DAYS:.0f} days ago",
+        ["journalctl", "-u", "highlightz", "--since", f"{JOURNAL_DAYS:.0f} days ago",
          "--no-pager", "-o", "cat"],
-        capture_output=True, timeout=180).stdout.decode(errors="replace")
+        capture_output=True, timeout=600).stdout.decode(errors="replace")
     for ev in EVENTS:
         counts[ev] = out.count(f'"event": "{ev}"') or out.count(ev)
     lines = out.splitlines()
@@ -89,6 +115,15 @@ except Exception as exc:
 if out:
     for ev in EVENTS:
         print(f"  {ev:<32}{counts.get(ev, 0):>7}")
+else:
+    # An empty section reads as "the engine did nothing", which is a very
+    # different claim from "this process could not see the log". Say which.
+    print("  The journal returned NOTHING for this window.")
+    print("  That is a fact about the log, not about the engine — most likely")
+    print("  journald rotated it away, or this is not the unit's host. The clip")
+    print("  counts above still stand on their own; only the per-event")
+    print("  breakdown is missing. Try a shorter window:")
+    print("      why_so_few_clips.py --days=30 --journal-days=2")
 
 # ── the verdict ──────────────────────────────────────────────────────────────
 hr("WHAT THIS MEANS")
@@ -102,9 +137,28 @@ full       = counts.get("clip_skipped_queue_full", 0)
 blocked    = counts.get("clip_channel_not_clippable", 0)
 spawned    = counts.get("worker_spawned", 0)
 
+# The clips on disk outrank every journal count, because they are the outcome
+# and the journal is only the story of how it happened. If the box produced
+# clips in this window then the pipeline demonstrably works end to end, and no
+# amount of missing log can make that untrue — so say so before anything else,
+# and never let a rotated-away journal be read as "nothing was monitored".
+if recent:
+    print(f"  THE PIPELINE WORKS. {len(recent)} clip(s) were made in the last")
+    print(f"  {DAYS:.0f} days across {len({c.get('channel') for c in recent})} "
+          f"channel(s). Clipping is not broken.")
+    if len(by_user) > 1:
+        top_uid, top_n = by_user.most_common(1)[0]
+        print()
+        print("  If your own dashboard shows far fewer than that, it is not a")
+        print("  fault: /clips only ever shows YOUR clips, and this total is")
+        print(f"  shared across {len(by_user)} accounts (biggest: "
+              f"{names.get(top_uid, top_uid)[:24]} with {top_n}).")
+    print()
+
 if not out:
-    print("  No journal read — rerun on the server, or with sudo.")
-elif spawned == 0:
+    print("  No per-event breakdown — the journal could not be read, so the")
+    print("  cooldown-vs-threshold question below is unanswered. See above.")
+elif spawned == 0 and not recent:
     print("  NOTHING WAS MONITORED. No worker started in this window, so there")
     print("  was never a live stream to clip from. Check that streams are added")
     print("  and that those channels actually went live.")
