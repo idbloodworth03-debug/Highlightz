@@ -92,6 +92,18 @@ button{font-family:inherit;cursor:pointer}
 .rd-suggitem .meta2{color:var(--fg-3);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-sugglive{font-size:9.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:#e91916;border-radius:4px;padding:1px 5px;flex-shrink:0}
 .rd-suggempty{padding:12px 9px;font-size:12.5px;color:var(--fg-3)}
+/* The label row carries the "Clear all" action, so it stops being padding-only
+   and becomes a flex row. Same padding as before so nothing shifts. */
+.rd-sugglabelrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px 3px}
+.rd-sugglabelrow .rd-sugglabel{padding:0}
+.rd-suggclear{background:none;border:0;cursor:pointer;font:inherit;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);padding:2px 4px;border-radius:5px}
+.rd-suggclear:hover{color:var(--fg);background:rgba(255,255,255,.07)}
+/* Per-row dismiss. Hidden until the row is hovered so eight of these do not
+   read as a column of buttons, but kept focusable for keyboard users. */
+.rd-suggx{margin-left:auto;flex-shrink:0;background:none;border:0;cursor:pointer;color:var(--fg-3);opacity:0;padding:2px;border-radius:5px;display:flex;align-items:center}
+.rd-suggitem:hover .rd-suggx{opacity:1}
+.rd-suggx:focus{opacity:1}
+.rd-suggx:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .rd-input{flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
   color:var(--fg);font-size:13px;padding:11px 13px;outline:none;transition:.18s}
 .rd-input::placeholder{color:var(--fg-3)}
@@ -1334,6 +1346,28 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   };
   const add = () => { if(ch.trim()){ setSuggOpen(false); addChannel(ch.trim()); } };
   const pick = (login) => addChannel(login);
+  // Clearing a recent suggestion. Optimistic: the row disappears on click and
+  // the server confirms after, because waiting on a round-trip to remove a
+  // thing you just dismissed feels broken even when it is fast. The refetch on
+  // completion is what corrects the list if the request actually failed.
+  const clearRecent = async (login) => {
+    setSugg(s => s ? {...s, recent:(s.recent||[]).filter(r=>r!==login)} : s);
+    try { await fetch('/streams/suggest/recent/' + encodeURIComponent(login), {method:'DELETE'}); }
+    finally { if(!ch.trim()) fetchSugg(''); }
+  };
+  const clearAllRecent = async () => {
+    setSugg(s => s ? {...s, recent:[]} : s);
+    try { await fetch('/streams/suggest/recent', {method:'DELETE'}); }
+    finally { if(!ch.trim()) fetchSugg(''); }
+  };
+  // Another tab cleared the list — mirror it here. The dropdown is fetched on
+  // open rather than on mount, so a stale open dropdown is the one case a
+  // reconnect refetch would not reach.
+  useEffect(()=>{
+    const onCleared = () => { if(!ch.trim()) fetchSugg(''); };
+    window.addEventListener('hz_suggestions_cleared', onCleared);
+    return () => window.removeEventListener('hz_suggestions_cleared', onCleared);
+  }, [ch]);
   const fmtViewers = (v) => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '' + v;
   const streamsArr = Object.values(streams);
   return (
@@ -1375,10 +1409,25 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                   ) : (
                     <>
                       {(sugg.recent||[]).length > 0 && <>
-                        <div className="rd-sugglabel">Recently monitored</div>
+                        <div className="rd-sugglabelrow">
+                          <div className="rd-sugglabel">Recently monitored</div>
+                          {/* onMouseDown, not onClick: the input's onBlur closes
+                              this dropdown on a 150ms timer, and preventDefault
+                              here is what stops the click from taking focus and
+                              starting that close before the handler runs. */}
+                          <button type="button" className="rd-suggclear" title="Clear all recently monitored"
+                            onMouseDown={e=>{e.preventDefault();e.stopPropagation();clearAllRecent();}}>Clear</button>
+                        </div>
                         {(sugg.recent||[]).map(c=>(
                           <div key={'r'+c} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(c);}}>
                             <Icon name="clock" size={13}/><span style={{fontWeight:600}}>{c}</span>
+                            {/* stopPropagation is load-bearing: without it the
+                                dismiss click bubbles to the row and ADDS the
+                                stream it was meant to remove. */}
+                            <button type="button" className="rd-suggx" aria-label={'Remove ' + c + ' from recently monitored'}
+                              onMouseDown={e=>{e.preventDefault();e.stopPropagation();clearRecent(c);}}>
+                              <Icon name="x" size={12}/>
+                            </button>
                           </div>))}
                       </>}
                       {(sugg.popular||[]).length > 0 && <>
@@ -4549,6 +4598,14 @@ function RdApp() {
         }
         // Forward team scoring ticks to the Training screen's live counter
         else if(msg.event==='miss_notice_dismissed'){ setLostClips(null); }
+        // Clearing recents in one tab must clear them in every open tab. The
+        // suggestion list lives inside AddStreamPanel and is fetched on open
+        // rather than on mount, so there is no top-level state to update and
+        // refetchAll() would not reach it — an in-page event is how the panel
+        // hears about it wherever it happens to be mounted.
+        else if(msg.event==='suggestions_cleared'){
+          window.dispatchEvent(new CustomEvent('hz_suggestions_cleared'));
+        }
         else if(msg.event==='clip_missed'){
           // Two different causes, two different messages. A backlog is not a
           // full queue: the upgrade banner would be telling them to buy a

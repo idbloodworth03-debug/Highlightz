@@ -2346,13 +2346,74 @@ _POPULAR_STREAMS_TTL = 300
 _popular_streams_cache: tuple[float, list] = (0.0, [])
 
 
+# ── Hidden "recently monitored" suggestions ──────────────────────────────────
+# HIDDEN, NOT DELETED, and the distinction is the whole design. The recent list
+# is derived from the user's profile files, and a profile is not a history
+# entry — it holds the learned signal_weights and the approve/reject record for
+# that channel. Deleting one to tidy a dropdown would silently throw away every
+# correction the user ever made for that streamer, and they would only find out
+# by noticing the scoring had gone dumb weeks later. So clearing writes a
+# dismissal here and leaves the profile untouched: monitor the channel again and
+# it picks up exactly where it left off.
+_HIDDEN_SUGG_FILE = Path(settings.local_storage_path) / "hidden_suggestions.json"
+
+
+def _load_hidden_suggestions() -> dict:
+    try:
+        data = json.loads(_HIDDEN_SUGG_FILE.read_text())
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _hidden_for(uid: str) -> set:
+    return {str(c).lower() for c in _load_hidden_suggestions().get(uid, [])}
+
+
+def _set_hidden_for(uid: str, logins: set) -> None:
+    data = _load_hidden_suggestions()
+    if logins:
+        data[uid] = sorted(logins)
+    else:
+        data.pop(uid, None)
+    _atomic_write(_HIDDEN_SUGG_FILE, json.dumps(data))
+
+
+def _unhide_suggestion(uid: str, channel: str) -> None:
+    """Deliberately monitoring a channel again un-dismisses it.
+
+    Otherwise a channel cleared once would be gone from the list forever, even
+    after the user went back to it for months — the dismissal would outlive the
+    intent behind it. Adding the stream is a clearer statement of interest than
+    the old clearing was of disinterest, so it wins.
+    """
+    hidden = _hidden_for(uid)
+    if channel.lower() in hidden:
+        _set_hidden_for(uid, hidden - {channel.lower()})
+
+
+def _recent_channels(uid: str, monitored: set, hidden: set) -> list:
+    """Previously monitored channels, newest activity first. Not truncated —
+    callers slice. Clearing needs the full set or "clear all" would only hide
+    the visible page and the next eight would slide up to replace them."""
+    pdir = Path(settings.local_storage_path) / "profiles" / uid
+    try:
+        files = sorted(pdir.glob("*.json"), key=lambda p: p.stat().st_mtime,
+                       reverse=True)
+    except OSError:
+        return []
+    return [p.stem for p in files
+            if p.stem.lower() not in monitored and p.stem.lower() not in hidden]
+
+
 @app.get("/streams/suggest")
 async def stream_suggestions(request: Request, q: str = ""):
     """Suggestions for the add-stream box, so users don't have to type exact
     channel names. With q: Twitch partial-name search. Without q (zero state):
     the user's previously monitored channels (their profile files, newest
     activity first) + the most-watched live channels right now. Channels the
-    user already monitors are filtered out of every list."""
+    user already monitors — or has cleared from the recent list — are filtered
+    out."""
     from src.output import twitch_clips
     uid = _current_user_id(request)
     monitored = {(s.get("channel") or "").lower() for s in _streams.values()
@@ -2361,14 +2422,7 @@ async def stream_suggestions(request: Request, q: str = ""):
     if q:
         rows = await twitch_clips.search_channels(q)
         return {"results": [r for r in rows if r["login"].lower() not in monitored]}
-    recent = []
-    pdir = Path(settings.local_storage_path) / "profiles" / uid
-    try:
-        files = sorted(pdir.glob("*.json"), key=lambda p: p.stat().st_mtime,
-                       reverse=True)
-        recent = [p.stem for p in files if p.stem.lower() not in monitored][:8]
-    except OSError:
-        pass
+    recent = _recent_channels(uid, monitored, _hidden_for(uid))[:8]
     global _popular_streams_cache
     ts, popular = _popular_streams_cache
     if time.time() - ts > _POPULAR_STREAMS_TTL:
@@ -2378,6 +2432,40 @@ async def stream_suggestions(request: Request, q: str = ""):
     return {"recent": recent,
             "popular": [p for p in popular
                         if p["login"].lower() not in monitored][:8]}
+
+
+# MUST STAY ABOVE @app.delete("/streams/{channel}") — FastAPI resolves in
+# declaration order. "/streams/suggest/recent" has two segments after /streams
+# so it cannot be swallowed by the single-segment route, but the sibling that
+# WOULD be ("/streams/suggest") is deliberately not used for exactly that
+# reason: it would be matched as channel="suggest" and delete nothing.
+@app.delete("/streams/suggest/recent", status_code=204)
+async def clear_recent_suggestions(request: Request):
+    """Clear the whole 'Recently monitored' list.
+
+    Hides every channel currently eligible for the list, not just the eight on
+    screen — clearing a visible page and watching the next eight slide up to
+    take their place is not what anyone means by clear.
+    """
+    uid = _current_user_id(request)
+    monitored = {(s.get("channel") or "").lower() for s in _streams.values()
+                 if s.get("user_id") == uid}
+    hidden = _hidden_for(uid)
+    _set_hidden_for(uid, hidden | {c.lower() for c in
+                                   _recent_channels(uid, monitored, hidden)})
+    await broadcast({"event": "suggestions_cleared"}, user_id=uid)
+    return Response(status_code=204)
+
+
+@app.delete("/streams/suggest/recent/{channel}", status_code=204)
+async def clear_one_recent_suggestion(request: Request, channel: str):
+    """Remove a single channel from 'Recently monitored'."""
+    if not _CHANNEL_RE.match(channel):
+        raise HTTPException(status_code=400, detail="Invalid channel name")
+    uid = _current_user_id(request)
+    _set_hidden_for(uid, _hidden_for(uid) | {channel.lower()})
+    await broadcast({"event": "suggestions_cleared"}, user_id=uid)
+    return Response(status_code=204)
 
 
 # Fraction of the global pool held back so somebody with NO streams can always
@@ -2550,6 +2638,9 @@ async def add_stream(request: Request, req: StreamRequest):
         }
         _streams[stream_key] = record
         _save_streams()
+        # Going back to a channel outranks having once cleared it from the
+        # list, so the dismissal is lifted here rather than surviving forever.
+        _unhide_suggestion(uid, req.channel)
     await broadcast({"event": "stream_added", "stream": record}, user_id=uid)
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, preset, uid)
