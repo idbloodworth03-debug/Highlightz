@@ -161,9 +161,27 @@ print(f"  python (app + workers) : {fmt(py_rss)} RSS, {py_cpu:.1f}% CPU"
       "   <- fixed baseline AND per-stream, not separable from one sample")
 print(f"  streamlink + ffmpeg    : {fmt(sub_rss)} RSS, {sub_cpu:.1f}% CPU"
       "   <- purely per-stream")
-mem_each = sub_rss / streams
-cpu_each = sub_cpu / streams
-print(f"  marginal per stream    : ~{fmt(mem_each)}, ~{cpu_each:.1f}% of one core")
+
+# DIVIDE BY THE LIVE STREAMS, NOT THE REGISTERED ONES. A worker only starts a
+# streamlink once its channel actually goes live, so a box with 16 registered
+# streams and 8 live is paying for 8. Dividing the subprocess cost by 16 halves
+# the apparent per-stream price and produces a ceiling roughly twice what the
+# box can really take — which is the wrong direction to be wrong in, because
+# the number is used to decide whether to accept MORE work.
+#
+# The streamlink process count is the honest denominator: it is one per live
+# audio-enabled worker by construction. Falling back to the registered count
+# only when nothing is running keeps the no-audio case from dividing by zero.
+live = tot.get("streamlink", (0, 0, 0))[0] or streams
+mem_each = sub_rss / live
+cpu_each = sub_cpu / live
+print(f"  streams registered     : {streams}")
+print(f"  streams LIVE right now : {live}   <- what is actually being paid for")
+print(f"  marginal per LIVE stream: ~{fmt(mem_each)}, ~{cpu_each:.1f}% of one core")
+if live < streams:
+    print(f"      Only {live} of {streams} registered channels are live. The ceiling below")
+    print(f"      is what the box can run CONCURRENTLY — if all {streams} went live at")
+    print(f"      once it would need ~{cpu_each * streams:.0f}% of a core.")
 if sub_rss == 0:
     print("      (no streamlink/ffmpeg running — either audio detection is off")
     print("       or no worker has started one yet, so the marginal cost here is")
@@ -177,7 +195,7 @@ print("=" * 70)
 # room, and on a swapless box running out of memory is a kill, not a slowdown.
 RESERVE = 400 * 1048576
 room = max(0, mem["MemAvailable"] - RESERVE)
-by_mem = int(streams + (room / mem_each)) if mem_each > 0 else None
+by_mem = int(live + (room / mem_each)) if mem_each > 0 else None
 by_cpu = int((cores * 100 * 0.75 - py_cpu) / cpu_each) if cpu_each > 0 else None
 if by_mem is None or by_cpu is None:
     print("  CANNOT SAY. No per-stream subprocess cost was measurable, so there is")
