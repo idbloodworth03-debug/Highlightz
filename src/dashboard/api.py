@@ -5526,90 +5526,107 @@ LANDING_HTML = """<!DOCTYPE html>
     .ptier-b .ptier-fig{font-size:34px}
   }
 
-  /* ── See it in action: cropped windows onto real product DOM ──────────────
-     The capture is laid out at its NATURAL width and scaled down, never
-     reflowed: reflowing would trip the dashboard's own media queries and show
-     a layout that no user of the product actually has. The window then crops
-     to the scaled height, hard-edged, with a real shadow. */
-  .pcrop{margin:0;min-width:0}
-  /* WIDTH IS THE SCALED WIDTH, not 100%. The capture is scaled for exactly
-     --cw pixels, so letting the window be whatever the grid column happened to
-     be left a dark band down the right and along the bottom where the scaled
-     content stopped short: 769px of frame around 701px of product. Pinning the
-     window to the width it was scaled for makes the content meet every edge. */
-  .pcrop-win{position:relative;overflow:hidden;
-    width:calc(var(--cw) * 1px);max-width:100%;
-    aspect-ratio:var(--cw)/var(--ch);
-    border:1px solid var(--hair);border-radius:5px;background:#08080b;
-    box-shadow:0 18px 46px -22px rgba(0,0,0,.8),0 2px 6px -2px rgba(0,0,0,.5);
+  /* ── See it in action ─────────────────────────────────────────────────────
+     NOTHING IS SCALED HERE. The captures are live DOM, so each one is handed
+     its column and lays itself out in it. The previous version shrank a
+     natural-width capture with transform:scale() to a hardcoded pixel width,
+     which is what threw the alignment out: 1180px of content inside a 1720px
+     container at 1920, pinned left, 468px of dead space on the right. A fixed
+     width in a fluid container cannot centre, and centring it would only have
+     redistributed the emptiness. Filling the column removes it. */
+  #product{overflow-x:clip;
+    padding-top:clamp(30px,3.4vw,50px);padding-bottom:clamp(52px,6vw,92px)}
+  #product .sec-title{margin-bottom:0}
+  .pshows{display:flex;flex-direction:column;gap:clamp(52px,6.5vw,96px);margin-top:34px}
+
+  /* Copy beside the picture, not stacked above it, and the sides alternate.
+     The copy column is deliberately the narrow one: the screenshot is the
+     argument, the sentence is the caption. */
+  .pshow{display:grid;grid-template-columns:minmax(230px,.3fr) minmax(0,.7fr);
+    gap:clamp(22px,3vw,52px);align-items:center}
+  .pshow-alt{grid-template-columns:minmax(0,.7fr) minmax(230px,.3fr)}
+  /* The lead reads as a statement, not a caption. At 15px beside a 620px
+     picture the column looked empty; the imbalance was the copy being too
+     small for the space, not the space being wrong. */
+  .pshow-copy p{font-size:clamp(17px,1.45vw,21px);line-height:1.5;color:var(--ink);
+    margin:0;max-width:24ch;letter-spacing:-.011em}
+  .pshow-media{position:relative;min-width:0}
+
+  /* Bleeding off one edge. The section clips rather than hides so position:
+     sticky elsewhere on the page keeps working. */
+  .pshow-media.bleed-r{margin-right:calc(-1 * clamp(20px,6vw,150px))}
+  .pshow-media.bleed-l{margin-left:calc(-1 * clamp(20px,6vw,150px))}
+
+  /* The surface. A fixed height means no shift when the capture paints, and
+     the shadow has one light direction (upper right) instead of an even glow,
+     so it sits on something rather than floating. */
+  .pshot{position:relative;overflow:hidden;height:calc(var(--h) * 1px);
+    border:1px solid var(--hair-2);border-radius:7px;background:#08080b;
+    box-shadow:-26px 30px 64px -34px rgba(0,0,0,.9),
+               -2px 3px 0 0 rgba(255,255,255,.028) inset;
+    transform:perspective(2200px) rotateY(-1.1deg) rotateX(.5deg);
+    transform-origin:left center;
+    transition:transform .45s cubic-bezier(.22,.61,.36,1),
+               box-shadow .45s cubic-bezier(.22,.61,.36,1);
     contain:paint}
-  .pcrop-win .pcap{position:absolute;top:0;left:0;
-    width:calc(var(--nw) * 1px);height:calc(var(--nh) * 1px);
-    transform:scale(var(--sc));transform-origin:top left;
-    pointer-events:none;user-select:none}
-  .pcrop figcaption{margin-top:11px;font-size:13px;line-height:1.55;color:var(--ink-3);
-    max-width:52ch}
-  /* Below the width where the crop would be illegibly small, the window keeps
-     its left edge and lets the right side run out of frame rather than
-     shrinking the type past readability. */
-  /* On a phone the SAME capture lays itself out as the phone dashboard, because
-     the product's media queries fire against the visitor's viewport. So the
-     crop switches to the mobile box and shows the top of it at roughly 1:1,
-     rather than shrinking a desktop layout until the type is four pixels tall
-     or cropping a corner of it. */
-  /* Stacked from 1200px, not 820: side by side the two crops need 1152px of
-     track before either is allowed to shrink, and shrinking them is what puts
-     empty frame back. */
-  @media (max-width:1200px){
-    .pshot-pair{grid-template-columns:minmax(0,1fr);gap:26px}
-  }
-  @media (max-width:820px){
-    /* NOT SCALED AT ALL down here. The capture is given the container's own
-       width and left to lay itself out, and because the product's media
-       queries fire against the visitor's real viewport, what it lays out IS
-       the phone dashboard. A transform:scale() with a hardcoded ratio was
-       clipping the right edge, since the column is narrower than the viewport
-       by the page's padding and that difference changes with the width. */
-    .pcrop-win{aspect-ratio:auto;height:calc(var(--mch) * 1px)}
-    .pcrop-win .pcap{position:relative;width:100%;height:auto;transform:none}
+  .pshow-alt .pshot{transform:perspective(2200px) rotateY(1.1deg) rotateX(.5deg);
+    transform-origin:right center;
+    box-shadow:26px 30px 64px -34px rgba(0,0,0,.9),
+               2px 3px 0 0 rgba(255,255,255,.028) inset}
+  .pshow-media:hover .pshot{transform:perspective(2200px) rotateY(0) rotateX(0)
+    translateY(-3px)}
+  .pshot .pcap{position:relative;width:100%;height:auto;
+    margin-top:calc(var(--top, 0) * -1px)}
+
+  /* The clip detail lifted over the lower-left corner of the monitor. It
+     carried a caption that rendered on top of the dashboard and was
+     unreadable; that sentence now sits in the copy column with the rest. */
+  .pshot-inset{position:absolute;left:clamp(-30px,-1.6vw,-10px);bottom:-26px;
+    width:min(306px,40%);z-index:2}
+  .pshot-inset .pshot{border-radius:6px;
+    transform:perspective(2200px) rotateY(-2.6deg) rotateX(.9deg);
+    box-shadow:-20px 26px 48px -18px rgba(0,0,0,.95)}
+  .pshow-note{margin-top:16px !important;font-size:14px !important;
+    line-height:1.6 !important;color:var(--ink-3) !important;padding-top:14px;
+    max-width:30ch !important;border-top:1px solid var(--hair)}
+
+  /* One callout per picture: a hairline and two or three words. Percentages,
+     because the capture reflows with its column. */
+  .pcall{position:absolute;z-index:4;display:flex;align-items:center;gap:9px;
+    pointer-events:none;transform:translateY(-50%)}
+  .pcall i{display:block;height:1px;width:clamp(30px,4vw,64px);flex-shrink:0;
+    background:linear-gradient(90deg,transparent,var(--glow))}
+  .pcall b{font-family:var(--mono);font-size:10.5px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--glow);
+    white-space:nowrap;text-shadow:0 1px 6px rgba(0,0,0,.9)}
+  /* Direction matters: the rule has to END on the thing it points at, so the
+     label leads and the line trails toward the target. */
+  .pcall-to-right{flex-direction:row-reverse}
+  .pcall-to-right i{background:linear-gradient(90deg,transparent,var(--glow))}
+  .pcall-to-left i{background:linear-gradient(270deg,transparent,var(--glow))}
+
+  @media (max-width:900px){
+    /* Stack, but the picture stays large: it goes first and keeps the bleed on
+       both sides so it still runs past the text column. */
+    .pshow,.pshow-alt{grid-template-columns:minmax(0,1fr);gap:20px}
+    .pshow-media{order:-1}
+    .pshow-copy p{max-width:none}
+    .pshot{height:calc(var(--hm) * 1px);
+      transform:none;transform-origin:center}
+    .pshow-alt .pshot{transform:none}
+    /* Exactly the wrap's own side padding, so the picture reaches the
+       viewport edge instead of stopping inside the gutter. */
+    .pshow-media.bleed-r,.pshow-media.bleed-l{
+      margin-left:calc(-1 * clamp(20px,4.5vw,72px));
+      margin-right:calc(-1 * clamp(20px,4.5vw,72px))}
+    .pshot{border-radius:0;border-left:0;border-right:0}
+    /* The product's own responsive layout moves what these point at, so they
+       would be aiming at nothing. */
+    .pcall{display:none}
+    .pshot-inset{position:static;width:auto;margin-top:18px}
+    .pshot-inset .pshot{transform:none}
   }
 
-  /* ── See it in action: real captures in hard-edged frames ─────────────────
-     Presented as screenshots, not as styled cards: a hairline edge, a real
-     shadow, the capture's own aspect ratio, and no rounded-card chrome. The
-     aspect-ratio box reserves the space from --pw/--ph so the layout does not
-     move when the file arrives. */
-  /* The implicit column has to be bounded. A bare `display:grid` gives its
-     tracks `auto`, which sizes to MAX-CONTENT: the crop is 1180px wide by
-     declaration, so the track became 1180px, the row became 1180px, and the
-     whole page scrolled sideways on anything narrower. max-width:100% on the
-     crop could not save it because the parent had already grown to fit. */
-  .pshots{margin-top:30px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
-  .pshot-wide,.pshot-pair{min-width:0;max-width:100%}
-  /* max-content, not fr: the crops are pinned to the width they were scaled
-     for, so a stretching column would only add empty frame beside them.
-     minmax(0,...) so the tracks can still SHRINK — plain max-content held the
-     pair at 430+700 and pushed 470px of horizontal overflow onto tablets. */
-  .pshot-pair{display:grid;
-    grid-template-columns:minmax(0,max-content) minmax(0,max-content);gap:22px;
-    align-items:start;justify-content:start}
-  .pshot{margin:0;min-width:0}
-  .pshot-m,.pshot-ph{display:block;width:100%;height:auto;aspect-ratio:var(--pw)/var(--ph);
-    border:1px solid var(--hair);border-radius:5px;background:var(--wall);
-    box-shadow:0 18px 46px -22px rgba(0,0,0,.75),0 2px 6px -2px rgba(0,0,0,.45)}
-  .pshot-m{object-fit:cover;object-position:top left}
-  .pshot figcaption{margin-top:11px;font-size:13px;line-height:1.55;color:var(--ink-3);
-    max-width:52ch}
-  /* Not a broken-image icon. A labelled box reads as "not captured yet" and
-     keeps the page publishable before any capture run. */
-  .pshot-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:7px;text-align:center;padding:20px;border-style:dashed;
-    border-color:rgba(184,106,220,.28);background:rgba(184,106,220,.045);box-shadow:none}
-  .pshot-k{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--ink-2)}
-  .pshot-f{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
-  @media (max-width:820px){
-    .pshot-pair{grid-template-columns:minmax(0,1fr);gap:26px}
   }
 
   /* ── How it works: three steps, deliberately unequal ──────────────────────
@@ -6718,56 +6735,105 @@ LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTM
 from src.dashboard import landing_product as _P
 
 
-def _crop(html: str, box: tuple, w: int, hm: int, alt: str, cap: str) -> str:
-    """One captured surface, cropped to a fixed window.
+def _shot(html: str, alt: str, h: int, hm: int, cls: str = "",
+          top: int = 0) -> str:
+    """A captured surface, cropped to a fixed height and filling its column.
 
-    `w` is how wide the crop is on the page; the capture is scaled to it. The
-    box keeps the capture's real proportions so nothing is squashed, and the
-    whole thing is inert: it is a picture of the product, and a visitor must
-    not be able to tab into thirty dead controls on their way to the pricing.
+    NOTHING IS SCALED. The earlier version laid the capture out at its natural
+    width and shrank it with transform:scale() to a hardcoded pixel width, which
+    caused the misalignment: a 1180px block sitting inside a 1720px container at
+    1920, hugging the left with 468px of dead space on the right. Fixed widths
+    inside a fluid container cannot centre, and centring them would only have
+    moved the empty space rather than removing it.
+
+    These are live DOM, not images, so they can simply be given the column and
+    allowed to lay themselves out in it — the same mechanism that already worked
+    on mobile. The capture then fills the space at every width, which fixes the
+    alignment and makes it dominant at the same time.
+
+    `h` is the crop height in px, set in CSS so there is no shift on load, and
+    `hm` is the same for phones where the product's own layout is much taller.
     """
-    nat_w, nat_h = box
-    scale = w / nat_w
-    # Only the DESKTOP box needs numbers. On a phone the same markup lays itself
-    # out as the phone dashboard on its own, because the product's media queries
-    # fire against the visitor's real viewport, so all mobile needs from here is
-    # how tall a window to crop it to.
+    # `top` scrolls the capture up inside its window. The clip detail is 729px
+    # tall and its media area fills the first half, so a crop from the top shows
+    # a thumbnail and nothing else — the signal breakdown, which is the whole
+    # reason that panel is on the page, starts below the fold of the crop.
     return (
-        '<figure class="pcrop" style="'
-        + "--cw:" + str(w) + ";--ch:" + str(round(nat_h * scale))
-        + ";--sc:" + f"{scale:.4f}" + ";--nw:" + str(nat_w) + ";--nh:" + str(nat_h)
-        + ";--mch:" + str(hm) + '">'
-        + '<div class="pcrop-win" role="img" aria-label="' + html_escape(alt) + '">'
-        + '<div class="pcap" inert aria-hidden="true">' + html + "</div></div>"
-        + '<figcaption>' + html_escape(cap) + "</figcaption></figure>")
+        '<div class="pshot ' + cls + '" style="--h:' + str(h) + ";--hm:" + str(hm)
+        + ";--top:" + str(top) + '"'
+        + ' role="img" aria-label="' + html_escape(alt) + '">'
+        + '<div class="pcap" inert aria-hidden="true">' + html + "</div></div>")
+
+
+def _callout(label: str, x: str, y: str, cls: str) -> str:
+    """A thin rule and two or three words, pointing into the capture.
+
+    Positioned in percentages of the crop rather than pixels, because the
+    capture reflows with its column. Hidden below the tablet breakpoint, where
+    the product's own responsive layout moves the thing being pointed at.
+    """
+    return ('<span class="pcall ' + cls + '" style="left:' + x + ";top:" + y + '"'
+            + ' aria-hidden="true"><i></i><b>' + html_escape(label) + "</b></span>")
 
 
 def _product_shots() -> str:
-    # Asymmetric on purpose: the monitor runs full width because it is the one
-    # that shows the whole job being done, then the clip detail and the queue
-    # sit beside each other at unequal widths.
+    """Two paired rows, alternating sides, each capture bleeding off one edge.
+
+    The copy sits beside the picture instead of above it, which is what removes
+    the empty band each one used to float in. The clip detail overlaps the
+    corner of the monitor rather than getting a row of its own, so the section
+    reads as one surface with a panel on top of it instead of three rectangles
+    stacked down the page.
+    """
     return (
-        '<div class="pshots">'
-        + '<div class="pshot-wide">'
-        + _crop(_P.STREAMS_HTML, _P.STREAMS_BOX, 1180, 620,
+        '<div class="pshows">'
+
+        # Row one: copy left, the monitor bleeding off the right edge, with the
+        # clip detail lifted over its lower-left corner.
+        + '<div class="pshow">'
+        + '<div class="pshow-copy"><p>Five channels being watched at the same '
+          "time. The score is live, the threshold is this channel's own, and "
+          "the signals underneath are what moved it.</p>"
+        # This sentence used to sit under the inset, where it rendered ON TOP of
+        # the dashboard and was unreadable. It belongs with the other copy.
+        + '<p class="pshow-note">Every clip shows its own numbers. This is why '
+          "that one fired.</p></div>"
+        + '<div class="pshow-media bleed-r">'
+        + _shot(_P.STREAMS_HTML,
                 "The Live Streams dashboard: five channels monitored at once, "
                 "one live and scoring 61.7 against a threshold of 51, one "
-                "offline and one reconnecting.",
-                "Five channels being watched at the same time. The score is live, "
-                "the threshold is this channel's own, and the signals underneath "
-                "are what moved it.")
-        + "</div>"
-        + '<div class="pshot-pair">'
-        + _crop(_P.DETAIL_HTML, _P.DETAIL_BOX, 430, 700,
+                "offline and one reconnecting.", 620, 560)
+        # Cropped from 300px down so the window holds the WHY IT FIRED bars
+        # rather than the thumbnail above them.
+        + '<div class="pshot-inset">'
+        + _shot(_P.DETAIL_HTML,
                 "One clip opened, showing chat velocity 72%, keyword hits 65%, "
-                "sentiment 82% and audio spike 81%.",
-                "Every clip shows its own numbers. This is why that one fired.")
-        + _crop(_P.REVIEW_HTML, _P.REVIEW_BOX, 700, 620,
-                "The review queue: pending, approved and rejected clips across "
-                "several channels.",
-                "The queue. Approve, reject, and the formula moves toward you.")
-        + "</div></div>")
+                "sentiment 82% and audio spike 81%.", 258, 258, "pshot-sm", 290)
+        + "</div>"
+        # Aimed with measured coordinates, not guessed: 61.7 spans x 87-94.8%
+        # at y 22.9% of this capture. The callout is ~15% wide, so starting it
+        # at 70% lands the end of the rule just short of the number.
+        + _callout("live score", "70%", "23%", "pcall-to-right")
+        + "</div></div>"
 
+        # Row two: the queue bleeding off the left, copy on the right.
+        + '<div class="pshow pshow-alt">'
+        + '<div class="pshow-media bleed-l">'
+        + _shot(_P.REVIEW_HTML,
+                "The review queue: pending, approved and rejected clips across "
+                "several channels.", 560, 520)
+        # Every card carries its badges at the SAME height, so a label placed
+        # beside one lands on the next one's. Both earlier attempts did: first
+        # on the channel name, then on a "29% viral" badge. This sits in the
+        # clear span between card two's own two badges (its left one ends at
+        # 60%, its right begins at 91.6%) and points right at the trigger score.
+        + _callout("score per clip", "68%", "46%", "pcall-to-right")
+        + "</div>"
+        + '<div class="pshow-copy"><p>The queue. Approve, reject, and the '
+          "formula moves toward you.</p></div>"
+        + "</div>"
+
+        + "</div>")
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────

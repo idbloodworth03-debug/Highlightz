@@ -130,16 +130,95 @@ def test_the_product_stylesheet_cannot_escape_its_wrapper():
     assert bad == [], f"these product rules are not scoped to .pcap: {bad[:4]}"
 
 
-def test_every_capture_is_cropped_at_its_real_aspect_ratio():
-    """The capture is scaled, never reflowed. Reflowing it into the marketing
-    column would trip the dashboard's own media queries and show a layout no
-    user of the product actually has."""
-    from src.dashboard import landing_product as P
-    for box in (P.STREAMS_BOX, P.REVIEW_BOX, P.DETAIL_BOX):
-        assert box[0] > 300 and box[1] > 300, f"implausible capture box {box}"
-    assert "aspect-ratio:var(--cw)/var(--ch)" in CSS.replace(" ", "")
-    assert "transform:scale(var(--sc))" in CSS.replace(" ", "")
 
+def test_nothing_in_the_capture_is_scaled():
+    """THE ALIGNMENT BUG, pinned.
+
+    The captures used to lay out at their natural width and shrink with
+    transform:scale() to a hardcoded pixel width. That is what threw them off
+    centre: 1180px of content inside a 1720px container at 1920, pinned left,
+    468px of dead space on the right. A fixed width in a fluid container cannot
+    centre, and centring it would only have moved the emptiness around.
+
+    They are live DOM, so each is handed its column and lays itself out in it,
+    filling the width at every breakpoint. If a scale ever comes back, so does
+    the misalignment.
+    """
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert "transform:scale(var(--sc))" not in css, "the capture is being scaled again"
+    assert "width:calc(var(--cw)*1px)" not in css, \
+        "the crop window is pinned to a fixed pixel width again"
+    assert ".pshot.pcap{position:relative;width:100%" in css, \
+        "the capture no longer fills its column"
+
+
+def test_the_capture_rows_cannot_overflow_or_hug_one_side():
+    """Both halves of the fix. The columns are fractional so the row always
+    fills its container, and every track can shrink so nothing can push the
+    page sideways."""
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert ".pshow{display:grid;grid-template-columns:minmax(230px,.3fr)minmax(0,.7fr)" in css, \
+        "the paired row's tracks are not fractional"
+    assert ".pshow-alt{grid-template-columns:minmax(0,.7fr)minmax(230px,.3fr)}" in css, \
+        "the alternating row does not mirror"
+    assert "#product{overflow-x:clip" in css, \
+        "the section does not clip, so a bleeding capture scrolls the page"
+
+
+def test_the_crop_height_is_fixed_so_nothing_shifts():
+    """The capture paints after layout. Without a height set in CSS the row
+    would grow when it lands and push everything below it down."""
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert "height:calc(var(--h)*1px)" in css, "the crop has no fixed height"
+    assert "height:calc(var(--hm)*1px)" in css, "no fixed height on phones"
+    assert re.search(r'--h:\d+;--hm:\d+', HTML), "a capture ships without its dimensions"
+
+
+def test_each_capture_gets_one_callout_aimed_at_something():
+    """The bland part was that nothing said where to look. One annotation per
+    picture, two or three words, positioned in percentages because the capture
+    reflows with its column."""
+    calls = re.findall(r'<span class="pcall ([^"]+)" style="left:([\d.]+)%;top:([\d.]+)%"', HTML)
+    assert len(calls) == 2, f"expected one callout per capture, found {len(calls)}"
+    for cls, x, y in calls:
+        assert cls.startswith("pcall-to-"), f"callout {cls} has no direction"
+        assert 0 < float(x) < 100 and 0 < float(y) < 100, "a callout points off the picture"
+    words = re.findall(r'<span class="pcall[^>]*><i></i><b>([^<]+)</b>', HTML)
+    for w in words:
+        assert 1 <= len(w.split()) <= 3, f"callout label is not 2-3 words: {w!r}"
+
+
+def test_the_callouts_are_hidden_where_they_would_aim_at_nothing():
+    """Below the tablet breakpoint the product's own responsive layout moves
+    the thing being pointed at, so a callout would point into empty space."""
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert ".pcall{display:none}" in css, \
+        "the callouts survive into the phone layout, where their targets have moved"
+
+
+def test_the_copy_sits_beside_the_picture_not_above_it():
+    """The empty band each screenshot floated in was the stacked layout. Paired
+    columns are what removed it."""
+    assert HTML.count('class="pshow-copy"') == 2
+    assert HTML.count('class="pshow-media') == 2
+    assert "pshow-alt" in HTML, "the rows do not alternate sides"
+
+
+def test_one_capture_is_layered_over_another():
+    """The clip detail overlaps the monitor's corner rather than taking a row
+    of its own, so the section reads as one surface with a panel on it."""
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert 'class="pshot-inset"' in HTML
+    assert ".pshot-inset{position:absolute" in css and "z-index:2" in css
+
+
+# ── thumbnails ───────────────────────────────────────────────────────────────
+# REPORTED: "flat brown rectangles". Diagnosis: no image was ever set — the
+# capture seeded thumbnail_url as "" — so the components took their fallback
+# branch, thumbFor(clip.channel). That hashes the CHANNEL, so every clip from
+# one channel got a byte-identical rectangle, and a queue dominated by jynxzi
+# (hue 24) and lacy (hue 35) rendered as brown repeats. Not a 404, and not one
+# shared colour bleeding through.
 
 def test_the_seeded_account_looks_used_not_demoed():
     """Placeholder-perfect data is its own tell. A real account mid-session has
@@ -316,39 +395,6 @@ def test_the_faq_schema_matches_the_visible_questions():
     assert len(shown) >= 5, "the visible FAQ could not be read at all"
     assert len(faq["mainEntity"]) == len(shown)
 
-
-def test_the_capture_grid_tracks_are_bounded():
-    """A bare `display:grid` gives its tracks `auto`, which sizes to MAX-CONTENT.
-
-    The crops declare a pixel width (the width they were scaled for), so an
-    unbounded track grew to 1180px, the row grew with it, and the whole page
-    scrolled sideways on anything narrower than the desktop crop. max-width:100%
-    on the crop could not save it, because by then the parent had already grown
-    to fit the child. Every container between the section and the crop has to
-    be able to shrink.
-    """
-    css = CSS.replace(" ", "").replace("\n", "")
-    assert ".pshots{margin-top:30px;display:grid;grid-template-columns:minmax(0,1fr)" in css, \
-        "the capture grid track is unbounded again"
-    assert ".pshot-wide,.pshot-pair{min-width:0;max-width:100%}" in css
-
-
-def test_the_crops_are_pinned_to_the_width_they_were_scaled_for():
-    """Sizing the window to 100% of whatever column it landed in left a dark
-    band where the scaled content stopped short: 769px of frame around 701px of
-    product, which is the "black box" that got reported."""
-    css = CSS.replace(" ", "").replace("\n", "")
-    assert "width:calc(var(--cw)*1px);max-width:100%" in css, \
-        "the crop window is no longer pinned to its scaled width"
-
-
-# ── thumbnails ───────────────────────────────────────────────────────────────
-# REPORTED: "flat brown rectangles". Diagnosis: no image was ever set — the
-# capture seeded thumbnail_url as "" — so the components took their fallback
-# branch, thumbFor(clip.channel). That hashes the CHANNEL, so every clip from
-# one channel got a byte-identical rectangle, and a queue dominated by jynxzi
-# (hue 24) and lacy (hue 35) rendered as brown repeats. Not a 404, and not one
-# shared colour bleeding through.
 
 def _clip_imgs():
     from src.dashboard import landing_product as P
