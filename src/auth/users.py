@@ -85,12 +85,12 @@ def _load() -> list[dict]:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 if path == _BACKUP_FILE:
-                    _ulog.warning("users_loaded_from_backup", path=str(path))
+                    _ulog.warning("users_loaded_from_backup path=%s", path)
                 return data
         except FileNotFoundError:
             continue
         except json.JSONDecodeError as exc:
-            _ulog.error("users_json_corrupt", path=str(path), error=str(exc))
+            _ulog.error("users_json_corrupt path=%s error=%s", path, exc)
             continue
     return []
 
@@ -100,7 +100,7 @@ def _save(users: list[dict]) -> None:
     why that last part matters (a root-run admin script once made this file
     unreadable to the service and took the whole site down)."""
     atomic_write_json(_USERS_FILE, users, backup_path=_BACKUP_FILE)
-    _ulog.debug("users_saved", count=len(users))
+    _ulog.debug("users_saved count=%d", len(users))
 
 
 _SECRET_FIELDS = ("password_hash", "salt", "tw_access", "tw_refresh", "kick_access", "kick_refresh")
@@ -280,10 +280,27 @@ def _store_refreshed_tokens(user_id: str, access_token: str, refresh_token: str,
     _save(users)
 
 
+class TwitchTokenTransientError(RuntimeError):
+    """The refresh could not be completed, but nothing says the token is bad.
+
+    Separated from "returns None" because the two mean opposite things to the
+    caller and only one of them is the user's problem. None means Twitch told
+    us the refresh token is dead and the user genuinely has to sign in again,
+    which stops their streams. This means we could not reach Twitch, or Twitch
+    had a bad minute — the token may well be fine, and the right response is to
+    let the next moment try again rather than to stop every stream the user has
+    and tell them to re-login.
+    """
+
+
 async def get_valid_twitch_token(user_id: str) -> str | None:
-    """Return a currently-valid Twitch access token for the user, refreshing
-    it via the stored refresh token if it has expired. Returns None if the user
-    has no linked Twitch account or the refresh fails."""
+    """Return a currently-valid Twitch access token for the user, refreshing it
+    via the stored refresh token if it has expired.
+
+    Returns None when the user has no linked Twitch account, or when Twitch
+    says the refresh token itself is no longer good — both mean re-login.
+    Raises TwitchTokenTransientError when the refresh merely failed to happen.
+    """
     user = get_by_id(user_id)
     if not user or not user.get("tw_access"):
         return None
@@ -293,15 +310,39 @@ async def get_valid_twitch_token(user_id: str) -> str | None:
 
     refresh = _decrypt(user.get("tw_refresh", ""))
     if not refresh:
+        _ulog.warning("twitch_refresh_missing user_id=%s "
+                      "detail=token_expired_and_no_refresh_token_stored", user_id)
         return None
     from src.auth import twitch_oauth
     try:
         tokens = await twitch_oauth.refresh_access_token(refresh)
-    except Exception:
-        return None
+    except Exception as exc:
+        # WAS `except Exception: return None`, WITH NO LOG. That is how six
+        # stream stoppages reached production with no recorded cause: every
+        # failure — a revoked token, a DNS blip, a 500 from Twitch — produced
+        # the identical silent None, and the caller turned all of them into
+        # "your Twitch connection has expired, monitoring stopped".
+        status = getattr(exc, "status", None)
+        # 400/401 is Twitch answering, and the answer is that this refresh
+        # token is finished — revoked, already rotated, or the app was
+        # disconnected. That one really is a re-login.
+        if status in (400, 401):
+            _ulog.warning("twitch_refresh_rejected user_id=%s status=%s error=%s "
+                          "detail=refresh_token_no_longer_valid_user_must_reauthorise",
+                          user_id, status, str(exc)[:200])
+            return None
+        _ulog.warning("twitch_refresh_failed_transient user_id=%s status=%s "
+                      "error_type=%s error=%s "
+                      "detail=could_not_reach_twitch_token_may_still_be_fine",
+                      user_id, status, type(exc).__name__, str(exc)[:200])
+        raise TwitchTokenTransientError(
+            f"Twitch token refresh failed for {user_id}: {type(exc).__name__}") from exc
     access = tokens.get("access_token", "")
     new_refresh = tokens.get("refresh_token", refresh)
     _store_refreshed_tokens(user_id, access, new_refresh, tokens.get("expires_in", 0))
+    if not access:
+        _ulog.warning("twitch_refresh_empty user_id=%s "
+                      "detail=twitch_returned_200_with_no_access_token", user_id)
     return access or None
 
 

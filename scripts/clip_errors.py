@@ -28,7 +28,15 @@ for a in sys.argv[1:]:
 TERMINAL = ["clip_token_expired", "clip_channel_not_clippable"]
 OTHER = ["clip_processor_error", "clip_skipped_queue_full", "clip_job_stale_dropped",
          "twitch_clip_ready", "processing_clip_job", "trigger_fired",
-         "clip_dropped_queue_full", "stream_worker_error", "worker_spawned"]
+         "clip_dropped_queue_full", "stream_worker_error", "worker_spawned",
+         # The Helix layer logs WHY a create failed, with the status and body.
+         # Without these the generic "Twitch clip creation failed for 'x'" is
+         # all you see, which names the channel and not the cause.
+         "twitch_clip_create_failed", "twitch_clip_rate_limited",
+         "twitch_clip_ccl_retry", "twitch_clip_not_authorized",
+         # And the refresh path, which used to fail silently.
+         "twitch_refresh_rejected", "twitch_refresh_failed_transient",
+         "twitch_refresh_missing", "twitch_refresh_empty"]
 
 try:
     out = subprocess.run(
@@ -110,6 +118,34 @@ if errs:
     print("=" * 72)
     for msg, n in errs.most_common(10):
         print(f"  {n:>4}x  {msg}")
+
+# ── why Helix refused, which is the cause behind the generic message ─────────
+fails = [l for l in lines if "twitch_clip_create_failed" in l]
+if fails:
+    print()
+    print("=" * 72)
+    print(f"WHY THE CLIP CALL FAILED  ({len(fails)})")
+    print("=" * 72)
+    by_status = collections.Counter()
+    bodies = collections.Counter()
+    for l in fails:
+        m = re.search(r'"status":\s*(\d+)', l)
+        by_status[m.group(1) if m else "?"] += 1
+        b = re.search(r'"body":\s*"(.{0,120})', l)
+        if b:
+            bodies[b.group(1)[:110]] += 1
+    print("  by HTTP status:")
+    for st, n in by_status.most_common():
+        note = {"401": "  <- the USER TOKEN is rejected; this is an auth problem",
+                "403": "  <- forbidden; channel restricts clipping",
+                "404": "  <- broadcaster or stream not found (went offline?)",
+                "429": "  <- rate limited (the Helix clip limit is global)",
+                "500": "  <- Twitch server error, transient",
+                "503": "  <- Twitch unavailable, transient"}.get(st, "")
+        print(f"      {st:<6}{n:>6}{note}")
+    print("  distinct bodies:")
+    for b, n in bodies.most_common(6):
+        print(f"      {n:>4}x  {b}")
 
 print()
 print("=" * 72)
