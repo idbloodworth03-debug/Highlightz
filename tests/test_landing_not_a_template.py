@@ -218,10 +218,24 @@ def test_pricing_is_not_three_cards_with_tick_lists():
         "tick lists are back"
 
 
-def test_the_faq_is_not_an_accordion():
-    assert "<details" not in HTML, "the FAQ went back to being an accordion"
-    assert HTML.count('class="faq-item"') <= 8, "the FAQ grew back"
-    assert "faq-cols" in CSS, "the two-column Q&A layout is gone"
+def test_the_faq_is_a_short_grouped_accordion():
+    """Dropdowns, by explicit request, after a pass that had opened them out.
+
+    The accordion itself was never the real tell; twelve questions in a stack
+    was. So the disclosure widgets are back and the reductions stay: seven
+    questions rather than twelve, split under two headers, with the rest moved
+    to the walkthrough. Short enough to read the whole list before opening one.
+    """
+    assert HTML.count('class="faq-item"') == 7, "the FAQ grew back past seven"
+    assert HTML.count("<details") >= 7, "the questions are no longer dropdowns"
+    assert HTML.count('class="faq-h"') == 2, "the two groupings are gone"
+
+
+def test_the_faq_dropdowns_start_closed():
+    """An accordion rendered open is just a stack with extra markup, and it
+    would put the page back to the length this pass cut it down from."""
+    faq = re.search(r'<section[^>]*id="faq".*?</section>', HTML, re.S).group(0)
+    assert "<details open" not in faq and "<details  open" not in faq
 
 
 def test_how_it_works_has_no_oversized_numerals():
@@ -286,5 +300,37 @@ def test_the_faq_schema_matches_the_visible_questions():
     import json
     blobs = re.findall(r'<script type="application/ld\+json">(.*?)</script>', HTML, re.S)
     faq = [json.loads(b) for b in blobs if json.loads(b).get("@type") == "FAQPage"][0]
-    shown = re.findall(r'<p class="faq-q">(.*?)</p>', HTML, re.S)
-    assert len(faq["mainEntity"]) == len(shown) >= 5
+    # Tag-agnostic on purpose. This pairing has flipped between <p> and
+    # <summary> twice; both times a tag-specific pattern here made the test
+    # compare the schema against an empty list and pass for the wrong reason,
+    # which is precisely the drift it exists to catch.
+    shown = re.findall(
+        r'<(?:p|summary)[^>]*\bclass="[^"]*\bfaq-q\b[^"]*"[^>]*>(.*?)</(?:p|summary)>',
+        HTML, re.S)
+    assert len(shown) >= 5, "the visible FAQ could not be read at all"
+    assert len(faq["mainEntity"]) == len(shown)
+
+
+def test_the_capture_grid_tracks_are_bounded():
+    """A bare `display:grid` gives its tracks `auto`, which sizes to MAX-CONTENT.
+
+    The crops declare a pixel width (the width they were scaled for), so an
+    unbounded track grew to 1180px, the row grew with it, and the whole page
+    scrolled sideways on anything narrower than the desktop crop. max-width:100%
+    on the crop could not save it, because by then the parent had already grown
+    to fit the child. Every container between the section and the crop has to
+    be able to shrink.
+    """
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert ".pshots{margin-top:30px;display:grid;grid-template-columns:minmax(0,1fr)" in css, \
+        "the capture grid track is unbounded again"
+    assert ".pshot-wide,.pshot-pair{min-width:0;max-width:100%}" in css
+
+
+def test_the_crops_are_pinned_to_the_width_they_were_scaled_for():
+    """Sizing the window to 100% of whatever column it landed in left a dark
+    band where the scaled content stopped short: 769px of frame around 701px of
+    product, which is the "black box" that got reported."""
+    css = CSS.replace(" ", "").replace("\n", "")
+    assert "width:calc(var(--cw)*1px);max-width:100%" in css, \
+        "the crop window is no longer pinned to its scaled width"

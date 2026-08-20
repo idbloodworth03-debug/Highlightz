@@ -275,7 +275,30 @@ const grab = async (sel) => page.evaluate((s) => {
   const el = document.querySelector(s);
   if (!el) return null;
   const r = el.getBoundingClientRect();
-  return { html: el.outerHTML, w: Math.round(r.width), h: Math.round(r.height) };
+  // CONTENT height, not the element's own. A screen container can be taller
+  // than what it holds (.rd-main is 996px around 954px of queue), and that
+  // difference became a dark band along the bottom of the crop on the landing
+  // page. Measured from the deepest descendant that actually rendered.
+  // Only elements that actually put INK on screen count. Measuring every box
+  // returned the container's own height, because a flex child stretched to fill
+  // it is a box with no content in it, and the crop then framed 42px of nothing.
+  const inked = (n) => {
+    const cs = getComputedStyle(n);
+    if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') return false;
+    const hasText = [...n.childNodes].some(c => c.nodeType === 3 && c.textContent.trim());
+    if (hasText) return true;
+    const bg = cs.backgroundColor;
+    const solid = bg && bg !== 'transparent' && !/rgba\(0,\s*0,\s*0,\s*0\)/.test(bg);
+    return solid || cs.backgroundImage !== 'none' || cs.borderTopWidth !== '0px'
+        || n.tagName === 'svg' || n.tagName === 'IMG';
+  };
+  let bottom = 0;
+  el.querySelectorAll('*').forEach(n => {
+    const b = n.getBoundingClientRect();
+    if (b.width && b.height && inked(n)) bottom = Math.max(bottom, b.bottom);
+  });
+  const h = bottom > r.top ? Math.round(bottom - r.top) : Math.round(r.height);
+  return { html: el.outerHTML, w: Math.round(r.width), h: Math.min(h, Math.round(r.height)) };
 }, sel);
 
 const captures = {};

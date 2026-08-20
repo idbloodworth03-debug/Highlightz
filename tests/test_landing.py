@@ -157,7 +157,8 @@ def test_landing_faq_answers_what_clippers_ask_first():
     # platforms, how the scoring works). They live in the walkthrough now, which
     # the section links to.
     assert html.count('class="faq-item"') == 7
-    assert "<details" not in html, "the FAQ went back to being an accordion"
+    # Dropdowns are deliberate — see test_the_faq_is_a_short_grouped_accordion.
+    # What this test guards is the COUNT and which questions survived the cut.
     # A few key answers exist and stay honest
     assert "Is this AI?" in html and "transparent mathematical formula" in html
     assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
@@ -199,8 +200,8 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     # from PLAN_LIMITS above because the tier exists for grandfathered accounts;
     # it just is not what the page sells. Digits, not words, so the number
     # survives a scan.
-    assert f"<b>{pro} channels at once.</b>" in html
-    assert f"watches {starter} channels at once" in html
+    assert f"<b>{pro} channels</b> watched at the same time" in html
+    assert f"<b>{starter} channels</b> watched at the same time" in html
 
     # No stale "up to N streams" survives anywhere on the page.
     import re
@@ -247,7 +248,12 @@ def test_seo_layer():
     # gives is invisible in a browser and is what structured-data penalties are
     # for; a hardcoded count would not have caught the drift, only the drift's
     # size. Every question on the page, in page order, and nothing extra.
-    shown = _re.findall(r'<p class="faq-q">(.*?)</p>', html, _re.S)
+    # Tag-agnostic, like _faq_schema itself: this pairing has now flipped
+    # between <p> and <summary> twice, and each time a tag-specific pattern
+    # here silently compared the schema against an empty list.
+    shown = _re.findall(
+        r'<(?:p|summary)[^>]*\bclass="[^"]*\bfaq-q\b[^"]*"[^>]*>(.*?)</(?:p|summary)>',
+        html, _re.S)
     assert [q["name"] for q in faq["mainEntity"]] == [
         __import__("html").unescape(q).strip() for q in shown]
     assert faq["mainEntity"], "the FAQ schema is empty"

@@ -5455,54 +5455,75 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
      amber down the left until step 4, where the clip actually fires and it
      crosses to violet; that step is the one surface standing in the light. ══ */
-  /* ── FAQ: open Q&A in two columns, grouped ────────────────────────────────
-     Not an accordion stack. Seven questions is few enough to just answer in
-     the open, and a disclosure widget on every one of them is friction for no
-     benefit plus a component shape that appears on every generated page. Two
-     named groups do the sorting an accordion was pretending to do. */
-  .faq-group{margin-top:32px}
-  .faq-h{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--ink-3);font-weight:600;margin:0 0 4px;padding-bottom:12px;
-    border-bottom:1px solid var(--hair)}
-  .faq-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 46px;
-    max-width:1000px}
-  .faq-item{padding:20px 0 18px;border-bottom:1px solid var(--hair);min-width:0}
-  .faq-q{font-family:var(--sans);font-weight:650;font-size:16px;letter-spacing:-.012em;
-    color:var(--ink);margin:0 0 8px;line-height:1.35}
-  .faq-a{font-size:14.5px;line-height:1.68;color:var(--ink-2);margin:0}
-  .faq-more{margin:26px 0 0;font-size:14px;color:var(--ink-3);line-height:1.6}
-  .faq-more a{color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;
-    text-decoration-color:rgba(184,106,220,.45);transition:color .16s ease}
-  .faq-more a:hover{color:var(--ink)}
+  /* ── FAQ: disclosure widgets, grouped ─────────────────────────────────────
+     Back to dropdowns by request. Kept from the open version: seven questions
+     instead of twelve, and the two groups, so the list is still short enough to
+     scan before anything is opened. */
+  .faq-group{margin-top:30px}
+  .faq-group + .faq-group{margin-top:38px}
+  .faq-h{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
+  .faq-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:0 34px;align-content:start}
+  .faq-item{border-top:1px solid var(--hair)}
+  .faq-item:last-child{border-bottom:1px solid var(--hair)}
+  .faq-q{list-style:none;cursor:pointer;margin:0;padding:15px 30px 15px 0;
+    position:relative;font-size:15px;font-weight:600;color:var(--ink);
+    line-height:1.45;transition:color .16s ease}
+  .faq-q::-webkit-details-marker{display:none}
+  .faq-q:hover{color:var(--glow)}
+  /* Visible keyboard focus: the summary is a real tab stop. */
+  .faq-q:focus-visible{outline:2px solid var(--glow);outline-offset:3px;border-radius:2px}
+  /* The marker is drawn, not an emoji or an entity: two strokes that cross,
+     with the vertical one collapsing on open. */
+  .faq-q::before,.faq-q::after{content:"";position:absolute;right:6px;
+    top:50%;background:var(--ink-3);transition:transform .22s cubic-bezier(.4,0,.2,1),
+    background .16s ease}
+  .faq-q::before{width:11px;height:1.5px;margin-top:-.75px}
+  .faq-q::after{width:1.5px;height:11px;margin-top:-5.5px;right:10.75px}
+  .faq-item[open] .faq-q::after{transform:scaleY(0)}
+  .faq-item[open] .faq-q{color:var(--glow)}
+  .faq-q:hover::before,.faq-q:hover::after{background:var(--glow)}
+  .faq-a{margin:0;padding:0 34px 18px 0;font-size:14.5px;line-height:1.68;
+    color:var(--ink-2)}
   @media (max-width:760px){
-    .faq-cols{grid-template-columns:minmax(0,1fr);gap:0}
+    .faq-cols{grid-template-columns:minmax(0,1fr)}
   }
 
-  /* ── Pricing: one plan stated, the other in a sentence ────────────────────
-     NOT three equal cards with tick lists and a "Most popular" badge. The
-     plans differ on one axis, channel count, so three parallel columns of
-     mostly-identical ticks was pretending there was more to compare than
-     there is. One recommended plan gets the room; Starter is a line of prose
-     underneath, which is also how you would actually explain it out loud. */
-  .price-one{max-width:760px;margin:26px 0 0}
-  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);margin:0 0 26px;max-width:60ch}
-  .price-main{border:1px solid var(--hair);border-radius:6px;padding:30px 32px 28px;
-    background:linear-gradient(168deg,rgba(210,106,251,.07),transparent 62%)}
-  .price-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px}
-  .price-name{font-family:var(--sans);font-weight:700;font-size:23px;letter-spacing:-.02em;
-    color:var(--ink)}
-  .price-fig{font-family:var(--sans);font-weight:700;font-size:34px;letter-spacing:-.03em;
-    color:var(--ink);line-height:1}
-  .price-fig i{font-style:normal;font-size:14px;font-weight:500;color:var(--ink-3);
-    letter-spacing:0;margin-left:3px}
-  .price-what{font-size:15.5px;line-height:1.65;color:var(--ink-2);margin:0 0 22px;max-width:52ch}
-  .price-what b{color:var(--ink);font-weight:650}
-  .price-tiny{display:block;margin-top:12px;font-size:12.5px;color:var(--ink-3)}
-  .price-alt{margin:22px 0 0;font-size:14.5px;line-height:1.7;color:var(--ink-2);max-width:60ch}
-  .price-alt b{color:var(--ink);font-weight:650}
-  @media (max-width:700px){
-    .price-main{padding:24px 20px 22px}
-    .price-fig{font-size:29px}
+  /* ── Pricing: two tiers, deliberately unequal ─────────────────────────────
+     Not three cards of the same size with tick lists and a badge. The plans
+     are not equal and the layout says so: Pro is wider and brighter because it
+     is the one most people want, Starter sits beside it as a real option
+     rather than a decoy. Different radii and padding on the two, on purpose. */
+  .price-lead{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:60ch;
+    margin:0 0 30px}
+  .price-lead b{color:var(--ink)}
+  .ptiers{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1fr);
+    gap:20px;align-items:stretch}
+  .ptier{display:flex;flex-direction:column;gap:13px;
+    border:1px solid var(--hair);background:rgba(255,255,255,.018)}
+  .ptier-a{border-radius:4px;padding:26px 26px 28px}
+  .ptier-b{border-radius:7px;padding:32px 32px 34px;
+    border-color:rgba(184,106,220,.34);background:rgba(184,106,220,.055);
+    box-shadow:0 20px 50px -30px rgba(184,106,220,.5)}
+  .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    flex-wrap:wrap}
+  .ptier-name{font-family:var(--sans);font-weight:700;font-size:15px;
+    letter-spacing:.01em;color:var(--ink)}
+  .ptier-fig{font-family:var(--sans);font-weight:700;letter-spacing:-.02em;
+    font-size:34px;color:var(--ink)}
+  .ptier-b .ptier-fig{font-size:40px;color:var(--glow)}
+  .ptier-fig i{font-style:normal;font-size:13px;font-weight:600;color:var(--ink-3);
+    margin-left:3px}
+  .ptier-chan{margin:0;font-size:15px;color:var(--ink-2);line-height:1.5}
+  .ptier-chan b{color:var(--ink)}
+  .ptier-what{margin:0;font-size:14px;line-height:1.62;color:var(--ink-3)}
+  .ptier .btn{margin-top:auto;align-self:flex-start}
+  .price-tiny{margin:20px 0 0;font-size:13px;color:var(--ink-3)}
+  @media (max-width:760px){
+    .ptiers{grid-template-columns:minmax(0,1fr);gap:16px}
+    .ptier-b{padding:26px 24px 28px}
+    .ptier-b .ptier-fig{font-size:34px}
   }
 
   /* ── See it in action: cropped windows onto real product DOM ──────────────
@@ -5511,7 +5532,13 @@ LANDING_HTML = """<!DOCTYPE html>
      a layout that no user of the product actually has. The window then crops
      to the scaled height, hard-edged, with a real shadow. */
   .pcrop{margin:0;min-width:0}
-  .pcrop-win{position:relative;overflow:hidden;width:100%;
+  /* WIDTH IS THE SCALED WIDTH, not 100%. The capture is scaled for exactly
+     --cw pixels, so letting the window be whatever the grid column happened to
+     be left a dark band down the right and along the bottom where the scaled
+     content stopped short: 769px of frame around 701px of product. Pinning the
+     window to the width it was scaled for makes the content meet every edge. */
+  .pcrop-win{position:relative;overflow:hidden;
+    width:calc(var(--cw) * 1px);max-width:100%;
     aspect-ratio:var(--cw)/var(--ch);
     border:1px solid var(--hair);border-radius:5px;background:#08080b;
     box-shadow:0 18px 46px -22px rgba(0,0,0,.8),0 2px 6px -2px rgba(0,0,0,.5);
@@ -5530,6 +5557,12 @@ LANDING_HTML = """<!DOCTYPE html>
      crop switches to the mobile box and shows the top of it at roughly 1:1,
      rather than shrinking a desktop layout until the type is four pixels tall
      or cropping a corner of it. */
+  /* Stacked from 1200px, not 820: side by side the two crops need 1152px of
+     track before either is allowed to shrink, and shrinking them is what puts
+     empty frame back. */
+  @media (max-width:1200px){
+    .pshot-pair{grid-template-columns:minmax(0,1fr);gap:26px}
+  }
   @media (max-width:820px){
     /* NOT SCALED AT ALL down here. The capture is given the container's own
        width and left to lay itself out, and because the product's media
@@ -5546,9 +5579,20 @@ LANDING_HTML = """<!DOCTYPE html>
      shadow, the capture's own aspect ratio, and no rounded-card chrome. The
      aspect-ratio box reserves the space from --pw/--ph so the layout does not
      move when the file arrives. */
-  .pshots{margin-top:30px;display:grid;gap:22px}
-  .pshot-pair{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:22px;
-    align-items:start}
+  /* The implicit column has to be bounded. A bare `display:grid` gives its
+     tracks `auto`, which sizes to MAX-CONTENT: the crop is 1180px wide by
+     declaration, so the track became 1180px, the row became 1180px, and the
+     whole page scrolled sideways on anything narrower. max-width:100% on the
+     crop could not save it because the parent had already grown to fit. */
+  .pshots{margin-top:30px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
+  .pshot-wide,.pshot-pair{min-width:0;max-width:100%}
+  /* max-content, not fr: the crops are pinned to the width they were scaled
+     for, so a stretching column would only add empty frame beside them.
+     minmax(0,...) so the tracks can still SHRINK — plain max-content held the
+     pair at 430+700 and pushed 470px of horizontal overflow onto tablets. */
+  .pshot-pair{display:grid;
+    grid-template-columns:minmax(0,max-content) minmax(0,max-content);gap:22px;
+    align-items:start;justify-content:start}
   .pshot{margin:0;min-width:0}
   .pshot-m,.pshot-ph{display:block;width:100%;height:auto;aspect-ratio:var(--pw)/var(--ph);
     border:1px solid var(--hair);border-radius:5px;background:var(--wall);
@@ -6147,19 +6191,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Pricing -->
 <section class="band-sand seam" id="pricing"><div class="wrap">
   <h2 class="sec-title">Pricing</h2>
-  <div class="price-one">
-    <p class="price-lead">Seven days of the whole product, free, no card. After that it comes down to one question: how many channels do you need watched at the same time?</p>
-    <div class="price-main">
-      <div class="price-head">
-        <span class="price-name">Pro</span>
-        <span class="price-fig">$25<i>/month</i></span>
-      </div>
-      <p class="price-what"><b>10 channels at once.</b> A queue that holds 200 clips. The VOD Scanner, for pulling highlights out of streams that already happened.</p>
-      <a href="/login" class="btn btn-key btn-lg">Start free</a>
-      <span class="price-tiny">Cancel from the Account tab. No contracts.</span>
-    </div>
-    <p class="price-alt">Clipping for fewer people? <b>Starter is $10</b> and watches 3 channels at once with a 50-clip queue. Same detection, same formula, same everything else. You can move between them whenever you like.</p>
-  </div>
+  <!--PRICING-->
 </div></section>
 
 <!-- FAQ -->
@@ -6168,39 +6200,39 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="faq-group">
     <h3 class="faq-h">Using it</h3>
     <div class="faq-cols">
-      <div class="faq-item">
-        <p class="faq-q">Can I clip channels I don't own?</p>
+      <details class="faq-item">
+        <summary class="faq-q">Can I clip channels I don't own?</summary>
         <p class="faq-a">Yes. That is what most people use it for. Add any live Twitch channel and the clip is created through Twitch's official Clips API with your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. Twitch hosts it and it is attributed to you, same as a manual clip.</p>
-      </div>
-      <div class="faq-item">
-        <p class="faq-q">Does it work for small channels?</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Does it work for small channels?</summary>
         <p class="faq-a">Yes, and this is the whole point of per-channel calibration. A five-viewer chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns what is normal for each channel and reacts to relative spikes rather than raw numbers.</p>
-      </div>
-      <div class="faq-item">
-        <p class="faq-q">Is this AI?</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Is this AI?</summary>
         <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
-      </div>
-      <div class="faq-item">
-        <p class="faq-q">What if I don't like the clips it takes?</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What if I don't like the clips it takes?</summary>
         <p class="faq-a">Every clip lands in your review queue first. Approve the keepers, reject the misses. The formula learns from each decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes toward your taste.</p>
-      </div>
+      </details>
     </div>
   </div>
   <div class="faq-group">
     <h3 class="faq-h">The fine print</h3>
     <div class="faq-cols">
-      <div class="faq-item">
-        <p class="faq-q">Is this allowed on Twitch?</p>
+      <details class="faq-item">
+        <summary class="faq-q">Is this allowed on Twitch?</summary>
         <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who would rather their channel was not clipped through Highlightz can opt out at any time on our opt-out page.</p>
-      </div>
-      <div class="faq-item">
-        <p class="faq-q">Do you record or store my stream?</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Do you record or store my stream?</summary>
         <p class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API. Twitch hosts it and it is attributed to your account. We never record, download or re-host video.</p>
-      </div>
-      <div class="faq-item">
-        <p class="faq-q">How does billing work?</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How does billing work?</summary>
         <p class="faq-a">Seven days free with no credit card, and that trial is the full Pro product so you can find out whether the detector works on your channels before paying anything. After that Starter is $10/month for 3 channels at once and a 50-clip queue, Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner. Both renew monthly and cancel from the Account tab.</p>
-      </div>
+      </details>
     </div>
   </div>
   <p class="faq-more">More detail, including how long clips run and which platforms are supported, is in the <a href="/tutorial">walkthrough</a>.</p>
@@ -6639,13 +6671,16 @@ def _faq_schema(html: str) -> str:
     two cannot disagree.
     """
     items = []
-    # MATCHES THE PAIR, NOT AN OUTER WRAPPER. The FAQ used to be a stack of
-    # <details> accordions and this keyed on that tag; when the accordion was
-    # replaced with open Q&A the schema would have silently emptied, publishing
-    # a FAQPage with no questions in it. Keying on the two classes that carry
-    # the content survives the container changing shape again.
+    # TAG-AGNOSTIC, BY THE THIRD TIME OF ASKING. This has now broken twice for
+    # the same reason: it keyed on <details> and the FAQ became open Q&A, then
+    # it keyed on <p> and the FAQ became <details> again. Each time the schema
+    # silently emptied and the page published a FAQPage with no questions in it,
+    # which is invisible in a browser. It now matches the two CLASSES on
+    # whatever element carries them, so the container can change shape freely.
     for q, a in re.findall(
-            r'<p class="faq-q">(.*?)</p>\s*<p class="faq-a">(.*?)</p>',
+            r'<(?:p|summary|h[1-6]|div)[^>]*\bclass="[^"]*\bfaq-q\b[^"]*"[^>]*>(.*?)'
+            r'</(?:p|summary|h[1-6]|div)>\s*'
+            r'<(?:p|div)[^>]*\bclass="[^"]*\bfaq-a\b[^"]*"[^>]*>(.*?)</(?:p|div)>',
             html, re.S):
         if not q or not a:
             continue
@@ -6734,7 +6769,53 @@ def _product_shots() -> str:
         + "</div></div>")
 
 
+
+# ── Pricing, built from plans.py ─────────────────────────────────────────────
+# Typed-out prices are how this page came to advertise a free tier that no
+# longer exists. Every number below is read from PLAN_LIMITS and TRIAL_DAYS, so
+# changing a plan changes the page and a test catches any that drift.
+#
+# Two tiers and a trial, which is what is actually on sale. Deliberately NOT
+# three equal cards with tick lists and a "Most popular" badge: the plans differ
+# on one axis, how many channels get watched at once, so that is what the layout
+# leads with. The cards are different sizes because the plans are not equal.
+def _pricing() -> str:
+    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS
+    st, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def tier(key: str, limits: dict, blurb: str, cls: str) -> str:
+        return (
+            '<div class="ptier ' + cls + '">'
+            + '<div class="ptier-head"><span class="ptier-name">' + limits["label"] + "</span>"
+            + '<span class="ptier-fig">$' + str(limits["price"]) + "<i>/month</i></span></div>"
+            + '<p class="ptier-chan"><b>' + str(limits["max_streams"])
+            + " channels</b> watched at the same time</p>"
+            + '<p class="ptier-what">' + blurb + "</p>"
+            + '<a href="/login" class="btn ' + ("btn-key" if key == "pro" else "btn-quiet")
+            + ' btn-lg">Start free</a></div>')
+
+    return (
+        '<p class="price-lead"><b>' + str(TRIAL_DAYS) + " days free, no credit card.</b> "
+        + "You get the whole thing while you try it. After that there are two "
+        + "plans, and they differ on one question: how many channels do you "
+        + "need watched at once?</p>"
+        + '<div class="ptiers">'
+        + tier("starter", st,
+               "A queue that holds " + str(st["max_pending"]) + " clips. "
+               "Same detection, same formula, same everything else.",
+               "ptier-a")
+        + tier("pro", pro,
+               "A queue that holds " + str(pro["max_pending"]) + " clips, plus the "
+               "VOD Scanner for pulling highlights out of streams that already "
+               "happened.",
+               "ptier-b")
+        + "</div>"
+        + '<p class="price-tiny">Move between them whenever you like. Cancel from '
+          "the Account tab. No contracts.</p>")
+
+
 LANDING_HTML = LANDING_HTML.replace("<!--PRODUCT_SHOTS-->", _product_shots(), 1)
+LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 
 # The dashboard's own stylesheet, every selector prefixed with .pcap so it can
 # paint the captures without reaching anything else. Appended as a second style
