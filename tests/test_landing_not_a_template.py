@@ -89,8 +89,14 @@ def test_the_captures_cannot_reach_the_network():
     from src.dashboard import landing_product as P
     for name, blob in (("streams", P.STREAMS_HTML), ("review", P.REVIEW_HTML),
                        ("detail", P.DETAIL_HTML), ("css", P.PRODUCT_CSS)):
-        for bad in ("http://", "https://", "<iframe", "<img", "<video", "@import"):
+        for bad in ("http://", "https://", "<iframe", "<video", "@import"):
             assert bad not in blob, f"{name} capture contains {bad!r}"
+        # <img> is allowed ONLY when it is self-contained. The thumbnails are
+        # generated SVG data URIs, which make no request; anything with a real
+        # src is stripped by the capture script. Banning the tag outright was
+        # too blunt and would have forced the flat-colour fallback back in.
+        for tag in re.findall(r"<img\b[^>]*>", blob):
+            assert 'src="data:' in tag, f"{name} has a fetching image: {tag[:90]}"
 
 
 def test_the_captures_cannot_take_focus():
@@ -334,3 +340,77 @@ def test_the_crops_are_pinned_to_the_width_they_were_scaled_for():
     css = CSS.replace(" ", "").replace("\n", "")
     assert "width:calc(var(--cw)*1px);max-width:100%" in css, \
         "the crop window is no longer pinned to its scaled width"
+
+
+# ── thumbnails ───────────────────────────────────────────────────────────────
+# REPORTED: "flat brown rectangles". Diagnosis: no image was ever set — the
+# capture seeded thumbnail_url as "" — so the components took their fallback
+# branch, thumbFor(clip.channel). That hashes the CHANNEL, so every clip from
+# one channel got a byte-identical rectangle, and a queue dominated by jynxzi
+# (hue 24) and lacy (hue 35) rendered as brown repeats. Not a 404, and not one
+# shared colour bleeding through.
+
+def _clip_imgs():
+    from src.dashboard import landing_product as P
+    return re.findall(r"<img[^>]*>", P.REVIEW_HTML)
+
+
+def test_every_clip_has_a_thumbnail():
+    assert len(_clip_imgs()) == 8, "the queue is back to fallback rectangles"
+
+
+def test_no_thumbnail_reaches_the_network():
+    """Generated rather than fetched, so the page keeps making zero external
+    requests. Real Helix thumbnails would be the better asset but none are
+    reachable from a dev container, which has no clips.json."""
+    for i in _clip_imgs():
+        assert 'src="data:image/svg+xml,' in i, f"a thumbnail is not self-contained: {i[:90]}"
+    from src.dashboard import landing_product as P
+    for blob in (P.STREAMS_HTML, P.REVIEW_HTML, P.DETAIL_HTML):
+        assert "http://" not in blob and "https://" not in blob
+
+
+def test_a_row_of_eight_reads_as_eight_different_clips():
+    """The actual requirement. Hues step by the golden angle so they separate
+    across the wheel instead of clustering in one band."""
+    hues = []
+    for i in _clip_imgs():
+        m = re.search(r"fill%3D%22hsl\((\d+)%20", i) or re.search(r'fill="hsl\((\d+) ', i)
+        assert m, "could not read a thumbnail's base hue"
+        hues.append(int(m.group(1)))
+    assert len(set(hues)) == 8, f"only {len(set(hues))} distinct hues across 8 clips: {hues}"
+    # And spread, not merely unequal: no two within 20 degrees of each other.
+    ordered = sorted(hues)
+    gaps = [b - a for a, b in zip(ordered, ordered[1:])]
+    assert min(gaps) >= 20, f"two thumbnails sit {min(gaps)} degrees apart: {ordered}"
+
+
+def test_every_thumbnail_has_its_own_fallback_colour():
+    """The components' onError hands back to thumbFor(channel) — the shared
+    per-channel gradient that caused this in the first place. Each image
+    carries its own base hue as a background so a failure to paint still shows
+    something per-clip."""
+    bgs = [re.search(r"background:hsl\((\d+)", i) for i in _clip_imgs()]
+    assert all(bgs), "a thumbnail has no per-item fallback colour"
+    vals = [b.group(1) for b in bgs]
+    assert len(set(vals)) == len(vals), f"two clips share a fallback colour: {vals}"
+
+
+def test_thumbnails_cannot_shift_the_layout_or_stretch():
+    """16:9 with cover, and the box is sized by the container's aspect-ratio so
+    nothing moves when an image decodes."""
+    from src.dashboard.landing_product import PRODUCT_CSS
+    css = PRODUCT_CSS.replace(" ", "")
+    assert ".rd-media{position:relative;width:100%;aspect-ratio:16/9" in css, \
+        "the thumbnail box lost its fixed aspect ratio"
+    for i in _clip_imgs():
+        assert "object-fit: cover" in i or "objectFit" in i, "a thumbnail can letterbox or stretch"
+
+
+def test_no_flat_single_colour_thumbnail_survives():
+    """The whole point: not one solid fill anywhere behind a clip."""
+    from src.dashboard import landing_product as P
+    for name, blob in (("streams", P.STREAMS_HTML), ("review", P.REVIEW_HTML),
+                       ("detail", P.DETAIL_HTML)):
+        flat = re.findall(r'class="(?:rd-)?thumb"[^>]*style="background:\s*(?:#|rgb)', blob)
+        assert not flat, f"{name} still paints a flat colour behind a clip"

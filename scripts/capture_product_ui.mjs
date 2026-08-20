@@ -91,6 +91,61 @@ const PROFILES = [
     avg_audio_db: -57.7, avg_sentiment: 0.26, avg_keyword_rate: 0.02 },
 ];
 
+// ── Synthetic thumbnails ─────────────────────────────────────────────────────
+// WHY THESE EXIST. The components fall back to thumbFor(clip.channel) when a
+// clip has no stored thumbnail — a two-stop gradient hashed off the CHANNEL
+// name. That gives every clip from one channel a byte-identical rectangle, and
+// with a queue dominated by jynxzi (hue 24) and lacy (hue 35) the row rendered
+// as flat brown repeats.
+//
+// Real Helix thumbnails would be the right asset, but none are reachable from
+// here: this container has no clips.json. So each clip gets a generated one,
+// as a data: URI, which keeps the landing page free of third-party requests
+// AND takes the components' REAL <img> path with object-fit:cover instead of
+// the fallback div.
+//
+// Hues step by the golden angle so eight of them are maximally separated on the
+// wheel rather than clustered. The rest is deterministic from the clip id, so
+// regenerating gives the same picture every time.
+function thumbSvg(seed, i) {
+  let h = 0;
+  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) % 1000;
+  const hue = Math.round((i * 137.508 + h % 40) % 360);
+  const r = (n) => ((h * (n + 7) * 9301 + 49297) % 233280) / 233280;   // stable prng
+  const stops = [0, 28, 200].map((d, k) => ({
+    h: (hue + d) % 360,
+    x: Math.round(12 + r(k) * 76),
+    y: Math.round(12 + r(k + 3) * 70),
+    rad: Math.round(38 + r(k + 6) * 34),
+    l: [34, 26, 17][k],
+    s: [62, 54, 48][k],
+  }));
+  // A horizon line and a soft bloom read as "a frame from something" rather
+  // than a colour field, without pretending to be gameplay we do not have.
+  const horizon = Math.round(96 + r(9) * 46);
+  const defs = stops.map((st, k) =>
+    '<radialGradient id="g' + i + k + '" cx="' + st.x + '%" cy="' + st.y + '%" r="' + st.rad + '%">' +
+    '<stop offset="0" stop-color="hsl(' + st.h + ' ' + st.s + '% ' + st.l + '%)"/>' +
+    '<stop offset="1" stop-color="hsl(' + st.h + ' ' + st.s + '% 8%)" stop-opacity="0"/>' +
+    '</radialGradient>').join('');
+  const blobs = stops.map((st, k) => '<rect width="320" height="180" fill="url(#g' + i + k + ')"/>').join('');
+  return 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">' +
+    '<defs>' + defs +
+    '<linearGradient id="v' + i + '" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#000" stop-opacity=".55"/>' +
+    '<stop offset=".38" stop-color="#000" stop-opacity="0"/>' +
+    '<stop offset=".72" stop-color="#000" stop-opacity="0"/>' +
+    '<stop offset="1" stop-color="#000" stop-opacity=".6"/>' +
+    '</linearGradient></defs>' +
+    '<rect width="320" height="180" fill="hsl(' + hue + ' 40% 9%)"/>' + blobs +
+    '<path d="M0 ' + horizon + ' L320 ' + (horizon - 14 + Math.round(r(11) * 28)) + ' L320 180 L0 180 Z" ' +
+    'fill="hsl(' + ((hue + 200) % 360) + ' 45% 6%)" fill-opacity=".55"/>' +
+    // Top and bottom scrims: the score badge sits top-right and the duration
+    // bottom-left, and they have to stay readable over whatever came out.
+    '<rect width="320" height="180" fill="url(#v' + i + ')"/></svg>');
+}
+
 // Titles are exactly what _generate_clip_title produces: "{channel} — {label}",
 // where label is one of the _SIGNAL_TITLES or a multi-signal fallback.
 //
@@ -150,6 +205,11 @@ const CLIPS = [
 
 // A live score frame, shaped exactly like the score_update breakdown the engine
 // broadcasts. The underscore keys are the raw measurements the dashboard shows.
+// Each clip gets its own generated thumbnail, indexed so the hue stepping
+// separates them. Assigned after the list so the index is the row order the
+// queue actually renders in.
+CLIPS.forEach((c, i) => { c.thumbnail_url = thumbSvg(c.id + c.clip_title, i); });
+
 const SCORES = {
   jynxzi: { score: 61.7, breakdown: {
     CHAT_VELOCITY: 0.38, EMOTE_HOMOGENEITY: 0.0, AUDIO_SPIKE: 0.09, KEYWORD: 0.0,
@@ -349,7 +409,12 @@ function sanitise(html, tag) {
   // thumbnail), but a future seed with a real thumbnail_url would smuggle a
   // third-party request onto the marketing page, so strip them regardless.
   out = out.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '');
-  out = out.replace(/<(img|video|source)\b[^>]*>/gi, '');
+  // Images are kept ONLY when they are self-contained. A data: URI makes no
+  // request, so it is safe on a page that must stay free of third-party calls;
+  // anything with a real src is stripped exactly as before.
+  out = out.replace(/<(img|video|source)\b([^>]*)>/gi,
+                    (m, tag, attrs) => (tag.toLowerCase() === 'img' && /src="data:/i.test(attrs))
+                      ? m : '');
   out = out.replace(/<script\b[\s\S]*?<\/script>/gi, '');
   // A landing-page visitor must not tab through 30 dead controls, so every
   // control becomes a span carrying the same classes. The wrapper is inert
@@ -358,6 +423,22 @@ function sanitise(html, tag) {
   out = out.replace(/<(a)\b([^>]*?)\shref="[^"]*"([^>]*)>/gi, '<span$2$3>')
            .replace(/<\/a>/gi, '</span>');
   out = out.replace(/\s(tabindex|contenteditable|draggable)="[^"]*"/gi, '');
+  // PER-ITEM FALLBACK COLOUR. The components' onError hands off to
+  // thumbFor(clip.channel), which is the shared per-channel gradient that
+  // caused the flat-brown row in the first place. A data: URI cannot 404, so
+  // this should never fire — but if an image somehow fails to paint, what shows
+  // through is now that clip's OWN base hue, read back out of its own SVG,
+  // rather than one block every clip shares.
+  out = out.replace(/<img\b[^>]*src="data:image\/svg\+xml,([^"]*)"[^>]*>/gi, (m, enc) => {
+    let hue = null;
+    try { hue = (decodeURIComponent(enc).match(/fill="hsl\((\d+) 40% 9%\)"/) || [])[1]; }
+    catch (e) { /* leave it alone if the URI will not decode */ }
+    if (!hue) return m;
+    const bg = 'background:hsl(' + hue + ' 40% 9%);';
+    return /style="/.test(m) ? m.replace(/style="/, 'style="' + bg)
+                             : m.replace(/<img /i, '<img style="' + bg + '" ');
+  });
+
   // ids are global. Namespace them so nothing on the landing page collides.
   out = out.replace(/\sid="([^"]+)"/g, (m, v) => ' id="pcap-' + tag + '-' + v + '"');
   out = out.replace(/\s(for|aria-controls|aria-labelledby|aria-describedby)="([^"]+)"/g,
