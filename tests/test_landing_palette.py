@@ -203,7 +203,12 @@ def test_the_signature_is_wired_to_one_number():
     # .nav::after, not .nav — the reactive hairline moved to the pseudo element
     # when the bar itself became bone glass. .thread-fill is the through-line,
     # the newest and most visible consumer of the same number.
-    for sel in (".nav::after{", ".demo-wrap::before{", ".demo{", ".trig{", ".thread-fill{"):
+    # .demo-wrap::before is GONE and deliberately so: it was a blurred radial
+    # glow blob, which is both a stock generated-page motif and the sole cause
+    # of the page's horizontal overflow (inset:-26% pushed it 182px past each
+    # edge of a 699px element, giving a 915px scrollWidth at a 768px viewport).
+    # Four consumers still read the score, so the room still responds.
+    for sel in (".nav::after{", ".demo{", ".trig{", ".thread-fill{"):
         block = CSS[CSS.index(sel):CSS.index("}", CSS.index(sel))]
         assert "var(--lit)" in block, f"{sel[:-1]} no longer reacts to the score"
     # And it is written from the loop, throttled to changes rather than frames.

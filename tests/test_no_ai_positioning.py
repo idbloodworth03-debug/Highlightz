@@ -49,12 +49,16 @@ def test_the_claim_links_to_the_evidence(hero):
     it. The badge points at the section that shows the actual formula."""
     i = hero.index('class="no-ai"')
     tag = hero[hero.rindex("<a", 0, i):hero.index(">", i)]
-    assert 'href="#formula"' in tag, "the badge does not link to the formula"
+    assert 'href="#how"' in tag, "the badge does not link to the formula"
 
 
 def test_the_formula_section_the_badge_points_at_exists():
     from src.dashboard.api import LANDING_HTML
-    assert 'id="formula"' in LANDING_HTML, "the badge links to a section that is gone"
+    # The formula explainer was merged INTO How it works step two, since the
+    # standalone section restated it. The badge follows it rather than pointing
+    # at a deleted id, which is a dead anchor that scrolls nowhere.
+    assert 'id="how"' in LANDING_HTML, "the badge links to a section that is gone"
+    assert 'href="#how" class="no-ai"' in LANDING_HTML, "the badge anchor drifted"
 
 
 def test_the_lead_leads_with_it_too(hero):
@@ -62,14 +66,20 @@ def test_the_lead_leads_with_it_too(hero):
     paragraph underneath quietly contradicts the pill above it."""
     lead = hero[hero.index('class="lead"'):]
     lead = lead[:lead.index("</p>")]
-    assert "No AI" in lead or "no AI" in lead
+    # The lead no longer opens on "No AI" and that is deliberate: the same
+    # construction appeared six times across the page. It now appears ONCE, as
+    # the NO AI badge sitting directly above the headline, which is a louder
+    # placement than a clause in the third sentence. The badge is asserted
+    # separately in test_the_badge_is_above_the_fold.
+    assert "NO AI" in hero, "the NO AI badge is gone from the hero"
 
 
 def test_the_multi_channel_pitch_survived(hero):
     """The other half of the positioning. Making room for NO AI must not have
     cost the thing that actually differentiates this for clippers."""
     assert "10 channels" in hero
-    assert "clip for" in hero or "every channel" in hero
+    assert ("clip for" in hero or "every channel" in hero
+            or "watches all ten" in hero), "the multi-channel pitch left the hero"
 
 
 def test_the_page_does_not_claim_to_use_ai_anywhere():

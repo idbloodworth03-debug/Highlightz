@@ -55,7 +55,7 @@ def test_landing_stats_route_is_public():
 
 def test_landing_html_has_price_counter_and_demo():
     html = api.LANDING_HTML
-    assert ">10<" in html and ">25<" in html        # both tier prices shown
+    assert "$10" in html and "$25" in html          # both tier prices shown
     # A self-serve trial exists again, so the page SHOULD advertise free days.
     # This assertion was the exact inverse while the free tier was the offer.
     assert "7 days free" in html.lower() or "days free" in html.lower()
@@ -147,19 +147,23 @@ def test_landing_has_inline_clip_lightbox():
 def test_landing_faq_answers_what_clippers_ask_first():
     html = api.LANDING_HTML
     assert 'id="faq"' in html
-    assert html.count('class="faq-item"') == 12
+    # CUT FROM 12 TO 7, and opened up. Thirteen accordions is the shape of a
+    # generated page; the five that went are the ones that restate the steps or
+    # answer a question nobody asks before signing up (clip length, other
+    # platforms, how the scoring works). They live in the walkthrough now, which
+    # the section links to.
+    assert html.count('class="faq-item"') == 7
+    assert "<details" not in html, "the FAQ went back to being an accordion"
     # A few key answers exist and stay honest
     assert "Is this AI?" in html and "transparent mathematical formula" in html
     assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
-    assert "roughly the last 30 seconds" in html   # no over-promising on length
-    # Clippers are the primary audience, so the three things they ask before
-    # signing up must be answered without opening every accordion. Order
-    # matters: these are the first three items on the page.
-    order = [html.index(q) for q in ("How many channels can I watch at once?",
-                                     "Can I clip channels I don't own?",
-                                     "Do I have to be watching for it to work?")]
+    # The objections a clipper actually has before paying. Order matters: the
+    # first thing they want to know is whether they may clip other people.
+    order = [html.index(q) for q in ("Can I clip channels I don't own?",
+                                     "Does it work for small channels?",
+                                     "Is this allowed on Twitch?")]
     assert order == sorted(order)
-    assert order[0] < html.index("How does Highlightz know what to clip?")
+    assert "/tutorial" in html, "the cut questions are not linked anywhere"
 
 
 def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
@@ -182,16 +186,17 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     assert "Never miss a <span class=\"accent\">highlight</span> again." in html
     assert f"Up to {pro} channels at the same time on Pro." in html   # hero lead
     assert f"Up to {pro} channels at once" in html                    # hero tag
-    assert f"channels watched at once on Pro &mdash; {starter} on Starter" in html
+    assert f"channels watched at once on Pro, {starter} on Starter" in html
 
-    # The pricing cards, which is where the paid tiers have to be unambiguous.
-    # The first card is no longer the free TIER but the 7-day trial, and a trial
-    # grants Pro — so it advertises Pro's channel count, not free's 1. `free` is
-    # still read from PLAN_LIMITS above because the tier still exists for
-    # grandfathered accounts; it just is not what the page sells.
-    assert f"Monitor <b>{pro} channels at once</b>" in html
-    assert f"Monitor <b>{starter} channels at once</b>" in html
-    assert f"Monitor <b>{pro} channels at once</b>" in html
+    # Pricing, where the paid tiers have to be unambiguous. The three cards with
+    # tick lists are gone: Pro is stated on its own and Starter is a sentence
+    # underneath, since the plans differ on this one axis and three parallel
+    # columns of near-identical ticks pretended otherwise. `free` is still read
+    # from PLAN_LIMITS above because the tier exists for grandfathered accounts;
+    # it just is not what the page sells. Digits, not words, so the number
+    # survives a scan.
+    assert f"<b>{pro} channels at once.</b>" in html
+    assert f"watches {starter} channels at once" in html
 
     # No stale "up to N streams" survives anywhere on the page.
     import re
@@ -201,9 +206,14 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
 
 
 def test_the_run_unattended_claim_matches_the_code():
-    """The FAQ promises a channel added while the streamer is offline will be
+    """The page promises a channel added while the streamer is offline will be
     picked up when they go live, and admits to an 8-hour idle stop. Both are
-    real behaviours, not marketing — if either changes the copy is a lie."""
+    real behaviours, not marketing — if either changes the copy is a lie.
+
+    These used to sit in a FAQ answer. When that FAQ was cut both disclosures
+    briefly vanished from the whole public site, which quietly turned "you do
+    not have to be online" into an unqualified claim. They now live in How it
+    works step one, next to the claim they qualify."""
     from pathlib import Path
     worker = Path("src/ingestion/stream_worker.py").read_text()
     # The session loop retries rather than exiting when the channel is offline.
@@ -233,7 +243,7 @@ def test_seo_layer():
     # gives is invisible in a browser and is what structured-data penalties are
     # for; a hardcoded count would not have caught the drift, only the drift's
     # size. Every question on the page, in page order, and nothing extra.
-    shown = _re.findall(r'<span class="faq-q">(.*?)</span>', html, _re.S)
+    shown = _re.findall(r'<p class="faq-q">(.*?)</p>', html, _re.S)
     assert [q["name"] for q in faq["mainEntity"]] == [
         __import__("html").unescape(q).strip() for q in shown]
     assert faq["mainEntity"], "the FAQ schema is empty"

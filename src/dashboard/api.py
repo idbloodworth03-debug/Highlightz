@@ -21,8 +21,8 @@ import secrets
 import tempfile
 import time
 import uuid
-from html import unescape
-from typing import Any
+from html import escape as html_escape, unescape
+from typing import Any, NamedTuple
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
@@ -5212,6 +5212,22 @@ LANDING_HTML = """<!DOCTYPE html>
     body{font-size:17px}
   }
   section{padding-top:46px;padding-bottom:46px}
+  /* ── Section rhythm: weight, not a metronome ──────────────────────────────
+     Every section shared one padding value, which is a large part of why the
+     page scanned as generated: real editing shows up as some things being
+     given more room than others. These are set by what each section is FOR.
+     The argument and the decision get air; the reference material does not. */
+  #how{padding-top:74px;padding-bottom:78px}         /* the argument */
+  #pricing{padding-top:70px;padding-bottom:72px}     /* the decision */
+  #product{padding-top:56px;padding-bottom:44px}     /* evidence, sits close to the claim */
+  #features{padding-top:44px;padding-bottom:52px}
+  #examples{padding-top:52px;padding-bottom:46px}
+  #faq{padding-top:40px;padding-bottom:56px}         /* reference, deliberately tighter */
+  @media (max-width:760px){
+    #how{padding-top:52px;padding-bottom:54px}
+    #pricing{padding-top:50px;padding-bottom:52px}
+    #product,#features,#examples,#faq{padding-top:38px;padding-bottom:40px}
+  }
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
      first layer the gradient paints the whole block instead of the edge. */
@@ -5322,8 +5338,6 @@ LANDING_HTML = """<!DOCTYPE html>
      floating in the background. Unblurred, low alpha, and it brightens with
      --lit when the trigger fires. */
   .demo-wrap{position:relative;min-width:0}
-  .demo-wrap::before{content:'';position:absolute;inset:-22% -26%;pointer-events:none;
-    background:radial-gradient(54% 50% at 54% 42%,rgba(184,106,220,calc(.17 + var(--lit)*.26)),transparent 70%)}
   .demo{position:relative;border-radius:4px;overflow:hidden;border:1px solid transparent;
     background:linear-gradient(172deg,#211628,var(--wall) 55%,#150F1B) padding-box,
       linear-gradient(215deg,rgba(210,106,251,calc(.55 + var(--lit)*.45)),rgba(184,106,220,.18) 34%,rgba(242,234,247,.05) 70%,rgba(242,234,247,.02)) border-box;
@@ -5360,6 +5374,10 @@ LANDING_HTML = """<!DOCTYPE html>
   .dsig{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;color:var(--ink-3);
     padding-right:13px;margin-right:13px;border-right:1px solid var(--hair);transition:color .3s}
   .dsig:last-child{border-right:none}
+  @media (max-width:520px){
+    .demo-sigs{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px}
+    .dsig{border-right:none;padding-right:0;margin-right:0}
+  }
   .dsig.on{color:var(--ember)}
   .demo-clip{margin-top:11px;display:flex;align-items:center;gap:11px;padding-top:11px;
     border-top:1px solid var(--hair);opacity:0;transform:translateY(6px);
@@ -5437,6 +5455,116 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
      amber down the left until step 4, where the clip actually fires and it
      crosses to violet; that step is the one surface standing in the light. ══ */
+  /* ── FAQ: open Q&A in two columns, grouped ────────────────────────────────
+     Not an accordion stack. Seven questions is few enough to just answer in
+     the open, and a disclosure widget on every one of them is friction for no
+     benefit plus a component shape that appears on every generated page. Two
+     named groups do the sorting an accordion was pretending to do. */
+  .faq-group{margin-top:32px}
+  .faq-h{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:600;margin:0 0 4px;padding-bottom:12px;
+    border-bottom:1px solid var(--hair)}
+  .faq-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 46px;
+    max-width:1000px}
+  .faq-item{padding:20px 0 18px;border-bottom:1px solid var(--hair);min-width:0}
+  .faq-q{font-family:var(--sans);font-weight:650;font-size:16px;letter-spacing:-.012em;
+    color:var(--ink);margin:0 0 8px;line-height:1.35}
+  .faq-a{font-size:14.5px;line-height:1.68;color:var(--ink-2);margin:0}
+  .faq-more{margin:26px 0 0;font-size:14px;color:var(--ink-3);line-height:1.6}
+  .faq-more a{color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;
+    text-decoration-color:rgba(184,106,220,.45);transition:color .16s ease}
+  .faq-more a:hover{color:var(--ink)}
+  @media (max-width:760px){
+    .faq-cols{grid-template-columns:minmax(0,1fr);gap:0}
+  }
+
+  /* ── Pricing: one plan stated, the other in a sentence ────────────────────
+     NOT three equal cards with tick lists and a "Most popular" badge. The
+     plans differ on one axis, channel count, so three parallel columns of
+     mostly-identical ticks was pretending there was more to compare than
+     there is. One recommended plan gets the room; Starter is a line of prose
+     underneath, which is also how you would actually explain it out loud. */
+  .price-one{max-width:760px;margin:26px 0 0}
+  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);margin:0 0 26px;max-width:60ch}
+  .price-main{border:1px solid var(--hair);border-radius:6px;padding:30px 32px 28px;
+    background:linear-gradient(168deg,rgba(210,106,251,.07),transparent 62%)}
+  .price-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .price-name{font-family:var(--sans);font-weight:700;font-size:23px;letter-spacing:-.02em;
+    color:var(--ink)}
+  .price-fig{font-family:var(--sans);font-weight:700;font-size:34px;letter-spacing:-.03em;
+    color:var(--ink);line-height:1}
+  .price-fig i{font-style:normal;font-size:14px;font-weight:500;color:var(--ink-3);
+    letter-spacing:0;margin-left:3px}
+  .price-what{font-size:15.5px;line-height:1.65;color:var(--ink-2);margin:0 0 22px;max-width:52ch}
+  .price-what b{color:var(--ink);font-weight:650}
+  .price-tiny{display:block;margin-top:12px;font-size:12.5px;color:var(--ink-3)}
+  .price-alt{margin:22px 0 0;font-size:14.5px;line-height:1.7;color:var(--ink-2);max-width:60ch}
+  .price-alt b{color:var(--ink);font-weight:650}
+  @media (max-width:700px){
+    .price-main{padding:24px 20px 22px}
+    .price-fig{font-size:29px}
+  }
+
+  /* ── See it in action: real captures in hard-edged frames ─────────────────
+     Presented as screenshots, not as styled cards: a hairline edge, a real
+     shadow, the capture's own aspect ratio, and no rounded-card chrome. The
+     aspect-ratio box reserves the space from --pw/--ph so the layout does not
+     move when the file arrives. */
+  .pshots{margin-top:30px;display:grid;gap:22px}
+  .pshot-pair{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:22px;
+    align-items:start}
+  .pshot{margin:0;min-width:0}
+  .pshot-m,.pshot-ph{display:block;width:100%;height:auto;aspect-ratio:var(--pw)/var(--ph);
+    border:1px solid var(--hair);border-radius:5px;background:var(--wall);
+    box-shadow:0 18px 46px -22px rgba(0,0,0,.75),0 2px 6px -2px rgba(0,0,0,.45)}
+  .pshot-m{object-fit:cover;object-position:top left}
+  .pshot figcaption{margin-top:11px;font-size:13px;line-height:1.55;color:var(--ink-3);
+    max-width:52ch}
+  /* Not a broken-image icon. A labelled box reads as "not captured yet" and
+     keeps the page publishable before any capture run. */
+  .pshot-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:7px;text-align:center;padding:20px;border-style:dashed;
+    border-color:rgba(184,106,220,.28);background:rgba(184,106,220,.045);box-shadow:none}
+  .pshot-k{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-2)}
+  .pshot-f{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+  @media (max-width:820px){
+    .pshot-pair{grid-template-columns:minmax(0,1fr);gap:26px}
+  }
+
+  /* ── How it works: three steps, deliberately unequal ──────────────────────
+     Replaces five stacked cards with big 01/02/03 numerals. The columns are
+     NOT thirds: step two carries the equation and gets the room, which is the
+     point of not using a symmetric grid. The step marker is small type rather
+     than an oversized numeral. */
+  .flow{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.36fr) minmax(0,.82fr);
+    gap:0;margin-top:34px;align-items:start}
+  .flow-step{padding:4px 34px 8px;border-left:1px solid var(--hair)}
+  .flow-step:first-child{padding-left:0;border-left:0}
+  .flow-step:last-child{padding-right:0}
+  /* The middle step is the argument, so it sits slightly proud of the others. */
+  .flow-b{padding-top:0;padding-bottom:22px}
+  .flow-mark{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
+  .flow-step h3{font-family:var(--sans);font-weight:650;font-size:19px;letter-spacing:-.015em;
+    line-height:1.25;color:var(--ink);margin:0 0 10px}
+  .flow-b h3{font-size:22px}
+  .flow-step p{font-size:14.5px;line-height:1.68;color:var(--ink-2);margin:0 0 11px}
+  .flow-note{font-size:13.5px;color:var(--ink-3);line-height:1.6}
+  .flow-note b{color:var(--ink);font-weight:650}
+  /* The equation drops to one column inside the narrower step. */
+  .flow .formula{grid-template-columns:minmax(0,1fr);gap:22px;margin:18px 0 14px;
+    padding:22px 22px 20px;border-radius:4px}
+  .flow .signal{grid-template-columns:104px minmax(0,1fr);gap:14px;padding:8px 0}
+  .flow .sk{font-size:12.5px}
+  .flow .eq.num{font-size:40px}
+  .flow .formula-eq{font-size:13px}
+  @media (max-width:1000px){
+    .flow{grid-template-columns:minmax(0,1fr);gap:30px}
+    .flow-step{padding:0 0 0 18px;border-left:2px solid var(--hair)}
+    .flow-step:first-child{padding-left:18px;border-left:2px solid var(--hair)}
+    .flow-b{padding-bottom:0}
+  }
   .steps{margin-top:40px;position:relative}
   .step{display:grid;grid-template-columns:76px minmax(0,1fr);gap:26px;padding:0 0 34px}
   .step:last-child{padding-bottom:0}
@@ -5572,9 +5700,25 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ FEATURES. Two columns, hairlines instead of cards, mono index instead
      of an icon in a tinted square. ══ */
-  .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 46px;margin-top:38px;
-    border-top:1px solid var(--hair)}
-  .feat{padding:26px 0;border-bottom:1px solid var(--hair)}
+  /* ── What you get: four items, deliberately not a 2x3 of equal cards ──────
+     The compliance point runs full width because it is the strongest thing
+     here and the longest to say; the other three sit under it at unequal
+     widths. No icons in tinted squares. The differing heights are the point,
+     not a flaw to be evened out. */
+  .feat-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.92fr) minmax(0,.93fr);
+    gap:0 40px;margin-top:34px;border-top:1px solid var(--hair)}
+  .feat{padding:24px 0 26px;border-bottom:1px solid var(--hair);min-width:0}
+  /* Heading beside the text rather than above it, so the extra width reads as
+     a deliberate layout and not as a paragraph that ran out of words. */
+  .feat-wide{grid-column:1 / -1;padding:28px 0 30px;display:grid;
+    grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:40px;align-items:start}
+  .feat-wide h3{font-size:24px;letter-spacing:-.022em;line-height:1.2;margin:0}
+  .feat-wide p{font-size:15.5px;margin:0}
+  @media (max-width:900px){.feat-wide{grid-template-columns:minmax(0,1fr);gap:10px}}
+  @media (max-width:900px){
+    .feat-grid{grid-template-columns:minmax(0,1fr);gap:0}
+    .feat-wide h3{font-size:20px}
+  }
   .feat .ic{color:var(--ember);margin-bottom:9px;display:block}
   .feat h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:6px}
   .feat p{font-size:14.5px;color:var(--ink-2);line-height:1.6}
@@ -5677,8 +5821,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .ex-card{flex-basis:calc(33.333% - 9.34px)}
     .formula{grid-template-columns:minmax(0,1fr);gap:30px;padding:32px 28px}
     .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:26px}
-    .feat-grid{grid-template-columns:1fr;gap:0}
-    .who-row{grid-template-columns:74px minmax(0,1fr);gap:20px}
+      .who-row{grid-template-columns:74px minmax(0,1fr);gap:20px}
   }
   @media(max-width:720px){
     section{padding-top:38px;padding-bottom:38px}
@@ -5744,10 +5887,9 @@ LANDING_HTML = """<!DOCTYPE html>
   @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
     .demo-live i,.dc-spin{animation:none}
-    .demo-wrap::before,.breathe{animation:none}
+    .breathe{animation:none}
   }
   @media(prefers-reduced-motion:no-preference){
-    .demo-wrap::before{animation:breathe 19s ease-in-out infinite}
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
@@ -5794,29 +5936,28 @@ LANDING_HTML = """<!DOCTYPE html>
 </div>
 <header class="wrap hero hero-band">
   <div class="hero-copy">
-    <div class="kicker">Automatic Twitch clipping — for clippers and streamers</div>
-    <a href="#formula" class="no-ai">
+    <div class="kicker">Automatic Twitch clipping</div>
+    <a href="#how" class="no-ai">
       <span class="no-ai-x">NO AI</span>
-      <span class="no-ai-t"><b>A formula you can read</b> — not a guess you have to trust</span>
+      <span class="no-ai-t"><b>A formula you can read.</b> Watch it move.</span>
     </a>
     <h1>Never miss a <span class="accent">highlight</span> again.</h1>
-    <p class="lead">No AI deciding for you. Chat speed, audio spikes, keywords and hype are measured every second and added into one score you can watch move — and when it crosses the line, the Twitch clip is made. Highlightz does that on every channel you clip for plus your own, all at once. <b>Up to 10 channels at the same time on Pro.</b></p>
+    <p class="lead">Ten streams are live. You can watch one. Highlightz watches all ten, scores every second of each, and clips the moment something pops. Chat speed, audio, keywords, hype. Add them up, cross the line, clip. <b>Up to 10 channels at the same time on Pro.</b></p>
     <div class="hero-ctas">
       <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
       <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
     </div>
     <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
     <div class="tags">
-      <span class="tag tag-key">Zero AI — pure math</span>
+      <span class="tag tag-key">Zero AI. Pure math.</span>
       <span class="tag">Up to 10 channels at once</span>
-      <span class="tag">Works at any channel size</span>
     </div>
   </div>
 
   <!-- LIVE DEMO — the light source in the room -->
   <div class="demo-wrap">
     <div class="demo" id="demo">
-      <div class="demo-bar"><span class="who">Highlightz — monitoring 4 channels</span><span class="demo-live"><i></i>LIVE</span></div>
+      <div class="demo-bar"><span class="who">Highlightz &middot; monitoring 4 channels</span><span class="demo-live"><i></i>LIVE</span></div>
       <div class="demo-body">
         <div class="demo-main">
           <div class="demo-head">
@@ -5848,14 +5989,14 @@ LANDING_HTML = """<!DOCTYPE html>
           <div class="demo-clip show done" id="d-clip">
             <div class="dc-thumb"><svg width="13" height="13" viewBox="0 0 24 24" fill="#C489E4"><path d="M8 5v14l11-7z"/></svg></div>
             <div class="dc-meta">
-              <div class="dc-t">Big Reaction — clipped automatically</div>
+              <div class="dc-t">Big Reaction, clipped automatically</div>
               <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    <div class="demo-cap">Live demo — one of the channels, start to finish. Every channel you add gets its own score, signals and profile.</div>
+    <div class="demo-cap">Live demo. One channel, start to finish. Every channel you add gets its own score, signals and profile.</div>
   </div>
 </header>
 
@@ -5864,7 +6005,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="stats">
     <div class="stat">
       <div class="n" data-count="10">10</div>
-      <div class="k">channels watched at once on Pro &mdash; 3 on Starter</div>
+      <div class="k">channels watched at once on Pro, 3 on Starter</div>
     </div>
     <div class="stat">
       <div class="n" data-count="7">7</div>
@@ -5887,372 +6028,146 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="wrap full band-sand seam" id="examples" style="display:none">
   <div class="sec-head">
     <h2 class="sec-title">Real clips, caught automatically</h2>
-    <p class="sec-sub">Not a highlight reel we edited — these were clipped by the formula on live streams and approved in the review queue. Tap any of them to watch on Twitch.</p>
+    <p class="sec-sub">Clipped by the formula on live streams, then approved in the review queue like any other clip. Tap one to watch it on Twitch.</p>
   </div>
   <div class="ex-grid" id="ex-grid"></div>
 </section>
 
 <!-- Who it's for -->
-<section class="wrap wide" id="who">
-  <div class="sec-head">
-    <h2 class="sec-title">Built for clippers first</h2>
-    <p class="sec-sub">If clipping is how you grow — or how you get paid — your ceiling is how many streams you can sit through. Highlightz removes that ceiling. It works just as well pointed at your own channel.</p>
-  </div>
-  <div class="who-list">
-    <div class="who-row">
-      <div class="who-l">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88"/><path d="M14.47 14.48L20 20"/><path d="M8.12 8.12L12 12"/></svg>
-      </div>
-      <div>
-        <h3>Clippers &amp; editors</h3>
-        <p>Point it at every streamer on your list — 3 at once on Starter, 10 on Pro — and let the best moments surface themselves. Each channel learns its own baseline, so a quiet variety streamer and a screaming FPS streamer both trigger fairly. Clips land in one review queue, created under your own Twitch account, ready to cut. You spend your night editing instead of scrubbing.</p>
-      </div>
-    </div>
-    <div class="who-row">
-      <div class="who-l">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
-      </div>
-      <div>
-        <h3>Streamers</h3>
-        <p>Capture your funniest, hypest, and most viral moments live — no mod team or clip-happy chat required. You play, it clips. Add your alt, your co-streamers, or the friends you raid, and the clips come to you.</p>
-      </div>
-    </div>
-    <div class="who-row">
-      <div class="who-l">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
-      </div>
-      <div>
-        <h3>Orgs, community &amp; mod teams</h3>
-        <p>Cover every member of the roster at the same time and keep a steady feed of share-ready clips for socials and Discord, pulled straight from the action as it happens.</p>
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- How it works -->
 <section class="wrap band-sand seam" id="how">
-  <div class="sec-head">
-    <h2 class="sec-title">How it works</h2>
-    <p class="sec-sub">Five simple steps from "they went live" to a clip in your review queue — running on every channel you add, at the same time.</p>
-  </div>
-  <!-- The rail IS the score: amber while the stream is below threshold, violet
-       from step 4 on, where the clip actually fires. -->
-  <div class="steps">
-    <div class="step step-1">
-      <div class="rail"><span class="rail-node">1</span></div>
-      <div class="step-body"><h3>Add every channel you clip for</h3><p>Streamers you clip for, your own channel, or anyone live right now. Paste a name and it starts watching — up to 3 channels at once on Starter and 10 on Pro, all in one dashboard, all running in parallel. You do not have to be watching, or even online.</p></div>
+  <h2 class="sec-title">How it works</h2>
+  <div class="flow">
+    <div class="flow-step flow-a">
+      <span class="flow-mark">Step one</span>
+      <h3>Add the channels</h3>
+      <p>Paste a name. It starts watching. Three channels at once on Starter, ten on Pro, all running at the same time in one dashboard.</p>
+      <p class="flow-note">You don't have to be watching. You don't have to be online. Add a channel before they go live and it checks every 30 seconds until they are. Monitoring pauses after 8 hours of you not opening the dashboard, so a forgotten tab does not run forever.</p>
     </div>
-    <div class="step step-2">
-      <div class="rail"><span class="rail-node">2</span></div>
-      <div class="step-body"><h3>A formula scores every second — not AI</h3><p>Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time as the stream unfolds.</p></div>
+    <div class="flow-step flow-b">
+      <span class="flow-mark">Step two</span>
+      <h3>Every second gets a score</h3>
+      <p>Chat speed, audio spikes, keywords, viewer surges, hype. Five numbers, weighted and added, recalculated every second the stream is live.</p>
+      <div class="formula">
+        <div class="signal-row">
+          <div class="signal" style="--sc:#D26AFB"><span class="sk">Chat speed</span><span class="sb"><i style="width:82%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#B86ADC"><span class="sk">Audio spikes</span><span class="sb"><i style="width:64%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#9C7BD2"><span class="sk">Keywords</span><span class="sb"><i style="width:47%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#F7A745"><span class="sk">Viewer surges</span><span class="sb"><i style="width:58%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#E08C3A"><span class="sk">Hype</span><span class="sb"><i style="width:71%"></i></span></div>
+        </div>
+        <div class="formula-out">
+          <div class="eq num">84</div>
+          <div class="formula-eq">one live score, calibrated to this streamer</div>
+        </div>
+      </div>
+      <p class="flow-note"><b>No black box.</b> You can read the formula, watch it move, and see which signal fired.</p>
     </div>
-    <div class="step step-3">
-      <div class="rail"><span class="rail-node">3</span></div>
-      <div class="step-body"><h3>It adapts to every streamer</h3><p>The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger with the same fairness. The more it watches a channel, the sharper its judgment becomes.</p></div>
-    </div>
-    <div class="step step-4">
-      <div class="rail"><span class="rail-node">4</span></div>
-      <div class="step-body"><h3>Clips are created right on Twitch</h3><p>Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch and ready to share. Highlightz never records or re-hosts video.</p></div>
-    </div>
-    <div class="step step-5">
-      <div class="rail"><span class="rail-node">5</span></div>
-      <div class="step-body"><h3>You stay in control</h3><p>Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula quietly tunes itself to your taste with every decision you make.</p></div>
+    <div class="flow-step flow-c">
+      <span class="flow-mark">Step three</span>
+      <h3>It clips. You decide.</h3>
+      <p>Cross the line and a real Twitch clip is made under your own account, hosted by Twitch. It lands in your queue. Approve the keepers, reject the misses, and the formula shifts toward your taste.</p>
+      <p class="flow-note">Every channel keeps its own profile, so a quiet chess stream and a loud FPS stream are judged on their own normal.</p>
     </div>
   </div>
 </section>
 
 <!-- Product showcase -->
 <section class="wrap wide" id="product">
-  <div class="sec-head">
-    <h2 class="sec-title">See it in action</h2>
-    <p class="sec-sub">A clean, real-time dashboard that shows you exactly what's happening and why.</p>
-  </div>
-  <div class="shots-top">
-    <!-- Active stream bubble -->
-    <div class="shot">
-      <div class="shot-frame">
-        <div class="shot-bar"><i></i><span>Monitoring</span></div>
-        <div class="shot-inner">
-          <div class="mk-stream">
-            <div class="mk-row">
-              <div>
-                <div class="mk-nm"><span class="pd"></span>novafps</div>
-                <div class="mk-mt"><span class="mk-chip" style="color:#C489E4">twitch</span><span class="mk-chip">fps</span><span class="mk-live">live</span></div>
-              </div>
-              <div class="mk-acts">
-                <span class="mk-clip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Clip</span>
-                <span class="mk-x">&#215;</span>
-              </div>
-            </div>
-            <div class="mk-scorewrap">
-              <div class="mk-st"><span class="mk-sl">Trigger score</span><span class="mk-sval" style="color:#F7A745">72.4</span></div>
-              <div class="mk-track"><div class="mk-fill" style="width:72%"></div></div>
-              <div class="mk-sigs">
-                <span class="mk-sig on">CHAT_VELOCITY: 0.81</span>
-                <span class="mk-sig on">AUDIO_SPIKE: 0.64</span>
-                <span class="mk-sig">KEYWORD: 0.30</span>
-                <span class="mk-sig">SENTIMENT: 0.12</span>
-              </div>
-            </div>
-            <div class="mk-prof">
-              <div class="mk-pgrid">
-                <div class="mk-pc"><div class="k">Threshold</div><div class="v">58</div></div>
-                <div class="mk-pc"><div class="k">Velocity</div><div class="v">4.2<small> m/s</small></div></div>
-                <div class="mk-pc"><div class="k">Clips</div><div class="v">37</div></div>
-                <div class="mk-pc"><div class="k">Approval</div><div class="v" style="color:#F7A745">78%</div></div>
-              </div>
-              <div class="mk-cal"><span class="tk">&#10003;</span> Calibrated &middot; 142 samples</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="shot-cap"><h3>Live stream monitoring</h3><p>Each channel gets its own bubble with a live trigger score, the exact signals firing, and a learned profile that calibrates to that streamer.</p></div>
-    </div>
-
-    <!-- Clip score breakdown -->
-    <div class="shot">
-      <div class="shot-frame">
-        <div class="shot-bar"><i></i><span>Clip detail</span></div>
-        <div class="shot-inner">
-          <div class="mk-media">
-            <div class="mk-play"><svg width="18" height="18" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div>
-            <span class="mk-badge"><span class="pip"></span>84% trigger</span>
-          </div>
-          <div class="mk-dhead">
-            <span class="mk-av">NF</span>
-            <div style="flex:1;min-width:0"><h4>Insane 1v5 clutch to win it</h4><div class="mt">novafps &middot; VALORANT &middot; 2m ago</div></div>
-            <span class="mk-status">approved</span>
-          </div>
-          <div class="mk-eyebrow">Why it fired</div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Chat velocity</span><span class="mk-bv" style="color:#D26AFB">88%</span></div><div class="mk-bt"><div class="mk-bf" style="width:88%;background:#D26AFB"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Audio spike</span><span class="mk-bv" style="color:#B86ADC">73%</span></div><div class="mk-bt"><div class="mk-bf" style="width:73%"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Keyword hits</span><span class="mk-bv" style="color:#F7A745">61%</span></div><div class="mk-bt"><div class="mk-bf" style="width:61%;background:#F7A745"></div></div></div>
-          <div class="mk-bar"><div class="mk-bh"><span class="mk-bk">Sentiment</span><span class="mk-bv" style="color:#9C90A6">47%</span></div><div class="mk-bt"><div class="mk-bf" style="width:47%;background:#9C90A6"></div></div></div>
-        </div>
-      </div>
-      <div class="shot-cap"><h3>Every clip, fully explained</h3><p>Open any clip to see the precise breakdown of which signals triggered it — no AI guesswork, just the numbers behind the moment.</p></div>
-    </div>
-  </div>
-
-  <!-- Clip library -->
-  <div class="shot" style="margin-top:18px">
-    <div class="shot-frame">
-      <div class="shot-bar"><i></i><span>Clip library</span></div>
-      <div class="shot-inner">
-        <div class="mk-lib">
-          <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(150deg,#2E1C3B,#1A1224)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#F7A745">96%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Triple kill, no scope</div><div class="mk-cmeta"><span>novafps</span><span class="mk-cpill ok">approved</span></div></div>
-          </div>
-          <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(150deg,#341F42,#1B1224)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#9C90A6">81%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Unreal comeback round</div><div class="mk-cmeta"><span>peachy_kat</span><span class="mk-cpill pend">pending</span></div></div>
-          </div>
-          <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(150deg,#27203F,#191226)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#F7A745">74%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Clutch ace, full team</div><div class="mk-cmeta"><span>drift_season</span><span class="mk-cpill ok">approved</span></div></div>
-          </div>
-          <div class="mk-card">
-            <div class="mk-cmedia" style="background:linear-gradient(150deg,#2B1B3B,#181428)"><div class="mk-cplay"><svg width="14" height="14" viewBox="0 0 24 24" fill="#F2EAF7"><path d="M8 5v14l11-7z"/></svg></div><span class="mk-cbadge" style="color:#9C90A6">68%</span></div>
-            <div class="mk-cbody"><div class="mk-ctitle">Perfect comedic timing</div><div class="mk-cmeta"><span>moonvale</span><span class="mk-cpill pend">pending</span></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="shot-cap"><h3>Your clip library</h3><p>Every captured moment in one place, scored and ready to review. Approve the keepers, reject the rest — the formula learns from every call.</p></div>
-  </div>
+  <h2 class="sec-title">See it in action</h2>
+  <!--PRODUCT_SHOTS-->
 </section>
 
 <!-- Not AI / formula -->
-<section class="band-dark seam" id="formula"><div class="wrap">
-  <div class="sec-head kicked">
-    <div class="kicker">100% transparent</div>
-    <h2 class="sec-title">A formula you can actually understand</h2>
-    <p class="sec-sub">Highlightz isn't powered by AI guesswork. It's a clear, explainable formula that blends real signals from the stream into a single live score. Every trigger has a reason you can see.</p>
-  </div>
-  <div class="formula">
-    <div class="signal-row">
-      <div class="signal" style="--sc:#D26AFB"><span class="sk">Chat speed</span><span class="sb"><i style="width:82%"></i></span></div>
-      <div class="plus">+</div>
-      <div class="signal" style="--sc:#B86ADC"><span class="sk">Audio spikes</span><span class="sb"><i style="width:64%"></i></span></div>
-      <div class="plus">+</div>
-      <div class="signal" style="--sc:#9C7BD2"><span class="sk">Keywords</span><span class="sb"><i style="width:47%"></i></span></div>
-      <div class="plus">+</div>
-      <div class="signal" style="--sc:#F7A745"><span class="sk">Viewer surges</span><span class="sb"><i style="width:58%"></i></span></div>
-      <div class="plus">+</div>
-      <div class="signal" style="--sc:#E08C3A"><span class="sk">Hype moments</span><span class="sb"><i style="width:71%"></i></span></div>
-    </div>
-    <div class="formula-out">
-      <div class="eq num">84</div>
-      <div class="formula-eq">= one live highlight score, adapting to each streamer</div>
-    </div>
-  </div>
-</div></section>
 
 <!-- Features -->
 <section class="wrap wide" id="features">
-  <div class="sec-head">
-    <h2 class="sec-title">Everything in the box</h2>
-    <p class="sec-sub">A complete clipping toolkit that runs on every channel at once, while you do everything else.</p>
-  </div>
+  <h2 class="sec-title">What you get</h2>
   <div class="feat-grid">
-    <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
-        <h3>Up to 10 channels at once</h3>
-        <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time from one dashboard, each with its own learning profile. Nothing queues behind anything else.</p>
-      </div>
+    <div class="feat feat-wide">
+      <h3>Clips are made by Twitch, not by us</h3>
+      <p>We call the official Twitch API with your own token, and Twitch hosts the clip exactly as if you had hit the button yourself. We never record, download or re-host a single frame of anyone's stream. That is the part most tools quietly skip, and it is the reason nothing here puts your account at risk.</p>
     </div>
     <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
-        <h3>Real-time detection</h3>
-        <p>Streams are scored second by second, so highlights are caught the instant they happen — not hours later in a VOD.</p>
-      </div>
+      <h3>Ten at once</h3>
+      <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
     </div>
     <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></span>
-        <h3>Adaptive per-channel learning</h3>
-        <p>Every channel you add gets its own baseline and its own threshold. Loud or quiet, fast chat or slow — each one is calibrated fairly and independently.</p>
-      </div>
+      <h3>Every channel gets its own normal</h3>
+      <p>A quiet chess stream and a screaming FPS stream do not share a threshold. Each channel is measured against itself, and gets sharper the longer it runs.</p>
     </div>
     <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12l5 5L20 7"/></svg></span>
-        <h3>One queue for every channel</h3>
-        <p>Clips from every channel land in one review queue. 200 waiting during your trial, 50 on Starter, 200 on Pro. Your decisions feed straight back into that channel's formula, sharpening it over time.</p>
-      </div>
-    </div>
-    <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>
-        <h3>Live score analytics</h3>
-        <p>Watch the highlight score rise and fall in real time, with a clear breakdown of which signals are firing.</p>
-      </div>
-    </div>
-    <div class="feat">
-      <div>
-        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2L4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-4z"/></svg></span>
-        <h3>Real Twitch clips, zero risk</h3>
-        <p>Every clip is created through Twitch's official API under your own account — hosted by Twitch, never recorded or re-hosted by us.</p>
-      </div>
+      <h3>One queue</h3>
+      <p>Every channel lands in the same place. 200 waiting during your trial, 50 on Starter, 200 on Pro. What you approve and reject feeds back into that channel's formula.</p>
     </div>
   </div>
 </section>
 
 <!-- Pricing -->
 <section class="band-sand seam" id="pricing"><div class="wrap">
-  <div class="sec-head center">
-    <h2 class="sec-title">More channels, more clips.</h2>
-    <p class="sec-sub">Every plan is the full product — paid tiers just point it at more streamers at the same time. Start with 7 days free, no card, no contracts, cancel anytime.</p>
+  <h2 class="sec-title">Pricing</h2>
+  <div class="price-one">
+    <p class="price-lead">Seven days of the whole product, free, no card. After that it comes down to one question: how many channels do you need watched at the same time?</p>
+    <div class="price-main">
+      <div class="price-head">
+        <span class="price-name">Pro</span>
+        <span class="price-fig">$25<i>/month</i></span>
+      </div>
+      <p class="price-what"><b>10 channels at once.</b> A queue that holds 200 clips. The VOD Scanner, for pulling highlights out of streams that already happened.</p>
+      <a href="/login" class="btn btn-key btn-lg">Start free</a>
+      <span class="price-tiny">Cancel from the Account tab. No contracts.</span>
+    </div>
+    <p class="price-alt">Clipping for fewer people? <b>Starter is $10</b> and watches 3 channels at once with a 50-clip queue. Same detection, same formula, same everything else. You can move between them whenever you like.</p>
   </div>
-  <div class="price-grid">
-    <div class="price-card">
-      <div class="price-in">
-        <span class="price-badge">Free trial</span>
-        <div class="price-amt"><span class="cur"></span><span class="num">7</span><span class="per">days free</span></div>
-        <div class="price-sub">The <b>whole product</b>, free for a week. No card.</div>
-        <div class="price-list">
-          <div class="li"><span class="ck">&#10003;</span><b>Everything in Pro</b> for 7 days</div>
-          <div class="li"><span class="ck">&#10003;</span>Monitor <b>10 channels at once</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
-          <div class="li"><span class="ck">&#10003;</span><b>VOD Scanner</b> included</div>
-          <div class="li"><span class="ck">&#10003;</span>No credit card required</div>
-        </div>
-        <a href="/login" class="btn btn-quiet btn-wide">Start free trial &#8594;</a>
-      </div>
-    </div>
-    <div class="price-card">
-      <div class="price-in">
-        <span class="price-badge">Starter</span>
-        <div class="price-amt"><span class="cur">$</span><span class="num">10</span><span class="per">/month</span></div>
-        <div class="price-sub">For clipping a small roster &mdash; <b>3&times; the coverage</b>.</div>
-        <div class="price-list">
-          <div class="li"><span class="ck">&#10003;</span>Monitor <b>3 channels at once</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Everything the trial gave you</div>
-          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>50 pending clips</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Adaptive, per-channel scoring formula</div>
-          <div class="li"><span class="ck">&#10003;</span>Live trigger-score analytics</div>
-        </div>
-        <a href="/login" class="btn btn-quiet btn-wide">Choose Starter &#8594;</a>
-      </div>
-    </div>
-    <div class="price-card pro">
-      <div class="price-in">
-        <span class="price-pop">Most popular</span>
-        <span class="price-badge">Highlightz Pro</span>
-        <div class="price-amt"><span class="cur">$</span><span class="num">25</span><span class="per">/month</span></div>
-        <div class="price-sub">The full toolkit for serious clippers &mdash; <b>10&times; the coverage</b>.</div>
-        <div class="price-list">
-          <div class="li"><span class="ck">&#10003;</span>Monitor <b>10 channels at once</b></div>
-          <div class="li"><span class="ck">&#10003;</span>Everything in Starter</div>
-          <div class="li"><span class="ck">&#10003;</span>Review queue for <b>200 pending clips</b></div>
-          <div class="li"><span class="ck">&#10003;</span><b>VOD Scanner</b> — find highlights in past broadcasts</div>
-        </div>
-        <a href="/login" class="btn btn-key btn-wide">Go Pro &#8594;</a>
-      </div>
-    </div>
-  </div>
-  <div class="price-promo" style="text-align:center">Have a promo code? Enter it at checkout for <b>50% off your first month</b>.</div>
 </div></section>
 
 <!-- FAQ -->
-<section class="wrap reading" id="faq">
-  <div class="sec-head center">
-    <h2 class="sec-title">Frequently asked questions</h2>
-    <p class="sec-sub">Quick answers to the things people ask before starting.</p>
+<section class="wrap" id="faq">
+  <h2 class="sec-title">Questions</h2>
+  <div class="faq-group">
+    <h3 class="faq-h">Using it</h3>
+    <div class="faq-cols">
+      <div class="faq-item">
+        <p class="faq-q">Can I clip channels I don't own?</p>
+        <p class="faq-a">Yes. That is what most people use it for. Add any live Twitch channel and the clip is created through Twitch's official Clips API with your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. Twitch hosts it and it is attributed to you, same as a manual clip.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Does it work for small channels?</p>
+        <p class="faq-a">Yes, and this is the whole point of per-channel calibration. A five-viewer chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns what is normal for each channel and reacts to relative spikes rather than raw numbers.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Is this AI?</p>
+        <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">What if I don't like the clips it takes?</p>
+        <p class="faq-a">Every clip lands in your review queue first. Approve the keepers, reject the misses. The formula learns from each decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes toward your taste.</p>
+      </div>
+    </div>
   </div>
-  <div class="faq-list">
-    <details class="faq-item">
-      <summary><span class="faq-q">How many channels can I watch at once?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Ten during your free trial, <b>3 at the same time on Starter</b>, and <b>10 at the same time on Pro</b>. They all run in parallel — nothing waits in line behind anything else — and each channel keeps its own independent learning profile, so watching ten does not blunt any one of them.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Can I clip channels I don't own?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Yes — that's what most people use it for. Add any live Twitch channel and Highlightz clips it through Twitch's official Clips API using your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. The clip is hosted by Twitch and attributed to you, the same as a manual clip. Streamers who would rather not be clipped through Highlightz can opt out at any time on our opt-out page, and we honour it immediately.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Do I have to be watching for it to work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">No. Highlightz runs on our servers, not in your browser, so your tab can be closed and your PC can be off. Add a channel before the streamer is even live and it keeps checking every 30 seconds until they are, then watches the whole broadcast and leaves the clips in your queue for when you get back. The one thing it asks is that you check in: if an account shows no activity at all for 8 hours, its streams are stopped so slots aren't held open by abandoned sessions.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">How does Highlightz know what to clip?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">It watches your stream's live signals — chat speed, audio spikes, keywords, viewer surges, and hype moments — and blends them into one score, second by second. Every channel gets its own baseline, so a spike is measured against <b>your</b> normal, not someone else's. When the score crosses your channel's threshold, the clip fires.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Is this AI?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">No. Highlightz runs on a transparent mathematical formula, not a black-box model. You can watch the score move in real time and open any clip to see exactly which signals fired and why.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Do you record or store my stream?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API — the clip is hosted by Twitch, attributed to your account, exactly as if you'd clicked the Clip button yourself. We never record, download, or re-host video.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Is this allowed on Twitch?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Yes — clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who don't want their channel clipped through Highlightz can also opt out at any time via our opt-out page.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">How long are the clips?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Twitch clips capture roughly the last 30 seconds around the moment — our timing places the highlight inside that window, build-up and payoff. Want longer? Any clip can be trimmed or extended up to 60 seconds in Twitch's own clip editor.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Does it work for small channels?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Yes — this is the whole point of per-channel calibration. A 5-viewer chat and a 50,000-viewer chat get judged with the same fairness, because the formula learns what's normal for each channel and reacts to relative spikes, not raw numbers.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">How does billing work?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">You get <b>7 days free with no credit card</b> — the full Pro product, so you can see whether the detector actually works on your channels before paying anything. After that, Starter is $10/month (3 channels at once, 50-clip queue) and Pro is $25/month (10 channels at once, 200-clip queue, plus the VOD Scanner). Both renew monthly and you can cancel anytime through the billing portal — no contracts, no cancellation hoops.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">What if I don't like the clips it takes?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Every clip lands in your review queue first — approve the keepers, reject the misses. The formula learns from every decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes itself to your taste.</div>
-    </details>
-    <details class="faq-item">
-      <summary><span class="faq-q">Do you support platforms other than Twitch?</span><span class="faq-c">+</span></summary>
-      <div class="faq-a">Twitch is fully supported today. More platforms are on the roadmap — follow along in the app for updates.</div>
-    </details>
+  <div class="faq-group">
+    <h3 class="faq-h">The fine print</h3>
+    <div class="faq-cols">
+      <div class="faq-item">
+        <p class="faq-q">Is this allowed on Twitch?</p>
+        <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who would rather their channel was not clipped through Highlightz can opt out at any time on our opt-out page.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Do you record or store my stream?</p>
+        <p class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API. Twitch hosts it and it is attributed to your account. We never record, download or re-host video.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">How does billing work?</p>
+        <p class="faq-a">Seven days free with no credit card, and that trial is the full Pro product so you can find out whether the detector works on your channels before paying anything. After that Starter is $10/month for 3 channels at once and a 50-clip queue, Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner. Both renew monthly and cancel from the Account tab.</p>
+      </div>
+    </div>
   </div>
+  <p class="faq-more">More detail, including how long clips run and which platforms are supported, is in the <a href="/tutorial">walkthrough</a>.</p>
 </section>
 
 <!-- Final CTA -->
@@ -6276,7 +6191,7 @@ LANDING_HTML = """<!DOCTYPE html>
 </div>
 
 <footer class="footer">
-  <div class="fl">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
+  <div class="fl">&copy; 2026 ANTI Technology LLC. All rights reserved.</div>
   <a href="/tutorial">Tutorial</a> &middot; <a href="/compare">Compare</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
@@ -6346,7 +6261,7 @@ LANDING_HTML = """<!DOCTYPE html>
         ev.preventDefault();
         var lb=document.getElementById('exl');
         var ifr=document.getElementById('exl-iframe');
-        document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' — '+(c.channel||'');
+        document.getElementById('exl-title').textContent=(c.clip_title||'Clip')+' &middot; '+(c.channel||'');
         document.getElementById('exl-out').href=c.twitch_url||'#';
         // ORDER MATTERS, and it is the whole reason clips played at 360p.
         // Twitch's clip embed chooses its rendition from the player's size when
@@ -6688,18 +6603,22 @@ def _faq_schema(html: str) -> str:
     two cannot disagree.
     """
     items = []
-    for block in re.findall(
-            r'<details class="faq-item">(.*?)</details>', html, re.S):
-        q = re.search(r'<span class="faq-q">(.*?)</span>', block, re.S)
-        a = re.search(r'<div class="faq-a">(.*?)</div>', block, re.S)
+    # MATCHES THE PAIR, NOT AN OUTER WRAPPER. The FAQ used to be a stack of
+    # <details> accordions and this keyed on that tag; when the accordion was
+    # replaced with open Q&A the schema would have silently emptied, publishing
+    # a FAQPage with no questions in it. Keying on the two classes that carry
+    # the content survives the container changing shape again.
+    for q, a in re.findall(
+            r'<p class="faq-q">(.*?)</p>\s*<p class="faq-a">(.*?)</p>',
+            html, re.S):
         if not q or not a:
             continue
         # Schema wants prose, not markup: <b> and friends are presentation, and
         # the entities (&mdash;, &middot;) have to be real characters or they
         # end up double-escaped inside the JSON string.
-        text = unescape(re.sub(r"<[^>]+>", "", a.group(1))).strip()
+        text = unescape(re.sub(r"<[^>]+>", "", a)).strip()
         items.append({"@type": "Question",
-                      "name": unescape(q.group(1)).strip(),
+                      "name": unescape(re.sub(r"<[^>]+>", "", q)).strip(),
                       "acceptedAnswer": {"@type": "Answer", "text": text}})
     blob = json.dumps({"@context": "https://schema.org",
                        "@type": "FAQPage", "mainEntity": items})
@@ -6707,6 +6626,101 @@ def _faq_schema(html: str) -> str:
 
 
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTML), 1)
+
+
+# ── "See it in action": real captures, never CSS mockups ─────────────────────
+# WHAT WAS HERE BEFORE. 90 divs and zero images, redrawing the dashboard, the
+# clip card and the library in HTML — down to a hand-set trigger score of 72.4
+# and invented channel names. Nobody builds a product site that way; they
+# screenshot the product. A CSS recreation has a flat, illustrated quality that
+# reads as generated no matter how carefully it is styled.
+#
+# So the section is slots. Each one is dimensioned from the real capture size,
+# so the box reserves its space and nothing shifts when the file lands (no CLS
+# either way). Until then it renders a labelled placeholder rather than a
+# broken image: the page stays publishable, and a missing capture degrades
+# instead of breaking.
+_LANDING_MEDIA_DIR = _STATIC_DIR / "landing"
+_LANDING_MEDIA_URL = "/static/landing/"
+
+
+class _Shot(NamedTuple):
+    src: str            # filename in static/landing/
+    w: int              # DISPLAY width  (capture at 2x for retina)
+    h: int              # DISPLAY height
+    alt: str
+    cap: str
+    kind: str = "image"   # or "video"
+
+
+_LANDING_SHOTS: tuple[_Shot, ...] = (
+    _Shot("rec-trigger.mp4", 1440, 900,
+          "The live trigger score climbing past the threshold and a clip being "
+          "created into the review queue.",
+          "The score climbing, crossing the line, and the clip landing. One take, "
+          "no cuts.", "video"),
+    _Shot("shot-detail.png", 900, 1000,
+          "A single clip opened, showing which signals fired and how strongly.",
+          "Why this one fired. Every clip shows its own numbers."),
+    _Shot("shot-library.png", 1440, 900,
+          "The clip library: approved clips across several channels and games.",
+          "Everything you kept, across every channel."),
+)
+
+
+def _landing_shot(sh: _Shot) -> str:
+    """One slot. Real file if captured, labelled placeholder if not."""
+    box = ('<figure class="pshot pshot-' + ("v" if sh.kind == "video" else "i")
+           + '" style="--pw:' + str(sh.w) + ";--ph:" + str(sh.h) + '">')
+    cap = '<figcaption>' + html_escape(sh.cap) + "</figcaption>"
+
+    stem = sh.src.rsplit(".", 1)[0]
+    webm, poster = stem + ".webm", stem + "-poster.jpg"
+    have = (_LANDING_MEDIA_DIR / sh.src).is_file()
+    if sh.kind == "video":
+        have = have or (_LANDING_MEDIA_DIR / webm).is_file()
+
+    if not have:
+        return (box + '<div class="pshot-ph" role="img" aria-label="'
+                + html_escape(sh.alt) + '"><span class="pshot-k">'
+                + ("Recording" if sh.kind == "video" else "Screenshot")
+                + ' not captured yet</span><span class="pshot-f">'
+                + html_escape(sh.src) + "</span></div>" + cap + "</figure>")
+
+    if sh.kind == "video":
+        src = ""
+        if (_LANDING_MEDIA_DIR / webm).is_file():
+            src += '<source src="' + _LANDING_MEDIA_URL + webm + '" type="video/webm">'
+        if (_LANDING_MEDIA_DIR / sh.src).is_file():
+            src += '<source src="' + _LANDING_MEDIA_URL + sh.src + '" type="video/mp4">'
+        pos = (' poster="' + _LANDING_MEDIA_URL + poster + '"'
+               if (_LANDING_MEDIA_DIR / poster).is_file() else "")
+        # Lazy: this sits below the fold, and a muted looping video that starts
+        # downloading on page load is a real cost on a phone.
+        return (box + '<video class="pshot-m" width="' + str(sh.w) + '" height="'
+                + str(sh.h) + '" muted loop playsinline autoplay preload="none"'
+                + pos + ' aria-label="' + html_escape(sh.alt) + '">' + src
+                + "</video>" + cap + "</figure>")
+
+    return (box + '<img class="pshot-m" src="' + _LANDING_MEDIA_URL + sh.src
+            + '" alt="' + html_escape(sh.alt) + '" width="' + str(sh.w)
+            + '" height="' + str(sh.h) + '" loading="lazy" decoding="async">'
+            + cap + "</figure>")
+
+
+def _product_shots() -> str:
+    a, b, c = _LANDING_SHOTS
+    # Asymmetric on purpose: the recording runs full width because it is the
+    # one that shows the product working, then a portrait and a landscape sit
+    # side by side at unequal widths. A 2x2 of equal boxes would put the shape
+    # back that the captures were brought in to remove.
+    return ('<div class="pshots">'
+            + '<div class="pshot-wide">' + _landing_shot(a) + "</div>"
+            + '<div class="pshot-pair">' + _landing_shot(b) + _landing_shot(c)
+            + "</div></div>")
+
+
+LANDING_HTML = LANDING_HTML.replace("<!--PRODUCT_SHOTS-->", _product_shots(), 1)
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">

@@ -103,7 +103,7 @@ def test_the_landing_page_advertises_the_free_plan():
     # The free ENTRY POINT is now a 7-day trial rather than a free tier, but the
     # thing this test protects is unchanged: an outreach signup must not land on
     # a page that asks for money with no way to try the product first.
-    assert "Start free trial" in LANDING_HTML
+    assert "Start free" in LANDING_HTML   # button copy tightened in the pricing rewrite
     assert "no credit card" in LANDING_HTML.lower()
     assert "7" in LANDING_HTML and "days free" in LANDING_HTML.lower()
 
@@ -145,7 +145,7 @@ def test_pricing_bullets_are_not_laid_out_as_flex_columns():
 
 def test_the_vod_scanner_is_named_consistently():
     from src.dashboard.api import LANDING_HTML
-    assert "<b>VOD Scanner</b>" in LANDING_HTML
+    assert "VOD Scanner" in LANDING_HTML   # the NAME is the invariant, not the <b>
     assert "VOD scanner" not in LANDING_HTML, "mixed capitalisation of the feature name"
 
 
