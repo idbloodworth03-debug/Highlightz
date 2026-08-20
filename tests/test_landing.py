@@ -116,7 +116,11 @@ def test_accent_word_is_solid_not_outlined():
     not Twitch's" is the one colour decision a later edit is most likely to undo
     by reaching for a familiar value.
     """
-    css = api.LANDING_HTML
+    # Excludes the captured product stylesheet: see the note in
+    # test_landing_palette.py. The dashboard's own Twitch-purple button is not
+    # this page's palette.
+    css = re.sub(r"<style data-product-capture>.*?</style>", "",
+                 api.LANDING_HTML, flags=re.S)
     block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
     # #B86ADC — 5.35:1 on the charcoal page base. The page briefly went light,
     # which forced a darker plum (#6A2E8A) because the glow only managed 3.15

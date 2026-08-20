@@ -18,7 +18,12 @@ import pytest
 
 from src.dashboard import api
 
-CSS = api.LANDING_HTML
+# The marketing page WITHOUT the captured product stylesheet. The captures
+# carry the dashboard's own palette (its Twitch switcher really is #9146FF, as
+# a Twitch button should be) and that is not this page's brand decision to
+# make. Everything here is about OUR colours.
+CSS = re.sub(r"<style data-product-capture>.*?</style>", "",
+             api.LANDING_HTML, flags=re.S)
 
 
 def _tokens() -> dict[str, str]:

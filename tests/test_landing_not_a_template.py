@@ -31,33 +31,122 @@ CSS = re.search(r"<style>(.*?)</style>", HTML, re.S).group(1)
 VISIBLE = re.sub(r"<!--.*?-->", "", re.sub(r"<script.*?</script>", "", HTML, flags=re.S),
                  flags=re.S)
 VISIBLE = VISIBLE[VISIBLE.index("</style>"):]
+# The captured product surfaces are excluded from every COPY measurement below.
+# Their strings are the app's, not the marketing page's: clip titles come out of
+# _generate_clip_title as "{channel} — {label}", em dash included, and holding
+# the product's own UI to a landing page's cadence rules would mean editing the
+# product to suit the brochure. Structure tests still look at the whole page.
+def _strip_captures(html: str) -> str:
+    """Remove each .pcap subtree, matching braces properly.
+
+    A non-greedy regex stops at the FIRST </div>, not the matching one, and
+    left most of the product DOM in place — which is how this measured 23 em
+    dashes and looked like the copy rewrite had failed.
+    """
+    out, i = [], 0
+    while True:
+        j = html.find('<div class="pcap"', i)
+        if j == -1:
+            out.append(html[i:])
+            return "".join(out)
+        out.append(html[i:j])
+        depth, k = 0, j
+        while k < len(html):
+            if html.startswith("<div", k):
+                depth += 1
+            elif html.startswith("</div>", k):
+                depth -= 1
+                if depth == 0:
+                    k += 6
+                    break
+            k += 1
+        i = k
+
+
+VISIBLE = _strip_captures(VISIBLE)
 
 
 # ── tell 1: the product is shown, not drawn ──────────────────────────────────
 
-def test_the_product_section_uses_real_captures_not_css():
-    """It is slots for real files. If someone rebuilds the dashboard in divs
-    again, the div count is what gives it away."""
+def test_the_product_section_is_the_real_apps_markup():
+    """Not "looks like the app" — IS the app's markup.
+
+    The section holds DOM that the real dashboard components rendered, lifted
+    by scripts/capture_product_ui.mjs. The check is that the app's own class
+    names are present: nobody hand-writing an approximation reproduces rd-stream,
+    rd-sigbar and rd-scorebadge, so their presence is the evidence, and their
+    absence means someone drew a picture again.
+    """
     sec = re.search(r'<section[^>]*id="product".*?</section>', HTML, re.S).group(0)
-    assert sec.count("<div") < 12, (
-        "the product section is being drawn in HTML again "
-        f"({sec.count('<div')} divs) instead of showing a capture")
-    assert "pshot" in sec, "the capture slots are gone"
+    for cls in ("rd-stream", "rd-clip", "rd-sigbar", "rd-scorebadge", "rd-modal"):
+        assert cls in sec, f"{cls} is missing — this is not the app's own markup"
+    assert sec.count('class="pcap"') == 3, "the three captured surfaces are not all there"
 
 
-def test_every_capture_slot_reserves_its_space():
-    """No CLS in either direction: the box holds the capture's aspect ratio
-    whether the file has landed or not."""
-    for sh in api._LANDING_SHOTS:
-        assert sh.w > 0 and sh.h > 0
-    assert "--pw:" in HTML and "--ph:" in HTML
-    assert "aspect-ratio:var(--pw)/var(--ph)" in CSS.replace(" ", "")
+def test_the_captures_cannot_reach_the_network():
+    """A landing page that makes no external requests must not start making
+    them because a capture carried a thumbnail or an embed."""
+    from src.dashboard import landing_product as P
+    for name, blob in (("streams", P.STREAMS_HTML), ("review", P.REVIEW_HTML),
+                       ("detail", P.DETAIL_HTML), ("css", P.PRODUCT_CSS)):
+        for bad in ("http://", "https://", "<iframe", "<img", "<video", "@import"):
+            assert bad not in blob, f"{name} capture contains {bad!r}"
 
 
-def test_a_missing_capture_degrades_instead_of_breaking():
-    """A broken-image icon reads as a bug and makes the page look unfinished."""
-    assert "not captured yet" in HTML
-    assert "pshot-ph" in CSS
+def test_the_captures_cannot_take_focus():
+    """They are pictures. A visitor tabbing to the pricing must not walk
+    through thirty dead controls first."""
+    for blob in (HTML,):
+        sec = re.search(r'<section[^>]*id="product".*?</section>', blob, re.S).group(0)
+        assert sec.count("<button") == 0, "a capture still has real buttons in it"
+        assert sec.count("<a ") == 0, "a capture still has real links in it"
+        assert sec.count("inert") == 3, "every capture must be inert"
+
+
+def test_the_product_stylesheet_cannot_escape_its_wrapper():
+    """The dashboard and the landing page share twelve short class names
+    (accent, hot, ic, on, k, v). Every product rule is prefixed so none of them
+    can repaint the marketing page."""
+    from src.dashboard.landing_product import PRODUCT_CSS
+    bad = []
+    for line in PRODUCT_CSS.split("\n"):
+        line = line.strip()
+        if not line or "{" not in line:
+            continue
+        sel = line[:line.index("{")].strip()
+        if not sel or sel.startswith("@") or sel.startswith("}"):
+            continue
+        # keyframe steps are not selectors
+        if re.fullmatch(r"(from|to|[\d.]+%)(\s*,\s*(from|to|[\d.]+%))*", sel):
+            continue
+        if not all(part.strip().startswith(".pcap") for part in sel.split(",")):
+            bad.append(sel[:70])
+    assert bad == [], f"these product rules are not scoped to .pcap: {bad[:4]}"
+
+
+def test_every_capture_is_cropped_at_its_real_aspect_ratio():
+    """The capture is scaled, never reflowed. Reflowing it into the marketing
+    column would trip the dashboard's own media queries and show a layout no
+    user of the product actually has."""
+    from src.dashboard import landing_product as P
+    for box in (P.STREAMS_BOX, P.REVIEW_BOX, P.DETAIL_BOX):
+        assert box[0] > 300 and box[1] > 300, f"implausible capture box {box}"
+    assert "aspect-ratio:var(--cw)/var(--ch)" in CSS.replace(" ", "")
+    assert "transform:scale(var(--sc))" in CSS.replace(" ", "")
+
+
+def test_the_seeded_account_looks_used_not_demoed():
+    """Placeholder-perfect data is its own tell. A real account mid-session has
+    uneven numbers, a channel that is not live, and a rejected clip sitting in
+    the queue."""
+    from src.dashboard import landing_product as P
+    all_html = P.STREAMS_HTML + P.REVIEW_HTML + P.DETAIL_HTML
+    assert "61.7" in all_html, "the live score is a round number"
+    assert "offline" in P.STREAMS_HTML, "every channel is live, which never happens"
+    assert "rejected" in P.REVIEW_HTML, "nothing in the queue was ever rejected"
+    # Real states from the real enums, not invented ones.
+    for state in ("pending", "approved", "rejected"):
+        assert state in P.REVIEW_HTML, f"the queue shows no {state} clip"
 
 
 def test_the_invented_demo_data_is_gone():

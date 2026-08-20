@@ -5505,6 +5505,42 @@ LANDING_HTML = """<!DOCTYPE html>
     .price-fig{font-size:29px}
   }
 
+  /* ── See it in action: cropped windows onto real product DOM ──────────────
+     The capture is laid out at its NATURAL width and scaled down, never
+     reflowed: reflowing would trip the dashboard's own media queries and show
+     a layout that no user of the product actually has. The window then crops
+     to the scaled height, hard-edged, with a real shadow. */
+  .pcrop{margin:0;min-width:0}
+  .pcrop-win{position:relative;overflow:hidden;width:100%;
+    aspect-ratio:var(--cw)/var(--ch);
+    border:1px solid var(--hair);border-radius:5px;background:#08080b;
+    box-shadow:0 18px 46px -22px rgba(0,0,0,.8),0 2px 6px -2px rgba(0,0,0,.5);
+    contain:paint}
+  .pcrop-win .pcap{position:absolute;top:0;left:0;
+    width:calc(var(--nw) * 1px);height:calc(var(--nh) * 1px);
+    transform:scale(var(--sc));transform-origin:top left;
+    pointer-events:none;user-select:none}
+  .pcrop figcaption{margin-top:11px;font-size:13px;line-height:1.55;color:var(--ink-3);
+    max-width:52ch}
+  /* Below the width where the crop would be illegibly small, the window keeps
+     its left edge and lets the right side run out of frame rather than
+     shrinking the type past readability. */
+  /* On a phone the SAME capture lays itself out as the phone dashboard, because
+     the product's media queries fire against the visitor's viewport. So the
+     crop switches to the mobile box and shows the top of it at roughly 1:1,
+     rather than shrinking a desktop layout until the type is four pixels tall
+     or cropping a corner of it. */
+  @media (max-width:820px){
+    /* NOT SCALED AT ALL down here. The capture is given the container's own
+       width and left to lay itself out, and because the product's media
+       queries fire against the visitor's real viewport, what it lays out IS
+       the phone dashboard. A transform:scale() with a hardcoded ratio was
+       clipping the right edge, since the column is narrower than the viewport
+       by the page's padding and that difference changes with the width. */
+    .pcrop-win{aspect-ratio:auto;height:calc(var(--mch) * 1px)}
+    .pcrop-win .pcap{position:relative;width:100%;height:auto;transform:none}
+  }
+
   /* ── See it in action: real captures in hard-edged frames ─────────────────
      Presented as screenshots, not as styled cards: a hairline edge, a real
      shadow, the capture's own aspect ratio, and no rounded-card chrome. The
@@ -6628,99 +6664,90 @@ def _faq_schema(html: str) -> str:
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTML), 1)
 
 
-# ── "See it in action": real captures, never CSS mockups ─────────────────────
+# ── "See it in action": the real product, not a picture of it ────────────────
 # WHAT WAS HERE BEFORE. 90 divs and zero images, redrawing the dashboard, the
 # clip card and the library in HTML — down to a hand-set trigger score of 72.4
-# and invented channel names. Nobody builds a product site that way; they
-# screenshot the product. A CSS recreation has a flat, illustrated quality that
-# reads as generated no matter how carefully it is styled.
+# and invented channel names. Nobody builds a product site that way, and a CSS
+# recreation has a flat, illustrated quality that reads as generated no matter
+# how carefully it is styled.
 #
-# So the section is slots. Each one is dimensioned from the real capture size,
-# so the box reserves its space and nothing shifts when the file lands (no CLS
-# either way). Until then it renders a labelled placeholder rather than a
-# broken image: the page stays publishable, and a missing capture degrades
-# instead of breaking.
-_LANDING_MEDIA_DIR = _STATIC_DIR / "landing"
-_LANDING_MEDIA_URL = "/static/landing/"
+# WHAT IS HERE NOW. Actual DOM, rendered by the actual dashboard components in
+# a real browser and lifted whole — see scripts/capture_product_ui.mjs. The
+# class names are the app's class names and the stylesheet is the app's
+# stylesheet, so this cannot drift into a flattering approximation: regenerate
+# it and whatever the product looks like is what the landing page shows.
+#
+# Presented as a CROP, at the aspect ratio it really rendered at, scaled down
+# rather than reflowed. Reflowing it into the marketing column would trigger
+# the dashboard's own responsive breakpoints and show a layout no user has.
+from src.dashboard import landing_product as _P
 
 
-class _Shot(NamedTuple):
-    src: str            # filename in static/landing/
-    w: int              # DISPLAY width  (capture at 2x for retina)
-    h: int              # DISPLAY height
-    alt: str
-    cap: str
-    kind: str = "image"   # or "video"
+def _crop(html: str, box: tuple, w: int, hm: int, alt: str, cap: str) -> str:
+    """One captured surface, cropped to a fixed window.
 
-
-_LANDING_SHOTS: tuple[_Shot, ...] = (
-    _Shot("rec-trigger.mp4", 1440, 900,
-          "The live trigger score climbing past the threshold and a clip being "
-          "created into the review queue.",
-          "The score climbing, crossing the line, and the clip landing. One take, "
-          "no cuts.", "video"),
-    _Shot("shot-detail.png", 900, 1000,
-          "A single clip opened, showing which signals fired and how strongly.",
-          "Why this one fired. Every clip shows its own numbers."),
-    _Shot("shot-library.png", 1440, 900,
-          "The clip library: approved clips across several channels and games.",
-          "Everything you kept, across every channel."),
-)
-
-
-def _landing_shot(sh: _Shot) -> str:
-    """One slot. Real file if captured, labelled placeholder if not."""
-    box = ('<figure class="pshot pshot-' + ("v" if sh.kind == "video" else "i")
-           + '" style="--pw:' + str(sh.w) + ";--ph:" + str(sh.h) + '">')
-    cap = '<figcaption>' + html_escape(sh.cap) + "</figcaption>"
-
-    stem = sh.src.rsplit(".", 1)[0]
-    webm, poster = stem + ".webm", stem + "-poster.jpg"
-    have = (_LANDING_MEDIA_DIR / sh.src).is_file()
-    if sh.kind == "video":
-        have = have or (_LANDING_MEDIA_DIR / webm).is_file()
-
-    if not have:
-        return (box + '<div class="pshot-ph" role="img" aria-label="'
-                + html_escape(sh.alt) + '"><span class="pshot-k">'
-                + ("Recording" if sh.kind == "video" else "Screenshot")
-                + ' not captured yet</span><span class="pshot-f">'
-                + html_escape(sh.src) + "</span></div>" + cap + "</figure>")
-
-    if sh.kind == "video":
-        src = ""
-        if (_LANDING_MEDIA_DIR / webm).is_file():
-            src += '<source src="' + _LANDING_MEDIA_URL + webm + '" type="video/webm">'
-        if (_LANDING_MEDIA_DIR / sh.src).is_file():
-            src += '<source src="' + _LANDING_MEDIA_URL + sh.src + '" type="video/mp4">'
-        pos = (' poster="' + _LANDING_MEDIA_URL + poster + '"'
-               if (_LANDING_MEDIA_DIR / poster).is_file() else "")
-        # Lazy: this sits below the fold, and a muted looping video that starts
-        # downloading on page load is a real cost on a phone.
-        return (box + '<video class="pshot-m" width="' + str(sh.w) + '" height="'
-                + str(sh.h) + '" muted loop playsinline autoplay preload="none"'
-                + pos + ' aria-label="' + html_escape(sh.alt) + '">' + src
-                + "</video>" + cap + "</figure>")
-
-    return (box + '<img class="pshot-m" src="' + _LANDING_MEDIA_URL + sh.src
-            + '" alt="' + html_escape(sh.alt) + '" width="' + str(sh.w)
-            + '" height="' + str(sh.h) + '" loading="lazy" decoding="async">'
-            + cap + "</figure>")
+    `w` is how wide the crop is on the page; the capture is scaled to it. The
+    box keeps the capture's real proportions so nothing is squashed, and the
+    whole thing is inert: it is a picture of the product, and a visitor must
+    not be able to tab into thirty dead controls on their way to the pricing.
+    """
+    nat_w, nat_h = box
+    scale = w / nat_w
+    # Only the DESKTOP box needs numbers. On a phone the same markup lays itself
+    # out as the phone dashboard on its own, because the product's media queries
+    # fire against the visitor's real viewport, so all mobile needs from here is
+    # how tall a window to crop it to.
+    return (
+        '<figure class="pcrop" style="'
+        + "--cw:" + str(w) + ";--ch:" + str(round(nat_h * scale))
+        + ";--sc:" + f"{scale:.4f}" + ";--nw:" + str(nat_w) + ";--nh:" + str(nat_h)
+        + ";--mch:" + str(hm) + '">'
+        + '<div class="pcrop-win" role="img" aria-label="' + html_escape(alt) + '">'
+        + '<div class="pcap" inert aria-hidden="true">' + html + "</div></div>"
+        + '<figcaption>' + html_escape(cap) + "</figcaption></figure>")
 
 
 def _product_shots() -> str:
-    a, b, c = _LANDING_SHOTS
-    # Asymmetric on purpose: the recording runs full width because it is the
-    # one that shows the product working, then a portrait and a landscape sit
-    # side by side at unequal widths. A 2x2 of equal boxes would put the shape
-    # back that the captures were brought in to remove.
-    return ('<div class="pshots">'
-            + '<div class="pshot-wide">' + _landing_shot(a) + "</div>"
-            + '<div class="pshot-pair">' + _landing_shot(b) + _landing_shot(c)
-            + "</div></div>")
+    # Asymmetric on purpose: the monitor runs full width because it is the one
+    # that shows the whole job being done, then the clip detail and the queue
+    # sit beside each other at unequal widths.
+    return (
+        '<div class="pshots">'
+        + '<div class="pshot-wide">'
+        + _crop(_P.STREAMS_HTML, _P.STREAMS_BOX, 1180, 620,
+                "The Live Streams dashboard: five channels monitored at once, "
+                "one live and scoring 61.7 against a threshold of 51, one "
+                "offline and one reconnecting.",
+                "Five channels being watched at the same time. The score is live, "
+                "the threshold is this channel's own, and the signals underneath "
+                "are what moved it.")
+        + "</div>"
+        + '<div class="pshot-pair">'
+        + _crop(_P.DETAIL_HTML, _P.DETAIL_BOX, 430, 700,
+                "One clip opened, showing chat velocity 72%, keyword hits 65%, "
+                "sentiment 82% and audio spike 81%.",
+                "Every clip shows its own numbers. This is why that one fired.")
+        + _crop(_P.REVIEW_HTML, _P.REVIEW_BOX, 700, 620,
+                "The review queue: pending, approved and rejected clips across "
+                "several channels.",
+                "The queue. Approve, reject, and the formula moves toward you.")
+        + "</div></div>")
 
 
 LANDING_HTML = LANDING_HTML.replace("<!--PRODUCT_SHOTS-->", _product_shots(), 1)
+
+# The dashboard's own stylesheet, every selector prefixed with .pcap so it can
+# paint the captures without reaching anything else. Appended as a second style
+# element rather than merged into the page's, so it is obvious in view-source
+# which rules belong to the product and which to the marketing page.
+# data-product-capture marks the boundary. Everything inside belongs to the
+# DASHBOARD and is scoped to .pcap; the palette and cadence tests exclude it,
+# because the product is a different surface with its own decisions (its Twitch
+# switcher is legitimately Twitch-purple, its clip titles legitimately contain
+# the em dash that _generate_clip_title puts there).
+LANDING_HTML = LANDING_HTML.replace(
+    "</head>",
+    '<style data-product-capture>' + _P.PRODUCT_CSS + "</style></head>", 1)
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
