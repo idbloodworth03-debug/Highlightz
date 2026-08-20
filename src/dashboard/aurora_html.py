@@ -4564,6 +4564,14 @@ function RdApp() {
           flash('Your account roles were updated.');
         }
         else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 8 hours of inactivity. Restart them from the Live Streams tab.');}
+        // The row itself is already gone via stream_removed. This says WHY, and
+        // that it is not permanent — a stream vanishing with no explanation is
+        // indistinguishable from a bug to the person it happens to.
+        else if(msg.event==='streams_stopped_by_admin'){
+          flash(msg.channel
+            ? 'Monitoring of ' + msg.channel + ' was stopped by an admin to free up server capacity. You can start it again from the Live Streams tab.'
+            : (msg.count||0) + ' of your streams were stopped by an admin to free up server capacity. You can start them again from the Live Streams tab.');
+        }
         else if(msg.event==='subscription_expired'){
           // Backend stopped this user's streams because their trial/subscription
           // lapsed. Pull fresh state so the account screen and stream list reflect

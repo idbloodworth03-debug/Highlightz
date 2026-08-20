@@ -4345,6 +4345,64 @@ async def admin_user_streams(request: Request, user_id: str):
     return [s for s in _streams.values() if s.get("user_id") == user_id]
 
 
+# STOPPING, NOT BANNING. Both routes below free the slot and nothing else: the
+# user keeps their plan, their clips and their right to start the channel again
+# the moment they notice. That is deliberate — the reason this exists is a box
+# that is CPU-bound before it is slot-bound, so the admin needs to shed load
+# without it being a punishment. Taking away the ability to re-add is a
+# different decision (revoke) and has its own button.
+#
+# The user is TOLD. A stream silently vanishing from someone's dashboard is
+# indistinguishable from a bug, and the person it happens to is the one who
+# cannot tell the difference — they would report it, or quietly conclude the
+# product is broken. stop_stream_internal already broadcasts stream_removed so
+# the row disappears live; the notice on top of it says who did it and that
+# they can start it again.
+# Returns a JSON body rather than 204, which is the convention every endpoint
+# the admin page's api() helper calls already follows — that helper ends in
+# `return r.json()`, so a 204 makes it throw on an empty body and report a
+# successful stop as an error. The 204 endpoints here (invites, reviews) are
+# deliberately called with a raw fetch instead.
+@app.delete("/admin/users/{user_id}/streams/{channel}")
+async def admin_stop_user_stream(request: Request, user_id: str, channel: str):
+    """Admin: stop one of a user's streams."""
+    _require_admin(request)
+    if not _CHANNEL_RE.match(channel):
+        raise HTTPException(status_code=400, detail="Invalid channel name")
+    if not await stop_stream_internal(channel, user_id):
+        raise HTTPException(status_code=404, detail="Stream not found")
+    await broadcast(
+        {"event": "streams_stopped_by_admin", "count": 1, "channel": channel},
+        user_id=user_id,
+    )
+    log.info("admin_stopped_stream", admin=_current_user_id(request),
+             user=user_id, channel=channel)
+    return {"stopped": 1, "channel": channel}
+
+
+@app.delete("/admin/users/{user_id}/streams", status_code=200)
+async def admin_stop_all_user_streams(request: Request, user_id: str):
+    """Admin: stop every stream a user has running."""
+    _require_admin(request)
+    channels = [s.get("channel") for s in _streams.values()
+                if s.get("user_id") == user_id and s.get("channel")]
+    stopped = 0
+    for ch in channels:
+        if await stop_stream_internal(ch, user_id):
+            stopped += 1
+    if stopped:
+        # ONE notice for the batch, not one per stream. Each stop already sends
+        # its own stream_removed so every row clears; a toast per channel would
+        # bury the screen in duplicates of the same news.
+        await broadcast(
+            {"event": "streams_stopped_by_admin", "count": stopped},
+            user_id=user_id,
+        )
+    log.info("admin_stopped_all_streams", admin=_current_user_id(request),
+             user=user_id, count=stopped)
+    return {"stopped": stopped}
+
+
 @app.get("/admin/users/{user_id}/clips")
 async def admin_user_clips(request: Request, user_id: str):
     """Admin: a user's clips, approved first, newest first within each group.
@@ -7846,12 +7904,20 @@ async function openUser(u){
   ]);
   if(DR_USER !== u) return;              // drawer moved on while we were loading
 
-  html += '<div><div class="dh">Monitored streams (' + streams.length + ')</div>';
+  html += '<div><div class="dh" style="display:flex;align-items:center;gap:10px">'
+    + '<span style="flex:1">Monitored streams (' + streams.length + ')</span>'
+    + (streams.length > 1
+        ? '<button class="btn btn-bad dr-stopall">Stop all</button>' : '')
+    + '</div>';
+  // data-ch carries the channel rather than the button's position, so the
+  // handler cannot act on the wrong stream after the list re-renders.
   html += streams.length
     ? streams.map(s => '<div class="srow"><span class="' + dotClass(s.status||'offline') + '"></span>'
         + '<span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
         + '<span class="ct">' + esc(s.platform) + ' · preset ' + esc(s.preset || 'default') + '</span></span>'
-        + '<span class="dim" style="font-size:12px;text-transform:capitalize">' + esc(s.status||'offline') + '</span></div>').join('')
+        + '<span class="dim" style="font-size:12px;text-transform:capitalize">' + esc(s.status||'offline') + '</span>'
+        + '<button class="btn btn-bad dr-stopone" data-ch="' + esc(s.channel) + '">Stop</button>'
+        + '</div>').join('')
     : '<div class="dim" style="font-size:13px">No streams registered.</div>';
   html += '</div>';
 
@@ -7896,7 +7962,12 @@ async function openUser(u){
 
 document.getElementById('dr-body').addEventListener('click', async e => {
   const u = DR_USER; if(!u) return;
-  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del');
+  // THIS LIST IS THE GATE. A dr-* button missing from it is inert — the click
+  // lands, closest() returns null, and the handler gives up before the branch
+  // that would have acted. It fails silently and looks exactly like a button
+  // that does nothing, so tests/test_admin_stop_streams.py checks every dr-*
+  // class in the drawer markup appears here.
+  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del, .dr-stopone, .dr-stopall');
   if(!b) return;
   try {
     if(b.classList.contains('dr-grant')){
@@ -7915,6 +7986,24 @@ document.getElementById('dr-body').addEventListener('click', async e => {
       if(!confirm('Revoke access for ' + u.username + '?')) return;
       await api('/admin/users/' + u.id + '/revoke', 'POST');
       toast('Access revoked'); closeDrawer(); refresh(); return;
+    }
+    // Both stop branches REOPEN the drawer instead of closing it. Shedding load
+    // means stopping several streams in a row, and closing after each one would
+    // make the admin re-find the same user every time.
+    if(b.classList.contains('dr-stopone')){
+      const ch = b.getAttribute('data-ch');
+      if(!confirm('Stop monitoring ' + ch + ' for ' + u.username + '? This frees the slot now, they keep their plan and can start it again themselves.')) return;
+      b.disabled = true;
+      await api('/admin/users/' + u.id + '/streams/' + encodeURIComponent(ch), 'DELETE');
+      toast('Stopped ' + ch);
+      await openUser(u); refresh(); return;
+    }
+    if(b.classList.contains('dr-stopall')){
+      if(!confirm('Stop ALL streams for ' + u.username + '? This frees their slots now, they keep their plan and can start them again themselves.')) return;
+      b.disabled = true;
+      const r = await api('/admin/users/' + u.id + '/streams', 'DELETE');
+      toast('Stopped ' + (r.stopped || 0) + ' stream' + ((r.stopped === 1) ? '' : 's'));
+      await openUser(u); refresh(); return;
     }
     if(b.classList.contains('dr-labeler')){
       const on = !u.is_labeler;
