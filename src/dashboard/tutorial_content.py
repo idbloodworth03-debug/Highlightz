@@ -315,8 +315,8 @@ FEATURES: tuple[Section, ...] = (
             "switch tabs. Start it, go do something else, come back to the results."
         ),
         note=(
-            "The VOD Scanner is on **Pro**. On Free or Starter the tab explains "
-            "the upgrade rather than failing silently."
+            "The VOD Scanner is on **Pro**, and your trial includes it. On Starter "
+            "the tab explains the upgrade rather than failing silently."
         ),
     ),
     Section(
@@ -348,9 +348,9 @@ FEATURES: tuple[Section, ...] = (
         nav="Account & plans",
         title="Account and plans",
         body=(
-            "Your plan, your billing and your connected accounts. Highlightz is free "
-            "to start and stays free — paid plans raise the limits, they do not "
-            "unlock the basic product."
+            "Your plan, your billing and your connected accounts. New accounts get "
+            "7 days of the full product free with no card. After that you pick a "
+            "plan: Starter for 3 channels, Pro for 10 plus the VOD Scanner."
         ),
         steps=(
             "Open the **Account** tab to see **Plan status** and **Membership**.",
@@ -364,8 +364,8 @@ FEATURES: tuple[Section, ...] = (
                 "buttons to upgrade and manage billing.",
         ),
         tip=(
-            "Cancelling does not delete anything. You drop to Free and keep your "
-            "library — only the limits change."
+            "Cancelling does not delete anything. Your monitoring stops and every "
+            "clip you already have stays in your library."
         ),
     ),
 )
@@ -376,13 +376,33 @@ FEATURES: tuple[Section, ...] = (
 # because a pricing table that drifts from the enforcement is worse than none.
 
 PLANS_TITLE = "What each plan gives you"
-PLAN_ROWS: tuple[tuple[str, str, str, str], ...] = (
-    ("",                  "Free",  "Starter", "Pro"),
-    ("Price",             "$0",    "$10/mo",  "$25/mo"),
-    ("Channels at once",  "1",     "3",       "10"),
-    ("Clips held for review", "15", "50",     "200"),
-    ("VOD Scanner",       "—",     "—",       "Yes"),
-)
+
+# BUILT FROM plans.py, NOT TYPED OUT. The previous version was a hand-written
+# table with a "Free — $0 — 1 channel" column, which is a tier nobody can sign
+# up for: plans.py marks free LEGACY ONLY and new accounts go trial -> locked.
+# Writing the numbers by hand is exactly how the page came to advertise it, so
+# they are read from the source of truth instead.
+#
+# The first column is the TRIAL, because that is what a new reader actually
+# gets. It resolves to pro (see get_plan), so it carries pro's numbers.
+def _plan_rows() -> tuple[tuple[str, ...], ...]:
+    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS
+    starter, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    trial = pro                      # a trial is the full product
+    return (
+        ("",                       f"Trial ({TRIAL_DAYS} days)", "Starter", "Pro"),
+        ("Price",                  "$0, no card",
+         f"${starter['price']}/mo", f"${pro['price']}/mo"),
+        ("Channels at once",       str(trial["max_streams"]),
+         str(starter["max_streams"]), str(pro["max_streams"])),
+        ("Clips held for review",  str(trial["max_pending"]),
+         str(starter["max_pending"]), str(pro["max_pending"])),
+        ("VOD Scanner",            "Yes" if trial["vod"] else "No",
+         "Yes" if starter["vod"] else "No", "Yes" if pro["vod"] else "No"),
+    )
+
+
+PLAN_ROWS: tuple[tuple[str, ...], ...] = _plan_rows()
 
 
 # ── Troubleshooting ──────────────────────────────────────────────────────────

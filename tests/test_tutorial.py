@@ -126,14 +126,40 @@ def test_the_quoted_labels_actually_appear_in_the_tutorial(page):
 
 
 def test_the_plan_numbers_match_what_billing_enforces():
-    """A pricing table that drifts from the limits is worse than no table."""
-    from src.billing.plans import PLAN_LIMITS
+    """A pricing table that drifts from the limits is worse than no table.
+
+    THE COLUMNS CHANGED, and the reason matters. This used to read
+    Free / Starter / Pro and assert against PLAN_LIMITS["free"] — but free is
+    marked LEGACY ONLY in plans.py and no new account can reach it, so the
+    table was documenting a tier the reader could not choose. The first column
+    is now the trial, which is what they actually get, and it carries pro's
+    numbers because get_plan resolves `trialing` to pro.
+    """
+    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS, get_plan
     rows = {r[0]: r[1:] for r in C.PLAN_ROWS}
-    assert rows["Price"] == ("$0", "$10/mo", "$25/mo")
-    assert rows["Channels at once"] == tuple(
-        str(PLAN_LIMITS[p]["max_streams"]) for p in ("free", "starter", "pro"))
-    assert rows["Clips held for review"] == tuple(
-        str(PLAN_LIMITS[p]["max_pending"]) for p in ("free", "starter", "pro"))
+    head = C.PLAN_ROWS[0][1:]
+
+    assert head == (f"Trial ({TRIAL_DAYS} days)", "Starter", "Pro")
+    assert get_plan({"subscription_status": "trialing"}) == "pro", \
+        "the trial no longer resolves to pro, so this table's first column is wrong"
+
+    assert rows["Price"] == ("$0, no card",
+                             f"${PLAN_LIMITS['starter']['price']}/mo",
+                             f"${PLAN_LIMITS['pro']['price']}/mo")
+    # trial == pro on every row, which is the claim the page is making.
+    for label, key in (("Channels at once", "max_streams"),
+                       ("Clips held for review", "max_pending")):
+        assert rows[label] == tuple(
+            str(PLAN_LIMITS[p][key]) for p in ("pro", "starter", "pro")), \
+            f"the {label} row drifted from PLAN_LIMITS"
+
+
+def test_the_plans_table_does_not_advertise_the_legacy_free_tier():
+    """plans.py: free is LEGACY ONLY, "Nothing new ever lands here." Offering
+    it as a column sells something nobody can sign up for."""
+    flat = [c for row in C.PLAN_ROWS for c in row]
+    assert "Free" not in flat, "the plans table still offers a Free column"
+    assert "$0" not in flat, "a bare $0 column reads as a permanent free tier"
 
 
 def test_vod_is_described_as_pro_because_that_is_how_it_is_gated():

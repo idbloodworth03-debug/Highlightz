@@ -6100,7 +6100,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <div>
         <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
         <h3>Up to 10 channels at once</h3>
-        <p>1 channel free, 3 on Starter, 10 on Pro — watched simultaneously from one dashboard, each with its own independent learning profile. Nothing queues behind anything else.</p>
+        <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time from one dashboard, each with its own learning profile. Nothing queues behind anything else.</p>
       </div>
     </div>
     <div class="feat">
@@ -6121,7 +6121,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <div>
         <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12l5 5L20 7"/></svg></span>
         <h3>One queue for every channel</h3>
-        <p>Clips from all your channels land in a single review queue — 15 pending free, 50 on Starter, 200 on Pro. Your decisions feed straight back into that channel's formula, sharpening it over time.</p>
+        <p>Clips from every channel land in one review queue. 200 waiting during your trial, 50 on Starter, 200 on Pro. Your decisions feed straight back into that channel's formula, sharpening it over time.</p>
       </div>
     </div>
     <div class="feat">
@@ -6258,7 +6258,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Final CTA -->
 <section class="band-dark final-band seam"><div class="wrap narrow final">
   <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
-  <p>Connect your Twitch account and add your first channel free — then point Highlightz at the whole roster and let it catch the highlights on all of them at once.</p>
+  <p>Connect Twitch, add every channel you clip for, and let it catch the highlights on all of them at once. Seven days free, no card.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
   <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
 </div></section>
