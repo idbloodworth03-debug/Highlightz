@@ -41,6 +41,40 @@ class ClipNotAuthorizedError(RuntimeError):
     """
 
 
+class ClipTitleRejectedError(RuntimeError):
+    """Twitch automod refused the clip's title.
+
+    HTTP 400 "Title did not pass automod." — and the title is not ours. Helix
+    Create Clip takes only a broadcaster_id; the clip inherits the
+    BROADCASTER'S CURRENT STREAM TITLE, so this fires when something in their
+    title trips Twitch's automod. Nothing about the request, the token or the
+    account is wrong, and no change on our side can make it succeed.
+
+    Deliberately its own class because it sits between the two responses we
+    already had, and both of them are wrong for it:
+
+      * retrying on the next moment (the generic path) fails identically every
+        time while that title stands. Production logged 265 of these in six
+        hours on one box, each burning a post-roll sleep, a slot on the serial
+        processor, and a call from a Helix budget shared with every user.
+      * stopping the channel (the ClipNotAuthorizedError path) is too final.
+        The streamer can rename their stream at any moment and everything
+        starts working again, so killing monitoring would strand them.
+
+    The right answer is neither: back the channel off for a while, keep
+    monitoring, and say what is actually wrong.
+    """
+
+
+def is_title_rejected(status: int, body: str) -> bool:
+    """True for the automod title refusal.
+
+    Matched on the message, not the bare 400, because 400 covers a range of
+    unrelated request problems that should stay on the generic retry path.
+    """
+    return status == 400 and "did not pass automod" in (body or "").lower()
+
+
 def is_not_authorized(status: int, body: str) -> bool:
     """True for the permanent "this channel cannot be clipped" 403.
 
@@ -297,6 +331,17 @@ async def create_clip(user_token: str, broadcaster_id: str,
                     raise ClipNotAuthorizedError(
                         "This channel has clipping restricted on Twitch, so "
                         "Highlightz can't create clips for it.")
+
+                # Same shape as the 403 above and for the same reason: it can
+                # never succeed as-is, so it must not look transient to the
+                # caller or be retried into the remaining attempts.
+                if is_title_rejected(resp.status, body):
+                    log.warning("twitch_clip_title_automod",
+                                broadcaster_id=broadcaster_id, body=body[:200])
+                    raise ClipTitleRejectedError(
+                        "Twitch automod rejected the clip title. Clip titles come "
+                        "from the streamer's own stream title, so this clears "
+                        "when they change it.")
 
                 is_ccl_error = "content classification" in body.lower()
                 if is_ccl_error and attempt < retries - 1:

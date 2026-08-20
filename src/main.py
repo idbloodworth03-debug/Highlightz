@@ -158,6 +158,20 @@ _QUEUE_RETRY_START = 1.0
 _QUEUE_RETRY_MAX   = 30.0
 
 
+# Channels currently backed off because Twitch automod refused the clip title.
+# {channel: unix_ts_when_we_try_again}
+#
+# WHY A BACKOFF AND NOT A STOP. The rejected title is the BROADCASTER'S stream
+# title, not ours — Helix Create Clip takes only a broadcaster_id. So it fails
+# identically on every attempt while that title stands, and starts working the
+# moment they rename the stream. Stopping the channel would strand a user whose
+# streamer fixes it two minutes later; retrying every trigger burnt 265 attempts
+# in six hours on a box that is CPU-bound at six concurrent streams, each one
+# costing a post-roll sleep and a slot on the serial processor.
+_TITLE_AUTOMOD_BACKOFF_S = 600.0
+_title_automod_until: dict[str, float] = {}
+
+
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
     log.info("clip_processor_started")
@@ -197,6 +211,22 @@ async def run_clip_processor() -> None:
                 await dashboard_api.notify_clip_missed(job.user_id, job.channel)
                 continue
 
+            # Backed off for automod? Skip before the post-roll sleep and the
+            # Helix call, which is the entire point — those are what this is
+            # trying not to spend.
+            _until = _title_automod_until.get(job.channel, 0.0)
+            if _until > time.time():
+                log.info("clip_skipped_title_automod", channel=job.channel,
+                         user_id=job.user_id,
+                         retry_in_s=round(_until - time.time()))
+                continue
+            if _until:
+                # Window elapsed: drop the entry rather than leaving the dict to
+                # grow, and let this job through to find out if the streamer has
+                # renamed the stream.
+                _title_automod_until.pop(job.channel, None)
+                log.info("clip_title_automod_retrying", channel=job.channel)
+
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
             # Budget: post_roll sleep (≤30s) + create_clip retries (≤15s) +
@@ -226,6 +256,35 @@ async def run_clip_processor() -> None:
                          "message": ("Your Twitch connection has expired, so we "
                                      "cannot create clips. Sign out and back in "
                                      "to reconnect. Monitoring stopped.")},
+                        user_id=_uid,
+                    )
+                except Exception:
+                    pass
+            continue
+        except twitch_clips.ClipTitleRejectedError:
+            # Not our title, not our token, not fixable from here — see the
+            # exception's docstring. Back the channel off, say what is actually
+            # wrong, and keep monitoring so it recovers by itself when the
+            # streamer renames the stream.
+            _uid = getattr(job, "user_id", "") if job else ""
+            _ch  = getattr(job, "channel", "") if job else ""
+            _first = _ch not in _title_automod_until
+            if _ch:
+                _title_automod_until[_ch] = time.time() + _TITLE_AUTOMOD_BACKOFF_S
+            log.warning("clip_title_automod_backoff", channel=_ch, user_id=_uid,
+                        backoff_s=_TITLE_AUTOMOD_BACKOFF_S, first=_first)
+            # ONCE per backoff window, not once per moment. The old generic path
+            # sent a toast on every failure, which on this channel meant 265 of
+            # them in six hours, all saying something untrue about trying again.
+            if _uid and _first:
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": _ch or "that channel",
+                         "message": (f"Twitch is rejecting clips on {_ch} because its "
+                                     f"stream title did not pass Twitch's automod. "
+                                     f"Nothing is wrong with your account — clipping "
+                                     f"resumes on its own once the streamer changes "
+                                     f"their title.")},
                         user_id=_uid,
                     )
                 except Exception:
