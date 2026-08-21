@@ -180,6 +180,40 @@ def test_the_anchors_in_the_page_all_resolve():
         assert href in ids, f'href="#{href}" points at a section that does not exist'
 
 
+def test_anchors_do_not_land_underneath_the_sticky_nav():
+    """REPORTED: "the Features tab does nothing". It did scroll — it landed the
+    section at viewport top, which is UNDER a 71px sticky nav. #features has
+    44px of top padding, so "What you get" came to rest at y=44 with the nav
+    covering it to y=71. Over half the heading hidden, and from a short scroll
+    that reads as the click doing nothing.
+
+    scroll-margin-top is the mechanism and the page simply never had it, while
+    /tutorial has had it all along. Asserted on the ELEMENT TYPES that get
+    linked to rather than on a list of ids, so a section added later inherits
+    the fix instead of quietly repeating the bug."""
+    m = re.search(r"section\[id\][^{]*\{scroll-margin-top:([^}]+)\}", CSS)
+    assert m, "anchor targets have no scroll-margin-top; they will land under the nav"
+    assert "--nav-h" in m.group(1), \
+        f"scroll-margin-top is {m.group(1)!r} — a hardcoded value drifts from the nav"
+
+
+def test_the_nav_height_is_measured_rather_than_assumed():
+    """The nav is not one height. Its links wrap between roughly 940 and
+    1140px and it goes 71 -> 83 -> 102px, so any hardcoded --nav-h is wrong
+    across a 200px band and every anchor in that band lands behind the bar
+    again. Measured at runtime, with the constant kept only as a fallback.
+
+    A ResizeObserver, not a resize listener: the nav also changes height when
+    its own contents change — the Example clips link appears only once the
+    showcase fetch resolves, which fires no resize event."""
+    assert "--nav-h:71px" in CSS, "the no-JS fallback is gone"
+    assert "ResizeObserver(measure).observe(nav)" in HTML, \
+        "the nav height is no longer measured; the fallback will be wrong when it wraps"
+    assert "root.style.setProperty('--nav-h'" in HTML
+    assert "h!==last" in HTML, \
+        "--nav-h is written on every observation, invalidating document style each time"
+
+
 def test_the_faq_schema_matches_the_visible_questions():
     """The schema is derived from the markup, so a markup change must not empty
     it. Publishing a FAQPage with no questions is worse than publishing none."""

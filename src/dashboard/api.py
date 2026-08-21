@@ -5002,6 +5002,13 @@ LANDING_HTML = """<!DOCTYPE html>
     /* ONE curve, whole site. Durations are the only thing that varies. */
     --ease:cubic-bezier(.16,1,.3,1);
     --t-micro:150ms; --t-move:300ms; --t-enter:600ms; --t-slow:800ms;
+    /* The sticky nav's height, which anchor targets subtract so they do not
+       land underneath it. This is only the FALLBACK: between about 940 and
+       1140px the nav links wrap and it grows to 83 and then 102px, so a
+       hardcoded number is wrong across a 200px band. The real value is
+       measured and written here at runtime — see the nav-height block near
+       the end of the body. */
+    --nav-h:71px;
     /* Measure. Text sections hold this; product sections deliberately do not. */
     --measure:65ch;
     /* 0..1 — how hard the trigger is firing right now. Everything that is
@@ -5019,6 +5026,18 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth;overflow-x:clip}
+  /* ── ANCHOR TARGETS CLEAR THE NAV ────────────────────────────────────────
+     Every in-page link was landing its section at viewport top — which is
+     UNDERNEATH a 71px sticky nav. #features has 44px of top padding, so its
+     heading came to rest at y=44 with the nav covering it down to y=71: over
+     half of "What you get" hidden. From a short scroll that reads as the link
+     doing nothing at all, because the thing you clicked toward is the thing
+     the nav is sitting on.
+
+     scroll-margin-top is exactly the mechanism for this and the page never had
+     it. Applied to the elements that are actually linked to, so a section
+     added later inherits the fix instead of quietly repeating the bug. */
+  section[id],header[id],article[id]{scroll-margin-top:calc(var(--nav-h) + 12px)}
   /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
      which makes <body> a scroll container — and position:sticky then resolves
      against BODY's scrollport instead of the viewport. Body's scrollport does
@@ -5944,6 +5963,8 @@ LANDING_HTML = """<!DOCTYPE html>
     .stat:first-child{border-top:none}
     .stat .k{max-width:none}
     .nav{padding:11px 18px;gap:10px}
+    /* Measured: the nav is 67px here, not 71. */
+    :root{--nav-h:67px}
     .nav-links{display:none}
     .nav-logo span{display:none}
     .trig{padding:5px 9px;margin-right:2px}
@@ -7005,6 +7026,32 @@ LANDING_HTML = """<!DOCTYPE html>
     .then(function(d){ clips=(d&&d.clips)||[]; })
     .catch(function(){})
     .then(start,start);
+})();
+</script>
+
+<script>
+/* ── NAV HEIGHT ────────────────────────────────────────────────────────────
+   Anchor targets clear the nav by subtracting --nav-h. The nav is not one
+   height: its links wrap between roughly 940 and 1140px and it goes 71 -> 83
+   -> 102px, so the CSS fallback is wrong across that whole band and every
+   in-page link there lands its heading behind the bar again.
+
+   So it is measured. A ResizeObserver rather than a resize listener, because
+   the nav also changes height when its own contents change — the sparkline
+   readout is dropped under 720px, and the Example clips link appears only once
+   the showcase has loaded, which happens after a fetch and not on any resize.
+   Written only when it actually changes: this is a custom property on <html>
+   and each write invalidates style for the whole document. ───────────────── */
+(function(){
+  var nav=document.querySelector('.nav'), root=document.documentElement, last=0;
+  if(!nav) return;
+  function measure(){
+    var h=Math.round(nav.getBoundingClientRect().height);
+    if(h && h!==last){ last=h; root.style.setProperty('--nav-h', h+'px'); }
+  }
+  measure();
+  if('ResizeObserver' in window) new ResizeObserver(measure).observe(nav);
+  else window.addEventListener('resize', measure, {passive:true});
 })();
 </script>
 
