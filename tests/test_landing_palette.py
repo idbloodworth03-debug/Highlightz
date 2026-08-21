@@ -18,12 +18,12 @@ import pytest
 
 from src.dashboard import api
 
-# The marketing page WITHOUT the captured product stylesheet. The captures
-# carry the dashboard's own palette (its Twitch switcher really is #9146FF, as
-# a Twitch button should be) and that is not this page's brand decision to
-# make. Everything here is about OUR colours.
-CSS = re.sub(r"<style data-product-capture>.*?</style>", "",
-             api.LANDING_HTML, flags=re.S)
+# The marketing page. It used to carry a second, injected
+# stylesheet — the dashboard's own, lifted with the product captures — which had
+# to be excluded here because the app's Twitch-purple button is a Twitch
+# decision, not this page's brand decision. Both the captures and that
+# stylesheet are gone, so every colour below is now the page's own.
+CSS = api.LANDING_HTML
 
 
 def _tokens() -> dict[str, str]:
@@ -40,7 +40,7 @@ def _dark_tokens() -> dict[str, str]:
     hundred-odd existing rules using var(--ink-3) resolve correctly in both
     worlds. Both sets have to pass contrast, against their own surfaces — a
     palette that is only checked on one of them is half-checked."""
-    i = CSS.index(".band-dark,.panel,.tile,.stage,.shot-frame,.exl-card{")
+    i = CSS.index(".band-dark,.panel,.tile,.stage,.exl-card{")
     block = CSS[i:CSS.index("}", i)]
     out = {m.group(1): m.group(2) for m in re.finditer(r"--([\w-]+):(#[0-9A-Fa-f]{6})", block)}
     assert out, "the dark-context ink block is gone — dark panels now inherit light ink"

@@ -119,11 +119,7 @@ def test_accent_word_is_solid_not_outlined():
     not Twitch's" is the one colour decision a later edit is most likely to undo
     by reaching for a familiar value.
     """
-    # Excludes the captured product stylesheet: see the note in
-    # test_landing_palette.py. The dashboard's own Twitch-purple button is not
-    # this page's palette.
-    css = re.sub(r"<style data-product-capture>.*?</style>", "",
-                 api.LANDING_HTML, flags=re.S)
+    css = api.LANDING_HTML
     block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
     # #B86ADC — 5.35:1 on the charcoal page base. The page briefly went light,
     # which forced a darker plum (#6A2E8A) because the glow only managed 3.15
@@ -519,7 +515,7 @@ def test_the_clip_player_is_sized_from_the_viewport_not_a_fixed_920():
     rendition and then shows it in a box with room to spare."""
     html = api.LANDING_HTML
     # The STANDALONE rule. ".exl-card{" also appears inside the dark-context
-    # selector list (.band-dark,.panel,.demo,.shot-frame,.exl-card{), which
+    # selector list (.band-dark,.panel,.tile,.stage,.exl-card{), which
     # index() finds first and which carries no sizing at all.
     i = html.index("\n  .exl-card{position:relative")
     card = html[i:html.index("}", i)]

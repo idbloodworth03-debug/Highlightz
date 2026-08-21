@@ -5095,7 +5095,7 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The wall takes the height that is left; the caption takes what it needs.
      min-height:0 on both, or the grid row refuses to shrink below content. */
   .hero-stack{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0}
-  .band-dark,.panel,.tile,.stage,.shot-frame,.exl-card{
+  .band-dark,.panel,.tile,.stage,.exl-card{
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
     --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
     color:var(--ink-2)}
@@ -5226,14 +5226,13 @@ LANDING_HTML = """<!DOCTYPE html>
      The argument and the decision get air; the reference material does not. */
   #how{padding-top:74px;padding-bottom:78px}         /* the argument */
   #pricing{padding-top:70px;padding-bottom:72px}     /* the decision */
-  #product{padding-top:56px;padding-bottom:44px}     /* evidence, sits close to the claim */
-  #features{padding-top:44px;padding-bottom:52px}
+    #features{padding-top:44px;padding-bottom:52px}
   #examples{padding-top:52px;padding-bottom:46px}
   #faq{padding-top:40px;padding-bottom:56px}         /* reference, deliberately tighter */
   @media (max-width:760px){
     #how{padding-top:52px;padding-bottom:54px}
     #pricing{padding-top:50px;padding-bottom:52px}
-    #product,#features,#examples,#faq{padding-top:38px;padding-bottom:40px}
+    #features,#examples,#faq{padding-top:38px;padding-bottom:40px}
   }
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
@@ -5709,109 +5708,6 @@ LANDING_HTML = """<!DOCTYPE html>
     .ptier-b .ptier-fig{font-size:34px}
   }
 
-  /* ── See it in action ─────────────────────────────────────────────────────
-     NOTHING IS SCALED HERE. The captures are live DOM, so each one is handed
-     its column and lays itself out in it. The previous version shrank a
-     natural-width capture with transform:scale() to a hardcoded pixel width,
-     which is what threw the alignment out: 1180px of content inside a 1720px
-     container at 1920, pinned left, 468px of dead space on the right. A fixed
-     width in a fluid container cannot centre, and centring it would only have
-     redistributed the emptiness. Filling the column removes it. */
-  #product{overflow-x:clip;
-    padding-top:clamp(30px,3.4vw,50px);padding-bottom:clamp(52px,6vw,92px)}
-  #product .sec-title{margin-bottom:0}
-  .pshows{display:flex;flex-direction:column;gap:clamp(52px,6.5vw,96px);margin-top:34px}
-
-  /* Copy beside the picture, not stacked above it, and the sides alternate.
-     The copy column is deliberately the narrow one: the screenshot is the
-     argument, the sentence is the caption. */
-  .pshow{display:grid;grid-template-columns:minmax(230px,.3fr) minmax(0,.7fr);
-    gap:clamp(22px,3vw,52px);align-items:center}
-  .pshow-alt{grid-template-columns:minmax(0,.7fr) minmax(230px,.3fr)}
-  /* The lead reads as a statement, not a caption. At 15px beside a 620px
-     picture the column looked empty; the imbalance was the copy being too
-     small for the space, not the space being wrong. */
-  .pshow-copy p{font-size:clamp(17px,1.45vw,21px);line-height:1.5;color:var(--ink);
-    margin:0;max-width:24ch;letter-spacing:-.011em}
-  .pshow-media{position:relative;min-width:0}
-
-  /* Bleeding off one edge. The section clips rather than hides so position:
-     sticky elsewhere on the page keeps working. */
-  .pshow-media.bleed-r{margin-right:calc(-1 * clamp(20px,6vw,150px))}
-  .pshow-media.bleed-l{margin-left:calc(-1 * clamp(20px,6vw,150px))}
-
-  /* The surface. A fixed height means no shift when the capture paints, and
-     the shadow has one light direction (upper right) instead of an even glow,
-     so it sits on something rather than floating. */
-  .pshot{position:relative;overflow:hidden;height:calc(var(--h) * 1px);
-    border:1px solid var(--hair-2);border-radius:7px;background:#08080b;
-    box-shadow:-26px 30px 64px -34px rgba(0,0,0,.9),
-               -2px 3px 0 0 rgba(255,255,255,.028) inset;
-    transform:perspective(2200px) rotateY(-1.1deg) rotateX(.5deg);
-    transform-origin:left center;
-    transition:transform .45s cubic-bezier(.22,.61,.36,1),
-               box-shadow .45s cubic-bezier(.22,.61,.36,1);
-    contain:paint}
-  .pshow-alt .pshot{transform:perspective(2200px) rotateY(1.1deg) rotateX(.5deg);
-    transform-origin:right center;
-    box-shadow:26px 30px 64px -34px rgba(0,0,0,.9),
-               2px 3px 0 0 rgba(255,255,255,.028) inset}
-  .pshow-media:hover .pshot{transform:perspective(2200px) rotateY(0) rotateX(0)
-    translateY(-3px)}
-  .pshot .pcap{position:relative;width:100%;height:auto;
-    margin-top:calc(var(--top, 0) * -1px)}
-
-  /* The clip detail lifted over the lower-left corner of the monitor. It
-     carried a caption that rendered on top of the dashboard and was
-     unreadable; that sentence now sits in the copy column with the rest. */
-  .pshot-inset{position:absolute;left:clamp(-30px,-1.6vw,-10px);bottom:-26px;
-    width:min(306px,40%);z-index:2}
-  .pshot-inset .pshot{border-radius:6px;
-    transform:perspective(2200px) rotateY(-2.6deg) rotateX(.9deg);
-    box-shadow:-20px 26px 48px -18px rgba(0,0,0,.95)}
-  .pshow-note{margin-top:16px !important;font-size:14px !important;
-    line-height:1.6 !important;color:var(--ink-3) !important;padding-top:14px;
-    max-width:30ch !important;border-top:1px solid var(--hair)}
-
-  /* One callout per picture: a hairline and two or three words. Percentages,
-     because the capture reflows with its column. */
-  .pcall{position:absolute;z-index:4;display:flex;align-items:center;gap:9px;
-    pointer-events:none;transform:translateY(-50%)}
-  .pcall i{display:block;height:1px;width:clamp(30px,4vw,64px);flex-shrink:0;
-    background:linear-gradient(90deg,transparent,var(--glow))}
-  .pcall b{font-family:var(--mono);font-size:10.5px;font-weight:600;
-    letter-spacing:.1em;text-transform:uppercase;color:var(--glow);
-    white-space:nowrap;text-shadow:0 1px 6px rgba(0,0,0,.9)}
-  /* Direction matters: the rule has to END on the thing it points at, so the
-     label leads and the line trails toward the target. */
-  .pcall-to-right{flex-direction:row-reverse}
-  .pcall-to-right i{background:linear-gradient(90deg,transparent,var(--glow))}
-  .pcall-to-left i{background:linear-gradient(270deg,transparent,var(--glow))}
-
-  @media (max-width:900px){
-    /* Stack, but the picture stays large: it goes first and keeps the bleed on
-       both sides so it still runs past the text column. */
-    .pshow,.pshow-alt{grid-template-columns:minmax(0,1fr);gap:20px}
-    .pshow-media{order:-1}
-    .pshow-copy p{max-width:none}
-    .pshot{height:calc(var(--hm) * 1px);
-      transform:none;transform-origin:center}
-    .pshow-alt .pshot{transform:none}
-    /* Exactly the wrap's own side padding, so the picture reaches the
-       viewport edge instead of stopping inside the gutter. */
-    .pshow-media.bleed-r,.pshow-media.bleed-l{
-      margin-left:calc(-1 * clamp(20px,4.5vw,72px));
-      margin-right:calc(-1 * clamp(20px,4.5vw,72px))}
-    .pshot{border-radius:0;border-left:0;border-right:0}
-    /* The product's own responsive layout moves what these point at, so they
-       would be aiming at nothing. */
-    .pcall{display:none}
-    .pshot-inset{position:static;width:auto;margin-top:18px}
-    .pshot-inset .pshot{transform:none}
-  }
-
-  }
-
   /* ── How it works: three steps, deliberately unequal ──────────────────────
      Replaces five stacked cards with big 01/02/03 numerals. The columns are
      NOT thirds: step two carries the equation and gets the room, which is the
@@ -5870,93 +5766,6 @@ LANDING_HTML = """<!DOCTYPE html>
   .step-4 .step-body{padding:20px 22px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
     background:linear-gradient(166deg,#26182F,var(--wall)) padding-box,
       linear-gradient(215deg,rgba(210,106,251,.5),rgba(184,106,220,.12) 38%,rgba(242,234,247,.03)) border-box}
-
-  /* ══ PRODUCT SHOWCASE ══ */
-  .shots-top{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:40px}
-  .shot-frame{border-radius:3px;overflow:hidden;border:1px solid transparent;
-    background:linear-gradient(178deg,#1D1424,#150F1B) padding-box,
-      linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.055) 42%,rgba(242,234,247,.02)) border-box}
-  .shot-bar{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--hair)}
-  .shot-bar i{width:5px;height:5px;border-radius:50%;background:var(--ember);
-    box-shadow:0 0 7px rgba(247,167,69,.8);flex-shrink:0}
-  .shot-bar span{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .shot-inner{padding:17px}
-  .shot-cap{margin:15px 1px 0}
-  .shot-cap h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:5px}
-  .shot-cap p{font-size:14px;color:var(--ink-2);line-height:1.58}
-  /* mock: stream bubble */
-  .mk-stream{border-radius:3px;padding:15px;border:1px solid var(--hair);background:rgba(242,234,247,.016)}
-  .mk-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-  .mk-nm{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
-  .mk-nm .pd{width:5px;height:5px;border-radius:50%;background:var(--glow);box-shadow:0 0 8px var(--glow)}
-  .mk-mt{display:flex;gap:12px;align-items:center;margin-top:7px;flex-wrap:wrap}
-  .mk-chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
-  .mk-live{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ember)}
-  .mk-acts{display:flex;gap:7px;flex-shrink:0;align-items:center}
-  .mk-clip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;
-    letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);border:1px solid rgba(184,106,220,.32);
-    padding:5px 9px;border-radius:2px}
-  .mk-x{width:24px;height:24px;border-radius:2px;display:grid;place-items:center;color:var(--ink-3);
-    border:1px solid var(--hair);font-size:12px}
-  .mk-scorewrap{margin-top:16px}
-  .mk-st{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
-  .mk-sl{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
-  .mk-sval{font-family:var(--mono);font-weight:600;font-size:21px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .mk-track{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
-  .mk-fill{height:100%;background:var(--ember)}
-  .mk-sigs{display:flex;gap:0;flex-wrap:wrap;margin-top:13px}
-  .mk-sig{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--ink-3);
-    padding-right:11px;margin-right:11px;border-right:1px solid var(--hair)}
-  .mk-sig:last-child{border-right:none}
-  .mk-sig.on{color:var(--ember)}
-  .mk-prof{margin-top:16px;border-top:1px solid var(--hair);padding-top:14px}
-  .mk-pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-  .mk-pc .k{font-family:var(--mono);font-size:9px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em}
-  .mk-pc .v{font-family:var(--mono);font-weight:600;font-size:15px;margin-top:5px;font-variant-numeric:tabular-nums}
-  .mk-pc .v small{font-size:9px;color:var(--ink-3);font-weight:400}
-  .mk-cal{display:flex;align-items:center;gap:8px;margin-top:14px;font-family:var(--mono);
-    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember)}
-  .mk-cal .tk{font-family:var(--sans);letter-spacing:0}
-  /* mock: clip detail */
-  .mk-media{position:relative;height:150px;overflow:hidden;display:grid;place-items:center;
-    background:linear-gradient(150deg,#2E1C3B,#1A1224)}
-  .mk-play{width:46px;height:46px;border-radius:50%;background:rgba(14,11,17,.42);
-    border:1px solid rgba(242,234,247,.45);display:grid;place-items:center}
-  .mk-badge{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:10px;
-    letter-spacing:.1em;background:rgba(14,11,17,.72);padding:4px 9px;border-radius:2px;color:var(--ember)}
-  .mk-badge .pip{display:none}
-  .mk-dhead{display:flex;align-items:center;gap:11px;margin-top:16px}
-  .mk-av{width:34px;height:34px;border-radius:3px;background:linear-gradient(160deg,#4A2C5C,#2B1A36);
-    border:1px solid rgba(184,106,220,.3);display:grid;place-items:center;font-family:var(--mono);
-    font-size:11px;font-weight:600;color:#E3C2F4;flex-shrink:0}
-  .mk-dhead h4{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
-  .mk-dhead .mt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;letter-spacing:.05em}
-  .mk-status{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--ember);flex-shrink:0}
-  .mk-eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
-    color:var(--ink-3);margin:20px 0 14px}
-  .mk-bar{margin-bottom:13px}
-  .mk-bh{display:flex;justify-content:space-between;margin-bottom:6px;align-items:baseline}
-  .mk-bk{font-size:13px;color:var(--ink-2)}
-  .mk-bv{font-family:var(--mono);font-weight:600;font-size:12px;font-variant-numeric:tabular-nums}
-  .mk-bt{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
-  .mk-bf{height:100%;background:var(--glow)}
-  /* mock: clip library */
-  .mk-lib{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:13px}
-  .mk-card{border:1px solid var(--hair);border-radius:3px;overflow:hidden;background:rgba(242,234,247,.014)}
-  .mk-cmedia{position:relative;height:96px;display:grid;place-items:center}
-  .mk-cbadge{position:absolute;top:8px;left:8px;font-family:var(--mono);font-size:9.5px;
-    letter-spacing:.08em;background:rgba(14,11,17,.7);padding:3px 7px;border-radius:2px}
-  .mk-cplay{width:34px;height:34px;border-radius:50%;background:rgba(14,11,17,.4);
-    border:1px solid rgba(242,234,247,.4);display:grid;place-items:center}
-  .mk-cbody{padding:11px 12px 13px}
-  .mk-ctitle{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .mk-cmeta{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:6px;
-    display:flex;justify-content:space-between;align-items:center;letter-spacing:.06em}
-  .mk-cpill{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase}
-  .mk-cpill.ok{color:var(--ember)}
-  .mk-cpill.pend{color:var(--ink-3)}
 
   /* ══ FORMULA — BREAK 3. Not a centred card of pills: an actual equation.
      Five measured signals stacked on the left, one score on the right. ══ */
@@ -6107,7 +5916,6 @@ LANDING_HTML = """<!DOCTYPE html>
     section{padding-top:38px;padding-bottom:38px}
     .wrap{padding-left:20px;padding-right:20px}
     .ex-card{flex-basis:calc(50% - 7px)}
-    .shots-top{grid-template-columns:1fr}
     .stats{grid-auto-flow:row;grid-auto-columns:auto}
     .stat{padding:20px 0;border-left:none;border-top:1px solid var(--hair)}
     .stat:first-child{border-top:none}
@@ -6161,7 +5969,6 @@ LANDING_HTML = """<!DOCTYPE html>
        always wraps, so the separators become orphans hanging off line ends. */
     .tags{flex-direction:column;gap:4px}
     .tag{border-right:none;padding-right:0;margin-right:0}
-    .mk-pgrid{grid-template-columns:repeat(2,1fr)}
   }
 
   /* ══ MOTION. One orchestrated moment — the trigger firing — and a room that
@@ -6342,11 +6149,6 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </section>
 
-<!-- Product showcase -->
-<section class="wrap wide" id="product">
-  <h2 class="sec-title">See it in action</h2>
-  <!--PRODUCT_SHOTS-->
-</section>
 
 <!-- Not AI / formula -->
 
@@ -7260,126 +7062,6 @@ def _faq_schema(html: str) -> str:
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTML), 1)
 
 
-# ── "See it in action": the real product, not a picture of it ────────────────
-# WHAT WAS HERE BEFORE. 90 divs and zero images, redrawing the dashboard, the
-# clip card and the library in HTML — down to a hand-set trigger score of 72.4
-# and invented channel names. Nobody builds a product site that way, and a CSS
-# recreation has a flat, illustrated quality that reads as generated no matter
-# how carefully it is styled.
-#
-# WHAT IS HERE NOW. Actual DOM, rendered by the actual dashboard components in
-# a real browser and lifted whole — see scripts/capture_product_ui.mjs. The
-# class names are the app's class names and the stylesheet is the app's
-# stylesheet, so this cannot drift into a flattering approximation: regenerate
-# it and whatever the product looks like is what the landing page shows.
-#
-# Presented as a CROP, at the aspect ratio it really rendered at, scaled down
-# rather than reflowed. Reflowing it into the marketing column would trigger
-# the dashboard's own responsive breakpoints and show a layout no user has.
-from src.dashboard import landing_product as _P
-
-
-def _shot(html: str, alt: str, h: int, hm: int, cls: str = "",
-          top: int = 0) -> str:
-    """A captured surface, cropped to a fixed height and filling its column.
-
-    NOTHING IS SCALED. The earlier version laid the capture out at its natural
-    width and shrank it with transform:scale() to a hardcoded pixel width, which
-    caused the misalignment: a 1180px block sitting inside a 1720px container at
-    1920, hugging the left with 468px of dead space on the right. Fixed widths
-    inside a fluid container cannot centre, and centring them would only have
-    moved the empty space rather than removing it.
-
-    These are live DOM, not images, so they can simply be given the column and
-    allowed to lay themselves out in it — the same mechanism that already worked
-    on mobile. The capture then fills the space at every width, which fixes the
-    alignment and makes it dominant at the same time.
-
-    `h` is the crop height in px, set in CSS so there is no shift on load, and
-    `hm` is the same for phones where the product's own layout is much taller.
-    """
-    # `top` scrolls the capture up inside its window. The clip detail is 729px
-    # tall and its media area fills the first half, so a crop from the top shows
-    # a thumbnail and nothing else — the signal breakdown, which is the whole
-    # reason that panel is on the page, starts below the fold of the crop.
-    return (
-        '<div class="pshot ' + cls + '" style="--h:' + str(h) + ";--hm:" + str(hm)
-        + ";--top:" + str(top) + '"'
-        + ' role="img" aria-label="' + html_escape(alt) + '">'
-        + '<div class="pcap" inert aria-hidden="true">' + html + "</div></div>")
-
-
-def _callout(label: str, x: str, y: str, cls: str) -> str:
-    """A thin rule and two or three words, pointing into the capture.
-
-    Positioned in percentages of the crop rather than pixels, because the
-    capture reflows with its column. Hidden below the tablet breakpoint, where
-    the product's own responsive layout moves the thing being pointed at.
-    """
-    return ('<span class="pcall ' + cls + '" style="left:' + x + ";top:" + y + '"'
-            + ' aria-hidden="true"><i></i><b>' + html_escape(label) + "</b></span>")
-
-
-def _product_shots() -> str:
-    """Two paired rows, alternating sides, each capture bleeding off one edge.
-
-    The copy sits beside the picture instead of above it, which is what removes
-    the empty band each one used to float in. The clip detail overlaps the
-    corner of the monitor rather than getting a row of its own, so the section
-    reads as one surface with a panel on top of it instead of three rectangles
-    stacked down the page.
-    """
-    return (
-        '<div class="pshows">'
-
-        # Row one: copy left, the monitor bleeding off the right edge, with the
-        # clip detail lifted over its lower-left corner.
-        + '<div class="pshow">'
-        + '<div class="pshow-copy"><p>Five channels being watched at the same '
-          "time. The score is live, the threshold is this channel's own, and "
-          "the signals underneath are what moved it.</p>"
-        # This sentence used to sit under the inset, where it rendered ON TOP of
-        # the dashboard and was unreadable. It belongs with the other copy.
-        + '<p class="pshow-note">Every clip shows its own numbers. This is why '
-          "that one fired.</p></div>"
-        + '<div class="pshow-media bleed-r">'
-        + _shot(_P.STREAMS_HTML,
-                "The Live Streams dashboard: five channels monitored at once, "
-                "one live and scoring 61.7 against a threshold of 51, one "
-                "offline and one reconnecting.", 620, 560)
-        # Cropped from 300px down so the window holds the WHY IT FIRED bars
-        # rather than the thumbnail above them.
-        + '<div class="pshot-inset">'
-        + _shot(_P.DETAIL_HTML,
-                "One clip opened, showing chat velocity 72%, keyword hits 65%, "
-                "sentiment 82% and audio spike 81%.", 258, 258, "pshot-sm", 290)
-        + "</div>"
-        # Aimed with measured coordinates, not guessed: 61.7 spans x 87-94.8%
-        # at y 22.9% of this capture. The callout is ~15% wide, so starting it
-        # at 70% lands the end of the rule just short of the number.
-        + _callout("live score", "70%", "23%", "pcall-to-right")
-        + "</div></div>"
-
-        # Row two: the queue bleeding off the left, copy on the right.
-        + '<div class="pshow pshow-alt">'
-        + '<div class="pshow-media bleed-l">'
-        + _shot(_P.REVIEW_HTML,
-                "The review queue: pending, approved and rejected clips across "
-                "several channels.", 560, 520)
-        # Every card carries its badges at the SAME height, so a label placed
-        # beside one lands on the next one's. Both earlier attempts did: first
-        # on the channel name, then on a "29% viral" badge. This sits in the
-        # clear span between card two's own two badges (its left one ends at
-        # 60%, its right begins at 91.6%) and points right at the trigger score.
-        + _callout("score per clip", "68%", "46%", "pcall-to-right")
-        + "</div>"
-        + '<div class="pshow-copy"><p>The queue. Approve, reject, and the '
-          "formula moves toward you.</p></div>"
-        + "</div>"
-
-        + "</div>")
-
-
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
 # Typed-out prices are how this page came to advertise a free tier that no
 # longer exists. Every number below is read from PLAN_LIMITS and TRIAL_DAYS, so
@@ -7424,21 +7106,7 @@ def _pricing() -> str:
           "the Account tab. No contracts.</p>")
 
 
-LANDING_HTML = LANDING_HTML.replace("<!--PRODUCT_SHOTS-->", _product_shots(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
-
-# The dashboard's own stylesheet, every selector prefixed with .pcap so it can
-# paint the captures without reaching anything else. Appended as a second style
-# element rather than merged into the page's, so it is obvious in view-source
-# which rules belong to the product and which to the marketing page.
-# data-product-capture marks the boundary. Everything inside belongs to the
-# DASHBOARD and is scoped to .pcap; the palette and cadence tests exclude it,
-# because the product is a different surface with its own decisions (its Twitch
-# switcher is legitimately Twitch-purple, its clip titles legitimately contain
-# the em dash that _generate_clip_title puts there).
-LANDING_HTML = LANDING_HTML.replace(
-    "</head>",
-    '<style data-product-capture>' + _P.PRODUCT_CSS + "</style></head>", 1)
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
