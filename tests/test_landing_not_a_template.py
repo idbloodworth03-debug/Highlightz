@@ -131,13 +131,29 @@ def test_how_it_works_has_no_oversized_numerals():
 
 
 def test_the_feature_grid_is_not_a_symmetric_grid_of_icon_chips():
+    """The banned shape is a 2x3 of identical cards with an icon in a tinted
+    rounded square. What stops it being that is the MIXED SIZES, not the item
+    count — this used to assert exactly four items, which is a proxy that fails
+    the moment the section legitimately grows. It now asserts the rhythm."""
     sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
     assert 'class="ic"' not in sec, "icons in tinted squares are back"
-    assert "feat-wide" in sec, "the asymmetric layout is gone"
     # Counted with a word boundary: a bare count of 'class="feat' also matches
-    # the feat-grid container and reports five.
+    # the feat-grid container.
     items = re.findall(r'class="feat(?:\s+[^"]*)?"', sec)
-    assert len(items) == 4, f"the feature list is {len(items)} items, not four"
+    wide = [i for i in items if "feat-wide" in i]
+    assert wide, "the asymmetric layout is gone; every item is the same size"
+    assert len(items) > len(wide), "every item is wide, which is its own uniform grid"
+    # A run of same-size items with no wide one breaking it up IS the template
+    # shape, whatever the total.
+    runs, run = [], 0
+    for i in items:
+        if "feat-wide" in i:
+            runs.append(run); run = 0
+        else:
+            run += 1
+    runs.append(run)
+    assert max(runs) <= 4, (
+        f"there is a run of {max(runs)} equal cards with nothing breaking it up")
 
 
 # ── craft rules ──────────────────────────────────────────────────────────────
@@ -212,6 +228,34 @@ def test_the_nav_height_is_measured_rather_than_assumed():
     assert "root.style.setProperty('--nav-h'" in HTML
     assert "h!==last" in HTML, \
         "--nav-h is written on every observation, invalidating document style each time"
+
+
+def test_the_nav_lists_sections_in_the_order_you_scroll_through_them():
+    """The nav read How it works, Example clips — while the page scrolls Example
+    clips, How it works. Two orders for the same five sections makes the page
+    feel like it jumps around when you use the nav.
+
+    Derived from the document on both sides, so moving a section without moving
+    its link fails here rather than shipping."""
+    body = HTML[HTML.index("<body"):]
+    block = body[body.index('<div class="nav-links">'):]
+    block = block[:block.index("</div>")]
+    nav = re.findall(r'href="(#[^"]+)"', block)
+    sections = ["#" + i for i in re.findall(r'<section[^>]*id="([^"]+)"', body)]
+    in_page = [s for s in sections if s in nav]
+    assert nav == in_page, (
+        f"nav order {nav} does not match scroll order {in_page}")
+    assert len(nav) >= 4, "the in-page nav lost most of its links"
+
+
+def test_every_in_page_nav_link_has_a_section():
+    """The other half: a nav entry pointing at nothing at all."""
+    body = HTML[HTML.index("<body"):]
+    ids = set(re.findall(r'<section[^>]*id="([^"]+)"', body))
+    block = body[body.index('<div class="nav-links">'):]
+    block = block[:block.index("</div>")]
+    for href in re.findall(r'href="#([^"]+)"', block):
+        assert href in ids, f'nav links to #{href}, which is not a section'
 
 
 def test_the_faq_schema_matches_the_visible_questions():

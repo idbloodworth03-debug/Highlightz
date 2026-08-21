@@ -6041,8 +6041,12 @@ LANDING_HTML = """<!DOCTYPE html>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-links">
-    <a href="#how" class="nav-link">How it works</a>
+    <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. The clips section sits above
+         How it works in the document, so it comes first here too. A nav that
+         lists sections in a different sequence to the one you scroll through
+         makes the page feel like it jumps around. Held by a test. -->
     <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
+    <a href="#how" class="nav-link">How it works</a>
     <a href="#features" class="nav-link">Features</a>
     <a href="#pricing" class="nav-link">Pricing</a>
     <a href="#faq" class="nav-link">FAQ</a>
@@ -6227,6 +6231,27 @@ LANDING_HTML = """<!DOCTYPE html>
     <div class="feat">
       <h3>One queue</h3>
       <p>Every channel lands in the same place. 200 waiting during your trial, 50 on Starter, 200 on Pro. What you approve and reject feeds back into that channel's formula.</p>
+    </div>
+
+    <!-- Second wide row. The VOD Scanner is the largest thing on Pro and was
+         only mentioned inside a pricing card, where nobody reads it. The
+         wide/three/wide/three rhythm is also what keeps this off the banned
+         shape: a symmetric grid of equal cards. -->
+    <div class="feat feat-wide">
+      <h3>It can clip streams that already ended</h3>
+      <p>The detector normally runs live. The VOD Scanner runs the same scoring over a broadcast that already finished, so a back catalogue you were never watching is still worth mining. Paste a Twitch VOD link, pick a preset, and every moment it finds links straight to its own timestamp. Long scans keep running while you do something else. On Pro, and included in your trial.</p>
+    </div>
+    <div class="feat">
+      <h3>A preset for the kind of stream</h3>
+      <p>Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. The preset only decides where a channel starts. It keeps learning after that, so the closest match is good enough.</p>
+    </div>
+    <div class="feat">
+      <h3>Nothing leaves the queue without you</h3>
+      <p>Highlightz makes the clip and stops. Nothing is published, posted or deleted anywhere until you rule on it, and the review queue is the only route into your library.</p>
+    </div>
+    <div class="feat">
+      <h3>Work a busy day from the top</h3>
+      <p>Sort the queue by Top Virality and the clips most likely to travel float up. The best ones get seen even if you never reach the bottom. There is a sensitivity dial per channel too, for when a stream runs hot or quiet.</p>
     </div>
   </div>
 </section>
