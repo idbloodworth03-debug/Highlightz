@@ -5516,7 +5516,25 @@ LANDING_HTML = """<!DOCTYPE html>
   .stage-meta{min-width:0;font-family:var(--mono);font-size:11px;color:var(--ink-3);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .stage-meta b{color:var(--ink-2);font-weight:600}
-  .stage-out{margin-left:auto;flex:none;font-family:var(--mono);font-size:10.5px;
+  /* Sound is OFF until the visitor asks for it, because every browser blocks
+     autoplay with audio and a landing page that shouts at you deserves to be
+     blocked. This is the ask. */
+  .stage-sound{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:7px;
+    padding:6px 11px;border-radius:2px;cursor:pointer;
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-2);background:rgba(242,234,247,.05);
+    border:1px solid var(--hair-2);
+    transition:color var(--t-micro) var(--ease),border-color var(--t-micro) var(--ease),
+      background var(--t-micro) var(--ease)}
+  .stage-sound:hover{color:var(--ink);border-color:var(--flare);
+    background:rgba(210,106,251,.12)}
+  .stage-sound:active{transform:translateY(1px)}
+  .stage-sound svg{display:block;flex:none}
+  .stage-sound .on-x{display:none}
+  .stage-sound[aria-pressed="true"]{color:var(--flare);border-color:rgba(210,106,251,.5)}
+  .stage-sound[aria-pressed="true"] .on-x{display:block}
+  .stage-sound[aria-pressed="true"] .off-x{display:none}
+  .stage-out{flex:none;font-family:var(--mono);font-size:10.5px;
     letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
     border-bottom:1px solid var(--hair-2);padding-bottom:2px;
     transition:color var(--t-micro) var(--ease),border-color var(--t-micro) var(--ease)}
@@ -5530,6 +5548,11 @@ LANDING_HTML = """<!DOCTYPE html>
   .stage.compact .stage-meta{display:none}
   .stage.compact .stage-bar{gap:9px;padding:10px 11px}
   .stage.compact .stage-out{font-size:9.5px}
+  .stage.compact .stage-sound{padding:5px 8px;letter-spacing:.1em}
+  @media(max-width:640px){
+    .stage-sound{padding:5px 8px;letter-spacing:.1em}
+    .stage-sound .lab{display:none}
+  }
 
   .wall-cap{display:flex;align-items:center;gap:10px;margin-top:9px;
     font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
@@ -6060,6 +6083,11 @@ LANDING_HTML = """<!DOCTYPE html>
           <span class="stage-fired">TRIGGER FIRED</span>
           <span class="stage-score" id="stage-score">0</span>
           <span class="stage-meta" id="stage-meta"></span>
+          <button type="button" class="stage-sound" id="stage-sound" aria-pressed="false">
+            <svg class="off-x" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z" opacity=".55"/><path d="M19 5 5 19" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            <svg class="on-x" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 1.2v2.1a8.5 8.5 0 0 1 0 17.4v2.1a10.6 10.6 0 0 0 0-21.6z"/></svg>
+            <span class="lab"><span class="off-x">Sound off</span><span class="on-x">Sound on</span></span>
+          </button>
           <a class="stage-out" id="stage-out" href="#" target="_blank" rel="noopener">Watch on Twitch</a>
         </div>
       </div>
@@ -6426,6 +6454,7 @@ LANDING_HTML = """<!DOCTYPE html>
       stScore=document.getElementById('stage-score'),
       stMeta=document.getElementById('stage-meta'),
       stOut=document.getElementById('stage-out'),
+      stSound=document.getElementById('stage-sound'),
       capRate=document.getElementById('wall-rate'),
       capState=document.getElementById('wall-state'),
       wash=document.getElementById('stage-wash');
@@ -6436,7 +6465,29 @@ LANDING_HTML = """<!DOCTYPE html>
   var root=document.documentElement;
   var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var CYCLE=14000, WIN=9000, STEP=250, VW=300, VH=110;
+  var CYCLE=14000, WIN=9000, STEP=250, VW=300, VH=110, COLLAPSE=600;
+
+  /* ── SOUND ────────────────────────────────────────────────────────────────
+     Muted, until asked. This is not a limitation to work around — every
+     browser blocks autoplay with audio, and a landing page that starts
+     shouting deserves to be blocked. So the hero plays silent and the visitor
+     is given a switch.
+
+     Turning it on has to RELOAD the player: the mute state is baked into the
+     embed URL at boot and there is no JS API on the clips embed to change it
+     afterwards (the Twitch player SDK covers channels, videos and collections
+     — not clips). The reload happens inside the click handler, so it carries
+     the user gesture that makes autoplay-with-sound permissible. The clip
+     restarts from the top, which is what someone who just asked to hear it
+     wants anyway.
+
+     Preference is remembered per browser. Storage can throw outright in a
+     private window or with site data blocked, so both ends are wrapped. */
+  var sound=false;
+  try { sound = localStorage.getItem('hz_hero_sound')==='1'; } catch(e){}
+  function rememberSound(){
+    try { localStorage.setItem('hz_hero_sound', sound?'1':'0'); } catch(e){}
+  }
   var FIRE_MIN=4800;             // nothing may fire before the wall has settled
   var SIGS=['chat','audio','keys','views','hype'];
 
@@ -6703,9 +6754,12 @@ LANDING_HTML = """<!DOCTYPE html>
     frameEl.setAttribute('title',tl.clip.clip_title||'Clip');
     frameEl.setAttribute('loading','lazy');
     frameEl.addEventListener('load',function(){ frameBox.classList.add('ready'); });
-    frameEl.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+
-      '&autoplay=true&muted=true';
+    frameEl.src=embedSrc(src);
     frameBox.appendChild(frameEl);
+  }
+  function embedSrc(src){
+    return src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+
+      '&autoplay=true&muted='+(sound?'false':'true');
   }
   function closeStage(){
     var e=els[cycFireI]; if(!e) return;
@@ -6723,13 +6777,27 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ── the loop ──────────────────────────────────────────────────────────── */
   var cycIdx=-1, cyc=null, cycFireI=0, fired=false, staged=false, closed=false;
   var started=false;
-  var elapsed=0, last=null, raf=0, lastStep=-1, lastLit=-1, vis=visibleCount();
+  var elapsed=0, cycleStart=0, cycleLen=CYCLE, firedScore=0;
+  var last=null, raf=0, lastStep=-1, lastLit=-1, vis=visibleCount();
   var spark=[];
+
+  /* Silent, the clip is a seven-second beat in a fourteen-second loop and the
+     wall comes back. With sound on somebody is actually watching it, so the
+     stage stays up for the clip's real duration. Twitch clips run 5-60s;
+     clamped either side so a missing or absurd duration cannot strand the
+     hero on one frame. */
+  function holdFor(tl){
+    if(!sound||!tl||!tl.clip) return CYCLE;
+    var d=parseFloat(tl.clip.duration_seconds)||20;
+    d=clamp(d,8,45);
+    return Math.max(CYCLE, 6800 + d*1000 + 1200);
+  }
 
   function reseed(){
     cycIdx++;
     cyc=buildCycle(cycIdx); cycFireI=cyc.fireI;
     fired=false; staged=false; closed=false; lastStep=-1; spark=[];
+    cycleLen=CYCLE; firedScore=0;
     dress(cyc);
     if(capRate) capRate.textContent=String(vis);
     if(capState) capState.textContent='watching';
@@ -6784,6 +6852,12 @@ LANDING_HTML = """<!DOCTYPE html>
       }
     }
 
+    // While a clip is on screen the readouts hold at the value that fired it.
+    // The firing tile's own beat decays underneath the stage, and letting the
+    // nav and the rail follow it down meant they drifted back to baseline
+    // while the clip that crossed the line was still playing.
+    if(staged&&firedScore) best=firedScore;
+
     // One number lights the whole room. Only written when it actually moves —
     // a custom property on <html> invalidates style for the entire document.
     var lit=clamp((best-58)/34,0,1), q=Math.round(lit*20)/20;
@@ -6815,14 +6889,22 @@ LANDING_HTML = """<!DOCTYPE html>
     var dt=now-last; last=now;
     if(dt>500) dt=STEP;                 // came back from a freeze; do not jump
     elapsed+=dt;
-    var t=elapsed%CYCLE;
-    if(t<lastStep){ reseed(); }
+    // A cycle START and a cycle LENGTH, not a modulo. The length is not fixed
+    // any more: with sound on, the stage holds until the clip has actually
+    // finished, and modulo arithmetic cannot express a period that changes
+    // partway through.
+    var t=elapsed-cycleStart;
+    if(t>=cycleLen){ cycleStart=elapsed; t=0; reseed(); }
     if(t-lastStep>=STEP||lastStep<0){
       lastStep=t;
       render(t);
-      if(fired&&!staged&&t>=6000) { staged=true; openStage(cyc[cycFireI],
-        Math.round(scoreAt(cyc[cycFireI],t))); }
-      if(staged&&!closed&&t>=13400){
+      if(fired&&!staged&&t>=6000){
+        staged=true;
+        firedScore=Math.round(scoreAt(cyc[cycFireI],t));
+        cycleLen=holdFor(cyc[cycFireI]);
+        openStage(cyc[cycFireI],firedScore);
+      }
+      if(staged&&!closed&&t>=cycleLen-COLLAPSE){
         closed=true; closeStage();
         if(capState) capState.textContent='clip saved to your queue';
       }
@@ -6852,6 +6934,29 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   root.setAttribute('data-hero','1');
   document.addEventListener('visibilitychange',sync);
+
+  /* The switch. Reloading the player here rather than on the next cycle is the
+     whole point: this call stack carries the click, and that is what buys
+     permission to autoplay with sound. Doing it a cycle later would be a
+     script-initiated play with audio, which browsers refuse. */
+  if(stSound){
+    stSound.addEventListener('click',function(){
+      sound=!sound;
+      rememberSound();
+      stSound.setAttribute('aria-pressed',sound?'true':'false');
+      if(!staged||!cyc) return;
+      var tl=cyc[cycFireI];
+      // Extend (or shorten) the rest of THIS cycle to match the new mode, and
+      // never retroactively past the point the clock has already reached.
+      var t=elapsed-cycleStart;
+      cycleLen=Math.max(holdFor(tl),t+COLLAPSE+400);
+      if(frameEl&&tl&&tl.clip){
+        var src=embedFor(tl.clip);
+        if(src){ frameBox.classList.remove('ready'); frameEl.src=embedSrc(src); }
+      }
+    });
+    stSound.setAttribute('aria-pressed',sound?'true':'false');
+  }
   window.addEventListener('resize',function(){
     var v=visibleCount();
     if(v!==vis){ vis=v; if(capRate) capRate.textContent=String(vis); }
