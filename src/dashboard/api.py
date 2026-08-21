@@ -5479,7 +5479,14 @@ LANDING_HTML = """<!DOCTYPE html>
      the whole wall is revealed FROM the tile's rectangle, so the clip is at
      full resolution from the first frame and nothing is ever scaled off its
      aspect ratio. JS writes the starting inset() from the tile's real rect. ── */
+  /* TWO ROWS, NOT AN OVERLAY. The bar used to be absolutely positioned across
+     the bottom of the stage — which is exactly where Twitch draws the clip
+     player's own controls, mute button included. elementFromPoint at the
+     centre of that control strip returned .stage-bar, so the one control that
+     can actually unmute a clip was sitting under 44px of our chrome and could
+     not be clicked at all. Our chrome gets its own row underneath instead. */
   .stage{position:absolute;inset:0;z-index:3;border-radius:4px;overflow:hidden;
+    display:grid;grid-template-rows:minmax(0,1fr) auto;
     background:var(--void);opacity:0;visibility:hidden;
     clip-path:inset(50% 50% 50% 50% round 4px);
     transition:clip-path var(--t-slow) var(--ease),opacity var(--t-move) var(--ease),
@@ -5500,7 +5507,7 @@ LANDING_HTML = """<!DOCTYPE html>
      is as wide as 16:9 allows OR the full width, whichever is smaller. If a
      browser does not understand cqh the whole declaration is dropped and the
      preceding width:100% stands. */
-  .stage-media{position:absolute;inset:0;background:#08060B;
+  .stage-media{position:relative;min-height:0;background:#08060B;
     container-type:size;display:grid;place-items:center}
   /* The wall is wide on a desktop and tall on a phone; a 16:9 clip leaves
      bands either way, and on a phone they are over half the stage. The same
@@ -5525,9 +5532,11 @@ LANDING_HTML = """<!DOCTYPE html>
   .wall.staged .tile{box-shadow:none}
   .stage-frame.ready{opacity:1}
 
-  .stage-bar{position:absolute;left:0;right:0;bottom:0;z-index:2;
-    display:flex;align-items:center;gap:12px;padding:12px 14px;
-    background:linear-gradient(0deg,rgba(14,11,17,.94),rgba(14,11,17,.7) 55%,rgba(14,11,17,0))}
+  /* Its own row now, so it is a solid strip rather than a scrim fading over
+     the picture. A hairline separates it from the player instead. */
+  .stage-bar{position:relative;z-index:2;
+    display:flex;align-items:center;gap:12px;padding:11px 14px;
+    background:var(--void);border-top:1px solid var(--hair)}
   .stage-fired{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.2em;
     color:var(--flare);white-space:nowrap}
   .stage-score{font-family:var(--mono);font-weight:600;font-size:19px;color:var(--flare);

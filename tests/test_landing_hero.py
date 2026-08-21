@@ -304,6 +304,37 @@ def test_clicking_into_the_player_is_detected():
         "activeElement is read synchronously in the blur handler, before it updates"
 
 
+def test_nothing_of_ours_is_drawn_on_top_of_the_player():
+    """REPORTED: "I can't unmute it when it pops up either."
+
+    The stage bar was absolutely positioned across the bottom of the stage,
+    which is exactly where Twitch draws the clip player's own controls — mute
+    button included. elementFromPoint at the centre of that control strip
+    returned .stage-bar. The one control on the page that CAN unmute a clip
+    was under 44px of our own chrome and could not be clicked at all. Measured
+    before the fix: 55 of 484 sampled points across four viewports were covered,
+    every one of them in the bottom rows.
+
+    So the stage is two grid rows now — the player, then our chrome — and the
+    bar sits beneath the picture rather than over it. This asserts the shape,
+    because the shape is what makes the control reachable."""
+    m = re.search(r"\.stage\{([^}]*)\}", HTML)
+    assert m, "the stage rule is gone"
+    assert "grid-template-rows:minmax(0,1fr) auto" in m.group(1), \
+        "the stage is no longer a media row plus a chrome row"
+
+    bar = re.search(r"\.stage-bar\{([^}]*)\}", HTML)
+    assert bar, "the stage bar rule is gone"
+    assert "position:absolute" not in bar.group(1), \
+        "the bar is absolutely positioned again — it will sit on the player's controls"
+    assert "bottom:0" not in bar.group(1), \
+        "the bar is pinned to the bottom of the stage, over Twitch's own controls"
+
+    media = re.search(r"\.stage-media\{([^}]*)\}", HTML)
+    assert media and "position:absolute" not in media.group(1), \
+        "the media is absolutely positioned again, so the bar must overlay it"
+
+
 def test_a_clip_someone_is_watching_is_allowed_to_finish():
     """Left alone the clip is a beat in a loop. Once somebody has clicked into
     the player — which on this page means they went looking for the sound —
