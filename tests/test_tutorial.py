@@ -143,7 +143,7 @@ def test_the_plan_numbers_match_what_billing_enforces():
     assert get_plan({"subscription_status": "trialing"}) == "pro", \
         "the trial no longer resolves to pro, so this table's first column is wrong"
 
-    assert rows["Price"] == ("$0, no card",
+    assert rows["Price"] == ("$0, no credit card",
                              f"${PLAN_LIMITS['starter']['price']}/mo",
                              f"${PLAN_LIMITS['pro']['price']}/mo")
     # trial == pro on every row, which is the claim the page is making.

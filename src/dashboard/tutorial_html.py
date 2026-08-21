@@ -498,7 +498,10 @@ BASE_CSS = _CSS
 _TITLE = "How to use Highlightz — full walkthrough & setup guide"
 _DESC = ("Step-by-step guide to Highlightz: connect Twitch, monitor a live channel, "
          "review and approve automatic clips, scan past VODs, and manage your plan. "
-         "Free to start, no card required.")
+         # "Free to start" survived here after the free-tier claims were cleared
+         # out of the visible copy, because it is a meta description and nothing
+         # was reading it. There is no free tier: new accounts get the trial.
+         "7 days free, no credit card required.")
 
 
 def render() -> str:

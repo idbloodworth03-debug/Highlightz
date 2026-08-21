@@ -1594,7 +1594,7 @@ def _paywall_copy(kind: str) -> dict:
     return {
         "headline": "Start your 7 days free",
         "subline":  ("capture your best streaming moments automatically — the whole "
-                     "product for a week, no credit card. Then from $10/month, "
+                     "product for a week, no credit card required. Then from $10/month, "
                      "cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
@@ -5343,8 +5343,12 @@ LANDING_HTML = """<!DOCTYPE html>
     .hero-note{width:100%}
   }
   .hero-ctas{display:flex;gap:12px;flex-wrap:wrap}
-  .hero-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.02em}
-  .hero-note b{color:var(--ink-2);font-weight:600}
+  /* The offer, and it was set in the dimmest ink on the page at 12px. It is
+     the strongest true thing here, so it gets read: one step up in size, body
+     ink rather than the muted step, and the two claims that matter carry the
+     weight while "then from $10/mo" stays quiet. */
+  .hero-note{font-family:var(--mono);font-size:13px;color:var(--ink-2);letter-spacing:.02em}
+  .hero-note b{color:var(--ember);font-weight:600}
   /* Tags on a rule, not pills with dots. */
   .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:34px;border-top:1px solid var(--hair);padding-top:16px}
   /* ── NO AI badge — the hero's first claim ──────────────────────────────
@@ -5605,7 +5609,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .hero-ctas{width:100%;flex-wrap:nowrap;gap:9px}
     .hero-ctas .btn-lg{flex:1 1 0;min-width:0;padding:14px 10px;font-size:14px;
       text-align:center;justify-content:center}
-    .hero-note{font-size:11px}
+    .hero-note{font-size:12px}
     /* The wall below IS the demonstration that this is not a picture, so on a
        phone the sentence saying so is 45px of viewport spent repeating what
        the reader can already see. */
@@ -6034,7 +6038,7 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "7-day free trial with no card, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "7-day free trial with no credit card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
@@ -6095,7 +6099,7 @@ LANDING_HTML = """<!DOCTYPE html>
         <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
         <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
       </div>
-      <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
+      <p class="hero-note"><b>7 days free</b> &middot; <b>no credit card required</b> &middot; then from $10/mo</p>
     </div>
   </div>
 
@@ -6299,7 +6303,7 @@ LANDING_HTML = """<!DOCTYPE html>
       </details>
       <details class="faq-item">
         <summary class="faq-q">How does billing work?</summary>
-        <p class="faq-a">Seven days free with no credit card, and that trial is the full Pro product so you can find out whether the detector works on your channels before paying anything. After that Starter is $10/month for 3 channels at once and a 50-clip queue, Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner. Both renew monthly and cancel from the Account tab.</p>
+        <p class="faq-a">7 days free with no credit card required, and that trial is the full Pro product so you can find out whether the detector works on your channels before paying anything. After that Starter is $10/month for 3 channels at once and a 50-clip queue, Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner. Both renew monthly and cancel from the Account tab.</p>
       </details>
     </div>
   </div>
@@ -6309,7 +6313,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Final CTA -->
 <section class="band-dark final-band seam"><div class="wrap narrow final">
   <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
-  <p>Connect Twitch, add every channel you clip for, and let it catch the highlights on all of them at once. Seven days free, no card.</p>
+  <p>Connect Twitch, add every channel you clip for, and let it catch the highlights on all of them at once. 7 days free, no credit card required.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
   <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
 </div></section>
@@ -7277,7 +7281,7 @@ def _pricing() -> str:
             + ' btn-lg">Start free</a></div>')
 
     return (
-        '<p class="price-lead"><b>' + str(TRIAL_DAYS) + " days free, no credit card.</b> "
+        '<p class="price-lead"><b>' + str(TRIAL_DAYS) + " days free, no credit card required.</b> "
         + "You get the whole thing while you try it. After that there are two "
         + "plans, and they differ on one question: how many channels do you "
         + "need watched at once?</p>"
@@ -7342,7 +7346,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo-mark.png" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="price-pill"><span class="dot"></span>7 days free &mdash; no card required</div>
+  <div class="price-pill"><span class="dot"></span>7 days free &mdash; no credit card required</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>

@@ -117,7 +117,7 @@ QUICKSTART: tuple[Section, ...] = (
         media=Media(
             src="01-signin.png",
             alt="The Highlightz sign-in card with a Continue with Twitch button and a "
-                "badge reading 7 days free, no card required.",
+                "badge reading 7 days free, no credit card required.",
         ),
         tip=(
             "Sign in with the account you want the clips on. Whichever Twitch "
@@ -349,7 +349,7 @@ FEATURES: tuple[Section, ...] = (
         title="Account and plans",
         body=(
             "Your plan, your billing and your connected accounts. New accounts get "
-            "7 days of the full product free with no card. After that you pick a "
+            "7 days of the full product free with no credit card required. After that you pick a "
             "plan: Starter for 3 channels, Pro for 10 plus the VOD Scanner."
         ),
         steps=(
@@ -391,7 +391,7 @@ def _plan_rows() -> tuple[tuple[str, ...], ...]:
     trial = pro                      # a trial is the full product
     return (
         ("",                       f"Trial ({TRIAL_DAYS} days)", "Starter", "Pro"),
-        ("Price",                  "$0, no card",
+        ("Price",                  "$0, no credit card",
          f"${starter['price']}/mo", f"${pro['price']}/mo"),
         ("Channels at once",       str(trial["max_streams"]),
          str(starter["max_streams"]), str(pro["max_streams"])),
@@ -465,7 +465,7 @@ FAQ: tuple[tuple[str, str], ...] = (
 
 CTA_TITLE = "Start clipping"
 CTA_BODY = (
-    "7 days free, no card required. Add your channels and let it watch a stream — "
+    "7 days free, no credit card required. Add your channels and let it watch a stream — "
     "that is the fastest way to see whether the detector works on your content."
 )
 CTA_BUTTON = "Start clipping now"

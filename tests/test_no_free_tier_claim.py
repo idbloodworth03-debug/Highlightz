@@ -148,3 +148,87 @@ def test_the_free_plan_still_exists_for_grandfathered_accounts():
     and their limits must not move."""
     assert PLAN_LIMITS["free"]["max_streams"] == 1
     assert PLAN_LIMITS["free"]["max_pending"] == 15
+
+
+# ── the offer, said the same way everywhere ──────────────────────────────────
+# ASKED FOR DIRECTLY: "7 days free with no credit card required, make sure it
+# says that on it." It already did — in five different phrasings. The hero said
+# "no credit card", pricing said "no credit card.", the FAQ said "Seven days
+# free with no credit card", the closing line said "no card", and the sign-in
+# badge said "no card required". Five ways of saying one thing reads as five
+# slightly different offers.
+#
+# These pin the exact wording on every page a visitor can reach before paying,
+# and ban the short forms so it cannot drift back.
+
+_OFFER = "no credit card required"
+
+
+def _public_pages() -> dict:
+    from src.dashboard.api import LANDING_HTML, LOGIN_HTML
+    from src.dashboard.tutorial_html import render
+    return {"landing": LANDING_HTML, "tutorial": render(), "login": LOGIN_HTML}
+
+
+def _visible(html: str) -> str:
+    """Copy a visitor can actually read. Stylesheets and comments are not copy,
+    and searching them for short forms matched the CSS comment
+    "/* FAQ. Hairline rows, no card. */" as if it were an offer."""
+    out = re.sub(r"<style.*?</style>", "", html, flags=re.S)
+    out = re.sub(r"<script.*?</script>", "", out, flags=re.S)
+    return re.sub(r"<!--.*?-->", "", out, flags=re.S)
+
+
+def test_every_public_page_states_the_trial_the_same_way():
+    for name, html in _public_pages().items():
+        assert _OFFER in html, f"{name} does not say {_OFFER!r}"
+
+
+def test_the_trial_length_is_stated_as_a_numeral_everywhere():
+    """"Seven days free" and "7 days free" on the same page is the same drift in
+    a different coat."""
+    from src.billing.plans import TRIAL_DAYS
+    for name, html in _public_pages().items():
+        assert f"{TRIAL_DAYS} days free" in html, f"{name} does not say the trial length"
+        assert "Seven days free" not in html, f"{name} spells the number out"
+
+
+@pytest.mark.parametrize("short", ["no card required", "no card.", "no credit card."])
+def test_the_short_forms_stay_gone(short):
+    """Each of these was live on a different page."""
+    for name, html in _public_pages().items():
+        assert short not in _visible(html), \
+            f"{name} is back to the short form: {short!r}"
+
+
+def test_the_hero_states_it_above_the_fold():
+    """The one place it has to be, and it was the dimmest text on the page."""
+    from src.dashboard.api import LANDING_HTML
+    hero = LANDING_HTML[LANDING_HTML.index("<header class=\"wrap hero"):]
+    hero = hero[:hero.index("</header>")]
+    assert "7 days free" in hero and _OFFER in hero, \
+        "the trial offer is no longer in the hero"
+
+
+def test_the_offer_is_not_set_in_the_faintest_ink_on_the_page():
+    """It is the strongest true thing about the offer. It was 12px of --ink-3,
+    the dimmest step in the palette, which is where you put a footnote."""
+    from src.dashboard.api import LANDING_HTML
+    # There are three .hero-note rules: a width override inside a media query,
+    # the real one, and a phone size. Pick the one that actually sets the type,
+    # or this reads the first match and asserts nothing.
+    rules = [m.group(1) for m in re.finditer(r"\.hero-note\{([^}]*)\}", LANDING_HTML)
+             if "font-family" in m.group(1)]
+    assert len(rules) == 1, f"expected one type rule for .hero-note, found {len(rules)}"
+    base = rules[0]
+    assert "var(--ink-3)" not in base, "the trial offer is back in the muted ink"
+    size = re.search(r"font-size:([\d.]+)px", base)
+    assert size and float(size.group(1)) >= 13, \
+        f"the trial offer is set at {size.group(1) if size else '?'}px"
+
+    # And it must stay readable where most people will see it.
+    phone = re.search(r"@media\(max-width:700px\)\{.*?\.hero-note\{font-size:([\d.]+)px\}",
+                      LANDING_HTML, re.S)
+    if phone:
+        assert float(phone.group(1)) >= 12, \
+            f"the offer drops to {phone.group(1)}px on a phone"

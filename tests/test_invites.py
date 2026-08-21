@@ -236,7 +236,7 @@ def test_the_sign_in_page_does_not_quote_a_price_as_the_headline():
     assert "Renews monthly." not in html
     assert "7 days free" in html, \
         "the sign-in page does not say what signing in actually gets you"
-    assert "no card required" in html
+    assert "no credit card required" in html
 
 
 def test_the_admin_panel_can_actually_mint_a_link():
