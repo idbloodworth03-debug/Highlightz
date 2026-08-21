@@ -40,7 +40,7 @@ def _dark_tokens() -> dict[str, str]:
     hundred-odd existing rules using var(--ink-3) resolve correctly in both
     worlds. Both sets have to pass contrast, against their own surfaces — a
     palette that is only checked on one of them is half-checked."""
-    i = CSS.index(".band-dark,.panel,.demo,.shot-frame,.exl-card{")
+    i = CSS.index(".band-dark,.panel,.tile,.stage,.shot-frame,.exl-card{")
     block = CSS[i:CSS.index("}", i)]
     out = {m.group(1): m.group(2) for m in re.finditer(r"--([\w-]+):(#[0-9A-Fa-f]{6})", block)}
     assert out, "the dark-context ink block is gone — dark panels now inherit light ink"
@@ -156,10 +156,12 @@ def test_the_warm_counterpoint_is_actually_warm_and_actually_used():
     assert s >= 70, "--ember is too grey to read as a light"
     assert CSS.count("var(--ember)") >= 12, "the counterpoint is barely used"
     # It is the resting state of the two live score readouts.
-    for sel in (".trig-v", ".demo-score span"):
+    # .tile-score is four readouts, not one — the whole wall rests at the lamp
+    # colour and only the channel that crosses goes to the monitor colour.
+    for sel in (".trig-v", ".tile-score"):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--ember)" in block, f"{sel} should rest at the lamp colour"
-    for sel in (".trig.hot .trig-v", ".demo.hot .demo-score span"):
+    for sel in (".trig.hot .trig-v", ".tile.fire .tile-score"):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--flare)" in block, f"{sel} should snap to the hot accent"
 
@@ -213,7 +215,10 @@ def test_the_signature_is_wired_to_one_number():
     # of the page's horizontal overflow (inset:-26% pushed it 182px past each
     # edge of a 699px element, giving a 915px scrollWidth at a 768px viewport).
     # Four consumers still read the score, so the room still responds.
-    for sel in (".nav::after{", ".demo{", ".trig{", ".thread-fill{"):
+    # .tile{ replaced .demo{ when the single-channel widget became the wall.
+    # Four tiles all reading the same number is more of the room responding,
+    # not less.
+    for sel in (".nav::after{", ".tile{", ".trig{", ".thread-fill{"):
         block = CSS[CSS.index(sel):CSS.index("}", CSS.index(sel))]
         assert "var(--lit)" in block, f"{sel[:-1]} no longer reacts to the score"
     # And it is written from the loop, throttled to changes rather than frames.

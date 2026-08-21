@@ -5001,7 +5001,7 @@ LANDING_HTML = """<!DOCTYPE html>
     --display:'Lobster',Georgia,serif;
     /* ONE curve, whole site. Durations are the only thing that varies. */
     --ease:cubic-bezier(.16,1,.3,1);
-    --t-micro:150ms; --t-move:300ms; --t-enter:600ms;
+    --t-micro:150ms; --t-move:300ms; --t-enter:600ms; --t-slow:800ms;
     /* Measure. Text sections hold this; product sections deliberately do not. */
     --measure:65ch;
     /* 0..1 — how hard the trigger is firing right now. Everything that is
@@ -5080,15 +5080,22 @@ LANDING_HTML = """<!DOCTYPE html>
   .seam.lit::after,.wash.lit::after{opacity:1}
   @media(prefers-reduced-motion:reduce){ .thread{display:none} }
 
-  /* ── HERO. Fills the viewport and runs edge to edge; the demo widget is the
-     best asset on the page and it was boxed into a 1140 column. ── */
-  .hero-band{min-height:calc(100svh - 60px);display:grid;align-content:center;
-    max-width:none;padding-left:clamp(20px,5vw,90px);padding-right:clamp(20px,5vw,90px)}
-  @media(min-width:1200px){
-    .hero-band{grid-template-columns:minmax(0,.86fr) minmax(0,1.14fr);gap:clamp(40px,5vw,88px)}
+  /* ── HERO. Fills the viewport and runs edge to edge. It is not a picture of
+     the product — it is the detector, running. ── */
+  /* Two class names on purpose. `.wrap` is re-narrowed in three later media
+     queries, and a single-class .hero-band rule loses to every one of them —
+     which is how the wall ended up boxed into a 1280 column with the bottom
+     third of the viewport empty under it. */
+  .hero.hero-band{min-height:calc(100svh - 72px);display:grid;
+    grid-template-rows:auto minmax(0,1fr);align-content:stretch;
+    max-width:none;padding-left:clamp(16px,4vw,72px);padding-right:clamp(16px,4vw,72px)}
+  @media(min-width:1600px){
+    .hero.hero-band{padding-left:5vw;padding-right:5vw}
   }
-  @media(min-width:1600px){ .hero-band{padding-left:6vw;padding-right:6vw} }
-  .band-dark,.panel,.demo,.shot-frame,.exl-card{
+  /* The wall takes the height that is left; the caption takes what it needs.
+     min-height:0 on both, or the grid row refuses to shrink below content. */
+  .hero-stack{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0}
+  .band-dark,.panel,.tile,.stage,.shot-frame,.exl-card{
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
     --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
     color:var(--ink-2)}
@@ -5281,17 +5288,19 @@ LANDING_HTML = """<!DOCTYPE html>
   .trig-line{fill:none;stroke:var(--ember);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;transition:stroke .3s}
   .trig.hot .trig-line{stroke:var(--flare)}
 
-  /* ══ HERO. Asymmetric on purpose: the copy holds the left, the demo breaks
-     the container on the right and becomes the light source for the page. ══ */
-  .hero{position:relative;display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
-    gap:56px;align-items:center;padding-top:58px;padding-bottom:46px}
-  /* The light itself. Anchored to where the demo panel actually sits, so it
-     reads as spill FROM the panel rather than a decoration floating behind it.
-     Unblurred, low alpha, and it brightens when the trigger fires. */
+  /* ══ HERO. The lede sits on top; the wall takes every pixel underneath it.
+     The wall is four live channels being scored right now — the same loop the
+     product runs, at the same 1s cadence, against the same threshold. ══ */
+  .hero{position:relative;padding-top:26px;padding-bottom:18px}
   .room-light{display:none}
-  .hero-copy h1{font-family:'Lobster',Georgia,serif;font-weight:400;
-    font-size:clamp(44px,7vw,78px);line-height:1.03;letter-spacing:-.005em;
-    color:var(--ink);margin:20px 0 22px}
+  .hero-lede{display:grid;gap:0 clamp(28px,4vw,64px);align-items:end;
+    padding:2px 0 16px}
+  @media(min-width:980px){
+    .hero-lede{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
+  }
+  .hero-copy h1{font-family:var(--display);font-weight:400;
+    font-size:clamp(40px,6.2vw,80px);line-height:.98;letter-spacing:-.005em;
+    color:var(--ink);margin:8px 0 0}
   /* The accent word is LIT, not painted: a solid fill plus the spill it would
      throw onto the dark around it. No gradient, no stroke. */
   .accent{color:#B86ADC;-webkit-text-stroke:0;
@@ -5299,8 +5308,23 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The page is dark throughout now, so there is no second surface for the
      accent to switch on — one value, and the halo can stay. */
   .band-dark .accent{color:#B86ADC}
-  .hero-copy p.lead{font-size:19px;line-height:1.55;color:var(--ink-2);max-width:520px;margin-bottom:32px}
-  .hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .hero-copy p.lead{font-size:17px;line-height:1.5;color:var(--ink-2);max-width:46ch;margin:14px 0 0}
+  /* The right half of the lede: actions, not more prose. Bottom-aligned so the
+     CTA row and the slogan's baseline sit on the same line. */
+  .hero-act{display:flex;flex-direction:column;align-items:flex-start;gap:14px;
+    padding-top:22px}
+  @media(min-width:980px){ .hero-act{align-items:flex-end;padding-top:0} }
+  /* Stacked, the lede was costing 500px of a 1024px viewport and pushing the
+     wall off the bottom. Same content, laid across instead of down. */
+  @media(max-width:979px){
+    .hero-lede{padding-bottom:16px}
+    .hero-copy p.lead{font-size:16px;margin-top:14px}
+    .hero-act{flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px 16px;
+      padding-top:16px}
+    .hero-act .no-ai{margin-bottom:0}
+    .hero-note{width:100%}
+  }
+  .hero-ctas{display:flex;gap:12px;flex-wrap:wrap}
   .hero-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.02em}
   .hero-note b{color:var(--ink-2);font-weight:600}
   /* Tags on a rule, not pills with dots. */
@@ -5310,7 +5334,7 @@ LANDING_HTML = """<!DOCTYPE html>
      from every other clipping tool, and burying it in the tag row (where it
      lived) meant nobody read it. Links to #formula: the claim is only worth
      making if the reader can immediately go and check it. */
-  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:20px;
+  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:10px;
     padding:9px 16px 9px 12px;border-radius:99px;text-decoration:none;
     border:1px solid rgba(247,167,69,.38);
     background:linear-gradient(90deg,rgba(247,167,69,.12),rgba(247,167,69,.03));
@@ -5332,72 +5356,231 @@ LANDING_HTML = """<!DOCTYPE html>
     color:var(--ink-3);padding-right:16px;margin-right:16px;border-right:1px solid var(--hair);line-height:1.4}
   .tag:last-child{border-right:none;margin-right:0;padding-right:0}
 
-  /* ── LIVE DEMO — the light source ── */
-  /* The light in the room. It is a pseudo-element OF THE PANEL, so it always
-     has a position and a falloff that belong to a real object — not a blob
-     floating in the background. Unblurred, low alpha, and it brightens with
-     --lit when the trigger fires. */
-  .demo-wrap{position:relative;min-width:0}
-  .demo{position:relative;border-radius:4px;overflow:hidden;border:1px solid transparent;
-    background:linear-gradient(172deg,#211628,var(--wall) 55%,#150F1B) padding-box,
-      linear-gradient(215deg,rgba(210,106,251,calc(.55 + var(--lit)*.45)),rgba(184,106,220,.18) 34%,rgba(242,234,247,.05) 70%,rgba(242,234,247,.02)) border-box;
-    transition:box-shadow .45s}
-  .demo.hot{box-shadow:0 0 0 1px rgba(210,106,251,.28),0 0 60px -26px rgba(210,106,251,.7)}
-  .demo-bar{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--hair)}
-  .demo-bar .who{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink-3)}
-  .demo-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);
-    font-size:9.5px;font-weight:600;letter-spacing:.18em;color:var(--ember)}
-  .demo-live i{width:5px;height:5px;border-radius:50%;background:var(--ember);
-    box-shadow:0 0 8px var(--ember);animation:tally 2.6s ease-in-out infinite}
-  @keyframes tally{0%,100%{opacity:1}50%{opacity:.32}}
-  .demo-body{padding:15px 16px 13px}
-  .demo-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:10px}
-  .demo-ch{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;
-    display:flex;align-items:center;gap:8px;padding-bottom:4px}
-  .demo-ch .pd{width:5px;height:5px;border-radius:50%;background:var(--glow);box-shadow:0 0 8px var(--glow)}
-  .demo-score{text-align:right;line-height:1}
-  .demo-score small{display:block;font-family:var(--mono);font-weight:600;font-size:9.5px;
-    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
-  /* The brightest number on the page. */
-  .demo-score span{font-family:var(--mono);font-weight:600;font-size:clamp(40px,5vw,56px);
-    font-variant-numeric:tabular-nums;letter-spacing:-.03em;color:var(--ember);
-    transition:color .3s,text-shadow .3s;display:inline-block}
-  .demo.hot .demo-score span{color:var(--flare);text-shadow:0 0 30px rgba(210,106,251,.55)}
-  .demo-chart{position:relative;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-    padding:2px 0;overflow:hidden}
-  .demo-chart svg{display:block;width:100%;height:auto}
-  .fired{position:absolute;top:9px;right:11px;display:inline-flex;align-items:center;gap:7px;
-    font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;color:var(--flare);
-    opacity:0;transform:translateY(-4px);transition:opacity .3s,transform .3s}
-  .fired.on{opacity:1;transform:none}
-  .demo-sigs{display:flex;gap:0;flex-wrap:wrap;margin-top:13px}
-  .dsig{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;color:var(--ink-3);
-    padding-right:13px;margin-right:13px;border-right:1px solid var(--hair);transition:color .3s}
-  .dsig:last-child{border-right:none}
-  @media (max-width:520px){
-    .demo-sigs{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px}
-    .dsig{border-right:none;padding-right:0;margin-right:0}
+  /* ══ THE WALL ══════════════════════════════════════════════════════════
+     Four channels, scored live. This is not a screenshot and not a drawing of
+     the dashboard — it is the same loop the product runs: a score per channel
+     per second, a per-channel threshold, five weighted signals underneath it.
+     Most of what happens is a channel getting loud and NOT crossing. That is
+     the point of showing it: the threshold has to mean something before the
+     one that does cross means anything.
+
+     Everything that moves here moves on transform, opacity or clip-path. No
+     width, height, top or filter is animated anywhere in this block. ══ */
+  .wall{position:relative;display:grid;gap:10px;min-height:0;
+    grid-template-columns:repeat(4,minmax(0,1fr))}
+  /* Under 1180 the wall drops to TWO channels, not to a 2x2. Four tiles in two
+     rows needs about 900px of height, the lede takes the rest, and the second
+     row ended up below the fold — a wall you have to scroll to see is not a
+     wall. Two tiles stay one row deep and stay in view. The fire moment still
+     happens, and the near-miss moves onto the other visible tile so the
+     threshold still gets to mean something. */
+  @media(max-width:1180px){
+    .wall{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .wall .tile:nth-child(n+3){display:none}
   }
-  .dsig.on{color:var(--ember)}
-  .demo-clip{margin-top:11px;display:flex;align-items:center;gap:11px;padding-top:11px;
-    border-top:1px solid var(--hair);opacity:0;transform:translateY(6px);
-    transition:opacity .45s,transform .45s}
-  .demo-clip.show{opacity:1;transform:none}
-  .dc-thumb{position:relative;width:50px;height:28px;border-radius:2px;flex-shrink:0;
-    background:linear-gradient(150deg,#3A2348,#231733);display:grid;place-items:center;
-    border:1px solid rgba(242,234,247,.07)}
-  .dc-meta{flex:1;min-width:0}
-  .dc-t{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
-  .dc-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;
-    display:flex;align-items:center;gap:7px;letter-spacing:.08em}
-  .dc-spin{width:9px;height:9px;border:1.5px solid rgba(242,234,247,.16);border-top-color:var(--glow);
-    border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .dc-ok{display:none;color:var(--ember)}
-  .demo-clip.done .dc-spin{display:none}
-  .demo-clip.done .dc-ok{display:inline-flex;align-items:center;gap:5px}
-  .demo-cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--ink-3);
-    margin-top:14px;text-align:right}
+  @media(max-width:700px){
+    .wall{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr))}
+  }
+
+  .tile{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;
+    padding:13px 14px 11px;border-radius:4px;overflow:hidden;
+    border:1px solid transparent;
+    background:linear-gradient(172deg,#211628,var(--wall) 58%,#150F1B) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,calc(.30 + var(--lit)*.50)),
+        rgba(184,106,220,.14) 55%,rgba(242,234,247,.05) 78%,rgba(242,234,247,.02)) border-box;
+    transition:box-shadow var(--t-move) var(--ease),opacity var(--t-move) var(--ease),
+      transform var(--t-move) var(--ease)}
+  /* Entry. Staggered in JS by writing --d; transform and opacity only. */
+  .tile{opacity:0;transform:translate3d(0,14px,0)}
+  .tile.in{opacity:1;transform:none;
+    transition:opacity var(--t-enter) var(--ease) var(--d,0ms),
+      transform var(--t-enter) var(--ease) var(--d,0ms)}
+  /* Hot = climbing hard but still under. Fire = over the line. */
+  .tile.hot{box-shadow:0 0 0 1px rgba(184,106,220,.22),0 0 46px -30px rgba(184,106,220,.8)}
+  .tile.fire{box-shadow:0 0 0 1px rgba(210,106,251,.42),0 0 70px -22px rgba(210,106,251,.85)}
+
+  .tile-top{display:flex;align-items:baseline;gap:8px;min-width:0}
+  .tile-ch{display:inline-flex;align-items:center;gap:7px;min-width:0;
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--ember);
+    box-shadow:0 0 8px var(--ember)}
+  .tile-game{margin-left:auto;flex:none;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
+    max-width:44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .tile-read{display:flex;align-items:baseline;gap:8px;margin-top:6px}
+  .tile-score{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+    font-size:clamp(34px,4.4vw,66px);line-height:.92;letter-spacing:-.03em;color:var(--ember);
+    transition:color var(--t-micro) var(--ease),text-shadow var(--t-move) var(--ease)}
+  .tile.hot  .tile-score{color:var(--glow-ink)}
+  .tile.fire .tile-score{color:var(--flare);text-shadow:0 0 30px rgba(210,106,251,.55)}
+  .tile-th{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+  /* margin-top:auto, so the readout stays at the top of the tile and the
+     history hangs off the bottom. The chart is CAPPED: scores live between
+     roughly 25 and 95, so a chart stretched to a 430px tile plotted a thin
+     line across a large empty rectangle. Bounding it keeps the trace dense
+     and gives the slack to the number, which is what people read. */
+  .tile-chart{position:relative;flex:0 1 auto;min-height:88px;max-height:210px;
+    height:clamp(96px,20vh,210px);margin-top:auto;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .tile-chart svg{display:block;width:100%;height:100%}
+  .tile-line{fill:none;stroke:var(--glow);stroke-width:1.5;stroke-linejoin:round;
+    stroke-linecap:round;vector-effect:non-scaling-stroke;
+    transition:stroke var(--t-move) var(--ease)}
+  .tile.fire .tile-line{stroke:var(--flare)}
+  .tile-thline{stroke:rgba(242,234,247,.18);stroke-width:1;stroke-dasharray:3 6;
+    vector-effect:non-scaling-stroke}
+  .tile-head{fill:var(--glow);transition:fill var(--t-move) var(--ease)}
+  .tile.fire .tile-head{fill:var(--flare)}
+  /* The near-miss caption. It is the honest half of the demo, so it gets to
+     be legible rather than decorative. */
+  .tile-flag{position:absolute;left:0;bottom:6px;font-family:var(--mono);font-weight:600;
+    font-size:9px;letter-spacing:.18em;color:var(--ink-3);
+    opacity:0;transform:translate3d(0,4px,0);
+    transition:opacity var(--t-move) var(--ease),transform var(--t-move) var(--ease)}
+  .tile-flag.on{opacity:1;transform:none;color:var(--ember)}
+  .tile.fire .tile-flag{color:var(--flare)}
+
+  .tile-sigs{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+    gap:6px;margin-top:10px}
+  .tile-sigs li{min-width:0}
+  .sg-k{display:block;font-family:var(--mono);font-size:8px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .sg-b{display:block;height:2px;margin-top:4px;background:var(--hair);border-radius:2px;
+    overflow:hidden}
+  /* scaleX, never width — this updates every 250ms on twenty bars at once. */
+  .sg-b i{display:block;height:100%;background:var(--glow);transform-origin:left center;
+    transform:scaleX(var(--v,0));transition:transform var(--t-move) linear}
+  .tile.fire .sg-b i{background:var(--flare)}
+
+  /* ── THE FIRE. The tile does not grow: a stage that is already the size of
+     the whole wall is revealed FROM the tile's rectangle, so the clip is at
+     full resolution from the first frame and nothing is ever scaled off its
+     aspect ratio. JS writes the starting inset() from the tile's real rect. ── */
+  .stage{position:absolute;inset:0;z-index:3;border-radius:4px;overflow:hidden;
+    background:var(--void);opacity:0;visibility:hidden;
+    clip-path:inset(50% 50% 50% 50% round 4px);
+    transition:clip-path var(--t-slow) var(--ease),opacity var(--t-move) var(--ease),
+      visibility 0s linear var(--t-slow)}
+  .stage.on{opacity:1;visibility:visible;transition:clip-path var(--t-slow) var(--ease),
+    opacity var(--t-move) var(--ease),visibility 0s}
+  /* Closing is quicker than opening. Opening is the payoff and gets 800ms;
+     getting out of the way is 600ms, and the visibility flip has to wait for
+     the clip-path to finish or the stage vanishes mid-collapse. */
+  .stage.out{transition:clip-path var(--t-enter) var(--ease),
+    opacity var(--t-move) var(--ease) var(--t-move),
+    visibility 0s linear var(--t-enter)}
+  /* The wall is about 3:1. A clip is 16:9. Handing the player a 3:1 box gets
+     you a small letterboxed video with black bars down both sides, which is
+     the opposite of showing the footage off, so the media sits in a real 16:9
+     frame centred in the stage. Container query units are what make that
+     possible in one declaration: cqh is the stage's own height, so the frame
+     is as wide as 16:9 allows OR the full width, whichever is smaller. If a
+     browser does not understand cqh the whole declaration is dropped and the
+     preceding width:100% stands. */
+  .stage-media{position:absolute;inset:0;background:#08060B;
+    container-type:size;display:grid;place-items:center}
+  /* The wall is wide on a desktop and tall on a phone; a 16:9 clip leaves
+     bands either way, and on a phone they are over half the stage. The same
+     frame, cropped to fill and pushed right down, fills them — so the bands
+     read as the clip's own spill instead of two black slabs. Same URL as the
+     poster, so it is the same cached image and not a second request. */
+  .stage-wash{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    opacity:.22;transform:scale(1.1)}
+  .stage-box{position:relative;aspect-ratio:16/9;overflow:hidden;
+    width:100%;
+    width:min(100%,calc(100cqh * 16 / 9))}
+  .stage-box img,.stage-box iframe{position:absolute;inset:0;width:100%;height:100%;
+    border:0;object-fit:cover;display:block}
+  /* The poster is what makes the moment instant. It is up before the player
+     has asked Twitch for a single byte, and it stays up underneath it. */
+  .stage-poster{transform:scale(1.05);transition:transform 6s linear}
+  .stage.on .stage-poster{transform:scale(1)}
+  .stage-frame{position:absolute;inset:0;opacity:0;transition:opacity var(--t-move) var(--ease)}
+  /* Once the stage is up, the tile underneath stops being the light source —
+     the clip is. Left on, the firing tile's 1px ring drew a bright rectangle
+     around the stage's own edges. */
+  .wall.staged .tile{box-shadow:none}
+  .stage-frame.ready{opacity:1}
+
+  .stage-bar{position:absolute;left:0;right:0;bottom:0;z-index:2;
+    display:flex;align-items:center;gap:12px;padding:12px 14px;
+    background:linear-gradient(0deg,rgba(14,11,17,.94),rgba(14,11,17,.7) 55%,rgba(14,11,17,0))}
+  .stage-fired{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.2em;
+    color:var(--flare);white-space:nowrap}
+  .stage-score{font-family:var(--mono);font-weight:600;font-size:19px;color:var(--flare);
+    font-variant-numeric:tabular-nums;line-height:1}
+  .stage-meta{min-width:0;font-family:var(--mono);font-size:11px;color:var(--ink-3);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stage-meta b{color:var(--ink-2);font-weight:600}
+  .stage-out{margin-left:auto;flex:none;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
+    border-bottom:1px solid var(--hair-2);padding-bottom:2px;
+    transition:color var(--t-micro) var(--ease),border-color var(--t-micro) var(--ease)}
+  .stage-out:hover{color:var(--ink);border-color:var(--flare)}
+  @media(max-width:640px){
+    .stage-meta{display:none}
+    .stage-bar{gap:9px;padding:10px 11px}
+  }
+  /* The reduced-motion frame sits the stage in one tile's cell, so the bar has
+     a quarter of the width the media query above is reasoning about. */
+  .stage.compact .stage-meta{display:none}
+  .stage.compact .stage-bar{gap:9px;padding:10px 11px}
+  .stage.compact .stage-out{font-size:9.5px}
+
+  .wall-cap{display:flex;align-items:center;gap:10px;margin-top:9px;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3)}
+  .wall-cap b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
+  .wall-cap .sep{flex:1 1 auto;height:1px;background:var(--hair)}
+  /* One line or nothing. Wrapped, the caption stole a second row from the wall
+     and the tiles paid for it. */
+  .wall-cap{white-space:nowrap}
+  @media(max-width:900px){ .cap-why{display:none} }
+
+  /* ── PHONE. The lede was costing 650 of an 844px viewport and the wall
+     started below the fold, which defeats the entire hero: the thing that is
+     supposed to be running is the thing you cannot see. Everything here buys
+     vertical space back so at least one whole tile is above the fold. ── */
+  @media(max-width:700px){
+    .hero.hero-band{padding-top:10px}
+    .hero-lede{padding:0 0 14px}
+    .kicker{margin-bottom:6px}
+    .hero-copy h1{font-size:clamp(33px,9.4vw,46px);margin-top:8px}
+    .hero-copy p.lead{font-size:15.5px;line-height:1.45;margin-top:12px}
+    .hero-act{padding-top:14px;gap:10px 12px}
+    .hero-ctas{width:100%;flex-wrap:nowrap;gap:9px}
+    .hero-ctas .btn-lg{flex:1 1 0;min-width:0;padding:14px 10px;font-size:14px;
+      text-align:center;justify-content:center}
+    .hero-note{font-size:11px}
+    /* The wall below IS the demonstration that this is not a picture, so on a
+       phone the sentence saying so is 45px of viewport spent repeating what
+       the reader can already see. */
+    .lead-tail{display:none}
+    .wall{gap:8px}
+    .tile{padding:10px 11px 9px}
+    .tile-chart{height:118px;max-height:118px;min-height:64px}
+    .tile-score{font-size:36px}
+    .wall-cap{font-size:9.5px;letter-spacing:.08em}
+  }
+
+
+  /* Small phones. Everything above buys enough room on a 390x844; a 360x740
+     needs another ~35px to keep the whole first tile above the fold, and this
+     is where it comes from. */
+  @media(max-width:420px){
+    .hero-copy h1{font-size:clamp(30px,8.6vw,40px)}
+    .hero-copy p.lead{font-size:14.5px;line-height:1.4;margin-top:10px}
+    .hero-act{padding-top:11px;gap:9px 10px}
+    .hero-ctas .btn-lg{padding:12px 8px;font-size:13.5px}
+    .kicker{font-size:10px}
+    .tile-chart{height:106px;max-height:106px}
+  }
+
 
   /* ══ STAT STRIP. Not three equal cards — a readout rail with the numbers
      hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
@@ -5969,9 +6152,11 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   @media(max-width:520px){
     .ex-card{flex-basis:100%}
-    .hero-copy p.lead{font-size:17.5px}
-    .hero-ctas{flex-direction:column;align-items:stretch}
-    .hero-ctas .btn{width:100%}
+    /* The old hero's phone rules used to live here — a bigger lead and a
+       stacked CTA column. They sit LATER in the sheet than the wall's own
+       phone block, so they were quietly overriding it: the lead came back up
+       to 17.5px and the two buttons re-stacked, costing about 90px of the
+       viewport the wall needed. The wall block owns hero sizing now. */
     /* Vertical rules only work while the row does not wrap. On a phone it
        always wraps, so the separators become orphans hanging off line ends. */
     .tags{flex-direction:column;gap:4px}
@@ -6032,68 +6217,51 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="thread-lab">score</span></div>
 </div>
 <header class="wrap hero hero-band">
-  <div class="hero-copy">
-    <div class="kicker">Automatic Twitch clipping</div>
-    <a href="#how" class="no-ai">
-      <span class="no-ai-x">NO AI</span>
-      <span class="no-ai-t"><b>A formula you can read.</b> Watch it move.</span>
-    </a>
-    <h1>Never miss a <span class="accent">highlight</span> again.</h1>
-    <p class="lead">Ten streams are live. You can watch one. Highlightz watches all ten, scores every second of each, and clips the moment something pops. Chat speed, audio, keywords, hype. Add them up, cross the line, clip. <b>Up to 10 channels at the same time on Pro.</b></p>
-    <div class="hero-ctas">
-      <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
-      <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
+  <div class="hero-lede">
+    <div class="hero-copy">
+      <div class="kicker">Automatic Twitch clipping</div>
+      <a href="#how" class="no-ai">
+        <span class="no-ai-x">NO AI</span>
+        <span class="no-ai-t"><b>A formula you can read.</b> Watch it move.</span>
+      </a>
+      <h1>Never miss a <span class="accent">highlight</span> again.</h1>
+      <p class="lead">Ten streams are live. You can watch one. Highlightz scores every second of all ten and clips the moment one of them pops. <b>Up to 10 channels at the same time on Pro.</b> <span class="lead-tail">The wall below is the real thing, running.</span></p>
     </div>
-    <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
-    <div class="tags">
-      <span class="tag tag-key">Zero AI. Pure math.</span>
-      <span class="tag">Up to 10 channels at once</span>
+    <div class="hero-act">
+      <div class="hero-ctas">
+        <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
+        <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
+      </div>
+      <p class="hero-note"><b>7 days free</b> &middot; no credit card &middot; then from $10/mo</p>
     </div>
   </div>
 
-  <!-- LIVE DEMO — the light source in the room -->
-  <div class="demo-wrap">
-    <div class="demo" id="demo">
-      <div class="demo-bar"><span class="who">Highlightz &middot; monitoring 4 channels</span><span class="demo-live"><i></i>LIVE</span></div>
-      <div class="demo-body">
-        <div class="demo-main">
-          <div class="demo-head">
-            <div class="demo-ch"><span class="pd"></span>novafps</div>
-            <div class="demo-score"><small>Trigger score</small><span id="d-score">92</span></div>
+  <!-- THE WALL. Four channels being scored. Tiles, the stage and every readout
+       are written by JS; the no-JS markup below is the composed static frame,
+       which is also exactly what prefers-reduced-motion gets. -->
+  <div class="hero-stack">
+    <div class="wall" id="wall">
+      <div class="stage" id="stage">
+        <div class="stage-media">
+          <img class="stage-wash" id="stage-wash" alt="" aria-hidden="true" decoding="async">
+          <div class="stage-box">
+            <img class="stage-poster" id="stage-poster" alt="" decoding="async">
+            <div class="stage-frame" id="stage-frame"></div>
           </div>
-          <div class="demo-chart">
-            <svg viewBox="0 0 520 150" preserveAspectRatio="none" aria-label="Live trigger score chart">
-              <defs>
-                <linearGradient id="dArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#D26AFB" stop-opacity=".26"/>
-                  <stop offset="100%" stop-color="#D26AFB" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <line id="d-thresh" x1="0" y1="64.8" x2="520" y2="64.8" stroke="rgba(242,234,247,.16)" stroke-width="1" stroke-dasharray="3 6"/>
-              <text x="6" y="59" font-size="9" fill="#9C90A6" font-family="Plex,ui-monospace,monospace" letter-spacing="1.1">trigger threshold</text>
-              <path id="d-area" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71 L520,150 L0,150 Z" fill="url(#dArea)"/>
-              <path id="d-line" d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,62 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,62 L505,68 L520,71" fill="none" stroke="#D26AFB" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
-              <circle id="d-dot" cx="415" cy="17" r="3.2" fill="#D26AFB"/>
-            </svg>
-            <span class="fired on" id="d-badge">TRIGGER FIRED</span>
-          </div>
-          <div class="demo-sigs">
-            <span class="dsig on" id="sig-chat">CHAT VELOCITY</span>
-            <span class="dsig on" id="sig-audio">AUDIO SPIKE</span>
-            <span class="dsig on" id="sig-kw">KEYWORDS</span>
-            <span class="dsig" id="sig-sent">SENTIMENT</span>
-          </div>
-          <div class="demo-clip show done" id="d-clip">
-            <div class="dc-thumb"><svg width="13" height="13" viewBox="0 0 24 24" fill="#C489E4"><path d="M8 5v14l11-7z"/></svg></div>
-            <div class="dc-meta">
-              <div class="dc-t">Big Reaction, clipped automatically</div>
-              <div class="dc-s"><span class="dc-spin"></span><span id="d-clipmsg">Creating clip on Twitch&hellip;</span><span class="dc-ok">&#10003; Clip ready</span></div>
-            </div>
-          </div>
+        </div>
+        <div class="stage-bar">
+          <span class="stage-fired">TRIGGER FIRED</span>
+          <span class="stage-score" id="stage-score">0</span>
+          <span class="stage-meta" id="stage-meta"></span>
+          <a class="stage-out" id="stage-out" href="#" target="_blank" rel="noopener">Watch on Twitch</a>
         </div>
       </div>
     </div>
-    <div class="demo-cap">Live demo. One channel, start to finish. Every channel you add gets its own score, signals and profile.</div>
+    <div class="wall-cap">
+      <span>Live &middot; <b id="wall-rate">4</b> channels<span class="cap-why"> &middot; every channel scored against its own threshold</span></span>
+      <span class="sep"></span>
+      <span id="wall-state">watching</span>
+    </div>
   </div>
 </header>
 
@@ -6424,143 +6592,512 @@ LANDING_HTML = """<!DOCTYPE html>
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeLb(); });
 })();
 
-/* ── THE SIGNATURE ──────────────────────────────────────────────────────────
-   The trigger score is the light in the room. One scripted ~11s capture drives
-   it: calm chat and a wandering score, chat floods, the score crosses the
-   threshold, the clip is created. Everything lit on this page reads the same
-   number:
+/* ── THE WALL ───────────────────────────────────────────────────────────────
+   The hero is the detector, running. Four channels, each with its own baseline
+   and its own threshold, each scored on a rolling window. One of them crosses,
+   fires, and the clip that plays is a real clip this formula actually caught.
 
-     --lit   0..1 on <html>, how hard the trigger is firing. The nav rim, the
-             hero wash and the demo panel's own rim all scale off it, so when
-             the capture fires the ROOM brightens, not just the widget.
-     .trig   a permanent readout welded into the nav — amber below threshold
-             (the lamp behind you), violet above it (the monitor).
+   WHY IT IS NOT RANDOM. Random noise reads as a screensaver. This is seeded
+   value noise (deterministic: same cycle index, same trace) with scripted
+   beats laid on top of it, and the beats are the point:
 
-   The markup ships the FIRED end state, so no-JS and reduced-motion visitors
-   see a finished capture rather than an empty frame. ───────────────────────*/
+     plateau   the channel gets busy and stays busy. Nothing happens.
+     nearmiss  it climbs to just under the line, holds, and decays. Nothing
+               happens. THIS IS THE LOAD-BEARING ONE. A threshold that is
+               never approached and missed is a threshold nobody believes.
+     spike     it goes over. Exactly one tile per cycle gets one of these.
+
+   The near-miss peak is chosen so that baseline + peak + the largest drift the
+   noise can produce still lands under that tile's threshold. It cannot fire by
+   accident; there is no clamp anywhere covering for it.
+
+   Everything written here is a transform, an opacity, a clip-path, or text.
+   No layout property is animated. The loop stops when the tab is hidden or the
+   wall leaves the viewport, and the clock freezes with it so resuming does not
+   teleport. ─────────────────────────────────────────────────────────────── */
 (function(){
-  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var demo=document.getElementById('demo');
-  var line=document.getElementById('d-line'), area=document.getElementById('d-area');
-  var dot=document.getElementById('d-dot'), badge=document.getElementById('d-badge');
-  var scoreEl=document.getElementById('d-score'), clipCard=document.getElementById('d-clip');
-  var sigChat=document.getElementById('sig-chat'), sigAudio=document.getElementById('sig-audio'),
-      sigKw=document.getElementById('sig-kw'), sigSent=document.getElementById('sig-sent');
+  var wall=document.getElementById('wall');
+  if(!wall) return;
+  var stage=document.getElementById('stage'),
+      poster=document.getElementById('stage-poster'),
+      frameBox=document.getElementById('stage-frame'),
+      stScore=document.getElementById('stage-score'),
+      stMeta=document.getElementById('stage-meta'),
+      stOut=document.getElementById('stage-out'),
+      capRate=document.getElementById('wall-rate'),
+      capState=document.getElementById('wall-state'),
+      wash=document.getElementById('stage-wash');
   var trig=document.getElementById('trig'), trigV=document.getElementById('trig-v'),
       trigLine=document.getElementById('trig-line');
+  var thread=document.getElementById('thread'),
+      thScore=document.getElementById('thread-score');
   var root=document.documentElement;
-  if(!demo||!line||reduce) return;   // static fired-state markup stays as-is
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var DUR=11000, WINDOW=8000, W=520, H=150, THRESH=60;
+  var CYCLE=14000, WIN=9000, STEP=250, VW=300, VH=110;
+  var FIRE_MIN=4800;             // nothing may fire before the wall has settled
+  var SIGS=['chat','audio','keys','views','hype'];
 
-  function yFor(s){ return 144 - s*1.32; }
+  /* Built with RegExp(), never a literal: this file is inside a Python
+     triple-quoted string, so a backslash here is Python's and is eaten before
+     the browser ever sees it. */
+  var SLUG=new RegExp('/clip/([^/?#]+)');
+  var RE_PREVIEW=new RegExp('-preview-[0-9]+x[0-9]+[.]');
+  function hiRes(u){ return (u||'').replace(RE_PREVIEW,'-preview-1280x720.'); }
 
-  var samples=[], lastSample=0, fired=false, clipShown=false, clipDone=false, seed=7, lastLit=-1;
-  function rnd(){ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }
-
-  function scoreAt(t){
-    var base;
-    if(t<5200)      base=26+6*Math.sin(t/900)+5*Math.sin(t/370);
-    else if(t<6400) { var p=(t-5200)/1200; var e=p*p*(3-2*p); base=30+e*62; }
-    else if(t<7600) base=92-3*Math.sin((t-6400)/300);
-    else if(t<9800) { var q=(t-7600)/2200; base=89-q*46; }
-    else            base=43-((t-9800)/1200)*12;
-    return Math.max(6,Math.min(97,base+(rnd()*4-2)));
+  function mulberry(a){
+    return function(){
+      a|=0; a=a+0x6D2B79F5|0;
+      var t=Math.imul(a^a>>>15,1|a);
+      t=t+Math.imul(t^t>>>7,61|t)^t;
+      return ((t^t>>>14)>>>0)/4294967296;
+    };
+  }
+  function smooth(x){ x=x<0?0:(x>1?1:x); return x*x*(3-2*x); }
+  function clamp(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
+  function noiseArr(rnd,n){ var a=[],i; for(i=0;i<n;i++) a.push(rnd()*2-1); return a; }
+  function noiseAt(a,x){
+    var n=a.length, i=Math.floor(x), f=smooth(x-i);
+    var v0=a[((i%n)+n)%n], v1=a[(((i+1)%n)+n)%n];
+    return v0+(v1-v0)*f;
+  }
+  function envAt(b,t){
+    var u=t-b.at;
+    if(u<=0) return 0;
+    if(u<b.rise) return b.peak*smooth(u/b.rise);
+    if(u<b.rise+b.hold) return b.peak;
+    var f=(u-b.rise-b.hold)/b.fall;
+    return f>=1?0:b.peak*(1-smooth(f));
   }
 
-  function setSigs(t){
-    var on1=t>=5350&&t<8600, on2=t>=5750&&t<8300, on3=t>=6050&&t<8000, on4=t>=6300&&t<7500;
-    sigChat.classList.toggle('on',on1);
-    sigAudio.classList.toggle('on',on2);
-    sigKw.classList.toggle('on',on3);
-    sigSent.classList.toggle('on',on4);
+  /* ── the clips ─────────────────────────────────────────────────────────── */
+  var clips=[], names=['novafps','tessplays','kettlebrook','arcadeghost',
+                       'lowlatency','mothcandle'];
+  function embedFor(c){
+    if(c.embed_url) return c.embed_url;
+    var m=c.twitch_url?SLUG.exec(c.twitch_url):null;
+    return m?('https://clips.twitch.tv/embed?clip='+m[1]):'';
   }
 
-  function reset(){
-    samples=[]; lastSample=0; fired=false; clipShown=false; clipDone=false; seed=7;
-    badge.classList.remove('on'); demo.classList.remove('hot');
-    if(trig) trig.classList.remove('hot');
-    clipCard.classList.remove('show','done');
-    dot.setAttribute('r','0');
+  /* ── a cycle's worth of channels ───────────────────────────────────────── */
+  function buildCycle(idx){
+    var rnd=mulberry(1013904223+idx*2654435761);
+    var vis=visibleCount();
+    var fireI=idx%vis;                     // rotates, so every channel gets one
+    var missI=vis>1?((fireI+1+Math.floor(rnd()*(vis-1)))%vis):0;
+    if(missI===fireI) missI=(fireI+1)%vis;
+    var out=[],i;
+    for(i=0;i<4;i++){
+      var base=Math.round(24+rnd()*11);          // 24..35
+      var thresh=Math.round(64+rnd()*11);        // 64..75
+      var beats=[];
+      // Everyone gets some ordinary business early on.
+      beats.push({at:900+rnd()*900, rise:800+rnd()*500, hold:1100+rnd()*1400,
+                  fall:900+rnd()*700, peak:9+rnd()*11});
+      if(i===fireI){
+        base=33; thresh=71;
+        // The spike HOLDS for as long as the clip is on screen. It decays
+        // only after the stage collapses. A moment that is still being
+        // clipped has not stopped being hot, and letting the score sag while
+        // its own clip plays made the nav readout contradict the stage.
+        beats=[{at:1500,rise:900,hold:1500,fall:900,peak:15},
+               {at:5300,rise:950,hold:6300,fall:1400,peak:56}];
+      } else if(i===missI){
+        base=30; thresh=68;
+        // 30 + 31 + 5.0 (the most the noise can ever add) = 66 < 68.
+        beats=[{at:3000,rise:850,hold:520,fall:1400,peak:31}];
+      }
+      var sn=[],k;
+      for(k=0;k<5;k++) sn.push(noiseArr(rnd,10));
+      out.push({
+        base:base, thresh:thresh, beats:beats,
+        n1:noiseArr(rnd,14), n2:noiseArr(rnd,26), sn:sn,
+        w:[.9+rnd()*.1,.8+rnd()*.2,.7+rnd()*.3,.75+rnd()*.25,.85+rnd()*.15],
+        fires:(i===fireI), misses:(i===missI),
+        clip:clips.length?clips[(idx*4+i)%clips.length]:null,
+        name:names[(idx*4+i)%names.length]
+      });
+    }
+    out.fireI=fireI; out.missI=missI;
+    return out;
   }
-  reset();
 
-  // The chart is the only expensive part of the loop. The nav readout is on
-  // screen for the whole page, so it keeps updating; the SVG paths stop the
-  // moment the hero scrolls away.
-  var heroVisible=true;
-  if('IntersectionObserver' in window){
-    new IntersectionObserver(function(es){ heroVisible=es[0].isIntersecting; },
-      {rootMargin:'120px'}).observe(demo);
+  // Drift is bounded on purpose: 3.2 + 1.8 = 5.0 is the most it can ever add,
+  // and the near-miss peak above is picked against exactly that number.
+  function driftAt(tl,t){
+    return noiseAt(tl.n1,t/1400)*3.2 + noiseAt(tl.n2,t/430)*1.8;
+  }
+  function envTotal(tl,t){
+    var e=0,i; for(i=0;i<tl.beats.length;i++) e+=envAt(tl.beats[i],t);
+    return e;
+  }
+  function scoreAt(tl,t){
+    return clamp(tl.base+driftAt(tl,t)+envTotal(tl,t),4,99);
+  }
+  function sigAt(tl,t,k){
+    var e=envTotal(tl,t-k*70);
+    var lift=tl.w[k]*(e/56)*0.86;
+    return clamp(0.10+noiseAt(tl.sn[k],t/700+k*3)*0.13+lift,0.03,1);
   }
 
-  var t0=null;
-  function frame(now){
-    if(t0===null) t0=now;
-    var t=(now-t0)%DUR;
-    if(t<lastSample){ reset(); }   // loop wrapped
+  // Must track the CSS above exactly. If this says four and the stylesheet is
+  // showing two, the cycle can pick a hidden tile to fire and the payoff of
+  // the whole hero happens off screen.
+  function visibleCount(){
+    return window.matchMedia('(max-width:1180px)').matches?2:4;
+  }
 
-    if(t-lastSample>=70){
-      lastSample=t;
-      var s=scoreAt(t);
-      samples.push([t,s]);
-      while(samples.length&&samples[0][0]<t-WINDOW) samples.shift();
-      var shown=Math.round(s);
-      scoreEl.textContent=String(shown);
-      if(trigV) trigV.textContent=String(shown);
+  /* ── DOM ───────────────────────────────────────────────────────────────── */
+  var els=[];
+  function buildTiles(){
+    var i,k,frag=document.createDocumentFragment();
+    for(i=0;i<4;i++){
+      var t=document.createElement('article');
+      t.className='tile';
+      t.setAttribute('aria-hidden','true');
+      t.style.setProperty('--d',(i*80)+'ms');
+      var top=document.createElement('header'); top.className='tile-top';
+      var ch=document.createElement('span'); ch.className='tile-ch';
+      var dot=document.createElement('i'); dot.className='tile-dot';
+      var chT=document.createTextNode('');
+      ch.appendChild(dot); ch.appendChild(chT);
+      var gm=document.createElement('span'); gm.className='tile-game';
+      top.appendChild(ch); top.appendChild(gm);
 
-      // One number, one room. Only written when it actually moves — a custom
-      // property on <html> invalidates style for the whole document, so this
-      // must not fire on every single frame.
-      var lit=Math.max(0,Math.min(1,(s-THRESH)/34));
-      var q=Math.round(lit*20)/20;
-      if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
+      var read=document.createElement('div'); read.className='tile-read';
+      var sc=document.createElement('span'); sc.className='tile-score'; sc.textContent='0';
+      var th=document.createElement('span'); th.className='tile-th';
+      read.appendChild(sc); read.appendChild(th);
 
-      if(heroVisible){
-        var d='',ax,ay;
-        for(var i=0;i<samples.length;i++){
-          ax=((samples[i][0]-(t-WINDOW))/WINDOW)*W;
-          ay=yFor(samples[i][1]);
-          d+=(i===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
-        }
-        if(samples.length){
-          line.setAttribute('d',d);
-          area.setAttribute('d',d+' L'+W+','+H+' L'+((samples[0][0]-(t-WINDOW))/WINDOW*W).toFixed(1)+','+H+' Z');
-          dot.setAttribute('cx',ax.toFixed(1)); dot.setAttribute('cy',ay.toFixed(1));
-        }
+      var chart=document.createElement('div'); chart.className='tile-chart';
+      var svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('viewBox','0 0 '+VW+' '+VH);
+      svg.setAttribute('preserveAspectRatio','none');
+      svg.setAttribute('aria-hidden','true');
+      var thl=document.createElementNS('http://www.w3.org/2000/svg','line');
+      thl.setAttribute('class','tile-thline');
+      thl.setAttribute('x1','0'); thl.setAttribute('x2',String(VW));
+      var ln=document.createElementNS('http://www.w3.org/2000/svg','path');
+      ln.setAttribute('class','tile-line');
+      var hd=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      hd.setAttribute('class','tile-head'); hd.setAttribute('r','2.6');
+      svg.appendChild(thl); svg.appendChild(ln); svg.appendChild(hd);
+      var flag=document.createElement('span'); flag.className='tile-flag';
+      chart.appendChild(svg); chart.appendChild(flag);
+
+      var sigs=document.createElement('ul'); sigs.className='tile-sigs';
+      var bars=[];
+      for(k=0;k<5;k++){
+        var li=document.createElement('li');
+        var kk=document.createElement('span'); kk.className='sg-k'; kk.textContent=SIGS[k];
+        var bb=document.createElement('span'); bb.className='sg-b';
+        var fill=document.createElement('i');
+        bb.appendChild(fill); li.appendChild(kk); li.appendChild(bb);
+        sigs.appendChild(li); bars.push(fill);
+      }
+      t.appendChild(top); t.appendChild(read); t.appendChild(chart); t.appendChild(sigs);
+      frag.appendChild(t);
+      els.push({root:t,chT:chT,game:gm,score:sc,th:th,line:ln,head:hd,thl:thl,
+                flag:flag,bars:bars,pts:[]});
+    }
+    wall.insertBefore(frag,stage);
+  }
+  buildTiles();
+
+  function yFor(s){ return VH-6-s*(VH-12)/100; }
+
+  function dress(cyc){
+    var i;
+    for(i=0;i<4;i++){
+      var tl=cyc[i], e=els[i];
+      var nm=(tl.clip&&tl.clip.channel)?tl.clip.channel:tl.name;
+      e.chT.nodeValue=nm;
+      e.game.textContent=(tl.clip&&tl.clip.game)?tl.clip.game:'';
+      e.th.textContent='thr '+tl.thresh;
+      var y=yFor(tl.thresh).toFixed(1);
+      e.thl.setAttribute('y1',y); e.thl.setAttribute('y2',y);
+      e.root.classList.remove('hot','fire');
+      e.flag.classList.remove('on'); e.flag.textContent='';
+      // Backfill the rolling window before the first frame. A chart that draws
+      // itself in from an empty left edge announces that it just started, and
+      // the whole claim here is that these channels were already being watched
+      // when you arrived. The backfill is the same score function evaluated at
+      // negative time, so it is the real trace, not filler: the beats have not
+      // begun yet, which is exactly what the minute before a spike looks like.
+      e.pts=[];
+      var bt;
+      for(bt=-WIN;bt<0;bt+=STEP) e.pts.push([bt,scoreAt(tl,bt)]);
+    }
+  }
+
+  /* ── the fire ──────────────────────────────────────────────────────────── */
+  var frameEl=null;
+  function teardownFrame(){
+    if(frameEl){ frameEl.src='about:blank'; frameEl.remove(); frameEl=null; }
+    frameBox.classList.remove('ready');
+  }
+  function openStage(tl,score){
+    var rectSrc=els[cycFireI].root.getBoundingClientRect();
+    var wr=wall.getBoundingClientRect();
+    stScore.textContent=String(score);
+    if(tl.clip){
+      stMeta.innerHTML='';
+      var b=document.createElement('b'); b.textContent=tl.clip.channel||'';
+      stMeta.appendChild(b);
+      stMeta.appendChild(document.createTextNode(' '+(tl.clip.clip_title||'')));
+      stOut.href=tl.clip.twitch_url||'#';
+      stOut.style.display='';
+      var hi=hiRes(tl.clip.thumbnail_url||'');
+      if(hi){
+        poster.style.display='';
+        poster.setAttribute('data-tried','0');
+        poster.onerror=function(){
+          if(poster.getAttribute('data-tried')!=='1'){
+            // Step DOWN to the stored size rather than giving up: the 1280
+            // variant 404s on a freshly created clip until Twitch has finished
+            // generating its preview frames.
+            poster.setAttribute('data-tried','1');
+            poster.src=tl.clip.thumbnail_url||'';
+            if(wash) wash.src=tl.clip.thumbnail_url||'';
+          } else {
+            poster.style.display='none';
+            if(wash) wash.style.display='none';
+          }
+        };
+        poster.src=hi;
+        if(wash){ wash.style.display=''; wash.src=hi; }
+      } else {
+        poster.removeAttribute('src'); poster.style.display='none';
+        if(wash){ wash.removeAttribute('src'); wash.style.display='none'; }
+      }
+    } else {
+      stMeta.textContent='clip created on Twitch';
+      stOut.style.display='none';
+      poster.removeAttribute('src'); poster.style.display='none';
+      if(wash){ wash.removeAttribute('src'); wash.style.display='none'; }
+    }
+
+    // The poster is up in the same frame the tile opens. The player is asked
+    // for only after that, and only ever one at a time — nothing on this page
+    // preloads video. If Twitch is slow, blocked, or declines to autoplay, the
+    // poster simply stays and the moment still lands.
+    stage.style.clipPath='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
+      (wr.right-rectSrc.right).toFixed(1)+'px '+
+      (wr.bottom-rectSrc.bottom).toFixed(1)+'px '+
+      (rectSrc.left-wr.left).toFixed(1)+'px round 4px)';
+    stage.classList.remove('out');
+    stage.classList.add('on');
+    wall.classList.add('staged');
+    void stage.offsetWidth;
+    stage.style.clipPath='inset(0px 0px 0px 0px round 4px)';
+
+    if(reduce||!tl.clip) return;
+    var src=embedFor(tl.clip);
+    if(!src) return;
+    teardownFrame();
+    frameEl=document.createElement('iframe');
+    frameEl.setAttribute('allow','autoplay; encrypted-media');
+    frameEl.setAttribute('allowfullscreen','');
+    frameEl.setAttribute('title',tl.clip.clip_title||'Clip');
+    frameEl.setAttribute('loading','lazy');
+    frameEl.addEventListener('load',function(){ frameBox.classList.add('ready'); });
+    frameEl.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+
+      '&autoplay=true&muted=true';
+    frameBox.appendChild(frameEl);
+  }
+  function closeStage(){
+    var e=els[cycFireI]; if(!e) return;
+    var rectSrc=e.root.getBoundingClientRect(), wr=wall.getBoundingClientRect();
+    stage.classList.add('out');
+    stage.style.clipPath='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
+      (wr.right-rectSrc.right).toFixed(1)+'px '+
+      (wr.bottom-rectSrc.bottom).toFixed(1)+'px '+
+      (rectSrc.left-wr.left).toFixed(1)+'px round 4px)';
+    stage.classList.remove('on');
+    wall.classList.remove('staged');
+    teardownFrame();
+  }
+
+  /* ── the loop ──────────────────────────────────────────────────────────── */
+  var cycIdx=-1, cyc=null, cycFireI=0, fired=false, staged=false, closed=false;
+  var started=false;
+  var elapsed=0, last=null, raf=0, lastStep=-1, lastLit=-1, vis=visibleCount();
+  var spark=[];
+
+  function reseed(){
+    cycIdx++;
+    cyc=buildCycle(cycIdx); cycFireI=cyc.fireI;
+    fired=false; staged=false; closed=false; lastStep=-1; spark=[];
+    dress(cyc);
+    if(capRate) capRate.textContent=String(vis);
+    if(capState) capState.textContent='watching';
+    var i;
+    for(i=0;i<4;i++){ (function(e){ requestAnimationFrame(function(){
+      e.root.classList.add('in'); }); })(els[i]); }
+  }
+
+  function render(t){
+    var i,k,best=0,bestName='';
+    for(i=0;i<vis;i++){
+      var tl=cyc[i], e=els[i];
+      var s=scoreAt(tl,t), sr=Math.round(s);
+      e.score.textContent=String(sr);
+      if(s>best){ best=s; bestName=e.chT.nodeValue; }
+
+      e.pts.push([t,s]);
+      while(e.pts.length&&e.pts[0][0]<t-WIN) e.pts.shift();
+      var d='',ax=0,ay=0;
+      for(k=0;k<e.pts.length;k++){
+        ax=((e.pts[k][0]-(t-WIN))/WIN)*VW;
+        ay=yFor(e.pts[k][1]);
+        d+=(k===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
+      }
+      if(d){ e.line.setAttribute('d',d);
+             e.head.setAttribute('cx',ax.toFixed(1));
+             e.head.setAttribute('cy',ay.toFixed(1)); }
+      for(k=0;k<5;k++) e.bars[k].style.setProperty('--v',sigAt(tl,t,k).toFixed(3));
+
+      var over=s>=tl.thresh;
+      // Ten points, not six. The near-miss beat peaks about seven under its
+      // threshold by construction, so a six-point band caught it for a single
+      // sample or not at all — the one beat that has to be legible was the one
+      // nobody could see.
+      var near=!over&&s>=tl.thresh-10;
+      e.root.classList.toggle('hot',near||over);
+      if(over&&t>=FIRE_MIN&&!e.root.classList.contains('fire')){
+        e.root.classList.add('fire');
+        e.flag.textContent='OVER THRESHOLD';
+        e.flag.classList.add('on');
+      } else if(near&&!e.flag.classList.contains('on')&&!over){
+        e.flag.textContent='NEAR MISS';
+        e.flag.classList.add('on');
+      } else if(!near&&!over&&e.flag.classList.contains('on')&&
+                !e.root.classList.contains('fire')){
+        e.flag.classList.remove('on');
       }
 
-      // The nav sparkline: the last 14 samples, 42x14.
-      if(trigLine&&samples.length>1){
-        var n=Math.min(14,samples.length), td='';
-        for(var j=0;j<n;j++){
-          var sv=samples[samples.length-n+j][1];
-          td+=(j===0?'M':' L')+((j/(n-1))*42).toFixed(1)+','+(13-(sv/100)*12).toFixed(1);
-        }
-        trigLine.setAttribute('d',td);
-      }
-
-      if(!fired&&s>=THRESH&&t>4000){
+      if(over&&t>=FIRE_MIN&&i===cycFireI&&!fired){
         fired=true;
-        badge.classList.add('on'); demo.classList.add('hot');
-        if(trig) trig.classList.add('hot');
-        dot.setAttribute('r','3.2');
-      }
-      if(fired&&!clipShown&&t>=7100){
-        clipShown=true; clipCard.classList.add('show');
-      }
-      if(clipShown&&!clipDone&&t>=8700){
-        clipDone=true; clipCard.classList.add('done');
-      }
-      if(t>=10300){
-        badge.classList.remove('on'); demo.classList.remove('hot');
-        if(trig) trig.classList.remove('hot');
+        if(capState) capState.textContent='trigger fired · clipping';
       }
     }
-    setSigs(t);
-    requestAnimationFrame(frame);
+
+    // One number lights the whole room. Only written when it actually moves —
+    // a custom property on <html> invalidates style for the entire document.
+    var lit=clamp((best-58)/34,0,1), q=Math.round(lit*20)/20;
+    if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
+    if(trigV) trigV.textContent=String(Math.round(best));
+    // The through-line down the page edge reads the wall while the wall is on
+    // screen. Leaving it on the scroll wave meant the rail said 0 while four
+    // tiles behind it were showing real numbers.
+    if(thScore) thScore.textContent=String(Math.round(best));
+    if(thread) thread.classList.toggle('fired',fired);
+    if(trig) trig.classList.toggle('hot',lit>0);
+    if(trigLine){
+      spark.push(best); if(spark.length>14) spark.shift();
+      if(spark.length>1){
+        var td='',j;
+        for(j=0;j<spark.length;j++)
+          td+=(j===0?'M':' L')+((j/(spark.length-1))*42).toFixed(1)+','+
+              (13-(spark[j]/100)*12).toFixed(1);
+        trigLine.setAttribute('d',td);
+      }
+    }
+    if(capState&&!fired&&t>3200&&t<FIRE_MIN)
+      capState.textContent='chat surging on '+bestName;
   }
-  requestAnimationFrame(frame);
+
+  function tick(now){
+    raf=0;
+    if(last===null) last=now;
+    var dt=now-last; last=now;
+    if(dt>500) dt=STEP;                 // came back from a freeze; do not jump
+    elapsed+=dt;
+    var t=elapsed%CYCLE;
+    if(t<lastStep){ reseed(); }
+    if(t-lastStep>=STEP||lastStep<0){
+      lastStep=t;
+      render(t);
+      if(fired&&!staged&&t>=6000) { staged=true; openStage(cyc[cycFireI],
+        Math.round(scoreAt(cyc[cycFireI],t))); }
+      if(staged&&!closed&&t>=13400){
+        closed=true; closeStage();
+        if(capState) capState.textContent='clip saved to your queue';
+      }
+    }
+    raf=requestAnimationFrame(tick);
+  }
+
+  function running(){
+    // `started` is not decoration. The wall is observed the moment it exists,
+    // and the observer fires its first callback immediately — before the
+    // showcase fetch has resolved and therefore before there is a cycle to
+    // render. Without this the loop started against a null cycle and threw on
+    // the first frame, on whichever viewports lost that race.
+    return started && !document.hidden && onScreen && !reduce;
+  }
+  function sync(){
+    if(running()){ if(!raf){ last=null; raf=requestAnimationFrame(tick); } }
+    else if(raf){ cancelAnimationFrame(raf); raf=0; if(frameEl) teardownFrame(); }
+  }
+  var onScreen=true;
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(function(es){
+      onScreen=es[0].isIntersecting;
+      root.setAttribute('data-hero',onScreen?'1':'0');
+      sync();
+    },{rootMargin:'80px'}).observe(wall);
+  }
+  root.setAttribute('data-hero','1');
+  document.addEventListener('visibilitychange',sync);
+  window.addEventListener('resize',function(){
+    var v=visibleCount();
+    if(v!==vis){ vis=v; if(capRate) capRate.textContent=String(vis); }
+  },{passive:true});
+
+  /* Reduced motion gets the composed frame, not a blank one and not a reduced
+     one: the wall as it looks the instant after the fire, nothing moving. Not
+     "less motion" — none.
+
+     The stage stays clipped to the FIRING TILE rather than opening over the
+     whole wall. Opening it full-width was a frame where the only thing on
+     screen was a clip, which throws away the part that carries the argument —
+     three channels still being scored, thresholds visible, one of them over
+     the line with its clip already sitting in its place. */
+  function composeStatic(){
+    cycIdx=0; cyc=buildCycle(0); cycFireI=cyc.fireI; dress(cyc);
+    var i; for(i=0;i<4;i++) els[i].root.classList.add('in');
+    var t=6600;
+    render(t);
+    if(capState) capState.textContent='trigger fired · clip saved';
+    openStage(cyc[cycFireI],Math.round(scoreAt(cyc[cycFireI],t)));
+    // POSITION it over the tile, do not CLIP it to the tile. The 16:9 media
+    // box centres itself inside the stage, so a stage that still spans the
+    // whole wall and is merely clipped down puts the clip out in the middle of
+    // the wall and shows a 36px slice of its left edge. Moving the stage's own
+    // box means the media centres inside the tile, where it belongs.
+    var tr=els[cycFireI].root.getBoundingClientRect(), wr=wall.getBoundingClientRect();
+    stage.style.clipPath='none';
+    stage.style.left=(tr.left-wr.left).toFixed(1)+'px';
+    stage.style.top=(tr.top-wr.top).toFixed(1)+'px';
+    stage.style.right=(wr.right-tr.right).toFixed(1)+'px';
+    stage.style.bottom=(wr.bottom-tr.bottom).toFixed(1)+'px';
+    stage.classList.add('compact');
+    wall.classList.remove('staged');
+  }
+
+  function start(){
+    if(reduce){ composeStatic(); return; }
+    reseed();
+    started=true;
+    sync();
+  }
+
+  fetch('/landing/showcase')
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(d){ clips=(d&&d.clips)||[]; })
+    .catch(function(){})
+    .then(start,start);
 })();
 </script>
 
@@ -6651,8 +7188,15 @@ LANDING_HTML = """<!DOCTYPE html>
        threshold gets crossed and the wash fires. */
     var drift = 0.30 + 0.16 * Math.sin(prog * 18.0);
     var lit = Math.max(0.06, Math.min(1, drift + closeness * 0.52));
-    root.style.setProperty('--lit', lit.toFixed(3));
-    if (scoreEl) scoreEl.textContent = Math.round(lit * 100);
+    /* ONE writer at a time. While the hero is on screen the WALL owns --lit —
+       it is a real score off a real threshold, and the scroll wave second-
+       guessing it made the room flicker between two different numbers. The
+       wall sets data-hero on <html> while it is visible; below the fold the
+       scroll wave takes over. */
+    if (root.getAttribute('data-hero') !== '1'){
+      root.style.setProperty('--lit', lit.toFixed(3));
+      if (scoreEl) scoreEl.textContent = Math.round(lit * 100);
+    }
 
     var over = lit > 0.62;
     if (thread) thread.classList.toggle('fired', over);

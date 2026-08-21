@@ -63,7 +63,10 @@ def test_landing_html_has_price_counter_and_demo():
     assert "$15" not in html
     assert 'id="lp-count"' in html                   # live counter element
     assert "/landing/stats" in html                  # fed by the public endpoint
-    assert 'id="demo"' in html and "TRIGGER FIRED" in html   # live capture demo
+    # The live capture is the hero itself now: a wall of channels being scored,
+    # one of which crosses and fires. `#demo` was the single-channel widget it
+    # replaced.
+    assert 'id="wall"' in html and "TRIGGER FIRED" in html
 
 
 def test_showcase_endpoint_public_and_curated(tmp_path, monkeypatch):
@@ -190,7 +193,10 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     # it in the lead, or the page's main claim lives only in the pricing table.
     assert "Never miss a <span class=\"accent\">highlight</span> again." in html
     assert f"Up to {pro} channels at the same time on Pro." in html   # hero lead
-    assert f"Up to {pro} channels at once" in html                    # hero tag
+    # The hero used to repeat the number in a tag row underneath the lead. Two
+    # statements of the same figure three lines apart is the padding this page
+    # is meant to be free of, so the second one is the stats band instead —
+    # still above the fold, and it carries the Starter figure too.
     assert f"channels watched at once on Pro, {starter} on Starter" in html
 
     # Pricing, where the paid tiers have to be unambiguous. The three cards with
@@ -355,14 +361,23 @@ def test_lobster_is_titles_only_and_never_uppercased():
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    assert users == {".hero-copy h1", ".final h2"}, f"Lobster scope drifted: {sorted(users)}"
+    # .hero-copy h1 asks for the family through var(--display) rather than
+    # naming it, so it does not appear in this scan. The token is checked below
+    # instead — what matters is that Lobster is reachable from exactly two
+    # places, not which of the two spells it out.
+    assert users == {".final h2"}, f"Lobster scope drifted: {sorted(users)}"
+    assert "--display:'Lobster'" in css
+    assert re.search(r"\.hero-copy h1\{font-family:var\(--display\)", css), \
+        "the slogan stopped using the display face"
+    assert css.count("font-family:var(--display)") == 1, \
+        "the display face spread past the slogan"
 
     # Headings are the text face; data is the instrument face. Neither is the
     # script face, and neither is Inter.
     for sel in ("h2.sec-title",):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "var(--sans)" in block, f"{sel} should be the body face"
-    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".demo-score span"):
+    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
