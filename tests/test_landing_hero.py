@@ -240,62 +240,95 @@ def test_the_clip_gets_a_real_aspect_ratio():
         "the media frame lost the container it measures itself against"
 
 
-# ── sound ────────────────────────────────────────────────────────────────────
+# ── sound ───────────────────────────────────────────────────────────────────
+# REPORTED, TWICE. First "no audio", which was fair: the player was hardcoded
+# muted with no way to ask for sound. Then "still muted" after a Sound on/off
+# button was added — because that button could never have worked.
+#
+# A Twitch CLIP embed cannot be unmuted from outside the iframe. `muted=false`
+# in the embed URL is a documented no-op (per Twitch's developer forums the
+# flag does nothing until the viewer has used the player's own controls), and
+# the clips embed exposes no JS API to call instead; the Twitch player SDK
+# covers channels, videos and collections, not clips.
+#
+# The button passed its tests because those tests ran against a STUB iframe
+# that ignored every parameter. They proved the URL changed. They could not
+# prove Twitch honoured it, and it does not.
+#
+# So these assert the constraint rather than a feature: the clip stays muted,
+# the bar POINTS AT the player's own control instead of impersonating it, and
+# nothing re-adds a muted=false toggle.
 
-def test_the_hero_starts_muted():
-    """Every browser blocks autoplay with audio, and a landing page that starts
-    shouting deserves to be blocked. Muted is the default and the switch is the
-    visitor's to throw."""
-    assert "muted='+(sound?'false':'true')" in JS, \
-        "the mute state is no longer driven by the preference"
-    assert "var sound=false;" in JS, "the hero now defaults to sound on"
-
-
-def test_there_is_a_visible_way_to_turn_sound_on():
-    assert 'id="stage-sound"' in HTML
-    assert 'aria-pressed' in HTML, "the toggle does not report its state"
-    assert "Sound off" in HTML and "Sound on" in HTML
-
-
-def test_turning_sound_on_reloads_the_player_inside_the_click():
-    """There is no JS API to unmute a clips embed after boot — the player SDK
-    covers channels, videos and collections, not clips. So the src is rebuilt,
-    and it has to happen in the click's own call stack or the browser treats
-    the result as a script-initiated play with audio and refuses it."""
-    handler = JS[JS.index("stSound.addEventListener('click'"):]
-    handler = handler[:handler.index("});")]
-    assert "frameEl.src=embedSrc(src)" in handler.replace(" ", ""), \
-        "the player is not reloaded in the click handler"
-
-
-def test_the_sound_preference_survives_storage_being_unavailable():
-    """localStorage throws outright in a private window or with site data
-    blocked — not just returns null. Both ends are wrapped or the hero never
-    starts."""
-    i = JS.index("localStorage.getItem('hz_hero_sound')")
-    read = JS[i - 40:JS.index("\n", i)]
-    assert "try" in read and "catch" in read, f"the read is unguarded: {read}"
-    assert "try { localStorage.setItem('hz_hero_sound'" in JS, \
-        "the write is unguarded"
+def test_the_clip_is_always_muted():
+    """Both walls at once. Browsers block autoplay with audio, so muted is what
+    buys the hero the right to play at all; and Twitch would ignore the flag in
+    the other direction anyway."""
+    assert "'&autoplay=true&muted=true'" in JS, \
+        "the embed no longer pins muted=true, so it may not autoplay at all"
 
 
-def test_a_clip_with_sound_on_is_allowed_to_finish():
-    """Silent, the clip is a beat in a loop. With sound on somebody is actually
-    watching, and cutting away mid-sentence to show the wall again is rude."""
+def test_nothing_tries_to_unmute_through_the_embed_url():
+    """The specific broken fix, kept out. muted=false appears in this file only
+    inside comments explaining why it does not work."""
+    code = re.sub(r"/\*.*?\*/", "", JS, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
+    assert "muted=false" not in code, \
+        "something is trying to unmute via the embed URL again; Twitch ignores it"
+    assert "muted='+(" not in code, "the mute flag is conditional again"
+
+
+def test_the_bar_points_at_the_players_own_control():
+    """The only thing that CAN unmute a clip is inside the iframe, so the page
+    says where it is rather than offering a switch wired to nothing."""
+    assert 'id="stage-hint"' in HTML
+    assert "Click the clip for sound" in HTML
+    assert 'id="stage-sound"' not in HTML, "the button that cannot work is back"
+
+
+def test_the_hint_cannot_swallow_the_click_it_is_asking_for():
+    """It sits in the stage bar, over the player. A hint that eats the click is
+    worse than no hint."""
+    m = re.search(r"\.stage-hint\{([^}]*)\}", HTML)
+    assert m and "pointer-events:none" in m.group(1), \
+        "the hint can intercept the click on the player"
+
+
+def test_clicking_into_the_player_is_detected():
+    """A cross-origin iframe swallows its own clicks and there is no API to
+    ask. Focus is the one signal that crosses: clicking inside an iframe blurs
+    the parent and leaves document.activeElement on that iframe."""
+    assert "window.addEventListener('blur'" in JS
+    assert "document.activeElement!==frameEl" in JS, \
+        "the engagement check no longer identifies WHICH element took focus"
+    assert "setTimeout(" in JS[JS.index("window.addEventListener('blur'"):], \
+        "activeElement is read synchronously in the blur handler, before it updates"
+
+
+def test_a_clip_someone_is_watching_is_allowed_to_finish():
+    """Left alone the clip is a beat in a loop. Once somebody has clicked into
+    the player — which on this page means they went looking for the sound —
+    they are watching it, and taking it away mid-clip is rude."""
     assert "function holdFor(" in JS
-    assert "if(!sound||!tl||!tl.clip) return CYCLE;" in JS, \
-        "the hold no longer depends on whether sound is on"
+    assert "if(!engaged||!tl||!tl.clip) return CYCLE;" in JS, \
+        "the hold no longer depends on whether anyone is actually watching"
     assert "duration_seconds" in JS, "the hold ignores the clip's real length"
     m = re.search(r"d=clamp\(d,(\d+),(\d+)\);", JS.replace(" ", ""))
     assert m, "the duration is unclamped — a bad value can strand the hero"
     assert int(m.group(2)) <= 60, "a clip could hold the hero for over a minute"
 
 
+def test_engagement_does_not_leak_into_the_next_clip():
+    """A new cycle is a new clip nobody has asked to hear yet."""
+    reseed = JS[JS.index("function reseed(){"):]
+    reseed = reseed[:reseed.index("\n  }")]
+    assert "engaged=false" in reseed, "engagement survives into the next clip"
+
+
 def test_the_cycle_length_is_not_a_modulo_any_more():
     """A period that changes partway through cannot be expressed as
-    elapsed % CYCLE, and the sound hold changes it."""
+    elapsed % CYCLE, and the watch-it-out hold changes it."""
     assert "elapsed%CYCLE" not in JS.replace(" ", ""), \
-        "the fixed-period clock is back and the sound hold cannot work"
+        "the fixed-period clock is back and the hold cannot work"
     assert "cycleStart" in JS and "cycleLen" in JS
 
 
