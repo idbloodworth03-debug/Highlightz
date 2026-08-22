@@ -3984,10 +3984,26 @@ async def admin_list_users(request: Request):
     from src.auth import users as user_store
     from src.billing import plans
     users = user_store.get_all()
+    # Lifetime outcome counts, read once for everybody rather than per user.
+    # These CANNOT come from _clips: rejecting deletes the record and clearing
+    # deletes it too, so counting there reports only what survived — a user who
+    # rejected 30 of 40 would read as having taken 10 clips, the opposite of
+    # the truth. stream_stats is the append-only census that exists for this.
+    from src.stats import stream_stats
+    outcomes = stream_stats.totals_by_user()
     for u in users:
         uid = u["id"]
         u["stream_count"] = sum(1 for s in _streams.values() if s.get("user_id") == uid)
+        # What is in their library RIGHT NOW — a different question from how
+        # many they have ever approved, and both are worth seeing.
         u["clip_count"] = sum(1 for c in _clips.values() if c.get("user_id") == uid)
+        o = outcomes.get(uid) or {}
+        u["clips_caught"]   = o.get("caught", 0)
+        u["clips_approved"] = o.get("approved", 0)
+        u["clips_rejected"] = o.get("rejected", 0)
+        u["clips_cleared"]  = o.get("cleared", 0)
+        u["clips_expired"]  = o.get("expired", 0)
+        u["clips_kept_pct"] = o.get("kept_pct", 0)
         # The RESOLVED membership, not the raw stored field. Those disagree
         # constantly and the stored one is the misleading half: a legacy
         # $15-era subscriber has no `plan` at all but is effectively Pro, an
@@ -8040,6 +8056,23 @@ ADMIN_HTML = """<!DOCTYPE html>
   .kv dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
   .kv dd{color:var(--ink-2);word-break:break-word}
   .kv dd b{color:var(--ink);font-weight:600}
+  /* Lifetime clip decisions. Five small readouts on one row so the shape of
+     someone's usage is one glance, not five lines of prose. Wraps rather than
+     scrolls: the drawer is narrow on a phone and a number you have to swipe
+     to reach is a number nobody reads. */
+  .stat-row{display:flex;flex-wrap:wrap;gap:8px}
+  .sbox{flex:1 1 84px;min-width:0;padding:10px 12px;border-radius:3px;
+    border:1px solid var(--hair);background:rgba(242,234,247,.02)}
+  .sbox b{display:block;font-family:var(--mono);font-weight:600;font-size:19px;
+    font-variant-numeric:tabular-nums;line-height:1.1}
+  .sbox span{display:block;margin-top:3px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--fg-2)}
+  /* --good and --bad, which is what THIS page defines. --live is a dashboard
+     token and does not exist here, so `accepted` was rendering in plain ink
+     while `rejected` was red — the one comparison the block exists to make,
+     and only half of it was coloured. */
+  .sbox.good b{color:var(--good)}
+  .sbox.bad b{color:var(--bad)}
   .srow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair);font-size:13px}
   .srow:last-child{border-bottom:none}
   .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
@@ -8377,8 +8410,16 @@ function renderUsers(){
   if(!rows.length){ wrap.className='empty'; wrap.textContent='No users match that filter.'; return; }
   wrap.className = '';
 
+  // Kept = what they have in their library right now. The three after it are
+  // LIFETIME decisions and come from the append-only ledger, not from the clip
+  // store — rejecting and clearing both DELETE the record, so counting there
+  // would report only what survived.
   let html = '<table><thead><tr><th>User</th><th>Membership</th><th>Streams</th>'
-    + '<th>Clips</th><th>Joined</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
+    + '<th title="Clips in their library right now">Kept</th>'
+    + '<th title="Clips they approved, all time">Accepted</th>'
+    + '<th title="Clips they rejected one by one, all time">Rejected</th>'
+    + '<th title="Clips they binned in bulk with Clear queue, all time">Cleared</th>'
+    + '<th>Joined</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
   rows.forEach(pair => {
     const u = pair[0], i = pair[1];
     const st = userState(u);
@@ -8418,6 +8459,9 @@ function renderUsers(){
         + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div></td>'
       + '<td class="num">' + (u.stream_count||0) + '</td>'
       + '<td class="num">' + (u.clip_count||0) + '</td>'
+      + '<td class="num">' + (u.clips_approved||0) + '</td>'
+      + '<td class="num">' + (u.clips_rejected||0) + '</td>'
+      + '<td class="num">' + (u.clips_cleared||0) + '</td>'
       + '<td class="dim">' + fmt(u.created_at) + '</td>'
       + '<td><div class="acts">' + acts + '</div></td></tr>';
   });
@@ -8593,6 +8637,28 @@ async function openUser(u){
         + '</div>').join('')
     : '<div class="dim" style="font-size:13px">No streams registered.</div>';
   html += '</div>';
+
+  // LIFETIME decisions, straight off the ledger. Above this the drawer shows
+  // recent clips, which is a different question: that list is what still
+  // exists, this is everything that ever happened.
+  const caught = u.clips_caught||0, ok = u.clips_approved||0,
+        no = u.clips_rejected||0, cl = u.clips_cleared||0, ex = u.clips_expired||0;
+  if(caught){
+    html += '<div><div class="dh">Clip decisions (all time)</div>'
+      + '<div class="stat-row">'
+      + '<div class="sbox"><b>' + caught + '</b><span>caught</span></div>'
+      + '<div class="sbox good"><b>' + ok + '</b><span>accepted</span></div>'
+      + '<div class="sbox bad"><b>' + no + '</b><span>rejected</span></div>'
+      + '<div class="sbox"><b>' + cl + '</b><span>cleared</span></div>'
+      + '<div class="sbox"><b>' + ex + '</b><span>expired</span></div>'
+      + '</div>'
+      + '<div class="dim" style="font-size:12px;margin-top:8px">'
+      + (ok + no
+          ? (u.clips_kept_pct||0) + '% kept of the ' + (ok + no) + ' they actually judged. '
+          : 'Nothing judged yet. ')
+      + 'Cleared and expired are not counted as rejections: nobody ruled on them.'
+      + '</div></div>';
+  }
 
   const pend = clips.filter(c => c.status === 'pending').length;
   const appr = clips.filter(c => c.status === 'approved').length;

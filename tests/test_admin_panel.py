@@ -342,3 +342,78 @@ def test_the_panel_marks_approved_clips_with_more_than_colour(client):
     assert "var(--good)" in html[html.index(".crow.ok{"):html.index(".crow.ok{") + 200]
     assert "'Approved'" in html and "class=\"st\"" in html, \
         "the status word is gone, leaving colour as the only signal"
+
+
+# ── clip decisions on the user list ──────────────────────────────────────────
+# ASKED FOR: "see the exact amount of accepted, rejected and cleared clips".
+#
+# These CANNOT come from _clips. Rejecting deletes the record and clearing
+# deletes it too, so a count taken there reports only survivors: someone who
+# rejected 30 of 40 would read as having taken 10 clips — the opposite of the
+# truth. stream_stats is the append-only census that exists for exactly this.
+
+def test_the_user_list_reports_lifetime_clip_decisions(client, monkeypatch):
+    from src.stats import stream_stats as ss
+    monkeypatch.setattr(
+        ss, "totals_by_user",
+        lambda: {"nova": {"caught": 40, "approved": 8, "rejected": 30,
+                          "cleared": 2, "expired": 0, "kept_pct": 21}})
+    u = _users(client)["nova"]
+    assert u["clips_approved"] == 8
+    assert u["clips_rejected"] == 30
+    assert u["clips_cleared"] == 2
+    assert u["clips_caught"] == 40
+
+
+def test_the_decision_counts_do_not_come_from_the_clip_store(client, monkeypatch):
+    """The whole point. A user whose clips were all rejected has an empty clip
+    store and must still report 30 rejections."""
+    from src.stats import stream_stats as ss
+    monkeypatch.setattr(
+        ss, "totals_by_user",
+        lambda: {"nova": {"caught": 30, "approved": 0, "rejected": 30,
+                          "cleared": 0, "expired": 0, "kept_pct": 0}})
+    u = _users(client)["nova"]
+    assert u["clips_rejected"] == 30, \
+        "rejections are being counted from _clips, where they no longer exist"
+
+
+def test_a_user_with_no_history_reports_zeroes_not_missing_keys(client, monkeypatch):
+    """The drawer reads these unconditionally; a missing key renders 'undefined'."""
+    from src.stats import stream_stats as ss
+    monkeypatch.setattr(ss, "totals_by_user", lambda: {})
+    for u in _users(client).values():
+        for k in ("clips_caught", "clips_approved", "clips_rejected",
+                  "clips_cleared", "clips_expired", "clips_kept_pct"):
+            assert u[k] == 0, f"{k} is missing for a user with no history"
+
+
+def test_the_ledger_is_read_once_for_the_whole_table(client, monkeypatch):
+    """Per-user reads would re-parse the whole log once per row. At a thousand
+    users that is a thousand passes over the same file."""
+    from src.stats import stream_stats as ss
+    calls = []
+    real = ss.totals_by_user
+    monkeypatch.setattr(ss, "totals_by_user",
+                        lambda: (calls.append(1), real())[1])
+    _users(client)
+    assert len(calls) == 1, f"the ledger was read {len(calls)} times for one table"
+
+
+def test_the_admin_table_shows_the_three_counts():
+    """The columns exist and are labelled in the operator's words, not the
+    ledger's event names."""
+    from src.dashboard.api import ADMIN_HTML
+    for label in (">Accepted<", ">Rejected<", ">Cleared<"):
+        assert label in ADMIN_HTML, f"the admin table has no {label} column"
+    for field in ("clips_approved", "clips_rejected", "clips_cleared"):
+        assert field in ADMIN_HTML, f"{field} is never rendered"
+
+
+def test_the_drawer_explains_what_cleared_means():
+    """Cleared and rejected are different things and the difference is not
+    obvious from the words alone."""
+    from src.dashboard.api import ADMIN_HTML
+    assert "Clip decisions (all time)" in ADMIN_HTML
+    assert "not counted as rejections" in ADMIN_HTML, \
+        "nothing tells the operator that cleared clips are not rejections"

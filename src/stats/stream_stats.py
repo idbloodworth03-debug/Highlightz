@@ -117,10 +117,27 @@ def _read(user_id: str) -> list[dict]:
     return out
 
 
+def _retracted_clip_ids(events: list[dict]) -> set[str]:
+    """Clips whose destructive event was taken back inside the undo window.
+
+    UNDONE has been written since undo existed and its own comment promised
+    that "anything that reads the log [is] able to correct for it". Nothing
+    did. An undone reject went on counting as a rejection for ever, which
+    inflates rejections and drags down every keep rate derived from them —
+    the numbers shown to streamers as evidence.
+
+    Corrected here rather than by rewriting the rows, because the ledger is
+    append-only on purpose: a reader that can reconstruct the truth is safer
+    than a writer that edits history."""
+    return {r["clip_id"] for r in events
+            if r.get("event") == UNDONE and r.get("clip_id")}
+
+
 def _sessions(events: list[dict]) -> list[dict]:
     """Group one channel's events into sessions by the clip's CATCH time."""
     if not events:
         return []
+    undone = _retracted_clip_ids(events)
     events = sorted(events, key=lambda r: r.get("clip_at") or r.get("ts") or 0)
 
     sessions: list[dict] = []
@@ -131,6 +148,13 @@ def _sessions(events: list[dict]) -> list[dict]:
         if cur is None or (last_at is not None and at - last_at > SESSION_GAP_S):
             cur = {"started_at": at, "ended_at": at,
                    "caught": 0, "approved": 0, "rejected": 0, "expired": 0,
+                   # CLEARED has been recorded since the clear-queue button
+                   # shipped and was counted by nothing: the key was missing
+                   # from this dict, so `ev in cur` was False and every cleared
+                   # clip fell on the floor. Its own comment says it is
+                   # recorded "so CAUGHT still reconciles against the sum of
+                   # its outcomes" — which it could not, because it vanished.
+                   "cleared": 0,
                    "missed": 0}
             sessions.append(cur)
         cur["ended_at"] = max(cur["ended_at"], at)
@@ -139,6 +163,11 @@ def _sessions(events: list[dict]) -> list[dict]:
         if ev == MISSED:
             cur["missed"] = cur.get("missed", 0) + 1
             continue        # never a caught, never a rejection
+        # A destructive event that was undone never really happened. CAUGHT is
+        # exempt: undoing a reject does not un-catch the clip, and dropping it
+        # would leave the clip approved-or-rejected with nothing it came from.
+        if ev in (REJECTED, CLEARED, EXPIRED) and r.get("clip_id") in undone:
+            continue
         if ev in cur:
             cur[ev] += 1
     for s in sessions:
@@ -155,6 +184,7 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
     approved = sum(s["approved"] for s in sessions)
     rejected = sum(s["rejected"] for s in sessions)
     expired = sum(s["expired"] for s in sessions)
+    cleared = sum(s.get("cleared", 0) for s in sessions)
     missed = sum(s.get("missed", 0) for s in sessions)
     return {
         "user_id": user_id,
@@ -163,6 +193,10 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
         "approved": approved,
         "rejected": rejected,
         "expired": expired,
+        # Thrown away in bulk with the clear-queue button rather than judged
+        # one at a time. Deliberately NOT folded into rejected: clearing says
+        # nothing about whether the formula was right.
+        "cleared": cleared,
         # Moments the queue was too full to clip. NOT part of caught/kept — a
         # clip that was never made cannot be one the user kept or rejected.
         "missed": missed,
@@ -237,6 +271,57 @@ def all_rows() -> list[dict]:
         for channel, evs in by_channel.items():
             rows.append(_summarise(uid, channel, evs))
     return rows
+
+
+def totals_by_user() -> dict[str, dict]:
+    """{user_id: {caught, approved, rejected, cleared, expired}} for the whole
+    ledger, in ONE pass over the file.
+
+    The admin table needs a lifetime count per user, not per channel. Summing
+    all_rows() would work but re-buckets by channel and builds every session
+    breakdown to throw it away; at a few hundred thousand rows that is the
+    expensive half of the job for none of the answer.
+
+    Undone actions are corrected for, per channel, on the same rule as
+    everywhere else: an undo is scoped to a clip and a clip belongs to one
+    channel, so the retraction set has to be built per channel or a clip id
+    reused across channels would cancel the wrong row.
+    """
+    if not _LOG_FILE.exists():
+        return {}
+    per: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    try:
+        with _LOG_FILE.open(encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get("user_id") and r.get("channel"):
+                    per[r["user_id"]][r["channel"]].append(r)
+    except OSError as exc:
+        log.warning("stream_stats_read_failed", error=str(exc))
+        return {}
+
+    out: dict[str, dict] = {}
+    for uid, by_channel in per.items():
+        tot = {"caught": 0, "approved": 0, "rejected": 0,
+               "cleared": 0, "expired": 0}
+        for events in by_channel.values():
+            undone = _retracted_clip_ids(events)
+            for r in events:
+                ev = r.get("event")
+                if ev not in tot:
+                    continue
+                if ev in (REJECTED, CLEARED, EXPIRED) and r.get("clip_id") in undone:
+                    continue
+                tot[ev] += 1
+        # Of the ones actually judged. Un-reviewed clips are not rejections.
+        reviewed = tot["approved"] + tot["rejected"]
+        tot["reviewed"] = reviewed
+        tot["kept_pct"] = round(100 * tot["approved"] / reviewed) if reviewed else 0
+        out[uid] = tot
+    return out
 
 
 def for_channel(user_id: str, channel: str) -> dict | None:

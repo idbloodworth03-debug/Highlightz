@@ -263,3 +263,149 @@ def test_all_rows_and_for_user_agree_on_the_same_numbers():
              if r["user_id"] == "u1" and r["channel"] == "pokimane"][0]
     for k in ("caught", "approved", "rejected", "expired", "kept_pct"):
         assert mine[k] == admin[k], f"{k} differs between the two views"
+
+
+# ── cleared, and undo ────────────────────────────────────────────────────────
+# TWO EVENTS WERE BEING WRITTEN AND READ BY NOTHING.
+#
+# CLEARED has been recorded since the clear-queue button shipped. The key was
+# missing from the session dict, so `ev in cur` was False and every cleared
+# clip fell on the floor — the constant's own comment says it is recorded "so
+# CAUGHT still reconciles against the sum of its outcomes", which it could not.
+#
+# UNDONE's comment promised that "anything that reads the log [is] able to
+# correct for it". Nothing did. An undone reject counted as a rejection for
+# ever, inflating rejections and dragging down every keep rate derived from
+# them — numbers shown to streamers as evidence.
+
+def test_a_cleared_clip_is_counted():
+    ss.record(ss.CAUGHT, clip(cid="c1"))
+    ss.record(ss.CLEARED, clip(cid="c1"))
+    ch = ss.for_channel("u1", "pokimane")
+    assert ch["cleared"] == 1, "cleared clips are being dropped on the floor again"
+
+
+def test_clearing_is_not_counted_as_a_rejection():
+    """Clearing the queue says nothing about whether the formula was right.
+    Folding it into rejections would punish a channel for a user tidying up."""
+    ss.record(ss.CAUGHT, clip(cid="c1"))
+    ss.record(ss.CLEARED, clip(cid="c1"))
+    ch = ss.for_channel("u1", "pokimane")
+    assert ch["rejected"] == 0
+    assert ch["kept_of_reviewed_pct"] == 0 and ch["approved"] == 0
+
+
+def test_every_caught_clip_reconciles_against_its_outcomes():
+    """The property CLEARED was recorded to preserve, asserted at last."""
+    for i in range(5):
+        ss.record(ss.CAUGHT, clip(cid=f"c{i}", at=1000.0 + i))
+    ss.record(ss.APPROVED, clip(cid="c0", at=1000.0))
+    ss.record(ss.REJECTED, clip(cid="c1", at=1001.0))
+    ss.record(ss.CLEARED, clip(cid="c2", at=1002.0))
+    ss.record(ss.CLEARED, clip(cid="c3", at=1003.0))
+    ss.record(ss.EXPIRED, clip(cid="c4", at=1004.0))
+    ch = ss.for_channel("u1", "pokimane")
+    outcomes = ch["approved"] + ch["rejected"] + ch["cleared"] + ch["expired"]
+    assert outcomes == ch["caught"] == 5, (
+        f"{ch['caught']} caught but only {outcomes} accounted for — an outcome "
+        f"is being dropped")
+
+
+def test_an_undone_rejection_stops_counting_as_one():
+    ss.record(ss.CAUGHT, clip(cid="c1"))
+    ss.record(ss.REJECTED, clip(cid="c1"))
+    ss.record(ss.UNDONE, clip(cid="c1"))
+    ch = ss.for_channel("u1", "pokimane")
+    assert ch["rejected"] == 0, "an action that was taken back is still counted"
+    assert ch["caught"] == 1, "undoing a reject must not un-catch the clip"
+
+
+def test_an_undone_clear_stops_counting_too():
+    ss.record(ss.CAUGHT, clip(cid="c1"))
+    ss.record(ss.CLEARED, clip(cid="c1"))
+    ss.record(ss.UNDONE, clip(cid="c1"))
+    assert ss.for_channel("u1", "pokimane")["cleared"] == 0
+
+
+def test_undoing_one_clip_does_not_retract_another():
+    ss.record(ss.CAUGHT, clip(cid="c1", at=1000.0))
+    ss.record(ss.CAUGHT, clip(cid="c2", at=1001.0))
+    ss.record(ss.REJECTED, clip(cid="c1", at=1000.0))
+    ss.record(ss.REJECTED, clip(cid="c2", at=1001.0))
+    ss.record(ss.UNDONE, clip(cid="c1", at=1000.0))
+    assert ss.for_channel("u1", "pokimane")["rejected"] == 1
+
+
+def test_the_keep_rate_reflects_the_undo():
+    """The number a streamer is shown. An undone reject that still counted made
+    the detector look worse than it was."""
+    for i in range(4):
+        ss.record(ss.CAUGHT, clip(cid=f"c{i}", at=1000.0 + i))
+    ss.record(ss.APPROVED, clip(cid="c0", at=1000.0))
+    ss.record(ss.REJECTED, clip(cid="c1", at=1001.0))
+    ss.record(ss.REJECTED, clip(cid="c2", at=1002.0))
+    ss.record(ss.UNDONE, clip(cid="c2", at=1002.0))
+    ch = ss.for_channel("u1", "pokimane")
+    assert (ch["approved"], ch["rejected"]) == (1, 1)
+    assert ch["kept_of_reviewed_pct"] == 50
+
+
+# ── the admin totals ─────────────────────────────────────────────────────────
+
+def test_totals_by_user_sums_every_channel():
+    ss.record(ss.CAUGHT, clip(channel="a", cid="c1"))
+    ss.record(ss.APPROVED, clip(channel="a", cid="c1"))
+    ss.record(ss.CAUGHT, clip(channel="b", cid="c2"))
+    ss.record(ss.REJECTED, clip(channel="b", cid="c2"))
+    ss.record(ss.CAUGHT, clip(channel="b", cid="c3"))
+    ss.record(ss.CLEARED, clip(channel="b", cid="c3"))
+    t = ss.totals_by_user()["u1"]
+    assert (t["caught"], t["approved"], t["rejected"], t["cleared"]) == (3, 1, 1, 1)
+
+
+def test_totals_by_user_keeps_users_apart():
+    ss.record(ss.CAUGHT, clip(uid="u1", cid="c1"))
+    ss.record(ss.APPROVED, clip(uid="u1", cid="c1"))
+    ss.record(ss.CAUGHT, clip(uid="u2", cid="c2"))
+    ss.record(ss.REJECTED, clip(uid="u2", cid="c2"))
+    t = ss.totals_by_user()
+    assert t["u1"]["approved"] == 1 and t["u1"]["rejected"] == 0
+    assert t["u2"]["rejected"] == 1 and t["u2"]["approved"] == 0
+
+
+def test_totals_by_user_corrects_for_undo():
+    ss.record(ss.CAUGHT, clip(cid="c1"))
+    ss.record(ss.REJECTED, clip(cid="c1"))
+    ss.record(ss.UNDONE, clip(cid="c1"))
+    assert ss.totals_by_user()["u1"]["rejected"] == 0
+
+
+def test_an_undo_cannot_cross_channels():
+    """The retraction set is built per channel. Built globally, a clip id reused
+    on another channel would cancel the wrong row."""
+    ss.record(ss.CAUGHT, clip(channel="a", cid="dup"))
+    ss.record(ss.REJECTED, clip(channel="a", cid="dup"))
+    ss.record(ss.CAUGHT, clip(channel="b", cid="dup"))
+    ss.record(ss.REJECTED, clip(channel="b", cid="dup"))
+    ss.record(ss.UNDONE, clip(channel="a", cid="dup"))
+    t = ss.totals_by_user()["u1"]
+    assert t["rejected"] == 1, "the undo on channel a retracted channel b's row"
+
+
+def test_totals_agree_with_the_per_channel_view():
+    """The admin table and a user's own stats must never disagree about the
+    same person."""
+    for i in range(6):
+        ss.record(ss.CAUGHT, clip(channel="a", cid=f"c{i}", at=1000.0 + i))
+    ss.record(ss.APPROVED, clip(channel="a", cid="c0", at=1000.0))
+    ss.record(ss.REJECTED, clip(channel="a", cid="c1", at=1001.0))
+    ss.record(ss.CLEARED, clip(channel="a", cid="c2", at=1002.0))
+    ss.record(ss.UNDONE, clip(channel="a", cid="c2", at=1002.0))
+    per = ss.for_channel("u1", "a")
+    tot = ss.totals_by_user()["u1"]
+    for k in ("caught", "approved", "rejected", "cleared", "expired"):
+        assert per[k] == tot[k], f"{k} disagrees: {per[k]} vs {tot[k]}"
+
+
+def test_totals_on_an_empty_ledger_are_empty_not_an_error():
+    assert ss.totals_by_user() == {}
