@@ -12,6 +12,16 @@ from typing import Callable
 
 from config.settings import settings
 from src.ingestion.audio_meter import AudioMeter
+
+
+class CapacityQueued(RuntimeError):
+    """The channel IS live, but every live slot on the box is taken.
+
+    Deliberately a sibling of ChannelOffline rather than an error: both mean
+    "not running yet, try again shortly", and both are the normal operation of
+    a busy box rather than a fault. What it must NOT do is reuse the offline
+    status — a card reading "offline" for a channel that is plainly streaming
+    is a lie, and the one the viewer is most likely to notice."""
 from src.ingestion.platform.base import BasePlatform, ChannelOffline, StreamInfo
 from src.chat.platform.twitch_chat import TwitchChatMonitor
 from src.chat.platform.youtube_chat import YouTubeChatMonitor
@@ -98,6 +108,13 @@ class StreamWorker:
         # see _resolve_preset.
         self._preset: str = config.preset
 
+    @property
+    def _stream_key(self) -> str:
+        """The key api._streams is filed under. Was rebuilt inline in three
+        places; one of them drifting is a slot that never comes back."""
+        return (f"{self._config.user_id}:{self._config.channel}"
+                if self._config.user_id else self._config.channel)
+
     async def start(self) -> None:
         self._running = True
         _pm = get_profile_manager(self._config.user_id)
@@ -115,14 +132,29 @@ class StreamWorker:
             # traceback and flashing "a stream hit an error" at the user every
             # 30 seconds, while a genuine fault still says so loudly.
             offline = False
+            queued  = False
             try:
-                await self._run_session()
+                try:
+                    await self._run_session()
+                finally:
+                    # UNCONDITIONAL. A slot leaked on an error path is capacity
+                    # this process never sees again until it restarts, and the
+                    # box would slowly starve with nothing in the logs to say
+                    # why. Idempotent, so releasing one we never took is fine —
+                    # which is the case for every ChannelOffline, since the
+                    # slot is taken after the liveness check.
+                    from src.dashboard import api as _api
+                    _api.release_live_slot(self._stream_key)
             except asyncio.CancelledError:
                 break
             except ChannelOffline:
                 offline = True
                 log.info("stream_not_live", channel=self._config.channel,
                          retry_in=30)
+            except CapacityQueued:
+                queued = True
+                log.info("stream_queued_for_capacity",
+                         channel=self._config.channel, retry_in=30)
             except Exception as exc:
                 log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
                 from src.dashboard import api as dashboard_api
@@ -135,11 +167,12 @@ class StreamWorker:
                 # "offline" is an existing status the card already renders, so
                 # this needs no new event and no new frontend branch — it just
                 # stops mislabelling a waiting channel as reconnecting.
-                status = "offline" if offline else "reconnecting"
-                if not offline:
+                status = ("queued" if queued else
+                          "offline" if offline else "reconnecting")
+                if not offline and not queued:
                     log.info("worker_reconnecting", channel=self._config.channel, delay=30)
                 from src.dashboard import api as dashboard_api
-                _sk = f"{self._config.user_id}:{self._config.channel}" if self._config.user_id else self._config.channel
+                _sk = self._stream_key
                 if _sk in dashboard_api._streams:
                     dashboard_api._streams[_sk]["status"] = status
                 await dashboard_api.broadcast({
@@ -259,7 +292,7 @@ class StreamWorker:
         self._stream_info = await self._platform.get_stream_info(channel)
         log.info("stream_found", channel=channel, title=self._stream_info.title)
         from src.dashboard import api as dashboard_api
-        _sk = f"{self._config.user_id}:{channel}" if self._config.user_id else channel
+        _sk = self._stream_key
         if _sk in dashboard_api._streams:
             dashboard_api._streams[_sk]["status"] = "live"
         await dashboard_api.broadcast({
@@ -267,6 +300,14 @@ class StreamWorker:
             "channel": channel,
             "status": "live",
         }, user_id=self._config.user_id)
+
+        # THE HARDWARE GATE, and it sits here for a reason: get_stream_info
+        # above is what raises ChannelOffline, so by this line the channel is
+        # confirmed live and about to start costing two subprocesses. Asking
+        # any earlier would ration channels that are not running; any later and
+        # the meter is already spawned.
+        if not dashboard_api.acquire_live_slot(_sk):
+            raise CapacityQueued(f"{channel} is live but the box is full")
 
         await self._resolve_preset(_sk)
 

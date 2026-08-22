@@ -1016,6 +1016,7 @@ async def delete_account(request: Request):
             _delete_clip_file(clip)
         for key in stream_keys:
             del _streams[key]
+            release_live_slot(key)
         _save_clips()
         _save_streams()
 
@@ -2477,12 +2478,53 @@ _CAPACITY_RESERVE_FRAC = 0.15
 _CAPACITY_WARN_FRAC    = 0.80
 
 
-def _check_server_capacity(uid: str) -> None:
-    """Guard the box's total stream count, fairly.
+# ── LIVE SLOTS ───────────────────────────────────────────────────────────────
+# What actually costs the box is a LIVE stream: two OS subprocesses, a chat
+# socket and a scoring loop. A registered channel whose streamer is offline
+# costs an is_live poll every 30 seconds and nothing else, and offline is the
+# normal state — people queue an evening's roster hours ahead.
+#
+# So the hardware ceiling is enforced HERE, at go-live, rather than at the point
+# somebody adds a channel. A worker asks for a slot the moment its channel is
+# confirmed live, and if there is none it goes back to waiting and tries again,
+# reusing the loop that already handles waiting for the streamer. Nothing gets
+# to start metering audio without a slot, so a queued roster all going live at
+# once cannot bury the box.
+_live_slots: set[str] = set()
 
-    max_concurrent_streams is a REAL resource guard — every worker holds a chat
-    socket, an evaluation loop and (with audio detection on) a streamlink and
-    an ffmpeg subprocess, on one vCPU. It is not a number to raise casually.
+
+def live_stream_count() -> int:
+    return len(_live_slots)
+
+
+def acquire_live_slot(stream_key: str) -> bool:
+    """Take a slot for a channel that just went live. False means wait."""
+    if stream_key in _live_slots:
+        return True                       # already holding one; re-entrant
+    if len(_live_slots) >= max(1, settings.max_concurrent_streams):
+        log.warning("live_slots_full", held=len(_live_slots),
+                    cap=settings.max_concurrent_streams, waiting=stream_key)
+        return False
+    _live_slots.add(stream_key)
+    return True
+
+
+def release_live_slot(stream_key: str) -> None:
+    """Give the slot back. Must be unconditional and idempotent: a slot leaked
+    on an error path is capacity this process never gets back until restart."""
+    _live_slots.discard(stream_key)
+
+
+def _check_server_capacity(uid: str) -> None:
+    """Guard how many channels may be REGISTERED, fairly.
+
+    NOT the hardware guard. That is acquire_live_slot() above, and the
+    distinction matters: this used to cap registrations with the CPU ceiling,
+    which refused people for queueing channels that were costing nothing. Prod
+    showed 8 registered against a load average of 0.00.
+
+    What this stops is one account filling the process with registrations. The
+    bound is deliberately loose because registration is nearly free.
 
     The problem was never the cap, it was who it refused. A flat
     `len(_streams) >= cap` is first-come-first-served, so two Pro users at ten
@@ -2495,7 +2537,7 @@ def _check_server_capacity(uid: str) -> None:
     above their fair share are the ones told to wait. Capacity still degrades,
     but it degrades onto the heaviest user instead of the newest.
     """
-    cap   = max(1, settings.max_concurrent_streams)
+    cap   = max(1, settings.max_registered_streams)
     total = len(_streams)
 
     if total >= cap:
@@ -2656,6 +2698,7 @@ async def remove_stream(request: Request, channel: str):
         if stream_key not in _streams:
             raise HTTPException(status_code=404, detail="Stream not found")
         del _streams[stream_key]
+        release_live_slot(stream_key)
         _save_streams()
     await broadcast({"event": "stream_removed", "channel": channel}, user_id=uid)
     if _publish_remove_stream:
@@ -2679,6 +2722,7 @@ async def stop_stream_internal(channel: str, uid: str) -> bool:
         if stream_key not in _streams:
             return False
         del _streams[stream_key]
+        release_live_slot(stream_key)
         _save_streams()
     # Realtime contract: the tab showing this stream must drop it live.
     await broadcast({"event": "stream_removed", "channel": channel}, user_id=uid)

@@ -18,7 +18,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from config.settings import settings                      # noqa: E402
 from src.dashboard import api                             # noqa: E402
 
-cap   = max(1, settings.max_concurrent_streams)
+# TWO caps. The hardware ceiling governs LIVE streams and is enforced at
+# go-live; this file's `cap` is the REGISTERED bound, which is what
+# _check_server_capacity refuses on.
+live_cap = max(1, settings.max_concurrent_streams)
+live_now = api.live_stream_count()
+cap   = max(1, settings.max_registered_streams)
 total = len(api._streams)
 by_user = collections.Counter(k.split(":", 1)[0] for k in api._streams)
 users = len(by_user) or 1
@@ -36,7 +41,11 @@ except Exception as exc:
 print("=" * 68)
 print("SERVER CAPACITY")
 print("=" * 68)
-print(f"  MAX_CONCURRENT_STREAMS : {cap}      <- the ceiling, from .env")
+print(f"  LIVE ceiling          : {live_cap}      <- the hardware limit (cores x 6)")
+print(f"  live right now        : {live_now}")
+print(f"  live headroom         : {live_cap - live_now}")
+print()
+print(f"  registered ceiling    : {cap}      <- how many channels may be ADDED")
 print(f"  streams running now    : {total}")
 print(f"  headroom               : {cap - total}")
 print(f"  users with streams     : {users}")

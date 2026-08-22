@@ -144,7 +144,19 @@ switched off.
     runs a streamlink+ffmpeg audio meter on the single shared vCPU. Raising it
     is a capacity decision, not a config tweak, and `max_concurrent_streams`
     is still the global ceiling.
-  - **The global ceiling is DERIVED FROM THE MACHINE, not hardcoded.**
+  - **TWO CEILINGS, and they count different things.**
+    `max_concurrent_streams` bounds LIVE streams and is the hardware guard,
+    enforced at go-live by `api.acquire_live_slot()`. `max_registered_streams`
+    bounds how many channels may be ADDED and is what
+    `_check_server_capacity()` refuses on; it derives as live x 4 and is
+    deliberately loose. Conflating them was a real bug: the CPU ceiling used to
+    cap registrations, so users were refused for queueing channels that cost
+    nothing. An offline channel polls `is_live` every 30s and spawns no
+    subprocesses, and offline is the normal state — prod measured 8 channels
+    registered against a load average of 0.00. A channel that goes live with no
+    slot free reports status `queued` and retries, rendering as "waiting for a
+    slot"; it must never report `offline`, which would be a visible lie.
+  - **The LIVE ceiling is DERIVED FROM THE MACHINE, not hardcoded.**
     `config/settings.py` computes it as usable cores x 6 (see
     `default_max_concurrent_streams`), clamped to 6..400, overridable with
     `MAX_CONCURRENT_STREAMS` in `.env`. Six per core is the measurement with
@@ -154,6 +166,8 @@ switched off.
     changes the ceiling on restart with no code change; confirm the resolved
     number with `scripts/capacity.py`, which prints it, and re-measure the
     per-core cost with `scripts/stream_cost.py` after any audio-meter change.
+    Confirmed on the 2-vCPU/4GB droplet (Aug 2026): derives 12 live, 48
+    registered, with no `.env` pin.
 - **THIS BLOCK WAS STALE AND IS NOW REVERSED. There IS a self-serve free
   trial.** It used to read "Billed immediately, there is NO self-serve free
   trial", describing a state that a later cutover undid. `TRIAL_DAYS = 7` in

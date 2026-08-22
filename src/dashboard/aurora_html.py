@@ -979,7 +979,11 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   const score = displayScore;
   const p = profile || {};
   const samples = p.velocity_samples||0;
-  const statusColor = s.status==='live' ? 'var(--live)' : s.status==='reconnecting' ? 'var(--pending)' : 'var(--fg-2)';
+  // 'queued' means the channel IS live and every slot on the box is taken.
+  // Amber like reconnecting, because both are "not running yet, shortly" —
+  // and labelled, because the bare word means nothing to a viewer.
+  const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   return (
     <div className="rd-stream">
@@ -989,7 +993,8 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           <div className="mt">
             <span className="rd-chip" style={s.platform==='kick'?{background:'rgba(83,252,24,.12)',color:'#53fc18',border:'1px solid rgba(83,252,24,.3)'}:{}}>{s.platform}</span>
             <span className="rd-chip">{s.preset}</span>
-            <span style={{color:statusColor,fontWeight:600}}>{s.status}</span>
+            <span style={{color:statusColor,fontWeight:600}}
+                  title={s.status==='queued'?'This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.':''}>{statusLabel}</span>
           </div>
         </div>
         <div className="rd-stream-actions">
@@ -1667,7 +1672,8 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const recent = Object.values(clips).filter(c=>c.channel===active.channel).sort((a,b)=>(b.created_at||0)-(a.created_at||0)).slice(0,4);
   const WK=[['CHAT_VELOCITY','Chat velocity'],['KEYWORD','Keyword'],['SENTIMENT','Sentiment'],['AUDIO_SPIKE','Audio spike'],['VIEWER_SPIKE','Viewer spike'],['SILENCE_BURST','Silence burst']];
   const sw = p.signal_weights||{};
-  const statusColor = active.status==='live'?'var(--live)':active.status==='reconnecting'?'var(--pending)':'var(--fg-2)';
+  const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}
@@ -1678,7 +1684,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           <div>
             <h2>{active.channel}</h2>
             <div className="mt"><span className="rd-chip">{active.platform}</span><span className="rd-chip">{active.preset}</span>
-              <span style={{color:statusColor,fontWeight:600}}>● {active.status}</span></div>
+              <span style={{color:statusColor,fontWeight:600}}>● {statusLabel}</span></div>
           </div>
           <div className="sp"/>
           <button className="rd-btn ghost-force" onClick={()=>onForce(active.channel)}><Icon name="zap" size={14}/>Force clip</button>

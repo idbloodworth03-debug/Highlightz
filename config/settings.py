@@ -11,7 +11,16 @@ _DEFAULT_PASSWORD = "highlightz"
 
 
 # ── HOW MANY STREAMS THIS BOX CAN CARRY ──────────────────────────────────────
-# Every monitored stream spawns TWO OS subprocesses, a streamlink pulling an
+# LIVE streams. This distinction is the whole point and it was wrong for a long
+# time: the ceiling used to count REGISTERED channels, which cost almost
+# nothing. A channel whose streamer is offline sits in a loop asking "are you
+# live yet?" every 30 seconds — no streamlink, no ffmpeg, no chat socket. And
+# offline is the normal state: people queue up an evening's roster in advance,
+# which stream_worker's own comments call "the normal case". Prod proved it —
+# 8 channels registered, load average 0.00, 95% idle. Users were being refused
+# on the strength of channels that were costing nothing at all.
+#
+# Every LIVE stream spawns TWO OS subprocesses, a streamlink pulling an
 # audio-only rendition and an ffmpeg decoding it to raw PCM (see
 # src/ingestion/audio_meter.py). They are separate processes, so the kernel
 # spreads them over every core the machine has — which is why adding vCPUs
@@ -30,6 +39,13 @@ _DEFAULT_PASSWORD = "highlightz"
 _STREAMS_PER_CPU = 6
 _MIN_CONCURRENT_STREAMS = 6      # never derive a ceiling below one core's worth
 _MAX_CONCURRENT_STREAMS = 400    # a nonsense cpu count must not uncap the box
+
+# How many channels may be REGISTERED per live slot. Registration is nearly
+# free, so this is deliberately generous — it exists to stop somebody queueing
+# five hundred channels and filling the process, not to ration anything. What
+# keeps the box safe when a queued roster all goes live at once is admission
+# control at go-live (api.acquire_live_slot), NOT this number.
+_REGISTERED_PER_LIVE_SLOT = 4
 
 
 def _usable_cpus() -> int:
@@ -174,9 +190,12 @@ class Settings(BaseSettings):
     buffer_duration_seconds: int = 90
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
-    # Derived from the machine, overridable with MAX_CONCURRENT_STREAMS in .env.
-    # See default_max_concurrent_streams() above for where the number comes from.
+    # LIVE streams at once. Derived from the machine, overridable with
+    # MAX_CONCURRENT_STREAMS in .env. See default_max_concurrent_streams().
     max_concurrent_streams: int = 0
+    # REGISTERED channels at once, across the whole process. Derived from the
+    # live ceiling; override with MAX_REGISTERED_STREAMS in .env.
+    max_registered_streams: int = 0
     # Decode a VOD's audio during a scan so AUDIO_SPIKE — the heaviest non-chat
     # signal the live engine has — contributes to VOD moments too. Off by
     # default because it changes a scan from seconds to minutes and pulls the
@@ -226,10 +245,21 @@ class Settings(BaseSettings):
             object.__setattr__(self, "max_concurrent_streams",
                                default_max_concurrent_streams())
             _log.info(
-                "max_concurrent_streams derived from hardware: %d "
-                "(%d usable cpu x %d streams each). Set MAX_CONCURRENT_STREAMS "
-                "in .env to pin it.",
+                "max_concurrent_streams derived from hardware: %d LIVE streams "
+                "(%d usable cpu x %d each). Set MAX_CONCURRENT_STREAMS in .env "
+                "to pin it.",
                 self.max_concurrent_streams, _usable_cpus(), _STREAMS_PER_CPU,
+            )
+        if self.max_registered_streams <= 0:
+            object.__setattr__(
+                self, "max_registered_streams",
+                self.max_concurrent_streams * _REGISTERED_PER_LIVE_SLOT)
+            _log.info(
+                "max_registered_streams derived: %d registered channels "
+                "(%d live slots x %d). Set MAX_REGISTERED_STREAMS in .env to "
+                "pin it.",
+                self.max_registered_streams, self.max_concurrent_streams,
+                _REGISTERED_PER_LIVE_SLOT,
             )
         if self.dashboard_secret_key == _DEFAULT_SECRET:
             _log.critical(

@@ -1,14 +1,26 @@
-"""The global stream cap, and who it refuses.
+"""The two caps, and who each of them refuses.
 
-max_concurrent_streams is a real resource guard: every worker holds a chat
-socket, an evaluation loop and — with audio detection on — a streamlink and an
-ffmpeg subprocess, on one vCPU. The cap is not the bug.
+THERE ARE TWO, and conflating them was a real bug. What costs the box is a
+LIVE stream: two OS subprocesses, a chat socket, a scoring loop. A REGISTERED
+channel whose streamer is offline costs an is_live poll every 30 seconds and
+nothing else — and offline is the normal state, because people queue an
+evening's roster hours ahead of it starting.
 
-WHO IT REFUSED was. A flat `len(_streams) >= cap` is first-come-first-served,
-so with cap=20 two Pro users at ten channels each fill the pool and the third
-customer is refused their very first stream — while the landing page, the
-pricing cards and the FAQ all sell "10 channels at once". The person turned
-away is the one using nothing.
+  max_concurrent_streams  LIVE streams. The hardware ceiling, enforced at
+                          go-live by acquire_live_slot(). Derived from cores.
+  max_registered_streams  REGISTERED channels. Enforced by
+                          _check_server_capacity() when somebody adds one.
+                          Deliberately loose; registration is nearly free.
+
+The hardware ceiling used to guard registrations, which refused people for
+queueing channels that were costing nothing. Prod: 8 channels registered,
+load average 0.00, 95% idle.
+
+WHO IT REFUSED was the other half. A flat `len(_streams) >= cap` is
+first-come-first-served, so two Pro users at ten channels each fill the pool
+and the third customer is refused their very first stream — while the landing
+page, the pricing cards and the FAQ all sell "10 channels at once". The person
+turned away is the one using nothing.
 """
 
 import pytest
@@ -19,7 +31,7 @@ from src.dashboard import api
 @pytest.fixture
 def pool(monkeypatch):
     monkeypatch.setattr(api, "_streams", {})
-    monkeypatch.setattr(api.settings, "max_concurrent_streams", 20)
+    monkeypatch.setattr(api.settings, "max_registered_streams", 20)
 
     def fill(uid, n):
         for i in range(n):
@@ -124,7 +136,8 @@ def test_the_cap_is_env_tunable_without_a_deploy(pool, monkeypatch):
     so it must be changeable in .env rather than requiring a code change."""
     from config.settings import Settings
     assert "max_concurrent_streams" in Settings.model_fields
-    monkeypatch.setattr(api.settings, "max_concurrent_streams", 40)
+    assert "max_registered_streams" in Settings.model_fields
+    monkeypatch.setattr(api.settings, "max_registered_streams", 40)
     pool("a", 10); pool("b", 10)
     assert _refused("newcomer") is None, "cap did not follow the setting"
 
@@ -232,4 +245,115 @@ def test_the_capacity_guard_reads_the_setting_rather_than_the_constant():
     import inspect
     from src.dashboard import api
     src = inspect.getsource(api._check_server_capacity)
-    assert "settings.max_concurrent_streams" in src
+    assert "settings.max_registered_streams" in src, \
+        "the registration guard is back on the hardware ceiling"
+    assert "settings.max_concurrent_streams" in inspect.getsource(api.acquire_live_slot), \
+        "the live gate no longer reads the hardware ceiling"
+
+
+# ── the live gate ────────────────────────────────────────────────────────────
+# The half that protects the hardware. Registration is cheap and loosely
+# bounded, so what stops a queued roster all going live at once and burying the
+# box is admission control at go-live, not the registration cap.
+
+@pytest.fixture
+def slots(monkeypatch):
+    monkeypatch.setattr(api, "_live_slots", set())
+    monkeypatch.setattr(api.settings, "max_concurrent_streams", 3)
+
+
+def test_a_channel_going_live_takes_a_slot(slots):
+    assert api.acquire_live_slot("u:a") is True
+    assert api.live_stream_count() == 1
+
+
+def test_the_box_stops_handing_out_slots_at_the_ceiling(slots):
+    for i in range(3):
+        assert api.acquire_live_slot(f"u:{i}") is True
+    assert api.acquire_live_slot("u:overflow") is False, \
+        "a fourth live stream started on a box sized for three"
+    assert api.live_stream_count() == 3
+
+
+def test_a_refused_channel_takes_nothing(slots):
+    """It has to be able to come back and ask again. If a refusal left it
+    counted, the box would deadlock at the ceiling with workers waiting on
+    slots they were themselves occupying."""
+    for i in range(3):
+        api.acquire_live_slot(f"u:{i}")
+    api.acquire_live_slot("u:overflow")
+    assert "u:overflow" not in api._live_slots
+
+
+def test_asking_twice_does_not_take_two_slots(slots):
+    """A worker that reconnects mid-session asks again. Counting that twice
+    would leak a slot per reconnect."""
+    api.acquire_live_slot("u:a")
+    api.acquire_live_slot("u:a")
+    assert api.live_stream_count() == 1
+
+
+def test_releasing_frees_the_slot_for_somebody_else(slots):
+    for i in range(3):
+        api.acquire_live_slot(f"u:{i}")
+    assert api.acquire_live_slot("u:next") is False
+    api.release_live_slot("u:0")
+    assert api.acquire_live_slot("u:next") is True
+
+
+def test_releasing_a_slot_never_held_is_harmless(slots):
+    """The worker releases unconditionally in a finally, and the common path —
+    every ChannelOffline — never took one, because the slot is acquired after
+    the liveness check. This must not raise."""
+    api.release_live_slot("u:never-had-one")
+    assert api.live_stream_count() == 0
+
+
+def test_removing_a_stream_gives_its_slot_back(slots, monkeypatch):
+    """Otherwise deleting a live channel leaks capacity until restart."""
+    import inspect
+    src = inspect.getsource(api)
+    # Every place a stream is removed from the registry must also free a slot.
+    deletes = src.count("del _streams[")
+    releases = src.count("release_live_slot(")
+    # -2 for the definition and the docstring reference in acquire.
+    assert releases >= deletes, (
+        f"{deletes} places delete a stream but only {releases} release a slot; "
+        f"one of them leaks capacity until the process restarts")
+
+
+def test_the_worker_takes_a_slot_only_after_the_channel_is_confirmed_live():
+    """Asking earlier rations channels that are not running — the original bug.
+    Asking later means the audio meter is already spawned."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker._run_session)
+    assert "acquire_live_slot" in src, "the worker no longer asks for a slot"
+    assert src.index("get_stream_info") < src.index("acquire_live_slot"), \
+        "the slot is taken before the channel is known to be live"
+    assert src.index("acquire_live_slot") < src.index("AudioMeter"), \
+        "the audio meter is spawned before a slot is granted"
+
+
+def test_a_queued_channel_does_not_claim_to_be_offline():
+    """A card reading "offline" for a channel that is plainly streaming is the
+    lie the viewer is most likely to catch."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker.start)
+    assert "CapacityQueued" in src, "the queued case is not handled separately"
+    assert '"queued"' in src, "a queued channel reports some other status"
+
+
+def test_the_slot_is_released_even_when_a_session_explodes():
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker.start)
+    i = src.index("_run_session()")
+    # To the first except, which is where the try/finally around the session
+    # must have closed. A fixed character window straddles the comment block
+    # and measures nothing.
+    tail = src[i:src.index("except", i)]
+    assert "finally:" in tail, "the session call has no finally"
+    assert "release_live_slot" in tail, \
+        "the release is not on the unconditional path"
