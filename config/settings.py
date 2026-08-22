@@ -10,6 +10,69 @@ _DEFAULT_SECRET = "change_me"
 _DEFAULT_PASSWORD = "highlightz"
 
 
+# ── HOW MANY STREAMS THIS BOX CAN CARRY ──────────────────────────────────────
+# Every monitored stream spawns TWO OS subprocesses, a streamlink pulling an
+# audio-only rendition and an ffmpeg decoding it to raw PCM (see
+# src/ingestion/audio_meter.py). They are separate processes, so the kernel
+# spreads them over every core the machine has — which is why adding vCPUs
+# genuinely raises this ceiling rather than doing nothing, as it would if the
+# cost sat inside one Python event loop.
+#
+# THE NUMBER IS MEASURED, NOT CHOSEN. On the original 1-vCPU droplet, eight
+# live streams sat at 93.4% of a single core. That is saturation, not capacity:
+# it leaves nothing for the web app, the chat sockets or the scoring loop, and
+# a box at 100% stops responding rather than degrading. Six per core is that
+# measurement with the headroom put back.
+#
+# Re-measure with scripts/stream_cost.py after any change to the audio meter,
+# and set MAX_CONCURRENT_STREAMS explicitly in .env if the derived number is
+# ever wrong for a particular box.
+_STREAMS_PER_CPU = 6
+_MIN_CONCURRENT_STREAMS = 6      # never derive a ceiling below one core's worth
+_MAX_CONCURRENT_STREAMS = 400    # a nonsense cpu count must not uncap the box
+
+
+def _usable_cpus() -> int:
+    """Cores this process may actually use.
+
+    os.cpu_count() reports the HOST's cores, which is wrong inside a container
+    with a CPU quota — it would hand a 0.5-core container the ceiling of a
+    32-core host. The cgroup quota is checked first for that reason. On a plain
+    VM (which is what the droplet is) there is no quota and cpu_count is right.
+    """
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as fh:          # cgroup v2
+            quota, period = fh.read().split()
+            if quota != "max":
+                return max(1, int(int(quota) / int(period)))
+    except Exception:
+        pass
+    try:                                                     # cgroup v1
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fh:
+            quota = int(fh.read())
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as fh:
+            period = int(fh.read())
+        if quota > 0 and period > 0:
+            return max(1, quota // period)
+    except Exception:
+        pass
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except Exception:
+        return max(1, os.cpu_count() or 1)
+
+
+def default_max_concurrent_streams() -> int:
+    """The ceiling this machine can carry, derived from its cores.
+
+    Hardcoding it meant the number was only ever right for the box it was
+    written on: it sat at 20 on a 1-vCPU droplet that measured out at 6, and
+    would have stayed at 20 after an upgrade to eight times the machine. This
+    tracks the hardware in both directions."""
+    n = _usable_cpus() * _STREAMS_PER_CPU
+    return max(_MIN_CONCURRENT_STREAMS, min(_MAX_CONCURRENT_STREAMS, n))
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -111,7 +174,9 @@ class Settings(BaseSettings):
     buffer_duration_seconds: int = 90
     clip_pre_roll_seconds: int = 30
     clip_post_roll_seconds: int = 10
-    max_concurrent_streams: int = 20
+    # Derived from the machine, overridable with MAX_CONCURRENT_STREAMS in .env.
+    # See default_max_concurrent_streams() above for where the number comes from.
+    max_concurrent_streams: int = 0
     # Decode a VOD's audio during a scan so AUDIO_SPIKE — the heaviest non-chat
     # signal the live engine has — contributes to VOD moments too. Off by
     # default because it changes a scan from seconds to minutes and pulls the
@@ -153,6 +218,19 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def warn_insecure_defaults(self) -> "Settings":
         import secrets as _secrets
+        # 0 means "nobody pinned it" — derive from this machine. Done here
+        # rather than with a default_factory so an explicit MAX_CONCURRENT_
+        # STREAMS in .env still wins, and so the resolved number is logged:
+        # a capacity ceiling nobody can see is one nobody will question.
+        if self.max_concurrent_streams <= 0:
+            object.__setattr__(self, "max_concurrent_streams",
+                               default_max_concurrent_streams())
+            _log.info(
+                "max_concurrent_streams derived from hardware: %d "
+                "(%d usable cpu x %d streams each). Set MAX_CONCURRENT_STREAMS "
+                "in .env to pin it.",
+                self.max_concurrent_streams, _usable_cpus(), _STREAMS_PER_CPU,
+            )
         if self.dashboard_secret_key == _DEFAULT_SECRET:
             _log.critical(
                 "SECURITY: DASHBOARD_SECRET_KEY is using the default value. "

@@ -151,3 +151,85 @@ def test_add_stream_actually_calls_the_capacity_check():
         "add_stream no longer routes through the fair-share check"
     assert "len(_streams) >= settings.max_concurrent_streams" not in src, \
         "the flat first-come-first-served check is back"
+
+
+# ── the ceiling tracks the hardware ──────────────────────────────────────────
+# It was hardcoded at 20, which was only ever right for the box it was typed
+# on — and it was not right for that one either. Measured on the original
+# 1-vCPU droplet: eight live streams sat at 93.4% of a single core. So 20 was a
+# promise the machine could not keep, and it would have stayed 20 after an
+# upgrade to eight times the hardware. It now derives from the cores actually
+# available, in both directions.
+
+import os
+
+from config.settings import (Settings, _usable_cpus, _STREAMS_PER_CPU,
+                             _MIN_CONCURRENT_STREAMS, _MAX_CONCURRENT_STREAMS,
+                             default_max_concurrent_streams)
+
+
+def test_the_ceiling_scales_with_the_machine(monkeypatch):
+    """The whole point: a bigger droplet carries more streams without anyone
+    editing a constant."""
+    seen = {}
+    for cpus in (1, 2, 4, 8, 16):
+        monkeypatch.setattr("config.settings._usable_cpus", lambda c=cpus: c)
+        seen[cpus] = default_max_concurrent_streams()
+    assert seen[2] > seen[1], "twice the cores does not carry more streams"
+    assert seen[8] > seen[4] > seen[2]
+    assert seen[4] == 4 * _STREAMS_PER_CPU
+
+
+def test_the_per_core_figure_is_the_measured_one_with_headroom():
+    """8 live streams measured at 93.4% of one core. Anything at or above that
+    is saturation, and a box at 100% stops answering rather than degrading."""
+    assert _STREAMS_PER_CPU <= 8, (
+        f"{_STREAMS_PER_CPU} per core is at or past the measured saturation "
+        f"point; there is nothing left for the web app or the chat sockets")
+    assert _STREAMS_PER_CPU >= 4, "the box is being wasted"
+
+
+def test_a_nonsense_cpu_count_cannot_uncap_the_box(monkeypatch):
+    monkeypatch.setattr("config.settings._usable_cpus", lambda: 100000)
+    assert default_max_concurrent_streams() == _MAX_CONCURRENT_STREAMS
+    monkeypatch.setattr("config.settings._usable_cpus", lambda: 0)
+    assert default_max_concurrent_streams() == _MIN_CONCURRENT_STREAMS
+
+
+def test_an_explicit_setting_still_wins(monkeypatch):
+    """The derivation is a default, not a policy. The owner must be able to pin
+    it when a box behaves differently from the measurement."""
+    monkeypatch.setenv("MAX_CONCURRENT_STREAMS", "137")
+    assert Settings().max_concurrent_streams == 137
+
+
+def test_an_unset_value_is_resolved_rather_than_left_at_zero():
+    """0 is the sentinel for "derive it". If it ever reached the capacity guard
+    as 0, max(1, cap) would silently cap the entire server at one stream."""
+    s = Settings()
+    assert s.max_concurrent_streams >= _MIN_CONCURRENT_STREAMS
+    assert s.max_concurrent_streams == default_max_concurrent_streams()
+
+
+def test_a_cpu_quota_beats_the_host_core_count(tmp_path, monkeypatch):
+    """os.cpu_count() reports the HOST's cores. Inside a container with a quota
+    that would hand a half-core process the ceiling of a 32-core host."""
+    cg = tmp_path / "cpu.max"
+    cg.write_text("200000 100000")          # 2 cores
+    real_open = open
+
+    def fake_open(path, *a, **k):
+        if path == "/sys/fs/cgroup/cpu.max":
+            return real_open(cg, *a, **k)
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert _usable_cpus() == 2
+
+
+def test_the_capacity_guard_reads_the_setting_rather_than_the_constant():
+    """The guard must not go back to its own hardcoded number."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api._check_server_capacity)
+    assert "settings.max_concurrent_streams" in src

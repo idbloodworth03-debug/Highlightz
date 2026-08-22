@@ -143,12 +143,27 @@ switched off.
   - **Free is 1 stream because a stream is the scarce resource** — each one
     runs a streamlink+ffmpeg audio meter on the single shared vCPU. Raising it
     is a capacity decision, not a config tweak, and `max_concurrent_streams`
-    (20, process-wide) is still the global ceiling.
-- **Billed immediately. There is NO self-serve free trial.**
-  trial_period_days, the trial-claims ledger (`trial_claims.json` helpers),
-  and every "7 days free" promise were removed from checkout, landing,
-  login, paywall, TOS, FAQ, JSON-LD, and meta tags. The prod
-  trial_claims.json file is inert.
+    is still the global ceiling.
+  - **The global ceiling is DERIVED FROM THE MACHINE, not hardcoded.**
+    `config/settings.py` computes it as usable cores x 6 (see
+    `default_max_concurrent_streams`), clamped to 6..400, overridable with
+    `MAX_CONCURRENT_STREAMS` in `.env`. Six per core is the measurement with
+    headroom put back: on the original 1-vCPU droplet, EIGHT live streams sat
+    at 93.4% of a single core, so 8 is saturation rather than capacity. The old
+    hardcoded 20 was a promise that box could not keep. A droplet resize now
+    changes the ceiling on restart with no code change; confirm the resolved
+    number with `scripts/capacity.py`, which prints it, and re-measure the
+    per-core cost with `scripts/stream_cost.py` after any audio-meter change.
+- **THIS BLOCK WAS STALE AND IS NOW REVERSED. There IS a self-serve free
+  trial.** It used to read "Billed immediately, there is NO self-serve free
+  trial", describing a state that a later cutover undid. `TRIAL_DAYS = 7` in
+  `src/billing/plans.py` is the single source of truth: new signups get 7 days
+  of the full product with no card, `get_plan` resolves `trialing` to `pro`,
+  and when it lapses the account goes to `locked` (zero streams, zero queue) —
+  not to free, which is legacy-only now. Every public page states it in one
+  fixed wording, "7 days free, no credit card required", pinned by
+  tests/test_no_free_tier_claim.py. Do not strip that copy on the strength of
+  an old note; check plans.py.
 - **Free access exists only as an admin-granted timed trial**: /admin panel
   → "Trial…" dropdown per user (3d/1w/2w/1m/3m) → POST
   `/admin/users/{id}/grant-trial {days:1..365}`. Sets app-managed
