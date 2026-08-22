@@ -5887,28 +5887,45 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ FEATURES. Two columns, hairlines instead of cards, mono index instead
      of an icon in a tinted square. ══ */
-  /* ── What you get: four items, deliberately not a 2x3 of equal cards ──────
-     The compliance point runs full width because it is the strongest thing
-     here and the longest to say; the other three sit under it at unequal
-     widths. No icons in tinted squares. The differing heights are the point,
-     not a flaw to be evened out. */
-  .feat-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.92fr) minmax(0,.93fr);
-    gap:0 40px;margin-top:34px;border-top:1px solid var(--hair)}
-  .feat{padding:24px 0 26px;border-bottom:1px solid var(--hair);min-width:0}
-  /* Heading beside the text rather than above it, so the extra width reads as
-     a deliberate layout and not as a paragraph that ran out of words. */
-  .feat-wide{grid-column:1 / -1;padding:28px 0 30px;display:grid;
-    grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:40px;align-items:start}
-  .feat-wide h3{font-size:24px;letter-spacing:-.022em;line-height:1.2;margin:0}
-  .feat-wide p{font-size:15.5px;margin:0}
-  @media (max-width:900px){.feat-wide{grid-template-columns:minmax(0,1fr);gap:10px}}
-  @media (max-width:900px){
-    .feat-grid{grid-template-columns:minmax(0,1fr);gap:0}
-    .feat-wide h3{font-size:20px}
-  }
-  .feat .ic{color:var(--ember);margin-bottom:9px;display:block}
-  .feat h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:6px}
+  /* ── What you get ────────────────────────────────────────────────────────
+     REPORTED: "kind of jumbled together". It was eight items of identical
+     weight separated by identical hairlines, in no order, and the two full
+     width ones split their heading hard left from their body at 42% across —
+     three hundred pixels of nothing in the middle of the widest, most
+     prominent rows on the page. Nothing said which of the eight was a headline
+     claim and which was a detail.
+
+     So they are GROUPED now, four labelled clusters instead of one flat list,
+     and each cluster answers one question. That is also what keeps this off
+     the banned shape: the thing stopping it being a grid of equal cards is the
+     labelled structure, not a count of items. */
+  #features .sec-title{margin-bottom:4px}
+  .feat-group{margin-top:30px;padding-top:26px;border-top:1px solid var(--hair)}
+  .feat-group:first-of-type{margin-top:22px}
+  /* The mono label is the whole fix: it tells you what the next two or three
+     items have in common before you read them. */
+  .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:10.5px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ember);margin-bottom:18px}
+  .feat-grid{display:grid;gap:clamp(22px,2.6vw,44px);align-items:start}
+  /* Unequal on purpose, and the two shapes share a first column so the groups
+     line up down the page instead of each starting somewhere new. */
+  .feat-cols-3{grid-template-columns:minmax(0,1.08fr) minmax(0,.96fr) minmax(0,.96fr)}
+  /* Unequal, but not 1:2 — at that ratio the left item was squeezed to 427px
+     against 759 and looked like a mistake rather than a choice. */
+  .feat-cols-2{grid-template-columns:minmax(0,1.08fr) minmax(0,1.42fr)}
+  .feat{min-width:0}
+  .feat h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:7px}
   .feat p{font-size:14.5px;color:var(--ink-2);line-height:1.6}
+  /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
+     dead gap. The measure is capped so a full-width paragraph does not run to
+     1200px and become unreadable. */
+  .feat-wide h3{font-size:clamp(20px,2.1vw,26px);letter-spacing:-.022em;
+    line-height:1.2;margin-bottom:10px}
+  .feat-wide p{font-size:16px;max-width:82ch}
+  @media (max-width:900px){
+    .feat-grid{grid-template-columns:minmax(0,1fr);gap:24px}
+    .feat-group{margin-top:24px;padding-top:22px}
+  }
 
   /* ══ PRICING. Depth from value, not shadow: Pro stands nearest the monitor
      and is a lit surface; the other two recede into the wall. ══ */
@@ -6263,43 +6280,61 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Features -->
 <section class="wrap wide" id="features">
   <h2 class="sec-title">What you get</h2>
-  <div class="feat-grid">
+
+  <!-- Four groups, each answering one question, rather than eight items in a
+       row. The order is the order a buyer asks them in: is this safe, how much
+       does it watch, how does it judge, what do I control. -->
+  <div class="feat-group">
+    <span class="feat-label">First, the part most tools skip</span>
     <div class="feat feat-wide">
       <h3>Clips are made by Twitch, not by us</h3>
       <p>We call the official Twitch API with your own token, and Twitch hosts the clip exactly as if you had hit the button yourself. We never record, download or re-host a single frame of anyone's stream. That is the part most tools quietly skip, and it is the reason nothing here puts your account at risk.</p>
     </div>
-    <div class="feat">
-      <h3>Ten at once</h3>
-      <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
-    </div>
-    <div class="feat">
-      <h3>Every channel gets its own normal</h3>
-      <p>A quiet chess stream and a screaming FPS stream do not share a threshold. Each channel is measured against itself, and gets sharper the longer it runs.</p>
-    </div>
-    <div class="feat">
-      <h3>One queue</h3>
-      <p>Every channel lands in the same place. 200 waiting during your trial, 50 on Starter, 200 on Pro. What you approve and reject feeds back into that channel's formula.</p>
-    </div>
+  </div>
 
-    <!-- Second wide row. The VOD Scanner is the largest thing on Pro and was
-         only mentioned inside a pricing card, where nobody reads it. The
-         wide/three/wide/three rhythm is also what keeps this off the banned
-         shape: a symmetric grid of equal cards. -->
-    <div class="feat feat-wide">
-      <h3>It can clip streams that already ended</h3>
-      <p>The detector normally runs live. The VOD Scanner runs the same scoring over a broadcast that already finished, so a back catalogue you were never watching is still worth mining. Paste a Twitch VOD link, pick a preset, and every moment it finds links straight to its own timestamp. Long scans keep running while you do something else. On Pro, and included in your trial.</p>
+  <div class="feat-group">
+    <span class="feat-label">How much it watches</span>
+    <div class="feat-grid feat-cols-3">
+      <div class="feat">
+        <h3>Ten channels at once</h3>
+        <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
+      </div>
+      <div class="feat">
+        <h3>One queue for all of them</h3>
+        <p>Every channel lands in the same place. 200 clips waiting during your trial, 50 on Starter, 200 on Pro.</p>
+      </div>
+      <div class="feat">
+        <h3>Streams that already ended</h3>
+        <p>The VOD Scanner runs the same scoring over a finished broadcast, so a back catalogue you were never watching is still worth mining. Every hit links to its own timestamp. On Pro, included in your trial.</p>
+      </div>
     </div>
-    <div class="feat">
-      <h3>A preset for the kind of stream</h3>
-      <p>Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. The preset only decides where a channel starts. It keeps learning after that, so the closest match is good enough.</p>
+  </div>
+
+  <div class="feat-group">
+    <span class="feat-label">How it decides what is good</span>
+    <div class="feat-grid feat-cols-2">
+      <div class="feat">
+        <h3>Every channel gets its own normal</h3>
+        <p>A quiet chess stream and a screaming FPS stream do not share a threshold. Each channel is measured against itself, and gets sharper the longer it runs.</p>
+      </div>
+      <div class="feat">
+        <h3>A preset for the kind of stream</h3>
+        <p>Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. The preset only decides where a channel starts. It keeps learning after that, so the closest match is good enough.</p>
+      </div>
     </div>
-    <div class="feat">
-      <h3>Nothing leaves the queue without you</h3>
-      <p>Highlightz makes the clip and stops. Nothing is published, posted or deleted anywhere until you rule on it, and the review queue is the only route into your library.</p>
-    </div>
-    <div class="feat">
-      <h3>Work a busy day from the top</h3>
-      <p>Sort the queue by Top Virality and the clips most likely to travel float up. The best ones get seen even if you never reach the bottom. There is a sensitivity dial per channel too, for when a stream runs hot or quiet.</p>
+  </div>
+
+  <div class="feat-group">
+    <span class="feat-label">What stays under your control</span>
+    <div class="feat-grid feat-cols-2">
+      <div class="feat">
+        <h3>Nothing leaves the queue without you</h3>
+        <p>Highlightz makes the clip and stops. Nothing is published, posted or deleted anywhere until you rule on it, and the review queue is the only route into your library.</p>
+      </div>
+      <div class="feat">
+        <h3>Work a busy day from the top</h3>
+        <p>Sort by Top Virality and the clips most likely to travel float up, so the best ones get seen even if you never reach the bottom. What you approve and reject feeds back into that channel's formula, and there is a sensitivity dial per channel for when a stream runs hot or quiet.</p>
+      </div>
     </div>
   </div>
 </section>

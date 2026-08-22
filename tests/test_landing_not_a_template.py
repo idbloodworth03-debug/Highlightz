@@ -131,29 +131,56 @@ def test_how_it_works_has_no_oversized_numerals():
 
 
 def test_the_feature_grid_is_not_a_symmetric_grid_of_icon_chips():
-    """The banned shape is a 2x3 of identical cards with an icon in a tinted
-    rounded square. What stops it being that is the MIXED SIZES, not the item
-    count — this used to assert exactly four items, which is a proxy that fails
-    the moment the section legitimately grows. It now asserts the rhythm."""
+    """The banned shape is a run of identical cards with an icon in a tinted
+    rounded square.
+
+    This assertion has now been wrong twice, both times because it measured a
+    PROXY. First "exactly four items", which broke the moment the section
+    legitimately grew. Then a run-length rule over item sizes, which broke when
+    the fix for "jumbled together" was to GROUP the items — more structure, and
+    the run-length check read it as less.
+
+    So it measures the structure itself: the section is divided into labelled
+    groups, and no single group is big enough to read as a grid of equal cards.
+    """
     sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
     assert 'class="ic"' not in sec, "icons in tinted squares are back"
-    # Counted with a word boundary: a bare count of 'class="feat' also matches
-    # the feat-grid container.
-    items = re.findall(r'class="feat(?:\s+[^"]*)?"', sec)
-    wide = [i for i in items if "feat-wide" in i]
-    assert wide, "the asymmetric layout is gone; every item is the same size"
-    assert len(items) > len(wide), "every item is wide, which is its own uniform grid"
-    # A run of same-size items with no wide one breaking it up IS the template
-    # shape, whatever the total.
-    runs, run = [], 0
-    for i in items:
-        if "feat-wide" in i:
-            runs.append(run); run = 0
-        else:
-            run += 1
-    runs.append(run)
-    assert max(runs) <= 4, (
-        f"there is a run of {max(runs)} equal cards with nothing breaking it up")
+
+    groups = re.findall(r'<div class="feat-group">(.*?)(?=<div class="feat-group">|$)',
+                        sec, re.S)
+    assert len(groups) >= 3, (
+        f"the section is {len(groups)} group(s) — it is back to one flat list")
+
+    for i, g in enumerate(groups):
+        assert 'class="feat-label"' in g, f"group {i} has no label saying what it is"
+        items = re.findall(r'class="feat(?:\s+[^"]*)?"', g)
+        assert 1 <= len(items) <= 3, (
+            f"group {i} holds {len(items)} items; past three it stops reading as "
+            f"a group and starts reading as a grid")
+
+
+def test_the_lead_claim_still_gets_its_own_weight():
+    """One item carries the argument and is set larger than the rest. Flatten
+    it and the section is eight things of equal importance again."""
+    sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
+    assert "feat-wide" in sec, "the lead claim lost its emphasis"
+    m = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS)
+    assert m, "the lead heading has no rule of its own"
+    assert "clamp(" in m.group(1), "the lead heading is no longer larger than the rest"
+
+
+def test_the_lead_claim_does_not_split_its_heading_away_from_its_text():
+    """WHAT "jumbled" WAS. The full-width item put its heading hard left and
+    started its body at 42% across — three hundred pixels of nothing in the
+    middle of the most prominent row on the page. Heading above its text now,
+    with a capped measure so it does not run to 1200px instead."""
+    m = re.search(r"\.feat-wide p\{([^}]*)\}", CSS)
+    assert m, "the lead body has no rule"
+    assert "max-width" in m.group(1), \
+        "the lead paragraph can run the full width of the page"
+    two_col = re.search(r"\.feat-wide\{[^}]*grid-template-columns[^}]*\}", CSS)
+    assert not two_col, \
+        "the lead item is back to a two-column split with a gap in the middle"
 
 
 # ── craft rules ──────────────────────────────────────────────────────────────
