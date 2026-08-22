@@ -6888,14 +6888,29 @@ LANDING_HTML = """<!DOCTYPE html>
     // for only after that, and only ever one at a time — nothing on this page
     // preloads video. If Twitch is slow, blocked, or declines to autoplay, the
     // poster simply stays and the moment still lands.
-    stage.style.clipPath='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
+    // THE START VALUE IS COMMITTED WITH THE TRANSITION OFF, and that matters
+    // for exactly one cycle in every visit: the first.
+    //
+    // The stage rests at the stylesheet's inset(50% 50% 50% 50%) until it has
+    // opened once. Assigning the tile's rect with the transition live does not
+    // set that value, it starts an 800ms animation TOWARDS it — so a frame
+    // later, when the end value goes on, the computed clip-path is still near
+    // 50% and the clip expands from the middle of the wall instead of sliding
+    // out of the tile that fired. Measured: first open began at inset(43.7%),
+    // every later one at inset(0px 1001.1px 0px 0px). Later cycles looked
+    // right only by luck, because closeStage leaves the stage resting on the
+    // tile rect and the assignment is then a no-op.
+    var from='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
       (wr.right-rectSrc.right).toFixed(1)+'px '+
       (wr.bottom-rectSrc.bottom).toFixed(1)+'px '+
       (rectSrc.left-wr.left).toFixed(1)+'px round 4px)';
+    stage.style.transition='none';
+    stage.style.clipPath=from;
     stage.classList.remove('out');
     stage.classList.add('on');
     wall.classList.add('staged');
-    void stage.offsetWidth;
+    void stage.offsetWidth;          // `from` is now the real, un-animated state
+    stage.style.transition='';       // hand timing back to the stylesheet
     stage.style.clipPath='inset(0px 0px 0px 0px round 4px)';
 
     if(reduce||!tl.clip) return;

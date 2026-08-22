@@ -227,6 +227,35 @@ def test_nothing_in_the_hero_animates_a_layout_property():
         assert prop not in HTML, f"the hero animates {prop.split(':')[1]}"
 
 
+def test_the_first_clip_opens_from_its_tile_like_every_other_one():
+    """REPORTED: the first clip "just jumps in instead of a smooth slide".
+
+    The stage rests at the stylesheet's inset(50% 50% 50% 50%) until it has
+    opened once. Assigning the tile's rect with the transition live does not
+    SET that value, it starts an 800ms animation towards it — so a frame later,
+    when the end value goes on, the computed clip-path is still near 50% and
+    the clip expands from the middle of the wall. Measured before the fix: the
+    first open began at inset(43.7%), every later one at
+    inset(0px 1001.1px 0px 0px). The later ones were right only by luck,
+    because closeStage leaves the stage resting on the tile rect.
+
+    So the start value is committed with the transition switched off, and the
+    order is the whole fix: none, set, reflow, restore, animate."""
+    body = JS[JS.index("function openStage("):]
+    body = body[:body.index("function closeStage(")]
+
+    off = body.index("stage.style.transition='none'")
+    start = body.index("stage.style.clipPath=from")
+    reflow = body.index("void stage.offsetWidth")
+    restore = body.index("stage.style.transition=''")
+    end = body.index("stage.style.clipPath='inset(0px 0px 0px 0px")
+
+    assert off < start, "the start rect is assigned before transitions are off"
+    assert start < reflow, "the start rect is not committed by a reflow"
+    assert reflow < restore, "transitions come back before the reflow commits"
+    assert restore < end, "the open would run with transitions still disabled"
+
+
 def test_the_stage_reveals_rather_than_scaling_so_the_clip_is_never_distorted():
     assert "clip-path:inset(" in HTML
     assert "transition:clip-path" in HTML
