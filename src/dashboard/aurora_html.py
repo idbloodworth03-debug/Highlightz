@@ -2000,12 +2000,23 @@ function TrainingScreen() {
   );
 }
 
-function LandingScreen({ clips, featured, onToggle, onMove, onGrab, myUrls }) {
-  // Admin-only curation of the public landing page's example clips. Featured
-  // entries come from /landing/showcase (the same payload visitors get), so
-  // what's listed here is literally what the site is showing.
+function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myUrls }) {
+  // Admin-only curation of the landing page. Featured entries come from
+  // /landing/showcase — the same payload visitors get — so what is listed here
+  // is literally what the site is showing.
+  //
+  // ONE LIST, TWO DESTINATIONS. The hero wall shows four channels being scored
+  // and wants variety ACROSS channels; the examples grid is a spread of the
+  // best clips and can repeat a channel happily. They used to be the same
+  // list, so tuning one wrecked the other.
   const [q, setQ] = useState('');
   const max = 8;
+  const inHero    = featured.filter(f=>f.hero    !== false);
+  const inGallery = featured.filter(f=>f.gallery !== false);
+  // The wall draws four tiles (two on a phone). Fewer than four and it repeats
+  // channels, which argues against the thing the section exists to show.
+  const heroShort = inHero.length > 0 && inHero.length < 4;
+  const heroChannels = new Set(inHero.map(f=>(f.channel||'').toLowerCase()));
   const featuredIds = featured.map(f=>f.id);
   const eligible = Object.values(clips)
     .filter(c=>c.status==='approved' && c.platform==='twitch' && c.twitch_url && !featuredIds.includes(c.id))
@@ -2033,15 +2044,32 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, myUrls }) {
       <div className="rd-settings">
         <div className="rd-section-title">
           <h2>On the landing page</h2>
-          <span className="cnt">{featured.length} of {max} slots used</span>
+          <span className="cnt">{featured.length} of {max} slots · {inHero.length} in the hero · {inGallery.length} in the examples</span>
         </div>
+        {heroShort && <div className="rd-card glass" style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          The hero wall draws four tiles and only {inHero.length} clip{inHero.length===1?' is':'s are'} set
+          to Hero, so it will repeat {inHero.length===1?'that one':'them'}. Add {4-inHero.length} more.
+        </div>}
+        {inHero.length >= 4 && heroChannels.size < 4 && <div className="rd-card glass"
+          style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          The hero clips come from only {heroChannels.size} channel{heroChannels.size===1?'':'s'}. The wall
+          is meant to show several channels being watched at once, so it currently argues the opposite —
+          feature a clip from {4-heroChannels.size} more channel{4-heroChannels.size===1?'':'s'}.
+        </div>}
+        {inGallery.length === 0 && featured.length > 0 && <div className="rd-card glass"
+          style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          Nothing is set to Examples, so the sample clips section is hidden on the landing page.
+        </div>}
         <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',
           display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="trending" size={15}/>
-          <span style={{flex:1,minWidth:220}}>These are the example clips visitors see at
-            highlightz.app. Order here is the order they appear. <b>Grab</b> copies
-            one into your own Clip Library so the team can trade clips — it links
-            to the same Twitch clip, nothing is re-hosted.</span>
+          <span style={{flex:1,minWidth:220}}>These are the real clips visitors see at
+            highlightz.app. <b>Hero</b> puts a clip in the animated wall at the top —
+            it needs four, from four different channels, or the wall repeats itself.
+            <b> Examples</b> puts it in the sample clips grid further down. Order here
+            is the order they appear in both. <b>Grab</b> copies one into your own Clip
+            Library so the team can trade clips — it links to the same Twitch clip,
+            nothing is re-hosted.</span>
           <a href="/" target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>View live page ↗</a>
         </div>
         {featured.length===0
@@ -2055,7 +2083,14 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, myUrls }) {
                 // button that errors — the server refuses a duplicate, and a
                 // dead button is worse than no button.
                 const mine = myUrls.has(c.twitch_url);
+                const h = c.hero !== false, g = c.gallery !== false;
+                const chip = (on,label,where,tip)=>(
+                  <button className={'rd-btn sm'+(on?' live':'')} title={tip}
+                    onClick={()=>onPlace(c.id, where, !on)}>{on?'✓ ':''}{label}</button>
+                );
                 return row(c,<>
+                  {chip(h,'Hero','hero','Show this clip in the animated wall at the top')}
+                  {chip(g,'Examples','gallery','Show this clip in the sample clips grid')}
                   <button className="rd-btn sm" disabled={mine} onClick={()=>onGrab(c.id)}
                     title={mine?'Already in your clips':'Copy this clip into your own library'}>
                     {mine ? 'In yours' : 'Grab'}
@@ -4740,6 +4775,17 @@ function RdApp() {
     const r=await fetch(`/admin/showcase/${id}/move?dir=${dir}`,{method:'POST'});
     if(r.ok) await loadFeatured();
   };
+  // Where a featured clip appears: the hero wall, the examples grid, or both.
+  const setPlacement = async(id,where,on)=>{
+    const r=await fetch(`/admin/showcase/${id}/placement`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({where, on})});
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      flash(e.detail||'Could not change where that clip appears');return;
+    }
+    await loadFeatured();
+  };
   const deleteClip = async(id)=>{
     if(!confirm('Delete this clip? This cannot be undone.')) return;
     // True delete — housekeeping only. Never routes through /reject: deleting
@@ -4793,7 +4839,7 @@ function RdApp() {
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
   else if(view==='training') screen=<TrainingScreen/>;
-  else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} myUrls={myClipUrls}/>;
+  else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
   else if(view==='account') screen=<AccountScreen me={me}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
   else screen=<SettingsScreen {...{streams}}/>;

@@ -517,9 +517,17 @@ _SHOWCASE_MAX  = 8
 def _load_showcase() -> list[dict]:
     try:
         data = json.loads(_SHOWCASE_FILE.read_text())
-        return data if isinstance(data, list) else []
+        if not isinstance(data, list):
+            return []
     except Exception:
         return []
+    # Entries curated before placement existed carry neither key. Default them
+    # to BOTH: that is exactly what they were doing, and defaulting to neither
+    # would silently blank the live landing page on deploy.
+    for e in data:
+        e.setdefault("hero", True)
+        e.setdefault("gallery", True)
+    return data
 
 
 def _save_showcase(items: list[dict]) -> None:
@@ -528,8 +536,15 @@ def _save_showcase(items: list[dict]) -> None:
 
 def _showcase_entry(clip: dict) -> dict:
     """Public-safe projection of a clip — nothing user-identifying beyond the
-    (public) Twitch channel the clip is from."""
+    (public) Twitch channel the clip is from.
+
+    `hero` and `gallery` say WHERE it appears. One curated list feeding two
+    very different places: the hero wall wants four channels being scored, the
+    examples grid wants a spread of good clips. New entries go in both, which
+    is what everything did before placement existed."""
     return {
+        "hero":    True,
+        "gallery": True,
         "id":            clip.get("id"),
         "clip_title":    clip.get("clip_title") or clip.get("stream_title") or "Clip",
         "channel":       clip.get("channel"),
@@ -4923,6 +4938,39 @@ async def admin_grab_showcase(request: Request, clip_id: str):
     return copy
 
 
+class PlacementBody(BaseModel):
+    where: str            # "hero" | "gallery"
+    on: bool
+
+
+@app.post("/admin/showcase/{clip_id}/placement")
+async def admin_showcase_placement(request: Request, clip_id: str,
+                                   body: PlacementBody):
+    """Admin: choose whether a featured clip appears in the hero wall, the
+    examples grid, or both.
+
+    One curated list, two destinations. The wall shows four channels being
+    scored and wants variety across channels; the grid is a spread of the best
+    clips and can happily repeat a channel. Before this they were the same
+    list, so tuning one wrecked the other.
+    """
+    _require_admin(request)
+    if body.where not in ("hero", "gallery"):
+        raise HTTPException(status_code=400,
+                            detail="where must be 'hero' or 'gallery'")
+    items = _load_showcase()
+    entry = next((e for e in items if e.get("id") == clip_id), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Clip is not featured")
+    entry[body.where] = bool(body.on)
+    _save_showcase(items)
+    await broadcast({"event": "showcase_updated"})
+    return {"id": clip_id, "hero": entry.get("hero", True),
+            "gallery": entry.get("gallery", True),
+            "hero_count": sum(1 for e in items if e.get("hero", True)),
+            "gallery_count": sum(1 for e in items if e.get("gallery", True))}
+
+
 @app.post("/admin/showcase/{clip_id}/move")
 async def admin_move_showcase(request: Request, clip_id: str, dir: str = "up"):
     """Admin: reorder a featured clip. Landing-page order follows this list."""
@@ -6478,7 +6526,7 @@ LANDING_HTML = """<!DOCTYPE html>
   var RE_PREVIEW=new RegExp('-preview-[0-9]+x[0-9]+[.]');
   function hiResThumb(u){ return (u||'').replace(RE_PREVIEW,'-preview-1280x720.'); }
   fetch('/landing/showcase').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    var clips=(d&&d.clips)||[];
+    var clips=(((d&&d.clips)||[]).filter(function(c){ return c.gallery !== false; }));
     if(!clips.length) return;
     clips.forEach(function(c){
       var a=document.createElement('a');
@@ -7175,7 +7223,11 @@ LANDING_HTML = """<!DOCTYPE html>
 
   fetch('/landing/showcase')
     .then(function(r){ return r.ok?r.json():null; })
-    .then(function(d){ clips=(d&&d.clips)||[]; })
+    // One curated list, two destinations. `!== false` rather than a truthy
+    // check so an entry saved before placement existed still shows up.
+    .then(function(d){
+      clips=(((d&&d.clips)||[]).filter(function(c){ return c.hero !== false; }));
+    })
     .catch(function(){})
     .then(start,start);
 })();
