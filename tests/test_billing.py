@@ -33,10 +33,34 @@ def test_subscription_created_active_maps_to_active():
     assert (cust, user, status) == ("cus_123", "u_42", "active")
 
 
-def test_trialing_maps_to_active_access():
+def test_trialing_is_kept_distinct_from_active_and_still_grants_access():
+    """Trialing used to be folded into `active` here, which was free while no
+    Stripe subscription could ever be trialing — the 7 free days were
+    app-managed. Card-up-front signups make it the opening state of a real
+    subscription, and "we have their card, first charge on day 7" is not the
+    same fact as "we have charged them". Both still grant full access, which is
+    what this test has always actually been protecting."""
+    from src.billing import plans
     cust, user, status = sb.sync_subscription_event(
         _sub_event("customer.subscription.updated", "trialing"))
-    assert status == "active"  # trialing still grants access
+    assert (cust, user, status) == ("cus_123", "u_42", "trialing")
+    assert status in plans.ACTIVE_STATUSES
+    assert plans.get_plan({"subscription_status": status, "plan": "starter"}) == "starter"
+
+
+def test_a_stripe_trial_carries_its_end_date_through():
+    """The dashboard counts down to this. It has to be Stripe's date — the day
+    the card is charged — not a second clock of our own."""
+    ev = _sub_event("customer.subscription.created", "trialing")
+    ev["data"]["object"]["trial_end"] = 1893456000
+    assert sb.extract_trial_end(ev) == 1893456000
+
+
+def test_a_missing_or_junk_trial_end_is_zero_not_a_crash():
+    ev = _sub_event("customer.subscription.created", "trialing")
+    assert sb.extract_trial_end(ev) == 0
+    ev["data"]["object"]["trial_end"] = "not-a-date"
+    assert sb.extract_trial_end(ev) == 0
 
 
 def test_canceled_maps_to_inactive():
@@ -88,24 +112,45 @@ def test_checkout_enables_promotion_codes():
     assert params["subscription_data"]["metadata"]["user_id"] == "u_1"
 
 
-def _checkout_params(price_id="price_pro"):
+def _checkout_params(price_id="price_pro", trial_days=0):
     fake_client = MagicMock()
     fake_client.checkout.sessions.create.return_value = MagicMock(url="https://checkout")
     with patch.object(sb, "_client", return_value=fake_client):
-        asyncio.run(sb.create_checkout_url("u_1", "alice", price_id))
+        asyncio.run(sb.create_checkout_url("u_1", "alice", price_id,
+                                           trial_days=trial_days))
     return fake_client.checkout.sessions.create.call_args.kwargs["params"]
 
 
-def test_checkout_has_no_free_trial_and_charges_immediately():
-    # There is no self-serve trial: checkout must never set trial_period_days —
-    # billing starts at subscribe time. Free access exists only as an
-    # admin-granted app-managed trial, which never touches Stripe.
+def test_checkout_charges_immediately_when_no_free_days_are_offered():
+    # The returning-subscriber path, and anyone who has already used their one
+    # free week. Checkout must not quietly attach a trial to them.
     p = _checkout_params()
     assert "trial_period_days" not in p["subscription_data"]
     assert p["mode"] == "subscription"
     assert p["payment_method_types"] == ["card"]
     # Checkout charges exactly the tier price it was asked for.
     assert p["line_items"] == [{"price": "price_pro", "quantity": 1}]
+
+
+def test_checkout_attaches_the_free_days_when_they_are_offered():
+    from src.billing.plans import TRIAL_DAYS
+    p = _checkout_params(trial_days=TRIAL_DAYS)
+    assert p["subscription_data"]["trial_period_days"] == TRIAL_DAYS
+    # Still the real price — the trial delays the charge, it does not discount it.
+    assert p["line_items"] == [{"price": "price_pro", "quantity": 1}]
+
+
+def test_a_card_is_collected_on_a_trial_checkout_too():
+    """THE POINT OF THE WHOLE CUTOVER. Stripe's default for a trialing
+    subscription in Checkout is payment_method_collection='if_required', which
+    creates the trial with NO card when nothing is due today — silently
+    restoring the exact thing this change exists to end, and only on trial
+    checkouts, which is the hardest kind of bug to notice."""
+    from src.billing.plans import TRIAL_DAYS
+    for days in (0, TRIAL_DAYS):
+        p = _checkout_params(trial_days=days)
+        assert p["payment_method_collection"] == "always", \
+            f"no card is collected when trial_days={days}"
 
 
 def test_checkout_reuses_existing_stripe_customer():
@@ -152,17 +197,19 @@ def test_apply_subscription_event_mismatch_targets_customer_owner(monkeypatch):
     monkeypatch.setattr(user_store, "update_subscription",
                         lambda *a: calls.setdefault("by_user", []).append(a))
     monkeypatch.setattr(user_store, "update_subscription_by_customer",
-                        lambda cust, status: calls.setdefault("by_cust", []).append((cust, status)) or None)
+                        lambda *a: calls.setdefault("by_cust", []).append(a) or None)
     affected = api.apply_subscription_event("user_X", "cus_A", "inactive")
     assert affected is None                    # nobody owns cus_A anymore
     assert "by_user" not in calls              # user_X untouched
-    assert calls["by_cust"] == [("cus_A", "inactive")]
+    # None for the trial end: an event that is not about a trial must not
+    # overwrite a trial end date that is.
+    assert calls["by_cust"] == [("cus_A", "inactive", None)]
     # Matching customer → normal per-user update, affected user returned.
     calls.clear()
     monkeypatch.setattr(user_store, "get_by_id",
                         lambda uid: {"id": uid, "stripe_customer_id": "cus_A"})
     assert api.apply_subscription_event("user_X", "cus_A", "active") == "user_X"
-    assert calls["by_user"] == [("user_X", "cus_A", "active")]
+    assert calls["by_user"] == [("user_X", "cus_A", "active", None)]
 
 
 def test_paywall_only_promises_free_days_to_someone_who_can_still_have_them():
@@ -323,3 +370,296 @@ def test_portal_explains_no_billing_accounts():
     import inspect
     src = inspect.getsource(api.billing_portal)
     assert "_PORTAL_NO_BILLING_HTML" in src and "is_labeler" in src
+
+
+# ── the post-checkout self-heal ──────────────────────────────────────────────
+# Access used to come from the app, so a webhook that never arrived cost us the
+# right billing state but not the customer's access. Now access comes from the
+# Stripe subscription and nothing else — a webhook endpoint missing
+# `customer.subscription.created` means somebody enters a card and lands on a
+# locked dashboard. /billing/success asks Stripe directly to close that.
+
+def _success_client(tmp_path, monkeypatch, user_status="none"):
+    import base64, json as _j, time as _t
+    from itsdangerous import TimestampSigner
+    from fastapi.testclient import TestClient
+    from src.dashboard import api
+    from src.auth import users as user_store, trial_ledger
+
+    monkeypatch.setattr(user_store, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(user_store, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    monkeypatch.setattr(trial_ledger, "_LEDGER_FILE", tmp_path / "trials.json")
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+
+    u = user_store.upsert_twitch_user("tw_sh", "nova", "nova")
+    c = TestClient(api.app)
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+        {"auth": True, "user_id": u["id"], "username": "nova",
+         "is_admin": False, "subscription_status": user_status}).encode())).decode())
+    return c, u, user_store, api
+
+
+def test_billing_success_grants_access_when_the_webhook_never_fires(tmp_path, monkeypatch):
+    """The whole point. Without this the customer has paid and has nothing."""
+    import time as _t
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+    ends = int(_t.time()) + 7 * 86400
+
+    async def _lookup(sid):
+        assert sid == "cs_test_123"
+        return "cus_new", "trialing", ends
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+
+    c.get("/billing/success?session_id=cs_test_123", follow_redirects=False)
+    after = user_store.get_by_id(u["id"])
+    assert after["subscription_status"] == "trialing"
+    assert after["stripe_customer_id"] == "cus_new"
+    assert after["trial_ends_at"] == ends, \
+        "no end date stored — the access gate has nothing to count down to"
+
+
+def test_the_self_heal_burns_the_free_week_too(tmp_path, monkeypatch):
+    """It is granting the trial, so it owes the ledger the same entry the
+    webhook would have written — or the week is farmable through this door."""
+    import time as _t
+    from src.auth import trial_ledger
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+
+    async def _lookup(sid):
+        return "cus_new", "trialing", int(_t.time()) + 7 * 86400
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    c.get("/billing/success?session_id=cs_1", follow_redirects=False)
+    assert trial_ledger.has_used_trial("twitch", "tw_sh")
+
+
+def test_the_self_heal_says_nothing_when_the_webhook_already_won(tmp_path, monkeypatch):
+    """The normal case. Firing a "you're all set" toast at somebody whose
+    status did not change is noise about an event that did not happen."""
+    import time as _t
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch, "trialing")
+    user_store.update_subscription(u["id"], "cus_new", "trialing",
+                                   int(_t.time()) + 7 * 86400)
+    said = []
+
+    async def _bcast(msg, user_id=None):
+        said.append(msg)
+    monkeypatch.setattr(api, "broadcast", _bcast)
+
+    async def _lookup(sid):
+        return "cus_new", "trialing", int(_t.time()) + 7 * 86400
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    c.get("/billing/success?session_id=cs_1", follow_redirects=False)
+    assert said == [], f"toasted about an unchanged status: {said}"
+
+
+def test_the_self_heal_grants_nothing_on_an_unpaid_session(tmp_path, monkeypatch):
+    """Failing open here would hand the product to anyone who can guess a
+    session id."""
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+
+    async def _lookup(sid):
+        return "cus_new", "incomplete", 0
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    c.get("/billing/success?session_id=cs_bad", follow_redirects=False)
+    assert user_store.get_by_id(u["id"])["subscription_status"] == "none"
+
+
+def test_the_self_heal_grants_nothing_when_stripe_cannot_be_reached(tmp_path, monkeypatch):
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+
+    async def _lookup(sid):
+        return None, None, 0
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    r = c.get("/billing/success?session_id=cs_x", follow_redirects=False)
+    assert r.status_code in (302, 307)          # never a 500 in front of a payer
+    assert user_store.get_by_id(u["id"])["subscription_status"] == "none"
+
+
+def test_a_paid_subscription_with_no_trial_clears_the_trial_date(tmp_path, monkeypatch):
+    import time as _t
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+
+    async def _lookup(sid):
+        return "cus_new", "active", 0
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    c.get("/billing/success?session_id=cs_1", follow_redirects=False)
+    after = user_store.get_by_id(u["id"])
+    assert after["subscription_status"] == "active"
+    assert after["trial_ends_at"] == 0
+
+
+# ── the webhook, end to end ──────────────────────────────────────────────────
+# Mutation testing found these missing. sync_subscription_event and
+# extract_trial_end were each covered in isolation, and /billing/success was
+# covered, but nothing drove _process_stripe_event itself — which is the
+# PRIMARY path that grants access. Five separate breakages walked straight
+# through: the trial end never stored, an unrelated event blanking it, the free
+# week never burned, and the two status paths.
+
+import time as _time
+
+import pytest
+
+
+@pytest.fixture
+def hook(tmp_path, monkeypatch):
+    """A user with a Stripe customer, ready to receive webhook events."""
+    from src.dashboard import api
+    from src.auth import users as user_store, trial_ledger
+
+    monkeypatch.setattr(user_store, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(user_store, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    monkeypatch.setattr(trial_ledger, "_LEDGER_FILE", tmp_path / "trials.json")
+    monkeypatch.setattr(api, "_stripe_processed", {})
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+    monkeypatch.setattr(api, "_enforce_stream_limit", _noop, raising=False)
+    # The outside world. None of it is what these tests are about.
+    monkeypatch.setattr(sb, "customer_email", _noop)
+    monkeypatch.setattr(sb, "cancel_duplicate_subscriptions", _noop)
+
+    async def _others(*a, **k):
+        return False
+    monkeypatch.setattr(sb, "has_other_live_subscription", _others)
+    monkeypatch.setattr(sb, "plan_for_price", lambda p: None)
+    monkeypatch.setattr(sb, "extract_promo_id", lambda e: None)
+
+    u = user_store.upsert_twitch_user("tw_hook", "nova", "nova")
+    user_store.update_subscription(u["id"], "cus_hook", "none")
+    return api, user_store, trial_ledger, u
+
+
+def _fire(api, event):
+    import asyncio
+    return asyncio.run(api._process_stripe_event(event, _time.time(), event["id"]))
+
+
+def _ev(etype, status, user, *, trial_end=None, cust="cus_hook", eid="evt_x"):
+    obj = {"id": "sub_1", "customer": cust, "status": status,
+           "metadata": {"user_id": user["id"]}}
+    if trial_end is not None:
+        obj["trial_end"] = trial_end
+    return {"id": eid, "type": etype, "data": {"object": obj}}
+
+
+def test_the_webhook_grants_a_stripe_trial_and_stores_its_end_date(hook):
+    """The countdown the dashboard shows is this number. Without it the user
+    sees "0 days left" on day one of a trial they just paid for."""
+    api, store, ledger, u = hook
+    ends = int(_time.time()) + 7 * 86400
+    _fire(api, _ev("customer.subscription.created", "trialing", u, trial_end=ends))
+    after = store.get_by_id(u["id"])
+    assert after["subscription_status"] == "trialing"
+    assert after["trial_ends_at"] == ends, "the trial end date was not stored"
+
+
+def test_the_webhook_burns_the_free_week_when_stripe_starts_one(hook):
+    """Not at signup — a look-around must not cost the week — and not at
+    checkout creation, because an abandoned session costs nothing. Here."""
+    api, store, ledger, u = hook
+    _fire(api, _ev("customer.subscription.created", "trialing", u,
+                   trial_end=int(_time.time()) + 7 * 86400))
+    assert ledger.has_used_trial("twitch", "tw_hook"), \
+        "the free week was never recorded — it is farmable"
+
+
+def test_the_trial_converting_clears_the_end_date(hook):
+    """Day 7: the card is charged. A leftover date has the dashboard counting
+    down to a day that means nothing."""
+    api, store, ledger, u = hook
+    ends = int(_time.time()) + 7 * 86400
+    _fire(api, _ev("customer.subscription.created", "trialing", u, trial_end=ends))
+    _fire(api, _ev("customer.subscription.updated", "active", u, eid="evt_y"))
+    after = store.get_by_id(u["id"])
+    assert after["subscription_status"] == "active"
+    assert after["trial_ends_at"] == 0
+
+
+def test_an_unrelated_event_does_not_blank_a_live_trials_end_date(hook):
+    """The reason the trial end is None rather than 0 on other statuses.
+    Blanking it would drop the user's countdown to zero — and, before the
+    access gate learned to require `> 0`, would have expired them outright."""
+    api, store, ledger, u = hook
+    ends = int(_time.time()) + 7 * 86400
+    _fire(api, _ev("customer.subscription.created", "trialing", u, trial_end=ends))
+    _fire(api, _ev("customer.subscription.updated", "past_due", u, eid="evt_z"))
+    assert store.get_by_id(u["id"])["trial_ends_at"] == ends, \
+        "an unrelated event wiped the trial end date"
+
+
+def test_a_trial_with_no_end_date_from_stripe_still_grants_access(hook):
+    """Belt and braces on the same guard, from the webhook side."""
+    api, store, ledger, u = hook
+    _fire(api, _ev("customer.subscription.created", "trialing", u))
+    after = store.get_by_id(u["id"])
+    assert after["subscription_status"] == "trialing"
+    from src.billing.plans import get_plan
+    assert get_plan(after) == "pro"
+
+
+def test_me_tells_a_card_up_front_trial_from_an_admin_comp(hook, monkeypatch):
+    """They need opposite advice: one converts by itself and wants a cancel
+    link, the other really does stop and wants a Subscribe button. Getting it
+    backwards sends a paying customer into a second checkout."""
+    import base64, json as _j
+    from itsdangerous import TimestampSigner
+    from fastapi.testclient import TestClient
+    api, store, ledger, u = hook
+
+    def _me_for(user_id):
+        c = TestClient(api.app)
+        signer = TimestampSigner(api.settings.dashboard_secret_key)
+        c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+            {"auth": True, "user_id": user_id, "username": "nova",
+             "is_admin": False, "subscription_status": "trialing"}).encode())).decode())
+        return c.get("/me").json()
+
+    # Card up front: the webhook has linked a Stripe customer.
+    _fire(api, _ev("customer.subscription.created", "trialing", u,
+                   trial_end=int(_time.time()) + 7 * 86400))
+    assert _me_for(u["id"])["trial_converts"] is True
+
+    # Admin comp: app-managed, no Stripe customer anywhere.
+    comp = store.upsert_twitch_user("tw_comp2", "comped", "comped")
+    store.grant_trial(comp["id"], days=14)
+    assert _me_for(comp["id"])["trial_converts"] is False
+
+
+def test_the_checkout_guard_records_a_live_trial_as_trialing(hook, monkeypatch):
+    """The webhook-latency self-heal inside /billing/checkout. It used to write
+    "active" for both live states, which tells somebody mid-trial that they are
+    being billed — and this path exists precisely for the seconds right after a
+    card-up-front trial starts, which is now the likeliest time to hit it."""
+    import base64, json as _j
+    from itsdangerous import TimestampSigner
+    from fastapi.testclient import TestClient
+    api, store, ledger, u = hook
+
+    async def _live(cust):
+        return "trialing"
+    monkeypatch.setattr(sb, "live_subscription_status", _live)
+    # Without these the endpoint 503s ("Stripe not configured") before it ever
+    # reaches the self-heal, and the test would pass for the wrong reason.
+    monkeypatch.setattr(api.settings, "stripe_secret_key", "sk_test")
+    monkeypatch.setattr(api.settings, "stripe_price_id_pro", "price_pro")
+
+    c = TestClient(api.app)
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+        {"auth": True, "user_id": u["id"], "username": "nova",
+         "is_admin": False, "subscription_status": "none"}).encode())).decode())
+    c.get("/billing/checkout?plan=pro", follow_redirects=False)
+    assert store.get_by_id(u["id"])["subscription_status"] == "trialing", \
+        "a live trial was recorded as an active paid subscription"

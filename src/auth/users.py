@@ -193,21 +193,23 @@ def upsert_twitch_user(
         _save(users)
         return _public(existing)
 
-    # Brand-new account: starts a 7-day self-serve trial, no card. This is the
-    # only place a trial is granted automatically; grant_trial stays for admin
-    # comps.
+    # Brand-new account. NO ACCESS IS GRANTED HERE ANY MORE.
     #
-    # ONE TRIAL PER TWITCH ACCOUNT, ENFORCED OUTSIDE users.json. This branch only
-    # runs when no account exists for the id, so signing in again never restarts
-    # the clock — but DELETE /account is user-facing, and deleting the row makes
-    # this branch reachable again. The ledger is the record that deletion cannot
-    # reach; without it the 7-day trial is renewable forever by anyone who
-    # notices. A returning burner lands on `expired`, which get_plan resolves to
-    # `locked`, so they see the paywall rather than another free week.
-    from src.auth import trial_ledger
-    trial_used = (not is_admin) and trial_ledger.has_used_trial("twitch", twitch_id)
-    grant_trial_now = (not is_admin) and not trial_used
-
+    # The 7 free days still exist, but they are Stripe's now, not ours: the user
+    # goes through Checkout, enters a card, and Stripe bills nothing until day
+    # 7. This branch used to hand out `trialing` + a trial_ends_at with no card
+    # on file, so a trial ending meant asking someone to come back and pay.
+    #
+    # `none`, deliberately, NOT `expired`. get_plan sends both to `locked`, so
+    # access is identical — but the paywall reads this string to choose its
+    # copy, and `expired` selects "Your free trial has ended", which is a lie
+    # told to somebody who has not started one. `none` falls through to the
+    # welcome variant.
+    #
+    # The trial ledger is no longer written here. A signup is not a trial any
+    # more; the free week is claimed at checkout and burned in the webhook when
+    # a trialing subscription actually appears. Signing up and never entering a
+    # card must not spend somebody's one free week.
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
@@ -221,23 +223,56 @@ def upsert_twitch_user(
         "tw_refresh":           enc_refresh,
         "tw_expires_at":        expires_at,
         "stripe_customer_id":   None,
-        "subscription_status":  ("active" if is_admin
-                                 else ("trialing" if grant_trial_now else "expired")),
-        "trial_ends_at":        (now + TRIAL_DAYS * 86400) if grant_trial_now else 0,
+        "subscription_status":  "active" if is_admin else "none",
+        "trial_ends_at":        0,
         # Explicitly NOT grandfathered: this account never had the free tier, so
-        # when its trial runs out it locks rather than falling back to free.
+        # with no subscription it locks rather than falling back to free.
         "grandfathered":        False,
+        # Explicitly NOT pre-cutover: this account signed up under card-required
+        # terms and is subject to them. See mark_pre_card_cutover_accounts.
+        "pre_card_cutover":     False,
         "created_at":           now,
     }
     users.append(user)
     _save(users)
-    # Recorded AFTER the account is safely written: a ledger entry with no
-    # account behind it would burn somebody's trial on a failed signup.
-    if grant_trial_now:
-        trial_ledger.record_trial("twitch", twitch_id)
-    elif trial_used:
-        _ulog.info("trial_reuse_blocked twitch_login=%s", login)
     return _public(user)
+
+
+def mark_pre_card_cutover_accounts() -> int:
+    """Mark every account that predates card-required signup.
+
+    Signing up used to grant 7 free days with no card. It now sends you to
+    Stripe Checkout to put a card on file. The instruction for everyone already
+    here is that nothing changes, and this flag is what makes that true — it is
+    read wherever the new terms would otherwise reach backwards:
+
+      * _checkout_trial_days gives them 0, so a subscription they start bills
+        immediately, exactly as it does today. Not a punishment: they already
+        had their free access, and handing them a second free week would be a
+        change to their terms too.
+      * Their in-flight app-managed trials are untouched. This function does not
+        look at subscription_status and does not clear trial_ends_at, so a user
+        three days into a no-card trial keeps all seven and needs no card.
+
+    Runs once at boot and is idempotent: an account already carrying the flag is
+    skipped, and new accounts are created with it explicitly False, so a second
+    run can never grandfather somebody who signed up after the cutover.
+
+    Deliberately NOT a date comparison, for the same reason grandfather_existing_
+    accounts is not one: created_at cannot separate a pre-cutover account from a
+    post-cutover one once the boundary moment has passed and the process has
+    restarted. Only a mark written once, at the boundary, can.
+    """
+    users = _load()
+    marked = 0
+    for u in users:
+        if "pre_card_cutover" not in u:
+            u["pre_card_cutover"] = True
+            marked += 1
+    if marked:
+        _save(users)
+        _ulog.info("marked %d accounts as predating card-required signup", marked)
+    return marked
 
 
 def grandfather_existing_accounts() -> int:
@@ -393,14 +428,27 @@ def set_review_prompt_state(user_id: str, state: dict) -> None:
             return
 
 
-def update_subscription(user_id: str, customer_id: str | None, status: str) -> None:
-    """Called by Stripe webhook to sync subscription state by user ID."""
+def update_subscription(user_id: str, customer_id: str | None, status: str,
+                        trial_ends_at: float | None = None) -> None:
+    """Called by Stripe webhook to sync subscription state by user ID.
+
+    `trial_ends_at` is Stripe's own trial_end, passed only for a card-up-front
+    trial. Stored so the countdown the dashboard shows is the date the card is
+    actually charged rather than a second clock of our own.
+
+    None means "leave whatever is there alone" — most callers know nothing
+    about trials and must not blank an app-managed trial's end date on an
+    unrelated status change. Passing 0 explicitly does clear it, which is what
+    leaving a trial for a real subscription should do.
+    """
     users = _load()
     for u in users:
         if u["id"] == user_id:
             if customer_id:
                 u["stripe_customer_id"] = customer_id
             u["subscription_status"] = status
+            if trial_ends_at is not None:
+                u["trial_ends_at"] = trial_ends_at
             break
     _save(users)
 
@@ -541,7 +589,8 @@ def grant_plan(user_id: str, plan: str) -> dict | None:
     return None
 
 
-def update_subscription_by_customer(customer_id: str, status: str) -> str | None:
+def update_subscription_by_customer(customer_id: str, status: str,
+                                    trial_ends_at: float | None = None) -> str | None:
     """Update subscription status when only the Stripe customer ID is known.
     Returns the affected user's ID, or None if not found."""
     users = _load()
@@ -549,6 +598,8 @@ def update_subscription_by_customer(customer_id: str, status: str) -> str | None
     for u in users:
         if u.get("stripe_customer_id") == customer_id:
             u["subscription_status"] = status
+            if trial_ends_at is not None:
+                u["trial_ends_at"] = trial_ends_at
             found_id = u["id"]
             break
     _save(users)

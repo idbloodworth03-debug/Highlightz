@@ -178,6 +178,46 @@ switched off.
   fixed wording, "7 days free, no credit card required", pinned by
   tests/test_no_free_tier_claim.py. Do not strip that copy on the strength of
   an old note; check plans.py.
+- **CARD REQUIRED AT SIGNUP (cutover 2026-08-24).** Signing up grants
+  NOTHING: `subscription_status="none"` -> get_plan `locked`. The 7 free days
+  are now STRIPE'S trial, claimed at checkout —
+  `create_checkout_url(..., trial_days=7)` sets `trial_period_days` and pins
+  `payment_method_collection="always"` (Stripe's default for a trialing
+  Checkout is `if_required`, which would create the trial with NO card and
+  silently undo the whole change). Access then arrives as a Stripe
+  `trialing` subscription.
+  - `sync_subscription_event` no longer folds `trialing` into `active` —
+    "we hold their card, first charge on day 7" is a different fact from
+    "we have charged them", and the dashboard says so to the user.
+  - **THE TRAP**: the auth-middleware gate reads
+    `status == "trialing" and trial_ends_at > 0 and time.time() >= trial_ends_at`.
+    The `> 0` is load-bearing. Without it a Stripe trial (no app-managed end
+    date) hits `time.time() >= 0`, which is always true — the customer is
+    expired, streams stopped, "your trial has ended" toast, at the instant
+    they pay. Do not "simplify" it.
+  - `/billing/success` SELF-HEALS off the checkout session id rather than
+    trusting the webhook. Access used to come from the app, so a missed
+    webhook cost billing state but not access; now it would mean paid-and-
+    locked. Webhook is still primary.
+  - **WHO GETS FREE DAYS** (`_checkout_trial_days`): 0 for `pre_card_cutover`
+    accounts, 0 for anyone in the trial ledger, else TRIAL_DAYS. The free week
+    is burned in the webhook when Stripe actually starts a trial — not at
+    signup (a look-around must not cost it) and not at checkout creation (an
+    abandoned session costs nothing).
+  - **GRANDFATHERING**: `mark_pre_card_cutover_accounts()` runs once at boot
+    beside `grandfather_existing_accounts()`, marks every account missing the
+    key, new accounts carry it explicitly False. Frozen in BOTH directions —
+    they keep their access AND a subscription they start bills immediately, as
+    it does today. It does not read subscription_status or trial_ends_at, so
+    an in-flight no-card trial runs to its own date untouched. Explicit mark,
+    never a date comparison (created_at cannot separate the groups once the
+    boundary has passed).
+  - Copy: every public page says "card required" AND "cancel before day 7";
+    `test_no_free_tier_claim.py` bans the old "no credit card" family outright.
+- **Admin comps are unchanged**: still app-managed, still no card, still no
+  Stripe. `/me` exposes `trial_converts` so the dashboard can tell the two
+  kinds of trial apart — a card-up-front trial gets "Manage billing", a comp
+  gets "Subscribe". Getting that backwards sends a payer into a 2nd checkout.
 - **Free access exists only as an admin-granted timed trial**: /admin panel
   → "Trial…" dropdown per user (3d/1w/2w/1m/3m) → POST
   `/admin/users/{id}/grant-trial {days:1..365}`. Sets app-managed

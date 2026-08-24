@@ -540,6 +540,11 @@ async def main() -> None:
     # replaced the free tier keeps free access permanently. Must run BEFORE any
     # request is served, or a legacy user could be told their trial ended.
     user_store.grandfather_existing_accounts()
+    # One-time, idempotent: everyone who signed up while the trial needed no
+    # card keeps their existing terms. Must run BEFORE any request is served —
+    # an unmarked pre-cutover account that reaches checkout first would be
+    # handed the new terms instead of its own.
+    user_store.mark_pre_card_cutover_accounts()
     # Seed the trial ledger from accounts that predate it, or every existing
     # user could still delete-and-return for another free week.
     from src.auth import trial_ledger as _trial_ledger

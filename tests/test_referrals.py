@@ -95,16 +95,17 @@ def test_the_callback_reads_the_ref_before_clearing_the_session():
     assert read_at < clear_at, "the ref is read after the session is wiped"
 
 
-def test_the_landing_page_advertises_the_free_plan():
+def test_the_landing_page_still_offers_a_way_in_without_paying_first():
     """Every signup from the outreach accounts arrives here. Advertising
-    $10/$25 with no free option contradicts the product they are signing up
-    for."""
+    $10/$25 with no way to try it contradicts the product they are signing up
+    for — and now that a card is required, the page has to say BOTH halves or
+    the outreach promise and the signup form disagree."""
     from src.dashboard.api import LANDING_HTML
     # The free ENTRY POINT is now a 7-day trial rather than a free tier, but the
     # thing this test protects is unchanged: an outreach signup must not land on
     # a page that asks for money with no way to try the product first.
     assert "Start free" in LANDING_HTML   # button copy tightened in the pricing rewrite
-    assert "no credit card" in LANDING_HTML.lower()
+    assert "card required" in LANDING_HTML.lower()
     assert "7" in LANDING_HTML and "days free" in LANDING_HTML.lower()
 
 

@@ -500,8 +500,11 @@ _DESC = ("Step-by-step guide to Highlightz: connect Twitch, monitor a live chann
          "review and approve automatic clips, scan past VODs, and manage your plan. "
          # "Free to start" survived here after the free-tier claims were cleared
          # out of the visible copy, because it is a meta description and nothing
-         # was reading it. There is no free tier: new accounts get the trial.
-         "7 days free, no credit card required.")
+         # was reading it. Then "no credit card required" survived the card
+         # cutover in the same spot, for the same reason. A meta description is
+         # exactly where a stale promise hides: invisible on the page, and the
+         # first thing a search result quotes.
+         "7 days free, card required, cancel before day 7.")
 
 
 def render() -> str:

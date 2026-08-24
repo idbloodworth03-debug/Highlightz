@@ -2196,7 +2196,16 @@ function AccountScreen({ me }) {
               <Icon name="zap" size={14}/>Upgrade
             </a>
           </div>}
-          {isTrial && <div className="rd-field">
+          {/* Two kinds of trial, opposite advice. A card-up-front trial is
+              already a subscription and converts on its own — telling that
+              user to subscribe would send them into a second checkout. An
+              admin comp has no card and really does just stop. me.trial_converts
+              is true only for the first. */}
+          {isTrial && me.trial_converts && <div className="rd-field">
+            <div><div className="fl">Free trial active</div><div className="fd">Full access. Your card is charged when the {trialDays===1?'last day':`${trialDays} days`} run out — cancel before then and you pay nothing.</div></div>
+            <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
+          </div>}
+          {isTrial && !me.trial_converts && <div className="rd-field">
             <div><div className="fl">Free trial active</div><div className="fd">Enjoy full access while it lasts — subscribe to keep clipping after it ends</div></div>
             <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Subscribe
@@ -4893,8 +4902,8 @@ function RdApp() {
         </header>
         {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c79bff',fontWeight:600}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
-          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#9c9caa',fontWeight:500}}>Subscribe to keep access when it ends — promo codes get 50% off your first month.</span></span>
-          <a href="/billing/checkout" style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Subscribe</a>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#9c9caa',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
+          <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
         <main className="rd-screen">{screen}</main>
       </div>

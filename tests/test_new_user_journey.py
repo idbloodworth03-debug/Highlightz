@@ -5,15 +5,24 @@ somebody who signs up RIGHT NOW hit a wall anywhere? Each test drives the real
 app through the real signup path — upsert_twitch_user, the same call the OAuth
 callback makes — and then exercises a feature the way the dashboard does.
 
-WHAT A NEW SIGNUP GETS. plans.py grants a 7-day trial with no card, and
-get_plan resolves `trialing` to pro. So a new user is entitled to everything:
-10 streams, a 200-clip queue, the VOD scanner and the Clip Editor. That is the
-whole point of the trial, and it means a gate that wrongly refuses them is
-invisible in testing against a free or locked account.
+WHAT A NEW SIGNUP GETS. Nothing, until a card goes in. Signing up used to hand
+out 7 free days; it now lands on `locked` and sends them to Checkout, where
+Stripe takes a card and starts the free week. So this file walks TWO people:
+
+  * the signed-up-but-not-yet-subscribed user, who must be able to open every
+    screen and be shown a way to pay — walled, never stranded; and
+  * the user one step further on, whose Stripe trial has started. `trialing`
+    resolves to pro, so they are entitled to everything: 10 streams, a 200-clip
+    queue, the VOD scanner and the Clip Editor.
+
+The entitlement half is the half that matters most, because a gate that
+wrongly refuses is invisible when tested against a locked account — it looks
+exactly like the wall that is supposed to be there.
 
 Deliberately NOT mocked: the plan resolution, the limit lookups and every
 gate. Only the outside world is stubbed — Twitch, Redis, Stripe — because
 those are not what this is asking about.
+
 """
 
 import base64
@@ -73,7 +82,33 @@ def app(monkeypatch, tmp_path):
              "subscription_status": u["subscription_status"]}).encode())).decode())
         return u
 
+    def subscribe(user, plan="pro", days=7):
+        """The state Stripe leaves them in after Checkout takes their card.
+
+        Written straight to the store rather than driven through the webhook,
+        because what is under audit here is the ENTITLEMENT — what a trialing
+        user may do — not how the status got there. test_billing.py owns the
+        webhook path.
+        """
+        user_store.update_subscription(user["id"], "cus_test", "trialing",
+                                       time.time() + days * 86400)
+        user_store.set_plan(user["id"], plan)
+        c.cookies.clear()
+        c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+            {"auth": True, "user_id": user["id"],
+             "username": user.get("username", "newbie"), "is_admin": False,
+             "subscription_status": "trialing"}).encode())).decode())
+        return user_store.get_by_id(user["id"])
+
+    def onboard(**kw):
+        """Sign up AND get through checkout — the entitled user."""
+        u = signup(**kw)
+        subscribe(u)
+        return u
+
     c.signup = signup
+    c.subscribe = subscribe
+    c.onboard = onboard
     c.api = api
     c.store = user_store
     c.tmp = tmp_path
@@ -82,17 +117,43 @@ def app(monkeypatch, tmp_path):
 
 # ── what they land on ────────────────────────────────────────────────────────
 
-def test_a_new_signup_lands_on_a_trial(app):
+def test_a_new_signup_lands_locked_until_they_enter_a_card(app):
+    """The cutover. Signing up used to be seven free days; it is now the
+    doorstep."""
+    from src.billing.plans import get_plan
     u = app.signup()
-    assert u["subscription_status"] == "trialing"
-    assert u["trial_ends_at"] > time.time()
+    assert u["subscription_status"] == "none"
+    assert u["trial_ends_at"] == 0
+    assert get_plan(app.store.get_by_id(u["id"])) == "locked"
+
+
+def test_a_locked_new_user_is_walled_but_never_stranded(app):
+    """Being unable to use the product yet is the design. Being unable to find
+    the way to pay for it is a dead end, and this is the exact account that
+    meets it."""
+    app.signup()
+    me = app.get("/me").json()
+    assert me["plan"] == "locked"
+    assert me["plan_limits"]["max_streams"] == 0
+    nxt = app.api._next_tier(app.store.get_by_id(me["user_id"])) \
+        if "user_id" in me else app.api._next_tier({"subscription_status": "none"})
+    assert nxt is not None, "a locked new user is offered no way to subscribe"
+    assert app.get("/billing/paywall").status_code == 200
+
+
+def test_a_locked_new_user_cannot_add_a_stream(app):
+    """The wall itself. If this ever passed, the product would be free."""
+    app.signup()
+    r = app.post("/streams", json={"channel": "lacy", "platform": "twitch",
+                                   "preset": "default"})
+    assert r.status_code != 201, "a user with no card added a stream"
 
 
 def test_the_trial_resolves_to_the_full_product(app):
     """If this ever resolved to free or locked, every gate below would refuse
     them and the trial would sell nothing."""
     from src.billing.plans import get_plan, limits_for
-    u = app.signup()
+    u = app.onboard()
     full = app.store.get_by_id(u["id"])
     assert get_plan(full) == "pro"
     lim = limits_for(full)
@@ -106,7 +167,7 @@ def test_me_reports_the_same_thing_the_backend_enforces(app):
     """The dashboard hides screens based on /me. If it disagrees with the
     gates, the user sees a locked screen for something they may use — or an
     open one that 403s when they touch it."""
-    app.signup()
+    app.onboard()
     me = app.get("/me").json()
     assert me["plan"] == "pro"
     assert me["plan_limits"]["vod"] is True
@@ -152,7 +213,7 @@ def test_the_public_pages_all_load(app, path):
 # ── the things they can actually do ──────────────────────────────────────────
 
 def test_they_can_add_a_stream(app):
-    app.signup()
+    app.onboard()
     r = app.post("/streams", json={"channel": "lacy", "platform": "twitch",
                                    "preset": "default"})
     assert r.status_code == 201, r.text
@@ -160,7 +221,7 @@ def test_they_can_add_a_stream(app):
 
 def test_they_can_add_up_to_ten_streams(app):
     """Pro is sold as 10. The eleventh is the one that should refuse."""
-    app.signup()
+    app.onboard()
     for i in range(10):
         r = app.post("/streams", json={"channel": f"chan{i}", "platform": "twitch",
                                        "preset": "default"})
@@ -171,7 +232,7 @@ def test_they_can_add_up_to_ten_streams(app):
 
 
 def test_they_can_remove_a_stream(app):
-    app.signup()
+    app.onboard()
     app.post("/streams", json={"channel": "lacy", "platform": "twitch",
                                "preset": "default"})
     assert app.delete("/streams/lacy").status_code == 204
@@ -207,7 +268,7 @@ def test_they_can_start_a_vod_scan(app, monkeypatch):
     """Pro-gated, and a trial is pro. A 403 here means the trial does not
     include what the pricing page says it includes."""
     from src.dashboard import api
-    app.signup()
+    app.onboard()
 
     async def _run(*a, **k):
         return None
@@ -283,19 +344,20 @@ def test_a_new_user_cannot_see_another_users_clips(app):
     assert ids == {"mine"}
 
 
-def test_a_second_account_on_the_same_twitch_id_gets_no_second_trial(app):
-    """The ledger survives account deletion on purpose. Re-running signup for
-    the same twitch id must not restart the clock."""
+def test_a_second_account_on_the_same_twitch_id_gets_no_second_free_week(app):
+    """The ledger survives account deletion on purpose. Deleting and coming
+    back must not buy another free week — which now means Checkout offers them
+    zero free days, not that signup refuses them."""
     from src.auth import trial_ledger
-    u = app.signup(twitch_id="555", login="dave")
-    assert u["subscription_status"] == "trialing"
+    u = app.onboard(twitch_id="555", login="dave")
+    trial_ledger.record_trial("twitch", "555")   # Stripe started their trial
     app.delete("/account")
     again = app.store.upsert_twitch_user(
         twitch_id="555", login="dave", username="dave",
         access_token="at", refresh_token="rt", expires_in=3600)
-    assert again["subscription_status"] != "trialing", \
-        "deleting the account bought a second free trial"
     assert trial_ledger.has_used_trial("twitch", "555")
+    assert app.api._checkout_trial_days(app.store.get_by_id(again["id"])) == 0, \
+        "deleting the account bought a second free week"
 
 
 # ── today's changes, against a brand-new account ─────────────────────────────
@@ -313,6 +375,6 @@ def test_a_new_users_first_clips_are_not_swept_by_the_seven_day_retention(app):
 def test_the_admin_cap_lift_did_not_change_what_a_new_user_gets(app):
     """limits_for grew an admin branch today. A non-admin must be untouched."""
     from src.billing.plans import PLAN_LIMITS, limits_for
-    u = app.signup()
+    u = app.onboard()
     full = app.store.get_by_id(u["id"])
     assert limits_for(full)["max_pending"] == PLAN_LIMITS["pro"]["max_pending"] == 200

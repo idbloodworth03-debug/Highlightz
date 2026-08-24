@@ -20,13 +20,27 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
 
 
 async def create_checkout_url(user_id: str, username: str, price_id: str,
-                              customer_id: str | None = None) -> str:
+                              customer_id: str | None = None,
+                              trial_days: int = 0) -> str:
     """Create a Stripe Checkout session for the given recurring price and
     return its URL.
 
-    Billing starts immediately — there is no self-serve free trial. (Free access
-    is granted only by an admin through the dashboard, app-managed via
-    subscription_status='trialing' + trial_ends_at, with no Stripe involvement.)
+    A CARD IS ALWAYS COLLECTED, trial or not. That is the whole point of the
+    cutover: the free days used to be app-managed with no card on file, so a
+    trial ending meant asking someone to come back and pay, and most did not.
+    Now Stripe holds the card from minute one and charges it on day
+    `trial_days` unless they cancel first.
+
+    `trial_days=0` means bill immediately — a returning subscriber, or anyone
+    who has already used their one trial. The caller decides that; this
+    function does not know who has had what.
+
+    payment_method_collection is pinned to 'always' rather than left to
+    default. Stripe's default for a trialing subscription in Checkout is
+    'if_required', which will happily create a trial with NO card when the
+    amount due today is zero — silently reproducing exactly the situation this
+    change exists to end, and only for trial checkouts, which is the hardest
+    kind of bug to notice.
 
     When the user already has a Stripe customer, pass customer_id so the new
     subscription lands on the SAME customer — otherwise every checkout mints a
@@ -35,14 +49,18 @@ async def create_checkout_url(user_id: str, username: str, price_id: str,
     """
     client = _client()
     base = "https://highlightz.app"
+    sub_data: dict = {"metadata": {"user_id": user_id}}
+    if trial_days > 0:
+        sub_data["trial_period_days"] = int(trial_days)
     params: dict = {
         "mode":                 "subscription",
         "payment_method_types": ["card"],
+        "payment_method_collection": "always",
         "line_items":           [{"price": price_id, "quantity": 1}],
         "success_url":          f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url":           f"{base}/billing/cancel",
         "metadata":             {"user_id": user_id, "username": username},
-        "subscription_data":    {"metadata": {"user_id": user_id}},
+        "subscription_data":    sub_data,
         # Show the "Add promotion code" box on the hosted checkout page. The
         # actual discount (50% off first month) is a Coupon + Promotion Code
         # created in the Stripe dashboard (duration: once). Stripe validates the
@@ -330,6 +348,64 @@ async def live_subscription_status(customer_id: str) -> str | None:
         return None
 
 
+async def subscription_from_checkout_session(session_id: str):
+    """(customer_id, status, trial_end) for a just-completed Checkout session.
+
+    THE FAILURE THIS EXISTS FOR. Access used to come from the app: a new signup
+    was granted a trial locally, so a webhook that never arrived cost us the
+    right billing state but not the customer's access. That is no longer true.
+    Access now comes from the Stripe subscription and nothing else, so a
+    webhook endpoint missing `customer.subscription.created` — the single most
+    likely Stripe misconfiguration there is — means somebody enters their card
+    and lands back on a locked dashboard.
+
+    Stripe redirects through /billing/success with the session id in the URL,
+    which is a fact we hold and the webhook does not require. Asking Stripe
+    directly at that moment closes the hole without waiting for anything.
+
+    Returns (None, None, 0) on any error. This is a belt-and-braces path, not
+    the primary one: if it cannot reach Stripe, the webhook is still coming.
+    """
+    if not (settings.stripe_secret_key and session_id):
+        return None, None, 0
+    try:
+        client = _client()
+        sess = client.checkout.sessions.retrieve(
+            session_id, params={"expand": ["subscription"]})
+        get = (lambda o, k: o.get(k) if isinstance(o, dict) else getattr(o, k, None))
+        sub = get(sess, "subscription")
+        cust = get(sess, "customer")
+        if isinstance(cust, dict):
+            cust = cust.get("id")
+        elif cust is not None and not isinstance(cust, str):
+            cust = getattr(cust, "id", None)
+        if not sub:
+            return cust, None, 0
+        if isinstance(sub, str):
+            # Not expanded (older API behaviour) — fetch it directly.
+            sub = client.subscriptions.retrieve(sub)
+        raw = get(sub, "status") or ""
+        try:
+            trial_end = int(get(sub, "trial_end") or 0)
+        except (TypeError, ValueError):
+            trial_end = 0
+        # Same mapping the webhook applies, so both doors agree about what a
+        # trialing subscription is called on our side.
+        if raw == "trialing":
+            status = "trialing"
+        elif raw in ACTIVE_STATUSES:
+            status = "active"
+        elif raw in ("canceled", "unpaid", "incomplete_expired"):
+            status = "inactive"
+        else:
+            status = raw
+        return cust, status, trial_end
+    except Exception as exc:
+        log.warning("stripe_checkout_session_lookup_failed",
+                    session=session_id, error=str(exc))
+        return None, None, 0
+
+
 # Portal configuration id resolved at runtime; cached so we don't re-list /
 # re-create it on every "Manage billing" click.
 _portal_config_id: str | None = None
@@ -612,8 +688,21 @@ def sync_subscription_event(event: dict) -> tuple[str | None, str | None, str]:
     raw_status = sub.get("status", "")
     user_id  = sub.get("metadata", {}).get("user_id")
 
-    # Map Stripe statuses to our simple model
-    if raw_status in ACTIVE_STATUSES:
+    # Map Stripe statuses to our simple model.
+    #
+    # `trialing` is NO LONGER folded into `active`, and that distinction now
+    # carries weight it did not before. Until signups required a card, no Stripe
+    # subscription could ever be trialing — the 7 free days were app-managed and
+    # Stripe knew nothing about them — so collapsing the two was free. Now the
+    # trial IS the Stripe subscription's opening state, and the difference is
+    # the difference between "we have charged this person" and "we have their
+    # card and will charge them on day 7". The dashboard says so to their face,
+    # so it has to be true.
+    #
+    # Both still mean full access: ACTIVE_STATUSES in plans.py covers each.
+    if raw_status == "trialing":
+        status = "trialing"
+    elif raw_status in ACTIVE_STATUSES:
         status = "active"
     elif raw_status in ("canceled", "unpaid", "incomplete_expired"):
         status = "inactive"
@@ -621,3 +710,18 @@ def sync_subscription_event(event: dict) -> tuple[str | None, str | None, str]:
         status = raw_status
 
     return cust_id, user_id, status
+
+
+def extract_trial_end(event: dict) -> int:
+    """When Stripe's trial on this subscription ends, as a unix timestamp.
+
+    0 when the subscription is not trialing. The app stores this so its own
+    countdown ("N days left") reflects Stripe's clock rather than a second one
+    of our own that could drift away from the date the card is actually
+    charged.
+    """
+    sub = (event.get("data", {}) or {}).get("object", {}) or {}
+    try:
+        return int(sub.get("trial_end") or 0)
+    except (TypeError, ValueError):
+        return 0

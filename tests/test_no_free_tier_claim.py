@@ -21,9 +21,9 @@ THE DURABLE FIX IS THE ASSERTION, NOT THE EDIT. The copy drifted from the code
 because nothing tied them together. These derive the numbers from PLAN_LIMITS,
 so changing a plan breaks the test rather than quietly making the page lie.
 
-A trial IS free, so "7 days free", "free trial" and "free with no card" are all
-fine and deliberately not matched. What is banned is `free` presented as a
-standing TIER alongside Starter and Pro.
+A trial IS free, so "7 days free" and "free trial" are fine and deliberately
+not matched. What is banned is `free` presented as a standing TIER alongside
+Starter and Pro.
 """
 
 import re
@@ -151,17 +151,29 @@ def test_the_free_plan_still_exists_for_grandfathered_accounts():
 
 
 # ── the offer, said the same way everywhere ──────────────────────────────────
-# ASKED FOR DIRECTLY: "7 days free with no credit card required, make sure it
-# says that on it." It already did — in five different phrasings. The hero said
-# "no credit card", pricing said "no credit card.", the FAQ said "Seven days
-# free with no credit card", the closing line said "no card", and the sign-in
-# badge said "no card required". Five ways of saying one thing reads as five
-# slightly different offers.
+# The trial used to need no card, and it was advertised in five different
+# phrasings — "no credit card", "no credit card.", "no card", "no card
+# required" — which reads as five slightly different offers. These tests were
+# written to pin one wording everywhere.
 #
-# These pin the exact wording on every page a visitor can reach before paying,
-# and ban the short forms so it cannot drift back.
+# THE OFFER HAS NOW CHANGED: signing up requires a card, and the 7 free days
+# are Stripe's trial. So this section flips. It bans the old promise outright —
+# that claim is now FALSE and is the single most damaging thing that could
+# survive the cutover, because somebody would read it, sign up, and find a card
+# form — and pins the two atoms of the new one.
+#
+# TWO ATOMS, not one sentence: "card required" is the part that changes what a
+# visitor has to do, and "cancel before day 7" is the part that makes it safe.
+# A page that says only the first is needlessly frightening; a page that says
+# only the second is not telling them about the card. Both, everywhere, or the
+# offer is being undersold or oversold somewhere.
 
-_OFFER = "no credit card required"
+_OFFER = "card required"
+_ESCAPE = "cancel before day 7"
+
+# What must never appear again. Every one of these was live on some page.
+_DEAD_CLAIMS = ("no credit card required", "no credit card", "no card required",
+                "no card.", "without a card", "cancel by closing the tab")
 
 
 def _public_pages() -> dict:
@@ -181,7 +193,50 @@ def _visible(html: str) -> str:
 
 def test_every_public_page_states_the_trial_the_same_way():
     for name, html in _public_pages().items():
-        assert _OFFER in html, f"{name} does not say {_OFFER!r}"
+        low = _visible(html).lower()
+        assert _OFFER in low, f"{name} does not say {_OFFER!r}"
+        assert _ESCAPE in low, f"{name} does not say {_ESCAPE!r}"
+
+
+@pytest.mark.parametrize("dead", _DEAD_CLAIMS)
+def test_the_old_no_card_promise_is_gone_everywhere(dead):
+    """THE claim that must not survive the cutover. It is now false, and it is
+    false in the most expensive direction: somebody reads it, signs up, and is
+    asked for a card they were told they would not need."""
+    pages = dict(_public_pages())
+    from src.dashboard.compare_html import render as compare_render
+    from src.dashboard import api
+    pages["compare"] = compare_render()
+    pages["paywall_new"] = str(api._paywall_copy("new"))
+    pages["paywall_trial_ended"] = str(api._paywall_copy("trial_ended"))
+    pages["paywall_returning"] = str(api._paywall_copy("returning"))
+    for name, html in pages.items():
+        assert dead not in _visible(html).lower(), \
+            f"{name} still promises: {dead!r}"
+
+
+def test_the_dashboard_does_not_promise_a_cardless_trial_either():
+    """Not a public page, but the first thing a new subscriber reads."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    low = DASHBOARD_HTML.lower()
+    for dead in ("no credit card", "no card required"):
+        assert dead not in low, f"the dashboard still promises: {dead!r}"
+
+
+def test_a_card_up_front_trial_is_not_told_to_subscribe_again():
+    """It already IS a subscription and converts by itself. "Subscribe to keep
+    access" would send a paying customer into a second checkout."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    assert "me.trial_converts" in DASHBOARD_HTML, \
+        "the dashboard cannot tell a card-up-front trial from an admin comp"
+
+
+def test_me_says_whether_a_trial_has_a_card_behind_it():
+    from src.dashboard import api
+    import inspect
+    src = inspect.getsource(api.me)
+    assert '"trial_converts"' in src
+    assert "stripe_customer_id" in src
 
 
 def test_the_trial_length_is_stated_as_a_numeral_everywhere():
@@ -193,21 +248,17 @@ def test_the_trial_length_is_stated_as_a_numeral_everywhere():
         assert "Seven days free" not in html, f"{name} spells the number out"
 
 
-@pytest.mark.parametrize("short", ["no card required", "no card.", "no credit card."])
-def test_the_short_forms_stay_gone(short):
-    """Each of these was live on a different page."""
-    for name, html in _public_pages().items():
-        assert short not in _visible(html), \
-            f"{name} is back to the short form: {short!r}"
-
-
 def test_the_hero_states_it_above_the_fold():
-    """The one place it has to be, and it was the dimmest text on the page."""
+    """The one place it has to be, and it was the dimmest text on the page.
+    The card requirement especially belongs here: burying it below the fold is
+    how a signup form becomes a surprise."""
     from src.dashboard.api import LANDING_HTML
     hero = LANDING_HTML[LANDING_HTML.index("<header class=\"wrap hero"):]
     hero = hero[:hero.index("</header>")]
-    assert "7 days free" in hero and _OFFER in hero, \
-        "the trial offer is no longer in the hero"
+    low = hero.lower()
+    assert "7 days free" in hero, "the trial offer is no longer in the hero"
+    assert _OFFER in low, "the hero does not mention the card"
+    assert _ESCAPE in low, "the hero names the card but not the way out"
 
 
 def test_the_offer_is_not_set_in_the_faintest_ink_on_the_page():

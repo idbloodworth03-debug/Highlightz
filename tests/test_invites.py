@@ -236,7 +236,13 @@ def test_the_sign_in_page_does_not_quote_a_price_as_the_headline():
     assert "Renews monthly." not in html
     assert "7 days free" in html, \
         "the sign-in page does not say what signing in actually gets you"
-    assert "no credit card required" in html
+    # Signing in now leads to a card form. The badge on the button that takes
+    # them there has to say so — this is the last screen before the surprise.
+    assert "card required" in html.lower(), \
+        "the sign-in page does not mention the card"
+    assert "cancel before day 7" in html.lower(), \
+        "the sign-in page names the card but not the way out"
+    assert "no credit card" not in html.lower()
 
 
 def test_the_admin_panel_can_actually_mint_a_link():

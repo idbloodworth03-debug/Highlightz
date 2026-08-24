@@ -126,7 +126,9 @@ def test_the_advertised_trial_length_is_the_real_one():
     from src.billing.plans import TRIAL_DAYS
     trial = [p for p in C.HIGHLIGHTZ.plans if "trial" in p.name.lower()][0]
     assert str(TRIAL_DAYS) in trial.note
-    assert "no credit card" in trial.note.lower()
+    assert "card required" in trial.note.lower(), \
+        "the compare page still sells a trial that needs no card"
+    assert "cancel before day 7" in trial.note.lower()
 
 
 def test_we_do_not_claim_a_feature_our_plans_do_not_have():

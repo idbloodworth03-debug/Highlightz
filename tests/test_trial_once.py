@@ -1,15 +1,16 @@
-"""One free trial per Twitch account, and deleting the account does not reset it.
+"""One free week per Twitch account, and deleting the account does not reset it.
 
-THE HOLE. The trial is granted in the branch of upsert_twitch_user that runs
-only when no account exists for that Twitch id, so signing in again never
-restarts the clock. But `DELETE /account` is a user-facing endpoint. Delete the
-row, sign in with the same Twitch account, and that branch is reachable again —
-another 7 days, repeatable indefinitely, by anyone who notices.
+THE HOLE. `DELETE /account` is a user-facing endpoint. Delete the row, sign in
+with the same Twitch account, and you look brand new again. It cannot be fixed
+inside users.json, because the whole problem is that the row is gone — so the
+record lives in a ledger that deletion does not reach.
 
-It cannot be fixed inside users.json, because the whole problem is that the row
-is gone. So the record lives in a ledger that deletion does not reach, and the
-test that matters is the delete-and-return cycle rather than anything about a
-single signup.
+WHAT MOVED. The free week used to be granted at signup, so the ledger was read
+and written there. It is now Stripe's trial, claimed at checkout, so the ledger
+gates `_checkout_trial_days` instead: a returning burner still reaches Checkout,
+but Checkout bills them from day one. The guarantee is unchanged and the test
+that matters is still the delete-and-return cycle — only the thing it asserts
+against has moved from a signup status to the number of free days on offer.
 """
 
 import time
@@ -32,72 +33,85 @@ def _signup(store, twitch_id="tw_1", login="nova", **kw):
         twitch_id=twitch_id, login=login, username=login, **kw)
 
 
+def _free_days(store, user):
+    """What Checkout would offer this user — the new home of the guarantee."""
+    from src.dashboard import api
+    user_store, _ = store
+    return api._checkout_trial_days(user_store.get_by_id(user["id"]))
+
+
 # ── the normal path still works ──────────────────────────────────────────────
 
-def test_a_first_time_signup_gets_the_full_trial(store):
-    from src.billing.plans import TRIAL_DAYS, get_plan
+def test_a_first_time_signup_is_offered_the_full_free_week(store):
+    from src.billing.plans import TRIAL_DAYS
     u = _signup(store)
-    assert u["subscription_status"] == "trialing"
-    days_left = (u["trial_ends_at"] - time.time()) / 86400
-    assert TRIAL_DAYS - 0.01 < days_left <= TRIAL_DAYS
-    assert get_plan(u) == "pro", "the trial is supposed to showcase the full product"
+    assert _free_days(store, u) == TRIAL_DAYS
 
 
-def test_signing_in_again_does_not_extend_the_trial(store):
-    user_store, _ = store
+def test_signing_up_alone_does_not_spend_the_week(store):
+    """Connecting Twitch and looking around is not a trial. The week is spent
+    when Stripe actually starts one."""
+    _, tl = store
+    _signup(store)
+    assert tl.has_used_trial("twitch", "tw_1") is False
+
+
+def test_signing_in_again_does_not_create_a_second_account(store):
     first = _signup(store)
-    time.sleep(0.01)
     again = _signup(store)
     assert again["id"] == first["id"], "a second account was created"
-    assert again["trial_ends_at"] == first["trial_ends_at"], "the clock restarted"
 
 
 # ── the hole ─────────────────────────────────────────────────────────────────
 
-def test_deleting_the_account_and_returning_does_not_grant_a_second_trial(store):
+def test_deleting_the_account_and_returning_does_not_grant_a_second_week(store):
     """THE regression this file exists for. Free product, forever, one click."""
-    from src.billing.plans import get_plan
-    user_store, _ = store
+    user_store, tl = store
     first = _signup(store)
-    assert first["subscription_status"] == "trialing"
+    tl.record_trial("twitch", "tw_1")             # Stripe started their trial
 
     user_store.delete(first["id"])
     assert user_store.get_by_id(first["id"]) is None
 
     second = _signup(store)
     assert second["id"] != first["id"], "expected a genuinely new account"
-    assert second["subscription_status"] == "expired", \
-        "a deleted-and-recreated account got another free trial"
-    assert second["trial_ends_at"] == 0
-    assert get_plan(second) == "locked", "the second trial still grants access"
+    assert _free_days(store, second) == 0, \
+        "a deleted-and-recreated account was offered another free week"
 
 
 def test_the_cycle_cannot_be_repeated(store):
     """Once is a bug; a loop is a business model for somebody else."""
-    user_store, _ = store
+    user_store, tl = store
     u = _signup(store)
+    tl.record_trial("twitch", "tw_1")
     for _ in range(4):
         user_store.delete(u["id"])
         u = _signup(store)
-        assert u["subscription_status"] == "expired"
+        assert _free_days(store, u) == 0
 
 
 def test_the_ledger_survives_the_users_file_being_wiped(store):
     """Deletion is the attack; a wiped users.json is the same shape."""
     user_store, tl = store
     _signup(store)
+    tl.record_trial("twitch", "tw_1")
     (user_store._USERS_FILE).write_text("[]")
     assert tl.has_used_trial("twitch", "tw_1")
-    assert _signup(store)["subscription_status"] == "expired"
+    assert _free_days(store, _signup(store)) == 0
 
 
 # ── what it must not break ───────────────────────────────────────────────────
 
-def test_a_different_twitch_account_still_gets_its_own_trial(store):
+def test_a_different_twitch_account_still_gets_its_own_week(store):
     """The bar is 'you cannot farm trials by clicking delete', not 'nobody new
     may ever try the product'."""
-    assert _signup(store, "tw_1", "nova")["subscription_status"] == "trialing"
-    assert _signup(store, "tw_2", "other")["subscription_status"] == "trialing"
+    from src.billing.plans import TRIAL_DAYS
+    _, tl = store
+    a = _signup(store, "tw_1", "nova")
+    tl.record_trial("twitch", "tw_1")
+    b = _signup(store, "tw_2", "other")
+    assert _free_days(store, a) == 0
+    assert _free_days(store, b) == TRIAL_DAYS
 
 
 def test_an_admin_signup_is_untouched(store):
@@ -106,14 +120,16 @@ def test_an_admin_signup_is_untouched(store):
     assert u["trial_ends_at"] == 0
 
 
-def test_an_admin_can_still_comp_someone_who_used_their_trial(store):
+def test_an_admin_can_still_comp_someone_who_used_their_week(store):
     """The ledger stops self-serve farming. An admin deciding to give somebody
-    another look is a deliberate act and must keep working."""
-    user_store, _ = store
+    another look is a deliberate act and must keep working — and it stays
+    app-managed, with no card and no Stripe involvement."""
+    user_store, tl = store
     first = _signup(store)
+    tl.record_trial("twitch", "tw_1")
     user_store.delete(first["id"])
     burned = _signup(store)
-    assert burned["subscription_status"] == "expired"
+    assert _free_days(store, burned) == 0
 
     granted = user_store.grant_trial(burned["id"], days=14)
     assert granted is not None
@@ -121,15 +137,15 @@ def test_an_admin_can_still_comp_someone_who_used_their_trial(store):
     assert granted["trial_ends_at"] > time.time()
 
 
-def test_a_failed_signup_does_not_burn_the_trial(store):
-    """The ledger is written after the account is safely saved. Recording first
-    would spend somebody's trial on a signup that never completed."""
-    import inspect
-    from src.auth import users as user_store
-    src = inspect.getsource(user_store.upsert_twitch_user)
-    saved_at = src.rindex("_save(users)")
-    recorded_at = src.index('trial_ledger.record_trial("twitch"')
-    assert saved_at < recorded_at, "the trial is recorded before the account exists"
+def test_a_comped_trial_still_expires_on_its_own_date(store):
+    """The access gate now requires trial_ends_at > 0 before expiring anyone.
+    An admin comp always sets a real date, so it is still governed."""
+    from src.billing.plans import get_plan
+    user_store, _ = store
+    u = _signup(store)
+    granted = user_store.grant_trial(u["id"], days=14)
+    assert granted["trial_ends_at"] > 0
+    assert get_plan(user_store.get_by_id(u["id"])) == "pro"
 
 
 # ── the ledger itself ────────────────────────────────────────────────────────
@@ -139,10 +155,9 @@ def test_the_ledger_does_not_store_raw_twitch_ids(store):
     for someone who asked to be forgotten. It answers 'seen before?' without
     being a list of who used the product."""
     _, tl = store
-    _signup(store, "tw_SECRET123", "nova")
+    tl.record_trial("twitch", "tw_SECRET123")
     raw = tl._LEDGER_FILE.read_text()
     assert "tw_SECRET123" not in raw
-    assert "nova" not in raw
 
 
 def test_recording_the_same_identity_twice_is_idempotent(store):
@@ -153,18 +168,20 @@ def test_recording_the_same_identity_twice_is_idempotent(store):
 
 
 def test_an_unreadable_ledger_fails_open(store):
-    """A corrupt ledger must not lock every future signup out of the trial.
-    Failing open costs a few free weeks; failing closed breaks signup."""
+    """A corrupt ledger must not deny every future signup its free week.
+    Failing open costs a few free weeks; failing closed makes the offer on the
+    landing page a lie for everyone."""
+    from src.billing.plans import TRIAL_DAYS
     _, tl = store
     tl._LEDGER_FILE.write_text("{ not json")
     assert tl.has_used_trial("twitch", "tw_1") is False
-    assert _signup(store)["subscription_status"] == "trialing"
+    assert _free_days(store, _signup(store)) == TRIAL_DAYS
 
 
 def test_the_ledger_is_written_privately(store):
     import os
     _, tl = store
-    _signup(store)
+    tl.record_trial("twitch", "tw_1")
     assert oct(os.stat(tl._LEDGER_FILE).st_mode)[-3:] == "600"
 
 
@@ -176,18 +193,20 @@ def test_existing_accounts_are_backfilled_so_they_cannot_farm_either(store):
     nobody."""
     user_store, tl = store
     first = _signup(store, "tw_old", "veteran")
-    tl._LEDGER_FILE.unlink()                      # as if the ledger never existed
+    # No unlink needed any more: signup does not write the ledger, so an
+    # account with no entry behind it IS the situation this backfill exists
+    # for, and it arrives for free.
+    assert tl.has_used_trial("twitch", "tw_old") is False
 
     assert tl.backfill_from_existing_accounts() == 1
     user_store.delete(first["id"])
-    assert _signup(store, "tw_old", "veteran")["subscription_status"] == "expired"
+    assert _free_days(store, _signup(store, "tw_old", "veteran")) == 0
 
 
 def test_the_backfill_is_idempotent(store):
     _, tl = store
     _signup(store, "tw_a", "a")
     _signup(store, "tw_b", "b")
-    tl._LEDGER_FILE.unlink()
     assert tl.backfill_from_existing_accounts() == 2
     assert tl.backfill_from_existing_accounts() == 0
     assert tl.count() == 2
@@ -197,10 +216,9 @@ def test_the_backfill_takes_nothing_away_from_current_users(store):
     """They keep whatever their account says. It only bites if they delete it."""
     user_store, tl = store
     u = _signup(store, "tw_live", "live")
+    before = dict(user_store.get_by_id(u["id"]))
     tl.backfill_from_existing_accounts()
-    after = user_store.get_by_id(u["id"])
-    assert after["subscription_status"] == "trialing"
-    assert after["trial_ends_at"] == u["trial_ends_at"]
+    assert user_store.get_by_id(u["id"]) == before
 
 
 def test_accounts_with_no_twitch_id_are_skipped(store):
