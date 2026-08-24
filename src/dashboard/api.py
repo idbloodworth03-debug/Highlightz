@@ -6349,7 +6349,7 @@ LANDING_HTML = """<!DOCTYPE html>
          percentage to mean anything. -->
     <div class="stat stat-big" id="stat-kept" style="display:none">
       <div class="n"><span id="lp-kept" data-kept="0">0%</span></div>
-      <div class="k">reviewed clips</div>
+      <div class="k">kept reviewed clips</div>
     </div>
   </div>
 </div>
