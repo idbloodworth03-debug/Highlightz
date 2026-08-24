@@ -4698,6 +4698,40 @@ async def get_stats(request: Request):
     return result
 
 
+@app.get("/stats/acceptance")
+async def get_acceptance(request: Request):
+    """The signed-in user's acceptance rate, straight from the stats ledger.
+
+    Deliberately NOT derived from _clips like /stats' per-channel
+    `approval_rate` is. A rejected clip is deleted server-side, so the live
+    clip store holds no rejections at all: dividing approved by what is left
+    measures "how much of my queue have I worked through", not how much of it
+    I kept, and it drops every time a new clip lands without anyone judging
+    anything. The append-only ledger is the only place both halves of the
+    fraction survive, and it is undo-corrected — a reject taken back inside
+    the undo window stops counting against the rate.
+
+    Denominator is approved + rejected, not everything caught. A clip still
+    sitting in the review queue has not been turned down; counting it as one
+    would show a brand-new user a rate near zero and call it their accuracy.
+    """
+    from src.stats import stream_stats
+    uid = _current_user_id(request)
+    t = stream_stats.totals_for_user(uid)
+    return {
+        "approved": t["approved"],
+        "rejected": t["rejected"],
+        "reviewed": t["reviewed"],
+        "cleared":  t["cleared"],
+        "caught":   t["caught"],
+        # 0 when nothing has been judged yet. The client shows a dash rather
+        # than "0%" in that case — see the reviewed check on the dashboard —
+        # because an untouched account has no rate, which is not the same
+        # thing as a rate of zero.
+        "rate":     t["kept_pct"],
+    }
+
+
 def _capture_ref(request: Request) -> None:
     """Stash a referral code from the URL into the session.
 
