@@ -192,7 +192,7 @@ def test_the_endpoint_publishes_the_rate_with_its_sample(client):
 
 def test_the_endpoint_sends_null_not_zero_below_the_floor(client):
     """0 and "no rate yet" are different facts, and the client tells them apart
-    by type. Sending 0 would print "0% of reviewed clips are kept"."""
+    by type. Sending 0 would print "0% reviewed clips"."""
     judged(3, 1)
     d = client.get("/landing/stats").json()
     assert d["kept_pct"] is None
