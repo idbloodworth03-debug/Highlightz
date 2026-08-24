@@ -273,49 +273,6 @@ def all_rows() -> list[dict]:
     return rows
 
 
-def _totals(by_channel: dict[str, list[dict]]) -> dict:
-    """Lifetime counts across one user's channels, corrected for undo.
-
-    Shared by totals_by_user (the admin table) and totals_for_user (the rate
-    the user is shown on their own dashboard) so the two can never drift apart
-    and tell an owner and a streamer different things about the same account.
-
-    Undone actions are corrected per channel: an undo is scoped to a clip, and
-    a clip belongs to one channel, so a retraction set built across channels
-    could cancel the wrong row if an id were ever reused.
-    """
-    tot = {"caught": 0, "approved": 0, "rejected": 0,
-           "cleared": 0, "expired": 0}
-    for events in by_channel.values():
-        undone = _retracted_clip_ids(events)
-        for r in events:
-            ev = r.get("event")
-            if ev not in tot:
-                continue
-            if ev in (REJECTED, CLEARED, EXPIRED) and r.get("clip_id") in undone:
-                continue
-            tot[ev] += 1
-    # Of the ones actually judged. Un-reviewed clips are not rejections.
-    reviewed = tot["approved"] + tot["rejected"]
-    tot["reviewed"] = reviewed
-    tot["kept_pct"] = round(100 * tot["approved"] / reviewed) if reviewed else 0
-    return tot
-
-
-def totals_for_user(user_id: str) -> dict:
-    """One user's lifetime counts — the acceptance rate on their dashboard.
-
-    Reads only their rows rather than going through totals_by_user(), which
-    buckets the entire ledger for every account on the server to answer a
-    question about one of them.
-    """
-    by_channel: dict[str, list[dict]] = defaultdict(list)
-    for r in _read(user_id):
-        if r.get("channel"):
-            by_channel[r["channel"]].append(r)
-    return _totals(by_channel)
-
-
 def totals_by_user() -> dict[str, dict]:
     """{user_id: {caught, approved, rejected, cleared, expired}} for the whole
     ledger, in ONE pass over the file.
@@ -346,7 +303,55 @@ def totals_by_user() -> dict[str, dict]:
         log.warning("stream_stats_read_failed", error=str(exc))
         return {}
 
-    return {uid: _totals(by_channel) for uid, by_channel in per.items()}
+    out: dict[str, dict] = {}
+    for uid, by_channel in per.items():
+        tot = {"caught": 0, "approved": 0, "rejected": 0,
+               "cleared": 0, "expired": 0}
+        for events in by_channel.values():
+            undone = _retracted_clip_ids(events)
+            for r in events:
+                ev = r.get("event")
+                if ev not in tot:
+                    continue
+                if ev in (REJECTED, CLEARED, EXPIRED) and r.get("clip_id") in undone:
+                    continue
+                tot[ev] += 1
+        # Of the ones actually judged. Un-reviewed clips are not rejections.
+        reviewed = tot["approved"] + tot["rejected"]
+        tot["reviewed"] = reviewed
+        tot["kept_pct"] = round(100 * tot["approved"] / reviewed) if reviewed else 0
+        out[uid] = tot
+    return out
+
+
+def overall_totals() -> dict:
+    """Every account's counts added together — the keep rate the landing page
+    publishes.
+
+    Built by summing totals_by_user() rather than counting straight off the
+    file, because the undo retraction set is scoped to one user's one channel.
+    A single global set would let one person's undo cancel a different person's
+    rejection the moment two accounts happened to share a clip id, and clip ids
+    come from Twitch, not from us — they are not ours to assume unique across
+    the whole ledger.
+
+    `reviewed` is returned alongside the rate on purpose. A percentage with no
+    sample size behind it is the easiest number on a marketing page to publish
+    by accident off six clips; the caller is expected to look at it.
+    """
+    tot = {"caught": 0, "approved": 0, "rejected": 0,
+           "cleared": 0, "expired": 0}
+    for t in totals_by_user().values():
+        for k in tot:
+            tot[k] += t[k]
+    reviewed = tot["approved"] + tot["rejected"]
+    tot["reviewed"] = reviewed
+    # Of the ones a human actually judged. Clips still sitting in a review
+    # queue were not turned down, and clips dropped with Clear queue say
+    # "I am not getting to these" rather than "these were bad" — counting
+    # either as a rejection would understate the formula it is describing.
+    tot["kept_pct"] = round(100 * tot["approved"] / reviewed) if reviewed else 0
+    return tot
 
 
 def for_channel(user_id: str, channel: str) -> dict | None:

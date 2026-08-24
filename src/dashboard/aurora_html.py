@@ -186,11 +186,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-empty{text-align:center;color:var(--fg-3);font-size:13px;padding:32px 12px;line-height:1.6}
 .rd-empty .ic{color:var(--fg-3);display:flex;justify-content:center;margin-bottom:10px}
 .rd-main{min-height:0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
-/* Five tiles now (acceptance rate joined the row). At 5 columns the value line
-   is the first thing to run out of room, so the count drops to 3 before the
-   existing 900px rule takes it to 2. */
-.rd-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
-@media(max-width:1320px){.rd-stats{grid-template-columns:repeat(3,1fr)}}
+.rd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 .rd-stat{border-radius:var(--r-lg);padding:16px 18px;position:relative;overflow:hidden}
 .rd-stat .k{font-size:11px;color:var(--fg-2);font-weight:600;letter-spacing:.02em;display:flex;align-items:center;gap:7px}
 .rd-stat .k .si{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--grad-soft);color:var(--acc)}
@@ -597,10 +593,6 @@ button{font-family:inherit;cursor:pointer}
   .rd-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .rd-col{max-height:300px}
   .rd-stats{grid-template-columns:repeat(2,1fr)}
-  /* Five tiles in two columns leaves the last one stranded at half width.
-     Only when the count is odd, so this rights itself if a tile is ever
-     added or removed. */
-  .rd-stats>:last-child:nth-child(odd){grid-column:1/-1}
   .rd-streams-layout{grid-template-columns:1fr}
   .rd-metrics{grid-template-columns:repeat(2,1fr)}
   .rd-modal-grid{grid-template-columns:1fr}
@@ -941,13 +933,11 @@ function RdScoreChart({ data }) {
   );
 }
 
-function RdStat({ icon, k, v, sub, accent, vColor }) {
+function RdStat({ icon, k, v, sub, accent }) {
   return (
     <div className={'rd-stat glass'+(accent?' accent':'')}>
       <div className="k"><span className="si"><Icon name={icon} size={15}/></span>{k}</div>
-      {/* vColor is opt-in: omitted, the stylesheet's --fg still applies, so
-          every existing tile renders exactly as it did. */}
-      <div className="v" style={vColor?{color:vColor}:undefined}>{v}</div>
+      <div className="v">{v}</div>
       <div className="sub">{sub}</div>
     </div>
   );
@@ -1555,7 +1545,7 @@ function ClearQueueButton({ pending }) {
   );
 }
 
-function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, accept, onDismissLost }) {
+function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [chanFilter, setChanFilter] = useState('all');
@@ -1584,15 +1574,6 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
   // call — so there is no orphan for the user to find and contradict us with.
   const lostN = lost ? (lost.missed_24h || lost.lost_24h || 1) : 0;
   const nextPlan = lost && lost.next_plan;
-  // Acceptance rate. `reviewed` — not the rate itself — decides whether there
-  // is anything to show: an account that has judged nothing has no rate, and
-  // printing "0%" at someone on their first day states the opposite of the
-  // truth. It also cannot be counted from `clips` here, because rejecting a
-  // clip deletes it server-side and takes the denominator with it.
-  const reviewed = accept ? accept.reviewed : 0;
-  const acceptRate = reviewed ? accept.rate : null;
-  const acceptColor = acceptRate===null ? 'var(--fg)'
-    : acceptRate>=60 ? 'var(--live)' : acceptRate>=30 ? 'var(--pending)' : 'var(--danger)';
   return (
     <div className="rd-body rd-body-full" style={{flex:1}}>
       <section className="rd-main">
@@ -1622,11 +1603,6 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
         <div className="rd-stats">
           <RdStat icon="sparkles" k="Pending review" v={pending} sub="awaiting your call" accent/>
           <RdStat icon="check" k="Approved" v={approved} sub="ready to use"/>
-          <RdStat icon="sliders" k="Acceptance rate" vColor={acceptColor}
-            v={acceptRate===null ? '—' : acceptRate+'%'}
-            sub={reviewed
-              ? accept.approved + ' kept of ' + reviewed + ' judged'
-              : 'approve or reject a clip to start'}/>
           <RdStat icon="radio" k="Active streams" v={streamsArr.length} sub="monitored live"/>
           <RdStat icon="trending" k="Avg trigger" v={avgScore} sub="across all channels"/>
         </div>
@@ -4499,23 +4475,6 @@ function RdApp() {
       .catch(()=>{});
   }, [undoable, flash]);
 
-  // Lifetime acceptance rate, read from the server's stats ledger rather than
-  // counted off `clips`: a rejected clip is deleted server-side, so this tab
-  // has no rejections to divide by and could not compute the number locally.
-  //
-  // Debounced for the same reason checkUndo is — the endpoint scans the ledger
-  // file, and approving a run of clips fires clip_updated for each one. Without
-  // this, clearing a 40-clip queue would be 40 file scans in a few seconds.
-  const [accept, setAccept] = useState(null);
-  const acceptTimer = useRef(null);
-  const loadAcceptance = useCallback(()=>{
-    clearTimeout(acceptTimer.current);
-    acceptTimer.current = setTimeout(()=>{
-      fetch('/stats/acceptance').then(r=>r.ok?r.json():null)
-        .then(d=>{ if(d) setAccept(d); }).catch(()=>{});
-    }, 400);
-  }, []);
-
   // Single source of truth for loading all live state. Called once on mount and
   // again on every WebSocket (re)connect so the UI fully self-heals after any
   // disconnect (laptop sleep, network blip, server restart on deploy) without a
@@ -4557,13 +4516,10 @@ function RdApp() {
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
-    // Acceptance rate. Lives on the server, so a decision made in another tab
-    // (or before this one reconnected) has to be pulled, not inferred.
-    loadAcceptance();
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
     // so they self-heal on reconnect/deploy instead of going stale.
     window.dispatchEvent(new CustomEvent('hz_refetch'));
-  },[loadAcceptance]);
+  },[]);
   const wsBootstrapped = useRef(false);
 
   useEffect(()=>{
@@ -4606,11 +4562,6 @@ function RdApp() {
         // usage stats) can react live to clip changes without their own socket.
         if(['clip_ready','clip_updated','clip_removed'].includes(msg.event))
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
-        // Every path that moves the acceptance rate lands on one of these
-        // three: approve sends clip_updated, reject and clear-queue send
-        // clip_removed, and undo re-sends clip_ready for what it restored.
-        if(['clip_ready','clip_updated','clip_removed'].includes(msg.event))
-          loadAcceptance();
         if(msg.event==='clip_removed') checkUndo();
         // An answer to your feedback. Light the nav badge immediately and let
         // the Feedback screen pull the thread — it may not even be open.
@@ -4881,7 +4832,7 @@ function RdApp() {
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,accept,onDismissLost:dismissMissNotice}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
