@@ -271,8 +271,12 @@ button{font-family:inherit;cursor:pointer}
 .rd-grid-empty{grid-column:1/-1;text-align:center;padding:70px 0;color:var(--fg-3)}
 .rd-grid-empty .ic{display:flex;justify-content:center;margin-bottom:16px;color:var(--fg-3)}
 .rd-grid-empty .big{font-size:18px;font-weight:700;color:var(--fg);margin-bottom:8px;letter-spacing:-.01em}
+/* A <button> now, not an <a> — it switches route inside the SPA rather than
+   navigating away. font:inherit and the background reset are what stop a
+   button inheriting the browser's chrome instead of this style. */
 .rd-emptylink{display:inline-block;margin-top:16px;font-size:13px;font-weight:600;color:var(--acc);
-  padding:8px 15px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s}
+  padding:8px 15px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s;
+  font-family:inherit;background:none;cursor:pointer}
 .rd-emptylink:hover{background:rgba(255,255,255,.05);border-color:var(--acc);color:var(--fg)}
 .rd-toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,90px);opacity:0;
   display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:var(--r-pill);
@@ -372,6 +376,63 @@ button{font-family:inherit;cursor:pointer}
 .rd-weight .wf{height:100%;border-radius:99px;background:var(--grad);transition:width .4s}
 .rd-weight .wv{width:46px;text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
 .rd-settings{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px;width:100%}
+/* ── Tutorial tab ── two columns: a sticky contents rail and the prose. The
+   rail is position:sticky inside the scroller, so it follows without a scroll
+   listener moving it. */
+.rd-tut{max-width:1060px;margin:0 auto;width:100%;display:grid;grid-template-columns:186px minmax(0,1fr);gap:34px;align-items:start}
+.tut-toc{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding-top:4px}
+.tut-toc-k{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3);padding:0 10px 8px}
+.tut-toc-l{text-align:left;background:none;border:0;cursor:pointer;font:inherit;font-size:12.5px;color:var(--fg-2);padding:6px 10px;border-radius:8px;border-left:2px solid transparent}
+.tut-toc-l:hover{color:var(--fg);background:rgba(255,255,255,.04)}
+.tut-toc-l.on{color:var(--acc);border-left-color:var(--acc);background:rgba(168,85,247,.10);font-weight:600}
+.tut-toc-out{margin-top:12px;font-size:12px;color:var(--fg-3);text-decoration:none;padding:6px 10px}
+.tut-toc-out:hover{color:var(--acc)}
+.tut-main{min-width:0;display:flex;flex-direction:column;gap:26px;padding-bottom:60px}
+/* scroll-margin so a jumped-to heading is not welded to the top edge */
+.tut-sec{scroll-margin-top:14px;min-width:0}
+.tut-title{font-size:23px;font-weight:800;letter-spacing:-.025em;margin-bottom:9px}
+.tut-lead{font-size:14.5px;color:var(--fg-2);line-height:1.65;max-width:66ch}
+.tut-h{font-size:16.5px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:9px}
+.tut-plan{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);background:rgba(168,85,247,.16);padding:3px 8px;border-radius:999px}
+.tut-body{font-size:14px;color:var(--fg-2);line-height:1.7;max-width:66ch}
+.tut-body b,.tut-steps b,.tut-note b,.tut-tip b{color:var(--fg);font-weight:650}
+.tut-steps{margin:12px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:7px;font-size:14px;color:var(--fg-2);line-height:1.65;max-width:66ch}
+.tut-note{margin-top:11px;font-size:13px;color:var(--fg-3);line-height:1.6;max-width:66ch}
+.tut-fig{margin:16px 0 0}
+.tut-media{width:100%;height:auto;border-radius:12px;border:1px solid var(--hair);display:block;background:rgba(255,255,255,.02)}
+.tut-cap{margin-top:8px;font-size:12.5px;color:var(--fg-3);line-height:1.55}
+.tut-ph{margin-top:16px;border:1px dashed var(--hair);border-radius:12px;padding:26px 22px;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.02)}
+.tut-ph-k{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3)}
+.tut-ph-a{font-size:13px;color:var(--fg-2);line-height:1.6}
+.tut-tip{margin-top:14px;border-left:2px solid var(--acc);background:rgba(168,85,247,.07);border-radius:0 10px 10px 0;padding:12px 16px}
+.tut-tip-k{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+.tut-tip p{margin-top:5px;font-size:13.5px;color:var(--fg-2);line-height:1.65}
+.tut-tablewrap{margin-top:14px;overflow-x:auto;border:1px solid var(--hair);border-radius:12px}
+.tut-table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:460px}
+.tut-table th,.tut-table td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--hair)}
+.tut-table thead th{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);font-weight:700}
+.tut-table tbody th{font-weight:600;color:var(--fg-2)}
+.tut-table tbody tr:last-child th,.tut-table tbody tr:last-child td{border-bottom:0}
+.tut-faq{margin-top:14px;border-top:1px solid var(--hair)}
+.tut-q{border-bottom:1px solid var(--hair)}
+.tut-q-h{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;background:none;border:0;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--fg);text-align:left;padding:14px 2px}
+.tut-q-h:hover{color:var(--acc)}
+.tut-q-c{color:var(--fg-3);font-size:17px;flex-shrink:0}
+.tut-q.on .tut-q-c{color:var(--acc)}
+.tut-q-a{padding:0 2px 15px;font-size:13.5px;color:var(--fg-2);line-height:1.7;max-width:70ch}
+.tut-q-a b{color:var(--fg)}
+.tut-q-a a{color:var(--acc)}
+@media(max-width:820px){
+  /* The rail becomes a scrolling strip above the prose rather than vanishing —
+     on a phone the contents list is how you skip to the part you need. */
+  .rd-tut{grid-template-columns:1fr;gap:18px}
+  .tut-toc{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px}
+  .tut-toc-k{display:none}
+  .tut-toc-l{white-space:nowrap;border-left:0;border-bottom:2px solid transparent;border-radius:8px 8px 0 0}
+  .tut-toc-l.on{border-left:0;border-bottom-color:var(--acc)}
+  .tut-toc-out{margin-top:0;white-space:nowrap}
+  .tut-title{font-size:20px}
+}
 .rd-card{border-radius:18px;padding:22px}
 .rd-card h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
 .rd-card h3 .si{width:30px;height:30px;border-radius:9px;background:var(--grad-soft);color:var(--acc);display:grid;place-items:center}
@@ -846,6 +907,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     video: <><path d="m22 8-6 4 6 4V8z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></>,
     clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
     link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+    book: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -1545,7 +1607,7 @@ function ClearQueueButton({ pending }) {
   );
 }
 
-function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost }) {
+function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [chanFilter, setChanFilter] = useState('all');
@@ -1636,9 +1698,13 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
             ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div>
                 {/* New here? This is the one screen a first-time user reliably
                     lands on with nothing to do, so it is where the walkthrough
-                    belongs. New tab: the dashboard is a long-lived SPA holding
-                    a live socket, and navigating away throws that state out. */}
-                <a href="/tutorial" target="_blank" rel="noopener" className="rd-emptylink">Read the walkthrough →</a></div>
+                    belongs. It used to open /tutorial in a NEW TAB, because the
+                    dashboard is a long-lived SPA holding a live socket and
+                    navigating away throws that state out. The walkthrough now
+                    has its own tab in here, so the socket survives and nobody
+                    has to read instructions about this screen in a window that
+                    is not this screen. */}
+                <button className="rd-emptylink" onClick={()=>onGoTutorial()}>Read the walkthrough →</button></div>
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
         </div>
       </section>
@@ -1858,14 +1924,200 @@ function SettingsScreen({ streams }) {
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',adminOnly:true},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+// ── Tutorial ─────────────────────────────────────────────────────────────────
+// The same walkthrough as /tutorial, rendered inside the app instead of in a
+// second tab. It cannot be a link: the dashboard is a long-lived SPA holding a
+// live socket, and navigating away throws that state out — which is exactly why
+// the old link opened a new window, and exactly why reading it meant flipping
+// between two windows to follow steps about the one you left.
+//
+// Content comes from /tutorial/content, serialised from the same dataclasses
+// the public page renders. Transcribing it here would guarantee the two drift.
+
+// **like this** -> <b>like this</b>. Split on the delimiter rather than a
+// regex: this file is a Python string and a backslash in it is a bug waiting
+// to happen.
+function tutBold(text){
+  const parts = String(text||'').split('**');
+  return parts.map((p,i)=> i%2 ? <b key={i}>{p}</b> : <React.Fragment key={i}>{p}</React.Fragment>);
+}
+
+function TutMedia({ m }){
+  if(!m) return null;
+  // A missing screenshot draws a labelled box, never a broken-image icon —
+  // the same choice the public page makes, so the two agree about what a
+  // not-yet-captured slot looks like.
+  if(!m.exists) return (
+    <div className="tut-ph" role="img" aria-label={m.alt}>
+      <span className="tut-ph-k">{m.kind==='video'?'Video':'Screenshot'} coming soon</span>
+      <span className="tut-ph-a">{m.alt}</span>
+    </div>
+  );
+  if(m.kind==='video') return (
+    <figure className="tut-fig">
+      <video className="tut-media" controls preload="none" poster={m.poster} width={m.width} height={m.height}>
+        <source src={m.src}/>
+      </video>
+      {m.caption && <figcaption className="tut-cap">{m.caption}</figcaption>}
+    </figure>
+  );
+  return (
+    <figure className="tut-fig">
+      {/* loading="lazy" matters here: the tab holds a dozen full-width
+          screenshots and eager-loading them all stalls the first paint. */}
+      <img className="tut-media" src={m.src} alt={m.alt} width={m.width} height={m.height} loading="lazy"/>
+    </figure>
+  );
+}
+
+function TutSection({ s }){
+  return (
+    <section className="tut-sec" id={'tut-' + s.id}>
+      <h3 className="tut-h">{s.title}{s.plan && <span className="tut-plan">{s.plan}</span>}</h3>
+      {s.body && <p className="tut-body">{tutBold(s.body)}</p>}
+      {s.steps.length > 0 && <ol className="tut-steps">
+        {s.steps.map((t,i)=><li key={i}>{tutBold(t)}</li>)}
+      </ol>}
+      {s.note && <p className="tut-note">{tutBold(s.note)}</p>}
+      <TutMedia m={s.media}/>
+      {s.tip && <aside className="tut-tip"><span className="tut-tip-k">Tip</span><p>{tutBold(s.tip)}</p></aside>}
+    </section>
+  );
+}
+
+function TutorialScreen({ doc, onGo }){
+  const [openFaq, setOpenFaq] = useState(-1);
+  const [active, setActive] = useState('');
+  const bodyRef = useRef(null);
+
+  // The contents rail, built once so the scroll spy and the links agree on
+  // exactly which sections are targets.
+  const toc = doc ? [{id:'tut-top', nav:'Overview'}, {id:'tut-quickstart', nav:'Get started'}]
+    .concat(doc.features.map(f=>({id:'tut-'+f.id, nav:f.nav})))
+    .concat([{id:'tut-plans', nav:'Plans'}, {id:'tut-faq', nav:'Questions'}]) : [];
+
+  // Which section the reader is actually looking at, so the rail can say so.
+  //
+  // Scroll listener on the SCROLLING ELEMENT, not the window: this screen
+  // scrolls inside .rd-scroll and window scroll never fires.
+  //
+  // Only TOC TARGETS count. Every step of the quickstart is a .tut-sec too but
+  // none of them are in the rail, so matching on all sections left the rail
+  // blank for the whole first third of the page — highlighting nothing exactly
+  // where a new reader is.
+  useEffect(()=>{
+    const el = bodyRef.current; if(!el || !doc) return;
+    const ids = toc.map(t=>t.id);
+    const onScroll = ()=>{
+      const top = el.getBoundingClientRect().top;
+      let cur = ids[0] || '';
+      for(const id of ids){
+        const sec = document.getElementById(id);
+        if(sec && sec.getBoundingClientRect().top - top <= 90) cur = id;
+      }
+      setActive(cur);
+    };
+    onScroll();
+    el.addEventListener('scroll', onScroll, {passive:true});
+    return ()=>el.removeEventListener('scroll', onScroll);
+  },[doc]);
+
+  if(!doc) return (
+    <div className="rd-scroll"><div className="rd-tut">
+      <div className="rd-empty" style={{padding:40}}>Loading the walkthrough…</div>
+    </div></div>
+  );
+
+  const jump = id => {
+    const el = document.getElementById(id);
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+
+  return (
+    <div className="rd-scroll" ref={bodyRef}>
+      <div className="rd-tut">
+        <aside className="tut-toc">
+          <div className="tut-toc-k">On this page</div>
+          {toc.map(t=>
+            <button key={t.id} className={'tut-toc-l' + (active===t.id?' on':'')}
+              onClick={()=>jump(t.id)}>{t.nav}</button>)}
+          {/* The printable copy still exists and some people want it on a
+              second screen while they work. Not the primary path any more. */}
+          <a className="tut-toc-out" href="/tutorial" target="_blank" rel="noopener">
+            Open as a page ↗
+          </a>
+        </aside>
+
+        <div className="tut-main">
+          <section className="tut-sec" id="tut-top">
+            <h2 className="tut-title">{doc.hero.title}</h2>
+            <p className="tut-lead">{doc.hero.lead}</p>
+            <TutMedia m={doc.hero.media}/>
+          </section>
+
+          <section className="tut-sec" id="tut-quickstart">
+            <h2 className="tut-title">{doc.quickstart.title}</h2>
+            <p className="tut-lead">{doc.quickstart.lead}</p>
+          </section>
+          {doc.quickstart.sections.map(s=><TutSection key={s.id} s={s}/>)}
+
+          {doc.features.map(s=><TutSection key={s.id} s={s}/>)}
+
+          <section className="tut-sec" id="tut-plans">
+            <h2 className="tut-title">{doc.plans.title}</h2>
+            <div className="tut-tablewrap">
+              <table className="tut-table">
+                <thead><tr>{doc.plans.rows[0].map((c,i)=><th key={i}>{c}</th>)}</tr></thead>
+                <tbody>
+                  {doc.plans.rows.slice(1).map((r,i)=>
+                    <tr key={i}>{r.map((c,j)=>j===0?<th key={j}>{c}</th>:<td key={j}>{c}</td>)}</tr>)}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="tut-sec" id="tut-faq">
+            <h2 className="tut-title">{doc.faq.title}</h2>
+            <p className="tut-lead">{doc.faq.lead}</p>
+            <div className="tut-faq">
+              {doc.faq.items.map((f,i)=>
+                <div className={'tut-q' + (openFaq===i?' on':'')} key={i}>
+                  <button className="tut-q-h" onClick={()=>setOpenFaq(openFaq===i?-1:i)}
+                    aria-expanded={openFaq===i}>
+                    <span>{f.q}</span><span className="tut-q-c">{openFaq===i?'−':'+'}</span>
+                  </button>
+                  {/* Answers carry <b> and <a> from the content file. It is our
+                      own copy, not user input, and it never reaches this
+                      component from anywhere else. */}
+                  {openFaq===i && <div className="tut-q-a" dangerouslySetInnerHTML={{__html: f.a}}/>}
+                </div>)}
+            </div>
+          </section>
+
+          <section className="tut-sec">
+            <h2 className="tut-title">{doc.support.title}</h2>
+            {/* The public page tells readers to use the Feedback tab. They are
+                already inside the app, so the tab is one click away — make it
+                a button rather than an instruction. */}
+            <p className="tut-body">Ask us directly and it comes straight through.</p>
+            <button className="rd-btn grad" onClick={()=>onGo('feedback')}>
+              <Icon name="chat" size={14}/>Open Feedback
+            </button>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',adminOnly:true},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -4484,6 +4736,12 @@ function RdApp() {
       .catch(()=>{});
   }, [undoable, flash]);
 
+  // The walkthrough, shown on its own tab. Static content, but it is pulled in
+  // refetchAll for the same reason the platform list is: a deploy that rewrites
+  // a step has to reach an already-open tab, and a reconnect is the only moment
+  // we get to notice one happened.
+  const [tutorial, setTutorial] = useState(null);
+
   // Single source of truth for loading all live state. Called once on mount and
   // again on every WebSocket (re)connect so the UI fully self-heals after any
   // disconnect (laptop sleep, network blip, server restart on deploy) without a
@@ -4525,6 +4783,8 @@ function RdApp() {
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
+    fetch('/tutorial/content').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) setTutorial(d); }).catch(()=>{});
     // Tell screen-local data sources (VOD jobs, Settings stats) to re-pull too,
     // so they self-heal on reconnect/deploy instead of going stale.
     window.dispatchEvent(new CustomEvent('hz_refetch'));
@@ -4841,10 +5101,11 @@ function RdApp() {
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
+  else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
   else if(view==='training') screen=<TrainingScreen/>;

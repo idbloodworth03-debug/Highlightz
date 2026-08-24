@@ -95,8 +95,10 @@ HERO_MEDIA = Media(
 
 QUICKSTART_TITLE = "Get started in 4 steps"
 QUICKSTART_LEAD = (
-    "Signing in is free and takes about a minute. You do not need a card, and "
-    "you can be monitoring a live channel before you finish reading this page."
+    "The first 7 days are free. You put a card down when you sign up and "
+    "nothing is charged until day 7, so cancelling inside the week costs you "
+    "nothing — and you can be monitoring a live channel before you finish "
+    "reading this page."
 )
 
 QUICKSTART: tuple[Section, ...] = (
@@ -421,9 +423,9 @@ FAQ: tuple[tuple[str, str], ...] = (
      "normal for a channel before it decides what counts as a spike."),
 
     ("It says the stream limit is reached.",
-     "You are monitoring as many channels as your plan allows — <b>1</b> on Free, "
-     "<b>3</b> on Starter, <b>10</b> on Pro. Remove a channel to free a slot, or "
-     "upgrade from the Account tab."),
+     "You are monitoring as many channels as your plan allows — <b>3</b> on "
+     "Starter, <b>10</b> on Pro. Remove a channel to free a slot, or upgrade "
+     "from the Account tab."),
 
     ("It says that streamer has opted out.",
      "Streamers can ask not to be clipped through Highlightz, and that request is "
@@ -435,8 +437,9 @@ FAQ: tuple[tuple[str, str], ...] = (
      "Live Streams tab — you do not need to add it twice."),
 
     ("Why does the VOD Scanner say it is a Pro feature?",
-     "Because it is. The VOD Scanner is included on <b>Pro</b>. Live monitoring, "
-     "review and your library all work on every plan, including Free."),
+     "Because it is. The VOD Scanner is included on <b>Pro</b> and on your "
+     "trial, which is the full Pro product. Live monitoring, review and your "
+     "library work on every paid plan."),
 
     ("The VOD link was not accepted.",
      "It needs a full Twitch VOD URL in the form "
@@ -490,3 +493,59 @@ def all_media() -> tuple[Media, ...]:
     out = [HERO_MEDIA]
     out += [s.media for s in all_sections() if s.media]
     return tuple(out)
+
+
+# ── the same words, for the in-app reader ────────────────────────────────────
+# The dashboard shows this tutorial on its own tab rather than sending people to
+# /tutorial in a new tab. It CANNOT just link there: the dashboard is a
+# long-lived SPA holding a live socket, and navigating away throws that state
+# out — which is why the old link opened a new tab in the first place.
+#
+# Serialised here rather than in the API layer so there is still exactly one
+# source for this content. The public page and the in-app tab render the same
+# dataclasses; if they were transcribed separately they would drift, and a
+# walkthrough that disagrees with itself is worse than one that is merely old.
+#
+# `_media_dict` reports whether the file EXISTS. The web page draws a labelled
+# placeholder for a missing screenshot rather than a broken-image icon, and the
+# in-app reader has to be able to do the same — otherwise the two disagree
+# about what a not-yet-captured slot looks like.
+
+def _media_dict(m: "Media | None") -> dict | None:
+    if m is None:
+        return None
+    from pathlib import Path
+    media_dir = Path(__file__).parent / "static" / "tutorial"
+    return {
+        "src": "/static/tutorial/" + m.src,
+        "alt": m.alt,
+        "kind": m.kind,
+        "caption": m.caption,
+        "poster": "/static/tutorial/" + m.poster_src,
+        "width": m.width,
+        "height": m.height,
+        "exists": (media_dir / m.src).is_file(),
+    }
+
+
+def _section_dict(s: "Section") -> dict:
+    return {
+        "id": s.id, "nav": s.nav, "title": s.title, "body": s.body,
+        "steps": list(s.steps), "media": _media_dict(s.media),
+        "tip": s.tip, "plan": s.plan, "note": s.note,
+    }
+
+
+def as_dict() -> dict:
+    """The whole tutorial as JSON-safe data, for the in-app tab."""
+    return {
+        "hero": {"title": HERO_TITLE, "lead": HERO_LEAD,
+                 "media": _media_dict(HERO_MEDIA)},
+        "quickstart": {"title": QUICKSTART_TITLE, "lead": QUICKSTART_LEAD,
+                       "sections": [_section_dict(s) for s in QUICKSTART]},
+        "features": [_section_dict(s) for s in FEATURES],
+        "plans": {"title": PLANS_TITLE, "rows": [list(r) for r in PLAN_ROWS]},
+        "faq": {"title": FAQ_TITLE, "lead": FAQ_LEAD,
+                "items": [{"q": q, "a": a} for q, a in FAQ]},
+        "support": {"title": SUPPORT_TITLE, "body": SUPPORT_BODY},
+    }

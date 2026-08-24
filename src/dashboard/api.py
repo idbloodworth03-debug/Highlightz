@@ -4769,6 +4769,28 @@ async def tutorial_page():
     return HTMLResponse(render())
 
 
+@app.get("/tutorial/content")
+async def tutorial_content_json():
+    """The walkthrough as data, for the dashboard's own Tutorial tab.
+
+    The dashboard cannot simply link to /tutorial: it is a long-lived SPA
+    holding a live socket, and navigating away throws that state out. That is
+    why the link used to open a new tab — which works, but leaves the reader
+    flipping between two windows to follow steps about the one they left.
+
+    Serialised from tutorial_content, the same dataclasses the public page
+    renders, so the two cannot drift. Registered ABOVE the `/{slug}` catch-all
+    for the same reason /tutorial is; a two-segment path is not matched by it,
+    but keeping the tutorial routes together is what stops the next one being
+    added in the wrong place.
+
+    Not in _OPEN_PATHS: the public page already serves signed-out readers, and
+    this exists for the app. No reason to open a second door onto it.
+    """
+    from src.dashboard import tutorial_content
+    return tutorial_content.as_dict()
+
+
 @app.get("/compare", response_class=HTMLResponse)
 async def compare_page():
     """Highlightz against Opus Clip and Eklipse. Public, so it can be linked
