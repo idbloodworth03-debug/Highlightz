@@ -1832,6 +1832,10 @@ async def billing_checkout(request: Request, plan: str = "pro"):
     url = await create_checkout_url(uid, username, price_id,
                                     customer_id=stripe_customer,
                                     trial_days=_checkout_trial_days(db_user))
+    # Stamped only once the session actually exists. Stamping before this line
+    # would count people whose checkout we failed to create as people who
+    # reached the card form and walked away — the opposite conclusion.
+    user_store.mark_checkout_started(uid)
     return RedirectResponse(url)
 
 
@@ -3021,11 +3025,24 @@ def reconcile_skip_reason(user: dict) -> str | None:
     """
     if not user.get("stripe_customer_id"):
         return "no Stripe customer is linked to this account"
-    # App-managed access has no Stripe subscription behind it. Reconciling it
-    # would revoke an admin-granted trial or comp the moment Stripe reported no
-    # live subscription — which is always, because there never was one.
-    if user.get("subscription_status") == "trialing":
-        return "access is an in-app trial or comp, not a Stripe subscription"
+    # THERE IS DELIBERATELY NO `trialing` SKIP HERE ANY MORE.
+    #
+    # There used to be one: app-managed access has no Stripe subscription
+    # behind it, so reconciling a comp would revoke it the moment Stripe
+    # reported nothing live — which was always, because there never was one.
+    #
+    # That held while `trialing` could ONLY mean a comp. It cannot any more: a
+    # card-up-front trial is the opening state of every new paying
+    # subscription. Keeping the skip would have excluded the bulk of new
+    # customers from the only sweep that catches drift — precisely the people
+    # whose access depends on a webhook having landed.
+    #
+    # The comp is still protected, by the check ABOVE rather than by this one.
+    # A comp is app-managed and has no Stripe customer, so it has already
+    # returned. Anything reaching this line has a customer id, so its trial is
+    # a real Stripe subscription. reconcile_one_user carries the second belt:
+    # it refuses to downgrade a trialing user when Stripe reports nothing live,
+    # which is the shape of a comped account that subscribed once long ago.
     if user.get("is_admin") or user.get("is_labeler"):
         return "admins and trainers are not billed through Stripe"
     return None
@@ -3051,10 +3068,31 @@ async def reconcile_one_user(user: dict) -> dict:
         return {"ok": False, "reason": "Stripe could not be reached", "drift": []}
 
     was   = get_plan(user)
+    local = user.get("subscription_status")
+
+    # A COMP THAT ONCE SUBSCRIBED. They hold a stale Stripe customer from an
+    # old subscription, so reconcile_skip_reason lets them through, and Stripe
+    # honestly reports nothing live — which would revoke the comp an admin
+    # deliberately granted. Their trial is app-managed: it has an end date we
+    # set, and the middleware already retires it on that date.
+    #
+    # Only refuses the DOWNGRADE. If Stripe has something live for them, the
+    # branches below still apply it, because that is real.
+    if local == "trialing" and truth["status"] not in ("active", "trialing"):
+        return {"ok": True, "drift": [], "stripe_status": truth["raw"],
+                "app_status": truth["status"], "plan": truth["plan"],
+                "subscription": truth["subscription"],
+                "reason": "left alone: an app-managed trial or comp, which "
+                          "Stripe knows nothing about by design"}
+
     drift = []
-    if truth["status"] != user.get("subscription_status"):
-        drift.append(("status", user.get("subscription_status"), truth["status"]))
-        _rc_store.update_subscription(uid, cust, truth["status"])
+    if truth["status"] != local:
+        drift.append(("status", local, truth["status"]))
+        # Carry Stripe's trial end across, or a reconciled trial lands with no
+        # date for the dashboard to count down to.
+        _rc_store.update_subscription(
+            uid, cust, truth["status"],
+            truth.get("trial_end", 0) if truth["status"] == "trialing" else 0)
     if truth["plan"] and truth["plan"] != user.get("plan"):
         drift.append(("plan", user.get("plan"), truth["plan"]))
         _rc_store.set_plan(uid, truth["plan"])
@@ -4210,6 +4248,13 @@ async def admin_list_users(request: Request):
         # admin has no subscription but gets Pro, and someone who cancelled
         # keeps a stale plan="pro" while actually being on Free. The admin
         # table has to show what the user really has, so it shows this.
+        # How far they got, which is a different question from what they may
+        # do. A locked account that never opened checkout and one that paid and
+        # was not linked resolve to the SAME plan; only this tells them apart,
+        # and the second is somebody owed a refund or a fix.
+        u["funnel_stage"] = plans.funnel_stage(u)
+        u["funnel_label"] = plans.FUNNEL_LABELS.get(u["funnel_stage"], "")
+        u["checkout_started_at"] = u.get("checkout_started_at", 0)
         plan = plans.get_plan(u)
         u["plan"] = plan
         limits = plans.PLAN_LIMITS.get(plan, {})
@@ -4590,6 +4635,15 @@ async def admin_stripe_sync(request: Request, user_id: str):
         raise HTTPException(status_code=502, detail="Stripe API error — check server logs")
     if not result["ok"]:
         raise HTTPException(status_code=502, detail=result["reason"])
+    # A comped account that once subscribed still holds a stale customer id, so
+    # reconcile_skip_reason lets it through — deliberately, because that is also
+    # the shape of a real card-up-front trial and those DO need reconciling. The
+    # refusal moved here, where we have asked Stripe and know which it is.
+    # Silently returning "synced" for a button that changed nothing, and could
+    # not have, is how an admin concludes the button is broken.
+    if result.get("reason") and not result["drift"]:
+        raise HTTPException(status_code=400,
+                            detail=f"Nothing to sync — {result['reason']}.")
     log.info("admin_stripe_sync", user_id=user_id,
              customer=user.get("stripe_customer_id"),
              status=result["app_status"], drift=result["drift"])
@@ -8468,6 +8522,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         <button class="chip" data-f="free">Free</button>
         <button class="chip" data-f="trialing">Trial</button>
         <button class="chip" data-f="lapsed">Lapsed</button>
+        <button class="chip" data-f="stalled" title="Started signing up and did not finish">Stalled</button>
         <button class="chip" data-f="all">All</button>
       </div>
       <span class="spacer" id="u-count"></span>
@@ -8667,6 +8722,22 @@ function planNote(u){
   return ['Never subscribed', ''];
 }
 
+// Where they got to, shown ONLY when it adds something the plan pill does not.
+// A paying customer's stage is "paying" and the pill already says so; printing
+// it again is noise on every row. The stalls are the rows worth a second line.
+const STALLED = ['signed_up', 'checkout_started', 'checkout_dropped'];
+
+function stageNote(u){
+  const st = u.funnel_stage || '';
+  if(!STALLED.includes(st)) return '';
+  const label = u.funnel_label || st;
+  const when = u.checkout_started_at ? ' · ' + fmt(u.checkout_started_at) : '';
+  // checkout_dropped is the one that can mean money changed hands and we did
+  // not record it, so it is the one that gets the eye.
+  const cls = st === 'checkout_dropped' ? 'lapsed' : '';
+  return '<div class="plan-note ' + cls + '">' + esc(label) + when + '</div>';
+}
+
 function userState(u){
   if(u.is_admin) return 'admin';
   const st = u.subscription_status;
@@ -8689,6 +8760,10 @@ function userMatches(u){
   if(U_FILTER === 'active') return st === 'admin' || st === 'active' || st === 'trialing';
   if(U_FILTER === 'trialing') return st === 'trialing';
   if(U_FILTER === 'lapsed') return st === 'lapsed';
+  // Everyone who began the signup and did not come out the other side. The
+  // list you actually want when somebody says "a guy subscribed and has no
+  // access" — checkout_dropped is the stage that can mean exactly that.
+  if(U_FILTER === 'stalled') return STALLED.includes(u.funnel_stage || '');
   return u.plan === U_FILTER;
 }
 
@@ -8747,7 +8822,8 @@ function renderUsers(){
         + (u.twitch_login ? '@' + esc(u.twitch_login) : 'password auth')
         + (u.email ? ' · ' + esc(u.email) : '') + '</div></div></div></td>'
       + '<td><span class="plan ' + planClass(u.plan) + '">' + esc(u.plan_label || u.plan) + '</span>'
-        + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div></td>'
+        + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div>'
+        + stageNote(u) + '</td>'
       + '<td class="num">' + (u.stream_count||0) + '</td>'
       + '<td class="num">' + (u.clip_count||0) + '</td>'
       + '<td class="num">' + (u.clips_approved||0) + '</td>'

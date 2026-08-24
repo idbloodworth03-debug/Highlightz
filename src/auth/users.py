@@ -511,6 +511,28 @@ def find_other_active_with_email(email: str, exclude_user_id: str) -> dict | Non
     return None
 
 
+def mark_checkout_started(user_id: str) -> None:
+    """Stamp the moment this account was sent to Stripe Checkout.
+
+    THE MISSING SIGNAL. Without it, "signed up and never paid" and "went to the
+    card form and backed out" are the same row in the database — no local state
+    changes when somebody clicks through to Stripe, so the two most important
+    drop-off points in the funnel are indistinguishable. That mattered less
+    when signup itself granted a trial; now checkout IS the funnel.
+
+    First touch wins. This answers "did they ever reach the card form", not
+    "how many times did they open it", and overwriting on every click would
+    turn the timestamp into a last-seen field that cannot answer either.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if not u.get("checkout_started_at"):
+                u["checkout_started_at"] = time.time()
+                _save(users)
+            return
+
+
 def set_plan(user_id: str, plan: str) -> None:
     """Record the membership tier ('starter'/'pro'), set by the Stripe webhook
     from the subscription's price id. Unlike promo attribution this always

@@ -296,15 +296,27 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
             best, best_rank = s, rank
 
     if best is None:
-        return {"status": "inactive", "plan": None, "raw": "none", "subscription": ""}
+        return {"status": "inactive", "plan": None, "raw": "none",
+                "trial_end": 0, "subscription": ""}
 
     raw = _g(best, "status", "") or ""
-    if raw in ACTIVE_STATUSES:
+    # Same mapping sync_subscription_event applies, and for the same reason:
+    # once a card-up-front trial is a real subscription state, reporting it as
+    # `active` would have the hourly sweep "correct" every trialing customer
+    # into looking like they were being charged.
+    if raw == "trialing":
+        status = "trialing"
+    elif raw in ACTIVE_STATUSES:
         status = "active"
     elif raw in ("canceled", "unpaid", "incomplete_expired"):
         status = "inactive"
     else:
         status = raw
+
+    try:
+        trial_end = int(_g(best, "trial_end") or 0)
+    except (TypeError, ValueError):
+        trial_end = 0
 
     price_id = None
     raw_items = _g(best, "items") or {}
@@ -320,6 +332,7 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
             break
 
     return {"status": status, "plan": plan_for_price(price_id), "raw": raw,
+            "trial_end": trial_end,
             "subscription": _g(best, "id", "") or ""}
 
 

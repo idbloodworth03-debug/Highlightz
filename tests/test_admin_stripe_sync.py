@@ -227,3 +227,124 @@ def test_the_admin_ui_reports_what_actually_changed(env):
     assert "No subscription found" not in code
     assert "Already in sync" in code
     assert "r.changed" in code, "the toast ignores what the sync reported"
+
+
+# ── card-up-front trials must be reconciled, comps must not ──────────────────
+# The sweep used to skip EVERY trialing account, on the reasoning that trialing
+# could only mean an app-managed comp. It cannot any more: a card-up-front trial
+# is the opening state of every new paying subscription, so the old rule would
+# have excluded the bulk of new customers from the only sweep that catches
+# drift — precisely the people whose access depends on a webhook having landed.
+
+def test_a_stripe_trial_is_no_longer_skipped_by_the_sweep():
+    from src.dashboard.api import reconcile_skip_reason
+    stripe_trial = {"id": "u1", "subscription_status": "trialing",
+                    "stripe_customer_id": "cus_1"}
+    assert reconcile_skip_reason(stripe_trial) is None, \
+        "card-up-front trials are excluded from reconciliation"
+
+
+def test_a_comp_is_still_skipped_because_it_has_no_stripe_customer():
+    from src.dashboard.api import reconcile_skip_reason
+    comp = {"id": "u2", "subscription_status": "trialing"}
+    assert reconcile_skip_reason(comp) is not None
+
+
+def test_a_comp_that_once_subscribed_is_not_downgraded_by_the_sweep(monkeypatch):
+    """The case the old blanket skip was really protecting: a comped user
+    holding a stale customer id from an old subscription. Stripe honestly
+    reports nothing live, and revoking on that would undo a comp an admin
+    deliberately granted."""
+    import asyncio
+    from src.dashboard import api
+    from src.billing import stripe_billing
+
+    async def _truth(cust):
+        return {"status": "inactive", "plan": None, "raw": "none",
+                "trial_end": 0, "subscription": ""}
+    monkeypatch.setattr(stripe_billing, "authoritative_subscription", _truth)
+
+    comp = {"id": "u3", "subscription_status": "trialing",
+            "stripe_customer_id": "cus_old",
+            "trial_ends_at": time.time() + 86400}
+    result = asyncio.run(api.reconcile_one_user(comp))
+    assert result["ok"] is True
+    assert result["drift"] == [], "the comp was revoked by reconciliation"
+    assert "app-managed" in result["reason"]
+
+
+def test_a_real_trial_that_stripe_says_is_live_is_still_applied(monkeypatch):
+    """Only the DOWNGRADE is refused. Real state from Stripe still lands, or
+    the protection above would freeze every trialing account forever."""
+    import asyncio
+    from src.dashboard import api
+    from src.billing import stripe_billing
+    from src.auth import users as user_store
+
+    writes = []
+    monkeypatch.setattr(user_store, "update_subscription",
+                        lambda *a, **k: writes.append(a))
+    monkeypatch.setattr(user_store, "set_plan", lambda *a: None)
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": uid, "subscription_status": "active",
+                                     "plan": "pro"})
+
+    async def _truth(cust):
+        return {"status": "active", "plan": "pro", "raw": "active",
+                "trial_end": 0, "subscription": "sub_1"}
+    monkeypatch.setattr(stripe_billing, "authoritative_subscription", _truth)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+
+    user = {"id": "u4", "subscription_status": "trialing",
+            "stripe_customer_id": "cus_1", "plan": "pro"}
+    result = asyncio.run(api.reconcile_one_user(user))
+    assert ("status", "trialing", "active") in result["drift"]
+    assert writes, "the trial→paid transition was not written"
+
+
+def test_reconciling_a_trial_carries_stripes_trial_end_across(monkeypatch):
+    """Without it a reconciled trial lands with no date for the dashboard to
+    count down to — and, before the access gate learned to require `> 0`, would
+    have been expired outright."""
+    import asyncio
+    from src.dashboard import api
+    from src.billing import stripe_billing
+    from src.auth import users as user_store
+
+    ends = int(time.time()) + 5 * 86400
+    writes = []
+    monkeypatch.setattr(user_store, "update_subscription",
+                        lambda *a, **k: writes.append(a))
+    monkeypatch.setattr(user_store, "set_plan", lambda *a: None)
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": uid, "subscription_status": "trialing",
+                                     "plan": "pro"})
+
+    async def _truth(cust):
+        return {"status": "trialing", "plan": "pro", "raw": "trialing",
+                "trial_end": ends, "subscription": "sub_1"}
+    monkeypatch.setattr(stripe_billing, "authoritative_subscription", _truth)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+
+    user = {"id": "u5", "subscription_status": "none",
+            "stripe_customer_id": "cus_1"}
+    asyncio.run(api.reconcile_one_user(user))
+    assert writes and writes[0][3] == ends, \
+        f"the trial end was not carried across: {writes}"
+
+
+def test_stripe_and_the_app_agree_on_what_trialing_is_called(monkeypatch):
+    """authoritative_subscription used to fold trialing into active, same as
+    the webhook did. If the two mappings drift, the hourly sweep 'corrects'
+    every trialing customer into looking like they are being charged."""
+    from src.billing import stripe_billing as sb2
+    import inspect
+    src = inspect.getsource(sb2.authoritative_subscription)
+    assert 'if raw == "trialing"' in src, \
+        "reconciliation still collapses trialing into active"

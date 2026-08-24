@@ -49,7 +49,12 @@ TRIAL_DAYS = 7
 LOCKED_PLAN = "locked"
 
 PLAN_LIMITS: dict[str, dict] = {
-    "locked":  {"label": "Trial ended", "price": 0, "max_streams": 0,
+    # "Trial ended" was accurate while every account began with a free week.
+    # It is not any more: the commonest way to be locked is now never to have
+    # started, and telling somebody their trial ended when they never had one
+    # reads as a bug in their account. This label has to be true for all four
+    # ways in — never started, abandoned checkout, trial ended, cancelled.
+    "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
                 "max_pending": 0, "vod": False, "uploads": False},
     # LEGACY ONLY. Nothing new ever lands here: accounts that existed before the
     # trial cutover are marked `grandfathered` and keep this permanently, so
@@ -104,6 +109,73 @@ ACTIVE_STATUSES = ("active", "trialing")
 # `unpaid` and `incomplete_expired` are deliberately NOT here — those are Stripe
 # having given up, which is a real end.
 GRACE_STATUSES = ("past_due", "incomplete")
+
+
+# Where an account has got to on the way from "connected Twitch" to "paying",
+# newest stage last. Lives here rather than in the admin panel because the
+# diagnostic script and the panel must never disagree about what stage somebody
+# is at — that is precisely the confusion this exists to end.
+#
+# STAGE IS NOT THE SAME QUESTION AS PLAN. get_plan answers "what may they do";
+# this answers "how far did they get, and is that where they meant to stop".
+FUNNEL_STAGES = (
+    "staff",             # admin/trainer — never in the funnel
+    "legacy",            # pre-cutover account on its own terms
+    "signed_up",         # connected Twitch, never clicked through to pay
+    "checkout_started",  # reached Stripe's card form, no subscription yet
+    "checkout_dropped",  # a Stripe customer exists but no subscription
+    "trialing",          # card on file, not yet charged
+    "paying",            # charged
+    "past_due",          # card failing, Stripe retrying
+    "lapsed",            # had access, does not now
+)
+
+FUNNEL_LABELS = {
+    "staff":            "Staff",
+    "legacy":           "Legacy account",
+    "signed_up":        "Signed up, never opened checkout",
+    "checkout_started": "Left at the card form",
+    "checkout_dropped": "Checkout abandoned",
+    "trialing":         "On trial",
+    "paying":           "Paying",
+    "past_due":         "Card failing",
+    "lapsed":           "Lapsed",
+}
+
+
+def funnel_stage(user: dict | None) -> str:
+    """How far this account got. See FUNNEL_STAGES.
+
+    Reads only local state, so it is cheap enough for a table of every user and
+    truthful about what the APP believes. When the app and Stripe disagree —
+    the paid-but-locked-out case — this reports the app's side, which is the
+    side the customer is experiencing. scripts/why_no_access.py is the tool
+    that compares the two.
+    """
+    if not user:
+        return "signed_up"
+    if user.get("is_admin") or user.get("is_labeler"):
+        return "staff"
+    status = user.get("subscription_status") or "none"
+    if status == "trialing":
+        return "trialing"
+    if status == "active":
+        return "paying"
+    if status in GRACE_STATUSES:
+        # incomplete means the FIRST payment never confirmed — they are still
+        # inside checkout, not a customer whose card started failing later.
+        return "past_due" if status == "past_due" else "checkout_dropped"
+    # No access. Which kind of no-access is the interesting part.
+    if user.get("grandfathered") or user.get("pre_card_cutover"):
+        # Their terms are frozen; "lapsed" would read as something we should
+        # chase, and they may be sitting exactly where they intend to.
+        return "legacy"
+    if user.get("stripe_customer_id"):
+        return "lapsed" if status in ("canceled", "inactive", "expired") \
+            else "checkout_dropped"
+    if user.get("checkout_started_at"):
+        return "checkout_started"
+    return "signed_up"
 
 
 def get_plan(user: dict | None) -> str:
