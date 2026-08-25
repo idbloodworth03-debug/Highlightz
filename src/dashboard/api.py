@@ -5132,7 +5132,13 @@ async def get_stats(request: Request):
         c["avg_score"]      = round(sum(scores) / len(scores), 1) if scores else 0.0
         c["avg_virality"]   = round(sum(virality) / len(virality), 1) if virality else 0.0
         c["approval_rate"]  = round(c["approved"] / c["total_clips"] * 100, 1) if c["total_clips"] else 0.0
-        c["top_signal"]     = max(signals, key=signals.get) if signals else "—"
+        # Labelled HERE rather than in the template, because the stored value is
+        # the stringified enum ("SignalType.CHAT_VELOCITY") and this endpoint is
+        # the only thing that knows it. Rendering it raw is what put a Python
+        # repr on the Settings screen.
+        from src.trigger.signals import signal_label
+        top = max(signals, key=signals.get) if signals else ""
+        c["top_signal"] = signal_label(top) or "—"
         result.append(c)
 
     result.sort(key=lambda x: x["total_clips"], reverse=True)

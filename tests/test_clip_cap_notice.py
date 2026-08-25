@@ -72,7 +72,11 @@ def test_the_notice_says_the_highlight_was_not_clipped():
     must not go back to claiming a clip was deleted — nothing is deleted any
     more, and a user checking their queue would find nothing missing."""
     review = SRC[SRC.index("function ReviewScreen("):SRC.index("function LandingScreen(")]
-    banner = review[review.index("rd-lost"):review.index("rd-stats")]
+    # Ends at the toolbar, which is what follows the banner. It used to end at
+    # "rd-stats" — the stat tile row that sat between them — and when that row
+    # was removed this slice raised ValueError rather than failing on the
+    # wording it exists to check. A landmark is only as good as its lifespan.
+    banner = review[review.index("rd-lost"):review.index('className="rd-toolbar"')]
     assert "was not clipped" in banner or "were not clipped" in banner
     for stale in ("deleted to make room", "oldest unreviewed"):
         assert stale not in banner.lower(), \

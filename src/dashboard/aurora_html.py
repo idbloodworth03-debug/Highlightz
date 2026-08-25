@@ -186,16 +186,16 @@ button{font-family:inherit;cursor:pointer}
 .rd-empty{text-align:center;color:var(--fg-3);font-size:13px;padding:32px 12px;line-height:1.6}
 .rd-empty .ic{color:var(--fg-3);display:flex;justify-content:center;margin-bottom:10px}
 .rd-main{min-height:0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
-.rd-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.rd-stat{border-radius:var(--r-lg);padding:16px 18px;position:relative;overflow:hidden}
-.rd-stat .k{font-size:11px;color:var(--fg-2);font-weight:600;letter-spacing:.02em;display:flex;align-items:center;gap:7px}
-.rd-stat .k .si{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--grad-soft);color:var(--acc)}
-.rd-stat .v{font-size:30px;font-weight:800;letter-spacing:-.035em;margin-top:10px;font-variant-numeric:tabular-nums;line-height:1}
-.rd-stat .sub{font-size:11px;color:var(--fg-3);margin-top:6px}
-.rd-stat.accent{background:var(--grad-soft);border-color:rgba(199,155,255,.22)}
 .rd-toolbar{display:flex;align-items:center;gap:12px}
 .rd-toolbar h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
-.rd-toolbar-count{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums}
+/* The title line now carries the count itself, because the screen name is
+   already in the page header two inches above and saying it twice cost a whole
+   row. Sized up from 12px accordingly: it is the first thing on the line. */
+.rd-toolbar-count{font-size:14.5px;font-weight:700;color:var(--fg);letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums}
+.rd-toolbar-meta{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-3);
+  font-variant-numeric:tabular-nums}
+.rd-toolbar-meta svg{color:var(--live)}
 .rd-toolbar-acts{display:flex;gap:8px;align-items:center;margin-left:auto}
 /* The controls row: what you are LOOKING at, kept apart from the row above,
    which is what you can DESTROY. */
@@ -251,9 +251,17 @@ button{font-family:inherit;cursor:pointer}
 .plat-sw-btn:active{transform:scale(.93)}
 .plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
 .rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
-.rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;padding:7px 15px;border-radius:var(--r-pill);transition:.18s}
+.rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;
+  display:inline-flex;align-items:center;gap:7px;
+  padding:7px 13px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
 .rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(168,85,247,.6)}
+/* The count that used to be a 130px tile of its own. Tabular figures so the
+   chips do not resize as clips arrive over the socket — a row of controls that
+   shuffles sideways while you are aiming at it is worse than a stale number. */
+.rd-filter-n{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;
+  color:var(--fg-3);background:rgba(255,255,255,.07);border-radius:99px;padding:1px 7px;min-width:20px;text-align:center}
+.rd-filter.active .rd-filter-n{color:#fff;background:rgba(255,255,255,.22)}
 .rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;align-content:start;align-items:stretch;min-height:0}
 /* min-height, not height. The thumbnail is 16:9 of the COLUMN width, so a card in
    a wide column is taller than one in a narrow column — a fixed 360px fits at the
@@ -745,7 +753,6 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 @media(max-width:900px){
   .rd-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .rd-col{max-height:300px}
-  .rd-stats{grid-template-columns:repeat(2,1fr)}
   .rd-streams-layout{grid-template-columns:1fr}
   .rd-metrics{grid-template-columns:repeat(2,1fr)}
   .rd-modal-grid{grid-template-columns:1fr}
@@ -798,9 +805,6 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-body{grid-template-columns:1fr;padding:12px;gap:12px;overflow:visible}
   .rd-col{max-height:none}
   .rd-main{gap:12px;overflow:visible}
-  .rd-stats{grid-template-columns:repeat(2,1fr);gap:8px}
-  .rd-stat{padding:12px 14px}
-  .rd-stat .v{font-size:22px}
   .rd-toolbar{flex-wrap:wrap;gap:8px}
   .rd-filters{margin-left:0;width:100%;justify-content:space-between}
   .rd-filter{flex:1;text-align:center;padding:7px 6px}
@@ -872,10 +876,6 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
       linear-gradient(150deg,color-mix(in srgb,var(--acc) 55%,transparent),
         rgba(255,255,255,.1) 45%,color-mix(in srgb,var(--acc-2) 40%,transparent)) border-box}
 }
-.rd-stat{isolation:isolate}
-.rd-stat::before{content:'';position:absolute;top:-34px;right:-34px;width:120px;height:120px;
-  border-radius:50%;z-index:-1;pointer-events:none;
-  background:radial-gradient(circle,color-mix(in srgb,var(--acc-2) 20%,transparent),transparent 70%)}
 .rd-btn.grad{position:relative;overflow:hidden}
 .rd-btn.grad::after{content:'';position:absolute;top:0;left:-80%;width:50%;height:100%;
   background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);
@@ -928,10 +928,6 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-header .hsub{display:none}
   .plat-sw-btn{padding:7px 13px;font-size:11px}
   .rd-live{font-size:11px;padding:5px 9px}
-  .rd-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .rd-stat{padding:12px 13px}
-  .rd-stat .k{white-space:normal;line-height:1.3}
-  .rd-stat .v{font-size:24px}
   .rd-toolbar{flex-wrap:wrap;gap:8px}
   .rd-addrow{flex-wrap:wrap}
   .rd-addrow .rd-input{flex:1 1 100%}
@@ -970,6 +966,27 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
+
+// ONE name per signal, for the whole app. There were two of these tables — the
+// clip modal called KEYWORD "Keyword hits" and the streams screen called the
+// same signal "Keyword", so the product had two names for one thing depending
+// on which screen you were standing on. It mirrors SIGNAL_LABELS in
+// src/trigger/signals.py, and a test fails if the two ever disagree.
+//
+// Screens still choose WHICH signals they list — the modal shows the four the
+// formula scores on, the streams panel shows every weight the learner has
+// touched. They just no longer choose what those signals are called.
+const SIGNAL_LABELS = {
+  CHAT_VELOCITY:     'Chat velocity',
+  KEYWORD:           'Keyword hits',
+  SENTIMENT:         'Sentiment',
+  AUDIO_SPIKE:       'Audio spike',
+  MANUAL:            'Manual',
+  VIEWER_SPIKE:      'Viewer spike',
+  SILENCE_BURST:     'Silence burst',
+  EMOTE_HOMOGENEITY: 'Emote wall',
+};
+const signalLabel = k => SIGNAL_LABELS[k] || k;
 
 const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
   const P = {
@@ -1087,16 +1104,6 @@ function RdScoreChart({ data }) {
       <path d={line} fill="none" stroke="#c79bff" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
       <circle cx={last[0]} cy={last[1]} r="3.5" fill="#fff"/>
     </svg>
-  );
-}
-
-function RdStat({ icon, k, v, sub, accent }) {
-  return (
-    <div className={'rd-stat glass'+(accent?' accent':'')}>
-      <div className="k"><span className="si"><Icon name={icon} size={15}/></span>{k}</div>
-      <div className="v">{v}</div>
-      <div className="sub">{sub}</div>
-    </div>
   );
 }
 
@@ -1377,7 +1384,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
     const k = (s.type||'').replace('SignalType.','');
     sigMap[k] = (s.value||0)*100;
   }
-  const sigKeys = [['CHAT_VELOCITY','Chat velocity'],['KEYWORD','Keyword hits'],['SENTIMENT','Sentiment'],['AUDIO_SPIKE','Audio spike']];
+  const sigKeys = ['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE'];
 
   return (
     <div className="rd-modal-bg" onClick={onClose}>
@@ -1407,10 +1414,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
           <div className="rd-modal-grid">
             <div>
               <div className="rd-eyebrow" style={{marginBottom:14}}>Why it fired</div>
-              {sigKeys.map(([k,lbl])=>{
+              {sigKeys.map(k=>{
                 const v=sigMap[k]||0;
                 return <div className="rd-sigbar" key={k}>
-                  <div className="sh"><span className="sk">{lbl}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
+                  <div className="sh"><span className="sk">{signalLabel(k)}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
                   <div className="st"><div className="sf" style={{width:v+'%'}}/></div>
                 </div>;
               })}
@@ -1870,24 +1877,40 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
           <button className="rd-lost-x" onClick={onDismissLost} title="Dismiss"
             aria-label="Dismiss">×</button>
         </div>}
-        <div className="rd-stats">
-          <RdStat icon="sparkles" k="Pending review" v={pending} sub="awaiting your call" accent/>
-          <RdStat icon="check" k="Approved" v={approved} sub="ready to use"/>
-          <RdStat icon="radio" k="Active streams" v={streamsArr.length} sub="monitored live"/>
-          <RdStat icon="trending" k="Avg trigger" v={avgScore} sub="across all channels"/>
-        </div>
         {/* TWO ROWS, and that is the organisation. The title line carries the
             actions that CHANGE things — culling and clearing, both
             destructive. The line below carries the controls that only change
             what you are looking at. They used to be one run of five controls
-            with no grouping, so a bulk delete sat inches from a sort toggle. */}
+            with no grouping, so a bulk delete sat inches from a sort toggle.
+
+            THERE USED TO BE A THIRD ROW ABOVE THESE: four big stat tiles, 130px
+            of it. Two of them ("Pending review", "Approved") counted exactly
+            what the filter chips below already select, and the other two are
+            about STREAMS, on the screen for clips. Between those tiles, a
+            duplicate "Clip review" heading under the one already in the page
+            header, and the trial banner, 365px stood between the top of the
+            window and the first clip — 52% of a 1366x700 laptop, on which
+            precisely zero clips were fully visible.
+
+            The numbers did not go away, they went to the control that uses
+            them: the counts are on the filter chips you press to see them, and
+            the stream context sits on the title line. Nothing is stated twice
+            and the first clip starts far higher up. */}
         <div className="rd-toolbar">
-          <h2>Clip review</h2>
           <span className="rd-toolbar-count">
             {shown.length === clipsArr.length
               ? shown.length + (shown.length === 1 ? ' clip' : ' clips')
               : shown.length + ' of ' + clipsArr.length}
           </span>
+          {/* Only when there is something to say. "0 live · avg trigger 0" is
+              four words to tell somebody nothing is happening, and it was two
+              of the four tiles. */}
+          {streamsArr.length > 0 &&
+            <span className="rd-toolbar-meta">
+              <Icon name="radio" size={12}/>
+              {streamsArr.length} live
+              {avgScore > 0 && <> · avg trigger {avgScore}</>}
+            </span>}
           <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
               <div style={{position:'relative'}}>
@@ -1901,8 +1924,17 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
           </div>
         </div>
         <div className="rd-controls">
+          {/* The count belongs ON the chip that selects it. As two big tiles
+              above, "Pending review 26" and the Pending chip were the same fact
+              130px apart, and only one of them did anything when pressed. */}
           <div className="rd-filters">
-            {['all','pending','approved'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+            {[['all', clipsArr.length], ['pending', pending], ['approved', approved]]
+              .map(([f, n])=>
+              <button key={f} className={'rd-filter'+(filter===f?' active':'')}
+                onClick={()=>setFilter(f)}>
+                {f[0].toUpperCase()+f.slice(1)}
+                <span className="rd-filter-n">{n}</span>
+              </button>)}
           </div>
           {/* Only worth a control when there is more than one streamer to pick
               between — a menu whose every option is the same thing is furniture. */}
@@ -1962,7 +1994,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const sd = scores[active.channel]||{score:0,breakdown:{}};
   const hist = histories[active.channel]||[sd.score];
   const recent = Object.values(clips).filter(c=>c.channel===active.channel).sort((a,b)=>(b.created_at||0)-(a.created_at||0)).slice(0,4);
-  const WK=[['CHAT_VELOCITY','Chat velocity'],['KEYWORD','Keyword'],['SENTIMENT','Sentiment'],['AUDIO_SPIKE','Audio spike'],['VIEWER_SPIKE','Viewer spike'],['SILENCE_BURST','Silence burst']];
+  const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
   const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status;
@@ -2000,8 +2032,8 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
         </div>
         {Object.keys(sw).length>0 && <div className="rd-card2 glass">
           <h3 style={{fontSize:14,fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:9}}><Icon name="sliders" size={15} style={{color:'var(--acc)'}}/>Learned signal weights</h3>
-          {WK.filter(([k])=>sw[k]!=null).map(([k,lbl])=>{const v=sw[k]||1;const pct=Math.min(100,(v/2.5)*100);return <div className="rd-weight" key={k}>
-            <span className="wl">{lbl}</span>
+          {WK.filter(k=>sw[k]!=null).map(k=>{const v=sw[k]||1;const pct=Math.min(100,(v/2.5)*100);return <div className="rd-weight" key={k}>
+            <span className="wl">{signalLabel(k)}</span>
             <span className="wt"><span className="wf" style={{width:pct+'%'}}/></span>
             <span className="wv" style={{color:v>1.1?'var(--live)':v<0.9?'var(--fg-2)':'var(--fg)'}}>{v.toFixed(2)}x</span>
           </div>;})}
