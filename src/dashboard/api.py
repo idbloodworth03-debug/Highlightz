@@ -1978,6 +1978,32 @@ async def stripe_webhook(request: Request):
     return await _process_stripe_event(event, now, event_id)
 
 
+def _lapse_message(plan: str) -> str:
+    """What to tell somebody whose subscription just ended.
+
+    IT HAS TO NAME THE PLAN THEY ACTUALLY LAND ON. Both lapse paths used to say
+    "You are on the free plan now — one stream, and your clips are still here",
+    which was written when every lapse fell back to free. It stopped being true
+    for most people the moment `locked` existed and stopped being true for
+    almost everybody after the card cutover: only a `grandfathered` account
+    drops to free, and get_plan sends everyone else to `locked` with ZERO
+    streams. So the product was promising a stream it had just taken away, at
+    the exact moment somebody was deciding whether we are worth paying for.
+
+    One function, called from both the webhook and the reconcile sweep, because
+    two copies of this message are how it went wrong the first time.
+    """
+    if plan == "free":
+        return ("Your subscription has ended. You are on the free plan now — "
+                "one stream, and your clips are still here.")
+    # locked, or anything unexpected: promise nothing about what they keep
+    # except the clips, which they genuinely do keep — GET /clips has no plan
+    # gate, and a test in test_no_free_tier_claim.py holds it that way.
+    return ("Your subscription has ended and monitoring has stopped. Your "
+            "clips are still in your library — resubscribe any time to start "
+            "watching again.")
+
+
 def apply_subscription_event(user_id: str | None, cust_id: str, status: str,
                              trial_ends_at: float | None = None) -> str | None:
     """Apply a verified Stripe subscription event to the user store and return
@@ -2095,12 +2121,16 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             log.info("stripe_subscription_in_grace", user_id=user_id,
                      customer=cust_id, status=status)
         elif status not in ("active", "trialing") and user_id:
-            # Down to free, not out. Only the streams beyond the free limit stop.
+            # Down to whatever their account actually falls back to — free for a
+            # grandfathered account, locked for everybody else. _enforce_stream_limit
+            # already reads the real limits; the message now does too, instead of
+            # asserting a free plan the user may not have.
+            from src.auth import users as _lapse_store
+            from src.billing.plans import get_plan
             asyncio.create_task(_enforce_stream_limit(user_id))
             await broadcast(
                 {"event": "subscription_expired",
-                 "message": "Your subscription has ended. You are on the free "
-                            "plan now — one stream, and your clips are still here."},
+                 "message": _lapse_message(get_plan(_lapse_store.get_by_id(user_id)))},
                 user_id=user_id,
             )
         elif status in ("active", "trialing") and user_id:
@@ -3111,10 +3141,10 @@ async def reconcile_one_user(user: dict) -> dict:
         return result
     if now in ("locked", "free"):
         asyncio.create_task(_enforce_stream_limit(uid))
+        # `now` is already the resolved plan, so this path knows exactly what
+        # they landed on — it just used to say "free" regardless.
         await broadcast(
-            {"event": "subscription_expired",
-             "message": "Your subscription has ended. You are on the free plan "
-                        "now — your clips are still here."},
+            {"event": "subscription_expired", "message": _lapse_message(now)},
             user_id=uid)
     else:
         await broadcast(
@@ -7764,6 +7794,15 @@ def _pricing() -> str:
 
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 
+# The price note under the Twitch button used to read "Signing in is free. Paid
+# plans are optional and start at $10/month" — two lines below a badge saying a
+# card is required, so the page contradicted itself on the last screen before
+# signup. Making an account is still free; using the product is not optional any
+# more, so the note states the price after the trial instead.
+#
+# In PYTHON, not an HTML comment: the first version of this note was an HTML
+# comment quoting the old sentence, which meant the retired claim was still
+# being served to every visitor and every crawler that reads markup.
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7776,7 +7815,10 @@ LOGIN_HTML = """<!DOCTYPE html>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
   body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
-  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  /* width was a flat 360px, which hangs off a 320px screen — and this is the
+     sign-in card, so the overflow lands on the one button the page exists
+     for. max-width keeps the same size everywhere it fits. */
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:100%;max-width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
   .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
   .logo-wrap img{height:54px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.4))}
   h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
@@ -7814,7 +7856,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
-  <p class="price-note">Signing in is free. Paid plans are optional and start at $10/month.</p>
+  <p class="price-note">After the trial, plans start at $10/month. Cancel any time from your account.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -8169,6 +8211,15 @@ COOKIES_HTML = """<!DOCTYPE html>
   h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
   p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
   table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px}
+  /* The cookie table is four columns with a long Purpose cell and needs
+     376px; below that it pushed the whole page sideways, because there is
+     no wrapper element in the markup to scroll it. Making the table itself
+     the scroll box fixes it without touching the shared legal markup, so
+     /tos and /privacy are unaffected. Narrow widths only: as a block the
+     table no longer fills its column, which is wrong everywhere else. */
+  @media(max-width:560px){
+    table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  }
   th{text-align:left;color:#5d5d6b;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
   td{padding:10px 12px;color:#b8b8c8;border-bottom:1px solid rgba(255,255,255,.04)}
   a{color:#c79bff;text-decoration:none}

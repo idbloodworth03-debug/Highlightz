@@ -2608,7 +2608,18 @@ function FeedbackScreen({ onSeen }) {
       .then(()=>{ if(onSeen) onSeen(); }).catch(()=>{});
     const onReply = ()=>{ loadThreads(); };
     window.addEventListener('hz_fb_reply', onReply);
-    return ()=>window.removeEventListener('hz_fb_reply', onReply);
+    // Rule 3 of the realtime contract, which this screen was the only one
+    // missing. hz_fb_reply covers a reply that arrives while the socket is UP;
+    // it cannot cover one posted while it was DOWN, because no event is
+    // delivered for the gap. So across a deploy the nav badge lit — loadFbUnread
+    // is in refetchAll — while the thread the user was reading stayed exactly
+    // as it was. Being told you have a reply by a badge, on the screen that is
+    // supposed to be showing it to you, is worse than not being told.
+    window.addEventListener('hz_refetch', loadThreads);
+    return ()=>{
+      window.removeEventListener('hz_fb_reply', onReply);
+      window.removeEventListener('hz_refetch', loadThreads);
+    };
   }, [loadThreads, onSeen]);
   const [category, setCategory] = useState('General');
   const [message, setMessage]   = useState('');

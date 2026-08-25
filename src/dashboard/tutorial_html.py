@@ -277,7 +277,12 @@ _CSS = """
   .tut-body{font-size:16px;color:var(--ink-2);max-width:68ch;line-height:1.66}
   .tut-body b,.tut-steps b{color:var(--ink);font-weight:600}
   .tut-steps{margin:20px 0 0;padding-left:0;list-style:none;counter-reset:tstep;max-width:68ch}
+  /* overflow-wrap: the steps quote a full Twitch VOD URL in bold — 317px of
+     text with no break opportunity, wider than the column on any phone at
+     375px or below. Measured on the page: it is a <li>, not the FAQ answer,
+     which is where the first attempt at this fix went. */
   .tut-steps li{counter-increment:tstep;position:relative;padding-left:38px;margin-bottom:11px;
+    overflow-wrap:anywhere;
     font-size:15px;color:var(--ink-2);line-height:1.6}
   .tut-steps li::before{content:counter(tstep);position:absolute;left:0;top:1px;
     width:24px;height:24px;border-radius:2px;display:grid;place-items:center;
@@ -343,7 +348,11 @@ _CSS = """
   .faq-q{flex:1;min-width:0}
   .faq-c{flex-shrink:0;font-family:var(--mono);font-size:15px;color:var(--ink-3);transition:transform .25s,color .25s}
   .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
-  .faq-a{padding:0 2px 20px;font-size:14.5px;color:var(--ink-2);line-height:1.72;max-width:70ch}
+  /* overflow-wrap, because the answers quote real URLs — a full Twitch VOD
+     link is 317px of text with no break opportunity in it, which is wider
+     than the column on a 360px phone and pushed the whole page sideways. */
+  .faq-a{padding:0 2px 20px;font-size:14.5px;color:var(--ink-2);line-height:1.72;
+    max-width:70ch;overflow-wrap:anywhere}
   .faq-a b{color:var(--ink);font-weight:600}
   .faq-a a{color:var(--glow-ink);border-bottom:1px solid rgba(184,106,220,.4)}
 
@@ -388,8 +397,15 @@ _CSS = """
     .tut-toc a:hover{color:var(--ink-2)}
     .tut-toc a.on{color:var(--glow-ink);border-left-color:var(--flare)}
   }
-  @media(max-width:700px){
+  /* The nav is a copy of the landing page's, so it inherits the landing
+     page's breakpoint too. It had kept 700, and measurement says the nav needs
+     818px with the links shown — so between 800 and 940 the "Get started"
+     button hung 38px off the right edge of a tablet. 940 matches the landing
+     page exactly, which is the point of sharing a header. */
+  @media(max-width:940px){
     .nav-links{display:none}
+  }
+  @media(max-width:700px){
     .nav-logo span{display:none}
     .tut-hero{padding:34px 0 22px}
   }
