@@ -820,6 +820,11 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     if tuser.get("email"):
         user_store.set_email(user["id"], tuser["email"], source="twitch")
 
+    # They have just completed OAuth, so this grant is current. Recorded here
+    # rather than in upsert_twitch_user because that runs for a returning user
+    # too and this is specifically about the authorisation, not the account.
+    user_store.mark_login(user["id"])
+
     if pending_ref:
         # First touch only — set_ref_once refuses to overwrite, so a returning
         # user who arrives through a different link keeps their original
@@ -4293,6 +4298,21 @@ async def admin_list_users(request: Request):
         # one somebody typed to receive receipts; a Twitch account address may
         # be years old and unread. Worth telling apart before you rely on it.
         u["email_source"] = u.get("email_source", "") if u.get("email") else ""
+        # Two different questions, so two fields.
+        #
+        #   last_active_at — the last authenticated request or socket connect.
+        #     Answers "are they still using this". Read from the same in-memory
+        #     clock the idle reaper uses, which is persisted every five minutes,
+        #     so it survives a deploy to within that window. The browser's 30s
+        #     keepalive ping deliberately does NOT bump it, so an abandoned open
+        #     tab reads as idle rather than as a daily user.
+        #
+        #   last_login_at — the last completed Twitch OAuth. Answers "is their
+        #     grant current", which is what decides whether a newly requested
+        #     scope can reach them. Only recorded from the day it shipped, so a
+        #     0 here means "not since we started counting", NOT "never".
+        u["last_active_at"] = _user_last_active.get(uid, 0)
+        u["last_login_at"] = u.get("last_login_at", 0)
         u["funnel_stage"] = plans.funnel_stage(u)
         u["funnel_label"] = plans.FUNNEL_LABELS.get(u["funnel_stage"], "")
         u["checkout_started_at"] = u.get("checkout_started_at", 0)
@@ -8714,6 +8734,21 @@ function rvEsc(t){ const d=document.createElement('div'); d.textContent = t==nul
 const esc = rvEsc;
 const n0 = v => (Number(v)||0).toLocaleString('en-US');
 const fmt = ts => ts ? new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+// Relative, because the question the Last seen column answers is "how long
+// ago", and a reader should not have to subtract dates in their head. Past a
+// month it hands back to fmt, where "47d ago" stops being easier to read than
+// the date. Defined HERE, beside the fmt it falls back to: this page has three
+// separate script blocks that each define their own fmt, and putting it in the
+// wrong one is a ReferenceError that only appears at runtime.
+const ago = ts => {
+  if(!ts) return '';
+  const s = Date.now()/1000 - ts;
+  if(s < 90) return 'just now';
+  if(s < 3600) return Math.round(s/60) + 'm ago';
+  if(s < 86400) return Math.round(s/3600) + 'h ago';
+  if(s < 2592000) return Math.round(s/86400) + 'd ago';
+  return fmt(ts);
+};
 const fmtTs = ts => ts ? new Date(ts*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
 const RV_STAR = String.fromCharCode(9733);
 
@@ -8880,7 +8915,8 @@ function renderUsers(){
     + '<th title="Clips they approved, all time">Accepted</th>'
     + '<th title="Clips they rejected one by one, all time">Rejected</th>'
     + '<th title="Clips they binned in bulk with Clear queue, all time">Cleared</th>'
-    + '<th>Joined</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
+    + '<th title="Last authenticated request. The browser keepalive does not count, so an abandoned open tab reads as idle.">Last seen</th>'
+    + '<th style="text-align:right">Actions</th></tr></thead><tbody>';
   rows.forEach(pair => {
     const u = pair[0], i = pair[1];
     const st = userState(u);
@@ -8924,7 +8960,9 @@ function renderUsers(){
       + '<td class="num">' + (u.clips_approved||0) + '</td>'
       + '<td class="num">' + (u.clips_rejected||0) + '</td>'
       + '<td class="num">' + (u.clips_cleared||0) + '</td>'
-      + '<td class="dim">' + fmt(u.created_at) + '</td>'
+      + '<td><div>' + (u.last_active_at ? esc(ago(u.last_active_at))
+          : '<span class="dim">not since we started counting</span>') + '</div>'
+        + '<div class="plan-note">joined ' + fmt(u.created_at) + '</div></td>'
       + '<td><div class="acts">' + acts + '</div></td></tr>';
   });
   wrap.innerHTML = html + '</tbody></table>';
@@ -9070,6 +9108,20 @@ async function openUser(u){
     + '<dt>Stripe</dt><dd>' + (u.stripe_customer_id ? esc(u.stripe_customer_id) : 'no customer record') + '</dd>'
     + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
     + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
+    + '<dt>Last seen</dt><dd>' + (u.last_active_at
+        ? esc(ago(u.last_active_at)) + ' <span class="dim" style="font-size:11px">('
+          + fmt(u.last_active_at) + ')</span>'
+        : '<span class="dim">not since we started counting</span>') + '</dd>'
+    // Distinct from Last seen: this only moves when they go through Twitch and
+    // re-approve, which is what decides whether a newly requested permission
+    // can reach them. Recorded only from the day it shipped, so an empty value
+    // means "not since then", not "never" — and saying "never" about a daily
+    // user would be a lie the panel tells with a straight face.
+    + '<dt>Last sign-in</dt><dd>' + (u.last_login_at
+        ? esc(ago(u.last_login_at)) + ' <span class="dim" style="font-size:11px">('
+          + fmt(u.last_login_at) + ')</span>'
+        : '<span class="dim">not since we started recording it</span>') + '</dd>'
+    + '<dt>Joined</dt><dd>' + fmt(u.created_at) + '</dd>'
     + '<dt>Email</dt><dd>' + (u.email
         ? esc(u.email) + (u.email_source
             ? ' <span class="dim" style="font-size:11px">(' + esc(u.email_source) + ')</span>'

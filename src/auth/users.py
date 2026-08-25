@@ -534,6 +534,30 @@ def find_other_active_with_email(email: str, exclude_user_id: str) -> dict | Non
     return None
 
 
+def mark_login(user_id: str) -> None:
+    """Stamp the moment this account last completed Twitch OAuth.
+
+    A DIFFERENT FACT FROM LAST SEEN, and the difference is the point. Last seen
+    moves on every authenticated request, so it tells you whether somebody is
+    still using the product. This moves only when they go through Twitch again
+    and re-approve — which is what a session expiring, a sign-out, or a new
+    permission being requested forces.
+
+    That last case is why this exists now: user:read:email cannot reach anybody
+    whose grant predates it, so "who has re-authorised since" is the question
+    that says when their email will arrive, and nothing was recording it.
+
+    Overwrites every time, unlike checkout_started_at. First-touch would answer
+    "did they ever log in", which created_at already answers.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["last_login_at"] = time.time()
+            _save(users)
+            return
+
+
 def mark_checkout_started(user_id: str) -> None:
     """Stamp the moment this account was sent to Stripe Checkout.
 

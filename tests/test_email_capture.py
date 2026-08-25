@@ -251,3 +251,110 @@ def test_deleting_an_account_really_does_delete_the_email(store):
     assert store.delete(u["id"]) is True
     assert store.get_by_id(u["id"]) is None
     assert "nova@example.com" not in store._USERS_FILE.read_text()
+
+
+# ── last seen / last sign-in ─────────────────────────────────────────────────
+# Two different facts. Last seen moves on every authenticated request and says
+# whether somebody is still using the product. Last sign-in moves only when they
+# go through Twitch again, which is what decides whether a newly requested scope
+# can reach them — the question the email work leaves open for every existing
+# account.
+
+def test_a_login_is_recorded_and_overwrites(store):
+    """Not first-touch, unlike checkout_started_at: "did they ever log in" is
+    already answered by created_at. What is wanted here is the latest grant."""
+    import time
+    u = store.upsert_twitch_user("tw1", "nova", "nova")
+    assert not store.get_by_id(u["id"]).get("last_login_at")
+    store.mark_login(u["id"])
+    first = store.get_by_id(u["id"])["last_login_at"]
+    assert first > 0
+    time.sleep(0.01)
+    store.mark_login(u["id"])
+    assert store.get_by_id(u["id"])["last_login_at"] > first
+
+
+def test_marking_a_login_for_a_missing_user_is_not_an_error(store):
+    store.mark_login("ghost")
+
+
+def test_the_oauth_callback_records_the_login():
+    import inspect
+    from src.dashboard import api
+    assert "mark_login(user[\"id\"])" in inspect.getsource(api.twitch_callback)
+
+
+def test_the_admin_payload_carries_both_clocks(monkeypatch, tmp_path):
+    import base64, json as _j, time
+    from itsdangerous import TimestampSigner
+    from fastapi.testclient import TestClient
+    from src.dashboard import api
+    from src.auth import users as user_store
+
+    monkeypatch.setattr(user_store, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(user_store, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    monkeypatch.setattr(api, "_streams", {})
+    monkeypatch.setattr(api, "_clips", {})
+
+    admin = user_store.upsert_twitch_user("tw_a", "boss", "boss", is_admin=True)
+    seen = user_store.upsert_twitch_user("tw_b", "nova", "nova")
+    user_store.upsert_twitch_user("tw_c", "ghost", "ghost")
+    user_store.mark_login(seen["id"])
+    monkeypatch.setattr(api, "_user_last_active", {seen["id"]: time.time() - 300})
+
+    c = TestClient(api.app)
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
+        {"auth": True, "user_id": admin["id"], "username": "boss",
+         "is_admin": True}).encode())).decode())
+
+    rows = {r["username"]: r for r in c.get("/admin/users").json()}
+    assert rows["nova"]["last_active_at"] > 0
+    assert rows["nova"]["last_login_at"] > 0
+    # Never-seen accounts report 0 rather than being absent, so the panel can
+    # tell "no record" from "undefined" without guessing.
+    #
+    # Asserted on `ghost`, NOT on the admin: the admin is making this very
+    # request, so AuthMiddleware bumps their clock on the way in. An earlier
+    # version of this test expected 0 for them and was simply wrong about how
+    # the page works.
+    assert rows["ghost"]["last_active_at"] == 0
+    assert rows["ghost"]["last_login_at"] == 0
+    assert rows["boss"]["last_active_at"] > 0, \
+        "the admin reading the page is active by definition"
+
+
+def test_the_panel_renders_last_seen_and_last_sign_in():
+    from src.dashboard.api import ADMIN_HTML as h
+    assert ">Last seen</th>" in h, "the column is gone"
+    assert "u.last_active_at" in h
+    assert "<dt>Last sign-in</dt>" in h
+    assert "u.last_login_at" in h
+    # A blank must read as a gap in our records, not as a claim about the user.
+    assert "not since we started counting" in h
+    assert "not since we started recording it" in h
+
+
+def test_the_relative_formatter_is_defined_in_the_block_that_uses_it():
+    """THE BUG THIS CAUGHT. The admin page has three separate <script> blocks
+    and each defines its own fmt. `ago` went into the wrong one, so the users
+    table died with "ago is not defined" — the whole table rendered as
+    "Loading…" and no test noticed, because the Python string contained the
+    function either way."""
+    import re
+    from src.dashboard.api import ADMIN_HTML as h
+    blocks = re.findall(r"<script>(.*?)</script>", h, re.S)
+    users_block = next((b for b in blocks if "function renderUsers" in b), None)
+    assert users_block, "renderUsers is not in any script block"
+    assert re.search(r"(const|let|function)\s+ago\b", users_block), \
+        "ago is not defined in the block that renders the users table"
+    assert re.search(r"(const|let|function)\s+fmt\b", users_block), \
+        "ago falls back to fmt, which is not defined in this block either"
+
+
+def test_the_joined_date_survived_the_column_change():
+    """Last seen replaced Joined in the header. The join date is still the
+    cohort anchor for the referral report, so it stays visible."""
+    from src.dashboard.api import ADMIN_HTML as h
+    assert "joined ' + fmt(u.created_at)" in h, "the join date is no longer shown"
+    assert "<dt>Joined</dt>" in h
