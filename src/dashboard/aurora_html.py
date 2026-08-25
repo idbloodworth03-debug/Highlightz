@@ -2842,18 +2842,25 @@ function FeedbackScreen({ onSeen }) {
         {threads.length > 0 &&
           <div className="rd-card glass" style={{marginTop:16}}>
             <h3><span className="si"><Icon name="chat" size={15}/></span>Your messages</h3>
-            <div className="desc">Anything you have sent us, and our replies.</div>
+            <div className="desc">Your conversations with us — anything you have sent, anything we have sent you, and every reply either way.</div>
             <div style={{display:'flex',flexDirection:'column',gap:14,marginTop:14}}>
               {threads.map(t=>(
                 <div key={t.id} style={{border:'1px solid var(--hair)',borderRadius:10,padding:'12px 14px',
                     background:t.reply_unread?'rgba(168,85,247,.07)':'transparent'}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
                     <span style={{fontFamily:'ui-monospace,monospace',fontSize:10.5,letterSpacing:'.12em',
-                      textTransform:'uppercase',color:'var(--fg-3)'}}>{t.category}</span>
+                      textTransform:'uppercase',color:t.from_admin_start?'var(--acc)':'var(--fg-3)'}}>
+                      {t.from_admin_start ? 'From Highlightz' : t.category}</span>
                     <span style={{fontSize:11,color:'var(--fg-3)'}}>{fmtTime(t.created_at)}</span>
                     {t.reply_unread && <span className="navbadge" style={{position:'static'}}>new</span>}
                   </div>
-                  <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>
+                  {/* A thread WE opened has no opening message from them, so
+                      there is nothing to draw here — the first thing in it is
+                      our message, which the replies below already render with
+                      the right name and colour. Without this guard it drew an
+                      empty bubble above every message we send. */}
+                  {!t.from_admin_start &&
+                    <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>}
                   {(t.replies||[]).map((r,ri)=>(
                     <div key={ri} style={{marginTop:10,paddingLeft:12,
                         borderLeft:'2px solid '+(r.from_admin===false?'var(--hair-2)':'var(--acc)')}}>
@@ -4996,6 +5003,15 @@ function RdApp() {
           loadFbUnread();
           window.dispatchEvent(new CustomEvent('hz_fb_reply'));
           flash('You have a reply to your feedback');
+        }
+        // Us reaching out FIRST, on a thread they never opened. Same plumbing,
+        // different words: telling somebody they have "a reply to your
+        // feedback" when they never sent any reads as a bug in our product,
+        // not as a message from us.
+        if(msg.event==='feedback_message'){
+          loadFbUnread();
+          window.dispatchEvent(new CustomEvent('hz_fb_reply'));
+          flash('New message from Highlightz');
         }
         // The other direction — a user answered on their thread. Only admins
         // receive this (it is fanned out by id, never broadcast to everyone).

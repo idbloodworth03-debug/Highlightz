@@ -1244,6 +1244,9 @@ class _FeedbackRequest(BaseModel):
 _feedback_last_submit: dict[str, float] = {}  # user_id -> last submit time
 _FEEDBACK_COOLDOWN = 10  # seconds between submissions per user
 _feedback_rate_lock = asyncio.Lock()
+# Threads per user, whichever side opened them. Disk is the reason it exists,
+# and the direction a thread started in does not change what it costs.
+_MAX_THREADS_PER_USER = 200
 
 @app.post("/feedback", status_code=201)
 async def submit_feedback(request: Request, body: _FeedbackRequest):
@@ -1261,7 +1264,7 @@ async def submit_feedback(request: Request, body: _FeedbackRequest):
     if len(msg) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (2000 chars max)")
     # Cap total stored feedback per user to prevent unbounded disk growth
-    if sum(1 for f in _feedback if f.get("user_id") == uid) >= 200:
+    if sum(1 for f in _feedback if f.get("user_id") == uid) >= _MAX_THREADS_PER_USER:
         raise HTTPException(status_code=429, detail="Feedback limit reached — thank you, we have plenty from you!")
     _VALID_FEEDBACK_CATEGORIES = {"General", "Bug report", "Feature request", "Question"}
     category = body.category.strip() if body.category else "General"
@@ -1343,6 +1346,119 @@ async def admin_feedback_reply(request: Request, feedback_id: str, body: _Feedba
     return {"ok": True}
 
 
+# Reaching out to somebody who has NOT written in. Bounded so one request
+# cannot fan out to an unbounded number of threads; the real user base is far
+# below this, so hitting it means something went wrong rather than something
+# ambitious.
+_MAX_MESSAGE_RECIPIENTS = 500
+
+
+class _AdminMessage(BaseModel):
+    user_ids: list[str] = Field(min_length=1, max_length=_MAX_MESSAGE_RECIPIENTS)
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/admin/feedback/new", status_code=201)
+async def admin_feedback_start(request: Request, body: _AdminMessage):
+    """Start a support thread with someone who has not written in.
+
+    THE GAP THIS FILLS. Every path here was reactive: the admin could only ever
+    answer a thread the user opened. So the people you most need to reach —
+    somebody who stopped at the paywall, a trial about to lapse, a user whose
+    streams you had to stop — were exactly the ones you had no way to contact,
+    because not writing in was the whole problem.
+
+    NOT EMAIL, for the same reason the reply endpoint is not email: Twitch OAuth
+    gives us no address unless the user signs in again under the new scope, so
+    the only addresses we hold are Stripe's, i.e. people who have already paid.
+    An in-app message reaches everybody and rides the socket that is already
+    there.
+
+    SHAPE. The thread is a normal feedback entry with an EMPTY opening message
+    and the admin's text as the first reply, flagged `from_admin_start`. That is
+    deliberate: both the user's screen and the admin's list already render
+    `replies` with the right attribution and colour, so an admin-started thread
+    displays correctly through the code that already exists, and the user can
+    answer it with the reply endpoint they already have. Putting the admin's
+    words in `message` would instead have made every existing reader of that
+    field — the admin list, the user's own thread view — attribute the admin's
+    text to the user.
+
+    It lands READ (there is nothing for an admin to action on a thread they just
+    wrote) and `reply_unread`, which is what lights the recipient's nav badge.
+    """
+    _require_admin(request)
+    from src.auth import users as user_store
+
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    # De-duplicated but ORDER-PRESERVING, so "sent to 3 people" counts three
+    # people and the same id pasted twice does not become two threads.
+    wanted, seen = [], set()
+    for uid in body.user_ids:
+        uid = (uid or "").strip()
+        if uid and uid not in seen:
+            seen.add(uid)
+            wanted.append(uid)
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Pick at least one recipient")
+
+    known = {u["id"]: u for u in user_store.get_all()}
+    now = time.time()
+    import secrets as _sec
+
+    sent, skipped = [], []
+    async with _data_lock:
+        # Counted once for everybody rather than re-scanned per recipient — this
+        # runs over the whole feedback list and the list is held in memory.
+        per_user: dict[str, int] = {}
+        for f in _feedback:
+            fid = f.get("user_id")
+            if fid:
+                per_user[fid] = per_user.get(fid, 0) + 1
+        for uid in wanted:
+            u = known.get(uid)
+            if u is None:
+                skipped.append({"user_id": uid, "reason": "no such user"})
+                continue
+            if per_user.get(uid, 0) >= _MAX_THREADS_PER_USER:
+                skipped.append({"user_id": uid, "reason": "thread limit reached"})
+                continue
+            entry = {
+                "id":               _sec.token_urlsafe(12),
+                "user_id":          uid,
+                "username":         u.get("username") or u.get("twitch_login") or "",
+                "category":         "Message",
+                "message":          "",
+                "from_admin_start": True,
+                "created_at":       now,
+                "read":             True,
+                "reply_unread":     True,
+                "replies": [{"message": msg, "at": now, "from_admin": True}],
+            }
+            _feedback.append(entry)
+            per_user[uid] = per_user.get(uid, 0) + 1
+            sent.append(entry)
+        if sent:
+            # One write for the batch. Saving per recipient would rewrite the
+            # whole file once per person for no benefit.
+            _save_feedback()
+
+    # Realtime contract, scoped: each recipient's own socket, never everyone's.
+    # A distinct event from feedback_reply because the copy differs — telling
+    # someone they have "a reply to your feedback" when they never sent any is
+    # a small lie that makes the product look confused.
+    for entry in sent:
+        await broadcast({"event": "feedback_message", "feedback_id": entry["id"],
+                         "message": msg}, user_id=entry["user_id"])
+    log.info("admin_message_sent", recipients=len(sent), skipped=len(skipped),
+             by=request.session.get("user_id"))
+    return {"ok": True, "sent": len(sent),
+            "usernames": [e["username"] for e in sent], "skipped": skipped}
+
+
 @app.get("/feedback/mine")
 async def feedback_mine(request: Request):
     """This user's own feedback, with any replies. Scoped to the caller."""
@@ -1352,6 +1468,9 @@ async def feedback_mine(request: Request):
     return [{"id": f["id"], "category": f.get("category", "General"),
              "message": f.get("message", ""), "created_at": f.get("created_at", 0),
              "replies": f.get("replies", []),
+             # Tells the screen not to draw an empty bubble where the user's
+             # own opening message would be — there isn't one, we started it.
+             "from_admin_start": bool(f.get("from_admin_start")),
              "reply_unread": bool(f.get("reply_unread"))} for f in mine]
 
 
@@ -8448,6 +8567,10 @@ ADMIN_HTML = """<!DOCTYPE html>
     cursor:pointer;border:1px solid var(--hair);background:var(--wall);color:var(--ink-2);
     transition:.15s;white-space:nowrap}
   .btn:hover{color:var(--ink);border-color:rgba(184,106,220,.45)}
+  /* The drawer's "Send a message" is a LINK, because it goes to another page —
+     a button that navigates cannot be opened in a new tab. Scoped to a.btn so
+     the real buttons and the select.btn pickers keep their own display mode. */
+  a.btn{display:inline-flex;align-items:center;text-decoration:none;line-height:1.5}
   .btn-key{border-color:rgba(210,106,251,.5);color:var(--ink);
     background:linear-gradient(166deg,var(--bruise),#25172E)}
   .btn-key:hover{background:linear-gradient(166deg,#412852,#2C1B36);border-color:#EFA6FF}
@@ -9127,10 +9250,18 @@ async function openUser(u){
             ? ' <span class="dim" style="font-size:11px">(' + esc(u.email_source) + ')</span>'
             : '')
         : '<span class="dim">none &mdash; arrives when they next sign in</span>') + '</dd>'
-    + '<dt>Joined</dt><dd>' + fmt(u.created_at) + '</dd>'
     + '<dt>User id</dt><dd>' + esc(u.id) + '</dd>'
     + '</dl>'
     + (mem ? '<div class="acts" style="justify-content:flex-start;margin-top:16px">' + mem + '</div>' : '')
+    // Reaching them. Deliberately NOT gated on is_admin like the membership
+    // controls are — there is no such thing as an account you must not be able
+    // to talk to. It opens the composer with this person already picked,
+    // because deciding somebody needs a message happens HERE, while you are
+    // looking at them, and making you find them again in a second list is how
+    // you end up messaging the wrong person.
+    + '<div class="acts" style="justify-content:flex-start;margin-top:10px">'
+    + '<a class="btn" href="/admin/feedback-page?to=' + encodeURIComponent(u.id) + '">'
+    + 'Send a message</a></div>'
     + '</div>';
 
   const [streams, clips] = await Promise.all([
@@ -9812,7 +9943,75 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     background:rgba(255,255,255,.04);color:inherit}
   .fb-replybox textarea:focus{outline:2px solid #a855f7;outline-offset:1px}
   .btn-reply{background:#7c3aed;border-color:transparent;color:#fff;white-space:nowrap}
+
+  /* ── Compose: starting a thread with somebody who has not written in ── */
+  .compose{max-width:820px;margin-bottom:22px;background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 20px}
+  .compose h2{font-size:15px;font-weight:700;margin-bottom:3px}
+  .compose .hint{font-size:12px;color:#8b8b99;margin-bottom:14px;line-height:1.55}
+  .cmp-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:#8b8b99;margin-bottom:7px;display:block}
+  .cmp-search{width:100%;padding:8px 11px;border-radius:9px;font:inherit;font-size:13px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:inherit}
+  .cmp-search:focus{outline:2px solid #a855f7;outline-offset:1px}
+  .cmp-chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+  .cmp-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:99px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#9c9caa;transition:.15s}
+  .cmp-chip:hover{color:#f6f6f9;border-color:rgba(255,255,255,.22)}
+  .cmp-chip.on{background:rgba(145,70,255,.18);border-color:rgba(145,70,255,.45);color:#c79bff}
+  /* Scrolls rather than growing: the whole point is that this sits above the
+     feedback list, and a hundred users would push it off the screen. */
+  .cmp-people{max-height:210px;overflow-y:auto;border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;padding:5px;display:flex;flex-direction:column;gap:1px}
+  .cmp-person{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;
+    cursor:pointer;font-size:13px;transition:.12s}
+  .cmp-person:hover{background:rgba(255,255,255,.05)}
+  .cmp-person.on{background:rgba(145,70,255,.13)}
+  .cmp-person input{accent-color:#a855f7;cursor:pointer;flex-shrink:0}
+  .cmp-nm{font-weight:600;color:#f6f6f9}
+  /* Truncates with an ellipsis rather than being sliced mid-word by the row
+     edge: "Signed up, never opened ch" reads as a rendering fault. */
+  .cmp-meta{font-size:11px;color:#6f6f80;margin-left:auto;text-align:right;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
+  .cmp-none{padding:14px;text-align:center;color:#5d5d6b;font-size:12.5px}
+  .cmp-foot{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+  .cmp-count{font-size:12px;color:#8b8b99}
+  .cmp-count b{color:#c79bff}
+  .fb-started{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;
+    background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c79bff}
 </style>
+
+<div class="compose">
+  <h2>Send a message</h2>
+  <div class="hint">Starts a thread in their Feedback tab — they get it live, with a badge, and
+    can reply straight back to you here. Not email: most accounts sign in with Twitch and never
+    give us an address, so this is the channel that actually reaches everybody.</div>
+  <label class="cmp-label" for="cmp-q">To</label>
+  <input id="cmp-q" class="cmp-search" placeholder="Search by name, Twitch login or email…" autocomplete="off">
+  <div class="cmp-chips" id="cmp-chips">
+    <button class="cmp-chip on" data-f="all">Everyone</button>
+    <button class="cmp-chip" data-f="paying">Paying</button>
+    <button class="cmp-chip" data-f="trialing">On trial</button>
+    <button class="cmp-chip" data-f="stalled">Stopped at the paywall</button>
+    <button class="cmp-chip" data-f="lapsed">Lapsed</button>
+    <button class="cmp-chip" data-f="selected">Selected</button>
+  </div>
+  <div class="cmp-people" id="cmp-people"><div class="cmp-none">Loading people…</div></div>
+  <div class="cmp-foot">
+    <button class="btn btn-read" id="cmp-all">Select all shown</button>
+    <button class="btn btn-read" id="cmp-clear">Clear</button>
+    <span class="cmp-count" id="cmp-count">No one selected</span>
+  </div>
+  <label class="cmp-label" for="cmp-msg" style="margin-top:14px">Message</label>
+  <textarea id="cmp-msg" rows="4" maxlength="2000" class="cmp-search"
+    placeholder="Write your message — they see it in the app, and can reply."
+    style="resize:vertical;line-height:1.55"></textarea>
+  <div class="cmp-foot">
+    <button class="btn btn-reply" id="cmp-send">Send message</button>
+    <span class="cmp-count" id="cmp-left">0/2000</span>
+  </div>
+</div>
+
 <div class="fb-list" id="list"><p class="empty">Loading…</p></div>
 <div class="toast" id="toast"></div>
 <script>
@@ -9832,13 +10031,20 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
         <div class="fb-meta">
           ${f.read?'':'<span class="new-dot"></span>'}
           <span class="fb-user">${esc(f.username||f.user_id)}</span>
-          <span class="fb-cat">${esc(f.category||'general')}</span>
+          ${f.from_admin_start
+            ? '<span class="fb-started">You started this</span>'
+            : `<span class="fb-cat">${esc(f.category||'general')}</span>`}
           <span class="fb-time">${fmt(f.created_at)}</span>
         </div>
-        <div class="fb-msg">${esc(f.message)}</div>
-        ${(f.replies||[]).map(r=>`
+        ${f.from_admin_start ? '' : `<div class="fb-msg">${esc(f.message)}</div>`}
+        ${(f.replies||[]).map((r,ri)=>`
           <div class="fb-reply${r.from_admin===false?' from-user':''}">
-            <b>${r.from_admin===false?esc(f.username||'They')+' replied':'You replied'}</b>
+            <b>${r.from_admin===false
+                  ? esc(f.username||'They')+' replied'
+                  /* The first thing in a thread WE opened is not a reply — it
+                     is the message. Calling it "You replied" made the panel
+                     read as though the user had said something first. */
+                  : (f.from_admin_start && ri===0 ? 'You wrote' : 'You replied')}</b>
             <div>${esc(r.message)}</div>
             <span class="fb-time">${fmt(r.at)}</span></div>`).join('')}
         <div class="fb-replybox">
@@ -9880,6 +10086,129 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     catch{document.getElementById('list').innerHTML='<p class="empty">Failed to load feedback.</p>';}
   }
   load();
+
+  // ── Compose ────────────────────────────────────────────────────────────────
+  // Everything above this line is REACTIVE: it can only answer a thread the
+  // user opened. So the people you most need to reach — somebody who stopped at
+  // the paywall, a trial about to lapse — were the ones there was no way to
+  // contact, because not writing in was the whole problem.
+  let PEOPLE=[], SEL=new Set(), CMP_Q='', CMP_F='all';
+  const STALLED=['signed_up','checkout_started','checkout_dropped'];
+
+  function inFilter(u){
+    if(CMP_F==='selected') return SEL.has(u.id);
+    if(CMP_F==='paying')   return u.funnel_stage==='paying';
+    if(CMP_F==='trialing') return u.funnel_stage==='trialing';
+    if(CMP_F==='stalled')  return STALLED.indexOf(u.funnel_stage)!==-1;
+    if(CMP_F==='lapsed')   return u.funnel_stage==='lapsed'||u.funnel_stage==='past_due';
+    return true;
+  }
+  function inSearch(u){
+    if(!CMP_Q) return true;
+    return [u.username,u.twitch_login,u.email].some(
+      v => (v||'').toLowerCase().indexOf(CMP_Q)!==-1);
+  }
+  function shownPeople(){ return PEOPLE.filter(u=>inFilter(u)&&inSearch(u)); }
+
+  function renderPeople(){
+    const box=document.getElementById('cmp-people');
+    const list=shownPeople();
+    if(!PEOPLE.length){ box.innerHTML='<div class="cmp-none">No users yet.</div>'; }
+    else if(!list.length){ box.innerHTML='<div class="cmp-none">Nobody matches that.</div>'; }
+    else box.innerHTML=list.map(u=>`
+      <label class="cmp-person${SEL.has(u.id)?' on':''}">
+        <input type="checkbox" data-id="${esc(u.id)}"${SEL.has(u.id)?' checked':''}>
+        <span class="cmp-nm">${esc(u.username||u.id)}</span>
+        <span style="color:#6f6f80;font-size:11.5px">${u.twitch_login?'@'+esc(u.twitch_login):''}</span>
+        <span class="cmp-meta">${esc(u.funnel_label||u.plan_label||u.plan||'')}</span>
+      </label>`).join('');
+    // Counted over EVERYONE, not over the visible list: a selection made under
+    // one filter is still a selection after you switch to another, and a count
+    // that dropped when you changed tabs would look like it had lost people.
+    const n=SEL.size;
+    document.getElementById('cmp-count').innerHTML =
+      n ? '<b>'+n+'</b> '+(n===1?'person':'people')+' selected' : 'No one selected';
+  }
+
+  document.getElementById('cmp-people').addEventListener('change', e => {
+    const cb=e.target.closest('input[type=checkbox]'); if(!cb) return;
+    if(cb.checked) SEL.add(cb.dataset.id); else SEL.delete(cb.dataset.id);
+    renderPeople();
+  });
+  document.getElementById('cmp-q').addEventListener('input', e => {
+    CMP_Q=(e.target.value||'').toLowerCase().trim(); renderPeople();
+  });
+  document.getElementById('cmp-chips').addEventListener('click', e => {
+    const c=e.target.closest('.cmp-chip'); if(!c) return;
+    CMP_F=c.dataset.f;
+    document.querySelectorAll('#cmp-chips .cmp-chip').forEach(x=>x.classList.toggle('on',x===c));
+    renderPeople();
+  });
+  document.getElementById('cmp-all').addEventListener('click', () => {
+    shownPeople().forEach(u=>SEL.add(u.id)); renderPeople();
+  });
+  document.getElementById('cmp-clear').addEventListener('click', () => {
+    SEL.clear(); renderPeople();
+  });
+  document.getElementById('cmp-msg').addEventListener('input', e => {
+    document.getElementById('cmp-left').textContent=(e.target.value||'').length+'/2000';
+  });
+
+  document.getElementById('cmp-send').addEventListener('click', async () => {
+    const box=document.getElementById('cmp-msg');
+    const msg=(box.value||'').trim();
+    const ids=Array.from(SEL);
+    if(!ids.length){ toast('Pick who it goes to'); return; }
+    if(!msg){ toast('Write something first'); return; }
+    // Sending to a group is not undoable and lands in a real person's app, so
+    // the count is confirmed out loud before it goes.
+    if(ids.length>1 && !confirm('Send this to '+ids.length+' people?')) return;
+    const btn=document.getElementById('cmp-send');
+    btn.disabled=true; btn.textContent='Sending…';
+    try{
+      const r=await fetch('/admin/feedback/new',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({user_ids:ids,message:msg})});
+      if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||r.status); }
+      const res=await r.json();
+      box.value=''; SEL.clear();
+      document.getElementById('cmp-left').textContent='0/2000';
+      renderPeople();
+      // The new threads are now the top of the list, so reload it rather than
+      // leaving the admin looking at a list that does not contain what they
+      // just sent.
+      await load();
+      const skipped=(res.skipped||[]).length;
+      toast('Sent to '+res.sent+(res.sent===1?' person':' people')
+        + (skipped ? ' — '+skipped+' skipped' : ''));
+    }catch(e){ toast('Could not send: '+(e.message||'error')); }
+    btn.disabled=false; btn.textContent='Send message';
+  });
+
+  async function loadPeople(){
+    try{ PEOPLE=await api('/admin/users'); }
+    catch{ document.getElementById('cmp-people').innerHTML=
+      '<div class="cmp-none">Could not load the user list.</div>'; return; }
+    // Most recently seen first: outreach is nearly always about somebody who
+    // was just here, and joined-order buries them under everyone who ever was.
+    PEOPLE.sort((a,b)=>(b.last_active_at||0)-(a.last_active_at||0));
+    // Arriving from a user's row in the admin panel, with that person already
+    // picked — the panel is where you decide somebody needs a message, and
+    // making you find them again in a second list is how you message the wrong
+    // person.
+    const to=new URLSearchParams(location.search).get('to');
+    if(to && PEOPLE.some(u=>u.id===to)){
+      SEL.add(to);
+      const who=PEOPLE.find(u=>u.id===to);
+      CMP_F='selected';
+      document.querySelectorAll('#cmp-chips .cmp-chip').forEach(
+        x=>x.classList.toggle('on', x.dataset.f==='selected'));
+      document.getElementById('cmp-msg').focus();
+      toast('Composing to ' + (who.username||to));
+    }
+    renderPeople();
+  }
+  loadPeople();
 </script>
 </body>
 </html>"""
