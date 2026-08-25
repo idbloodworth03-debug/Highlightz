@@ -813,6 +813,13 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         expires_in=tokens.get("expires_in", 0),
         is_admin=is_owner,
     )
+    # Twitch only returns an email when the token carries user:read:email, which
+    # tokens minted before that scope was requested do not — so this is empty
+    # for everyone signing in on an old grant, and set_email ignores an empty
+    # value rather than blanking an address we already have from Stripe.
+    if tuser.get("email"):
+        user_store.set_email(user["id"], tuser["email"], source="twitch")
+
     if pending_ref:
         # First touch only — set_ref_once refuses to overwrite, so a returning
         # user who arrives through a different link keeps their original
@@ -4282,6 +4289,10 @@ async def admin_list_users(request: Request):
         # do. A locked account that never opened checkout and one that paid and
         # was not linked resolve to the SAME plan; only this tells them apart,
         # and the second is somebody owed a refund or a fix.
+        # Where the email came from, so the panel can say. A billing address is
+        # one somebody typed to receive receipts; a Twitch account address may
+        # be years old and unread. Worth telling apart before you rely on it.
+        u["email_source"] = u.get("email_source", "") if u.get("email") else ""
         u["funnel_stage"] = plans.funnel_stage(u)
         u["funnel_label"] = plans.FUNNEL_LABELS.get(u["funnel_stage"], "")
         u["checkout_started_at"] = u.get("checkout_started_at", 0)
@@ -8133,6 +8144,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <p>We collect only what is necessary to operate the Service:</p>
   <ul>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
+    <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
     <li><strong>Kick public data</strong> — when you monitor a Kick channel, we read publicly available chat messages and live-stream status from Kick's public API and WebSocket. We do not collect or store any personal data about Kick viewers or streamers beyond the channel slug you enter. No Kick credentials are requested or stored.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
@@ -8596,6 +8608,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         <button class="chip" data-f="trialing">Trial</button>
         <button class="chip" data-f="lapsed">Lapsed</button>
         <button class="chip" data-f="stalled" title="Started signing up and did not finish">Stalled</button>
+        <button class="chip" data-f="noemail" title="No email on file — they have not paid, and their Twitch grant predates the email scope">No email</button>
         <button class="chip" data-f="all">All</button>
       </div>
       <span class="spacer" id="u-count"></span>
@@ -8837,6 +8850,10 @@ function userMatches(u){
   // list you actually want when somebody says "a guy subscribed and has no
   // access" — checkout_dropped is the stage that can mean exactly that.
   if(U_FILTER === 'stalled') return STALLED.includes(u.funnel_stage || '');
+  // The list to work from when you want to reach people and cannot. Everyone
+  // here is waiting on a re-login: no Stripe email because they never paid, and
+  // no Twitch email because their grant predates the scope.
+  if(U_FILTER === 'noemail') return !u.email;
   return u.plan === U_FILTER;
 }
 
@@ -8844,7 +8861,12 @@ function renderUsers(){
   const wrap = document.getElementById('u-wrap');
   if(!USERS.length){ wrap.className='empty'; wrap.textContent='No users yet.'; return; }
   const rows = USERS.map((u,i) => [u,i]).filter(p => userMatches(p[0]));
-  document.getElementById('u-count').textContent = rows.length + ' of ' + USERS.length;
+  // Email coverage next to the row count: the one number that says whether
+  // you can actually reach these people. Only shown when somebody is
+  // missing one, so it stays quiet once the answer is everybody.
+  const withEmail = USERS.filter(u => u.email).length;
+  document.getElementById('u-count').textContent = rows.length + ' of ' + USERS.length
+    + (withEmail < USERS.length ? '  ·  ' + withEmail + '/' + USERS.length + ' with email' : '');
   document.getElementById('tc-users').textContent = USERS.length;
   if(!rows.length){ wrap.className='empty'; wrap.textContent='No users match that filter.'; return; }
   wrap.className = '';
@@ -9048,7 +9070,11 @@ async function openUser(u){
     + '<dt>Stripe</dt><dd>' + (u.stripe_customer_id ? esc(u.stripe_customer_id) : 'no customer record') + '</dd>'
     + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
     + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
-    + '<dt>Email</dt><dd>' + (u.email ? esc(u.email) : '—') + '</dd>'
+    + '<dt>Email</dt><dd>' + (u.email
+        ? esc(u.email) + (u.email_source
+            ? ' <span class="dim" style="font-size:11px">(' + esc(u.email_source) + ')</span>'
+            : '')
+        : '<span class="dim">none &mdash; arrives when they next sign in</span>') + '</dd>'
     + '<dt>Joined</dt><dd>' + fmt(u.created_at) + '</dd>'
     + '<dt>User id</dt><dd>' + esc(u.id) + '</dd>'
     + '</dl>'

@@ -480,17 +480,40 @@ def set_admin(user_id: str, on: bool) -> bool:
     return False
 
 
-def set_email(user_id: str, email: str) -> None:
-    """Record the billing email (from the Stripe customer at activation) —
-    powers the duplicate-signup guard and gives support a contact address."""
+def set_email(user_id: str, email: str, source: str = "stripe") -> None:
+    """Record an email for this account, and where it came from.
+
+    Two sources, and the difference matters when you look at the list:
+
+      stripe — the billing address on their Stripe customer, learned at
+               activation. Only exists for people who have paid.
+      twitch — the account email, returned by Helix when the token carries
+               user:read:email. Exists from sign-in, so it covers the people
+               who never paid — which is the entire reason for asking.
+
+    STRIPE WINS ON CONFLICT. A billing address is one somebody typed to receive
+    receipts about money; a Twitch account email may be years old and unread.
+    When they differ, the one that has already been used successfully is the
+    better contact, so an incoming twitch address never overwrites a stored
+    stripe one. The reverse does overwrite: learning the billing address is
+    strictly newer information.
+
+    An empty email is ignored rather than stored. Twitch returns nothing at all
+    for a token without the scope, and writing that through would blank an
+    address we already had.
+    """
     if not email:
         return
     email = email.strip().lower()
     users = _load()
     for u in users:
         if u["id"] == user_id:
-            if u.get("email") != email:
+            if source == "twitch" and u.get("email") \
+                    and u.get("email_source") == "stripe":
+                return
+            if u.get("email") != email or u.get("email_source") != source:
                 u["email"] = email
+                u["email_source"] = source
                 _save(users)
             return
 
