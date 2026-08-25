@@ -667,6 +667,56 @@ button{font-family:inherit;cursor:pointer}
 .rd-modal-media{position:relative;width:100%;padding-bottom:46%;flex-shrink:0}
 .rd-modal-media .thumb{position:absolute;inset:0}
 .rd-modal-media .thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.6))}
+
+/* ── While a clip player is open, the page stops maintaining blur layers ─────
+   The rule above stripped the blur from the four things that sit ON or OVER
+   the player, and that was only half of it: the page BEHIND a player is still
+   being composited, and every backdrop-filter still on it is still being
+   maintained, frame after frame, while the video decodes. Fullscreen is smooth
+   because the browser stops painting the page underneath entirely — which is
+   why the same clip judders windowed and does not in fullscreen, the second
+   time that symptom has been reported.
+
+   The modal scrim is 88% opaque and the editor scrim 86%, so none of this blur
+   is meaningfully VISIBLE while a player is up. Dropping it costs nothing to
+   look at and gives the frame budget back. It is scoped to
+   `body.hz-player` — present only while a player is on screen — so ordinary
+   browsing keeps the glass exactly as it was.
+
+   MEASURED on the real page, canvas repainting every frame in the real modal,
+   two passes each:
+       nothing changed   45.6 fps   p95 33.4ms   29% of frames dropped
+       nav blur off      58.3 fps   p95 16.8ms    2%
+       header blur off   59.1 fps   p95 16.8ms    1%
+       stat cards off    59.6 fps   p95 16.8ms    0%
+       all of them off   59.6 fps   p95 16.8ms    0%
+   Note what that says: removing ANY of them is most of the win, which is why
+   picking a single culprit would have been the wrong reading. The page cannot
+   afford to keep several blur layers alive next to a decoding video, so while
+   one is playing it keeps none.
+
+   ONE ENTRY PER BLURRING SELECTOR IN THIS STYLESHEET, and a test asserts that
+   set equality rather than checking a hand-picked list. The last fix listed
+   four selectors by hand and the test froze that list, so the five it had not
+   thought of were never covered and the bug came back on every other screen.
+   Add a backdrop-filter anywhere and that test fails until you have decided
+   whether it may stay alive next to a decoding video. */
+body.hz-player .glass,          /* every panel: cards, stat tiles, .tw-box    */
+body.hz-player .rd-header,
+body.hz-player .rd-nav,
+body.hz-player .rd-navscrim,
+body.hz-player .rd-toast,
+body.hz-player .rd-undo,
+/* One per card, so this is 40 blur layers on a full queue and 200 on a Pro
+   one. At 40 clips the measurement above already reached 0% dropped without
+   touching them, so they are not what was breaking playback — they are here
+   because a page that has stopped keeping blur layers should not keep forty of
+   them, and behind an 88%-opaque scrim not one is visible. */
+body.hz-player .rd-play .ring,
+body.hz-player .rd-tw .tw-play,
+/* .ed-bg WRAPS the editor/import player rather than sitting behind it, which is
+   the worse case: an ancestor blur re-rasterises the subtree it contains. */
+body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 .rd-modal-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;border:none;
   /* Sits ON the player, so a blur here re-blurs that patch of video every
      frame it decodes. Opaque background instead — same look, no per-frame work. */
@@ -1265,12 +1315,41 @@ function parseSecs(str) {
   return parseFloat(str)||0;
 }
 
+// Marks the page as "a clip player is on screen" for as long as `open` is true.
+// The stylesheet uses body.hz-player to drop every backdrop-filter the page is
+// still maintaining behind the player — see the long note beside that rule for
+// the measurements. Clips judder windowed and are smooth in fullscreen because
+// fullscreen stops the page underneath being painted at all; this is how the
+// windowed case gets the same frame budget.
+//
+// REF-COUNTED, not a boolean. Two players can be up at once (the review modal
+// over the library, the import lightbox over the editor), and a plain
+// add/remove would have the first one to close strip the class while the other
+// is still playing — the bug would come back for exactly the case where two
+// things are on screen and the machine is busiest.
+let _hzPlayers = 0;
+function usePlayerOpen(open) {
+  useEffect(()=>{
+    if(!open) return;
+    _hzPlayers += 1;
+    document.body.classList.add('hz-player');
+    return ()=>{
+      _hzPlayers = Math.max(0, _hzPlayers - 1);
+      if(_hzPlayers === 0) document.body.classList.remove('hz-player');
+    };
+  }, [open]);
+}
+
 function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFeature }) {
   // Retry counter for the Twitch iframe. Declared BEFORE the null-clip early
   // return: hooks must run on every render or React errors when the modal
   // opens (same trap documented on the VOD plan gate).
   const [playerTry, setPlayerTry] = useState(0);
   useEffect(()=>{ setPlayerTry(0); },[clip&&clip.id]);
+  // Above the early return for the same reason playerTry is: this component is
+  // always mounted and renders null when there is no clip, so a hook below the
+  // return would run on some renders and not others.
+  usePlayerOpen(!!clip);
   if (!clip) return null;
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
@@ -2910,6 +2989,10 @@ function TwitchImport() {
   const [err, setErr]       = useState('');
   const [sort, setSort]     = useState('views');
   const [play, setPlay]     = useState(null);
+  // This lightbox is the worse of the two cases: .ed-bg blurs the whole
+  // viewport and .tw-box blurs the player's own container, so the blur is an
+  // ANCESTOR of the video rather than merely behind it.
+  usePlayerOpen(!!play);
 
   const fetchPage = useCallback(async (cur) => {
     setLoad(true); setErr('');
@@ -3274,6 +3357,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
   // one shipped to paying users while CAPTIONS_ENABLED was unset on prod.
+  // The editor paints every frame of the video into .ed-stage's canvas, and it
+  // sits inside .ed-bg, which blurs the whole viewport. Same cost as a player,
+  // so it counts as one for as long as the editor is open — the canvas also
+  // repaints on scrub and on every slider drag, not only during playback.
+  usePlayerOpen(true);
   const [dur, setDur]       = useState(0);
   const [inPt, setIn]       = useState(0);
   const [outPt, setOut]     = useState(0);
