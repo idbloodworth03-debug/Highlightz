@@ -313,6 +313,29 @@ def main() -> None:
               f"  pre_card_cutover={bool(u.get('pre_card_cutover'))}"
               f"  joined={when(u.get('created_at'))}")
         print(f"      get_plan   : {plans.get_plan(u)}")
+        # What Checkout would actually offer them RIGHT NOW. The single most
+        # useful line when somebody "stopped at the paywall": 0 here means they
+        # were shown a bill instead of the free week the site promised.
+        try:
+            from src.dashboard.api import _checkout_trial_days
+            days = _checkout_trial_days(u)
+            from src.auth import trial_ledger as _tl
+            burned = bool(u.get("twitch_id")) and _tl.has_used_trial(
+                "twitch", str(u["twitch_id"]))
+            note = ""
+            if days == 0:
+                if u.get("pre_card_cutover"):
+                    note = "  (pre-cutover account — bills immediately by design)"
+                elif burned:
+                    note = "  <<< LEDGER SAYS THEY USED A WEEK"
+            print(f"      checkout   : {days} free day(s) offered{note}")
+            if days == 0 and burned and not u.get("pre_card_cutover") \
+                    and not u.get("stripe_customer_id") and not u.get("trial_ends_at"):
+                print("                   this is the old-backfill bug: a deploy")
+                print("                   burned their week. Restart to repair, or")
+                print("                   run prune_wrongly_burned_trials().")
+        except Exception as exc:
+            print(f"      checkout   : could not evaluate ({exc})")
         allsubs = {as_id(s): s for s in
                    sv["by_customer"] + sv["by_metadata"] + sv["by_email"]}
         if sv["error"]:

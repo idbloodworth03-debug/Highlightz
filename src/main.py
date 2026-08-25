@@ -549,6 +549,12 @@ async def main() -> None:
     # user could still delete-and-return for another free week.
     from src.auth import trial_ledger as _trial_ledger
     _trial_ledger.backfill_from_existing_accounts()
+    # Give back the free weeks the old backfill took by mistake — it recorded
+    # EVERY account, so any post-cutover signup that did not go straight through
+    # checkout lost its trial to the next restart and met a bill instead. Runs
+    # after mark_pre_card_cutover_accounts, whose flag is what tells the two
+    # groups apart, and is idempotent once the entries are gone.
+    _trial_ledger.prune_wrongly_burned_trials()
 
     tasks = [
         asyncio.create_task(run_dashboard(), name="dashboard"),

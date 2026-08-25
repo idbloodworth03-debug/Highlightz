@@ -82,17 +82,36 @@ def count() -> int:
 
 
 def backfill_from_existing_accounts() -> int:
-    """Record every Twitch account that already exists. Idempotent, runs at boot.
+    """Record the PRE-CUTOVER accounts, which are the ones that had a free week
+    just by signing up. Idempotent, runs at boot.
 
-    Without this the ledger starts empty on a live install, so every current
-    user can still delete-and-return for another free week — the ledger would
-    only protect people who signed up after it shipped, which is nobody who
-    matters yet.
+    Without this the ledger starts empty on a live install, so every legacy user
+    could still delete-and-return for another free week — it would only protect
+    people who signed up after it shipped.
 
-    Everyone here already has or had access, so recording them takes nothing
-    away: they keep whatever their account currently says. It only means that
-    if they delete it and come back, they land on the paywall rather than on a
-    fresh trial.
+    ONLY `pre_card_cutover` ACCOUNTS, AND THAT RESTRICTION IS THE WHOLE POINT.
+    This used to record every account with a Twitch id, on the reasoning that
+    "everyone here already has or had access, so recording them takes nothing
+    away". That was true when signing up granted 7 days immediately. The card
+    cutover made it false, and nothing here noticed:
+
+        a new user signs up          -> offered 7 days, no ledger entry
+        ANY deploy restarts the app  -> this backfill records them
+        they come back and pick a plan-> has_used_trial() is now True
+                                     -> _checkout_trial_days() returns 0
+                                     -> Stripe Checkout asks for money TODAY
+
+    So a signup that did not go straight through checkout lost its free week to
+    the next deploy, and the person met a bill instead of the trial the site
+    promised them. That is a customer stopping at the paywall for a reason that
+    is entirely our fault.
+
+    Post-cutover accounts get their entry from the webhook, at the moment Stripe
+    actually starts a trial — which is the only event that means the week was
+    really taken. A missing flag is treated as post-cutover: the flag is written
+    by a migration that runs before this at boot, so an absent one means we
+    cannot prove they had a trial, and the safe direction on a promise is to
+    honour it.
     """
     from src.auth import users as user_store
 
@@ -101,6 +120,8 @@ def backfill_from_existing_accounts() -> int:
     for u in user_store.get_all():
         tid = u.get("twitch_id")
         if not tid:
+            continue
+        if u.get("pre_card_cutover") is not True:
             continue
         key = _key(data["salt"], "twitch", str(tid))
         if key in data["seen"]:
@@ -113,3 +134,44 @@ def backfill_from_existing_accounts() -> int:
         atomic_write_json(_LEDGER_FILE, data)
         log.info("trial_ledger_backfilled", added=added, total=len(data["seen"]))
     return added
+
+
+def prune_wrongly_burned_trials() -> int:
+    """Give back the free weeks the old backfill took by mistake. Runs at boot.
+
+    Fixing the backfill stops NEW signups losing their trial, and does nothing
+    for the people it already happened to — their entry is sitting in the ledger
+    on production right now, and every one of them meets a bill instead of a
+    free week.
+
+    Removes an entry only when all of these hold, which together mean the week
+    provably was not taken:
+
+      * the account is post-cutover, so signing up never granted it one;
+      * it has no Stripe customer, so it has never been through Checkout and
+        therefore cannot have started a Stripe trial;
+      * it has no app-managed trial end date, so an admin never comped it.
+
+    Anyone who really did use a week keeps their entry: a Stripe trial leaves a
+    customer id behind, and a comp leaves a date.
+    """
+    from src.auth import users as user_store
+
+    data = _load()
+    removed = 0
+    for u in user_store.get_all():
+        tid = u.get("twitch_id")
+        if not tid:
+            continue
+        if u.get("pre_card_cutover") is True:
+            continue
+        if u.get("stripe_customer_id") or u.get("trial_ends_at"):
+            continue
+        key = _key(data["salt"], "twitch", str(tid))
+        if data["seen"].pop(key, None) is not None:
+            removed += 1
+    if removed:
+        atomic_write_json(_LEDGER_FILE, data)
+        log.warning("trial_ledger_pruned", restored=removed,
+                    total=len(data["seen"]))
+    return removed

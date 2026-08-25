@@ -187,15 +187,27 @@ def test_the_ledger_is_written_privately(store):
 
 # ── the accounts that predate the ledger ─────────────────────────────────────
 
-def test_existing_accounts_are_backfilled_so_they_cannot_farm_either(store):
+def _make_legacy(store, *ids):
+    """Mark accounts as predating the card cutover — the population that got a
+    free week just by signing up, and the only one the backfill is for."""
+    user_store, _ = store
+    rows = user_store._load()
+    for r in rows:
+        if r.get("twitch_id") in ids:
+            r["pre_card_cutover"] = True
+    user_store._save(rows)
+
+
+def test_legacy_accounts_are_backfilled_so_they_cannot_farm_either(store):
     """The ledger ships empty on a live install. Without a backfill it protects
     only people who signed up after it existed — which, on the day it ships, is
-    nobody."""
+    nobody.
+
+    PRE-CUTOVER ACCOUNTS ONLY. Those are the ones that got a week just by
+    signing up, so recording them takes nothing away."""
     user_store, tl = store
     first = _signup(store, "tw_old", "veteran")
-    # No unlink needed any more: signup does not write the ledger, so an
-    # account with no entry behind it IS the situation this backfill exists
-    # for, and it arrives for free.
+    _make_legacy(store, "tw_old")
     assert tl.has_used_trial("twitch", "tw_old") is False
 
     assert tl.backfill_from_existing_accounts() == 1
@@ -207,9 +219,85 @@ def test_the_backfill_is_idempotent(store):
     _, tl = store
     _signup(store, "tw_a", "a")
     _signup(store, "tw_b", "b")
+    _make_legacy(store, "tw_a", "tw_b")
     assert tl.backfill_from_existing_accounts() == 2
     assert tl.backfill_from_existing_accounts() == 0
     assert tl.count() == 2
+
+
+# ── the bug that sent two people to a bill instead of a free week ────────────
+
+def test_a_deploy_does_not_burn_a_new_signups_free_week(store):
+    """THE REGRESSION THIS FILE NOW EXISTS TO STOP.
+
+    The backfill used to record EVERY account with a Twitch id, on the
+    reasoning that everyone it touched had already had access. True when
+    signing up granted 7 days; false the moment the card cutover made signup
+    grant nothing. So:
+
+        sign up (offered 7 days) -> any deploy -> pick a plan -> billed TODAY
+
+    Anyone who did not go straight through checkout lost their trial to the
+    next restart and met a bill instead of the week the site had promised."""
+    from src.billing.plans import TRIAL_DAYS
+    _, tl = store
+    u = _signup(store, "tw_new", "nova")
+    assert _free_days(store, u) == TRIAL_DAYS
+
+    for _ in range(3):                       # three deploys
+        tl.backfill_from_existing_accounts()
+
+    assert _free_days(store, u) == TRIAL_DAYS, \
+        "a deploy took away a signup's free week"
+    assert tl.has_used_trial("twitch", "tw_new") is False
+
+
+def test_the_repair_gives_back_a_week_the_old_backfill_took(store):
+    """Fixing the backfill does nothing for the people it already happened to —
+    their entry is sitting in the ledger on production."""
+    from src.billing.plans import TRIAL_DAYS
+    _, tl = store
+    u = _signup(store, "tw_victim", "nova")
+    tl.record_trial("twitch", "tw_victim")           # what the old backfill did
+    assert _free_days(store, u) == 0                 # met a bill at the paywall
+
+    assert tl.prune_wrongly_burned_trials() == 1
+    assert _free_days(store, u) == TRIAL_DAYS
+    # And it does not keep "restoring" the same account for ever.
+    assert tl.prune_wrongly_burned_trials() == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("pre_card_cutover", True),      # had a no-card week at signup
+    ("stripe_customer_id", "cus_1"),  # been through Checkout, so could have had a Stripe trial
+    ("trial_ends_at", 9e9),          # an admin comped them
+])
+def test_the_repair_does_not_hand_a_second_week_to_someone_who_had_one(store, field, value):
+    """The repair has to be narrow. Each of these is evidence the week really
+    was taken, and giving it back would make the ledger pointless."""
+    user_store, tl = store
+    u = _signup(store, "tw_had", "nova")
+    rows = user_store._load()
+    for r in rows:
+        r[field] = value
+    user_store._save(rows)
+    tl.record_trial("twitch", "tw_had")
+
+    assert tl.prune_wrongly_burned_trials() == 0
+    assert tl.has_used_trial("twitch", "tw_had") is True
+    assert _free_days(store, u) == 0
+
+
+def test_the_repair_runs_at_boot_after_the_flag_it_depends_on():
+    """It reads pre_card_cutover to tell the two groups apart, so it cannot run
+    before the migration that writes it — and both must run before any request
+    is served, or a signup reaching checkout first gets the wrong answer."""
+    import inspect
+    from src import main
+    src = inspect.getsource(main.main)
+    assert src.index("mark_pre_card_cutover_accounts()") \
+        < src.index("prune_wrongly_burned_trials()") \
+        < src.index("run_dashboard()")
 
 
 def test_the_backfill_takes_nothing_away_from_current_users(store):
