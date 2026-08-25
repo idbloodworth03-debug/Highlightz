@@ -195,6 +195,48 @@ button{font-family:inherit;cursor:pointer}
 .rd-stat.accent{background:var(--grad-soft);border-color:rgba(199,155,255,.22)}
 .rd-toolbar{display:flex;align-items:center;gap:12px}
 .rd-toolbar h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.rd-toolbar-count{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums}
+.rd-toolbar-acts{display:flex;gap:8px;align-items:center;margin-left:auto}
+/* The controls row: what you are LOOKING at, kept apart from the row above,
+   which is what you can DESTROY. */
+.rd-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rd-sortwrap{display:flex;align-items:center;gap:0;margin-left:auto}
+/* Sort field and direction read as one control, so they are welded: the field
+   menu loses its right radius and the direction button its left, and they
+   share the seam. Two separate pills invited people to read the arrow as
+   unrelated to the menu beside it. */
+.rd-sortwrap .rd-menu-btn{border-top-right-radius:0;border-bottom-right-radius:0;border-right-color:transparent}
+.rd-dir{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:600;
+  color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
+  border-top-left-radius:0;border-bottom-left-radius:0;
+  border-top-right-radius:var(--r-md);border-bottom-right-radius:var(--r-md);
+  padding:8px 12px;cursor:pointer;transition:.16s;white-space:nowrap}
+.rd-dir:hover{color:var(--fg);background:rgba(255,255,255,.07);border-color:var(--hair-2)}
+
+/* ── RdMenu ── a dropdown that obeys this stylesheet, unlike <select>. */
+.rd-menu{position:relative}
+.rd-menu-btn{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;font-weight:600;
+  color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
+  border-radius:var(--r-md);padding:8px 12px;cursor:pointer;transition:.16s;white-space:nowrap}
+.rd-menu-btn:hover{color:var(--fg);background:rgba(255,255,255,.07);border-color:var(--hair-2)}
+.rd-menu-btn.open{color:var(--fg);border-color:var(--acc);background:rgba(168,85,247,.10)}
+.rd-menu-lbl{color:var(--fg-3);font-weight:600}
+.rd-menu-val{color:var(--fg);font-weight:650;max-width:15ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-menu-caret{display:flex;color:var(--fg-3);transition:transform .18s}
+.rd-menu-caret.open{transform:rotate(180deg)}
+.rd-menu-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:60;min-width:100%;
+  max-height:290px;overflow-y:auto;padding:5px;border-radius:12px;
+  background:#15151f;border:1px solid var(--hair-2);
+  box-shadow:0 18px 40px -12px rgba(0,0,0,.7);display:flex;flex-direction:column;gap:1px}
+.rd-menu-pop.right{left:auto;right:0}
+.rd-menu-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  font:inherit;font-size:13px;font-weight:600;color:var(--fg-2);background:none;border:0;
+  padding:8px 10px;border-radius:8px;cursor:pointer;transition:.12s}
+.rd-menu-item:hover{background:rgba(255,255,255,.06);color:var(--fg)}
+.rd-menu-item.on{color:var(--acc);background:rgba(168,85,247,.12)}
+.rd-menu-item-l{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-menu-item-s{font-size:11px;color:var(--fg-3);font-weight:500}
+.rd-menu-tick{display:flex;flex-shrink:0}
 .cull-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:260px;padding:16px;border-radius:12px;display:flex;flex-direction:column;gap:10px}
 .cull-row{display:flex;justify-content:space-between;align-items:baseline}
 .cull-lbl{font-size:12px;color:var(--fg-2);font-weight:600}
@@ -908,6 +950,9 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
     link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
     book: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
+    chevron: <polyline points="6 9 12 15 18 9"/>,
+    arrowdown: <><path d="M12 5v14"/><polyline points="19 12 12 19 5 12"/></>,
+    arrowup: <><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -1607,9 +1652,61 @@ function ClearQueueButton({ pending }) {
   );
 }
 
+// A dropdown that can actually be styled. A native <select> cannot: the popup
+// is drawn by the operating system, so its background, font and highlight
+// ignore every rule on this page and it lands as a grey system menu in the
+// middle of a dark app. This is the same control the streamer filter and the
+// sort field both use, so they match.
+//
+// Closes on outside click and on Escape, and only binds those listeners while
+// it is open — a dozen of these each holding a permanent document listener is
+// how a long-lived tab starts feeling slow.
+function RdMenu({ label, value, options, onChange, icon, align }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(!open) return;
+    const onDoc = e => { if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = e => { if(e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  // Falls back to the first option rather than rendering blank: the selected
+  // streamer can disappear mid-session when their last clip is culled.
+  const cur = options.find(o => o.v === value) || options[0] || {l:''};
+  return (
+    <div className="rd-menu" ref={ref}>
+      <button className={'rd-menu-btn' + (open ? ' open' : '')}
+        onClick={()=>setOpen(v=>!v)} aria-haspopup="listbox" aria-expanded={open}>
+        {icon && <Icon name={icon} size={13}/>}
+        {label && <span className="rd-menu-lbl">{label}</span>}
+        <span className="rd-menu-val">{cur.l}</span>
+        <span className={'rd-menu-caret' + (open ? ' open' : '')}>
+          <Icon name="chevron" size={13}/>
+        </span>
+      </button>
+      {open && <div className={'rd-menu-pop' + (align === 'right' ? ' right' : '')} role="listbox">
+        {options.map(o =>
+          <button key={o.v} role="option" aria-selected={o.v === value}
+            className={'rd-menu-item' + (o.v === value ? ' on' : '')}
+            onClick={()=>{ onChange(o.v); setOpen(false); }}>
+            <span className="rd-menu-item-l">{o.l}</span>
+            {o.sub && <span className="rd-menu-item-s">{o.sub}</span>}
+            {o.v === value && <span className="rd-menu-tick"><Icon name="check" size={13}/></span>}
+          </button>)}
+      </div>}
+    </div>
+  );
+}
+
 function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+  const [sortDir, setSortDir] = useState('desc');
   const [chanFilter, setChanFilter] = useState('all');
   const clipsArr = Object.values(clips);
   const pending = clipsArr.filter(c=>c.status==='pending').length;
@@ -1623,13 +1720,45 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
   const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
   const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
+
+  // What each sort actually reads off a clip. Every one coalesces to 0, because
+  // a clip captured before a field existed simply has no value for it and must
+  // sort to the bottom rather than making the comparator return NaN — which
+  // sorts nothing at all, silently.
+  const SORT_KEY = {
+    newest:   c => c.created_at || 0,
+    trigger:  c => c.trigger_score || 0,
+    virality: c => c.virality_score || 0,
+  };
+  const keyOf = SORT_KEY[sortBy] || SORT_KEY.newest;
   const shown = [...filtered].sort((a,b)=>{
-    if(sortBy==='virality') return (b.virality_score||0)-(a.virality_score||0);
-    // default: pending first, then newest
-    const sp={pending:0,approved:1,rejected:2};
-    if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
-    return (b.created_at||0)-(a.created_at||0);
+    // Pending first, but ONLY on the date sort. That grouping is what makes
+    // this a review queue rather than a gallery. Applying it to an explicit
+    // score sort would defeat the request: asking for the highest trigger
+    // score and getting a wall of already-approved clips above a 95 is not
+    // sorting by trigger score.
+    if(sortBy === 'newest'){
+      const sp={pending:0,approved:1,rejected:2};
+      if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
+    }
+    const d = keyOf(a) - keyOf(b);
+    if(d) return sortDir === 'asc' ? d : -d;
+    // Ties are common — virality is banded and a quiet stream can produce a
+    // run of identical trigger scores. Newest first inside a tie keeps the
+    // order stable and useful instead of arbitrary.
+    return (b.created_at||0) - (a.created_at||0);
   });
+
+  const SORTS = [
+    {v:'newest',   l:'Date added'},
+    {v:'trigger',  l:'Trigger score'},
+    {v:'virality', l:'Virality'},
+  ];
+  // The direction control says what it will DO in the words that fit the field.
+  // "Ascending" on a date column is a small riddle; "Oldest first" is not.
+  const dirLabel = sortBy === 'newest'
+    ? (sortDir === 'desc' ? 'Newest first' : 'Oldest first')
+    : (sortDir === 'desc' ? 'High to low' : 'Low to high');
   // The cap now REFUSES the new moment rather than deleting an old clip, so
   // "we did not clip this" is finally the accurate wording. The clip is never
   // created on Twitch either — the processor checks before spending the Helix
@@ -1668,9 +1797,19 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
           <RdStat icon="radio" k="Active streams" v={streamsArr.length} sub="monitored live"/>
           <RdStat icon="trending" k="Avg trigger" v={avgScore} sub="across all channels"/>
         </div>
+        {/* TWO ROWS, and that is the organisation. The title line carries the
+            actions that CHANGE things — culling and clearing, both
+            destructive. The line below carries the controls that only change
+            what you are looking at. They used to be one run of five controls
+            with no grouping, so a bulk delete sat inches from a sort toggle. */}
         <div className="rd-toolbar">
           <h2>Clip review</h2>
-          <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto'}}>
+          <span className="rd-toolbar-count">
+            {shown.length === clipsArr.length
+              ? shown.length + (shown.length === 1 ? ' clip' : ' clips')
+              : shown.length + ' of ' + clipsArr.length}
+          </span>
+          <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
               <div style={{position:'relative'}}>
                 <button className={'rd-btn sm'+(showCull?' active':'')} onClick={()=>setShowCull(v=>!v)} style={{background:showCull?'rgba(168,85,247,.18)':'rgba(255,255,255,.06)',border:'1px solid',borderColor:showCull?'var(--acc)':'var(--hair)',color:showCull?'var(--acc)':'var(--fg-2)'}}>
@@ -1680,17 +1819,25 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
               </div>
             )}
             {pending > 0 && <ClearQueueButton pending={pending}/>}
-            {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
-              <option value="all">All streamers</option>
-              {channels.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>}
-            <div className="rd-filters">
-              {['all','pending','approved'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
-            </div>
-            <div className="rd-filters">
-              <button className={'rd-filter'+(sortBy==='newest'?' active':'')} onClick={()=>setSortBy('newest')} title="Sort by date added"><Icon name="clock" size={12}/> Newest</button>
-              <button className={'rd-filter'+(sortBy==='virality'?' active':'')} onClick={()=>setSortBy('virality')} title="Sort by virality score"><Icon name="trending" size={12}/> Top Virality</button>
-            </div>
+          </div>
+        </div>
+        <div className="rd-controls">
+          <div className="rd-filters">
+            {['all','pending','approved'].map(f=><button key={f} className={'rd-filter'+(filter===f?' active':'')} onClick={()=>setFilter(f)}>{f[0].toUpperCase()+f.slice(1)}</button>)}
+          </div>
+          {/* Only worth a control when there is more than one streamer to pick
+              between — a menu whose every option is the same thing is furniture. */}
+          {channels.length>1 && <RdMenu
+            label="Streamer" icon="radio" value={effChan} onChange={setChanFilter}
+            options={[{v:'all', l:'All streamers'}].concat(channels.map(c=>({v:c, l:c})))}/>}
+          <div className="rd-sortwrap">
+            <RdMenu label="Sort" icon="sliders" value={sortBy} onChange={setSortBy}
+              options={SORTS}/>
+            <button className="rd-dir" onClick={()=>setSortDir(d=>d==='desc'?'asc':'desc')}
+              title={'Currently ' + dirLabel.toLowerCase() + ' — click to reverse'}>
+              <Icon name={sortDir==='desc'?'arrowdown':'arrowup'} size={13}/>
+              <span>{dirLabel}</span>
+            </button>
           </div>
         </div>
         <div className="rd-grid">

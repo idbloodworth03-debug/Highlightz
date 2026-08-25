@@ -246,8 +246,11 @@ FEATURES: tuple[Section, ...] = (
         steps=(
             "Open **Clip Review**.",
             "Filter with **All**, **Pending** or **Approved**.",
-            "Re-order with **Newest** or **Top Virality**.",
-            "With more than one channel, narrow it using the **All streamers** dropdown.",
+            "Re-order with the **Sort** menu: **Date added**, **Trigger score** "
+            "or **Virality**.",
+            "Click the button beside it to flip between **High to low** and "
+            "**Low to high**.",
+            "With more than one channel, narrow it using the **Streamer** menu.",
             "Click **Approve** or **Reject** on each clip.",
         ),
         media=Media(
@@ -256,9 +259,12 @@ FEATURES: tuple[Section, ...] = (
                 "Pending and Approved, and Approve and Reject buttons on each clip.",
         ),
         tip=(
-            "**Top Virality** is the fast way to work a big queue — it floats the "
-            "clips most likely to travel to the top, so the best ones get seen even "
-            "if you never reach the bottom."
+            "Sorting by **Virality**, high to low, is the fast way to work a big "
+            "queue — it floats the clips most likely to travel to the top, so the "
+            "best ones get seen even if you never reach the bottom. **Trigger "
+            "score** sorts by what the detector measured instead, which is the "
+            "one to use when you are checking whether the formula is calling it "
+            "right."
         ),
         note=(
             "An empty queue reads **Waiting for clips** — *Add a channel on the Live "

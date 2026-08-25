@@ -103,7 +103,12 @@ QUOTED_UI_LABELS = [
     "No streams yet.", "Waiting for clips",
     "Small streamer", "Chess / Strategy", "Casino / Gambling",
     "IRL / Outdoor", "Variety / Just Chatting", "Sports",
-    "Top Virality", "All streamers",
+    # The Clip Review sort controls. "Top Virality" and "All streamers" were
+    # here until the sort was rebuilt: virality became one option in a Sort
+    # menu rather than its own button, and the streamer picker became a labelled
+    # menu whose current value is "All streamers" only when nothing is chosen.
+    "Sort", "Date added", "Trigger score", "Virality",
+    "High to low", "Low to high", "Streamer",
     "Scan VOD", "Upgrade to Pro", "Manage billing", "Delete my account",
     # Only the two the support section actually names. The Feedback tab also
     # offers "General" and "Feature request", but the page does not quote them,
