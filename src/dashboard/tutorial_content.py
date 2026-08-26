@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.billing.plans import PLAN_LIMITS
+
 
 @dataclass(frozen=True)
 class Media:
@@ -95,9 +97,13 @@ HERO_MEDIA = Media(
 
 QUICKSTART_TITLE = "Get started in 4 steps"
 QUICKSTART_LEAD = (
-    "The free plan needs no card and does not expire — one channel watched, "
-    "a queue of 20 clips, and up to 3 that your own viewers made. You can be "
-    "monitoring a live channel before you finish reading this page."
+    # Derived, not typed: this quoted 20 and 3 as literals and would have gone
+    # on stating them after the plan moved.
+    "The free plan needs no card and does not expire — one channel watched, a "
+    f"queue of {PLAN_LIMITS['free']['max_pending']} clips, and up to "
+    f"{PLAN_LIMITS['free']['max_suggested']} more that Highlightz flags from a "
+    "spike in audience interest. You can be monitoring a live channel before "
+    "you finish reading this page."
 )
 
 QUICKSTART: tuple[Section, ...] = (

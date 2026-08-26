@@ -439,15 +439,48 @@ def test_it_still_leads_when_the_queue_is_flipped_to_oldest_first():
     assert ids[0] == "sug", ids
 
 
-def test_an_explicit_score_sort_is_not_overridden():
-    """The same rule the pending-first grouping follows, and for the same
-    reason. A suggestion carries trigger_score 0 because no score produced it,
-    so pinning it above a 88 in an explicit 'highest trigger score' sort would
-    answer a different question than the one asked."""
+def test_suggestions_lead_a_score_sort_too():
+    """REVERSED DELIBERATELY. This used to assert the opposite — that a
+    suggestion sinks below a real score on an explicit score sort, on the
+    reasoning that pinning a trigger_score of 0 above an 88 answers a different
+    question than the one asked.
+
+    The premise was wrong. A suggestion is UNSCORED, not scored zero. Sorting
+    it to the bottom of "highest trigger score" states, falsely, that the
+    detector looked at it and rated it worst — the same mistake the "0%
+    trigger" badge made on the card, and it buried the clips a human framed
+    under every mediocre one the formula produced. They lead, and everything
+    else still sorts exactly as asked."""
     ids = _run(SUG_CLIPS, sort_by="trigger", sort_dir="desc")["ids"]
-    assert ids[0] == "new", ids
-    assert ids.index("sug") > ids.index("old"), \
-        "a zero-score suggestion outranked a real score on a score sort"
+    sug_positions = [ids.index(i) for i in ("sug", "sugdone")]
+    assert max(sug_positions) < ids.index("new"), ids
+    # And the rest of the list is still ordered by the key that was asked for.
+    assert ids.index("new") < ids.index("old"), \
+        "the score sort stopped sorting by score"
+
+
+def test_an_approved_suggestion_cannot_jump_pending_clips_in_the_queue():
+    """THE HAZARD IN THE CHANGE ABOVE, held down separately.
+
+    Suggestions now lead on every sort, and the status grouping is still
+    date-sorts-only — so on a SCORE sort there is no status band to keep an
+    already-decided suggestion behind a clip still waiting on one. That
+    combination is unreachable in the product (Clip Review is pending-only, so
+    every clip it sorts has the same status) but it is one screen change away
+    from being reachable, and the failure would be silent.
+
+    Date sorts, which are what Review defaults to, keep the band."""
+    ids = _run(SUG_CLIPS, sort_by="newest")["ids"]
+    assert ids.index("sugdone") > ids.index("old"), \
+        "an approved suggestion outranked a clip awaiting a decision"
+
+    # The reason the score-sort case cannot bite: Review filters to pending.
+    from src.dashboard.api import LANDING_HTML  # noqa: F401  (import guard)
+    import re as _re
+    review = _re.search(r"function ReviewScreen\(.*?\n\}\n\n", JS, _re.S).group(0)
+    assert "c.status==='pending'" in review, \
+        "Clip Review stopped filtering to pending, so mixed statuses can now "\
+        "reach a score sort and an approved suggestion can lead it"
 
 
 def test_the_library_does_not_pin_suggestions_forever():

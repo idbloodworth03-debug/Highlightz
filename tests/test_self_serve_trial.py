@@ -170,7 +170,10 @@ def test_the_free_plan_reports_its_real_limits_to_the_dashboard(client):
     me = client.login("fresh").get("/me").json()
     assert me["plan_limits"]["max_streams"] == 1
     assert me["plan_limits"]["max_pending"] == PLAN_LIMITS["free"]["max_pending"]
-    assert me["plan_limits"]["max_suggested"] == PLAN_LIMITS["free"]["max_suggested"] == 3
+    # Derived: what matters is that /me reports the SAME number the backend
+    # enforces, not what that number currently is.
+    assert me["plan_limits"]["max_suggested"] == PLAN_LIMITS["free"]["max_suggested"]
+    assert me["plan_limits"]["max_suggested"] >= 1
     assert me["plan_limits"]["vod"] is False
 
 

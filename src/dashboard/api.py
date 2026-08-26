@@ -7225,7 +7225,7 @@ LANDING_HTML = """<!DOCTYPE html>
       </details>
       <details class="faq-item">
         <summary class="faq-q">How does billing work?</summary>
-        <p class="faq-a">There is a free plan and it does not expire. You are never asked for a card. It watches one channel at a time, a queue that holds 20 clips, and up to 3 clips your own viewers made that the detector did not catch. It is deliberately small, but it is the real product &mdash; enough to find out whether the detector works on your channel before you spend anything. When you want more, Starter is $10/month for 3 channels at once and a 50-clip queue, and Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner for streams that already happened. Both renew monthly and cancel from the Account tab.</p>
+        <p class="faq-a"><!--FREEPLAN--></p>
       </details>
     </div>
   </div>
@@ -8249,8 +8249,8 @@ def _pricing() -> str:
         + '<div class="ptiers">'
         + tier(free,
                "A queue that holds " + str(free["max_pending"]) + " clips, plus up to "
-               + str(free["max_suggested"]) + " moments your own viewers clipped that "
-               "the detector did not. The real product, in its smallest size.",
+               + str(free["max_suggested"]) + " suggested from a spike in audience "
+               "interest. The real product, in its smallest size.",
                "ptier-a", fig_suffix="no card", cta="Start free", cta_cls="btn-quiet")
         + tier(st,
                "A queue that holds " + str(st["max_pending"]) + " clips. "
@@ -8266,6 +8266,38 @@ def _pricing() -> str:
           "the Account tab. No contracts.</p>")
 
 
+# The billing FAQ answer, generated for the same reason the pricing block is:
+# it quoted "20 clips" and "3 clips" as literals, so raising a plan limit left
+# the page confidently stating the old numbers. Everything here reads
+# PLAN_LIMITS.
+def _free_plan_answer() -> str:
+    from src.billing.plans import PLAN_LIMITS
+    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    # Deriving the number and hardcoding its noun only moves the staleness: the
+    # free plan watches one channel today, and "2 channel at a time" is exactly
+    # the sentence this function exists to prevent.
+    def chans(n: int) -> str:
+        return str(n) + (" channel" if n == 1 else " channels")
+
+    return (
+        "There is a free plan and it does not expire. You are never asked for a "
+        "card. It watches " + chans(f["max_streams"]) + " at a time, holds "
+        + str(f["max_pending"]) + " clips in the review queue, and adds up to "
+        + str(f["max_suggested"]) + " suggested clips on top of those &mdash; "
+        "moments Highlightz flags from a spike in audience interest rather than "
+        "from the usual score. It is deliberately small, but it is the real "
+        "product: enough to find out whether the detector works on your channel "
+        "before you spend anything. When you want more, Starter is $"
+        + str(st["price"]) + "/month for " + chans(st["max_streams"])
+        + " at once and a " + str(st["max_pending"]) + "-clip queue, and "
+        "Pro is $" + str(pro["price"]) + "/month for " + chans(pro["max_streams"])
+        + ", a " + str(pro["max_pending"]) + "-clip queue and the VOD "
+        "Scanner for streams that already happened. Both renew monthly and "
+        "cancel from the Account tab.")
+
+
+LANDING_HTML = LANDING_HTML.replace("<!--FREEPLAN-->", _free_plan_answer(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 
 # The price note under the Twitch button used to read "Signing in is free. Paid

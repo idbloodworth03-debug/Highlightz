@@ -117,7 +117,20 @@ MIN_CLIPPERS = 1
 # Per channel, not per user — five users watching one streamer share the poll,
 # so they share the cap too. A busy chat can produce dozens of clips an hour
 # and the review queue is a human's attention, not a log.
-MAX_PER_HOUR = 6
+#
+# RAISED 2026-08-26, 6 -> 12. THIS is the number that decides how many
+# suggestions a user actually receives; the per-plan `max_suggested` budgets
+# only decide how many may sit unreviewed at once, so for anyone who works
+# through their queue this cap was the binding one and raising the other alone
+# would have changed nothing they could see. Doubling it is deliberate: these
+# are moments a human framed, they hold up better than the detector's own
+# picks, and the product leans on them on purpose.
+#
+# WHAT STILL PROTECTS THE QUEUE. Nothing about this can starve a triggered
+# clip — suggestions draw on their own budget, not max_pending — so the only
+# thing at risk from a higher cap is the user's attention. That is bounded
+# separately by max_suggested, which is why both numbers exist.
+MAX_PER_HOUR = 12
 
 # A candidate this old is dropped unsuggested. Covers the case where a cluster
 # never ripens because the worker restarted, and stops the buffer growing

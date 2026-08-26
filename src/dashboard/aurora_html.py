@@ -1134,18 +1134,23 @@ function sortClips(list, sortBy, sortDir, queueMode) {
     if(queueMode && s.date){
       const sp={pending:0,approved:1,rejected:2};
       if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
-      // Crowd suggestions rise to the top — but WITHIN their status band, not
-      // above it. Ranking them before the status check would float an already-
-      // approved suggestion over a pending clip still waiting on a decision,
-      // which is the one thing the queue ordering exists to prevent. Inside the
-      // pending band this puts them at the very top of Review, which is the
-      // point: they are the moments the detector did NOT catch, so they are the
-      // ones worth looking at first.
-      //
-      // Date sorts only, for the same reason the status grouping is: a
-      // suggestion carries trigger_score 0, so pinning it to the top of an
-      // explicit "highest trigger score" sort would be answering a different
-      // question than the one asked.
+    }
+    // SUGGESTIONS LEAD THE QUEUE ON EVERY SORT, not only the date ones.
+    //
+    // They used to be confined to date sorts, on the reasoning that a
+    // suggestion carries trigger_score 0 and pinning it above a 95 would be
+    // answering a different question than the one asked. That reasoning had
+    // the wrong premise: a suggestion is UNSCORED, not scored zero. Sorting it
+    // to the bottom of "highest trigger score" states, falsely, that the
+    // detector looked at it and rated it worst — the same mistake the "0%
+    // trigger" badge made on the card, and it buried the clips a human framed
+    // underneath every mediocre one the formula produced.
+    //
+    // So they lead, and the rest of the list still sorts exactly as asked.
+    // Still INSIDE the status band above: an already-approved suggestion must
+    // never outrank a clip still waiting on a decision, which is the one thing
+    // the queue ordering exists to prevent.
+    if(queueMode){
       const sg = c => c.suggested ? 0 : 1;
       if(sg(a)!==sg(b)) return sg(a)-sg(b);
     }

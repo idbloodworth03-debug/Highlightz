@@ -297,3 +297,115 @@ def test_the_row_still_collapses_on_a_phone():
 
     assert columns_at(980) == 2, "the three-column row has no two-column step"
     assert columns_at(700) == 1, "the pricing row does not go single-column on a phone"
+
+
+# ── the numbers cannot be typed out any more ─────────────────────────────────
+# THE DRIFT THIS FILE EXISTS FOR, CAUGHT AGAIN. The pricing block derived its
+# figures from PLAN_LIMITS and was correct; the billing FAQ and the tutorial
+# quickstart typed "20 clips" and "3 clips" as literals and were not covered by
+# anything here. Raising the suggestion budget left both stating the old number
+# with total confidence — the exact failure mode the module docstring above
+# describes, in the two places nothing was looking.
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _plan_limit(plan, key, value):
+    """Temporarily move a plan limit.
+
+    THE ONLY WAY TO TEST DERIVATION. Asserting `str(20) in text` passes whether
+    the 20 was read from PLAN_LIMITS or typed into the sentence — mutation
+    testing walked straight through the first version of both tests below by
+    replacing the lookup with the literal it currently equals. Moving the limit
+    and watching the copy follow is what actually distinguishes them.
+
+    PLAN_LIMITS holds ONE dict per plan, so this restores the old value rather
+    than the old dict — rebinding would leave every other reader pointing at
+    the original object. Same trap limits_for() documents.
+    """
+    d = PLAN_LIMITS[plan]
+    before = d[key]
+    d[key] = value
+    try:
+        yield
+    finally:
+        d[key] = before
+
+
+def test_the_billing_faq_derives_every_number_it_quotes():
+    from src.dashboard.api import LANDING_HTML, _free_plan_answer
+    ans = _free_plan_answer()
+    f, st, pro = (PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"])
+    for n in (f["max_streams"], f["max_pending"], f["max_suggested"],
+              st["price"], st["max_streams"], st["max_pending"],
+              pro["price"], pro["max_streams"], pro["max_pending"]):
+        assert str(n) in ans, f"the FAQ no longer quotes {n}"
+    assert ans in LANDING_HTML, "the generated answer never reached the page"
+    assert "<!--FREEPLAN-->" not in LANDING_HTML, "the placeholder was left unfilled"
+
+    # And it really is reading them, not restating today's values.
+    for key, probe in (("max_pending", 4242), ("max_suggested", 3737),
+                       ("max_streams", 8181)):
+        with _plan_limit("free", key, probe):
+            assert str(probe) in _free_plan_answer(), \
+                f"the FAQ's {key} is typed out, not read from the plan"
+
+    # Deriving the number while hardcoding its noun only moves the staleness.
+    # Free watches one channel today, so the sentence reads "1 channel"; raise
+    # the limit and it has to become "channels" or the page is ungrammatical
+    # in exactly the way deriving was supposed to prevent.
+    assert "1 channel at a time" in _free_plan_answer()
+    with _plan_limit("free", "max_streams", 2):
+        ans = _free_plan_answer()
+        assert "2 channels at a time" in ans, "the FAQ does not pluralise channels"
+        assert "2 channel at a time" not in ans
+
+
+def test_the_tutorial_quickstart_derives_its_numbers():
+    import importlib
+    from src.dashboard import tutorial_content as tc
+    assert str(PLAN_LIMITS["free"]["max_pending"]) in tc.QUICKSTART_LEAD
+    assert str(PLAN_LIMITS["free"]["max_suggested"]) in tc.QUICKSTART_LEAD
+
+    # QUICKSTART_LEAD is built at import time, so the module has to be reloaded
+    # for the moved limit to reach it. Reloaded again afterwards so the rest of
+    # the suite sees the real values.
+    try:
+        for key, probe in (("max_pending", 4242), ("max_suggested", 3737)):
+            with _plan_limit("free", key, probe):
+                importlib.reload(tc)
+                assert str(probe) in tc.QUICKSTART_LEAD, \
+                    f"the quickstart's {key} is typed out, not read from the plan"
+    finally:
+        importlib.reload(tc)
+
+
+def test_no_public_surface_credits_the_clippers_any_more():
+    """The queue stopped saying it; these three said it too and were missed,
+    because the earlier sweep only grepped the dashboard."""
+    from src.dashboard.api import LANDING_HTML, _pricing, _free_plan_answer
+    from src.dashboard.tutorial_html import render
+
+    def visible(html: str) -> str:
+        """Rendered copy only.
+
+        The first version of this matched a CSS comment — "overflow:hidden}
+        clipped it away" — and reported the landing page as crediting viewers.
+        Comments are not copy, and a test that cannot tell them apart fails on
+        prose about the code rather than on the code's own prose."""
+        html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+        html = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+        html = re.sub(r"^\s*//.*$", "", html, flags=re.M)
+        return html.lower()
+
+    banned = ("your own viewers", "viewers clipped", "clipped by viewers",
+              "viewers made", "clipped it")
+    for name, text in (("landing", LANDING_HTML), ("pricing", _pricing()),
+                       ("billing FAQ", _free_plan_answer()), ("tutorial", render())):
+        low = visible(text)
+        for claim in banned:
+            assert claim not in low, f"{name} still credits the clippers: {claim!r}"
+
+    # And the stripper has to actually strip, or this passes on an empty string.
+    assert "clipped it" in visible("<p>viewers clipped it</p>")

@@ -2,7 +2,7 @@
 Membership tiers.
 
   free    — $0, no card, no time limit: 1 monitored stream, 20 pending clips,
-            3 crowd suggestions. No VOD scanner, no Clip Editor.
+            5 suggested clips. No VOD scanner, no Clip Editor.
   starter — $10/month: 3 monitored streams, 50 pending clips
   pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
             Clip Editor
@@ -75,8 +75,14 @@ LOCKED_PLAN = "locked"
 # A separate budget makes the same guarantee structurally instead of by
 # arithmetic: a suggestion can never occupy a slot a real clip wanted, because
 # it is not drawing from the same pool at all. It also lets the free tier do
-# what it is for — twenty of our clips AND three of the crowd's, rather than
-# three of the crowd's eating into the twenty.
+# what it is for — twenty of our clips AND five suggested ones, rather than
+# five eating into the twenty.
+#
+# RAISED 2026-08-26, 3/15/50 -> 5/25/75. These are moments a human framed, so
+# they hold up better than the detector's own picks and the product leans on
+# them deliberately. Note which number actually throttles delivery: for anyone
+# who reviews their queue it is MAX_PER_HOUR in suggested_clips.py, not this —
+# raising this alone would only let more pile up unreviewed, so both moved.
 _SUGGESTED = "max_suggested"
 
 PLAN_LIMITS: dict[str, dict] = {
@@ -87,13 +93,13 @@ PLAN_LIMITS: dict[str, dict] = {
                 "max_pending": 0, _SUGGESTED: 0, "vod": False, "uploads": False},
     # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
     # the product that still proves it works: one channel, twenty clips in the
-    # queue, and three crowd suggestions on top of those — see _SUGGESTED.
+    # queue, and five suggested clips on top of those — see _SUGGESTED.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
-                "max_pending": 20, _SUGGESTED: 3, "vod": False, "uploads": False},
+                "max_pending": 20, _SUGGESTED: 5, "vod": False, "uploads": False},
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
-                "max_pending": 50, _SUGGESTED: 15, "vod": False, "uploads": False},
+                "max_pending": 50, _SUGGESTED: 25, "vod": False, "uploads": False},
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
-                "max_pending": 200, _SUGGESTED: 50, "vod": True, "uploads": True},
+                "max_pending": 200, _SUGGESTED: 75, "vod": True, "uploads": True},
 }
 
 PAID_PLANS = ("starter", "pro")

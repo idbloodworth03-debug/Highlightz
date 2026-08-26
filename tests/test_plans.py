@@ -54,7 +54,10 @@ def test_limits_shape():
     f, s, p = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
     assert (f["max_streams"], f["max_pending"], f["vod"], f["uploads"]) == (1, 20, False, False)
     # Its own budget, deliberately not a slice of max_pending — see plans.py.
-    assert f["max_suggested"] == 3
+    # The SIZE is a product decision that has already moved once (3 -> 5); what
+    # this pins is that free gets some, and fewer than the paid tiers.
+    assert f["max_suggested"] >= 1
+    assert f["max_suggested"] < s["max_suggested"] < p["max_suggested"]
     assert (s["max_streams"], s["max_pending"], s["vod"]) == (3, 50, False)
     assert (p["max_streams"], p["max_pending"], p["vod"]) == (10, 200, True)
     assert limits_for({"subscription_status": "active", "plan": "starter"})["max_streams"] == 3
