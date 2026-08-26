@@ -2786,14 +2786,32 @@ async def clear_pending_clips(request: Request):
 
 @app.post("/clips/bulk-cull")
 async def bulk_cull_clips(request: Request, body: BulkCullBody):
-    """Remove all clips for the current user whose score is below min_score."""
+    """Remove PENDING clips for the current user whose score is below min_score.
+
+    PENDING ONLY, same rule as clear-queue and for the same reason: approved
+    clips are the user's library, not their inbox. This button lives on Clip
+    Review, which shows the pending queue and nothing else, so a cull that
+    reached past it would delete work the user had already decided to keep and
+    could not see from the screen they pressed it on. It used to sweep every
+    status.
+
+    CROWD SUGGESTIONS ARE NEVER CULLED. They carry score 0 because no score
+    produced them — they are surfaced precisely because the formula did not
+    rate the moment — so ANY threshold above zero deletes all of them. A user
+    culling at 50 to tidy up low-scoring clips would have silently wiped every
+    moment the crowd found, which is the one thing on this screen the score
+    cannot speak for. Score-based culling has no opinion to offer about a clip
+    that was never scored.
+    """
     uid = _current_user_id(request)
     min_score = max(0.0, min(100.0, body.min_score))
 
     to_remove = []
     async with _data_lock:
         for clip_id, clip in list(_clips.items()):
-            if clip.get("user_id") != uid:
+            if clip.get("user_id") != uid or clip.get("status") != "pending":
+                continue
+            if clip.get("suggested"):
                 continue
             score = float(clip.get("score") or clip.get("trigger_score", 0))  # VOD clips store 'score'; live clips store 'trigger_score'
             if score < min_score:

@@ -94,23 +94,41 @@ def test_no_dead_stat_tile_styling_was_left_behind():
     assert not leftovers, f"dead stat-tile CSS: {leftovers}"
 
 
-def test_the_counts_moved_onto_the_chips_that_select_them():
-    """"Pending review 26" as a tile and the Pending chip were the same fact
-    130px apart, and only one of them did anything when you pressed it."""
+def test_the_status_chips_are_gone_along_with_the_statuses():
+    """SUPERSEDES "the counts moved onto the chips that select them".
+
+    That test guarded a real fix — "Pending review 26" as a 130px tile and the
+    Pending chip were the same fact 130px apart, and only one of them did
+    anything when pressed — but it guarded it by pinning the exact chip array,
+    and the chips themselves have since been removed: Clip Review is
+    pending-only, so All / Pending / Approved was one live chip and two that
+    selected nothing.
+
+    What the original test was PROTECTING still holds and is asserted below:
+    no count is stated in a place that does not act on it, and the stat-tile row
+    has not come back (test_the_stat_tiles_are_gone_for_good)."""
     body = _review_screen()
-    m = re.search(r"\[\['all', clipsArr\.length\], \['pending', pending\], "
-                  r"\['approved', approved\]\]", body)
-    assert m, "the filter chips no longer carry their counts"
-    assert "rd-filter-n" in body, "the count has no element to render into"
-    assert ".rd-filter-n{" in CSS, "the chip count is unstyled"
+    assert "rd-filters" not in body, "the status chips are back on Clip Review"
+    assert "setFilter" not in body, "the status filter is back"
+    assert "c.status==='pending'" in body, \
+        "Clip Review no longer restricts itself to pending clips"
 
 
-def test_the_chip_counts_cannot_make_the_controls_jump():
-    """Clips arrive over the socket while you are aiming at a chip. Proportional
-    figures would resize the row under the cursor every time one landed."""
-    m = re.search(r"\.rd-filter-n\{([^}]*)\}", CSS)
-    assert m and "tabular-nums" in m.group(1), \
-        "chip counts are not tabular — the row will shuffle as clips arrive"
+def test_no_dead_chip_count_styling_was_left_behind():
+    """The count badge had exactly one consumer and it was those chips. Same
+    rule as the stat tiles: removing markup and keeping the rules is how a
+    stylesheet becomes a graveyard."""
+    # Comments stripped first. The rule was replaced by a note SAYING it was
+    # removed and why, which names the class — so a bare `"rd-filter-n" in SRC`
+    # fails on its own documentation and would push the next person to delete
+    # the explanation rather than the dead code. Rules are what matter here.
+    bare = re.sub(r"/\*.*?\*/", "", CSS, flags=re.S)
+    leftovers = re.findall(r"\.rd-filter-n[^{]*\{", bare)
+    assert not leftovers, f"dead chip-count CSS: {leftovers}"
+    assert "rd-filter-n" not in _code(JS), "the chip-count markup is back"
+    # The chip styles themselves are still earning their place elsewhere.
+    assert ".rd-filter{" in CSS and "rd-filters" in JS, \
+        "the chip styles were removed while other screens still use them"
 
 
 def test_the_stream_context_is_only_shown_when_there_is_any():

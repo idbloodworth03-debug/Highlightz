@@ -287,12 +287,10 @@ button{font-family:inherit;cursor:pointer}
   padding:7px 13px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
 .rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(168,85,247,.6)}
-/* The count that used to be a 130px tile of its own. Tabular figures so the
-   chips do not resize as clips arrive over the socket — a row of controls that
-   shuffles sideways while you are aiming at it is worse than a stale number. */
-.rd-filter-n{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;
-  color:var(--fg-3);background:rgba(255,255,255,.07);border-radius:99px;padding:1px 7px;min-width:20px;text-align:center}
-.rd-filter.active .rd-filter-n{color:#fff;background:rgba(255,255,255,.22)}
+/* .rd-filter-n (the count badge on a chip) was removed with Clip Review's
+   status chips — Review is pending-only now, so All/Pending/Approved was one
+   live chip and two that selected nothing. The chip styles above stay: the
+   Training mode toggle and the admin sort still use them, without counts. */
 .rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;align-content:start;align-items:stretch;min-height:0}
 /* min-height, not height. The thumbnail is 16:9 of the COLUMN width, so a card in
    a wide column is taller than one in a narrow column — a fixed 360px fits at the
@@ -1681,7 +1679,12 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
 function CullPanel({ clips, onDone }) {
   const [thresh, setThresh] = React.useState(50);
   const [busy, setBusy]     = React.useState(false);
-  const clipsArr = Object.values(clips);
+  // The SAME set the endpoint acts on, or the preview is a lie about what the
+  // button is going to do. Pending only (approved clips are the library, not
+  // the inbox) and never crowd suggestions, which carry score 0 because nothing
+  // scored them — counting them here would promise to delete every one of them
+  // at any threshold above zero.
+  const clipsArr = Object.values(clips).filter(c => c.status === 'pending' && !c.suggested);
   const clipScore = c => parseFloat(c.score||0) || parseFloat(c.trigger_score||0);
   const keep   = clipsArr.filter(c => clipScore(c) >= thresh).length;
   const remove = clipsArr.filter(c => clipScore(c) < thresh).length;
@@ -2047,14 +2050,23 @@ function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
   );
 }
 
-function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
+// PENDING ONLY. This screen is an inbox: the question it answers is "what is
+// waiting on me", and a decision you have already made is not waiting on you.
+// It used to carry All / Pending / Approved chips, so the default view mixed
+// clips needing a verdict with clips that had one — and the Clip Library is
+// already the place approved clips live, in full, sorted by when you kept them.
+// Nothing is lost by dropping them from here; the two screens stop overlapping.
+function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
   const [chanFilter, setChanFilter] = useState('all');
-  const clipsArr = Object.values(clips);
-  const pending = clipsArr.filter(c=>c.status==='pending').length;
-  const approved = clipsArr.filter(c=>c.status==='approved').length;
+  const clipsArr = Object.values(clips).filter(c=>c.status==='pending');
+  const pending = clipsArr.length;
+  // Only to tell "you are caught up" apart from "you have never had a clip" in
+  // the empty state — two very different things that read identically if the
+  // screen only knows about its own queue.
+  const approvedElsewhere = Object.values(clips).filter(c=>c.status==='approved').length;
   const streamsArr = Object.values(streams);
   const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
   // Streamer filter options come from the clips themselves, so the moment a
@@ -2063,10 +2075,11 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
   // to 'all' rather than pinning the grid to an empty, invisible filter.
   const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
-  const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
+  const filtered = clipsArr.filter(c=>effChan==='all'||c.channel===effChan);
 
-  // Pending first, because this screen is a work queue before it is a gallery.
-  // sortClips applies that only on a date sort — see the note beside it.
+  // queueMode stays true. The status grouping inside it is now a no-op — every
+  // clip here is pending — but it is also what lifts crowd suggestions to the
+  // top, and that is the whole reason this screen orders itself at all.
   const shown = sortClips(filtered, sortBy, sortDir, true);
   const SORTS = ['newest', 'trigger', 'virality'];
   // The cap now REFUSES the new moment rather than deleting an old clip, so
@@ -2147,34 +2160,42 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
             {pending > 0 && <ClearQueueButton pending={pending}/>}
           </div>
         </div>
+        {/* The status chips are gone with the statuses. All / Pending /
+            Approved over a list that is now pending by definition would be one
+            live chip and two that select nothing — and an "Approved" chip on
+            this screen is a second, worse doorway to the Clip Library. The
+            streamer filter and the sort stay: those still narrow a real set. */}
         <ClipControls sorts={SORTS} sortBy={sortBy} setSortBy={setSortBy}
           sortDir={sortDir} setSortDir={setSortDir}
-          channels={channels} chan={effChan} setChan={setChanFilter}>
-          {/* The count belongs ON the chip that selects it. As two big tiles
-              above, "Pending review 26" and the Pending chip were the same fact
-              130px apart, and only one of them did anything when pressed. */}
-          <div className="rd-filters">
-            {[['all', clipsArr.length], ['pending', pending], ['approved', approved]]
-              .map(([f, n])=>
-              <button key={f} className={'rd-filter'+(filter===f?' active':'')}
-                onClick={()=>setFilter(f)}>
-                {f[0].toUpperCase()+f.slice(1)}
-                <span className="rd-filter-n">{n}</span>
-              </button>)}
-          </div>
-        </ClipControls>
+          channels={channels} chan={effChan} setChan={setChanFilter}/>
         <div className="rd-grid">
+          {/* EMPTY MEANS TWO DIFFERENT THINGS NOW, and they need different
+              words. Before this screen dropped approved clips, an empty grid
+              could only mean "you have never had a clip". It can now also mean
+              "you have reviewed everything" — and telling somebody with 200
+              clips in their library to go add a channel reads as the app having
+              lost their work. The channel filter makes a third case: the queue
+              is not empty, this streamer's slice of it is. */}
           {shown.length===0
-            ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div>
-                {/* New here? This is the one screen a first-time user reliably
-                    lands on with nothing to do, so it is where the walkthrough
-                    belongs. It used to open /tutorial in a NEW TAB, because the
-                    dashboard is a long-lived SPA holding a live socket and
-                    navigating away throws that state out. The walkthrough now
-                    has its own tab in here, so the socket survives and nobody
-                    has to read instructions about this screen in a window that
-                    is not this screen. */}
-                <button className="rd-emptylink" onClick={()=>onGoTutorial()}>Read the walkthrough →</button></div>
+            ? (clipsArr.length > 0
+                ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div>
+                    <div className="big">Nothing from {effChan}</div>
+                    <div>Your queue has {clipsArr.length} clip{clipsArr.length===1?'':'s'} waiting from other streamers.</div>
+                    <button className="rd-emptylink" onClick={()=>setChanFilter('all')}>Show every streamer →</button></div>
+              : approvedElsewhere > 0
+                ? <div className="rd-grid-empty"><div className="ic"><Icon name="check" size={42}/></div>
+                    <div className="big">You are all caught up</div>
+                    <div>Nothing is waiting on you. New highlights land here the moment they fire — the {approvedElsewhere} clip{approvedElsewhere===1?'':'s'} you kept {approvedElsewhere===1?'is':'are'} in your Clip Library.</div></div>
+              : <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div>
+                  {/* New here? This is the one screen a first-time user reliably
+                      lands on with nothing to do, so it is where the walkthrough
+                      belongs. It used to open /tutorial in a NEW TAB, because the
+                      dashboard is a long-lived SPA holding a live socket and
+                      navigating away throws that state out. The walkthrough now
+                      has its own tab in here, so the socket survives and nobody
+                      has to read instructions about this screen in a window that
+                      is not this screen. */}
+                  <button className="rd-emptylink" onClick={()=>onGoTutorial()}>Read the walkthrough →</button></div>)
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
         </div>
       </section>
@@ -5272,7 +5293,6 @@ function RdApp() {
   const [profiles, setProfiles] = useState({});
   const [histories, setHistories] = useState({});
   const [clips, setClips] = useState({});
-  const [filter, setFilter] = useState('all');
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
   const switchPlatform = p => {
     setActivePlatform(p);
@@ -5716,7 +5736,7 @@ function RdApp() {
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,filter,setFilter,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
