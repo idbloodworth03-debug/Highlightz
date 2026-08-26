@@ -326,8 +326,10 @@ button{font-family:inherit;cursor:pointer}
   background:rgba(10,8,14,.82);border:1px solid rgba(255,255,255,.16);font-variant-numeric:tabular-nums}
 .rd-viralbadge.hot{background:linear-gradient(135deg,#ff7700,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(255,119,0,.65)}
 .rd-viralbadge.warm{color:#ffcc5c;border-color:rgba(255,204,92,.35)}
-/* Crowd-validated: a real viewer already clipped this moment. Sits under
-   the virality badge so both are readable. */
+/* HIGH INTEREST. Highlightz measured an unusual spike of audience activity at
+   this timestamp — used by both the crowd suggester and the VOD scanner, which
+   are the same finding arrived at two ways. Sits under the virality badge so
+   both are readable. */
 .rd-clippedbadge{position:absolute;top:38px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   font-size:10.5px;font-weight:800;letter-spacing:.02em;padding:3px 8px;border-radius:99px;color:#0b0b12;
   background:linear-gradient(135deg,#3ee08a,#2ee0c8);box-shadow:0 3px 12px -3px rgba(62,224,138,.6)}
@@ -390,11 +392,11 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
 @media(prefers-reduced-motion:reduce){
   .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,168,0,.7)}
 }
-/* Who actually made it. This clip belongs to a viewer's Twitch account, not
-   the streamer's, and the card is the only place that can say so. */
-.rd-sugby{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
-  color:#ffc53d;background:rgba(255,197,61,.12);border:1px solid rgba(255,197,61,.28);
-  padding:3px 9px;border-radius:99px}
+/* .rd-sugby (a chip naming the viewer whose clip this is) was removed. The
+   queue now describes what HIGHLIGHTZ did — it detected the moment from a
+   spike in audience interest — rather than crediting individual clippers,
+   which read as though the product had outsourced the work. The name is still
+   stored on the record (`suggested_by`); it is simply not surfaced here. */
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -1436,7 +1438,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             truth, and it sat next to an Approve button. The virality badge
             needs no such guard: it is already conditional on > 0. */}
         {sug
-          ? <span className="rd-sugbadge" title="Viewers clipped this moment on Twitch. Our score was not consulted — it is here because people watching thought it mattered.">
+          ? <span className="rd-sugbadge" title="Highlightz flagged this from a spike in audience interest, outside the usual scoring.">
               <Icon name="trending" size={12}/>Suggested
             </span>
           : <span className="rd-scorebadge" title="Trigger score — what the detector measured at that moment">
@@ -1444,13 +1446,21 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         {!sug && clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
           <Icon name="trending" size={12}/>{Math.round(clip.virality_score)}% viral
         </span>}
+        {/* ONE VOCABULARY FOR BOTH DETECTORS. A crowd suggestion and a VOD
+            moment that the audience also reacted to are the same finding —
+            Highlightz measured a spike of interest at this timestamp — so they
+            say the same thing. They used to read "2 viewers clipped it" and
+            "412 clipped it", which credited the audience with the find and
+            made the product look like it had outsourced the work. The strength
+            of the signal is what a reviewer can act on; who supplied it is not,
+            and it is still on the record either way. */}
         {sug && clip.clipper_count>1 && <span className="rd-clippedbadge" style={{top:10}}
-          title={clip.clipper_count+' different viewers clipped this same moment'}>
-          <Icon name="check" size={11}/>{clip.clipper_count} viewers clipped it
+          title="Highlightz measured unusually high audience interest at this moment">
+          <Icon name="trending" size={11}/>High interest
         </span>}
         {clip.viewer_clipped && <span className="rd-clippedbadge"
-          title={`Real viewers clipped this moment on Twitch — ${clip.viewer_clip_views||0} views`}>
-          <Icon name="check" size={11}/>{(clip.viewer_clip_views||0).toLocaleString()} clipped it
+          title="Highlightz measured unusually high audience interest at this moment">
+          <Icon name="trending" size={11}/>High interest
         </span>}
         {dur && <span className="rd-dur">{dur}</span>}
       </div>
@@ -1461,12 +1471,6 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         </div>
         <div className="rd-clip-title">{title}</div>
         <div className="rd-clip-meta">
-          {/* Attribution, not decoration. We did not create this clip — a
-              viewer did, on their own Twitch account — and this line is the
-              only place in the product that says so. */}
-          {sug && clip.suggested_by && <span className="rd-sugby" title="This clip was created by a viewer on Twitch, not by Highlightz">
-            <Icon name="check" size={11}/>{clip.suggested_by}
-          </span>}
           {time && <span className="rd-tag">{time}</span>}
           {clip.game && <span className="rd-tag">{clip.game}</span>}
         </div>
@@ -1639,24 +1643,31 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               <div className="rd-eyebrow" style={{marginBottom:14}}>{sug?'Why it is here':'Why it fired'}</div>
               {sug
                 ? <div style={{fontSize:13,lineHeight:1.65,color:'var(--fg-2)'}}>
+                    {/* WHAT HIGHLIGHTZ DID, not who else was involved. This
+                        panel used to name the viewer whose clip it is and end
+                        on "Highlightz did not create it" — accurate about the
+                        file, and it made the product sound like a middleman on
+                        the one screen where it is doing its most distinctive
+                        work. The detection IS ours: a second detector watching
+                        audience behaviour instead of chat and audio. That is
+                        what this now says. */}
                     <p style={{margin:'0 0 10px'}}>
+                      <b style={{color:'var(--fg)'}}>Highlightz flagged this moment</b>
                       {clip.clipper_count>1
-                        ? <><b style={{color:'var(--fg)'}}>{clip.clipper_count} viewers</b> clipped this same moment on Twitch.</>
-                        : <><b style={{color:'var(--fg)'}}>A viewer</b> clipped this moment on Twitch.</>}
+                        ? <> from an unusually strong spike in audience interest.</>
+                        : <> from a spike in audience interest.</>}
                     </p>
                     <p style={{margin:'0 0 10px'}}>
                       {/* NOT "every signal on the left" — on a suggestion this
                           text replaces the signal bars, so there is no left to
                           point at. Caught by looking at the rendered modal. */}
-                      Our score was never consulted. This clip is here because
-                      people watching decided the moment mattered — which is the
-                      judgement chat volume, keywords and audio are only proxies
-                      for.
+                      It did not come from the usual score. Chat volume,
+                      keywords and audio are proxies for whether a moment landed
+                      with the people watching; this detector measures that
+                      directly, so it catches moments the formula rates low.
                     </p>
                     <p style={{margin:0,color:'var(--fg-3)'}}>
-                      The clip belongs to {clip.suggested_by
-                        ? <b style={{color:'#ffc53d'}}>{clip.suggested_by}</b>
-                        : 'the viewer who made it'} on Twitch. Highlightz did not create it.
+                      Approving it keeps it in your library like any other clip.
                     </p>
                   </div>
                 : sigKeys.map(k=>{
@@ -1672,10 +1683,13 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               <div className="rd-meta-row"><span className="mk">Duration</span><span className="mv">{dur||'—'}</span></div>
               <div className="rd-meta-row"><span className="mk">Platform</span><span className="mv" style={{textTransform:'capitalize'}}>{clip.platform}</span></div>
               <div className="rd-meta-row"><span className="mk">Game</span><span className="mv">{clip.game||'—'}</span></div>
-              {/* "Captured" is our claim about our own work; we captured
-                  nothing here. The timestamp is when the VIEWER clipped it. */}
-              <div className="rd-meta-row"><span className="mk">{sug?'Clipped':'Captured'}</span><span className="mv">{time}</span></div>
-              {sug && clip.clipper_count>0 && <div className="rd-meta-row"><span className="mk">Viewers who clipped it</span><span className="mv">{clip.clipper_count}</span></div>}
+              <div className="rd-meta-row"><span className="mk">Captured</span><span className="mv">{time}</span></div>
+              {/* The clipper count reframed as what it is to a reviewer: how
+                  strong the signal was. The raw number named other people's
+                  actions; the word names our measurement, and it is the part
+                  that actually helps somebody decide. */}
+              {sug && clip.clipper_count>0 && <div className="rd-meta-row"><span className="mk">Audience signal</span>
+                <span className="mv" style={{color:'#ffc53d'}}>{clip.clipper_count>2?'Very strong':clip.clipper_count>1?'Strong':'Detected'}</span></div>}
               {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
               {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none',marginTop:12,width:'100%',justifyContent:'center'}}><Icon name="play" size={14}/>Open on Twitch</a>}
               {clip.status==='pending' && <div className="rd-modal-actions">
@@ -5503,7 +5517,7 @@ function RdApp() {
         // gets, so it says which of the two just happened.
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));
           flash(msg.clip.suggested
-            ? 'Viewers clipped a moment on '+msg.clip.channel
+            ? 'Suggested clip from '+msg.clip.channel
             : 'New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));

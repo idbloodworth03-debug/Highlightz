@@ -697,11 +697,69 @@ def test_the_modal_does_not_invent_a_reason_it_fired():
         "the signal bars are not behind a suggested check"
 
 
-def test_the_card_says_whose_clip_it_actually_is():
-    """We did not create it. A viewer did, on their own Twitch account, and the
-    card is the only place in the product that can say so."""
+def test_the_queue_describes_what_highlightz_found_not_who_clipped_it():
+    """REVERSED DELIBERATELY, and this is a product decision rather than a bug.
+
+    This used to assert the opposite — that the card names the viewer whose
+    Twitch clip it is. That was accurate about the FILE and wrong about the
+    product: on the one screen where Highlightz is doing its most distinctive
+    work, the queue read as though it had outsourced the find. The detection is
+    ours; only the artifact is not.
+
+    So the UI now describes the detection ("Highlightz flagged this from a
+    spike in audience interest") and names nobody. The name is still on the
+    record — see the test below — it is simply not surfaced.
+
+    WHAT REMAINS TRUE AND IS NOT HIDDEN: the clip lives on Twitch under the
+    account that made it, and Twitch's own page says so to anyone who follows
+    "Open on Twitch". Not printing it in our queue is a choice about emphasis;
+    it does not, and must not, become a claim that we created the file."""
     body = _code(_fn("RdClip"))
-    assert "rd-sugby" in body and "clip.suggested_by" in body
+    assert "rd-sugby" not in body, "the viewer-attribution chip is back on the card"
+    assert "clip.suggested_by" not in body, "the card names the clipper again"
+    assert "viewers clipped it" not in body, \
+        "the card credits the audience with the find again"
+    assert "High interest" in body, "the card lost its audience-signal badge"
+
+
+def test_the_clipper_is_still_recorded_even_though_it_is_not_shown():
+    """Not surfacing it is not the same as discarding it. The name is who owns
+    the clip on Twitch, which is worth holding for support and for any question
+    about provenance later — hiding a field in the UI must not quietly become
+    deleting it from the record."""
+    from src.processor.metadata import ClipMetadata
+    d = ClipMetadata(suggested=True, suggested_by="pogchampion",
+                     clipper_count=3).to_dict()
+    assert d["suggested_by"] == "pogchampion"
+    assert d["clipper_count"] == 3
+
+
+def test_the_modal_does_not_disclaim_the_work():
+    """It ended on "Highlightz did not create it", which is the sentence this
+    change exists to remove. What replaces it has to be about the detection,
+    not about who else was involved."""
+    body = _code(_fn("ClipModal"))
+    assert "did not create it" not in body
+    assert "clip.suggested_by" not in body, "the modal still names the clipper"
+    assert "Highlightz flagged this moment" in body, \
+        "the modal no longer says what Highlightz did"
+
+
+def test_the_vod_scanner_uses_the_same_words():
+    """Two detectors, one finding: an unusual spike of audience interest. They
+    used to say "2 viewers clipped it" and "412 clipped it", which is the same
+    outsourced framing in two dialects."""
+    body = _code(_fn("RdClip"))
+    assert "clip.viewer_clipped" in body, "the VOD badge was dropped entirely"
+    vod = body.split("clip.viewer_clipped")[1][:300]
+    assert "High interest" in vod, "the VOD badge still credits the clippers"
+    assert "clipped it" not in vod
+
+    from src.vod import analyzer
+    import inspect
+    src = inspect.getsource(analyzer)
+    assert "clipped by viewers" not in src, \
+        "the VOD fallback clip title still credits the audience"
 
 
 def test_the_glow_exists_and_is_gold():

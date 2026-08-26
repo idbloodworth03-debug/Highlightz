@@ -772,8 +772,13 @@ async def run_vod_analysis(
                 bd = dict(score_timeline and bd_timeline.get(int(off), {}) or {})
                 bd["VIEWER_CLIPPED"] = round(vc["view_count"] / top_views, 3)
                 await _emit_moment(off + CHAT_LAG, vscore, bd)
+                # The fallback title is USER-FACING and used to read "clipped
+                # by viewers", which credited the audience for a moment the
+                # scan surfaced. The product describes what it found, not who
+                # else noticed; the viewer clip's own title is still preferred
+                # when it has one.
                 moments[-1]["clip_title"] = (
-                    vc["title"] or f"{chan} - clipped by viewers")
+                    vc["title"] or f"{chan} - high interest moment")
                 moments[-1]["viewer_clipped"] = True
                 moments[-1]["viewer_clip_views"] = vc["view_count"]
                 moments[-1]["viewer_clip_url"] = vc["url"]
