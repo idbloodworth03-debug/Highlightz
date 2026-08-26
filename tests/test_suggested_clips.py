@@ -724,16 +724,49 @@ def test_the_glow_exists_and_is_gold():
 
 
 def test_the_glow_costs_nothing_while_a_clip_is_playing():
-    """These badges sit over a playing clip. A backdrop-filter there re-blurs
-    that patch of video on every decoded frame, which is what made scrolling a
-    full queue stutter (45.6fps, 29% dropped) before that was stripped out. The
-    pulse animates opacity on a pseudo-element instead, and stops entirely once
-    a player is open."""
-    for sel in [".rd-clip.suggested{", ".rd-clip.suggested::after{", ".rd-sugbadge{"]:
+    """These sit over a playing clip, so nothing here may repaint on a timer or
+    blur what is behind it while one is open."""
+    for sel in [".rd-clip.suggested{", ".rd-sugbadge{"]:
         rule = CSS.split(sel)[1].split("}")[0]
         assert "backdrop-filter" not in rule, f"{sel} reintroduced a blur layer"
-    assert "body.hz-player .rd-clip.suggested::after{animation:none" in CSS, \
+    assert "body.hz-player .rd-sugbadge{animation:none" in CSS, \
         "the pulse keeps repainting while a clip is playing"
+
+
+def test_only_a_small_element_is_allowed_to_pulse():
+    """THE STUTTER FIX, and the reason it was only ever the suggested clips.
+
+    The pulse used to be a full-card ::after ring animating opacity over a
+    30px-blur glow. The ring was never promoted to its own layer, so every
+    frame repainted the whole card and dragged the glow into the repaint —
+    measured at 1440x1000 with 20 suggested cards:
+
+        as it shipped          47.6 fps   p95 33.4ms   23% dropped
+        pulse off              54.8 fps   p95 33.3ms    7%
+        pulse off + glow off   60.0 fps   p95 16.8ms    0%
+        static glow + badge    60.0 fps   p95 16.8ms    0%   <- what ships now
+
+    will-change:opacity on the ring was tried and made it WORSE (45.6 fps),
+    because promoting twenty layers costs more than the repaint it saves.
+
+    So: no animation on the CARD, only on the badge."""
+    card = CSS.split(".rd-clip.suggested{")[1].split("}")[0]
+    assert "animation" not in card, \
+        "the whole card is animating again — that is the 23%-dropped version"
+    assert "::after" not in CSS.split(".rd-clip.suggested{")[1].split(".rd-sugbadge")[0], \
+        "the full-card pulse ring is back"
+    badge = CSS.split(".rd-sugbadge{")[1].split("}")[0]
+    assert "animation:sugpulse" in badge, "the badge no longer pulses at all"
+
+
+def test_the_glow_does_not_go_back_to_a_thirty_pixel_blur():
+    """Half the dropped frames were the glow's own paint cost, which scales
+    with blur radius and with how many cards carry it."""
+    import re as _re2
+    card = CSS.split(".rd-clip.suggested{")[1].split("}")[0]
+    assert card.count("box-shadow") == 1
+    radii = [int(m) for m in _re2.findall(r"(\d+)px", card.split("box-shadow:")[1])]
+    assert max(radii) <= 20, f"the glow blur is back up to {max(radii)}px"
 
 
 def test_the_pulse_respects_reduced_motion():
@@ -742,10 +775,14 @@ def test_the_pulse_respects_reduced_motion():
 
 
 def test_the_pulse_cannot_swallow_the_click():
-    """It is an overlay across the whole card, and the card is the play
-    target."""
-    rule = CSS.split(".rd-clip.suggested::after{")[1].split("}")[0]
-    assert "pointer-events:none" in rule
+    """It used to be an overlay across the whole card, which had to be told not
+    to eat the click that opens the player. The badge is not an overlay — it is
+    a small pill in the corner — so the hazard is gone with the ring. What must
+    stay true is that the media area is still the play target."""
+    assert "rd-clip.suggested::after" not in CSS, \
+        "a full-card overlay is back and can intercept the play click"
+    body = _code(_fn("RdClip"))
+    assert 'className="rd-media"' in body and "onOpen&&onOpen(clip)" in body
 
 
 @pytest.mark.asyncio
