@@ -109,7 +109,8 @@ class TriggerEngine:
         """
         best = None
         best_gap = tolerance
-        for t, sc in self._score_history:
+        for entry in self._score_history:
+            t, sc = entry[0], entry[1]
             gap = abs(t - ts)
             if gap <= best_gap:
                 best_gap = gap
@@ -133,12 +134,33 @@ class TriggerEngine:
         """
         best: float | None = None
         n = 0
-        for t, sc in self._score_history:
+        for entry in self._score_history:
+            t, sc = entry[0], entry[1]
             if start_ts <= t <= end_ts:
                 n += 1
                 if best is None or sc > best:
                     best = sc
         return best, n
+
+    def virality_window(self, start_ts: float, end_ts: float) -> float | None:
+        """Our peak VIRALITY across [start_ts, end_ts], or None.
+
+        Same window logic and the same reason as score_window: a viewer clips
+        after the moment lands, so a point sample reads the aftermath.
+
+        Indexes defensively. Entries recorded before virality was added to the
+        history are 2-tuples, and the deque outlives a code reload — unpacking
+        blindly would raise inside the clip pipeline for the length of one
+        history window after every deploy.
+        """
+        best: float | None = None
+        for entry in self._score_history:
+            if len(entry) < 3 or entry[2] is None:
+                continue
+            if start_ts <= entry[0] <= end_ts:
+                if best is None or entry[2] > best:
+                    best = entry[2]
+        return best
 
     def update_viewer_count(self, count: int) -> None:
         """Update viewer count. Tracks raw current value and slow EMA baseline separately."""
@@ -175,7 +197,17 @@ class TriggerEngine:
 
         self._last_score = score
         self._last_signals = signals   # latest snapshot, read by _monitor_and_fire on a re-peak
-        self._score_history.append((now, round(score, 1)))
+        # Virality is recorded alongside the trigger, NOT because anything reads
+        # it live — nothing gates a clip on it — but because viewer_clips.jsonl
+        # is the only unprompted human judgement we have at volume (~79k
+        # records) and it could not speak to the virality formula at all: the
+        # history held the trigger score only, so every viewer clip was labelled
+        # with a number this formula does not produce. One extra float per tick
+        # buys the ability to answer "does our virality rate the moments
+        # strangers actually clipped any higher?" — see
+        # src/maintenance/analyze_virality.py section 4.
+        self._score_history.append(
+            (now, round(score, 1), self._compute_virality_score(signals)))
         log.debug("trigger_score", channel=self.channel, score=round(score, 1))
 
         if self.on_score:

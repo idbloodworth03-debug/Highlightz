@@ -162,6 +162,11 @@ async def poll_and_record(channel: str, broadcaster_id: str, engine,
             # What we peaked at across the clipped window — the number that
             # actually answers "did we see this moment at all?".
             "our_peak":     peak,
+            # The same window, scored by the VIRALITY formula. Without this the
+            # 79k records here could only ever benchmark the trigger.
+            "our_virality_peak": (engine.virality_window(ts - _PEAK_LOOKBACK,
+                                                         ts + _PEAK_LOOKAHEAD)
+                                  if engine else None),
             "peak_n":       peak_n,
             "peak_window":  [_PEAK_LOOKBACK, _PEAK_LOOKAHEAD],
             "threshold":    round(engine.profile.trigger_threshold, 1)

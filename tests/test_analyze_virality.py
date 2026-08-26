@@ -377,3 +377,122 @@ def test_the_current_weights_match_the_formula_that_is_running():
             f"_compute_virality_score any more")
     assert "(keyword + sentiment) / 2) * 16" in src, \
         "the keyword/sentiment pairing changed — the report splits it as 8+8"
+
+
+# ── the capture gap that made section 4 unanswerable ─────────────────────────
+
+def _engine():
+    from src.trigger.engine import TriggerEngine
+    import inspect
+    return TriggerEngine, inspect
+
+
+def test_the_score_history_now_carries_virality_too():
+    """79k viewer clips — the only unprompted human judgement we have at
+    volume — were labelled with the TRIGGER score, because that was all the
+    history held. No amount of waiting would have made them able to speak to
+    the virality formula."""
+    TriggerEngine, inspect = _engine()
+    src = inspect.getsource(TriggerEngine)
+    assert "_compute_virality_score(signals)))" in src, \
+        "the history no longer records virality alongside the trigger"
+
+
+def test_the_readers_survive_entries_written_before_virality_existed():
+    """THE DEPLOY TRAP. _score_history is an in-memory deque that outlives a
+    code reload, so for one history window after every deploy it holds a mix of
+    2-tuples and 3-tuples. Unpacking blindly raises inside the clip pipeline."""
+    from collections import deque
+    from src.trigger.engine import TriggerEngine
+
+    e = TriggerEngine.__new__(TriggerEngine)
+    e._score_history = deque([
+        (100.0, 40.0),            # written before the change
+        (110.0, 55.0, 61.0),      # written after
+        (120.0, 30.0),            # and again
+    ])
+    assert e.score_at(110.0) == 55.0
+    assert e.score_at(100.0) == 40.0
+    assert e.score_window(90.0, 130.0) == (55.0, 3), \
+        "old entries must still count toward the trigger peak"
+    assert e.virality_window(90.0, 130.0) == 61.0, \
+        "virality must come only from entries that have it"
+
+
+def test_virality_window_returns_nothing_rather_than_guessing():
+    from collections import deque
+    from src.trigger.engine import TriggerEngine
+    e = TriggerEngine.__new__(TriggerEngine)
+    e._score_history = deque([(100.0, 40.0), (110.0, 55.0)])
+    assert e.virality_window(90.0, 130.0) is None, \
+        "a window with no virality readings must not invent one"
+    e._score_history = deque([(100.0, 40.0, 70.0)])
+    assert e.virality_window(200.0, 300.0) is None, "wrong window returned a value"
+
+
+def test_the_viewer_clip_record_pairs_the_virality_number():
+    import inspect
+    from src.trigger import viewer_clips
+    src = inspect.getsource(viewer_clips)
+    assert '"our_virality_peak"' in src
+    assert "virality_window(" in src, "the record is not filled from the window"
+
+
+def test_the_report_reads_the_new_field_when_it_appears(store, capsys):
+    av, tmp = store
+    _write(av.VIEWER, [{"ts": 1000 + i, "channel": "nova", "clip_id": f"slug{i}",
+                        "our_peak": 60, "our_virality_peak": 70 + (i % 5)}
+                       for i in range(40)])
+    (tmp / "clips.json").write_text(json.dumps(
+        [{"id": f"c{i}", "virality_score": 40} for i in range(50)]))
+    _, out = _run(av, capsys, [])
+    assert "moments a stranger clipped" in out
+    assert "our virality averaged 72.0" in out
+    assert "+32.0" in out, "the comparison against all captured clips is missing"
+
+
+def test_until_then_it_says_schema_gap_not_shortage_of_data(store, capsys):
+    """"not enough overlap" implied we needed more records. We had 79,175 —
+    none of which could ever have worked, because clip_id there is Twitch's
+    slug for the VIEWER'S clip and never joins against our store."""
+    av, tmp = store
+    _write(av.VIEWER, [{"ts": 1000 + i, "channel": "nova", "clip_id": f"slug{i}",
+                        "our_peak": 60} for i in range(40)])
+    _, out = _run(av, capsys, [])
+    assert "schema gap" in out
+    assert "not enough overlap" not in out
+
+
+def test_it_checks_whether_the_humans_agree_with_each_other(store, capsys):
+    """The ceiling on every other number. If two people rank the same clip
+    differently, no formula can score well against their average, and a flat
+    correlation is evidence about the TARGET rather than about the bot."""
+    av, tmp = store
+    rows = []
+    for i in range(60):                      # same clip, two raters, no agreement
+        rows.append(_human(i, (i * 7) % 10 + 1, 50, labeler="lab1"))
+        rows.append(_human(i, (i * 3) % 10 + 1, 50, labeler="lab2"))
+    _write(av.HUMAN, rows)
+    _, out = _run(av, capsys, [])
+    assert "rater-to-rater agreement" in out
+    assert "DO NOT AGREE WITH EACH OTHER" in out
+
+
+def test_it_does_not_cry_disagreement_when_they_agree(store, capsys):
+    av, tmp = store
+    rows = []
+    for i in range(60):
+        v = (i % 10) + 1
+        rows.append(_human(i, v, 50, labeler="lab1"))
+        rows.append(_human(i, min(10, v + (i % 2)), 50, labeler="lab2"))
+    _write(av.HUMAN, rows)
+    _, out = _run(av, capsys, [])
+    assert "rater-to-rater agreement" in out
+    assert "DO NOT AGREE" not in out
+
+
+def test_it_says_when_there_are_no_doubly_rated_clips(store, capsys):
+    av, tmp = store
+    _write(av.HUMAN, [_human(i, 5, 50, labeler=f"lab{i}") for i in range(40)])
+    _, out = _run(av, capsys, [])
+    assert "too few doubly-rated clips" in out

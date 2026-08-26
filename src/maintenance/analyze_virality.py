@@ -134,6 +134,13 @@ def auc(pos: list[float], neg: list[float]) -> float | None:
     return (rsum - n1 * (n1 + 1) / 2) / (n1 * n2)
 
 
+def _by(rows, key):
+    out = defaultdict(list)
+    for r in rows:
+        out[key(r)].append(r)
+    return out
+
+
 def _fmt(v, nd=1, dash="—"):
     return dash if v is None else f"{v:.{nd}f}"
 
@@ -312,7 +319,30 @@ def section_humans(human, exclude_labelers):
 
     r_v = spearman(bv, hv)
     print(f"\n  virality_score vs human virality : {_fmt(r_v, 3, '—'):>7}"
-          f"   {'(significant)' if _significant(r_v, len(rows)) else '(NOT significant)'}")
+          f"   {'(significant)' if _significant(r_v, len(rows)) else '(NOT significant)'}"
+          f"   [pooled]")
+
+    # WITHIN each labeler, then combined. Pooling ranks across raters who use
+    # different parts of the scale mixes "this clip beat that clip" with "this
+    # rater is harsher than that one", and the second is not a fact about the
+    # bot. With means from 1.7 to 4.2 in this dataset that is not a rounding
+    # concern — it is most of the variance.
+    per_lab, weights = [], []
+    for lid, group in _by(rows, lambda r: r.get("labeler_id")).items():
+        if len(group) < 30:
+            continue
+        rr = spearman([float(r["bot_virality_score"]) for r in group],
+                      [float(r["human"]["virality"]) for r in group])
+        if rr is not None:
+            per_lab.append((group[0].get("labeler") or lid, rr, len(group)))
+            weights.append(len(group))
+    if per_lab:
+        combined = sum(r * n for _, r, n in per_lab) / sum(weights)
+        print(f"  same, computed WITHIN each labeler : {combined:+.3f}"
+              f"   [the one to believe]")
+        for name, rr, n in sorted(per_lab, key=lambda x: -x[2]):
+            flag = "" if _significant(rr, n) else "  (not significant)"
+            print(f"      {str(name)[:22]:<22} n={n:<5} {rr:+.3f}{flag}")
     tr = [(float(r["bot_trigger_score"]), float(r["human"]["virality"])) for r in rows
           if isinstance(r.get("bot_trigger_score"), (int, float))]
     if len(tr) >= 20:
@@ -354,6 +384,45 @@ def section_humans(human, exclude_labelers):
         for name, vals in sorted(by_lab.items(), key=lambda kv: -len(kv[1])):
             print(f"    {str(name)[:22]:<22} n={len(vals):<5} mean {mean(vals):.2f}"
                   f"  sd {_fmt(stdev(vals), 2)}")
+
+    # DO THE HUMANS EVEN AGREE WITH EACH OTHER?
+    #
+    # This is the ceiling on every number above it. "Correlates with human
+    # virality" presumes there IS a stable human view to correlate with. If two
+    # people watching the same clip do not rank it the same way, then no
+    # formula can score well against the average of them, and a weak
+    # correlation is evidence about the TARGET, not about the bot. Nothing else
+    # in this report can be read properly without it.
+    shared = {cid: g for cid, g in _by(rows, lambda r: r.get("clip_id")).items()
+              if len({x.get("labeler_id") for x in g}) > 1}
+    print(f"\n  clips rated by more than one person: {len(shared)}")
+    if len(shared) >= 20:
+        a_side, b_side, gaps = [], [], []
+        for g in shared.values():
+            seen, picked = set(), []
+            for r in g:
+                if r.get("labeler_id") not in seen:
+                    seen.add(r.get("labeler_id"))
+                    picked.append(float(r["human"]["virality"]))
+                if len(picked) == 2:
+                    break
+            a_side.append(picked[0])
+            b_side.append(picked[1])
+            gaps.append(abs(picked[0] - picked[1]))
+        agree = spearman(a_side, b_side)
+        print(f"  rater-to-rater agreement          : {_fmt(agree, 3, '—'):>7}"
+              f"   (n={len(shared)})")
+        print(f"  median gap between two ratings    : {median(gaps):.1f} points of 10")
+        if agree is not None and agree < 0.3:
+            print("\n  !! THE HUMANS DO NOT AGREE WITH EACH OTHER. That caps everything")
+            print("     above: there is no stable 'human virality' for a formula to")
+            print("     match, so a flat correlation is a fact about the TARGET as")
+            print("     much as about the bot. Fix the rating task — clearer")
+            print("     instructions, or a forced comparison of two clips instead of")
+            print("     an absolute 1-10 — before fitting any weights to this.")
+    else:
+        print("  too few doubly-rated clips to tell whether the humans agree —")
+        print("  and without that, no correlation above can be read properly.")
     print()
     return rows
 
@@ -410,15 +479,32 @@ def section_outcomes(train, excluded_ids):
     for r in scored:
         by_user[r.get("user_id")][r.get("label")].append(float(r["virality_score"]))
     if len(by_user) > 1:
-        print("\n  per account — one heavy user can carry the whole number:")
+        print("\n  BUT THE POOLED NUMBER ABOVE MIXES ACCOUNTS. Different users")
+        print("  approve at wildly different rates AND clip different channels,")
+        print("  so pooling can manufacture separation that no single user's")
+        print("  behaviour shows. Per account is the honest read:")
         print(f"    {'user':<26} {'kept':>5} {'not':>5} {'AUC':>7}")
+        good = []
         for uid, labels in sorted(by_user.items(), key=lambda kv: -sum(len(v) for v in kv[1].values())):
             p = labels.get("approved") or []
             n = (labels.get("rejected") or []) + (labels.get("expired_unreviewed") or [])
             if len(p) + len(n) < 15:
                 continue
+            a_u = auc(p, n)
+            note = ""
+            if a_u is not None and len(p) >= 10:
+                good.append((a_u, len(p)))
+            elif a_u is not None:
+                note = "   (too few keeps to trust)"
             print(f"    {str(uid)[:26]:<26} {len(p):>5} {len(n):>5} "
-                  f"{_fmt(auc(p, n), 3, '—'):>7}")
+                  f"{_fmt(a_u, 3, '—'):>7}{note}")
+        if good:
+            w = sum(n for _, n in good)
+            combined = sum(a_u * n for a_u, n in good) / w
+            print(f"\n    weighted across accounts with >=10 keeps : {combined:.3f}")
+            if a is not None and combined < a - 0.03:
+                print(f"    The pooled {a:.3f} is inflated by between-account differences.")
+                print(f"    {combined:.3f} is what the score does for an individual user.")
     print()
     return scored
 
@@ -444,22 +530,38 @@ def section_viewers(viewer, clips):
     if len(views) >= 20:
         vc = [v for v, _ in views]
         print(f"  view counts: median {median(vc):.0f}, max {max(vc):.0f}")
-    # Virality of OUR clips that a viewer independently also clipped.
-    ids = {r.get("clip_id") for r in viewer if r.get("clip_id")}
-    ours = [float(c["virality_score"]) for c in clips
-            if c.get("id") in ids and isinstance(c.get("virality_score"), (int, float))]
-    allv = [float(c["virality_score"]) for c in clips
-            if isinstance(c.get("virality_score"), (int, float))]
-    if len(ours) >= 10 and len(allv) >= 30:
-        print(f"\n  our clips a viewer ALSO clipped : n={len(ours)}, "
-              f"mean virality {mean(ours):.1f}")
-        print(f"  every clip we captured          : n={len(allv)}, "
-              f"mean virality {mean(allv):.1f}")
-        print(f"  difference                      : "
-              f"{(mean(ours) - mean(allv)):+.1f}")
-        print("  (a working score rates the ones strangers also wanted HIGHER)")
-    else:
-        print("\n  not enough overlap between viewer clips and our store to compare.")
+    have_virality = [r for r in viewer
+                     if isinstance(r.get("our_virality_peak"), (int, float))]
+    if have_virality:
+        vv = [float(r["our_virality_peak"]) for r in have_virality]
+        allv = [float(c["virality_score"]) for c in clips
+                if isinstance(c.get("virality_score"), (int, float))]
+        print(f"\n  moments a stranger clipped : n={len(vv)}, "
+              f"our virality averaged {mean(vv):.1f}")
+        if allv:
+            print(f"  every clip we captured     : n={len(allv)}, "
+                  f"averaged {mean(allv):.1f}")
+            print(f"  difference                 : {(mean(vv) - mean(allv)):+.1f}")
+            print("  (a working score rates the ones strangers wanted HIGHER)")
+        return
+
+    # THIS IS A SCHEMA GAP, NOT A DATA VOLUME PROBLEM, and saying "not enough
+    # overlap" hid that. The engine's _score_history holds the TRIGGER score
+    # only, so `our_peak` on every one of these records is a trigger score.
+    # There has never been a virality number attached to a viewer clip, so no
+    # amount of waiting would have made this section work.
+    #
+    # `clip_id` here is Twitch's slug for the VIEWER'S OWN clip. It is not our
+    # clip id and can never join against clips.json — matching on it was always
+    # going to return nothing.
+    print(f"\n  {len(matched)} of these carry a score of ours — but it is the")
+    print("  TRIGGER score. The engine only keeps trigger history, so no virality")
+    print("  number has ever been attached to a viewer clip. This is a schema gap,")
+    print("  not a shortage of data: the biggest, most honest dataset we have")
+    print("  (~79k unprompted human judgements) cannot speak to this formula.")
+    print("\n  Once the engine records virality alongside the trigger, this")
+    print("  section starts answering the question within days at this volume.")
+    print("  (analyze_viewer_clips.py already benchmarks the TRIGGER against it.)")
     print()
 
 
