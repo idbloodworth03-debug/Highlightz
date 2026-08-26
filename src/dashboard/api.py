@@ -1693,17 +1693,81 @@ def _record_human_score(clip: dict, labeler_id: str, labeler_name: str,
     return record
 
 
+def _labelers_by_clip() -> dict[str, set[str]]:
+    """clip_id -> the set of labelers who have scored it."""
+    out: dict[str, set[str]] = {}
+    try:
+        for line in _HUMAN_SCORES_FILE.open(encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            cid = r.get("clip_id")
+            if cid:
+                out.setdefault(cid, set()).add(r.get("labeler_id", ""))
+    except FileNotFoundError:
+        pass
+    return out
+
+
 @app.get("/training/queue")
-async def training_queue(request: Request):
-    """Blind list of this labeler's not-yet-scored clips (their own account's
-    clips with a signal vector — VOD moments without signals carry no pairing
-    value). Clips already reviewed (approved/rejected) are excluded: the
-    labeler has watched and judged those in Clip Review, so they can't be
-    scored blind anymore. Oldest first — trainers work chronologically from
-    the first clip taken, so the backlog drains in capture order instead of
-    newest clips jumping the line."""
+async def training_queue(request: Request, mode: str = "own"):
+    """Blind list of clips for this labeler to score.
+
+    mode=own (default) — this labeler's own account's clips, not yet scored by
+    them. Clips already reviewed (approved/rejected) are excluded: the labeler
+    has watched and judged those in Clip Review, so they cannot be scored
+    blind any more. Oldest first, so the backlog drains in capture order
+    instead of newest clips jumping the line.
+
+    mode=agreement — clips SOMEBODY ELSE has already rated, that this labeler
+    has not. This is the only way to find out whether "human virality" is a
+    real, shared judgement or one person's taste.
+
+    WHY THIS MODE HAD TO EXIST. The own-queue serves each labeler only their
+    own account's clips, so across 1,641 ratings not a single clip had been
+    seen by two people. Two consequences, both fatal to the analysis:
+
+      * There was no way to know whether the humans agree with each other,
+        and therefore no way to read a weak bot-vs-human correlation. A
+        formula cannot match a target that is not stable, so a flat result
+        was evidence about the TARGET as much as about the bot.
+      * Labeler was perfectly confounded with CHANNEL — each person rated only
+        their own streamers — so "this rater is harsher" and "these channels
+        are quieter" were the same number and could never be separated.
+
+    STILL BLIND, AND MORE SO. The same _blind_clip_view is used, and the other
+    person's rating is never sent — an anchored second opinion measures
+    suggestibility, not agreement, and would be worse than no data at all.
+
+    Cross-account by design: a labeler scores clips captured by other accounts.
+    The blind view carries only what is needed to watch the moment — channel,
+    game, timestamp, duration and the public Twitch URLs — and nothing about
+    who captured it.
+    """
     uid = _require_labeler(request)
     scored = _human_scored_pairs()
+
+    if mode == "agreement":
+        rated_by = _labelers_by_clip()
+        queue = [
+            _blind_clip_view(c) for c in _clips.values()
+            if (c.get("trigger_signals") or [])
+            and (c.get("id"), uid) not in scored
+            # Somebody who is not this labeler has already judged it.
+            and (rated_by.get(c.get("id"), set()) - {uid})
+            # A clip this labeler OWNS and has already resolved has been seen
+            # in Clip Review, so it can no longer be rated blind. Other
+            # people's clips never had that exposure.
+            and not (c.get("user_id") == uid
+                     and c.get("status") in ("approved", "rejected"))
+        ]
+        # Fewest raters first: a third opinion on a clip that already has two
+        # is worth less than a second opinion on a clip that has one.
+        queue.sort(key=lambda c: (len(rated_by.get(c["id"], set())),
+                                  c.get("created_at") or 0))
+        return queue[:100]
+
     queue = [
         _blind_clip_view(c) for c in _clips.values()
         if c.get("user_id") == uid
@@ -1727,8 +1791,17 @@ async def training_score(request: Request, body: _TrainScoreRequest):
     uid = _require_labeler(request)
     username = request.session.get("username", "")
     clip = _clips.get(body.clip_id)
-    if not clip or clip.get("user_id") != uid:
+    # Own clips always; someone else's ONLY when another labeler has already
+    # rated it — i.e. exactly the agreement queue. Scoped this narrowly on
+    # purpose: without the second condition a labeler could post a score
+    # against any clip id in the system, which is a much larger permission
+    # than "help measure whether we agree".
+    if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
+    if clip.get("user_id") != uid:
+        others = _labelers_by_clip().get(body.clip_id, set()) - {uid}
+        if not others:
+            raise HTTPException(status_code=404, detail="Clip not found")
     if (body.clip_id, uid) in _human_scored_pairs():
         raise HTTPException(status_code=409, detail="You already scored this clip")
     async with _data_lock:
@@ -1738,7 +1811,11 @@ async def training_score(request: Request, body: _TrainScoreRequest):
     # tick live. Global broadcast — the count isn't sensitive, and non-labeler
     # tabs simply forward it to a screen that isn't mounted.
     total = len(_human_scored_pairs())
-    await broadcast({"event": "training_scored", "total": total, "labeler": username})
+    # clip_id rides along so another trainer's open Cross-rate queue can drop a
+    # clip THEY were about to score a second time, and so the agreement panel
+    # refreshes the moment a pair completes.
+    await broadcast({"event": "training_scored", "total": total,
+                     "labeler": username, "clip_id": body.clip_id})
     return {"ok": True, "total": total}
 
 
@@ -1760,6 +1837,69 @@ async def training_stats(request: Request):
     except FileNotFoundError:
         pass
     return {"total": total, "by_labeler": per}
+
+
+@app.get("/training/agreement")
+async def training_agreement(request: Request):
+    """Do the humans agree with each other? Live, for the Training Studio.
+
+    This is the ceiling on every bot-vs-human number in the analysis. If two
+    people who watch the same clip rank it differently, there is no stable
+    "human virality" for any formula to match, and a flat correlation is a
+    fact about the target rather than about the bot. It is shown in the studio
+    so the team can see the number they are building rather than waiting for
+    someone to run a report.
+    """
+    _require_labeler(request)
+    from src.maintenance.analyze_human_scores import spearman
+
+    by_clip: dict[str, list[dict]] = {}
+    try:
+        for line in _HUMAN_SCORES_FILE.open(encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            v = (r.get("human") or {}).get("virality")
+            if r.get("clip_id") and v is not None:
+                by_clip.setdefault(r["clip_id"], []).append(r)
+    except FileNotFoundError:
+        pass
+
+    pairs = {c: rs for c, rs in by_clip.items()
+             if len({r.get("labeler_id") for r in rs}) > 1}
+    a_side, b_side, gaps, per_pair = [], [], [], {}
+    for rs in pairs.values():
+        seen, picked = set(), []
+        for r in rs:
+            lid = r.get("labeler_id")
+            if lid in seen:
+                continue
+            seen.add(lid)
+            picked.append(r)
+            if len(picked) == 2:
+                break
+        x = float(picked[0]["human"]["virality"])
+        y = float(picked[1]["human"]["virality"])
+        a_side.append(x)
+        b_side.append(y)
+        gaps.append(abs(x - y))
+        key = " + ".join(sorted([picked[0].get("labeler") or "?",
+                                 picked[1].get("labeler") or "?"]))
+        per_pair.setdefault(key, []).append(abs(x - y))
+
+    agree = spearman(a_side, b_side) if len(a_side) >= 10 else None
+    gaps_sorted = sorted(gaps)
+    return {
+        "clips_rated_twice": len(pairs),
+        "agreement": round(agree, 3) if agree is not None else None,
+        "median_gap": (round(gaps_sorted[len(gaps_sorted) // 2], 1)
+                       if gaps_sorted else None),
+        "within_two": (round(100 * sum(1 for g in gaps if g <= 2) / len(gaps))
+                       if gaps else None),
+        "by_pair": {k: {"n": len(v), "median_gap": round(sorted(v)[len(v) // 2], 1)}
+                    for k, v in sorted(per_pair.items(), key=lambda kv: -len(kv[1]))},
+    }
 
 
 @app.post("/admin/users/{user_id}/labeler")

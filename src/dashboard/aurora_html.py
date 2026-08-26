@@ -2471,16 +2471,27 @@ function TrainingScreen() {
   const FRESH = {sentiment:5,audio:5,virality:5};
   const [queue, setQueue] = useState(null);
   const [stats, setStats] = useState(null);
+  const [agree, setAgree] = useState(null);
+  // 'own'       — your account's clips, nobody has scored them.
+  // 'agreement' — clips a TEAMMATE already scored, that you have not. The
+  //               only way to find out whether the thing we call "human
+  //               virality" is a shared judgement or one person's taste.
+  const [mode, setMode] = useState('own');
   const [idx, setIdx] = useState(0);
   const [vals, setVals] = useState({...FRESH});
   const [busy, setBusy] = useState(false);
   const [playerTry, setPlayerTry] = useState(0);
   const loadStats = ()=>fetch('/training/stats').then(r=>r.ok?r.json():null).then(setStats).catch(()=>{});
-  const load = ()=>{
-    fetch('/training/queue').then(r=>r.ok?r.json():[]).then(q=>{setQueue(q);setIdx(0);}).catch(()=>setQueue([]));
-    loadStats();
-  };
+  const loadAgree = ()=>fetch('/training/agreement').then(r=>r.ok?r.json():null).then(setAgree).catch(()=>{});
+  // useCallback + [mode]: `load` is read by the effect below AND by submit, so
+  // a stale closure here would keep refetching the queue you just left.
+  const load = useCallback(()=>{
+    fetch('/training/queue?mode=' + mode).then(r=>r.ok?r.json():[])
+      .then(q=>{setQueue(q);setIdx(0);setPlayerTry(0);}).catch(()=>setQueue([]));
+    loadStats(); loadAgree();
+  }, [mode]);
   useEffect(()=>{
+    setQueue(null);   // show Loading rather than the previous mode's clips
     load();
     // Realtime: a freshly-fired clip joins the blind queue live, teammates'
     // submissions tick the counter live, and the screen self-heals on
@@ -2491,12 +2502,19 @@ function TrainingScreen() {
       else if(m.event==='training_scored'){
         setStats(s=>({...(s||{by_labeler:{}}), total: m.total}));
         loadStats();   // refresh the per-trainer breakdown too
+        loadAgree();   // a completed pair moves the agreement number
+        // Someone else just scored this clip. In cross-rate mode that does not
+        // remove it — a second opinion is the entire point — but in your OWN
+        // queue it is gone, and leaving it on screen means submitting into a
+        // 409 after watching thirty seconds of video.
+        if(mode === 'own' && m.clip_id)
+          setQueue(q=>Array.isArray(q)?q.filter(c=>c.id!==m.clip_id):q);
       }
     } catch {} };
     window.addEventListener('hz_refetch', load);
     window.addEventListener('hz_ws', onWs);
     return ()=>{ window.removeEventListener('hz_refetch', load); window.removeEventListener('hz_ws', onWs); };
-  },[]);
+  },[load, mode]);
   const cur = queue && queue.length ? queue[Math.min(idx, queue.length-1)] : null;
   // Score first, then (optionally) resolve the clip in the same click —
   // trainers never need to visit Clip Review, which keeps them blind.
@@ -2507,10 +2525,13 @@ function TrainingScreen() {
       const r = await fetch('/training/score',{method:'POST',headers:{'Content-Type':'application/json'},
         body: JSON.stringify({clip_id: cur.id, ...vals})});
       if(r.ok || r.status===409){
-        if(verdict==='approve'||verdict==='reject'){
+        // Only ever resolve YOUR OWN clip. In cross-rate mode the clip belongs
+        // to another account and approving it is not yours to do.
+        if(mode==='own' && (verdict==='approve'||verdict==='reject')){
           await fetch(`/clips/${cur.id}/${verdict}`,{method:'POST'}).catch(()=>{});
         }
-        setQueue(q=>q.filter(c=>c.id!==cur.id)); setIdx(0); setVals({...FRESH}); loadStats();
+        setQueue(q=>q.filter(c=>c.id!==cur.id)); setIdx(0); setVals({...FRESH});
+        setPlayerTry(0); loadStats(); loadAgree();
       }
     } catch {} finally { setBusy(false); }
   };
@@ -2525,9 +2546,51 @@ function TrainingScreen() {
     <div className="rd-scroll">
       <div className="rd-settings">
         <div className="rd-section-title">
-          <h2>Training Studio</h2>
-          <span className="cnt">{queue===null?'Loading…':queue.length+' clip'+(queue.length===1?'':'s')+' awaiting your score'}{stats?` · ${stats.total} scored by the team`:''}</span>
+          <span className="cnt">{queue===null?'Loading…':queue.length+' clip'+(queue.length===1?'':'s')+' waiting for you'}{stats?` · ${stats.total} scored by the team`:''}</span>
         </div>
+        <div className="rd-filters" style={{marginBottom:14,alignSelf:'flex-start'}}>
+          {[['own','My queue'],['agreement','Cross-rate']].map(([m,label])=>(
+            <button key={m} className={'rd-filter'+(mode===m?' active':'')}
+              onClick={()=>setMode(m)}
+              title={m==='own'
+                ? 'Clips from your own channels that nobody has scored yet'
+                : 'Clips a teammate already scored — rate them blind so we can measure whether people agree'}>
+              {label}
+            </button>))}
+        </div>
+        {mode==='agreement' &&
+          <div className="rd-card glass" style={{marginBottom:14,padding:'14px 18px'}}>
+            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:agree&&agree.clips_rated_twice?10:0}}>
+              <Icon name="sparkles" size={15}/>
+              <span style={{flex:1,minWidth:240,fontSize:12.5,color:'var(--fg-2)'}}>
+                <b style={{color:'var(--fg)'}}>Somebody already rated these.</b> You will
+                not be shown what they said — an anchored second opinion measures
+                suggestibility, not agreement. Rate what YOU saw.
+              </span>
+            </div>
+            {agree && agree.clips_rated_twice > 0 &&
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                <span className="rd-tag" style={{background:'rgba(168,85,247,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>
+                  {agree.clips_rated_twice} rated twice
+                </span>
+                {agree.agreement!==null && <span className="rd-tag">
+                  agreement {agree.agreement>=0?'+':''}{agree.agreement}
+                </span>}
+                {agree.median_gap!==null && <span className="rd-tag">
+                  typical gap {agree.median_gap} of 10
+                </span>}
+                {agree.within_two!==null && <span className="rd-tag">
+                  {agree.within_two}% within 2 points
+                </span>}
+                {Object.entries(agree.by_pair||{}).map(([who,d])=>
+                  <span key={who} className="rd-tag" style={{color:'var(--fg-3)'}}>{who}: {d.n}</span>)}
+              </div>}
+            {agree && !agree.clips_rated_twice &&
+              <div style={{fontSize:12,color:'var(--fg-3)'}}>
+                No clip has two ratings yet — the first few you score here create the
+                very first measurement of whether this team agrees with itself.
+              </div>}
+          </div>}
         <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="sparkles" size={15}/>
           <span style={{flex:1,minWidth:220}}><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
@@ -2541,7 +2604,9 @@ function TrainingScreen() {
           ? <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
               <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="check" size={36}/></div>
               <h3 style={{fontSize:17,justifyContent:'center'}}>Queue clear</h3>
-              <div className="desc">New clips land here automatically as the bot captures them.</div>
+              <div className="desc">{mode==='agreement'
+                ? 'Nothing left that a teammate has rated and you have not. Score some in My queue — every one you do becomes cross-rateable for somebody else.'
+                : 'New clips land here automatically as the bot captures them.'}</div>
             </div>
           : <div className="rd-card glass">
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:8,marginBottom:12}}>
@@ -2574,13 +2639,21 @@ function TrainingScreen() {
                 ))}
               </div>
               <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap',alignItems:'center'}}>
-                <button className="rd-btn live" disabled={busy} onClick={()=>submit('approve')} style={{opacity:busy?0.6:1}}>
-                  <Icon name="check" size={14}/>{busy?'Saving…':'Score & Approve'}
-                </button>
-                <button className="rd-btn danger" disabled={busy} onClick={()=>submit('reject')} style={{opacity:busy?0.6:1}}>
-                  <Icon name="x" size={14}/>Score & Reject
-                </button>
-                <button className="rd-btn sm" disabled={busy} onClick={()=>submit(null)} title="Save the sliders and leave the clip pending for later review">Score only</button>
+                {/* Approve/Reject belong to the clip's OWNER. In cross-rate mode
+                    it is somebody else's clip, so scoring is the whole job. */}
+                {mode==='own' ? <>
+                  <button className="rd-btn live" disabled={busy} onClick={()=>submit('approve')} style={{opacity:busy?0.6:1}}>
+                    <Icon name="check" size={14}/>{busy?'Saving…':'Score & Approve'}
+                  </button>
+                  <button className="rd-btn danger" disabled={busy} onClick={()=>submit('reject')} style={{opacity:busy?0.6:1}}>
+                    <Icon name="x" size={14}/>Score & Reject
+                  </button>
+                  <button className="rd-btn sm" disabled={busy} onClick={()=>submit(null)} title="Save the sliders and leave the clip pending for later review">Score only</button>
+                </> : (
+                  <button className="rd-btn grad" disabled={busy} onClick={()=>submit(null)} style={{opacity:busy?0.6:1}}>
+                    <Icon name="check" size={14}/>{busy?'Saving…':'Save my score'}
+                  </button>
+                )}
                 {queue.length>1&&<button className="rd-btn sm" onClick={skip}>Skip</button>}
               </div>
             </div>}
