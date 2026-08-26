@@ -132,12 +132,18 @@ def test_checkout_charges_immediately_when_no_free_days_are_offered():
     assert p["line_items"] == [{"price": "price_pro", "quantity": 1}]
 
 
-def test_checkout_attaches_the_free_days_when_they_are_offered():
-    from src.billing.plans import TRIAL_DAYS
-    p = _checkout_params(trial_days=TRIAL_DAYS)
-    assert p["subscription_data"]["trial_period_days"] == TRIAL_DAYS
-    # Still the real price — the trial delays the charge, it does not discount it.
+def test_checkout_attaches_free_days_only_when_a_caller_asks_for_them():
+    """The self-serve trial is retired, so nothing in the product passes a
+    non-zero trial_days any more (see _checkout_trial_days). The CAPABILITY
+    stays and stays tested: reinstating a trial should be a one-line decision
+    at the call site, not a rediscovery of how Stripe wants it expressed."""
+    p = _checkout_params(trial_days=7)
+    assert p["subscription_data"]["trial_period_days"] == 7
+    # Still the real price — a trial delays the charge, it does not discount it.
     assert p["line_items"] == [{"price": "price_pro", "quantity": 1}]
+
+    # And the default really is no trial, which is what ships today.
+    assert "trial_period_days" not in _checkout_params()["subscription_data"]
 
 
 def test_a_card_is_collected_on_a_trial_checkout_too():
@@ -146,8 +152,7 @@ def test_a_card_is_collected_on_a_trial_checkout_too():
     creates the trial with NO card when nothing is due today — silently
     restoring the exact thing this change exists to end, and only on trial
     checkouts, which is the hardest kind of bug to notice."""
-    from src.billing.plans import TRIAL_DAYS
-    for days in (0, TRIAL_DAYS):
+    for days in (0, 7):
         p = _checkout_params(trial_days=days)
         assert p["payment_method_collection"] == "always", \
             f"no card is collected when trial_days={days}"
@@ -212,32 +217,33 @@ def test_apply_subscription_event_mismatch_targets_customer_owner(monkeypatch):
     assert calls["by_user"] == [("user_X", "cus_A", "active", None)]
 
 
-def test_paywall_only_promises_free_days_to_someone_who_can_still_have_them():
-    """A self-serve 7-day trial exists again, so the 'new' variant SHOULD sell
-    it. The rule this test has always been protecting is narrower than "never
-    say free": never dangle free days in front of somebody who cannot get them.
+def test_no_paywall_variant_promises_free_days_that_do_not_exist():
+    """The rule this test has always protected: never dangle free days in front
+    of somebody who cannot get them. With the self-serve trial retired that is
+    EVERYBODY, so it applies to every variant instead of two of them.
 
-    Offering another week to a user whose trial just ended is the chargeback
-    waiting to happen — they click through expecting free and get a card form.
-    Same for a returning subscriber.
+    The variants also must not imply access has stopped. Nobody is locked out
+    any more — they are reading this from a working free account — and telling
+    them their access ended is the same class of lie in the other direction.
     """
     from src.dashboard.api import _paywall_copy
     variants = {k: _paywall_copy(k) for k in ("new", "returning", "trial_ended")}
 
-    new = " ".join(variants["new"].values()).lower()
-    assert "7 days free" in new or "days free" in new, \
-        "the new-user paywall should sell the trial that actually exists"
-
-    for kind in ("returning", "trial_ended"):
-        joined = " ".join(variants[kind].values()).lower()
+    for kind, c in variants.items():
+        joined = " ".join(c.values()).lower()
         assert "days free" not in joined and "7 days" not in joined, \
-            f"the {kind} paywall offers free days to someone who cannot have them"
+            f"the {kind} paywall offers free days that no longer exist"
+        assert "free plan" in joined or "free" in joined, \
+            f"the {kind} paywall does not mention what they still have"
 
     for kind, c in variants.items():
         assert "from $10/month" in c["subline"]
         # No variant leaves template placeholders behind.
         assert all("{" not in v for v in c.values())
     assert "trial" in variants["trial_ended"]["headline"].lower()
+    # The one cohort for whom "your trial ended" is still true — their Stripe
+    # trial really did run out — but they land on free, not on nothing.
+    assert "free" in variants["trial_ended"]["subline"].lower()
     assert "welcome back" in variants["returning"]["subline"].lower()
 
 

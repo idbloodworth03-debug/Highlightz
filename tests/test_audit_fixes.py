@@ -40,14 +40,19 @@ def test_the_claim_the_message_makes_is_true_for_each_plan():
     assert limits_for(grandfathered)["max_streams"] == 1
     assert "one stream" in _lapse_message(get_plan(grandfathered))
 
+    # These two used to land on `locked` and the message had to promise them
+    # NOTHING. With the free tier reopened they land where the grandfathered
+    # account above does, so the same promise is now true for them — and the
+    # test that matters is that the copy tracks the code rather than that it
+    # says any particular thing.
     for label, user in (
         ("post-cutover", {"subscription_status": "canceled"}),
         ("pre-card-cutover", {"subscription_status": "canceled",
                               "pre_card_cutover": True}),
     ):
-        assert get_plan(user) == "locked", label
-        assert limits_for(user)["max_streams"] == 0, label
-        assert "one stream" not in _lapse_message(get_plan(user)), label
+        assert get_plan(user) == "free", label
+        assert limits_for(user)["max_streams"] == 1, label
+        assert "one stream" in _lapse_message(get_plan(user)), label
 
 
 def test_an_unknown_plan_promises_nothing_rather_than_guessing():
@@ -81,10 +86,15 @@ def _capture_lapse_broadcast(monkeypatch, api, run):
     return [m for m in said if m.get("event") == "subscription_expired"]
 
 
-def test_the_webhook_lapse_tells_a_locked_user_the_truth(tmp_path, monkeypatch):
+def test_the_webhook_lapse_tells_a_lapsing_user_the_truth(tmp_path, monkeypatch):
     """DRIVEN, not grepped. The source check above passes if somebody writes
     `_lapse_message("free")` — which is the original bug with an extra function
-    call in front of it, and mutation testing walked straight through it."""
+    call in front of it, and mutation testing walked straight through it.
+
+    The expected answer flipped when the free tier reopened: a lapse lands on
+    free again, so the message SHOULD now promise the one stream. What is being
+    tested is unchanged — the copy has to be derived from the plan the user
+    really lands on, not assumed."""
     import asyncio, time as _t
     from src.dashboard import api
     from src.auth import users as user_store, trial_ledger
@@ -112,9 +122,12 @@ def test_the_webhook_lapse_tells_a_locked_user_the_truth(tmp_path, monkeypatch):
 
     assert msgs, "a lapse fired no notice at all"
     text = msgs[0]["message"]
-    assert get_plan(user_store.get_by_id(u["id"])) == "locked"
-    assert "free plan" not in text, f"a locked user was told: {text!r}"
-    assert "one stream" not in text, f"a locked user was promised a stream: {text!r}"
+    landed = get_plan(user_store.get_by_id(u["id"]))
+    assert landed == "free"
+    assert "free plan" in text, f"a free user was not told where they landed: {text!r}"
+    assert "one stream" in text, f"a free user was not told what they keep: {text!r}"
+    assert text == api._lapse_message(landed), \
+        "the broadcast copy is not the copy for the plan they resolved to"
 
 
 def test_the_webhook_lapse_still_says_free_to_someone_who_gets_free(tmp_path, monkeypatch):
@@ -154,7 +167,7 @@ def test_the_webhook_lapse_still_says_free_to_someone_who_gets_free(tmp_path, mo
     assert "one stream" in msgs[0]["message"]
 
 
-def test_the_reconcile_lapse_tells_a_locked_user_the_truth(monkeypatch):
+def test_the_reconcile_lapse_tells_a_lapsing_user_the_truth(monkeypatch):
     """Same assertion against the other path, which had its own copy."""
     import asyncio
     from src.dashboard import api
@@ -176,20 +189,31 @@ def test_the_reconcile_lapse_tells_a_locked_user_the_truth(monkeypatch):
     msgs = _capture_lapse_broadcast(
         monkeypatch, api, lambda: asyncio.run(api.reconcile_one_user(user)))
     assert msgs, "reconcile downgraded somebody silently"
-    assert "free plan" not in msgs[0]["message"]
-    assert "one stream" not in msgs[0]["message"]
+    # Flipped with the free tier, same as the webhook path above: this account
+    # lands on free, so promising the one stream is now the TRUE version.
+    assert get_plan({"subscription_status": "canceled"}) == "free"
+    assert msgs[0]["message"] == api._lapse_message("free"), \
+        "reconcile is not using the copy for the plan the user resolved to"
 
 
 # ── 2. the sign-in page contradicted its own badge ───────────────────────────
 
-def test_the_sign_in_page_does_not_call_the_plans_optional():
-    """Two lines apart it read "card required" and "Paid plans are optional".
-    Creating an account is free; using the product is not optional any more."""
+def test_the_sign_in_page_does_not_contradict_its_own_badge():
+    """The original defect: two lines apart it read "card required" and "Paid
+    plans are optional". Both halves have moved since — the card is no longer
+    required and paid plans genuinely ARE optional — so what survives is the
+    rule, not either sentence: the badge and the prose below it must agree.
+
+    "Paid plans are optional" is allowed again precisely because it is true
+    again. What is banned is the badge claiming a card while the prose says the
+    plans can be skipped, in either direction."""
     from src.dashboard.api import LOGIN_HTML as html
-    assert "Paid plans are optional" not in html
-    assert "card required" in html.lower()
-    # And it still says what it costs — removing the claim must not remove the
-    # price, which is the one thing a visitor is looking for here.
+    low = html.lower()
+    demands_card = bool(re.search(r"(?<!no )card required", low))
+    says_optional = "optional" in low or "no card" in low
+    assert not (demands_card and says_optional), \
+        "the sign-in page demands a card and calls the plans optional"
+    # And it still says what it costs — the one thing a visitor is looking for.
     assert "$10/month" in html
 
 

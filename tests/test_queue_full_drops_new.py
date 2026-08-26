@@ -34,10 +34,18 @@ def clean(tmp_path, monkeypatch):
 
     from src.auth import users as us
     monkeypatch.setattr(us, "get_by_id",
-                        lambda uid: {"id": uid, "subscription_status": "none", "grandfathered": True})  # free: 15
+                        lambda uid: {"id": uid, "subscription_status": "none"})  # free tier
     api._clips.clear()
     yield sent
     api._clips.clear()
+
+
+# DERIVED, not typed. This file hardcoded 15 — the free cap at the time — and
+# would have gone on "passing" against a moved cap by never filling the queue at
+# all, asserting a drop that could not happen. The number is a product decision;
+# that a full queue REFUSES the newcomer is the rule under test.
+from src.billing.plans import PLAN_LIMITS
+CAP = PLAN_LIMITS["free"]["max_pending"]
 
 
 def _fill(n, uid="u1"):
@@ -53,28 +61,28 @@ def _incoming(cid="new"):
 
 
 def test_the_new_clip_is_dropped_when_the_queue_is_full(clean):
-    _fill(15)
+    _fill(CAP)
     asyncio.run(api.notify_clip_ready(_incoming()))
     assert "new" not in api._clips, "the new clip was stored over the cap"
-    assert len(api._clips) == 15
+    assert len(api._clips) == CAP
 
 
 def test_no_existing_clip_is_destroyed(clean):
     """THE regression this replaces. The old behaviour deleted p0."""
-    _fill(15)
+    _fill(CAP)
     before = set(api._clips)
     asyncio.run(api.notify_clip_ready(_incoming()))
     assert set(api._clips) == before, "a clip the user already had was deleted"
 
 
 def test_a_clip_is_still_accepted_with_room_to_spare(clean):
-    _fill(14)
+    _fill(CAP - 1)
     asyncio.run(api.notify_clip_ready(_incoming()))
     assert "new" in api._clips
 
 
 def test_the_user_is_told_it_was_missed_not_deleted(clean):
-    _fill(15)
+    _fill(CAP)
     asyncio.run(api.notify_clip_ready(_incoming()))
     events = [p.get("event") for p in clean]
     assert "clip_missed" in events
@@ -86,7 +94,7 @@ def test_a_miss_is_recorded_as_its_own_outcome(clean):
     """Not a 'caught' (no clip exists) and not a rejection (the user never saw
     it). Folding it into either would corrupt the keep rate shown to
     streamers."""
-    _fill(15)
+    _fill(CAP)
     asyncio.run(api.notify_clip_ready(_incoming()))
     row = ss.for_channel("u1", "aceu")
     assert row is not None

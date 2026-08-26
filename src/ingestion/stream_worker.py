@@ -39,12 +39,11 @@ log = structlog.get_logger(__name__)
 _IDENTITY_TTL = 600.0
 _identity_cache: tuple[float, set, set] = (0.0, set(), set())
 
-# Crowd suggestions may fill this fraction of the pending queue and no more.
-# The remainder is held for triggered clips, which are the paid product: a full
-# queue drops the newest arrival, so without a reserve a chatty channel's
-# suggestions would be the reason a real clip did not land. 0.5 leaves half the
-# queue untouchable by this feature.
-_SUGGESTION_QUEUE_RESERVE = 0.5
+# The 50% pending-queue reserve that used to live here is gone. Crowd
+# suggestions now have their own per-plan budget (`max_suggested` in
+# plans.py), which makes the same promise structurally rather than by
+# arithmetic: they are not drawing on max_pending at all, so no reserve is
+# needed to keep them off it. See _land_suggestions and api.suggestion_room.
 
 
 def _our_clip_identity() -> tuple[set, set]:
@@ -540,12 +539,14 @@ class StreamWorker:
     async def _land_suggestions(self, buf) -> None:
         """Turn ripe crowd suggestions into pending clips for this user.
 
-        RESERVE. These share the plan-capped pending queue with real clips, and
-        a full queue drops the NEWEST arrival — so an unreserved suggestion
-        stream on a clip-happy channel would quietly cost the user the clips
-        they pay for. Suggestions therefore stop at a fraction of the cap while
-        real clips keep the whole thing. A suggestion is a bonus; it must never
-        be the reason a triggered clip did not land.
+        THEIR OWN BUDGET, not a slice of the review queue. Suggestions used to
+        share max_pending with triggered clips, held off them by a 50% reserve,
+        because a full queue drops the NEWEST arrival and an unreserved
+        suggestion stream could cost a user the clips they pay for. A separate
+        budget (max_suggested: Free 3) makes that guarantee structurally
+        instead of arithmetically — a suggestion is not drawing from the same
+        pool at all, so it cannot take a slot a triggered clip wanted however
+        busy the channel gets.
         """
         from src.dashboard import api as dashboard_api
         from src.processor.metadata import ClipMetadata
@@ -554,14 +555,13 @@ class StreamWorker:
         if not ripe:
             return
         uid = self._config.user_id
-        used, cap = dashboard_api.pending_room(uid)
-        room = int(cap * _SUGGESTION_QUEUE_RESERVE)
+        used, room = dashboard_api.suggestion_room(uid)
         info = self._stream_info
 
         for s in ripe:
             if used >= room:
-                log.info("suggested_clip_skipped_reserve", channel=s.channel,
-                         user_id=uid, pending=used, suggestion_cap=room, cap=cap)
+                log.info("suggested_clip_skipped_budget", channel=s.channel,
+                         user_id=uid, waiting=used, suggestion_cap=room)
                 break
             meta = ClipMetadata(
                 channel=s.channel,

@@ -63,7 +63,11 @@ def test_an_admin_with_no_subscription_still_has_no_cap():
     ("pro",     _pro()),
     ("starter", {"id": "u2", "subscription_status": "active", "plan": "starter"}),
     ("free",    {"id": "u3", "subscription_status": "none", "grandfathered": True}),
-    ("locked",  {"id": "u4", "subscription_status": "none"}),
+    # A never-subscribed account. This row used to be ("locked", ...) and is the
+    # same dict — what changed is that free reopened, so it resolves there
+    # instead. `locked` is unreachable from a user record now, which is why the
+    # deleted-account case below is the only one that still checks it.
+    ("free",    {"id": "u4", "subscription_status": "none"}),
 ])
 def test_non_admins_keep_exactly_the_cap_they_had(plan, user):
     assert get_plan(user) == plan

@@ -5,19 +5,21 @@ somebody who signs up RIGHT NOW hit a wall anywhere? Each test drives the real
 app through the real signup path — upsert_twitch_user, the same call the OAuth
 callback makes — and then exercises a feature the way the dashboard does.
 
-WHAT A NEW SIGNUP GETS. Nothing, until a card goes in. Signing up used to hand
-out 7 free days; it now lands on `locked` and sends them to Checkout, where
-Stripe takes a card and starts the free week. So this file walks TWO people:
+WHAT A NEW SIGNUP GETS. A working account. This has now been three different
+answers — 7 app-managed free days, then nothing until a card went in, and now
+the free tier — so the file walks TWO people rather than assuming either:
 
-  * the signed-up-but-not-yet-subscribed user, who must be able to open every
-    screen and be shown a way to pay — walled, never stranded; and
-  * the user one step further on, whose Stripe trial has started. `trialing`
-    resolves to pro, so they are entitled to everything: 10 streams, a 200-clip
-    queue, the VOD scanner and the Clip Editor.
+  * the signed-up-but-not-paying user, on FREE. They get a real product with
+    real limits: one channel, a 20-clip queue, three crowd suggestions, and no
+    VOD scanner or Clip Editor. Both halves matter — that the one stream WORKS,
+    and that the second one is refused.
+  * the user one step further on, whose subscription or trial is live.
+    `trialing` resolves to pro, so they are entitled to everything: 10 streams,
+    a 200-clip queue, the VOD scanner and the Clip Editor.
 
 The entitlement half is the half that matters most, because a gate that
-wrongly refuses is invisible when tested against a locked account — it looks
-exactly like the wall that is supposed to be there.
+wrongly refuses is invisible when tested against an account that is supposed to
+be refused — it looks exactly like the limit that is supposed to be there.
 
 Deliberately NOT mocked: the plan resolution, the limit lookups and every
 gate. Only the outside world is stubbed — Twitch, Redis, Stripe — because
@@ -117,36 +119,48 @@ def app(monkeypatch, tmp_path):
 
 # ── what they land on ────────────────────────────────────────────────────────
 
-def test_a_new_signup_lands_locked_until_they_enter_a_card(app):
-    """The cutover. Signing up used to be seven free days; it is now the
-    doorstep."""
+def test_a_new_signup_lands_on_free_with_no_card(app):
+    """The reversal. Signing up was seven free days, then the doorstep, and is
+    now a working account on the free tier."""
     from src.billing.plans import get_plan
     u = app.signup()
     assert u["subscription_status"] == "none"
     assert u["trial_ends_at"] == 0
-    assert get_plan(app.store.get_by_id(u["id"])) == "locked"
+    assert get_plan(app.store.get_by_id(u["id"])) == "free"
 
 
-def test_a_locked_new_user_is_walled_but_never_stranded(app):
-    """Being unable to use the product yet is the design. Being unable to find
-    the way to pay for it is a dead end, and this is the exact account that
-    meets it."""
+def test_a_free_user_gets_a_real_product_and_a_way_to_pay(app):
+    """Both halves. A free tier that shows nothing converts nobody, and a free
+    tier with no route to a plan is a dead end."""
+    from src.billing.plans import PLAN_LIMITS
     app.signup()
     me = app.get("/me").json()
-    assert me["plan"] == "locked"
-    assert me["plan_limits"]["max_streams"] == 0
-    nxt = app.api._next_tier(app.store.get_by_id(me["user_id"])) \
-        if "user_id" in me else app.api._next_tier({"subscription_status": "none"})
-    assert nxt is not None, "a locked new user is offered no way to subscribe"
+    assert me["plan"] == "free"
+    assert me["plan_limits"]["max_streams"] == 1
+    assert me["plan_limits"]["max_pending"] == PLAN_LIMITS["free"]["max_pending"]
+    nxt = app.api._next_tier({"subscription_status": "none"})
+    assert nxt is not None, "a free user is offered no way to subscribe"
     assert app.get("/billing/paywall").status_code == 200
 
 
-def test_a_locked_new_user_cannot_add_a_stream(app):
-    """The wall itself. If this ever passed, the product would be free."""
+def test_a_free_user_gets_their_one_stream(app):
+    """The thing the whole tier exists for. If this ever failed, signing up
+    would show somebody an empty product and no reason to come back."""
     app.signup()
     r = app.post("/streams", json={"channel": "lacy", "platform": "twitch",
                                    "preset": "default"})
-    assert r.status_code != 201, "a user with no card added a stream"
+    assert r.status_code == 201, f"a free user could not add their one stream: {r.text}"
+
+
+def test_a_free_user_is_refused_the_second_stream(app):
+    """A stream is the scarce resource — one streamlink+ffmpeg audio meter each
+    on a shared vCPU — so this is the limit that actually protects the box."""
+    app.signup()
+    app.post("/streams", json={"channel": "lacy", "platform": "twitch",
+                               "preset": "default"})
+    r = app.post("/streams", json={"channel": "aceu", "platform": "twitch",
+                                   "preset": "default"})
+    assert r.status_code != 201, "a free user ran two streams at once"
 
 
 def test_the_trial_resolves_to_the_full_product(app):
@@ -345,9 +359,10 @@ def test_a_new_user_cannot_see_another_users_clips(app):
 
 
 def test_a_second_account_on_the_same_twitch_id_gets_no_second_free_week(app):
-    """The ledger survives account deletion on purpose. Deleting and coming
-    back must not buy another free week — which now means Checkout offers them
-    zero free days, not that signup refuses them."""
+    """The ledger survives account deletion on purpose. There is no self-serve
+    trial left to double-claim, so this now asserts the weaker but still real
+    thing: the HISTORY survives, so reintroducing a trial would not hand a
+    second week to everyone who deleted and came back."""
     from src.auth import trial_ledger
     u = app.onboard(twitch_id="555", login="dave")
     trial_ledger.record_trial("twitch", "555")   # Stripe started their trial

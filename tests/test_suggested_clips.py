@@ -10,9 +10,10 @@ WHAT THESE TESTS ARE MOSTLY ABOUT. Not the happy path — that is four asserts.
 The bulk is the two ways this feature can quietly damage the product it sits
 next to:
 
-  1. It writes into the SAME pending queue as real clips, and a full queue
-     drops the newest arrival. Unreserved, a chatty channel's suggestions would
-     be the reason a paid-for clip did not land.
+  1. It lands clips in the same review queue a user pays for. It draws on its
+     own per-plan budget (max_suggested) rather than max_pending, so it cannot
+     take a slot a triggered clip wanted — a guarantee that was previously a
+     50% reserve and is now structural.
 
   2. It creates review decisions on clips the formula never produced. Feeding
      those back into learning would raise a channel's trigger threshold on the
@@ -382,36 +383,65 @@ def _suggestion(slug, at=T0, **kw):
 
 
 @pytest.mark.asyncio
-async def test_suggestions_stop_at_the_reserve_leaving_room_for_real_clips(monkeypatch):
-    """THE POINT OF THE RESERVE. Suggestions share the plan-capped pending
-    queue with real clips, and a full queue DROPS THE NEWEST ARRIVAL — so
-    without a reserve a chatty channel's suggestions would be the reason a
-    triggered clip the user pays for never landed. Half the queue is
-    untouchable by this feature."""
+async def test_suggestions_stop_at_their_own_budget(monkeypatch):
+    """THEIR OWN BUDGET, not a slice of the review queue.
+
+    This used to assert a 50% RESERVE of max_pending, because suggestions
+    shared the pending queue with triggered clips and a full queue drops the
+    newest arrival — so unreserved, a chatty channel's suggestions could be the
+    reason a clip the user pays for never landed. `max_suggested` makes that
+    guarantee structurally instead of arithmetically: they are not drawing on
+    max_pending at all, so no reserve is needed to keep them off it."""
     from src.dashboard import api
-    from src.ingestion import stream_worker as sw
 
     landed = []
     async def _ready(clip): landed.append(clip)
     monkeypatch.setattr(api, "notify_clip_ready", _ready)
-    monkeypatch.setattr(api, "pending_room", lambda uid: (0, 10))
+    monkeypatch.setattr(api, "suggestion_room", lambda uid: (0, 3))
 
     buf = _FakeBuf([_suggestion(f"s{i}", at=T0 + i * 600) for i in range(9)])
     await _worker_stub()._land_suggestions(buf)
 
-    assert len(landed) == int(10 * sw._SUGGESTION_QUEUE_RESERVE) == 5, \
-        "suggestions filled past the reserve and can starve real clips"
+    assert len(landed) == 3, "suggestions ran past their budget"
 
 
 @pytest.mark.asyncio
-async def test_a_queue_already_past_the_reserve_takes_no_suggestions(monkeypatch):
+async def test_a_budget_already_spent_takes_no_more(monkeypatch):
     from src.dashboard import api
     landed = []
     async def _ready(clip): landed.append(clip)
     monkeypatch.setattr(api, "notify_clip_ready", _ready)
-    monkeypatch.setattr(api, "pending_room", lambda uid: (7, 10))
+    monkeypatch.setattr(api, "suggestion_room", lambda uid: (3, 3))
     await _worker_stub()._land_suggestions(_FakeBuf([_suggestion("s1")]))
     assert landed == []
+
+
+@pytest.mark.asyncio
+async def test_suggestions_never_consume_the_pending_queue(monkeypatch):
+    """The guarantee the reserve was approximating, now asserted directly: a
+    queue full to its cap of TRIGGERED clips does not stop a suggestion, and a
+    pile of suggestions does not eat into what triggered clips may use."""
+    from src.dashboard import api
+    api._clips.clear()
+    try:
+        for i in range(20):                       # free cap, entirely triggered
+            api._clips[f"p{i}"] = {"id": f"p{i}", "user_id": "punter",
+                                   "status": "pending", "trigger_score": 80}
+        for i in range(2):
+            api._clips[f"s{i}"] = {"id": f"s{i}", "user_id": "punter",
+                                   "status": "pending", "suggested": True}
+        monkeypatch.setattr(api, "limits_for",
+                            lambda u: {"max_pending": 20, "max_suggested": 3},
+                            raising=False)
+        from src.billing import plans
+        monkeypatch.setattr(plans, "limits_for",
+                            lambda u: {"max_pending": 20, "max_suggested": 3})
+        used_p, cap_p = api.pending_room("punter")
+        used_s, cap_s = api.suggestion_room("punter")
+        assert (used_p, cap_p) == (20, 20), "suggestions were counted as pending clips"
+        assert (used_s, cap_s) == (2, 3), "triggered clips were counted as suggestions"
+    finally:
+        api._clips.clear()
 
 
 @pytest.mark.asyncio
@@ -420,7 +450,7 @@ async def test_a_landed_suggestion_carries_no_score_and_says_who_made_it(monkeyp
     landed = []
     async def _ready(clip): landed.append(clip)
     monkeypatch.setattr(api, "notify_clip_ready", _ready)
-    monkeypatch.setattr(api, "pending_room", lambda uid: (0, 10))
+    monkeypatch.setattr(api, "suggestion_room", lambda uid: (0, 3))
 
     await _worker_stub()._land_suggestions(
         _FakeBuf([_suggestion("s1", views=120, clippers=3)]))
@@ -716,3 +746,55 @@ def test_the_pulse_cannot_swallow_the_click():
     target."""
     rule = CSS.split(".rd-clip.suggested::after{")[1].split("}")[0]
     assert "pointer-events:none" in rule
+
+
+@pytest.mark.asyncio
+async def test_the_race_guard_caps_suggestions_on_their_own_budget(api_client):
+    """notify_clip_ready re-checks the cap because the worker's check and this
+    one are not atomic. It has to check the SUGGESTION budget for a suggestion,
+    not the pending one — mutation testing found nothing driving this: the
+    worker-level test covers the worker and suggestion_room covers the count,
+    but the second check could quietly fall back to max_pending and both stayed
+    green. On free that is the difference between 3 suggestions and 20."""
+    api = api_client.api
+    from src.billing import plans
+    monkeypatch_limits = {"max_pending": 20, "max_suggested": 3, "label": "Free",
+                          "vod": False, "uploads": False, "max_streams": 1}
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(plans, "limits_for", lambda u: monkeypatch_limits)
+    try:
+        for i in range(6):
+            await api.notify_clip_ready({
+                "id": f"s{i}", "user_id": "punter", "channel": "aceu",
+                "platform": "twitch", "status": "pending",
+                "created_at": T0 + i * 500,     # past the dedup window
+                "suggested": True, "suggested_by": "fan"})
+        held = [c for c in api._clips.values() if c.get("suggested")]
+        assert len(held) == 3, \
+            f"the suggestion budget was not enforced at the race guard: {len(held)}"
+    finally:
+        mp.undo()
+
+
+@pytest.mark.asyncio
+async def test_the_race_guard_still_lets_triggered_clips_use_the_full_queue(api_client):
+    """The other half. Capping suggestions at 3 must not cap real clips at 3."""
+    api = api_client.api
+    from src.billing import plans
+    limits = {"max_pending": 20, "max_suggested": 3, "label": "Free",
+              "vod": False, "uploads": False, "max_streams": 1}
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(plans, "limits_for", lambda u: limits)
+    try:
+        for i in range(8):
+            await api.notify_clip_ready({
+                "id": f"r{i}", "user_id": "punter", "channel": "aceu",
+                "platform": "twitch", "status": "pending",
+                "created_at": T0 + i * 500, "trigger_score": 70.0})
+        held = [c for c in api._clips.values() if not c.get("suggested")]
+        assert len(held) == 8, \
+            f"triggered clips were capped at the suggestion budget: {len(held)}"
+    finally:
+        mp.undo()

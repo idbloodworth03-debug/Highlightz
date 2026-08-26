@@ -234,14 +234,15 @@ def test_the_sign_in_page_does_not_quote_a_price_as_the_headline():
     from src.dashboard.api import LOGIN_HTML as html
     assert "From $10/month" not in html
     assert "Renews monthly." not in html
-    assert "7 days free" in html, \
+    assert "free to start" in html.lower(), \
         "the sign-in page does not say what signing in actually gets you"
-    # Signing in now leads to a card form. The badge on the button that takes
-    # them there has to say so — this is the last screen before the surprise.
-    assert "card required" in html.lower(), \
-        "the sign-in page does not mention the card"
-    assert "cancel before day 7" in html.lower(), \
-        "the sign-in page names the card but not the way out"
+    # Signing in leads straight into the product on the free plan. The badge on
+    # the button that takes them there says so — there is no surprise left to
+    # warn about, which is the version of this the page has now had twice.
+    assert "no card" in html.lower(), \
+        "the sign-in page does not say a card is not needed"
+    assert "no time limit" in html.lower(), \
+        "the sign-in page does not say the free plan keeps working"
     assert "no credit card" not in html.lower()
 
 

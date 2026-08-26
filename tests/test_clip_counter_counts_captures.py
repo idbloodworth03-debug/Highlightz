@@ -51,10 +51,17 @@ def counted(tmp_path, monkeypatch):
 
     from src.auth import users as us
     monkeypatch.setattr(us, "get_by_id", lambda uid: {
-        "id": uid, "subscription_status": "none", "grandfathered": True})  # free: 15
+        "id": uid, "subscription_status": "none"})  # free tier
     api._clips.clear()
     yield
     api._clips.clear()
+
+
+# Derived, not typed — the free cap moved from 15 to 20 and a hardcoded fill
+# would simply stop filling the queue, so the drop under test could not happen
+# and the assertions would report a failure that is really a stale number.
+from src.billing.plans import PLAN_LIMITS as _PL
+CAP = _PL["free"]["max_pending"]
 
 
 def _fill(n, uid="u1"):
@@ -73,7 +80,7 @@ def _incoming(cid="new", created_at=9999.0):
 
 def test_a_clip_dropped_for_a_full_queue_still_counts_as_captured():
     """THE fix. The clip exists on Twitch; only our copy was discarded."""
-    _fill(15)
+    _fill(CAP)
     before = api.get_clip_counter()
     asyncio.run(api.notify_clip_ready(_incoming()))
     assert "new" not in api._clips, "precondition: the clip should have been dropped"
@@ -108,7 +115,7 @@ def test_a_missed_moment_is_not_a_capture():
     """stream_stats separates CAUGHT from MISSED for the streamer-facing keep
     rate. The public counter has to honour the same line: a moment nothing was
     ever made from is not a captured clip."""
-    _fill(15)
+    _fill(CAP)
     asyncio.run(api.notify_clip_ready(_incoming()))
     row = ss.for_channel("u1", "aceu")
     assert row["missed"] == 1 and row["caught"] == 0, \

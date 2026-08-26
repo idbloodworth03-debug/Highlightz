@@ -95,10 +95,9 @@ HERO_MEDIA = Media(
 
 QUICKSTART_TITLE = "Get started in 4 steps"
 QUICKSTART_LEAD = (
-    "The first 7 days are free. You put a card down when you sign up and "
-    "nothing is charged until day 7, so cancelling inside the week costs you "
-    "nothing — and you can be monitoring a live channel before you finish "
-    "reading this page."
+    "The free plan needs no card and does not expire — one channel watched, "
+    "a queue of 20 clips, and up to 3 that your own viewers made. You can be "
+    "monitoring a live channel before you finish reading this page."
 )
 
 QUICKSTART: tuple[Section, ...] = (
@@ -119,7 +118,7 @@ QUICKSTART: tuple[Section, ...] = (
         media=Media(
             src="01-signin.png",
             alt="The Highlightz sign-in card with a Continue with Twitch button and a "
-                "badge reading 7 days free, card required, cancel before day 7.",
+                "badge reading free to start, no card required.",
         ),
         tip=(
             "Sign in with the account you want the clips on. Whichever Twitch "
@@ -356,11 +355,10 @@ FEATURES: tuple[Section, ...] = (
         nav="Account & plans",
         title="Account and plans",
         body=(
-            "Your plan, your billing and your connected accounts. New accounts get "
-            "7 days of the full product free. You pick a plan and add a card when "
-            "you sign up; nothing is charged until day 7, and cancelling inside the "
-            "week costs you nothing. The plans are Starter for 3 channels, and Pro "
-            "for 10 plus the VOD Scanner."
+            "Your plan, your billing and your connected accounts. Every account "
+            "starts on the free plan — one channel, a 20-clip queue, no card and no "
+            "time limit. When one channel stops being enough, Starter watches 3 and "
+            "Pro watches 10 and adds the VOD Scanner."
         ),
         steps=(
             "Open the **Account** tab to see **Plan status** and **Membership**.",
@@ -393,21 +391,24 @@ PLANS_TITLE = "What each plan gives you"
 # Writing the numbers by hand is exactly how the page came to advertise it, so
 # they are read from the source of truth instead.
 #
-# The first column is the TRIAL, because that is what a new reader actually
-# gets. It resolves to pro (see get_plan), so it carries pro's numbers.
+# The first column is FREE, because that is what a new reader actually gets —
+# it is a standing tier now rather than a countdown, so it carries its own
+# numbers instead of borrowing pro's.
 def _plan_rows() -> tuple[tuple[str, ...], ...]:
-    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS
+    from src.billing.plans import PLAN_LIMITS
+    free = PLAN_LIMITS["free"]
     starter, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
-    trial = pro                      # a trial is the full product
     return (
-        ("",                       f"Trial ({TRIAL_DAYS} days)", "Starter", "Pro"),
-        ("Price",                  "$0 for 7 days, card required",
+        ("",                       "Free", "Starter", "Pro"),
+        ("Price",                  "$0, no card",
          f"${starter['price']}/mo", f"${pro['price']}/mo"),
-        ("Channels at once",       str(trial["max_streams"]),
+        ("Channels at once",       str(free["max_streams"]),
          str(starter["max_streams"]), str(pro["max_streams"])),
-        ("Clips held for review",  str(trial["max_pending"]),
+        ("Clips held for review",  str(free["max_pending"]),
          str(starter["max_pending"]), str(pro["max_pending"])),
-        ("VOD Scanner",            "Yes" if trial["vod"] else "No",
+        ("Crowd suggestions",      str(free["max_suggested"]),
+         str(starter["max_suggested"]), str(pro["max_suggested"])),
+        ("VOD Scanner",            "Yes" if free["vod"] else "No",
          "Yes" if starter["vod"] else "No", "Yes" if pro["vod"] else "No"),
     )
 
@@ -476,9 +477,9 @@ FAQ: tuple[tuple[str, str], ...] = (
 
 CTA_TITLE = "Start clipping"
 CTA_BODY = (
-    "7 days free, card required — cancel before day 7 and pay nothing. Add "
-    "your channels and let it watch a stream; that is the fastest way to see "
-    "whether the detector works on your content."
+    "Free to start — no card, no time limit. Add a channel and let it watch a "
+    "stream; that is the fastest way to see whether the detector works on your "
+    "content."
 )
 CTA_BUTTON = "Start clipping now"
 

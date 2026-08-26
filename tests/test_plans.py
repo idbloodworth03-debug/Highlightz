@@ -30,14 +30,16 @@ def test_get_plan_resolution_rules():
     assert get_plan({"plan": "pro", "grandfathered": True}) == "free"
     assert get_plan({"subscription_status": "inactive", "plan": "starter",
                      "grandfathered": True}) == "free"
-    # A NEW account in the same state has no free tier to fall back to: its
-    # trial ended, so it locks. This is the pair that no amount of reading
-    # created_at or subscription_status could separate — hence the flag.
-    assert get_plan({"plan": "pro"}) == "locked"
-    assert get_plan({"subscription_status": "expired"}) == "locked"
-    # Garbage falls to the LEAST access, not to paid — failing open on billing
-    # is the expensive direction.
-    assert get_plan({"plan": "enterprise"}) == "locked"
+    # A NEW account in the same state lands in the SAME PLACE now. These two
+    # used to be "locked", and separating them from the grandfathered pair
+    # above was the entire reason that flag exists. With free reopened as the
+    # front door there is nothing left to separate: never-subscribed, lapsed
+    # and finished-trial are all just free, whatever era the account is from.
+    assert get_plan({"plan": "pro"}) == "free"
+    assert get_plan({"subscription_status": "expired"}) == "free"
+    # Garbage still falls to the FREE tier rather than to paid — failing open on
+    # billing is the expensive direction, and free is now the floor.
+    assert get_plan({"plan": "enterprise"}) == "free"
     assert get_plan({"plan": "enterprise", "grandfathered": True}) == "free"
     assert get_plan({"subscription_status": "active", "plan": "enterprise"}) == "pro"
     # No user in hand is the least access, not the free tier — a deleted account
@@ -50,7 +52,9 @@ def test_get_plan_resolution_rules():
 
 def test_limits_shape():
     f, s, p = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
-    assert (f["max_streams"], f["max_pending"], f["vod"], f["uploads"]) == (1, 15, False, False)
+    assert (f["max_streams"], f["max_pending"], f["vod"], f["uploads"]) == (1, 20, False, False)
+    # Its own budget, deliberately not a slice of max_pending — see plans.py.
+    assert f["max_suggested"] == 3
     assert (s["max_streams"], s["max_pending"], s["vod"]) == (3, 50, False)
     assert (p["max_streams"], p["max_pending"], p["vod"]) == (10, 200, True)
     assert limits_for({"subscription_status": "active", "plan": "starter"})["max_streams"] == 3

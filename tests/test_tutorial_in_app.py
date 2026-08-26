@@ -239,5 +239,7 @@ def test_the_tutorial_no_longer_promises_the_old_terms(dead):
 def test_the_tutorial_states_the_real_terms():
     from src.dashboard.tutorial_html import render
     page = render().lower()
-    assert "card required" in page or "put a card down" in page
-    assert "day 7" in page
+    # Was "card required" / "day 7". Both describe the retired trial; the real
+    # terms now are that starting costs nothing and does not run out.
+    assert "no card" in page, "the tutorial does not say a card is not needed"
+    assert "free plan" in page or "free to start" in page

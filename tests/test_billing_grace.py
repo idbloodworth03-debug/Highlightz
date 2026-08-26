@@ -44,7 +44,7 @@ def test_an_unconfirmed_first_payment_grants_nothing_on_its_own():
     fallback here would hand Pro to anyone who opens a checkout and walks away,
     for the ~23 hours before Stripe expires it."""
     from src.billing.plans import get_plan
-    assert get_plan({"subscription_status": "incomplete"}) == "locked"
+    assert get_plan({"subscription_status": "incomplete"}) == "free"
     assert get_plan({"subscription_status": "incomplete", "grandfathered": True}) == "free"
 
 
@@ -59,7 +59,7 @@ def test_stripe_giving_up_is_still_an_ending():
     from src.billing.plans import get_plan, GRACE_STATUSES
     for status in ("unpaid", "incomplete_expired", "canceled", "inactive", "expired"):
         assert status not in GRACE_STATUSES, f"{status} must not be a grace status"
-        assert get_plan({"subscription_status": status, "plan": "pro"}) == "locked"
+        assert get_plan({"subscription_status": status, "plan": "pro"}) == "free"
 
 
 def test_grace_does_not_leak_into_the_paid_check():
@@ -143,7 +143,7 @@ def test_the_last_subscription_ending_still_lapses_the_account(env):
     env["stripe_says"]([{"id": "sub_A", "status": "canceled"}])
     env["fire"]("customer.subscription.deleted", "sub_A", "canceled")
     assert env["store"].get_by_id("u1")["subscription_status"] == "inactive"
-    assert env["plan_now"]() == "locked"
+    assert env["plan_now"]() == "free"
     assert ("subscription_expired", "u1") in env["sent"]
     assert env["stopped"] == ["u1"]
 

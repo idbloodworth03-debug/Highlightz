@@ -1,13 +1,30 @@
 """
 Membership tiers.
 
-  free    — $0: 1 monitored stream, 15 pending clips. No VOD scanner, no Clip
-            Editor. Exists so someone can use the actual product before paying;
-            a cold visitor will not hand over $10 to find out whether the
-            detector works on their channel.
+  free    — $0, no card, no time limit: 1 monitored stream, 20 pending clips,
+            3 crowd suggestions. No VOD scanner, no Clip Editor.
   starter — $10/month: 3 monitored streams, 50 pending clips
   pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
             Clip Editor
+
+THE 7-DAY TRIAL IS GONE (2026-08-26) AND FREE IS THE FRONT DOOR AGAIN.
+
+The trial replaced the free tier because an app-managed free week with no card
+converted badly. Card-up-front fixed the conversion problem and created a worse
+one: the card IS the wall. Somebody who wants to find out whether the detector
+works on their channel has to commit payment details first, and most will not —
+so the top of the funnel was the thing being optimised away.
+
+Free is now permanent and deliberately thin. It is not a sampler with a clock
+on it; it is the smallest version of the product that still proves the product
+works. One stream, twenty clips in the queue, and the crowd suggestions — which
+are the part most likely to produce a moment worth paying for, so they get their
+own budget rather than competing for the twenty.
+
+WHAT THIS MEANS FOR EXISTING TRIALS: nothing. `trialing` still resolves to pro,
+so anyone Stripe is currently running a trial for finishes it on the terms they
+signed up under and converts or lapses exactly as before. Only NEW checkouts
+stop carrying trial days.
 
 WHY FREE IS DELIBERATELY THIN. Every monitored stream runs a streamlink+ffmpeg
 audio meter on a single shared vCPU — that is the scarce resource in this whole
@@ -18,11 +35,13 @@ capacity note in HANDOFF first.
 PLAN RESOLUTION (get_plan) — the ordering matters and each rule is load-bearing:
   1. Admins and labelers get 'pro'. The training team needs the full product
      without a subscription.
-  2. An admin-granted trial ('trialing') gets 'pro' — that is the point of it.
-  3. WITHOUT an active subscription you get 'free'. Not locked out: a cancelled
-     or lapsed subscriber keeps using the product on the free tier. Before the
-     free tier existed, lapsing meant a paywall and nothing else, and silently
-     keeping their stored `plan` would hand a former subscriber Pro forever.
+  2. A trial ('trialing') gets 'pro' — Stripe trials still in flight and
+     admin-granted comps both land here.
+  3. WITHOUT an active subscription you get 'free'. Not locked out: never
+     subscribed, cancelled, lapsed and finished-trial all land on the same
+     tier, and that is the point of reopening it. Silently keeping their stored
+     `plan` would hand a former subscriber Pro forever, which is why the stored
+     value is only consulted below this line.
   4. WITH an active subscription, the stored `plan` (set by the Stripe webhook
      from the subscription's price id) decides.
   5. An active subscription with NO stored plan is a legacy single-price
@@ -35,37 +54,46 @@ PLAN RESOLUTION (get_plan) — the ordering matters and each rule is load-bearin
 FREE_PLAN = "free"
 LEGACY_PAID_PLAN = "pro"      # what a pre-tiers subscriber is grandfathered to
 
-# How long a self-serve trial lasts. New signups get this automatically, with no
-# card — the single source of truth for the number, so the landing page, the
-# paywall and the signup path cannot drift apart.
-TRIAL_DAYS = 7
-
-# The state a NEW account lands in once its trial runs out: no streams, no
-# queue, nothing. Expressed as a plan with zero limits rather than as a new
-# gate, because every access check in the product already asks limits_for()
-# what this user may do — add_stream, the pending cap, the VOD gate and the
-# Clip Editor gate all fail naturally against zeroes. A separate "locked"
-# branch would have to be added to each of them and would be forgotten in one.
+# The zero-access plan. NOTHING RESOLVES TO IT ANY MORE except a missing user
+# record — free is the floor for every real account now. It is kept because
+# `not user` still has to mean "no access" (a deleted account holding a live
+# session), and because expressing that as a plan with zero limits is what lets
+# every existing check — add_stream, the pending cap, the VOD gate, the Clip
+# Editor gate — refuse naturally by asking limits_for(), instead of each
+# growing its own special case that one of them would forget.
 LOCKED_PLAN = "locked"
+
+# HOW MANY CROWD SUGGESTIONS MAY BE WAITING AT ONCE, and why this is a separate
+# budget rather than a slice of max_pending.
+#
+# Suggestions are moments the DETECTOR MISSED, surfaced because viewers clipped
+# them (src/trigger/suggested_clips.py). They used to share the pending queue,
+# which meant they competed with the clips a user pays for — and a full queue
+# drops the newest arrival, so a chatty channel's suggestions could be the
+# reason a triggered clip never landed. That was held off with a 50% reserve.
+#
+# A separate budget makes the same guarantee structurally instead of by
+# arithmetic: a suggestion can never occupy a slot a real clip wanted, because
+# it is not drawing from the same pool at all. It also lets the free tier do
+# what it is for — twenty of our clips AND three of the crowd's, rather than
+# three of the crowd's eating into the twenty.
+_SUGGESTED = "max_suggested"
 
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
-    # It is not any more: the commonest way to be locked is now never to have
-    # started, and telling somebody their trial ended when they never had one
-    # reads as a bug in their account. This label has to be true for all four
-    # ways in — never started, abandoned checkout, trial ended, cancelled.
+    # It is not any more, and with free reopened nothing lands here at all —
+    # the label survives for the one caller that can still reach it.
     "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
-                "max_pending": 0, "vod": False, "uploads": False},
-    # LEGACY ONLY. Nothing new ever lands here: accounts that existed before the
-    # trial cutover are marked `grandfathered` and keep this permanently, so
-    # nobody who was already using the product loses it. New signups get a
-    # 7-day trial and then `locked`.
+                "max_pending": 0, _SUGGESTED: 0, "vod": False, "uploads": False},
+    # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
+    # the product that still proves it works: one channel, twenty clips in the
+    # queue, and three crowd suggestions on top of those — see _SUGGESTED.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
-                "max_pending": 15, "vod": False, "uploads": False},
+                "max_pending": 20, _SUGGESTED: 3, "vod": False, "uploads": False},
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
-                "max_pending": 50, "vod": False, "uploads": False},
+                "max_pending": 50, _SUGGESTED: 15, "vod": False, "uploads": False},
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
-                "max_pending": 200, "vod": True, "uploads": True},
+                "max_pending": 200, _SUGGESTED: 50, "vod": True, "uploads": True},
 }
 
 PAID_PLANS = ("starter", "pro")
@@ -220,18 +248,19 @@ def get_plan(user: dict | None) -> str:
         #                ~23 hours Stripe waits before `incomplete_expired`.
         if status == "past_due":
             return LEGACY_PAID_PLAN
-        return FREE_PLAN if user.get("grandfathered") else LOCKED_PLAN
+        return FREE_PLAN
     if status != "active":
-        # Never subscribed, cancelled, lapsed, or an expired trial.
+        # Never subscribed, cancelled, lapsed, or a finished trial — all four
+        # land on free now, which is the whole point of reopening it.
         #
-        # GRANDFATHERED accounts — everyone who existed before the self-serve
-        # trial replaced the free tier — keep the free plan indefinitely. That
-        # flag is set once, by a migration at boot, and never on a new account.
-        # It is an explicit mark rather than a date comparison or an inference
-        # from `status` because a lapsed NEW subscriber must land on `locked`
-        # while a legacy user on the identical status keeps free, and no amount
-        # of reading created_at or subscription_status can tell those apart.
-        return FREE_PLAN if user.get("grandfathered") else LOCKED_PLAN
+        # This used to read `FREE_PLAN if user.get("grandfathered") else
+        # LOCKED_PLAN`, because free was legacy-only and a new account that had
+        # not paid was meant to have nothing. With free as the front door the
+        # distinction is gone: `grandfathered` no longer changes what anybody
+        # may do. The flag is left on the accounts that carry it — funnel_stage
+        # still reads it to avoid chasing legacy users as "lapsed" — but no
+        # access decision depends on it any more.
+        return FREE_PLAN
 
     plan = user.get("plan")
     if plan in PAID_PLANS:

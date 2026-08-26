@@ -14,7 +14,6 @@ import secrets
 
 # The trial length lives with the plans, so the signup path and the landing
 # page cannot disagree about how many days a new user gets.
-from src.billing.plans import TRIAL_DAYS
 import shutil
 import tempfile
 import time

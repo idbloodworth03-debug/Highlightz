@@ -168,8 +168,43 @@ switched off.
     per-core cost with `scripts/stream_cost.py` after any audio-meter change.
     Confirmed on the 2-vCPU/4GB droplet (Aug 2026): derives 12 live, 48
     registered, with no `.env` pin.
-- **THIS BLOCK WAS STALE AND IS NOW REVERSED. There IS a self-serve free
-  trial.** It used to read "Billed immediately, there is NO self-serve free
+- **REVERSED AGAIN (2026-08-26): THE SELF-SERVE TRIAL IS RETIRED AND FREE IS
+  THE FRONT DOOR.** Read this block before the two below it, which describe the
+  arrangements it replaces. `TRIAL_DAYS` is GONE from `plans.py` and
+  `_checkout_trial_days` returns 0 unconditionally, so a checkout is now
+  unambiguously "start paying".
+  - **Free**: 1 monitored stream, 20 pending clips, 3 crowd suggestions, no VOD
+    scanner, no Clip Editor. No card, no expiry.
+  - **`get_plan` now sends EVERY non-active account to free** — never
+    subscribed, cancelled, lapsed and finished-trial alike. The `grandfathered`
+    flag no longer changes any access decision (funnel_stage still reads it so
+    legacy users are not chased as "lapsed"); `locked` is reachable only from
+    `not user`, i.e. a deleted account holding a live session.
+  - **Trials already running were deliberately not touched.** `trialing` still
+    resolves to pro, so anyone Stripe was mid-trial for finished on the terms
+    they signed up under. Retiring an offer must not reach backwards into the
+    accounts that took it.
+  - **WHY.** Card-up-front fixed the old free week's conversion problem and
+    created a worse one: the card was the wall, so the top of the funnel was
+    what got optimised away. This is the third arrangement — free tier, then
+    trial, now free tier again — so treat the NUMBERS as the changeable part
+    and the derivation as the durable one: every public page reads its figures
+    from `PLAN_LIMITS`, pinned by `tests/test_free_tier_offer_copy.py` (renamed
+    from `test_no_free_tier_claim.py`, whose whole premise inverted).
+  - **Crowd suggestions have their own budget** (`max_suggested`: free 3,
+    starter 15, pro 50) and NO LONGER draw on `max_pending`. This replaced the
+    50% pending-queue reserve in `stream_worker.py`: a separate pool makes
+    "a suggestion can never take a slot a triggered clip wanted" structural
+    rather than arithmetic, and it is what lets free mean 20 of our clips PLUS
+    3 of the crowd's. `api.suggestion_room()` is the counter; `notify_clip_ready`
+    picks the cap by `clip["suggested"]` and both halves are mutation-tested.
+  - **Copy that must never come back**: "7 days free", "cancel before day 7",
+    and any affirmative "card required". The banned-claims list is a set of
+    REGEXES, not substrings, because "card required" is a substring of the new
+    copy's own "no card required".
+
+- **SUPERSEDED 2026-08-26 — see the block above. This block was stale and was
+  itself a reversal. There WAS a self-serve free trial.** It used to read "Billed immediately, there is NO self-serve free
   trial", describing a state that a later cutover undid. `TRIAL_DAYS = 7` in
   `src/billing/plans.py` is the single source of truth: new signups get 7 days
   of the full product with no card, `get_plan` resolves `trialing` to `pro`,

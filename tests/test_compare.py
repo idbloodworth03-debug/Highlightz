@@ -122,13 +122,18 @@ def test_our_channel_counts_match_the_real_limits():
     assert str(PLAN_LIMITS["pro"]["max_pending"]) in ours["pro"].note
 
 
-def test_the_advertised_trial_length_is_the_real_one():
-    from src.billing.plans import TRIAL_DAYS
-    trial = [p for p in C.HIGHLIGHTZ.plans if "trial" in p.name.lower()][0]
-    assert str(TRIAL_DAYS) in trial.note
-    assert "card required" in trial.note.lower(), \
-        "the compare page still sells a trial that needs no card"
-    assert "cancel before day 7" in trial.note.lower()
+def test_the_advertised_free_plan_is_the_real_one():
+    """Was `..._trial_length_is_the_real_one`. The entry plan is a standing
+    free tier again rather than a countdown, so what has to match the code is
+    its LIMITS instead of its duration."""
+    from src.billing.plans import PLAN_LIMITS
+    free_plan = [p for p in C.HIGHLIGHTZ.plans if p.name.lower() == "free"][0]
+    assert free_plan.price == "$0"
+    note = free_plan.note.lower()
+    assert str(PLAN_LIMITS["free"]["max_streams"]) in note
+    assert str(PLAN_LIMITS["free"]["max_pending"]) in note
+    assert "no card" in note, "the compare page does not say a card is not needed"
+    assert "no time limit" in note, "the compare page implies the free plan expires"
 
 
 def test_we_do_not_claim_a_feature_our_plans_do_not_have():

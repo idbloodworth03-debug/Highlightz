@@ -133,38 +133,52 @@ def test_the_quoted_labels_actually_appear_in_the_tutorial(page):
 def test_the_plan_numbers_match_what_billing_enforces():
     """A pricing table that drifts from the limits is worse than no table.
 
-    THE COLUMNS CHANGED, and the reason matters. This used to read
-    Free / Starter / Pro and assert against PLAN_LIMITS["free"] — but free is
-    marked LEGACY ONLY in plans.py and no new account can reach it, so the
-    table was documenting a tier the reader could not choose. The first column
-    is now the trial, which is what they actually get, and it carries pro's
-    numbers because get_plan resolves `trialing` to pro.
+    THE COLUMNS HAVE CHANGED TWICE. They were Free / Starter / Pro; then free
+    went legacy-only and the first column became the trial, carrying pro's
+    numbers because `trialing` resolves to pro; and now free is the front door
+    again and the first column is its own tier with its own limits. What has
+    survived all three is the rule: every number in the table is read from
+    PLAN_LIMITS, so a plan change breaks this test instead of quietly making
+    the page lie.
     """
-    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS, get_plan
+    from src.billing.plans import PLAN_LIMITS, get_plan
     rows = {r[0]: r[1:] for r in C.PLAN_ROWS}
     head = C.PLAN_ROWS[0][1:]
 
-    assert head == (f"Trial ({TRIAL_DAYS} days)", "Starter", "Pro")
-    assert get_plan({"subscription_status": "trialing"}) == "pro", \
-        "the trial no longer resolves to pro, so this table's first column is wrong"
+    # The first column was the TRIAL and carried pro's numbers, because
+    # `trialing` resolves to pro. With the trial retired it is FREE, and free
+    # is a tier of its own — so it carries its own numbers rather than
+    # borrowing another plan's, which is what the loop below now checks.
+    assert head == ("Free", "Starter", "Pro")
+    assert get_plan({"subscription_status": "none"}) == "free", \
+        "a non-paying account no longer lands on free, so this column is wrong"
 
-    assert rows["Price"] == ("$0 for 7 days, card required",
+    assert rows["Price"] == ("$0, no card",
                              f"${PLAN_LIMITS['starter']['price']}/mo",
                              f"${PLAN_LIMITS['pro']['price']}/mo")
-    # trial == pro on every row, which is the claim the page is making.
+    # Each column now carries ITS OWN plan's numbers. The old version read
+    # ("pro", "starter", "pro") because the first column was a trial that
+    # resolved to pro — a table where two columns had to stay identical, and
+    # where a change to free would have gone unnoticed because free was not in
+    # it at all.
     for label, key in (("Channels at once", "max_streams"),
-                       ("Clips held for review", "max_pending")):
+                       ("Clips held for review", "max_pending"),
+                       ("Crowd suggestions", "max_suggested")):
         assert rows[label] == tuple(
-            str(PLAN_LIMITS[p][key]) for p in ("pro", "starter", "pro")), \
+            str(PLAN_LIMITS[p][key]) for p in ("free", "starter", "pro")), \
             f"the {label} row drifted from PLAN_LIMITS"
 
 
-def test_the_plans_table_does_not_advertise_the_legacy_free_tier():
-    """plans.py: free is LEGACY ONLY, "Nothing new ever lands here." Offering
-    it as a column sells something nobody can sign up for."""
+def test_the_plans_table_advertises_the_free_tier_that_exists():
+    """INVERTED. This banned a Free column while free was legacy-only and
+    "nothing new ever lands here" — offering it then sold something nobody
+    could sign up for. Free is the front door again, so hiding it would be the
+    error: it is what a new reader actually gets."""
+    from src.billing.plans import get_plan
     flat = [c for row in C.PLAN_ROWS for c in row]
-    assert "Free" not in flat, "the plans table still offers a Free column"
-    assert "$0" not in flat, "a bare $0 column reads as a permanent free tier"
+    assert "Free" in flat, "the plans table no longer shows the free tier"
+    assert get_plan({"subscription_status": "none"}) == "free", \
+        "the table offers a Free column that a new account does not land on"
 
 
 def test_vod_is_described_as_pro_because_that_is_how_it_is_gated():
@@ -392,12 +406,10 @@ def test_the_title_and_description_are_useful_lengths(page):
 def test_the_page_never_promises_a_retired_price_or_the_wrong_trial(page):
     """The same failure the social card had: copy that outlives the offer.
 
-    The 7-day trial is real again, so saying so is correct — but the NUMBER has
-    to come from TRIAL_DAYS. A page confidently quoting a trial length the code
-    does not grant is the same class of bug as the retired $15."""
-    from src.billing.plans import TRIAL_DAYS
+    There is no trial to quote a length for any more, so any "N days free" on
+    this page is by definition stale — it can only be left over from the offer
+    that was retired."""
     import re as _re
     assert "$15" not in page, "the tutorial quotes the retired price"
-    for n in _re.findall(r"(\d+)\s*days? free", page, _re.I):
-        assert int(n) == TRIAL_DAYS, \
-            f"the tutorial advertises a {n}-day trial but TRIAL_DAYS is {TRIAL_DAYS}"
+    stale = _re.findall(r"\d+\s*days? free", page, _re.I)
+    assert not stale, f"the tutorial still advertises the retired trial: {stale}"

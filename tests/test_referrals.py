@@ -101,12 +101,13 @@ def test_the_landing_page_still_offers_a_way_in_without_paying_first():
     for — and now that a card is required, the page has to say BOTH halves or
     the outreach promise and the signup form disagree."""
     from src.dashboard.api import LANDING_HTML
-    # The free ENTRY POINT is now a 7-day trial rather than a free tier, but the
-    # thing this test protects is unchanged: an outreach signup must not land on
-    # a page that asks for money with no way to try the product first.
+    # The free entry point has been a free tier, then a 7-day trial, and is a
+    # free tier again. The thing this test protects is unchanged through all
+    # three: an outreach signup must not land on a page that asks for money
+    # with no way to try the product first.
     assert "Start free" in LANDING_HTML   # button copy tightened in the pricing rewrite
-    assert "card required" in LANDING_HTML.lower()
-    assert "7" in LANDING_HTML and "days free" in LANDING_HTML.lower()
+    assert "free to start" in LANDING_HTML.lower()
+    assert "no card" in LANDING_HTML.lower()
 
 
 def test_the_structured_data_matches_what_is_actually_offered():

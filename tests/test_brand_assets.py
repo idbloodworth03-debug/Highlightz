@@ -169,28 +169,26 @@ def test_the_card_never_quotes_a_retired_price():
     """The exact failure being prevented. A price baked into a cached image is
     the slowest thing on the internet to correct.
 
-    NOT a blanket ban on mentioning a trial any more: the self-serve 7-day trial
-    is real again and the card sells it. What must never come back is $15, the
-    price that was retired — and any trial claim has to match TRIAL_DAYS, which
-    is the check below, because a cached card quoting the wrong number is the
-    same bug wearing different clothes."""
-    from src.billing.plans import TRIAL_DAYS
+    NO DURATION AT ALL is the safest thing this card can say, which is what it
+    says now. It has already advertised two offers that stopped being true —
+    "$15 a month" and then "7 days free" — and an OG image sits in caches we do
+    not control, so anything with a number in it is a promise we cannot retract.
+    "Free to start" survives a change of plan limits, a change of price, and a
+    trial coming back."""
     body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
     assert "$15" not in body, "the social card quotes the retired price"
     import re as _re
-    for n in _re.findall(r"(\d+)\s*days? free", body, _re.I):
-        assert int(n) == TRIAL_DAYS, \
-            f"the card advertises a {n}-day trial but TRIAL_DAYS is {TRIAL_DAYS}"
+    assert not _re.search(r"\d+\s*days? free", body, _re.I), \
+        "the card advertises a trial length that a cache will outlive"
 
 
 def test_the_card_quotes_no_price_at_all():
     """Any PRICE here will outlive the offer, because the cache is not ours to
-    clear — so the card sells the trial instead."""
-    from src.billing.plans import TRIAL_DAYS
+    clear — so the card sells the free plan instead."""
     body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
     assert not re.search(r"\$\s*\d", body), "a price crept onto the social card"
     # It still has to say the thing that replaced the price.
-    assert f"{TRIAL_DAYS} days free" in body.lower()
+    assert "free to start" in body.lower()
     assert "no card" in body.lower()
 
 

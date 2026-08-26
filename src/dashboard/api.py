@@ -698,13 +698,22 @@ async def notify_clip_ready(clip: dict) -> None:
                          duplicate_of=existing["id"])
                 return
 
-        # Per-user pending cap (plan-dependent: Starter 50 / Pro 200)
+        # TWO BUDGETS, NOT ONE. Triggered clips draw on max_pending (Free 20 /
+        # Starter 50 / Pro 200); crowd suggestions draw on max_suggested (Free
+        # 3). They are counted separately so a suggestion can never take a slot
+        # a triggered clip wanted — the guarantee the old 50% reserve only
+        # approximated — and so the free tier's twenty means twenty of OUR
+        # clips with the three suggestions on top rather than inside.
         from src.billing.plans import limits_for
         from src.auth import users as _plan_user_store
-        pending_cap = limits_for(_plan_user_store.get_by_id(clip_uid))["max_pending"]
+        _limits = limits_for(_plan_user_store.get_by_id(clip_uid))
+        is_suggestion = bool(clip.get("suggested"))
+        pending_cap = (_limits.get("max_suggested", 0) if is_suggestion
+                       else _limits["max_pending"])
         user_pending = sorted(
             [c for c in _clips.values()
-             if c.get("status") == "pending" and c.get("user_id") == clip_uid],
+             if c.get("status") == "pending" and c.get("user_id") == clip_uid
+             and bool(c.get("suggested")) == is_suggestion],
             key=lambda c: c.get("created_at", 0),
         )
         # FULL QUEUE DROPS THE NEW CLIP — it does not evict an old one.
@@ -955,6 +964,11 @@ async def me(request: Request):
         "plan_label":          limits["label"],
         "plan_limits":         {"max_streams": limits["max_streams"],
                                 "max_pending": limits["max_pending"],
+                                # Its own budget, not a slice of max_pending —
+                                # the dashboard has to be able to say so, or a
+                                # free user counting 20 + 3 clips on screen
+                                # reads the queue meter as broken.
+                                "max_suggested": limits.get("max_suggested", 0),
                                 "vod": limits["vod"],
                                 "uploads": limits["uploads"]},
         # Release flags — what is switched ON for everyone, separate from what
@@ -1962,63 +1976,61 @@ async def admin_set_admin(request: Request, user_id: str, on: bool = True):
 # ── Stripe billing ─────────────────────────────────────────────────────────────
 
 def _checkout_trial_days(db_user: dict | None) -> int:
-    """How many free days this checkout should carry. 0 means bill immediately.
+    """How many free days a NEW checkout carries. Always zero now.
 
-    Three ways to get zero, and each is a different person:
+    THE SELF-SERVE TRIAL IS RETIRED (2026-08-26). Free is the front door again,
+    so there is nothing left for a trial to do: somebody who wants to try the
+    product before paying signs up and uses the free tier, with no card and no
+    clock. A checkout is now unambiguously "start paying".
 
-      * PRE-CUTOVER ACCOUNTS. Everyone who signed up while the product still
-        offered 7 free days with no card. The instruction for them is that
-        nothing changes, and that cuts both ways: they keep the access they
-        have, and a subscription they start still begins billing at once,
-        exactly as it does today. Handing them a fresh free week would be a
-        change too — a pleasant one, but this is the group whose terms are
-        supposed to be frozen.
-      * ALREADY USED A TRIAL. The ledger outlives the account, so deleting it
-        and signing up again does not buy another week. It carries entries
-        written by the old app-managed trial as well, which is correct: a free
-        week is a free week whoever was running the clock.
-      * NO USER RECORD. Should not happen on a path that required a session,
-        but the safe direction on billing is to charge rather than to give away
-        the product, so it falls through to zero rather than assuming.
+    Kept as a function rather than deleted with its call site, because the
+    decision "how many free days does this checkout carry" is a real question
+    that has been answered three different ways in this product's life, and the
+    next change to it belongs here rather than inlined into the endpoint.
+
+    TRIALS ALREADY RUNNING ARE NOT AFFECTED. This only shapes new Checkout
+    sessions; Stripe keeps billing an existing trialing subscription on the
+    terms it was created with, `trialing` still resolves to pro in get_plan,
+    and those accounts convert or lapse exactly as they would have.
     """
-    from src.billing.plans import TRIAL_DAYS
-    if not db_user:
-        return 0
-    if db_user.get("pre_card_cutover"):
-        return 0
-    twitch_id = db_user.get("twitch_id")
-    if twitch_id:
-        from src.auth import trial_ledger
-        if trial_ledger.has_used_trial("twitch", str(twitch_id)):
-            return 0
-    return TRIAL_DAYS
+    return 0
 
 
 def _paywall_copy(kind: str) -> dict:
-    """Paywall copy. A self-serve 7-day trial exists again, so 'new' may promise
-    free days — but only to someone who has not had one. Variants: 'trial_ended'
-    for users whose trial ran out (never offer them another), 'returning' for
-    past subscribers, 'new' for everyone else."""
+    """Paywall copy.
+
+    THIS PAGE IS NOT A WALL and has not been one since the free tier came back.
+    Nobody is redirected here; it is reached from upgrade prompts, so everyone
+    reading it already has a working account on free. That changes what the copy
+    can honestly say: "start your trial" promised access they now already have,
+    and every variant that implied their access had STOPPED was telling somebody
+    on a working free account that they had nothing.
+
+    Variants: 'trial_ended' for the last cohort whose Stripe trial ran out,
+    'returning' for past subscribers, 'new' for everyone else.
+    """
     if kind == "trial_ended":
         return {
-            "headline": "Your free trial has ended",
-            "subline":  ("hope you caught some great moments. Pick a plan to keep the "
-                         "clips coming — from $10/month, cancel anytime."),
+            "headline": "Your trial has ended",
+            "subline":  ("hope you caught some great moments. Your account is on the "
+                         "free plan now — one channel and a queue of 20. Pick a plan "
+                         "to open it back up, from $10/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     if kind == "returning":
         return {
             "headline": "Restart your subscription",
-            "subline":  ("welcome back. Pick a plan and your subscription starts right "
+            "subline":  ("welcome back. You are on the free plan in the meantime, so "
+                         "nothing has stopped. Pick a plan and it starts right "
                          "away — from $10/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     return {
-        "headline": "Start your 7 days free",
-        "subline":  ("capture your best streaming moments automatically — the whole "
-                     "product for a week. Pick a plan and add a card; nothing is "
-                     "charged for 7 days, and cancelling inside the week costs you "
-                     "nothing. Then from $10/month, cancel anytime."),
+        "headline": "Watch more channels at once",
+        "subline":  ("free covers one channel and a queue of 20 clips, which is "
+                     "enough to see whether the detector earns its place. Paid "
+                     "plans widen both, and Pro adds the VOD Scanner for streams "
+                     "that already happened — from $10/month, cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -2277,14 +2289,19 @@ async def stripe_webhook(request: Request):
 def _lapse_message(plan: str) -> str:
     """What to tell somebody whose subscription just ended.
 
-    IT HAS TO NAME THE PLAN THEY ACTUALLY LAND ON. Both lapse paths used to say
-    "You are on the free plan now — one stream, and your clips are still here",
-    which was written when every lapse fell back to free. It stopped being true
-    for most people the moment `locked` existed and stopped being true for
-    almost everybody after the card cutover: only a `grandfathered` account
-    drops to free, and get_plan sends everyone else to `locked` with ZERO
-    streams. So the product was promising a stream it had just taken away, at
-    the exact moment somebody was deciding whether we are worth paying for.
+    IT HAS TO NAME THE PLAN THEY ACTUALLY LAND ON, and which plan that is has
+    changed twice. Both lapse paths once said "You are on the free plan now —
+    one stream, and your clips are still here" unconditionally, which was
+    written when every lapse fell back to free; after the card cutover almost
+    nobody did, so the product was promising a stream it had just taken away at
+    the exact moment somebody was deciding whether we were worth paying for.
+
+    With the free tier reopened (2026-08-26) a lapse lands on free again, so
+    the free branch is the common one once more. THE POINT IS NOT WHICH BRANCH
+    WINS — it is that the message is chosen from the resolved plan rather than
+    assumed, so the next time this moves the copy moves with it. The fallback
+    still promises nothing but the clips, which is the safe direction for an
+    unrecognised plan.
 
     One function, called from both the webhook and the reconcile sweep, because
     two copies of this message are how it went wrong the first time.
@@ -4042,12 +4059,36 @@ def pending_room(uid: str) -> tuple[int, int]:
     afterwards would leave an orphan clip on the user's Twitch account that
     never appears in Highlightz, and would spend a Helix call from a budget
     shared with every other user.
+
+    CROWD SUGGESTIONS ARE NOT COUNTED. They draw on their own per-plan budget
+    (see suggestion_room), so they can never occupy a slot a triggered clip
+    wanted — which is the guarantee the old 50% reserve was approximating. On
+    the free tier this is what makes "20 clips" mean twenty of OUR clips plus
+    the three suggestions, rather than three of the twenty.
     """
     from src.billing.plans import limits_for
     from src.auth import users as _room_store
     cap = limits_for(_room_store.get_by_id(uid))["max_pending"]
     used = sum(1 for c in _clips.values()
-               if c.get("status") == "pending" and c.get("user_id") == uid)
+               if c.get("status") == "pending" and c.get("user_id") == uid
+               and not c.get("suggested"))
+    return used, cap
+
+
+def suggestion_room(uid: str) -> tuple[int, int]:
+    """(crowd suggestions waiting on this user, what their plan allows).
+
+    A separate budget from the pending queue, on purpose — see pending_room.
+    Free gets 3: enough that the feature can actually show its value on the
+    tier where the detector is most likely to be doubted, and few enough that
+    a busy channel cannot bury the queue in other people's clips.
+    """
+    from src.billing.plans import limits_for
+    from src.auth import users as _room_store
+    cap = limits_for(_room_store.get_by_id(uid)).get("max_suggested", 0)
+    used = sum(1 for c in _clips.values()
+               if c.get("status") == "pending" and c.get("user_id") == uid
+               and c.get("suggested"))
     return used, cap
 
 
@@ -5661,7 +5702,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch Clipper | Monitor Up To 10 Channels At Once</title>
-<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. 7 days free, card required, cancel before day 7.">
+<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -5672,7 +5713,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again, on 10 streams at once">
-<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. 7 days free, card required, cancel before day 7.">
+<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
@@ -5683,7 +5724,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:image:alt" content="Highlightz — never miss a highlight again, on every channel at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. 7 days free, card required, cancel before day 7.">
+<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v4.png">
 <meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
 <style>
@@ -6834,7 +6875,7 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "7-day free trial, card required at signup, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
@@ -6895,7 +6936,7 @@ LANDING_HTML = """<!DOCTYPE html>
         <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
         <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
       </div>
-      <p class="hero-note"><span><b>7 days free</b></span> &middot; <span><b>card required</b></span> &middot; <span>cancel before day 7 and pay nothing</span> &middot; <span>then from $10/mo</span></p>
+      <p class="hero-note"><span><b>Free to start</b></span> &middot; <span><b>no card</b></span> &middot; <span>no time limit</span> &middot; <span>paid plans from $10/mo</span></p>
     </div>
   </div>
 
@@ -7039,11 +7080,11 @@ LANDING_HTML = """<!DOCTYPE html>
     <div class="feat-grid feat-cols-3">
       <div class="feat">
         <h3>Ten channels at once</h3>
-        <p>10 during your trial, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
+        <p>1 on Free, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
       </div>
       <div class="feat">
         <h3>One queue for all of them</h3>
-        <p>Every channel lands in the same place. 200 clips waiting during your trial, 50 on Starter, 200 on Pro.</p>
+        <p>Every channel lands in the same place. 20 clips waiting on Free, 50 on Starter, 200 on Pro.</p>
       </div>
       <div class="feat">
         <h3>Streams that already ended</h3>
@@ -7124,7 +7165,7 @@ LANDING_HTML = """<!DOCTYPE html>
       </details>
       <details class="faq-item">
         <summary class="faq-q">How does billing work?</summary>
-        <p class="faq-a">7 days free, card required. You put a card down when you sign up, nothing is charged for the first week, and cancelling inside that week costs you nothing at all. The trial is the full Pro product, so you can find out whether the detector works on your channels before you pay for it. After the week, Starter is $10/month for 3 channels at once and a 50-clip queue, Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner. Both renew monthly and cancel from the Account tab.</p>
+        <p class="faq-a">There is a free plan and it does not expire. You are never asked for a card. It watches one channel at a time, a queue that holds 20 clips, and up to 3 clips your own viewers made that the detector did not catch. It is deliberately small, but it is the real product &mdash; enough to find out whether the detector works on your channel before you spend anything. When you want more, Starter is $10/month for 3 channels at once and a 50-clip queue, and Pro is $25/month for 10 channels, a 200-clip queue and the VOD Scanner for streams that already happened. Both renew monthly and cancel from the Account tab.</p>
       </details>
     </div>
   </div>
@@ -7134,7 +7175,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Final CTA -->
 <section class="band-dark final-band seam"><div class="wrap narrow final">
   <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
-  <p>Connect Twitch, add every channel you clip for, and let it catch the highlights on all of them at once. 7 days free &mdash; card required, cancel before day 7 and pay nothing.</p>
+  <p>Connect Twitch, add a channel, and let it catch the highlights while you get on with something else. Free to start, with no card and nothing to cancel.</p>
   <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
   <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
 </div></section>
@@ -8106,17 +8147,18 @@ LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTM
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
-# Typed-out prices are how this page came to advertise a free tier that no
-# longer exists. Every number below is read from PLAN_LIMITS and TRIAL_DAYS, so
-# changing a plan changes the page and a test catches any that drift.
+# Typed-out prices are how this page once came to advertise a tier that did not
+# exist. Every number below is read from PLAN_LIMITS, so changing a plan changes
+# the page and a test catches any that drift.
 #
-# Two tiers and a trial, which is what is actually on sale. Deliberately NOT
-# three equal cards with tick lists and a "Most popular" badge: the plans differ
-# on one axis, how many channels get watched at once, so that is what the layout
-# leads with. The cards are different sizes because the plans are not equal.
+# A free tier and two paid ones, which is what is actually on sale since the
+# 7-day trial was retired. Deliberately NOT three equal cards with tick lists
+# and a "Most popular" badge: the plans differ on one axis, how many channels
+# get watched at once, so that is what the layout leads with. The cards are
+# different sizes because the plans are not equal.
 def _pricing() -> str:
-    from src.billing.plans import PLAN_LIMITS, TRIAL_DAYS
-    st, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    from src.billing.plans import PLAN_LIMITS
+    free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
 
     def tier(key: str, limits: dict, blurb: str, cls: str) -> str:
         return (
@@ -8130,9 +8172,11 @@ def _pricing() -> str:
             + ' btn-lg">Start free</a></div>')
 
     return (
-        '<p class="price-lead"><b>' + str(TRIAL_DAYS) + " days free on either plan.</b> Card required, cancel before day " + str(TRIAL_DAYS) + " and pay nothing. "
-        + "You get the whole thing while you try it. After that there are two "
-        + "plans, and they differ on one question: how many channels do you "
+        '<p class="price-lead"><b>Free to start, and it does not expire.</b> '
+        + "One channel watched, a queue of " + str(free["max_pending"])
+        + " clips, and up to " + str(free["max_suggested"])
+        + " clips your viewers made themselves. Keep it as long as you like. "
+        + "The paid plans differ on one question: how many channels do you "
         + "need watched at once?</p>"
         + '<div class="ptiers">'
         + tier("starter", st,
@@ -8207,13 +8251,13 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="logo-wrap"><img src="/static/logo-mark.png" alt="Highlightz logo"></div>
   <h1>Highlightz</h1>
   <p class="sub">Sign in to start clipping highlights</p>
-  <div class="price-pill"><span class="dot"></span>7 days free &mdash; card required, cancel before day 7</div>
+  <div class="price-pill"><span class="dot"></span>Free to start &mdash; no card needed</div>
   {error}
   <a href="/auth/twitch" class="twitch-btn">
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
-  <p class="price-note">After the trial, plans start at $10/month. Cancel any time from your account.</p>
+  <p class="price-note">The free plan has no time limit. Want more channels? Plans start at $10/month, cancel any time from your account.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>

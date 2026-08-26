@@ -56,9 +56,12 @@ def test_landing_stats_route_is_public():
 def test_landing_html_has_price_counter_and_demo():
     html = api.LANDING_HTML
     assert "$10" in html and "$25" in html          # both tier prices shown
-    # A self-serve trial exists again, so the page SHOULD advertise free days.
-    # This assertion was the exact inverse while the free tier was the offer.
-    assert "7 days free" in html.lower() or "days free" in html.lower()
+    # Inverted AGAIN, and the flip-flopping is the point: this assertion has
+    # now been "there is no free tier", "there is a trial", and "there is a
+    # free tier". What it is really protecting is that the page states SOME
+    # way to start without paying, because a pricing page offering only two
+    # paid tiers is a page most visitors bounce off.
+    assert "free to start" in html.lower()
     # What must stay gone is the retired single price.
     assert "$15" not in html
     assert 'id="lp-count"' in html                   # live counter element

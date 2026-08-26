@@ -64,8 +64,9 @@ HIGHLIGHTZ = Product(
     is_us=True,
     source_url="/#pricing",
     plans=(
-        Plan("Free trial", "$0",
-             "7 days of full Pro. Card required; cancel before day 7 and pay nothing."),
+        Plan("Free", "$0",
+             "1 channel monitored, 20-clip queue, 3 crowd suggestions. "
+             "No card, no time limit."),
         Plan("Starter", "$10/mo",
              "3 channels monitored at once, 50-clip queue."),
         Plan("Pro", "$25/mo",
@@ -191,11 +192,12 @@ FEATURES = (
      "We scan Twitch VODs, but we are not a general video tool — feed us a "
      "podcast export and we are the wrong product."),
 
-    ("Full, unwatermarked product on the free trial",
-     "7 days", False, False,
-     "Straight trade, and it cuts both ways: their free tiers need no card but "
-     "are watermarked and capped forever. Ours asks for a card and gives you "
-     "all of Pro for a week, with nothing charged until day 7."),
+    ("Unwatermarked on the free plan",
+     True, False, False,
+     "Not generosity on our part — a mechanical consequence of the model. Our "
+     "clips ARE Twitch clips, made through Twitch's own API, so there is no "
+     "file of ours to stamp a logo onto. Their free tiers render video, which "
+     "is where a watermark can live and does."),
 )
 
 # Stated plainly, in our own voice, because a reader comparing three products
@@ -224,8 +226,8 @@ CLOSER = {
         "live and trying to catch the moment before it scrolls past — one "
         "channel or ten — that is the entire thing this was built to do, and "
         "nothing above is metered."),
-    "cta": "Start 7 days free",
-    "cta_note": "Full Pro for 7 days. Card required — cancel before day 7 and you are not charged.",
+    "cta": "Start free",
+    "cta_note": "One channel and a 20-clip queue, free with no card and no time limit.",
 }
 
 FAQ = (

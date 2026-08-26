@@ -196,7 +196,11 @@ def test_me_reports_the_misses(monkeypatch, tmp_path):
     me = c.get("/me").json()
     assert me["clips_lost_24h"] == 4
     assert me["plan"] == "free"
-    assert me["plan_limits"]["max_pending"] == 15
+    # Derived: the cap is a product decision that has moved (15 -> 20 when the
+    # free tier reopened). That /me reports THE SAME number the backend
+    # enforces is the rule; the literal was never the point.
+    from src.billing.plans import PLAN_LIMITS
+    assert me["plan_limits"]["max_pending"] == PLAN_LIMITS["free"]["max_pending"]
 
 
 def test_the_next_tier_reaches_me_so_the_reload_path_can_sell():

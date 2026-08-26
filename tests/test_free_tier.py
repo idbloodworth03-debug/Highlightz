@@ -167,8 +167,16 @@ def test_the_pending_cap_drops_the_new_clip_and_says_so(client, monkeypatch):
 
     monkeypatch.setattr(api, "broadcast", _bc)
 
+    # Derived, not typed. This test hardcoded 15 and would have gone on passing
+    # against a cap that had moved — asserting the old number rather than the
+    # rule. The cap is a product decision that changes; that it is ENFORCED is
+    # what this test is for.
+    from src.billing.plans import PLAN_LIMITS
+    cap = PLAN_LIMITS["free"]["max_pending"]
+    over = 5
+
     async def fill():
-        for i in range(20):
+        for i in range(cap + over):
             await api.notify_clip_ready({
                 "id": f"c{i}", "user_id": "free_user", "channel": "novafps",
                 "status": "pending",
@@ -180,12 +188,12 @@ def test_the_pending_cap_drops_the_new_clip_and_says_so(client, monkeypatch):
 
     asyncio.run(fill())
     held = [c for c in api._clips.values() if c.get("user_id") == "free_user"]
-    assert len(held) == 15, f"the free queue did not stop at 15: {len(held)}"
-    assert events.count("clip_ready") == 15
-    assert events.count("clip_missed") == 5, "the user was never told about the misses"
+    assert len(held) == cap, f"the free queue did not stop at {cap}: {len(held)}"
+    assert events.count("clip_ready") == cap
+    assert events.count("clip_missed") == over, "the user was never told about the misses"
     rows = [r for r in stream_stats.all_rows() if r["user_id"] == "free_user"]
-    assert sum(r["caught"] for r in rows) == 15
-    assert sum(r["missed"] for r in rows) == 5
+    assert sum(r["caught"] for r in rows) == cap
+    assert sum(r["missed"] for r in rows) == over
 
 
 def test_the_account_screen_never_tells_a_free_user_they_have_nothing():
