@@ -48,6 +48,18 @@ def _stats_for(api, uid):
     return asyncio.run(api.get_stats(_Req()))
 
 
+def _code(js: str) -> str:
+    """The JS with comments stripped.
+
+    Assertions on this file keep matching PROSE. The label test below passed
+    against a deliberately unlabelled badge because the comment above it quotes
+    "43% viral" while explaining why the labels exist — the test was reading the
+    explanation of the fix instead of the fix. Anything asserting that a string
+    is in the source has to look at the code only."""
+    js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    return re.sub(r"^\s*//.*$", "", js, flags=re.M)
+
+
 def _review_screen() -> str:
     m = re.search(r"function ReviewScreen\(.*?\n\}\n\n", JS, re.S)
     assert m, "ReviewScreen not found"
@@ -244,3 +256,130 @@ def test_the_label_is_applied_at_the_boundary_not_in_the_template():
     src = inspect.getsource(api.get_stats)
     assert "signal_label(" in src, \
         "the endpoint hands out the raw stored value again"
+
+
+# ── 3. two bare percentages on every card ────────────────────────────────────
+
+def _rdclip() -> str:
+    m = re.search(r"function RdClip\(.*?\n\}\n\n", JS, re.S)
+    assert m, "RdClip not found"
+    return _code(m.group(0))
+
+
+def test_both_numbers_on_a_clip_card_say_what_they_are():
+    """Every card carried two percentages — "43% viral" top-left and a naked
+    "47%" top-right — the same shape, the same size, one of them unlabelled,
+    and nothing anywhere saying which was which. The Sort menu offers "Trigger
+    score" and "Virality" and the card gave you no way to tell which one you
+    had just ordered by."""
+    body = _rdclip()
+    assert "{score}% trigger" in body, "the trigger badge is a bare percentage again"
+    assert "% viral" in body, "the virality badge lost its label"
+
+
+def test_neither_badge_was_removed_to_solve_it():
+    """They measure different things — what the detector MEASURED versus how
+    shareable the moment looks — and the two disagreeing is the interesting
+    case. A 95 trigger at 20% viral is worth seeing as both numbers, not as
+    whichever one you happened to sort by."""
+    body = _rdclip()
+    assert "rd-scorebadge" in body and "rd-viralbadge" in body
+    # Rendered on a real value, not behind a constant — "the element is still in
+    # the file" is not the same as "the badge is still drawn".
+    assert "{clip.virality_score>0 &&" in body, \
+        "the virality badge is no longer drawn from the clip's own score"
+
+
+def test_the_card_and_the_modal_call_the_score_the_same_thing():
+    """The modal already said "% trigger". The card saying only "47%" meant the
+    same number was named in one place and not the other."""
+    modal = re.search(r"function ClipModal\(.*?\n\}\n\n", JS, re.S).group(0)
+    assert "% trigger" in modal
+    assert "% trigger" in _rdclip()
+
+
+def test_each_badge_explains_itself_on_hover():
+    body = _rdclip()
+    assert body.count("title=") >= 2, "a badge lost its hover explanation"
+    assert "Trigger score —" in body, "the trigger badge has no explanation"
+    assert "Virality —" in body, "the virality badge lost its explanation"
+
+
+# ── 4. things filed in the wrong drawer ──────────────────────────────────────
+
+def test_per_channel_analytics_is_not_filed_under_settings():
+    """Settings is a drawer for things you CHANGE. It held a read-only
+    analytics card, while the screen's own subtitle promised "triggers, storage
+    & workflow" — none of which a normal user could find on it."""
+    settings = re.search(r"function SettingsScreen\(.*?\n\}\n\n", JS, re.S).group(0)
+    assert "Channel performance" not in settings
+    assert "/stats" not in settings, "Settings still fetches the analytics"
+    assert "Usage stats" not in JS, "the old card is still somewhere"
+
+
+def test_the_settings_subtitle_describes_what_is_actually_on_settings():
+    assert "Tune triggers, storage & workflow" not in JS, \
+        "Settings still promises three things it does not have"
+    assert re.search(r"settings:\['Settings','[^']+'\]", JS)
+
+
+def test_channel_analytics_lives_where_the_channels_are():
+    streams = re.search(r"function StreamsScreen\(.*?\n\}\n\n", JS, re.S).group(0)
+    assert streams.count("<ChannelPerformance/>") == 2, (
+        "the performance card must render in BOTH branches of StreamsScreen — "
+        "a user who removed their last stream hits the early return, and losing "
+        "their history there would make this move delete data rather than "
+        "relocate it")
+
+
+def test_moving_it_did_not_narrow_it_to_monitored_channels_only():
+    """/stats is derived from clips, so a streamer you have stopped watching
+    still has a history worth reading."""
+    body = re.search(r"function ChannelPerformance\(\) \{.*?\n\}\n\n", JS, re.S)
+    assert body, "ChannelPerformance not found"
+    assert "streams" not in body.group(0), \
+        "the card was filtered down to currently-monitored channels"
+    assert "no longer monitor" in body.group(0), \
+        "nothing tells the reader it covers channels they dropped"
+
+
+def test_the_analytics_still_updates_over_the_socket_after_the_move():
+    """Realtime contract rule 3: it was live before, refreshed by hz_ws and
+    re-pulled by hz_refetch on reconnect. Moving a card must not quietly turn
+    it into something that needs a refresh."""
+    body = re.search(r"function ChannelPerformance\(\) \{.*?\n\}\n\n", JS, re.S).group(0)
+    # addEventListener specifically: the remove side mentions both names too, so
+    # asserting on the bare string passes with the subscription deleted.
+    assert "addEventListener('hz_ws'" in body, \
+        "no longer refreshes when a clip changes"
+    assert "addEventListener('hz_refetch'" in body, \
+        "no longer self-heals after a reconnect"
+    assert body.count("removeEventListener") == 2, "listeners are leaked"
+
+
+def test_the_trial_is_not_announced_three_times_in_one_card():
+    """Plan status said "Free trial — 5 days left", Membership said Pro, and a
+    third row was headed "Free trial active" — with the global banner above it
+    that is four statements of one fact on one screen. The row's job is the
+    ACTION, so it is named for the action."""
+    account = re.search(r"function AccountScreen\(.*?\n\}\n\n", JS, re.S).group(0)
+    assert "Free trial active" not in account, \
+        "the trial state is still restated as a row heading"
+    assert "Plan status" in account, "the one place that should state it is gone"
+
+
+def test_the_trial_rows_still_offer_the_action_they_exist_for():
+    """Renaming a row must not cost it its button — a card-up-front trial needs
+    the billing portal, a comped one needs checkout, and they are opposite
+    advice."""
+    account = re.search(r"function AccountScreen\(.*?\n\}\n\n", JS, re.S).group(0)
+    assert "me.trial_converts &&" in account and "!me.trial_converts &&" in account
+    assert "/billing/portal" in account and "/billing/checkout" in account
+
+
+@pytest.mark.parametrize("screen", ["Settings", "Account", "Feedback"])
+def test_no_screen_prints_its_own_name_under_the_page_header(screen):
+    """The page header renders it from HEAD with a subtitle. A second heading
+    saying the same word costs a row and tells the reader nothing new."""
+    assert f'<div className="rd-section-title"><h2>{screen}</h2></div>' not in JS, \
+        f"{screen} still prints its name twice"

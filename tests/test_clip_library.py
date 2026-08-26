@@ -129,11 +129,20 @@ def test_grabbing_a_clip_stamps_it_too():
 
 
 def test_library_sorts_on_approval_time_with_a_capture_time_fallback():
+    """The KEY moved to the shared CLIP_SORTS table when the library gained a
+    sort menu — the library no longer owns a comparator, it picks one. What has
+    to stay true is that the default is still approval time, and that the key
+    still falls back to capture time.
+
+    The fallback is what makes this safe without a migration: clips approved
+    before the field existed keep their old relative order instead of all
+    collapsing to 0 and jumping to the bottom in arbitrary order. The ORDERING
+    itself is exercised for real, in node, in tests/test_clip_sorting.py."""
     body = _library_screen()
-    assert "c.approved_at || c.created_at" in body, \
-        "the library is not sorting on approval time"
-    # The fallback is what makes this safe without a migration: clips approved
-    # before the field existed keep their old relative order instead of all
-    # collapsing to 0 and jumping to the bottom in arbitrary order.
-    assert "b.created_at" not in body.replace("c.approved_at || c.created_at", ""), \
-        "a raw created_at sort is still in the library"
+    assert "useState('approved')" in body, \
+        "the library no longer DEFAULTS to approval order"
+    assert "c.approved_at || c.created_at" in SRC, \
+        "the approval-time key lost its capture-time fallback"
+    # A comparator, not any sort() at all — the channel list is alphabetised
+    # here and always has been.
+    assert ".sort((a,b)" not in body, "the library grew its own comparator again"

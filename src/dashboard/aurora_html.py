@@ -384,6 +384,10 @@ button{font-family:inherit;cursor:pointer}
 .rd-header .hsub{font-size:12px;color:var(--fg-3);margin-top:1px}
 .rd-scroll{flex:1;overflow-y:auto;min-height:0;padding:20px 22px}
 .rd-section-title{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+/* The Clip Review header rows, reused on a screen whose container has no flex
+   gap of its own. Same two rows, same order, so the two clip screens read the
+   same way. */
+.rd-cliphead{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
 .rd-section-title h2{font-size:19px;font-weight:800;letter-spacing:-.025em}
 .rd-section-title .cnt{font-size:12px;color:var(--fg-3)}
 /* 322px matches the old Clip Review rail: the add-stream box moved here and
@@ -988,6 +992,58 @@ const SIGNAL_LABELS = {
 };
 const signalLabel = k => SIGNAL_LABELS[k] || k;
 
+// ── Clip ordering, once, for every screen that shows clip cards ─────────────
+//
+// Clip Review and Clip Library render the SAME cards from the same store, and
+// they had drifted: Review got a sort menu and a styled streamer picker, while
+// the Library still had a bare <select> and no way to order anything at all.
+// Two screens showing one set of clips, one of which could not be sorted.
+//
+// So the keys, the comparator and the direction wording live here and both
+// screens use them. Each screen still decides WHICH sorts it offers and what it
+// defaults to — the Library leads with "Date approved" because it is the record
+// of what you decided to keep, Review leads with "Date added" because it is a
+// queue — but neither owns a private copy of how sorting works.
+const CLIP_SORTS = {
+  newest:   {l:'Date added',    date:true,  k: c => c.created_at || 0},
+  // approved_at only exists from the day it shipped; older clips fall back to
+  // capture time, which leaves their relative order unchanged.
+  approved: {l:'Date approved', date:true,  k: c => c.approved_at || c.created_at || 0},
+  // Every key coalesces to 0. A clip captured before a field existed has no
+  // value for it and must sort to the bottom rather than making the comparator
+  // return NaN — which sorts nothing at all, silently.
+  trigger:  {l:'Trigger score', date:false, k: c => c.trigger_score || 0},
+  virality: {l:'Virality',      date:false, k: c => c.virality_score || 0},
+};
+
+function sortClips(list, sortBy, sortDir, pendingFirst) {
+  const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
+  return [...list].sort((a,b)=>{
+    // Pending first, but ONLY on a date sort, and only where the caller asked
+    // for it. That grouping is what makes Review a queue rather than a gallery;
+    // applying it to an explicit score sort would defeat the request, because
+    // asking for the highest trigger score and getting a wall of already-
+    // approved clips above a 95 is not sorting by trigger score.
+    if(pendingFirst && s.date){
+      const sp={pending:0,approved:1,rejected:2};
+      if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
+    }
+    const d = s.k(a) - s.k(b);
+    if(d) return sortDir === 'asc' ? d : -d;
+    // Ties are common — virality is banded and a quiet stream produces runs of
+    // identical trigger scores. Newest inside a tie keeps the order stable.
+    return (b.created_at||0) - (a.created_at||0);
+  });
+}
+
+// The direction control says what it will DO, in the words that fit the field.
+// "Ascending" on a date column is a small riddle; "Oldest first" is not.
+function dirLabelFor(sortBy, sortDir) {
+  const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
+  return s.date ? (sortDir === 'desc' ? 'Newest first' : 'Oldest first')
+                : (sortDir === 'desc' ? 'High to low'  : 'Low to high');
+}
+
 const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
   const P = {
     check: <polyline points="20 6 9 17 4 12"/>,
@@ -1235,7 +1291,19 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
           ? <img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
-        <span className="rd-scorebadge"><span className="pip" style={{background:scoreColor(score)}}/>{score}%</span>
+        {/* BOTH badges say what they are. Every card carried two bare
+            percentages — "43% viral" top-left and a naked "47%" top-right —
+            the same shape, the same size, one of them unlabelled, and nothing
+            anywhere saying which number was which. The Sort menu offers
+            "Trigger score" and "Virality" and the cards gave you no way to tell
+            which badge you had just ordered them by.
+
+            Labelled rather than reduced to one: they measure different things
+            (what the detector MEASURED vs how shareable it looks) and the two
+            disagreeing is the interesting case — a 95 trigger at 20% viral is
+            worth seeing as both numbers, not as whichever one you sorted by. */}
+        <span className="rd-scorebadge" title="Trigger score — what the detector measured at that moment">
+          <span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
         {clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
           <Icon name="trending" size={12}/>{Math.round(clip.virality_score)}% viral
         </span>}
@@ -1789,6 +1857,37 @@ function RdMenu({ label, value, options, onChange, icon, align }) {
   );
 }
 
+// The controls row both clip screens use: streamer filter, sort field, and the
+// direction toggle welded to it. `children` is whatever that screen puts first
+// — Review passes its status chips, the Library has none.
+//
+// Shared for the same reason the comparator is: these two screens show one set
+// of cards, and every time only one of them was updated the product grew a
+// second way of doing the same thing.
+function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
+                        channels, chan, setChan, children }) {
+  const dir = dirLabelFor(sortBy, sortDir);
+  return (
+    <div className="rd-controls">
+      {children}
+      {/* Only worth a control when there is more than one streamer to pick
+          between — a menu whose every option is the same thing is furniture. */}
+      {channels.length>1 && <RdMenu
+        label="Streamer" icon="radio" value={chan} onChange={setChan}
+        options={[{v:'all', l:'All streamers'}].concat(channels.map(c=>({v:c, l:c})))}/>}
+      <div className="rd-sortwrap">
+        <RdMenu label="Sort" icon="sliders" value={sortBy} onChange={setSortBy}
+          options={sorts.map(v=>({v, l:CLIP_SORTS[v].l}))}/>
+        <button className="rd-dir" onClick={()=>setSortDir(d=>d==='desc'?'asc':'desc')}
+          title={'Currently ' + dir.toLowerCase() + ' — click to reverse'}>
+          <Icon name={sortDir==='desc'?'arrowdown':'arrowup'} size={13}/>
+          <span>{dir}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
@@ -1807,44 +1906,10 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
   const filtered = clipsArr.filter(c=>(filter==='all'||c.status===filter)&&(effChan==='all'||c.channel===effChan));
 
-  // What each sort actually reads off a clip. Every one coalesces to 0, because
-  // a clip captured before a field existed simply has no value for it and must
-  // sort to the bottom rather than making the comparator return NaN — which
-  // sorts nothing at all, silently.
-  const SORT_KEY = {
-    newest:   c => c.created_at || 0,
-    trigger:  c => c.trigger_score || 0,
-    virality: c => c.virality_score || 0,
-  };
-  const keyOf = SORT_KEY[sortBy] || SORT_KEY.newest;
-  const shown = [...filtered].sort((a,b)=>{
-    // Pending first, but ONLY on the date sort. That grouping is what makes
-    // this a review queue rather than a gallery. Applying it to an explicit
-    // score sort would defeat the request: asking for the highest trigger
-    // score and getting a wall of already-approved clips above a 95 is not
-    // sorting by trigger score.
-    if(sortBy === 'newest'){
-      const sp={pending:0,approved:1,rejected:2};
-      if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
-    }
-    const d = keyOf(a) - keyOf(b);
-    if(d) return sortDir === 'asc' ? d : -d;
-    // Ties are common — virality is banded and a quiet stream can produce a
-    // run of identical trigger scores. Newest first inside a tie keeps the
-    // order stable and useful instead of arbitrary.
-    return (b.created_at||0) - (a.created_at||0);
-  });
-
-  const SORTS = [
-    {v:'newest',   l:'Date added'},
-    {v:'trigger',  l:'Trigger score'},
-    {v:'virality', l:'Virality'},
-  ];
-  // The direction control says what it will DO in the words that fit the field.
-  // "Ascending" on a date column is a small riddle; "Oldest first" is not.
-  const dirLabel = sortBy === 'newest'
-    ? (sortDir === 'desc' ? 'Newest first' : 'Oldest first')
-    : (sortDir === 'desc' ? 'High to low' : 'Low to high');
+  // Pending first, because this screen is a work queue before it is a gallery.
+  // sortClips applies that only on a date sort — see the note beside it.
+  const shown = sortClips(filtered, sortBy, sortDir, true);
+  const SORTS = ['newest', 'trigger', 'virality'];
   // The cap now REFUSES the new moment rather than deleting an old clip, so
   // "we did not clip this" is finally the accurate wording. The clip is never
   // created on Twitch either — the processor checks before spending the Helix
@@ -1923,7 +1988,9 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
             {pending > 0 && <ClearQueueButton pending={pending}/>}
           </div>
         </div>
-        <div className="rd-controls">
+        <ClipControls sorts={SORTS} sortBy={sortBy} setSortBy={setSortBy}
+          sortDir={sortDir} setSortDir={setSortDir}
+          channels={channels} chan={effChan} setChan={setChanFilter}>
           {/* The count belongs ON the chip that selects it. As two big tiles
               above, "Pending review 26" and the Pending chip were the same fact
               130px apart, and only one of them did anything when pressed. */}
@@ -1936,21 +2003,7 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
                 <span className="rd-filter-n">{n}</span>
               </button>)}
           </div>
-          {/* Only worth a control when there is more than one streamer to pick
-              between — a menu whose every option is the same thing is furniture. */}
-          {channels.length>1 && <RdMenu
-            label="Streamer" icon="radio" value={effChan} onChange={setChanFilter}
-            options={[{v:'all', l:'All streamers'}].concat(channels.map(c=>({v:c, l:c})))}/>}
-          <div className="rd-sortwrap">
-            <RdMenu label="Sort" icon="sliders" value={sortBy} onChange={setSortBy}
-              options={SORTS}/>
-            <button className="rd-dir" onClick={()=>setSortDir(d=>d==='desc'?'asc':'desc')}
-              title={'Currently ' + dirLabel.toLowerCase() + ' — click to reverse'}>
-              <Icon name={sortDir==='desc'?'arrowdown':'arrowup'} size={13}/>
-              <span>{dirLabel}</span>
-            </button>
-          </div>
-        </div>
+        </ClipControls>
         <div className="rd-grid">
           {shown.length===0
             ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Waiting for clips</div><div>Add a channel on the Live Streams tab — clips appear here the moment a highlight fires.</div>
@@ -1966,6 +2019,55 @@ function ReviewScreen({ streams, scores, clips, filter, setFilter, onApprove, on
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
         </div>
       </section>
+    </div>
+  );
+}
+
+// Per-channel clip performance. It used to be a card on the SETTINGS screen,
+// which is a drawer for things you change, not for numbers you read — and the
+// screen's own subtitle promised "triggers, storage & workflow" while a normal
+// user got presets and analytics. Channels are what this measures, so it lives
+// on the screen about channels.
+//
+// EVERY channel, not just the monitored ones: /stats is derived from clips, so
+// a streamer you have stopped watching still has a history worth reading, and
+// moving this must not be the thing that quietly deletes access to it.
+function ChannelPerformance() {
+  const [stats, setStats] = useState(null);
+  useEffect(()=>{
+    const load = ()=> fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{});
+    load();
+    // Derived from clips, so it refreshes whenever one is created / approved /
+    // rejected (forwarded on the in-page hz_ws channel) — approval rate, totals
+    // and "clips this week" stay live with no refresh.
+    const onWs = e=>{ try{ const m=JSON.parse(e.detail);
+      if(['clip_ready','clip_updated','clip_removed'].includes(m.event)) load();
+    }catch{} };
+    window.addEventListener('hz_ws', onWs);
+    // Rule 3 of the realtime contract: re-pull on reconnect/deploy so it
+    // self-heals instead of staling behind an open tab.
+    window.addEventListener('hz_refetch', load);
+    return ()=>{ window.removeEventListener('hz_ws', onWs); window.removeEventListener('hz_refetch', load); };
+  },[]);
+  if(!stats || !stats.length) return null;
+  return (
+    <div className="rd-card glass" style={{marginTop:18}}>
+      <h3><span className="si"><Icon name="trending" size={15}/></span>Channel performance</h3>
+      <div className="desc">All time, per channel — including streamers you no longer monitor.</div>
+          {stats.map(r=><div key={r.channel} style={{borderBottom:'1px solid var(--hair)',paddingBottom:16,marginBottom:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <span style={{fontSize:15,fontWeight:700,color:'var(--acc)'}}>{r.channel}</span>
+              <span style={{fontSize:12,color:'var(--fg-3)'}}>{r.clips_this_week} clips this week</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+              {[['Total clips',r.total_clips,'var(--fg)'],['Approval rate',r.approval_rate+'%',r.approval_rate>=60?'var(--live)':r.approval_rate>=30?'var(--pending)':'var(--danger)'],
+                ['Avg score',r.avg_score,'var(--fg)'],['Avg virality',r.avg_virality,'var(--acc)'],['Pending',r.pending,'var(--pending)'],['Top signal',r.top_signal,'var(--fg)']
+              ].map(([k,v,c])=><div key={k} style={{background:'rgba(255,255,255,.03)',borderRadius:12,padding:'12px 14px'}}>
+                <div style={{fontSize:11,color:'var(--fg-3)',marginBottom:4}}>{k}</div>
+                <div style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
+              </div>)}
+            </div>
+          </div>)}
     </div>
   );
 }
@@ -1987,6 +2089,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           <div className="big">No streams monitored yet</div>
           <div>Search a streamer on the left to start watching for highlights.</div>
         </div>
+        <ChannelPerformance/>
       </div>
     </div>
   );
@@ -2046,6 +2149,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
                 {recent.map(c=><RdClip key={c.id} clip={c} onOpen={()=>{}} onApprove={()=>{}} onReject={()=>{}} libraryMode/>)}
               </div>}
         </div>
+        <ChannelPerformance/>
       </div>
     </div>
   );
@@ -2064,46 +2168,55 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
 // streamer filter stays: it is the one that still narrows a real list.
 function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
   const [chanFilter, setChanFilter] = useState('all');
+  // Defaults to newest APPROVAL, not newest capture. The library is the record
+  // of what you decided to keep, so approving a clip puts it at the top even if
+  // it was captured days ago and had been sitting in the queue since. Ordering
+  // by capture time meant a clip you had just kept could appear pages down,
+  // which reads as "my approval did nothing".
+  //
+  // It is a CHOICE now rather than the only possibility: this screen had no
+  // sort at all while Review had three, so the same clips could be ordered on
+  // one screen and not on the other.
+  const [sortBy, setSortBy] = useState('approved');
+  const [sortDir, setSortDir] = useState('desc');
   const all = Object.values(clips);
   const approved = all.filter(c=>c.status==='approved');
   // Filterable streamers derive from the clips themselves — a newly-approved
   // streamer is selectable the moment their first clip lands over the WS.
   const channels = [...new Set(approved.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
-  // Newest APPROVAL first, not newest capture. The library is the record of
-  // what you decided to keep, so approving a clip puts it at the top — even if
-  // it was captured days ago and has been sitting in the review queue since.
-  // Sorting by created_at meant a clip you just kept could appear pages down,
-  // which read as "my approval did nothing".
-  //
-  // approved_at is only set from the moment that field shipped; clips approved
-  // before it fall back to created_at. That is deliberate rather than a
-  // migration: their relative order is unchanged, and every new approval
-  // carries a now-timestamp so it sorts above all of them.
-  const at = c => c.approved_at || c.created_at || 0;
-  const clipsArr = approved
-    .filter(c=>effChan==='all'||c.channel===effChan)
-    .sort((a,b)=>at(b)-at(a));
+  const clipsArr = sortClips(
+    approved.filter(c=>effChan==='all'||c.channel===effChan),
+    sortBy, sortDir, false);   // nothing pending is ever listed here
   // Pending clips are not listed here, but their existence is worth surfacing —
   // otherwise hiding them reads as "my clips vanished" rather than "they are one
   // tab over waiting on you".
   const pendingCount = all.filter(c=>c.status==='pending').length;
   return (
     <div className="rd-scroll">
-      <div className="rd-section-title">
-        <h2>Clip library</h2>
-        <span className="cnt">{approved.length} approved</span>
-        <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      {/* Same two rows as Clip Review, in the same order and out of the same
+          components: what you can DO on the title line, what you are LOOKING at
+          below it. The screen name is not repeated here — the page header two
+          inches above already says it. */}
+      <div className="rd-cliphead">
+      <div className="rd-toolbar">
+        <span className="rd-toolbar-count">
+          {clipsArr.length === approved.length
+            ? approved.length + ' approved'
+            : clipsArr.length + ' of ' + approved.length}
+        </span>
+        <div className="rd-toolbar-acts">
           {pendingCount>0 && <button className="rd-btn sm" onClick={()=>onGoReview&&onGoReview()}
             title="Undecided clips live in Clip Review"
             style={{background:'rgba(250,204,21,.12)',color:'var(--pending)',border:'1px solid rgba(250,204,21,.25)'}}>
             <Icon name="grid" size={13}/>{pendingCount} waiting in Clip Review
           </button>}
-          {channels.length>1 && <select className="rd-select" value={effChan} onChange={e=>setChanFilter(e.target.value)} title="Filter by streamer" style={{padding:'6px 10px',fontSize:12,fontWeight:600}}>
-            <option value="all">All streamers</option>
-            {channels.map(c=><option key={c} value={c}>{c}</option>)}
-          </select>}
         </div>
+      </div>
+      {approved.length>0 && <ClipControls
+        sorts={['approved','newest','trigger','virality']}
+        sortBy={sortBy} setSortBy={setSortBy} sortDir={sortDir} setSortDir={setSortDir}
+        channels={channels} chan={effChan} setChan={setChanFilter}/>}
       </div>
       {clipsArr.length===0
         ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
@@ -2115,21 +2228,6 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
 }
 
 function SettingsScreen({ streams }) {
-  const [stats, setStats] = useState(null);
-  useEffect(()=>{
-    const loadStats = ()=> fetch('/stats').then(r=>r.json()).then(setStats).catch(()=>{});
-    loadStats();
-    // Usage stats are derived from clips, so refresh them whenever a clip is
-    // created/approved/rejected (forwarded over the in-page hz_ws channel). Keeps
-    // approval rate, totals and "clips this week" live without a page refresh.
-    const onWs = e=>{ try{ const m=JSON.parse(e.detail);
-      if(['clip_ready','clip_updated','clip_removed'].includes(m.event)) loadStats();
-    }catch{} };
-    window.addEventListener('hz_ws', onWs);
-    // Re-pull stats on WS reconnect/deploy so they self-heal instead of staling.
-    window.addEventListener('hz_refetch', loadStats);
-    return ()=>{ window.removeEventListener('hz_ws', onWs); window.removeEventListener('hz_refetch', loadStats); };
-  },[]);
   const PRESETS=[
     {name:'default',  emoji:'', desc:'General-purpose baseline. Good starting point for any stream type.'},
     {name:'small',    emoji:'', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
@@ -2145,7 +2243,6 @@ function SettingsScreen({ streams }) {
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
-        <div className="rd-section-title"><h2>Settings</h2></div>
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="film" size={15}/></span>Content presets</h3>
           <div className="desc">Select when adding a stream to tune signal sensitivity.</div>
@@ -2159,24 +2256,6 @@ function SettingsScreen({ streams }) {
             </div>)}
           </div>
         </div>
-        {stats&&stats.length>0 && <div className="rd-card glass">
-          <h3><span className="si"><Icon name="trending" size={15}/></span>Usage stats</h3>
-          <div className="desc">Clip performance per channel, all time.</div>
-          {stats.map(r=><div key={r.channel} style={{borderBottom:'1px solid var(--hair)',paddingBottom:16,marginBottom:16}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:15,fontWeight:700,color:'var(--acc)'}}>{r.channel}</span>
-              <span style={{fontSize:12,color:'var(--fg-3)'}}>{r.clips_this_week} clips this week</span>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-              {[['Total clips',r.total_clips,'var(--fg)'],['Approval rate',r.approval_rate+'%',r.approval_rate>=60?'var(--live)':r.approval_rate>=30?'var(--pending)':'var(--danger)'],
-                ['Avg score',r.avg_score,'var(--fg)'],['Avg virality',r.avg_virality,'var(--acc)'],['Pending',r.pending,'var(--pending)'],['Top signal',r.top_signal,'var(--fg)']
-              ].map(([k,v,c])=><div key={k} style={{background:'rgba(255,255,255,.03)',borderRadius:12,padding:'12px 14px'}}>
-                <div style={{fontSize:11,color:'var(--fg-3)',marginBottom:4}}>{k}</div>
-                <div style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
-              </div>)}
-            </div>
-          </div>)}
-        </div>}
       </div>
     </div>
   );
@@ -2375,7 +2454,7 @@ const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune triggers, storage & workflow'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -2678,7 +2757,6 @@ function AccountScreen({ me }) {
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
-        <div className="rd-section-title"><h2>Account</h2></div>
 
         {/* Subscription */}
         <div className="rd-card glass">
@@ -2712,11 +2790,11 @@ function AccountScreen({ me }) {
               admin comp has no card and really does just stop. me.trial_converts
               is true only for the first. */}
           {isTrial && me.trial_converts && <div className="rd-field">
-            <div><div className="fl">Free trial active</div><div className="fd">Full access. Your card is charged when the {trialDays===1?'last day':`${trialDays} days`} run out — cancel before then and you pay nothing.</div></div>
+            <div><div className="fl">Billing</div><div className="fd">Your card is charged when the {trialDays===1?'last day':`${trialDays} days`} run out — cancel before then and you pay nothing.</div></div>
             <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
           </div>}
           {isTrial && !me.trial_converts && <div className="rd-field">
-            <div><div className="fl">Free trial active</div><div className="fd">Enjoy full access while it lasts — subscribe to keep clipping after it ends</div></div>
+            <div><div className="fl">Keep your access</div><div className="fd">Subscribe before the trial ends and nothing stops — your clips and streams carry straight over</div></div>
             <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Subscribe
             </a>
@@ -2904,7 +2982,6 @@ function FeedbackScreen({ onSeen }) {
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
-        <div className="rd-section-title"><h2>Feedback</h2></div>
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="chat" size={15}/></span>Send feedback</h3>
           <div className="desc">Questions, suggestions, bug reports — we read everything.</div>

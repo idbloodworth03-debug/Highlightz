@@ -1,17 +1,23 @@
-"""Sorting on the clip review screen — run as JavaScript, not read as text.
+"""Ordering clips — the same way on every screen that shows them.
 
-WHY NODE AND NOT A REGEX. The comparator is three lines of JS living inside a
-Python string, and every interesting thing about it is behaviour: what a
-missing field sorts to, when the pending-first grouping applies, what breaks a
+WHY NODE AND NOT A REGEX. The comparator is a handful of lines of JS living
+inside a Python string, and every interesting thing about it is behaviour: what
+a missing field sorts to, when the pending-first grouping applies, what breaks a
 tie. A test that greps for `sortDir === 'asc'` passes just as happily when the
 two branches are swapped. So these tests cut the REAL comparator out of
-aurora_html.py and run it over fixture clips in node. If the shipped source
-changes meaning, they fail; if it is only reformatted, they do not.
+aurora_html.py and run it over fixture clips in node.
+
+WHY IT IS SHARED. Clip Review and Clip Library render the SAME cards from the
+same store, and they had drifted: Review got a sort menu and a styled streamer
+picker while the Library kept a bare <select> and no ordering at all. One set of
+clips, sortable on one screen and not the other. The keys, the comparator and
+the direction wording now live in one place and both screens use them; each
+still picks WHICH sorts it offers and what it defaults to.
 
 THE FIXTURE IS DELIBERATELY CROSSED. Newest, highest trigger and highest
-virality are three different clips, and none of the three orders is a rotation
-of another. A fixture where the newest clip also has the top score cannot tell
-a working sort from one that ignores its key.
+virality are three different clips, and no ordering is a rotation of another. A
+fixture where the newest clip also has the top score cannot tell a working sort
+from one that ignores its key.
 """
 
 import json
@@ -24,6 +30,7 @@ from pathlib import Path
 import pytest
 
 SRC = Path("src/dashboard/aurora_html.py").read_text()
+JS = SRC.split('<script type="text/babel">')[1]
 NODE = shutil.which("node") or "/opt/node22/bin/node"
 
 pytestmark = pytest.mark.skipif(
@@ -33,56 +40,62 @@ pytestmark = pytest.mark.skipif(
 # ── cutting the real code out of the page ────────────────────────────────────
 
 def _sort_block() -> str:
-    """The comparator exactly as it ships, from SORT_KEY to the end of sort()."""
-    m = re.search(r"\n  const SORT_KEY = \{.*?\n  \}\);\n", SRC, re.S)
-    assert m, "the sort block moved — this test is no longer testing anything"
+    """Keys, comparator and direction wording, exactly as they ship."""
+    m = re.search(r"\nconst CLIP_SORTS = \{.*?\nfunction dirLabelFor\(.*?\n\}\n", JS, re.S)
+    assert m, "the shared sort block moved — this test is no longer testing anything"
     return m.group(0)
 
 
-def _labels_block() -> str:
-    """The sort options and the direction label, as they ship."""
-    m = re.search(r"\n  const SORTS = \[.*?dirLabel = .*?;\n", SRC, re.S)
-    assert m, "the SORTS/dirLabel block moved"
-    return m.group(0)
+def _screen_sorts(name: str) -> list:
+    """The sort options one screen actually offers, in its own order."""
+    if name == "review":
+        m = re.search(r"const SORTS = \[([^\]]*)\]", JS)
+    else:
+        m = re.search(r"sorts=\{\[([^\]]*)\]\}", JS)
+    assert m, f"{name} screen's sort list not found"
+    return re.findall(r"'([a-z]+)'", m.group(1))
 
 
 # Crossed on purpose: newest is 'a', top trigger is 'b', top virality is 'c',
-# and 'd' is last by date but not last by either score.
+# and 'd' is last by date but not last by either score. approved_at is set so
+# the library's default sort is distinguishable from capture order.
 CLIPS = [
-    {"id": "a", "status": "pending",  "channel": "nova",    "created_at": 400,
-     "trigger_score": 70, "virality_score": 60},
+    {"id": "a", "status": "approved", "channel": "nova",    "created_at": 400,
+     "approved_at": 100, "trigger_score": 70, "virality_score": 60},
     {"id": "b", "status": "pending",  "channel": "kestrel", "created_at": 300,
      "trigger_score": 95, "virality_score": 20},
     {"id": "c", "status": "rejected", "channel": "nova",    "created_at": 200,
-     "trigger_score": 80, "virality_score": 96},
+     "approved_at": 400, "trigger_score": 80, "virality_score": 96},
     {"id": "d", "status": "approved", "channel": "kestrel", "created_at": 100,
-     "trigger_score": 10, "virality_score": 55},
+     "approved_at": 300, "trigger_score": 10, "virality_score": 55},
 ]
 
 
-def _run(clips=None, sort_by="newest", sort_dir="desc"):
-    """Sort `clips` with the shipped comparator. Returns (ids, dirLabel)."""
+def _run(clips=None, sort_by="newest", sort_dir="desc", pending_first=True):
+    """Sort `clips` with the shipped comparator. Returns ids and the dir label."""
     harness = textwrap.dedent("""
-    const filtered = %s;
-    const sortBy = %s, sortDir = %s;
     %s
-    %s
+    const clips = %s;
+    const shown = sortClips(clips, %s, %s, %s);
     console.log(JSON.stringify({
       ids: shown.map(c => c.id),
-      dirLabel: dirLabel,
-      sorts: SORTS.map(s => s.v + '|' + s.l),
+      dirLabel: dirLabelFor(%s, %s),
+      known: Object.keys(CLIP_SORTS),
+      labels: Object.keys(CLIP_SORTS).map(k => k + '|' + CLIP_SORTS[k].l),
     }));
     """) % (
+        _sort_block(),
         json.dumps(CLIPS if clips is None else clips),
         json.dumps(sort_by), json.dumps(sort_dir),
-        _sort_block(), _labels_block(),
+        "true" if pending_first else "false",
+        json.dumps(sort_by), json.dumps(sort_dir),
     )
     out = subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
 
-# ── the request: sort by trigger score, and by virality, both directions ─────
+# ── the score sorts, both directions ─────────────────────────────────────────
 
 def test_trigger_score_high_to_low():
     assert _run(sort_by="trigger", sort_dir="desc")["ids"] == ["b", "c", "a", "d"]
@@ -112,30 +125,53 @@ def test_reversing_the_direction_reverses_the_order():
         assert up == list(reversed(down)), field
 
 
-# ── the review queue behaviour that had to survive ───────────────────────────
+# ── the date sorts ───────────────────────────────────────────────────────────
 
-def test_the_default_is_still_the_review_queue_pending_first_then_newest():
-    """This screen is a work queue before it is a gallery. 'a' and 'b' are
-    pending so they come first, newest inside that group; then approved 'd',
-    then rejected 'c' — status order, not date order, across the groups."""
-    assert _run()["ids"] == ["a", "b", "d", "c"]
+def test_the_review_default_is_the_work_queue_pending_first_then_newest():
+    """This screen is a queue before it is a gallery. 'b' is the only pending
+    clip so it leads; then the approved pair newest-first (a, d); then the
+    rejected one. Status decides the groups, date decides within them."""
+    assert _run()["ids"] == ["b", "a", "d", "c"]
+
+
+def test_the_library_orders_by_when_you_APPROVED_not_when_it_was_captured():
+    """The library is the record of what you decided to keep. Ordering by
+    capture time meant a clip you had just approved could land pages down,
+    which reads as "my approval did nothing"."""
+    assert _run(sort_by="approved", pending_first=False)["ids"] == ["c", "b", "d", "a"]
+    # and that is genuinely a different answer from capture order
+    assert _run(sort_by="newest", pending_first=False)["ids"] == ["a", "b", "c", "d"]
+
+
+def test_a_clip_approved_before_that_field_existed_falls_back_to_capture_time():
+    """'b' has no approved_at. It must sort by when it was CAPTURED rather than
+    collapsing to 0 and pinning itself to the bottom for ever — which is where
+    every clip approved before that field shipped would then live."""
+    got = _run(sort_by="approved", pending_first=False)["ids"]
+    assert got[-1] != "b", "a clip with no approval timestamp sank to the bottom"
+    assert got.index("b") < got.index("a"), \
+        "'b' (captured at 300) should outrank 'a' (approved at 100)"
 
 
 def test_pending_first_does_NOT_apply_to_an_explicit_score_sort():
     """THE POINT OF THE FEATURE. Asking for the highest trigger score and
     getting a wall of already-reviewed clips above a 95 is not sorting by
-    trigger score. Only the date sort groups by status."""
+    trigger score."""
     for field in ("trigger", "virality"):
         ids = _run(sort_by=field, sort_dir="desc")["ids"]
-        top = next(c for c in CLIPS if c["id"] == ids[0])
         best = max(CLIPS, key=lambda c: c[field + "_score"])
-        assert top["id"] == best["id"], \
-            f"{field}: status grouping outranked the score"
+        assert ids[0] == best["id"], f"{field}: status grouping outranked the score"
+
+
+def test_a_screen_that_does_not_ask_for_grouping_does_not_get_it():
+    """The library lists approved clips only, so grouping by status there would
+    be sorting on a column with one value in it."""
+    assert _run(pending_first=False)["ids"] == ["a", "b", "c", "d"]
 
 
 def test_the_date_sort_can_still_be_flipped_to_oldest_first():
-    """Within a status group. Pending 'b' (older) now precedes pending 'a'."""
-    assert _run(sort_dir="asc")["ids"] == ["b", "a", "d", "c"]
+    """Within each status group — pending still leads."""
+    assert _run(sort_dir="asc")["ids"] == ["b", "d", "a", "c"]
 
 
 # ── the edges that make a comparator silently do nothing ─────────────────────
@@ -185,18 +221,18 @@ def test_an_unknown_sort_field_falls_back_to_the_date_key():
 
 
 def test_sorting_never_drops_or_duplicates_a_clip():
-    for field in ("newest", "trigger", "virality"):
+    for field in ("newest", "approved", "trigger", "virality"):
         for direction in ("asc", "desc"):
             ids = _run(sort_by=field, sort_dir=direction)["ids"]
             assert sorted(ids) == ["a", "b", "c", "d"], (field, direction)
 
 
 def test_the_original_array_is_not_mutated_in_place():
-    """`clips` comes from React state. Sorting it in place mutates state
+    """The list comes from React state. Sorting it in place mutates state
     outside setState, so a re-render can show a different order than the one
     that was just computed."""
-    assert "[...filtered].sort(" in _sort_block(), \
-        "the comparator sorts the state array in place"
+    assert "[...list].sort(" in _sort_block(), \
+        "the comparator sorts the caller's array in place"
 
 
 # ── the direction control says what it will do ───────────────────────────────
@@ -204,6 +240,8 @@ def test_the_original_array_is_not_mutated_in_place():
 @pytest.mark.parametrize("field,direction,label", [
     ("newest",   "desc", "Newest first"),
     ("newest",   "asc",  "Oldest first"),
+    ("approved", "desc", "Newest first"),
+    ("approved", "asc",  "Oldest first"),
     ("trigger",  "desc", "High to low"),
     ("trigger",  "asc",  "Low to high"),
     ("virality", "desc", "High to low"),
@@ -214,39 +252,76 @@ def test_the_direction_label_uses_the_words_that_fit_the_field(field, direction,
     assert _run(sort_by=field, sort_dir=direction)["dirLabel"] == label
 
 
-def test_every_sort_option_is_reachable_and_named():
-    got = _run()["sorts"]
-    assert got == ["newest|Date added", "trigger|Trigger score", "virality|Virality"]
+def test_every_sort_is_named_for_a_human():
+    assert _run()["labels"] == [
+        "newest|Date added", "approved|Date approved",
+        "trigger|Trigger score", "virality|Virality"]
 
 
-def test_every_offered_sort_has_a_key_that_reads_a_real_clip_field():
-    """An option in the menu with no entry in SORT_KEY silently falls back to
+@pytest.mark.parametrize("screen,expected", [
+    ("review",  ["newest", "trigger", "virality"]),
+    ("library", ["approved", "newest", "trigger", "virality"]),
+])
+def test_each_screen_offers_the_sorts_that_make_sense_for_it(screen, expected):
+    """Shared machinery, screen-specific menu. The library leads with the date
+    it was approved and Review leads with the date it arrived, because one is an
+    archive and the other is a queue."""
+    assert _screen_sorts(screen) == expected
+
+
+@pytest.mark.parametrize("screen", ["review", "library"])
+def test_every_offered_sort_exists(screen):
+    """An option in a menu with no entry in CLIP_SORTS silently falls back to
     date — the menu changes and the grid does not."""
-    block = _sort_block()
-    for opt in _run()["sorts"]:
-        v = opt.split("|")[0]
-        assert re.search(r"\n\s+" + v + r":\s", block), \
-            f"sort option {v!r} has no SORT_KEY entry"
+    known = _run()["known"]
+    for v in _screen_sorts(screen):
+        assert v in known, f"{screen} offers {v!r}, which is not a real sort"
+
+
+# ── the two clip screens must not drift apart again ──────────────────────────
+
+def _screen(name: str) -> str:
+    m = re.search(r"function " + name + r"\(.*?\n\}\n\n", JS, re.S)
+    assert m, f"{name} not found"
+    return m.group(0)
+
+
+@pytest.mark.parametrize("screen", ["ReviewScreen", "LibraryScreen"])
+def test_neither_clip_screen_writes_its_own_sort(screen):
+    """Two copies of a comparator is how one screen ends up sortable and the
+    other does not."""
+    body = _screen(screen)
+    assert "sortClips(" in body, f"{screen} does not use the shared sort"
+    assert ".sort((a,b)" not in body, f"{screen} has its own comparator again"
+
+
+@pytest.mark.parametrize("screen", ["ReviewScreen", "LibraryScreen"])
+def test_neither_clip_screen_writes_its_own_controls(screen):
+    body = _screen(screen)
+    assert "<ClipControls" in body, f"{screen} builds its own controls row"
+    assert "<select" not in body, (
+        f"{screen} has a native <select> again. Its popup is drawn by the "
+        f"operating system, so it ignores this stylesheet entirely and lands "
+        f"as a grey system menu in the middle of a dark app.")
+
+
+def test_the_library_can_be_sorted_at_all():
+    """It could not. Review had three sorts and the library had none, on the
+    same clips."""
+    body = _screen("LibraryScreen")
+    assert "sortBy" in body and "setSortDir" in body
+    # Rendered whenever there is anything to sort — not present-but-disabled.
+    # "<ClipControls appears in the file" would still be true behind a `false`.
+    assert "{approved.length>0 && <ClipControls" in body, \
+        "the library's controls are no longer rendered from a real condition"
 
 
 # ── the dropdowns ────────────────────────────────────────────────────────────
 
 def _rdmenu() -> str:
-    m = re.search(r"function RdMenu\(\{.*?\n\}\n", SRC, re.S)
+    m = re.search(r"function RdMenu\(\{.*?\n\}\n", JS, re.S)
     assert m, "RdMenu not found"
     return m.group(0)
-
-
-def test_the_review_controls_use_the_styled_menu_and_not_a_native_select():
-    """A native <select> popup is drawn by the OS: its background, font and
-    highlight ignore this stylesheet entirely and land as a grey system menu in
-    the middle of a dark app."""
-    m = re.search(r'<div className="rd-controls">.*?\n        </div>', SRC, re.S)
-    assert m, "the review controls row moved"
-    controls = m.group(0)
-    assert "<select" not in controls, "a native <select> is back in the toolbar"
-    assert controls.count("<RdMenu") == 2, \
-        "expected the streamer filter and the sort field to be the same control"
 
 
 def test_the_menu_only_holds_document_listeners_while_it_is_open():
@@ -283,17 +358,14 @@ def test_the_destructive_actions_are_not_in_the_same_row_as_the_view_controls():
     """Cull and Clear queue delete things; the filters and the sort only change
     what you are looking at. They used to sit in one undifferentiated run of
     five controls, with a bulk delete inches from a sort toggle."""
-    toolbar = re.search(r'<div className="rd-toolbar">.*?\n        </div>', SRC, re.S)
-    controls = re.search(r'<div className="rd-controls">.*?\n        </div>', SRC, re.S)
-    assert toolbar and controls, "the two toolbar rows are not both present"
+    toolbar = re.search(r'<div className="rd-toolbar">.*?\n        </div>', JS, re.S)
+    assert toolbar, "the toolbar row is gone"
     assert "Cull clips" in toolbar.group(0)
     assert "ClearQueueButton" in toolbar.group(0)
-    assert "Cull clips" not in controls.group(0)
-    assert "ClearQueueButton" not in controls.group(0)
-    assert "RdMenu" not in toolbar.group(0)
+    assert "ClipControls" not in toolbar.group(0)
 
 
-def test_every_class_the_new_toolbar_uses_is_actually_styled():
+def test_every_class_the_controls_use_is_actually_styled():
     """No bundler and no CSS modules here — a class name typo is invisible
     until someone looks at the page, and only on the one screen that uses it.
 
@@ -303,24 +375,20 @@ def test_every_class_the_new_toolbar_uses_is_actually_styled():
     css = SRC.split('<script type="text/babel">')[0]
     styled = set(re.findall(r"\.(rd-[a-z-]+)", css))
     used = set()
-    for span in (_rdmenu(),
-                 re.search(r'<div className="rd-toolbar">.*?\n        </div>', SRC, re.S).group(0),
-                 re.search(r'<div className="rd-controls">.*?\n        </div>', SRC, re.S).group(0)):
+    for span in (_rdmenu(), _screen("ClipControls"), _screen("LibraryScreen"),
+                 re.search(r'<div className="rd-toolbar">.*?\n        </div>', JS, re.S).group(0)):
         used |= set(re.findall(r"'(rd-[a-z-]+)'", span))
         used |= set(re.findall(r'className="(rd-[a-z-]+)"', span))
     assert used, "no class names found — the extraction broke, not the CSS"
     missing = sorted(used - styled)
-    assert not missing, "used in the review toolbar but never styled: " + str(missing)
-    # And the ones the redesign introduced are genuinely among them.
-    for cls in ("rd-toolbar-count", "rd-toolbar-acts", "rd-controls",
-                "rd-sortwrap", "rd-dir", "rd-menu", "rd-menu-btn"):
-        assert cls in used, f"{cls} is no longer used by the toolbar"
+    assert not missing, "used but never styled: " + str(missing)
+    for cls in ("rd-controls", "rd-sortwrap", "rd-dir", "rd-menu", "rd-cliphead"):
+        assert cls in used, f"{cls} is no longer used"
 
 
-def test_the_icons_the_toolbar_asks_for_exist():
+def test_the_icons_the_controls_ask_for_exist():
     """<Icon name="..."/> with an unknown name renders nothing at all."""
-    m = re.search(r"const Icon = .*?\n  const P = \{(.*?)\n  \};", SRC, re.S)
+    m = re.search(r"const Icon = .*?\n  const P = \{(.*?)\n  \};", JS, re.S)
     assert m, "the icon map moved"
-    icons = m.group(1)
     for name in ("chevron", "arrowdown", "arrowup", "sliders", "check", "radio"):
-        assert re.search(r"\n    " + name + r":", icons), f"icon {name!r} missing"
+        assert re.search(r"\n    " + name + r":", m.group(1)), f"icon {name!r} missing"
