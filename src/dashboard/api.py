@@ -4764,7 +4764,27 @@ async def admin_overview(request: Request):
     # clip figures — an admin's clips are real clips the system caught.
     customers = [u for u in users if not u.get("is_admin")]
 
+    # TWO DIFFERENT QUESTIONS, and mixing them is what made the header lie.
+    #
+    #   by_plan  — ENTITLEMENT. What each account may currently do. A trialing
+    #              user resolves to pro here, and so does a comped one.
+    #   segment  — HOW THEY GOT THERE, and these are MUTUALLY EXCLUSIVE: every
+    #              customer lands in exactly one, so the segments partition the
+    #              population and can be read as a breakdown.
+    #
+    # The panel used to render "N Pro · N Starter · N on trial" out of by_plan
+    # plus the trial count, which double-counts: a trialing account is inside
+    # the Pro figure AND inside the trial figure, so the numbers summed to more
+    # than the population and no reading of them was correct. Free was missing
+    # from that line entirely, which mattered little while free was legacy-only
+    # and matters most of all now that it is the front door and the majority of
+    # the population is on it.
     by_plan: dict[str, int] = {p: 0 for p in plans.PLAN_LIMITS}
+    segment: dict[str, int] = {"paying": 0, "trialing": 0, "comped": 0,
+                               "grace": 0, "free": 0}
+    # Of the PAYING only. The "Paying" tile's own sub-line describes the people
+    # in that tile rather than the whole population.
+    paying_by_tier: dict[str, int] = {"pro": 0, "starter": 0, "legacy": 0}
     paying = trialing = mrr = legacy = comped = 0
     for u in customers:
         plan = plans.get_plan(u)
@@ -4772,7 +4792,15 @@ async def admin_overview(request: Request):
         status = u.get("subscription_status")
         if status == "trialing":
             trialing += 1
-        elif status == "active":
+            segment["trialing"] += 1
+        elif status in plans.GRACE_STATUSES:
+            # Still customers: Stripe is mid-collection. Neither paying yet nor
+            # free, and lumping them into either hides the one segment where a
+            # nudge actually recovers money.
+            segment["grace"] += 1
+        elif status != "active":
+            segment["free"] += 1
+        if status == "active":
             # ENTITLEMENT is not PRICE. A $15-era subscriber has no stored plan
             # and is grandfathered to Pro so they keep every feature — but they
             # are not paying $25, and billing them at the Pro price in this
@@ -4787,15 +4815,19 @@ async def admin_overview(request: Request):
             # left out of both the count and the money.
             if not u.get("stripe_customer_id") or u.get("plan_source") == "granted":
                 comped += 1
+                segment["comped"] += 1
                 continue
             stored = u.get("plan")
             price = (plans.PLAN_LIMITS.get(plan, {}).get("price", 0)
                      if stored in plans.PAID_PLANS else 0)
             paying += 1
+            segment["paying"] += 1
             if price:
                 mrr += price
+                paying_by_tier[stored] = paying_by_tier.get(stored, 0) + 1
             else:
                 legacy += 1
+                paying_by_tier["legacy"] += 1
 
     now = time.time()
     new_7d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 7 * 86400)
@@ -4817,6 +4849,15 @@ async def admin_overview(request: Request):
             # Permanently comped accounts — access granted by an admin with no
             # Stripe behind it. Counted apart from both paying and trialing.
             "comped": comped,
+            # The mutually-exclusive population breakdown. These sum to `total`
+            # exactly, which is the property the old header did not have and
+            # the reason its numbers could not be read.
+            "segment": segment,
+            # The tiers of the people in `paying`, so the Paying tile's
+            # sub-line describes the tile's own number rather than the whole
+            # population. `legacy` are $15-era subscribers whose price we do
+            # not hold locally.
+            "paying_by_tier": paying_by_tier,
             "new_7d": new_7d, "new_30d": new_30d,
         },
         "mrr": mrr,
@@ -9198,12 +9239,33 @@ async function loadOverview(){
   let d;
   try { d = await api('/admin/overview'); } catch(e){ return; }
   const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
-  const u = d.users || {}, c = d.clips || {}, s = d.streams || {}, bp = u.by_plan || {};
+  const u = d.users || {}, c = d.clips || {}, s = d.streams || {};
+  const seg = u.segment || {}, tier = u.paying_by_tier || {};
   set('ov-users', n0(u.total));
-  set('ov-users-s', n0(u.new_7d) + ' joined this week · ' + n0(u.admins) + ' staff');
+  // EACH SUB-LINE DESCRIBES ITS OWN TILE'S NUMBER. This one breaks down the
+  // POPULATION, so it uses the mutually-exclusive segments and every account
+  // appears exactly once. The breakdown used to live under Paying and was
+  // built from by_plan (entitlement) mixed with the trial count — so a
+  // trialing account was inside both "Pro" and "on trial", the parts summed to
+  // more than the whole, and Free was not shown at all. Free is the front door
+  // now, so leaving it out omitted most of the people on the platform.
+  const parts = [];
+  if(seg.free)     parts.push(n0(seg.free) + ' free');
+  if(seg.paying)   parts.push(n0(seg.paying) + ' paying');
+  if(seg.trialing) parts.push(n0(seg.trialing) + ' on trial');
+  if(seg.comped)   parts.push(n0(seg.comped) + ' comped');
+  if(seg.grace)    parts.push(n0(seg.grace) + ' card failing');
+  parts.push(n0(u.new_7d) + ' joined this week');
+  if(u.admins) parts.push(n0(u.admins) + ' staff');
+  set('ov-users-s', parts.join(' · '));
   set('ov-paying', n0(u.paying));
-  set('ov-paying-s', n0(bp.pro) + ' Pro · ' + n0(bp.starter) + ' Starter · '
-    + n0(u.trialing) + ' on trial' + (u.comped ? ' · ' + n0(u.comped) + ' comped' : ''));
+  // The tiers OF THE PAYING, which is what this tile counts. `legacy` are
+  // $15-era subscribers whose price Stripe holds and we do not.
+  const pt = [];
+  if(tier.pro)     pt.push(n0(tier.pro) + ' Pro');
+  if(tier.starter) pt.push(n0(tier.starter) + ' Starter');
+  if(tier.legacy)  pt.push(n0(tier.legacy) + ' legacy');
+  set('ov-paying-s', pt.length ? pt.join(' · ') : 'no paid subscriptions yet');
   // A legacy subscriber's price is not in our records, so MRR says so rather
   // than pricing them at the tier they were grandfathered into.
   set('ov-mrr', '$' + n0(d.mrr) + (d.mrr_unknown ? '+' : ''));

@@ -60,11 +60,15 @@ PEOPLE = {
     # a $15-era subscriber with NO stored plan — grandfathered to pro
     "legacy": {"id": "legacy", "username": "legacy", "subscription_status": "active",
                "stripe_customer_id": "cus_legacy", "created_at": NOW - 500 * 86400},
-    # signed up, never subscribed, and predates the trial cutover — so still on
-    # the grandfathered free tier. A lurker who signed up AFTER it would read as
-    # `locked` once their 7 days ran out, which is a different persona.
+    # signed up, never subscribed. The `grandfathered` flag used to be what kept
+    # them on free rather than `locked`; with free reopened it decides nothing,
+    # and it is kept here precisely so the fixture proves that.
     "lurker": {"id": "lurker", "username": "lurker", "grandfathered": True,
                "created_at": NOW - 1 * 86400},
+    # first payment never confirmed — Stripe is still trying. Neither paying nor
+    # free, and the segment that a nudge actually recovers money from.
+    "pending": {"id": "pending", "username": "pending", "subscription_status": "incomplete",
+                "stripe_customer_id": "cus_pending", "created_at": NOW - 1 * 86400},
 }
 
 
@@ -203,8 +207,10 @@ def test_the_legacy_subscriber_is_counted_as_the_plan_they_actually_have(client)
     # nova (pro), legacy (grandfathered pro), moon (trial resolves to pro)
     assert d["users"]["by_plan"]["pro"] == 3, d["users"]["by_plan"]
     assert d["users"]["by_plan"]["starter"] == 2   # kat pays, gifted is comped
-    # drift cancelled (back to free) and lurker never subscribed
-    assert d["users"]["by_plan"]["free"] == 2
+    # drift cancelled (back to free), lurker never subscribed, and `pending`
+    # whose first payment never confirmed — get_plan sends an unconfirmed
+    # checkout to free rather than granting Pro to anyone who opens one.
+    assert d["users"]["by_plan"]["free"] == 3
 
 
 def test_staff_are_excluded_from_the_population_but_counted_separately(client):
@@ -215,8 +221,8 @@ def test_staff_are_excluded_from_the_population_but_counted_separately(client):
 
 def test_new_signups_are_windowed(client):
     d = _overview(client, counter=1)
-    assert d["users"]["new_7d"] == 3          # kat, moon, lurker
-    assert d["users"]["new_30d"] == 4         # ...plus the comped account at 10 days
+    assert d["users"]["new_7d"] == 4          # kat, moon, lurker, pending
+    assert d["users"]["new_30d"] == 5         # ...plus the comped account at 10 days
 
 
 # ── membership on the user list ──────────────────────────────────────────────
@@ -417,3 +423,135 @@ def test_the_drawer_explains_what_cleared_means():
     assert "Clip decisions (all time)" in ADMIN_HTML
     assert "not counted as rejections" in ADMIN_HTML, \
         "nothing tells the operator that cleared clips are not rejections"
+
+
+# ── the membership breakdown ─────────────────────────────────────────────────
+# THE HEADER SAID "N Pro · N Starter · N on trial" under the Paying tile, built
+# from by_plan (which is ENTITLEMENT) mixed with the trial count (which is a
+# STATUS). A trialing account resolves to pro, so it was inside both figures:
+# the parts summed to more than the population and no reading of the line was
+# correct. Free was not in it at all, which mattered little while free was
+# legacy-only and matters most of all now that it is the front door.
+
+def test_the_population_segments_add_up_to_the_population(client):
+    """THE PROPERTY THE OLD LINE DID NOT HAVE. Every customer lands in exactly
+    one segment, so the breakdown can be read as a breakdown."""
+    u = _overview(client)["users"]
+    seg = u["segment"]
+    assert sum(seg.values()) == u["total"], \
+        f"segments {seg} do not partition {u['total']} customers"
+
+
+def test_each_kind_of_account_lands_in_the_segment_it_belongs_to(client):
+    seg = _overview(client)["users"]["segment"]
+    # nova (Pro), kat (Starter) and legacy ($15-era) all pay us.
+    assert seg["paying"] == 3, seg
+    # moon is an admin-granted trial.
+    assert seg["trialing"] == 1, seg
+    # gifted is active on a priced tier with no Stripe customer behind it.
+    assert seg["comped"] == 1, seg
+    # pending's first payment never confirmed.
+    assert seg["grace"] == 1, seg
+    # drift cancelled, lurker never subscribed. Both are on free now.
+    assert seg["free"] == 2, seg
+
+
+def test_a_trialing_account_is_not_also_counted_as_pro(client):
+    """THE DOUBLE COUNT. moon resolves to pro for ENTITLEMENT — that is correct
+    and by_plan still says so — but they must appear once in the breakdown."""
+    u = _overview(client)["users"]
+    assert u["by_plan"]["pro"] >= 1, "entitlement stopped resolving a trial to pro"
+    assert u["segment"]["trialing"] == 1
+    assert u["segment"]["paying"] + u["segment"]["trialing"] + u["segment"]["comped"] \
+        + u["segment"]["grace"] + u["segment"]["free"] == u["total"]
+
+
+def test_free_users_are_actually_counted(client):
+    """The line omitted them entirely. On the current product that is most of
+    the platform."""
+    assert _overview(client)["users"]["segment"]["free"] > 0
+
+
+def test_the_paying_tile_breaks_down_only_the_people_paying(client):
+    """Its sub-line describes its own number. gifted and moon are not in it."""
+    u = _overview(client)["users"]
+    tier = u["paying_by_tier"]
+    assert sum(tier.values()) == u["paying"] == 3, (tier, u["paying"])
+    assert tier["pro"] == 1 and tier["starter"] == 1
+    # The $15-era subscriber is a subscriber whose price we do not hold, so
+    # they are counted but not priced — same reason MRR reports a floor.
+    assert tier["legacy"] == 1
+    assert u["paying"] == 3 and _overview(client)["mrr"] == 35, "MRR drifted"
+
+
+def test_the_breakdown_still_works_with_nobody_paying(client, monkeypatch):
+    """A brand-new install is all free users, which is the state this line will
+    spend its first weeks in."""
+    from src.auth import users as user_store
+    monkeypatch.setattr(user_store, "get_all", lambda: [
+        {"id": "a", "username": "a", "created_at": NOW},
+        {"id": "b", "username": "b", "created_at": NOW},
+    ])
+    u = _overview(client)["users"]
+    assert u["segment"] == {"paying": 0, "trialing": 0, "comped": 0,
+                            "grace": 0, "free": 2}
+    assert sum(u["paying_by_tier"].values()) == 0
+
+
+# ── the line the browser actually draws ──────────────────────────────────────
+# The tests above prove /admin/overview returns an honest breakdown. They do
+# NOT prove the header renders it: the old bug was entirely in the rendering,
+# where a correct by_plan was combined with a correct trial count into a line
+# that was wrong. So these read the shipped JS.
+
+def _admin_js() -> str:
+    from src.dashboard.api import ADMIN_HTML
+    import re as _re
+    m = _re.search(r"function loadOverview\(\)\{.*?\n\}", ADMIN_HTML, _re.S)
+    assert m, "loadOverview moved — this test is no longer reading the renderer"
+    return m.group(0)
+
+
+def test_the_population_line_is_built_from_the_segments():
+    """THE FIX, at the layer the bug was in. Building it from by_plan is what
+    put a trialing account inside the Pro figure AND inside the trial figure."""
+    js = _admin_js()
+    assert "u.segment" in js, "the header no longer reads the segment breakdown"
+    # The line is assembled into `parts` ABOVE the set() call, so slicing at
+    # set() alone reads ", parts.join(...)" and asserts nothing. Take the block
+    # that builds it.
+    block = js.split("const parts = []")[1].split("set('ov-users-s'")[0]
+    assert "seg." in block, "the population line is not built from segments"
+    assert "bp." not in block and "by_plan" not in block, \
+        "the population line is mixing entitlement counts back in"
+    # The variable that made the mix possible is gone from the renderer.
+    assert "by_plan ||" not in js, \
+        "the renderer still destructures by_plan, which is how the two got mixed"
+
+
+def test_the_population_line_names_free():
+    """It omitted free entirely. Free is the front door now, so that is most of
+    the platform missing from the one line that describes the platform."""
+    js = _admin_js()
+    assert "seg.free" in js, "free is not counted in the header"
+    assert "' free'" in js, "the header does not label the free segment"
+
+
+def test_the_paying_line_describes_only_the_paying():
+    """It used to carry the whole population's breakdown under a tile counting
+    subscribers, so the tile's number and its own sub-line disagreed."""
+    js = _admin_js()
+    block = js.split("const pt = []")[1].split("set('ov-paying-s'")[0]
+    assert "tier." in block, "the paying line is not built from paying_by_tier"
+    assert "u.trialing" not in block and "comped" not in block, \
+        "the paying tile's sub-line counts people who are not paying"
+
+
+def test_the_header_still_reports_entitlement_somewhere():
+    """by_plan answers a real question — how many accounts can use the VOD
+    scanner — and removing the misuse must not remove the field."""
+    from src.dashboard.api import ADMIN_HTML  # noqa: F401
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.admin_overview)
+    assert '"by_plan": by_plan' in src, "entitlement counts were dropped entirely"
