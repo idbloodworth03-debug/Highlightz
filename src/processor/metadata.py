@@ -27,6 +27,16 @@ class ClipMetadata:
     twitch_url: str = ""       # public watch page
     embed_url: str = ""        # iframe embed URL
     thumbnail_url: str = ""
+    # ── Crowd suggestion (src/trigger/suggested_clips.py) ────────────────────
+    # A moment VIEWERS clipped, surfaced without consulting our score. The clip
+    # is the viewer's own — we did not create it — so `suggested_by` is not
+    # decoration: it is who this clip actually belongs to on Twitch, and the UI
+    # is expected to say so. trigger_score/virality_score stay 0.0 on these and
+    # that is not missing data, it is the point of the feature.
+    suggested: bool = False
+    suggested_by: str = ""        # creator_name of the viewer who clipped it
+    clipper_count: int = 0        # distinct viewers who clipped this moment
+    suggested_views: int = 0      # view count when we surfaced it
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,4 +60,8 @@ class ClipMetadata:
             "twitch_url": self.twitch_url,
             "embed_url": self.embed_url,
             "thumbnail_url": self.thumbnail_url,
+            "suggested": self.suggested,
+            "suggested_by": self.suggested_by,
+            "clipper_count": self.clipper_count,
+            "suggested_views": self.suggested_views,
         }

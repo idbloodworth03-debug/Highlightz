@@ -89,12 +89,27 @@ def _record(rows: list[dict]) -> None:
 
 
 async def poll_and_record(channel: str, broadcaster_id: str, engine,
-                          our_creator_ids: set[str], our_slugs: set[str]) -> int:
+                          our_creator_ids: set[str], our_slugs: set[str],
+                          on_rows=None) -> int:
     """Poll one channel's recent viewer clips and log each against our score
     at the moment it was made. Returns how many new clips were recorded.
 
     Never raises: this is observation, and it must not be able to disturb
     clipping. Any failure logs a warning and reports 0.
+
+    `on_rows`, when given, is handed EVERY row this poll returned — before the
+    `_seen` filter below, and deliberately so. That filter exists to write one
+    log line per clip, which is right for a learning record and wrong for the
+    suggester in `suggested_clips.py`: the poll window is far wider than the
+    poll interval, so a clip comes back on several consecutive polls carrying a
+    fresher view count each time, and that refresh is free. Filtering to new
+    rows would throw it away. The sink gets raw Helix rows rather than the
+    records built below because it needs fields (view_count, embed_url,
+    thumbnail_url, duration) that a learning record has no reason to store.
+
+    Failure in the sink is swallowed: this call site is the learning path, and
+    a suggester bug must not be able to stop it recording — nor, further up, to
+    disturb clipping.
     """
     now = time.time()
     _last_poll[channel] = now
@@ -126,6 +141,12 @@ async def poll_and_record(channel: str, broadcaster_id: str, engine,
     except Exception as exc:
         log.warning("viewer_clip_poll_error", channel=channel, error=str(exc))
         return 0
+
+    if on_rows is not None:
+        try:
+            on_rows(rows)
+        except Exception as exc:
+            log.warning("viewer_clip_sink_failed", channel=channel, error=str(exc))
 
     out = []
     for c in rows:

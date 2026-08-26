@@ -286,7 +286,15 @@ def test_neither_badge_was_removed_to_solve_it():
     assert "rd-scorebadge" in body and "rd-viralbadge" in body
     # Rendered on a real value, not behind a constant — "the element is still in
     # the file" is not the same as "the badge is still drawn".
-    assert "{clip.virality_score>0 &&" in body, \
+    #
+    # The opening brace used to be part of this match. Crowd suggestions added a
+    # second condition in front of it (`!sug && clip.virality_score>0 &&`), which
+    # broke the literal without weakening anything the test is for: the badge is
+    # still gated on the clip's own score. Anchoring on the score comparison
+    # rather than on its position in the expression is what this was always
+    # checking — see test_a_suggested_clip_shows_neither_score_badge for why the
+    # extra condition is there.
+    assert "clip.virality_score>0 &&" in body, \
         "the virality badge is no longer drawn from the clip's own score"
 
 

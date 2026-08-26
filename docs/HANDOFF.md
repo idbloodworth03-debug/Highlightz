@@ -1218,6 +1218,77 @@ markup before real approved reviews exist.
 Trustpilot, G2, Capterra and Product Hunt. Those are what actually rank in
 Google for SaaS; our own page never will.
 
+## Crowd suggestions — clips the score never saw (2026-08-26)
+
+**Why.** Clips went viral off channels we were watching and the bot missed
+them. Every other path into the review queue runs through a score, and the
+n=1001 calibration says the score is close to blind on virality (within-labeler
+r = -0.060, within-account AUC 0.547). A path that never consults it is the
+only way a missed moment can reach the user at all.
+
+**The one substitution, and it is not negotiable by argument.** The obvious
+build is "see viewers clipping, create our own clip of that moment". It cannot
+work, and that was settled with data in Phase 0: Twitch takes a **median 167s
+(p90 369s)** to make a viewer's clip visible in Helix, and Create Clip reaches
+back only ~60-90s. The <45s bar for acting on this was written down BEFORE that
+measurement precisely so it could not be rationalised afterwards, and it failed
+by a factor of four. **So we create nothing — we surface the viewer's own
+clip**, which is already a real Twitch clip with a slug, an embed URL and a
+thumbnail. That is strictly better: it is the right 30 seconds because a human
+framed it, latency stops mattering, it spends no Create Clip budget, and it
+stays inside the compliance model (Twitch hosts it; we store metadata and an
+embed URL, exactly as for our own clips). It is also what the VOD scanner
+already does — `get_clips_for_vod` merges viewer clips as first-class moments
+and badges them "N clipped it". This is that, running live.
+
+**Cost: zero extra Helix calls.** `viewer_clips.poll_and_record` has polled
+`/clips` every 90s per channel since Phase 0 for the learning log. The suggester
+is a sink on that existing call (`on_rows`), and it deliberately receives EVERY
+row rather than only new ones — the poll window (420s) is much wider than the
+interval, so a clip returns on several polls and each return carries a fresher
+view count for free.
+
+**Shape** (`src/trigger/suggested_clips.py`): candidates ripen for
+`SETTLE_SECS` (180) from first sighting, which is the "delay" the feature was
+asked for — it buys corroboration (other viewers landing on the same moment)
+and view counts. Clips within `CLUSTER_SECS` (45) are one moment by
+single-linkage; the most-viewed member represents it, ties to the earliest.
+Capped at `MAX_PER_HOUR` (6) per channel. Emitted moments are remembered **by
+time, not just by slug** — otherwise a fourth viewer clipping the same play
+three minutes later forms a fresh cluster and suggests it again.
+
+**Two things that must not regress** (`tests/test_suggested_clips.py`, 42 tests,
+16/16 mutants killed):
+
+1. **The queue reserve.** Suggestions share the plan-capped pending queue with
+   real clips and a full queue drops the NEWEST arrival, so unreserved they
+   could be the reason a paid-for clip did not land.
+   `_SUGGESTION_QUEUE_RESERVE = 0.5` in `stream_worker.py` keeps half the queue
+   untouchable. A dropped suggestion also does NOT fire the "you missed a clip"
+   upgrade prompt — nothing the user pays for was lost.
+
+2. **They are inert to learning and telemetry.** `_is_grabbed` was renamed
+   `_excluded_from_learning` and widened to cover them. The sharp edge is that
+   the damage runs BACKWARDS: rejecting a suggestion would call
+   `record_clip(approved=False)` and add +0.75 to the channel's trigger
+   threshold — punishing the detector for a moment it never claimed, making it
+   fire LESS on exactly the channel where the crowd is finding what it missed.
+   They are also excluded from CAUGHT and from the public clip counter, because
+   the keep rate published beside it already excludes them and counting at one
+   end of a ratio only is worse than either.
+
+**UI.** Gold glow + "Suggested" badge, and the trigger badge is SUPPRESSED — a
+suggestion carries `trigger_score` 0, so the unconditional badge rendered
+"0% trigger", which reads as "the detector rated this worthless" on the one card
+type that exists to carry moments it missed. The modal's "Why it fired" panel
+likewise becomes "Why it is here" (sigKeys is a fixed list of four and would
+otherwise draw four bars at 0%). The card credits the viewer by name: the clip
+belongs to their Twitch account, not the streamer's.
+
+**Not built, deliberately:** no per-user toggle (not asked for; the reserve and
+the per-hour cap are the safety), and no plan gate — worth a decision if
+suggestions turn out to be a Pro-shaped feature.
+
 ## Queued nice-to-haves
 
 Discord webhook notifications on clip_ready (top retention idea), edit_url

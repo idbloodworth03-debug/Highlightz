@@ -333,6 +333,47 @@ button{font-family:inherit;cursor:pointer}
 .rd-clippedbadge{position:absolute;top:38px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
   font-size:10.5px;font-weight:800;letter-spacing:.02em;padding:3px 8px;border-radius:99px;color:#0b0b12;
   background:linear-gradient(135deg,#3ee08a,#2ee0c8);box-shadow:0 3px 12px -3px rgba(62,224,138,.6)}
+/* ── Crowd suggestions ────────────────────────────────────────────────────
+   A moment VIEWERS clipped, surfaced without consulting our score. It has to
+   look unlike everything else in the grid, because it means something else:
+   every other card is the detector saying "I found this", and this one is the
+   detector saying "I did not, they did".
+
+   Gold, and nothing else here is gold. The viral badge runs orange-to-pink and
+   the crowd-clipped badge is green-to-teal, so this reads as its own thing at a
+   glance rather than as a variant of either.
+
+   NO backdrop-filter, deliberately — see the note above the badge rules. These
+   sit over a playing clip and a blur layer there costs a re-blur of that patch
+   on every decoded frame, which is what made scrolling a full queue stutter.
+   The glow is a box-shadow and the pulse animates OPACITY on a pseudo-element,
+   which the compositor can do without repainting the card. */
+.rd-clip.suggested{position:relative;border-color:rgba(255,197,61,.55);
+  box-shadow:0 0 0 1px rgba(255,197,61,.25),0 8px 30px -10px rgba(255,168,0,.45)}
+.rd-clip.suggested:hover{border-color:rgba(255,197,61,.9);
+  box-shadow:0 0 0 1px rgba(255,197,61,.4),0 14px 40px -10px rgba(255,168,0,.6)}
+/* The pulse. Its own layer so the animation never touches the card's own
+   paint, and pointer-events:none so it cannot eat the click that opens
+   the player. */
+.rd-clip.suggested::after{content:'';position:absolute;inset:-1px;border-radius:var(--r-lg);
+  pointer-events:none;border:1px solid rgba(255,197,61,.9);opacity:0;
+  animation:sugpulse 2.6s ease-in-out infinite}
+@keyframes sugpulse{0%,100%{opacity:0}50%{opacity:.75}}
+/* A player is open: stop animating. Same reasoning as the blur rules below —
+   anything repainting on a timer competes with video decode. */
+body.hz-player .rd-clip.suggested::after{animation:none;opacity:0}
+@media(prefers-reduced-motion:reduce){
+  .rd-clip.suggested::after{animation:none;opacity:.6}
+}
+.rd-sugbadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
+  font-size:11.5px;font-weight:800;letter-spacing:.02em;padding:5px 10px;border-radius:var(--r-pill);
+  color:#2a1a00;background:linear-gradient(135deg,#ffd45e,#ff9d00);
+  box-shadow:0 3px 16px -3px rgba(255,168,0,.75)}
+/* Who actually made it. This clip belongs to a viewer's Twitch account, not
+   the streamer's, and the card is the only place that can say so. */
+.rd-sugby{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+  color:#ffc53d;background:rgba(255,197,61,.12);border:1px solid rgba(255,197,61,.28);
+  padding:3px 9px;border-radius:99px}
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -1323,8 +1364,13 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
   const title = clip.clip_title||clip.stream_title||'Live Stream';
   const thumb = clip.thumbnail_url || '';
   const twHref = clip.twitch_url || '';
+  // A moment viewers clipped, surfaced with the score deliberately never
+  // consulted (src/trigger/suggested_clips.py). It is a different KIND of card,
+  // not a decorated one, so it gets its own badge and suppresses the trigger
+  // badge entirely — see below.
+  const sug = !!clip.suggested;
   return (
-    <div className="rd-clip">
+    <div className={'rd-clip'+(sug?' suggested':'')}>
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
         {thumb
           ? <img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
@@ -1341,10 +1387,27 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             (what the detector MEASURED vs how shareable it looks) and the two
             disagreeing is the interesting case — a 95 trigger at 20% viral is
             worth seeing as both numbers, not as whichever one you sorted by. */}
-        <span className="rd-scorebadge" title="Trigger score — what the detector measured at that moment">
-          <span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
-        {clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
+        {/* THE TRIGGER BADGE IS SUPPRESSED ON A SUGGESTION, and that is a
+            correctness fix rather than a style choice. A suggested clip carries
+            trigger_score 0 because no score was consulted to surface it, so the
+            unconditional badge rendered "0% trigger" — which does not read as
+            "not scored", it reads as "the detector looked at this and rated it
+            worthless". On the one card type whose entire purpose is to carry
+            moments the detector MISSED, that is the exact opposite of the
+            truth, and it sat next to an Approve button. The virality badge
+            needs no such guard: it is already conditional on > 0. */}
+        {sug
+          ? <span className="rd-sugbadge" title="Viewers clipped this moment on Twitch. Our score was not consulted — it is here because people watching thought it mattered.">
+              <Icon name="trending" size={12}/>Suggested
+            </span>
+          : <span className="rd-scorebadge" title="Trigger score — what the detector measured at that moment">
+              <span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
+        {!sug && clip.virality_score>0 && <span className={'rd-viralbadge'+(clip.virality_score>=65?' hot':clip.virality_score>=35?' warm':'')} title="Virality — how shareable this moment looks">
           <Icon name="trending" size={12}/>{Math.round(clip.virality_score)}% viral
+        </span>}
+        {sug && clip.clipper_count>1 && <span className="rd-clippedbadge" style={{top:10}}
+          title={clip.clipper_count+' different viewers clipped this same moment'}>
+          <Icon name="check" size={11}/>{clip.clipper_count} viewers clipped it
         </span>}
         {clip.viewer_clipped && <span className="rd-clippedbadge"
           title={`Real viewers clipped this moment on Twitch — ${clip.viewer_clip_views||0} views`}>
@@ -1359,6 +1422,12 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
         </div>
         <div className="rd-clip-title">{title}</div>
         <div className="rd-clip-meta">
+          {/* Attribution, not decoration. We did not create this clip — a
+              viewer did, on their own Twitch account — and this line is the
+              only place in the product that says so. */}
+          {sug && clip.suggested_by && <span className="rd-sugby" title="This clip was created by a viewer on Twitch, not by Highlightz">
+            <Icon name="check" size={11}/>{clip.suggested_by}
+          </span>}
           {time && <span className="rd-tag">{time}</span>}
           {clip.game && <span className="rd-tag">{clip.game}</span>}
         </div>
@@ -1492,6 +1561,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
     sigMap[k] = (s.value||0)*100;
   }
   const sigKeys = ['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE'];
+  const sug = !!clip.suggested;
 
   return (
     <div className="rd-modal-bg" onClick={onClose}>
@@ -1503,7 +1573,9 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
-          <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>
+          {sug
+            ? <span className="rd-sugbadge" style={{top:14,right:60}}><Icon name="trending" size={12}/>Suggested</span>
+            : <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
         </div>
 
         {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'9px 12px',fontSize:12.5,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
@@ -1520,21 +1592,51 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
           </div>
           <div className="rd-modal-grid">
             <div>
-              <div className="rd-eyebrow" style={{marginBottom:14}}>Why it fired</div>
-              {sigKeys.map(k=>{
-                const v=sigMap[k]||0;
-                return <div className="rd-sigbar" key={k}>
-                  <div className="sh"><span className="sk">{signalLabel(k)}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
-                  <div className="st"><div className="sf" style={{width:v+'%'}}/></div>
-                </div>;
-              })}
+              {/* A suggestion did NOT fire, so it has no signals — sigKeys is
+                  a fixed list of four and would have rendered four bars at 0%
+                  under a heading claiming this is why the detector triggered.
+                  That is a fabricated explanation of a decision nothing made.
+                  The honest panel says what actually put the clip here. */}
+              <div className="rd-eyebrow" style={{marginBottom:14}}>{sug?'Why it is here':'Why it fired'}</div>
+              {sug
+                ? <div style={{fontSize:13,lineHeight:1.65,color:'var(--fg-2)'}}>
+                    <p style={{margin:'0 0 10px'}}>
+                      {clip.clipper_count>1
+                        ? <><b style={{color:'var(--fg)'}}>{clip.clipper_count} viewers</b> clipped this same moment on Twitch.</>
+                        : <><b style={{color:'var(--fg)'}}>A viewer</b> clipped this moment on Twitch.</>}
+                    </p>
+                    <p style={{margin:'0 0 10px'}}>
+                      {/* NOT "every signal on the left" — on a suggestion this
+                          text replaces the signal bars, so there is no left to
+                          point at. Caught by looking at the rendered modal. */}
+                      Our score was never consulted. This clip is here because
+                      people watching decided the moment mattered — which is the
+                      judgement chat volume, keywords and audio are only proxies
+                      for.
+                    </p>
+                    <p style={{margin:0,color:'var(--fg-3)'}}>
+                      The clip belongs to {clip.suggested_by
+                        ? <b style={{color:'#ffc53d'}}>{clip.suggested_by}</b>
+                        : 'the viewer who made it'} on Twitch. Highlightz did not create it.
+                    </p>
+                  </div>
+                : sigKeys.map(k=>{
+                    const v=sigMap[k]||0;
+                    return <div className="rd-sigbar" key={k}>
+                      <div className="sh"><span className="sk">{signalLabel(k)}</span><span className="sv" style={{color:scoreColor(v)}}>{v.toFixed(0)}%</span></div>
+                      <div className="st"><div className="sf" style={{width:v+'%'}}/></div>
+                    </div>;
+                  })}
             </div>
             <div>
               <div className="rd-eyebrow" style={{marginBottom:14}}>Details</div>
               <div className="rd-meta-row"><span className="mk">Duration</span><span className="mv">{dur||'—'}</span></div>
               <div className="rd-meta-row"><span className="mk">Platform</span><span className="mv" style={{textTransform:'capitalize'}}>{clip.platform}</span></div>
               <div className="rd-meta-row"><span className="mk">Game</span><span className="mv">{clip.game||'—'}</span></div>
-              <div className="rd-meta-row"><span className="mk">Captured</span><span className="mv">{time}</span></div>
+              {/* "Captured" is our claim about our own work; we captured
+                  nothing here. The timestamp is when the VIEWER clipped it. */}
+              <div className="rd-meta-row"><span className="mk">{sug?'Clipped':'Captured'}</span><span className="mv">{time}</span></div>
+              {sug && clip.clipper_count>0 && <div className="rd-meta-row"><span className="mk">Viewers who clipped it</span><span className="mv">{clip.clipper_count}</span></div>}
               {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
               {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none',marginTop:12,width:'100%',justifyContent:'center'}}><Icon name="play" size={14}/>Open on Twitch</a>}
               {clip.status==='pending' && <div className="rd-modal-actions">
@@ -2735,7 +2837,9 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
         <div style={{fontWeight:700,fontSize:13.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
           {c.clip_title||c.stream_title||'Clip'}</div>
         <div style={{fontSize:11.5,color:'var(--fg-3)',marginTop:2}}>
-          {c.channel}{c.game?' · '+c.game:''} · {Math.round(c.score||c.trigger_score||0)}% trigger</div>
+          {/* Same suppression as the review card: a crowd suggestion has no
+              trigger score, and "0% trigger" here would read as a rating. */}
+          {c.channel}{c.game?' · '+c.game:''} · {c.suggested?'suggested':Math.round(c.score||c.trigger_score||0)+'% trigger'}</div>
       </div>
       <div style={{display:'flex',gap:6,flexShrink:0}}>{right}</div>
     </div>
@@ -5329,7 +5433,15 @@ function RdApp() {
           window.dispatchEvent(new CustomEvent('hz_fb_reply'));
           flash((msg.username||'Someone') + ' replied to their feedback');
         }
-        if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));flash('New clip from '+msg.clip.channel);}
+        // A crowd suggestion arrives on the same event as a caught clip —
+        // deliberately, so the realtime path needed no new wiring — but
+        // "New clip from aceu" would credit the detector for a moment it
+        // missed. The toast is the only notice a user watching another screen
+        // gets, so it says which of the two just happened.
+        if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));
+          flash(msg.clip.suggested
+            ? 'Viewers clipped a moment on '+msg.clip.channel
+            : 'New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));
           setModalClip(prev=>prev&&prev.id===msg.clip.id?msg.clip:prev);

@@ -39,6 +39,13 @@ log = structlog.get_logger(__name__)
 _IDENTITY_TTL = 600.0
 _identity_cache: tuple[float, set, set] = (0.0, set(), set())
 
+# Crowd suggestions may fill this fraction of the pending queue and no more.
+# The remainder is held for triggered clips, which are the paid product: a full
+# queue drops the newest arrival, so without a reserve a chatty channel's
+# suggestions would be the reason a real clip did not land. 0.5 leaves half the
+# queue untouchable by this feature.
+_SUGGESTION_QUEUE_RESERVE = 0.5
+
 
 def _our_clip_identity() -> tuple[set, set]:
     """(twitch ids of our users, slugs of clips we created)."""
@@ -493,9 +500,15 @@ class StreamWorker:
             await self._record_viewer_clips()
 
     async def _record_viewer_clips(self) -> None:
-        """Crowd highlight labels. Observation only — it can neither fire a
-        clip nor change a score, so a failure here is harmless."""
-        from src.trigger import viewer_clips
+        """Crowd highlight labels, and the crowd's own picks.
+
+        Two jobs on ONE Helix call. The recording half is observation only — it
+        can neither fire a clip nor change a score. The suggesting half turns
+        the same rows into review-queue items without consulting our score
+        (see src/trigger/suggested_clips.py). Neither may disturb clipping, so
+        the whole thing is wrapped and demoted to a debug log on failure.
+        """
+        from src.trigger import viewer_clips, suggested_clips
         chan = self._config.channel
         # Gate is shared across every worker on this channel: five users
         # watching one streamer must cost one poll, not five (Helix budget is
@@ -509,10 +522,77 @@ class StreamWorker:
             if not bid:
                 return
             ours_ids, ours_slugs = _our_clip_identity()
-            await viewer_clips.poll_and_record(chan, bid, self._engine,
-                                               ours_ids, ours_slugs)
+            buf = suggested_clips.buffer_for(chan)
+            await viewer_clips.poll_and_record(
+                chan, bid, self._engine, ours_ids, ours_slugs,
+                on_rows=lambda rows: buf.offer(rows, ours_ids, ours_slugs))
         except Exception as exc:
             log.debug("viewer_clip_record_failed", channel=chan, error=str(exc))
+            return
+        # Outside the try above so a poll failure does not skip suggestions
+        # that ripened on an EARLIER poll — the buffer holds them, and a single
+        # failed Helix call should not strand a moment the crowd already picked.
+        try:
+            await self._land_suggestions(buf)
+        except Exception as exc:
+            log.debug("suggested_clip_failed", channel=chan, error=str(exc))
+
+    async def _land_suggestions(self, buf) -> None:
+        """Turn ripe crowd suggestions into pending clips for this user.
+
+        RESERVE. These share the plan-capped pending queue with real clips, and
+        a full queue drops the NEWEST arrival — so an unreserved suggestion
+        stream on a clip-happy channel would quietly cost the user the clips
+        they pay for. Suggestions therefore stop at a fraction of the cap while
+        real clips keep the whole thing. A suggestion is a bonus; it must never
+        be the reason a triggered clip did not land.
+        """
+        from src.dashboard import api as dashboard_api
+        from src.processor.metadata import ClipMetadata
+
+        ripe = buf.ready()
+        if not ripe:
+            return
+        uid = self._config.user_id
+        used, cap = dashboard_api.pending_room(uid)
+        room = int(cap * _SUGGESTION_QUEUE_RESERVE)
+        info = self._stream_info
+
+        for s in ripe:
+            if used >= room:
+                log.info("suggested_clip_skipped_reserve", channel=s.channel,
+                         user_id=uid, pending=used, suggestion_cap=room, cap=cap)
+                break
+            meta = ClipMetadata(
+                channel=s.channel,
+                platform=self._config.platform_name,
+                # NOT the moment the suggestion was processed. The viewer's
+                # clip timestamp is when the moment actually happened, which is
+                # what the review queue sorts by — and it is what lets
+                # notify_clip_ready's dedup window recognise a moment we
+                # already clipped ourselves and drop this as a duplicate.
+                created_at=s.created_at,
+                stream_title=info.title if info else "",
+                game=info.game if info else "",
+                clip_title=s.title,
+                duration_seconds=s.duration or 30.0,
+                user_id=uid,
+                twitch_clip_id=s.slug,
+                twitch_url=s.url,
+                embed_url=s.embed_url,
+                thumbnail_url=s.thumbnail_url,
+                # Zero, and deliberately: no score was consulted to get here.
+                trigger_score=0.0,
+                virality_score=0.0,
+                suggested=True,
+                suggested_by=s.creator,
+                clipper_count=s.clipper_count,
+                suggested_views=s.view_count,
+            )
+            await dashboard_api.notify_clip_ready(meta.to_dict())
+            used += 1
+            log.info("suggested_clip_landed", channel=s.channel, user_id=uid,
+                     slug=s.slug, clippers=s.clipper_count, views=s.view_count)
 
     async def _on_trigger(self, event: TriggerEvent) -> None:
         info = self._stream_info

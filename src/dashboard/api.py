@@ -716,6 +716,12 @@ async def notify_clip_ready(clip: dict) -> None:
         # so this path only fires when the queue filled between that check and
         # here. Keeping it is what stops a race from putting the queue over cap.
         dropped = len(user_pending) >= pending_cap
+        # The public counter is "clips the formula caught", and it is published
+        # beside a keep rate computed from APPROVED/REJECTED — which excludes
+        # crowd suggestions. Counting suggestions here and not there would put
+        # the two landing-page numbers on different denominators and quietly
+        # depress the rate, so a suggestion counts toward neither.
+        counts_as_caught = not _excluded_from_learning(clip)
         if dropped:
             log.info("clip_dropped_queue_full", clip_id=clip.get("id"),
                      channel=channel, pending=len(user_pending), cap=pending_cap)
@@ -728,20 +734,39 @@ async def notify_clip_ready(clip: dict) -> None:
             # ever captured, regardless of later approve/reject/delete" — a clip
             # deleted for capacity is exactly that case, so omitting it was an
             # undercount against the counter's own definition.
-            increment_clip_counter()
+            if counts_as_caught:
+                increment_clip_counter()
         else:
             _clips[clip["id"]] = clip
             _save_clips()
-            increment_clip_counter()
+            if counts_as_caught:
+                increment_clip_counter()
             # Counted at creation, not from _clips — rejected clips are deleted,
             # so a later census would report only survivors.
-            from src.stats import stream_stats
-            stream_stats.record(stream_stats.CAUGHT, clip)
+            #
+            # CAUGHT means our detector found the moment. A crowd suggestion is
+            # the opposite claim — viewers found it and we did not — so counting
+            # one here would inflate the exact per-channel number the streamer
+            # is shown, and would do it in the direction that flatters us. It
+            # would also silently corrupt the acceptance rate on the dashboard,
+            # which is a ratio over these records. The APPROVED/REJECTED sides
+            # exclude suggestions too (see _excluded_from_learning); excluding
+            # them at only one end of the ratio would be worse than either.
+            if counts_as_caught:
+                from src.stats import stream_stats
+                stream_stats.record(stream_stats.CAUGHT, clip)
 
     # Outside the lock: notify_clip_missed broadcasts, and awaiting a socket
     # write while holding _data_lock stalls every other clip in the pipeline.
     if dropped:
-        await notify_clip_missed(clip_uid, channel)
+        # "You missed a clip" is a claim about the product failing the user,
+        # and it drives an upgrade prompt. A crowd suggestion that did not fit
+        # is not that: nothing the user pays for was lost, and the suggester
+        # already holds back a reserve of the queue precisely so a suggestion
+        # can never be what fills it. Dropping it quietly is the honest end of
+        # that promise — nagging here would manufacture a miss to sell against.
+        if counts_as_caught:
+            await notify_clip_missed(clip_uid, channel)
         return
 
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
@@ -2549,7 +2574,7 @@ async def undo_last(request: Request, entry_id: str | None = None):
     # actions is then available to anything that wants to correct for it.
     from src.stats import stream_stats
     for clip in restored:
-        if not _is_grabbed(clip):
+        if not _excluded_from_learning(clip):
             stream_stats.record(stream_stats.UNDONE, clip)
 
     for clip in restored:
@@ -2587,8 +2612,8 @@ async def approve_clip(request: Request, clip_id: str):
         clip["approved_at"] = time.time()
         _save_clips()
     from src.profiles import training_log
-    # A grabbed clip was never scored by us for this user — see _is_grabbed.
-    if not _is_grabbed(clip):
+    # Never scored by us for this user — see _excluded_from_learning.
+    if not _excluded_from_learning(clip):
         training_log.log_outcome(clip, training_log.APPROVED)
         from src.stats import stream_stats
         stream_stats.record(stream_stats.APPROVED, clip)
@@ -2599,10 +2624,11 @@ async def approve_clip(request: Request, clip_id: str):
     # deploy or once the stream ended). A cache-miss here used to silently drop
     # the feedback, skewing learning toward rejections only.
     profile = await pm.load(clip["channel"])
-    # Never teach a channel's profile from a grabbed clip: the formula did not
-    # produce it, so the decision says nothing about whether the formula was
-    # right, and it would drift that channel's threshold on borrowed evidence.
-    if profile and not _is_grabbed(clip):
+    # Never teach a channel's profile from a clip the formula did not produce:
+    # the decision says nothing about whether the formula was right, and it
+    # would drift that channel's threshold on borrowed evidence. For a crowd
+    # suggestion the drift has a direction — see _excluded_from_learning.
+    if profile and not _excluded_from_learning(clip):
         profile.record_clip(approved=True, signals=clip.get("trigger_signals", []))
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
@@ -2637,7 +2663,7 @@ async def reject_clip(request: Request, clip_id: str):
         del _clips[clip_id]
         _save_clips()
     from src.profiles import training_log
-    if not _is_grabbed(clip):
+    if not _excluded_from_learning(clip):
         training_log.log_outcome(clip, training_log.REJECTED)
         from src.stats import stream_stats
         stream_stats.record(stream_stats.REJECTED, clip)
@@ -2647,11 +2673,12 @@ async def reject_clip(request: Request, clip_id: str):
     # load() (not cache-only get()) so the rejection is always recorded, matching
     # the approve path — see note there.
     profile = await pm.load(clip["channel"])
-    # Never teach a channel's profile from a grabbed clip: the formula did not
-    # produce it, so the decision says nothing about whether the formula was
-    # right, and it would drift that channel's threshold on borrowed evidence.
+    # Never teach a channel's profile from a clip the formula did not produce:
+    # the decision says nothing about whether the formula was right, and it
+    # would drift that channel's threshold on borrowed evidence. For a crowd
+    # suggestion the drift has a direction — see _excluded_from_learning.
     profiles_before = {}
-    if profile and not _is_grabbed(clip):
+    if profile and not _excluded_from_learning(clip):
         # Snapshot first: record_clip clamps the threshold and every weight, so
         # subtracting the step back off later would not always land where we
         # started. This is what makes an accidental reject fully reversible —
@@ -2737,7 +2764,7 @@ async def clear_pending_clips(request: Request):
         # File deletion deferred until the undo entry expires.
         # Grabbed clips never taught the formula, and they do not belong in the
         # channel's outcome ledger either — same carve-out as reject/approve.
-        if not _is_grabbed(clip):
+        if not _excluded_from_learning(clip):
             stream_stats.record(stream_stats.CLEARED, clip)
 
     # Before the broadcasts, not after — clip_removed is what prompts the tab to
@@ -5464,18 +5491,34 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
     return {"featured": True, "count": len(items), "max": _SHOWCASE_MAX}
 
 
-def _is_grabbed(clip: dict) -> bool:
-    """A clip copied from another admin's showcase rather than caught by the
-    detector on this user's behalf.
+def _excluded_from_learning(clip: dict) -> bool:
+    """A clip our scoring did not produce, so a review of it teaches us nothing.
 
-    Every telemetry path has to check this. A grabbed clip did NOT come from
-    our scoring on their channel, so counting it would:
+    Every telemetry and learning path has to check this. Such a clip did NOT
+    come from our formula running on this user's channel, so counting it would:
       * inflate the per-channel clip record (a "kept" with no matching
         "caught", which is the number being shown to streamers),
       * teach that channel's profile from a decision the formula never made,
       * and put a mislabelled row in the training set.
+
+    TWO KINDS QUALIFY, for the same reason:
+
+    `grabbed` — copied from another admin's showcase.
+
+    `suggested` — surfaced because VIEWERS clipped the moment, with the score
+    deliberately never consulted (src/trigger/suggested_clips.py). This one is
+    the sharper trap of the two, because the damage runs BACKWARDS: rejecting a
+    suggestion would call record_clip(approved=False), which raises the
+    channel's trigger threshold by 0.75 — punishing the detector for a moment
+    it never claimed, and making it fire LESS on the very channel where the
+    crowd is finding things it missed. Its trigger_signals are empty besides,
+    so a training row from it would be a label attached to no features.
+
+    Renamed from `_is_grabbed` when the second kind arrived: the old name had
+    become a lie about what the check means, and a future reader calling it on
+    a suggested clip would have had every reason to expect False.
     """
-    return clip.get("source") == "grabbed"
+    return clip.get("source") == "grabbed" or bool(clip.get("suggested"))
 
 
 @app.post("/admin/showcase/{clip_id}/grab")
