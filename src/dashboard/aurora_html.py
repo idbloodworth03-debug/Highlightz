@@ -1096,7 +1096,11 @@ const CLIP_SORTS = {
   virality: {l:'Virality',      date:false, k: c => c.virality_score || 0},
 };
 
-function sortClips(list, sortBy, sortDir, pendingFirst) {
+// `queueMode` means "this screen is the review queue, so group it" — Review
+// passes true, the Library false. It was called `pendingFirst` when status was
+// the only grouping; crowd suggestions added a second one, and a name promising
+// exactly one of them would have been the misleading half of the truth.
+function sortClips(list, sortBy, sortDir, queueMode) {
   const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
   return [...list].sort((a,b)=>{
     // Pending first, but ONLY on a date sort, and only where the caller asked
@@ -1104,9 +1108,23 @@ function sortClips(list, sortBy, sortDir, pendingFirst) {
     // applying it to an explicit score sort would defeat the request, because
     // asking for the highest trigger score and getting a wall of already-
     // approved clips above a 95 is not sorting by trigger score.
-    if(pendingFirst && s.date){
+    if(queueMode && s.date){
       const sp={pending:0,approved:1,rejected:2};
       if(sp[a.status]!==sp[b.status]) return sp[a.status]-sp[b.status];
+      // Crowd suggestions rise to the top — but WITHIN their status band, not
+      // above it. Ranking them before the status check would float an already-
+      // approved suggestion over a pending clip still waiting on a decision,
+      // which is the one thing the queue ordering exists to prevent. Inside the
+      // pending band this puts them at the very top of Review, which is the
+      // point: they are the moments the detector did NOT catch, so they are the
+      // ones worth looking at first.
+      //
+      // Date sorts only, for the same reason the status grouping is: a
+      // suggestion carries trigger_score 0, so pinning it to the top of an
+      // explicit "highest trigger score" sort would be answering a different
+      // question than the one asked.
+      const sg = c => c.suggested ? 0 : 1;
+      if(sg(a)!==sg(b)) return sg(a)-sg(b);
     }
     const d = s.k(a) - s.k(b);
     if(d) return sortDir === 'asc' ? d : -d;
@@ -2328,7 +2346,9 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
   const clipsArr = sortClips(
     approved.filter(c=>effChan==='all'||c.channel===effChan),
-    sortBy, sortDir, false);   // nothing pending is ever listed here
+    // Not a queue: nothing pending is listed here, and an approved suggestion
+    // should not outrank the rest of the library forever just for being one.
+    sortBy, sortDir, false);
   // Pending clips are not listed here, but their existence is worth surfacing —
   // otherwise hiding them reads as "my clips vanished" rather than "they are one
   // tab over waiting on you".

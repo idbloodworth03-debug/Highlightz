@@ -392,3 +392,93 @@ def test_the_icons_the_controls_ask_for_exist():
     assert m, "the icon map moved"
     for name in ("chevron", "arrowdown", "arrowup", "sliders", "check", "radio"):
         assert re.search(r"\n    " + name + r":", m.group(1)), f"icon {name!r} missing"
+
+
+# ── crowd suggestions rise to the top of the queue ───────────────────────────
+# Asked for directly: "make those clips automatically go to the top". They are
+# the moments the detector did NOT catch, so they are the ones worth seeing
+# first. The fixture below is built to catch the two ways of getting this wrong.
+
+SUG_CLIPS = [
+    # Newest by a distance, and NOT a suggestion — so a working rule has to
+    # actively demote it rather than leave the date order alone.
+    {"id": "new", "status": "pending", "channel": "nova", "created_at": 900,
+     "trigger_score": 88, "virality_score": 70},
+    {"id": "old", "status": "pending", "channel": "nova", "created_at": 100,
+     "trigger_score": 40, "virality_score": 30},
+    # A suggestion in the MIDDLE of the date order: it cannot reach the top by
+    # accident of its timestamp.
+    {"id": "sug", "status": "pending", "channel": "nova", "created_at": 500,
+     "trigger_score": 0, "virality_score": 0, "suggested": True},
+    # An APPROVED suggestion. This is the trap: rank "suggested" before the
+    # status grouping and this jumps over every pending clip still awaiting a
+    # decision, which is exactly what the queue ordering exists to prevent.
+    {"id": "sugdone", "status": "approved", "channel": "nova", "created_at": 800,
+     "approved_at": 800, "trigger_score": 0, "virality_score": 0,
+     "suggested": True},
+]
+
+
+def test_a_suggestion_leads_the_queue_even_when_it_is_not_the_newest():
+    assert _run(SUG_CLIPS, sort_by="newest")["ids"][0] == "sug"
+
+
+def test_an_approved_suggestion_does_not_jump_the_pending_clips():
+    """Suggestions rise WITHIN their status band, not above it. A clip the user
+    already decided on must never outrank one still waiting on them."""
+    ids = _run(SUG_CLIPS, sort_by="newest")["ids"]
+    assert ids == ["sug", "new", "old", "sugdone"], ids
+    assert ids.index("sugdone") > ids.index("old"), \
+        "an already-approved suggestion outranked a clip awaiting a decision"
+
+
+def test_it_still_leads_when_the_queue_is_flipped_to_oldest_first():
+    """The grouping runs before the direction-sensitive comparison, so it
+    survives a direction flip — same as the pending-first grouping."""
+    ids = _run(SUG_CLIPS, sort_by="newest", sort_dir="asc")["ids"]
+    assert ids[0] == "sug", ids
+
+
+def test_an_explicit_score_sort_is_not_overridden():
+    """The same rule the pending-first grouping follows, and for the same
+    reason. A suggestion carries trigger_score 0 because no score produced it,
+    so pinning it above a 88 in an explicit 'highest trigger score' sort would
+    answer a different question than the one asked."""
+    ids = _run(SUG_CLIPS, sort_by="trigger", sort_dir="desc")["ids"]
+    assert ids[0] == "new", ids
+    assert ids.index("sug") > ids.index("old"), \
+        "a zero-score suggestion outranked a real score on a score sort"
+
+
+def test_the_library_does_not_pin_suggestions_forever():
+    """queueMode=false. The library is the record of what you kept, ordered by
+    when you kept it — an approved suggestion has no claim on the top of it."""
+    ids = _run(SUG_CLIPS, sort_by="newest", pending_first=False)["ids"]
+    assert ids == ["new", "sugdone", "sug", "old"], ids
+
+
+def test_clips_without_the_field_are_unaffected():
+    """Every clip captured before this feature existed has no `suggested` key.
+    They must order exactly as they did — this is the whole existing library."""
+    # Against the known baseline, not against another run of the same fixture —
+    # the first draft compared _run() to _run(CLIPS), which is the same input
+    # twice and would have passed no matter what the comparator did with a
+    # missing `suggested` key. None of CLIPS carries the field.
+    assert not any("suggested" in c for c in CLIPS)
+    assert _run(sort_by="newest")["ids"] == ["b", "a", "d", "c"]
+    assert _run(sort_by="trigger", sort_dir="desc")["ids"] == ["b", "c", "a", "d"]
+
+
+def test_each_screen_passes_the_queue_flag_it_should():
+    """The comparator honouring queueMode is only half of it — the screens have
+    to PASS the right value. Mutation testing caught this: flipping the
+    Library's call to `true` left every behavioural test above green, because
+    they hand the flag to the comparator directly and never read the call site.
+    Review is the queue; the Library is a record."""
+    review = re.search(r"sortClips\(filtered,\s*sortBy,\s*sortDir,\s*(\w+)\)", JS)
+    assert review and review.group(1) == "true", \
+        "Clip Review no longer sorts as a queue"
+    lib = re.search(r"sortClips\(\s*\n?\s*approved\.filter.*?sortBy,\s*sortDir,\s*(\w+)\)",
+                    JS, re.S)
+    assert lib and lib.group(1) == "false", \
+        "the Library now pins suggestions to the top of what you have kept"
