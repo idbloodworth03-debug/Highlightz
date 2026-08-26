@@ -31,8 +31,39 @@ html,body{height:100%}
 body{font-family:var(--font);color:var(--fg);background:var(--rd-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font-family:inherit;cursor:pointer}
 ::selection{background:rgba(199,155,255,.3)}
-.rd-app{position:relative;height:100vh;display:grid;grid-template-columns:104px 1fr;isolation:isolate}
-.rd-frame{display:grid;grid-template-rows:68px 1fr;min-height:0;overflow:hidden}
+/* grid-template-rows is NOT optional here. Without it the single row is
+   implicit and `auto`, which sizes to the frame's max-content — so a tall
+   screen made the frame taller than the 100vh app and the bottom fell off the
+   window (measured: a 1000px frame in a 975px viewport, and 790 in 700).
+   minmax(0,1fr) pins the row to the app's own height and lets the flex column
+   inside do the scrolling, which is what it is there for. */
+.rd-app{position:relative;height:100vh;display:grid;grid-template-columns:104px 1fr;
+  grid-template-rows:minmax(0,1fr);isolation:isolate}
+/* A COLUMN, NOT A ROW TEMPLATE, and that is the whole fix.
+   This was `grid-template-rows:68px 1fr` with THREE children: the header, the
+   trial banner, and the screen. A two-row template gives row 2 — the banner —
+   the 1fr, and drops the screen into an implicit auto row. What that did
+   depended entirely on how tall the screen's content happened to be:
+
+     Clip Review   rows resolved 68 /  44 / 863   looked fine, by luck
+     Settings      rows resolved 68 / 381 / 526   the 44px banner became 381px
+     Feedback      rows resolved 68 / 436 / 470   and 436px
+
+   — hundreds of pixels of empty purple under the header on any screen whose
+   content did not fill the window, and the screen itself squashed to match.
+   Worse, below ~790px of viewport the auto row pushed the frame PAST 100vh
+   (measured: a 790px frame in a 700px window) and `overflow:hidden` clipped
+   the difference, so the bottom of every page became unreachable — no scroll,
+   no scrollbar, just gone.
+
+   A flex column cannot get this wrong: children keep their natural height and
+   the screen takes what is left, whether the banner is there or not. */
+.rd-frame{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.rd-frame > *{flex:0 0 auto}
+.rd-frame > .rd-screen{flex:1 1 auto}
+/* The header's 68px used to come from the row template, so it needs its own
+   height now — otherwise it collapses to its content. */
+.rd-header{height:68px}
 .rd-screen{min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .rd-app::before{content:'';position:fixed;inset:0;z-index:-2;
   background:radial-gradient(900px 480px at 18% -8%,rgba(168,85,247,.20),transparent 60%),
@@ -757,14 +788,22 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 @media(max-width:900px){
   .rd-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .rd-col{max-height:300px}
-  .rd-streams-layout{grid-template-columns:1fr}
+  /* Stacked, so it is now TALLER than the window rather than two columns that
+     each scroll on their own. Without a scroller of its own the bottom of this
+     screen was simply unreachable between 701px and 900px wide — the band
+     between the desktop layout and the page-scroll mobile mode, which nothing
+     had ever been checked at. Measured before the frame fix and after it: the
+     last control sat 7802px down a 900px window either way, so this is its own
+     bug rather than a consequence of that one. */
+  .rd-streams-layout{grid-template-columns:1fr;overflow-y:auto}
   .rd-metrics{grid-template-columns:repeat(2,1fr)}
   .rd-modal-grid{grid-template-columns:1fr}
 }
 @media(max-width:700px){
   /* Scrollable instead of fixed-height */
   body{overflow:auto}
-  .rd-app{grid-template-columns:1fr;height:auto;min-height:100dvh}
+  .rd-app{grid-template-columns:1fr;height:auto;min-height:100dvh;
+    grid-template-rows:auto}
   .rd-frame{min-height:0;overflow:visible}
   /* No bottom bar to clear anymore — content runs to the bottom of the screen. */
   .rd-screen{overflow:visible;padding-bottom:16px}
@@ -795,8 +834,9 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
     flex-shrink:0;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--hair);
     color:var(--fg);cursor:pointer}
 
-  /* Frame: let grid rows auto-size for page scroll */
-  .rd-frame{grid-template-rows:56px auto}
+  /* Page-scroll mode: the frame stops constraining height at all, so the
+     screen must not try to fill it. */
+  .rd-frame > .rd-screen{flex:0 0 auto}
 
   /* Header */
   .rd-header{padding:0 12px;gap:10px;height:56px}
@@ -925,7 +965,6 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-body{grid-template-columns:minmax(0,1fr)}
   .rd-streams-layout{grid-template-columns:minmax(0,1fr)}
   .rd-frame,.rd-screen,.rd-main,.rd-col,.rd-rail{min-width:0}
-  .rd-frame{grid-template-rows:auto 1fr}
   .rd-header{flex-wrap:wrap;height:auto;min-height:0;padding:10px 12px;gap:8px 10px}
   .rd-header>*{min-width:0}
   .rd-header .htitle{font-size:16px}
