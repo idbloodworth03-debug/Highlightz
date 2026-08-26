@@ -496,3 +496,103 @@ def test_it_says_when_there_are_no_doubly_rated_clips(store, capsys):
     _write(av.HUMAN, [_human(i, 5, 50, labeler=f"lab{i}") for i in range(40)])
     _, out = _run(av, capsys, [])
     assert "too few doubly-rated clips" in out
+
+
+# ── the ceiling: is there ANY weighting that works? ──────────────────────────
+
+def test_the_ceiling_finds_a_signal_that_really_is_there(store, capsys):
+    """Fitted on half, scored on the unseen half. When one signal genuinely
+    drives the target, the fit must find it and beat the running formula —
+    otherwise a real opportunity would be reported as a dead end."""
+    av, tmp = store
+    rows = []
+    for i in range(400):
+        v = (i % 10) + 1
+        rows.append(_human(i, v, 50, sig={          # bot score constant at 50
+            "KEYWORD": v / 10, "AUDIO_SPIKE": 0.5, "SILENCE_BURST": 0.2,
+            "EMOTE_HOMOGENEITY": 0.1, "SENTIMENT": 0.3, "VIEWER_SPIKE": 0.4,
+            "CHAT_VELOCITY": 0.6}))
+    _write(av.HUMAN, rows)
+    _, out = _run(av, capsys, [])
+    assert "6. THE CEILING" in out
+    # The running formula is constant in this fixture, so it cannot be ranked
+    # at all — which the report has to read as "trivially beatable", not as
+    # "no improvement". It reported the latter until this test was written.
+    assert "pure gain" in out or "A reweight is worth" in out, \
+        "a signal that fully explains the target was reported as unfittable"
+    assert "No better than what is already deployed" not in out
+
+
+def test_the_ceiling_calls_pure_noise_a_dead_end(store, capsys):
+    """THE ANSWER THAT DECIDES THE PROJECT. If no weighting of these signals
+    predicts the target on unseen data, the problem is the signals and
+    reweighting is wasted work. Reporting that as a weak opportunity would send
+    someone off to tune weights for nothing."""
+    av, tmp = store
+    import random
+    random.seed(3)
+    rows = []
+    for i in range(400):
+        rows.append(_human(i, random.randint(1, 10), random.randint(20, 60),
+                           sig={s: random.random() for s in av.SIGNALS}))
+    _write(av.HUMAN, rows)
+    _, out = _run(av, capsys, [])
+    assert "Reweighting cannot" in out
+    assert "signals do not carry the answer" in out
+
+
+def test_the_ceiling_is_scored_on_data_it_did_not_fit(store, capsys):
+    """Fitting and scoring on the same rows always flatters the fit — with
+    seven free weights it can chase noise and report a correlation that
+    vanishes in production."""
+    import inspect
+    from src.maintenance import analyze_virality as av
+    src = inspect.getsource(av.section_ceiling)
+    assert "train_r, test_r = rows[:half], rows[half:]" in src
+    assert "_fit(train_r" in src, "the fit sees the test half"
+    assert "for r in test_r]" in src, "the score is not computed on the held-out half"
+
+
+def test_the_ceiling_refuses_rather_than_splitting_a_tiny_sample(store, capsys):
+    av, tmp = store
+    _write(av.HUMAN, [_human(i, 5, 50) for i in range(50)])
+    _, out = _run(av, capsys, [])
+    assert "need 200+ to split" in out
+
+
+def test_the_solver_recovers_weights_it_was_given():
+    """The fit underpins the whole section. If it were wrong, a real signal
+    would look like noise and the recommendation would invert."""
+    from src.maintenance.analyze_virality import SIGNALS, _apply, _fit
+    rows = []
+    for i in range(300):
+        sig = {s: ((i * (j + 3)) % 100) / 100 for j, s in enumerate(SIGNALS)}
+        rows.append({"signals": sig,
+                     "target": 3 * sig["AUDIO_SPIKE"] + 1 * sig["KEYWORD"]})
+    w = _fit(rows, lambda r: r["signals"], lambda r: r["target"])
+    assert w is not None
+    got = dict(zip(SIGNALS, w))
+    assert got["AUDIO_SPIKE"] > got["KEYWORD"] > 0.5, \
+        f"the solver did not recover the planted weights: {got}"
+    assert _apply(w, rows[0]["signals"]) == pytest.approx(rows[0]["target"], abs=0.2)
+
+
+def test_per_channel_shows_where_it_works_if_anywhere(store, capsys):
+    """A global average of zero can hide a score that works on loud channels
+    and inverts on quiet ones — that would be a per-channel fix, not a
+    reweight, and averaging hides it completely."""
+    av, tmp = store
+    rows = []
+    for i in range(60):                       # works here
+        v = (i % 10) + 1
+        rows.append(dict(_human(i, v, v * 10), channel="loud"))
+    for i in range(60):                       # inverted here
+        v = (i % 10) + 1
+        rows.append(dict(_human(500 + i, 11 - v, v * 10), channel="quiet"))
+    _write(av.HUMAN, rows)
+    _, out = _run(av, capsys, [])
+    assert "7. DOES IT WORK ANYWHERE?" in out
+    block = out.split("7. DOES IT WORK ANYWHERE?")[1]
+    assert "loud" in block and "quiet" in block
+    assert "1.000" in block and "-1.000" in block, \
+        "opposite channels were averaged instead of separated"

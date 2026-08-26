@@ -622,6 +622,129 @@ def section_weights(human_rows, outcome_rows):
     print()
 
 
+# ── 6. the ceiling ───────────────────────────────────────────────────────────
+
+def _solve(A, b, ridge=1e-3):
+    """Least squares by Gaussian elimination on the normal equations.
+
+    Ridge term because the signals are correlated with each other; without it a
+    near-singular matrix produces enormous weights that fit the sample and
+    predict nothing.
+    """
+    n = len(A)
+    M = [row[:] + [b[i]] for i, row in enumerate(A)]
+    for i in range(n):
+        M[i][i] += ridge
+    for i in range(n):
+        piv = max(range(i, n), key=lambda r: abs(M[r][i]))
+        if abs(M[piv][i]) < 1e-12:
+            return None
+        M[i], M[piv] = M[piv], M[i]
+        for r in range(i + 1, n):
+            f = M[r][i] / M[i][i]
+            for c in range(i, n + 1):
+                M[r][c] -= f * M[i][c]
+    x = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        x[i] = (M[i][n] - sum(M[i][c] * x[c] for c in range(i + 1, n))) / M[i][i]
+    return x
+
+
+def _fit(rows, get_sig, get_target):
+    """Best linear combination of the signals for this target. Returns weights."""
+    X = [[float(get_sig(r).get(sg, 0.0)) for sg in SIGNALS] for r in rows]
+    y = [float(get_target(r)) for r in rows]
+    k = len(SIGNALS)
+    A = [[sum(X[i][a] * X[i][b] for i in range(len(X))) for b in range(k)]
+         for a in range(k)]
+    v = [sum(X[i][a] * y[i] for i in range(len(X))) for a in range(k)]
+    return _solve(A, v)
+
+
+def _apply(w, sig):
+    return sum(w[i] * float(sig.get(sg, 0.0)) for i, sg in enumerate(SIGNALS))
+
+
+def section_ceiling(human_rows, outcome_rows):
+    print("=" * 74)
+    print("6. THE CEILING — IS THERE ANY SET OF WEIGHTS THAT WORKS?")
+    print("=" * 74)
+    print("Section 5 proposes weights. This asks the prior question: fit the BEST")
+    print("possible linear combination of these signals on half the data, then")
+    print("score the half it has never seen. If even that cannot beat the")
+    print("current formula by much, the problem is the SIGNALS, not the weights,")
+    print("and no reweighting will fix it.\n")
+
+    for label, rows, get_sig, get_target in (
+        ("human rating", [r for r in human_rows if r.get("bot_signals")],
+         lambda r: r.get("bot_signals") or {},
+         lambda r: r["human"]["virality"]),
+        ("kept vs not", [r for r in outcome_rows if r.get("signals")],
+         lambda r: r.get("signals") or {},
+         lambda r: 1.0 if r.get("label") == "approved" else 0.0),
+    ):
+        if len(rows) < 200:
+            print(f"  {label}: only {len(rows)} rows — need 200+ to split.\n")
+            continue
+        half = len(rows) // 2
+        train_r, test_r = rows[:half], rows[half:]
+        w = _fit(train_r, get_sig, get_target)
+        if w is None:
+            print(f"  {label}: signals are collinear, no stable fit.\n")
+            continue
+        fitted = [_apply(w, get_sig(r)) for r in test_r]
+        actual = [float(get_target(r)) for r in test_r]
+        r_out = spearman(fitted, actual)
+        cur = [float(r.get("bot_virality_score") or r.get("virality_score") or 0)
+               for r in test_r]
+        r_cur = spearman(cur, actual)
+        print(f"  vs {label}   (fitted on {len(train_r)}, scored on {len(test_r)} unseen)")
+        print(f"    best fitted weights : {_fmt(r_out, 3, '—'):>7}")
+        print(f"    formula running now : {_fmt(r_cur, 3, '—'):>7}")
+        if r_out is None:
+            print("    -> the fitted score could not be ranked either.")
+        elif abs(r_out) < 0.10:
+            print("    -> Even the BEST possible weighting of these signals is")
+            print("       near zero on data it has not seen. Reweighting cannot")
+            print("       fix this. The signals do not carry the answer.")
+        elif r_cur is None:
+            # A constant or missing current score has no rank order, so
+            # comparing against it returns None. Reading that as "no
+            # improvement" is exactly backwards — an unrankable score is the
+            # easiest thing in the world to beat.
+            print(f"    -> the formula running now cannot be ranked here at all")
+            print(f"       (constant or missing), so {r_out:+.3f} is pure gain.")
+        elif r_out > r_cur + 0.05:
+            print(f"    -> A reweight is worth {r_out - r_cur:+.3f} here. Real, and")
+            print("       the size of the prize is now known rather than hoped for.")
+        else:
+            print("    -> No better than what is already deployed.")
+        print()
+
+
+def section_channels(human_rows, outcome_rows):
+    print("=" * 74)
+    print("7. DOES IT WORK ANYWHERE? — per channel")
+    print("=" * 74)
+    print("An average of zero can hide a score that works on loud channels and")
+    print("inverts on quiet ones. If so, the fix is per-channel, not global.\n")
+    shown = 0
+    print(f"  {'channel':<24} {'n':>5} {'vs human':>9}")
+    for ch, g in sorted(_by(human_rows, lambda r: r.get("channel")).items(),
+                        key=lambda kv: -len(kv[1])):
+        g = [r for r in g if isinstance(r.get("bot_virality_score"), (int, float))]
+        if len(g) < 40:
+            continue
+        rr = spearman([float(r["bot_virality_score"]) for r in g],
+                      [float(r["human"]["virality"]) for r in g])
+        flag = "" if _significant(rr, len(g)) else "  (ns)"
+        print(f"  {str(ch)[:24]:<24} {len(g):>5} {_fmt(rr, 3, '—'):>9}{flag}")
+        shown += 1
+    if not shown:
+        print("  no channel has 40+ rated clips yet.")
+    print()
+
+
 # ── csv ──────────────────────────────────────────────────────────────────────
 
 def dump_csv(path: Path, human_rows, outcome_rows):
@@ -683,6 +806,8 @@ def main() -> int:
     outcome_rows = section_outcomes(train, excluded)
     section_viewers(viewer, clips)
     section_weights(human_rows, outcome_rows)
+    section_ceiling(human_rows, outcome_rows)
+    section_channels(human_rows, outcome_rows)
 
     if a.csv:
         dump_csv(a.csv, human_rows, outcome_rows)
