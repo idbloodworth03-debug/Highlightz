@@ -6554,21 +6554,33 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-lead{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:60ch;
     margin:0 0 30px}
   .price-lead b{color:var(--ink)}
-  .ptiers{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1fr);
-    gap:20px;align-items:stretch}
+  /* A LADDER, not three equal cards. The row grows left to right — width,
+     padding, corner radius and price size all step up — because the plans are
+     not equal and the layout should not pretend they are. Free is the first
+     rung rather than a footnote above the row: it is the same axis (how many
+     channels get watched at once), starting at one. */
+  .ptiers{display:grid;
+    grid-template-columns:minmax(0,.72fr) minmax(0,.86fr) minmax(0,1fr);
+    gap:18px;align-items:stretch}
   .ptier{display:flex;flex-direction:column;gap:13px;
     border:1px solid var(--hair);background:rgba(255,255,255,.018)}
-  .ptier-a{border-radius:4px;padding:26px 26px 28px}
-  .ptier-b{border-radius:7px;padding:32px 32px 34px;
+  .ptier-a{border-radius:3px;padding:22px 22px 24px}
+  .ptier-b{border-radius:4px;padding:26px 26px 28px}
+  .ptier-c{border-radius:7px;padding:32px 32px 34px;
     border-color:rgba(184,106,220,.34);background:rgba(184,106,220,.055);
     box-shadow:0 20px 50px -30px rgba(184,106,220,.5)}
+  /* The free card's $0 is the number most visitors are looking for, so it is
+     not allowed to be the quietest thing in the row. */
+  .ptier-a .ptier-fig{color:var(--ink)}
+  .ptier-a .ptier-fig i{color:#7ddba4}
   .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
     flex-wrap:wrap}
   .ptier-name{font-family:var(--sans);font-weight:700;font-size:15px;
     letter-spacing:.01em;color:var(--ink)}
   .ptier-fig{font-family:var(--sans);font-weight:700;letter-spacing:-.02em;
     font-size:34px;color:var(--ink)}
-  .ptier-b .ptier-fig{font-size:40px;color:var(--glow)}
+  .ptier-a .ptier-fig{font-size:30px}
+  .ptier-c .ptier-fig{font-size:40px;color:var(--glow)}
   .ptier-fig i{font-style:normal;font-size:13px;font-weight:600;color:var(--ink-3);
     margin-left:3px}
   .ptier-chan{margin:0;font-size:15px;color:var(--ink-2);line-height:1.5}
@@ -6576,10 +6588,17 @@ LANDING_HTML = """<!DOCTYPE html>
   .ptier-what{margin:0;font-size:14px;line-height:1.62;color:var(--ink-3)}
   .ptier .btn{margin-top:auto;align-self:flex-start}
   .price-tiny{margin:20px 0 0;font-size:13px;color:var(--ink-3)}
-  @media (max-width:760px){
+  /* Three columns need to break earlier than two did: at 760 the middle card
+     was 210px wide and its price wrapped under its own name. */
+  @media (max-width:980px){
+    .ptiers{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+    .ptier-a{grid-column:1 / -1}
+  }
+  @media (max-width:700px){
     .ptiers{grid-template-columns:minmax(0,1fr);gap:16px}
-    .ptier-b{padding:26px 24px 28px}
-    .ptier-b .ptier-fig{font-size:34px}
+    .ptier-a{grid-column:auto}
+    .ptier-c{padding:26px 24px 28px}
+    .ptier-c .ptier-fig{font-size:34px}
   }
 
   /* ── How it works: three steps, deliberately unequal ──────────────────────
@@ -8160,34 +8179,47 @@ def _pricing() -> str:
     from src.billing.plans import PLAN_LIMITS
     free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
 
-    def tier(key: str, limits: dict, blurb: str, cls: str) -> str:
+    def tier(limits: dict, blurb: str, cls: str, *,
+             fig_suffix: str, cta: str, cta_cls: str) -> str:
+        chan = str(limits["max_streams"])
         return (
             '<div class="ptier ' + cls + '">'
             + '<div class="ptier-head"><span class="ptier-name">' + limits["label"] + "</span>"
-            + '<span class="ptier-fig">$' + str(limits["price"]) + "<i>/month</i></span></div>"
-            + '<p class="ptier-chan"><b>' + str(limits["max_streams"])
-            + " channels</b> watched at the same time</p>"
+            + '<span class="ptier-fig">$' + str(limits["price"])
+            + "<i>" + fig_suffix + "</i></span></div>"
+            + '<p class="ptier-chan"><b>' + chan
+            + (" channel</b> watched at a time" if chan == "1"
+               else " channels</b> watched at the same time") + "</p>"
             + '<p class="ptier-what">' + blurb + "</p>"
-            + '<a href="/login" class="btn ' + ("btn-key" if key == "pro" else "btn-quiet")
-            + ' btn-lg">Start free</a></div>')
+            + '<a href="/login" class="btn ' + cta_cls + ' btn-lg">' + cta + "</a></div>")
 
+    # THREE CARDS, SMALLEST FIRST, and the sizes are the argument. The row was
+    # two cards on the reasoning that "the plans differ on one axis, how many
+    # channels get watched at once, so the layout leads with that" — which is
+    # exactly why Free belongs IN the row rather than described in the
+    # paragraph above it. It is the first rung of that same ladder, and a
+    # visitor scanning for "what does this cost to try" was reading prose while
+    # two priced cards sat underneath saying $10 and $25.
     return (
-        '<p class="price-lead"><b>Free to start, and it does not expire.</b> '
-        + "One channel watched, a queue of " + str(free["max_pending"])
-        + " clips, and up to " + str(free["max_suggested"])
-        + " clips your viewers made themselves. Keep it as long as you like. "
-        + "The paid plans differ on one question: how many channels do you "
-        + "need watched at once?</p>"
+        '<p class="price-lead"><b>Start on the free plan and stay there as long '
+        "as you like.</b> There is no card to enter and no time limit on it. "
+        "The paid plans answer one question: how many channels do you need "
+        "watched at once?</p>"
         + '<div class="ptiers">'
-        + tier("starter", st,
+        + tier(free,
+               "A queue that holds " + str(free["max_pending"]) + " clips, plus up to "
+               + str(free["max_suggested"]) + " moments your own viewers clipped that "
+               "the detector did not. The real product, in its smallest size.",
+               "ptier-a", fig_suffix="no card", cta="Start free", cta_cls="btn-quiet")
+        + tier(st,
                "A queue that holds " + str(st["max_pending"]) + " clips. "
                "Same detection, same formula, same everything else.",
-               "ptier-a")
-        + tier("pro", pro,
+               "ptier-b", fig_suffix="/month", cta="Get Starter", cta_cls="btn-quiet")
+        + tier(pro,
                "A queue that holds " + str(pro["max_pending"]) + " clips, plus the "
                "VOD Scanner for pulling highlights out of streams that already "
                "happened.",
-               "ptier-b")
+               "ptier-c", fig_suffix="/month", cta="Get Pro", cta_cls="btn-key")
         + "</div>"
         + '<p class="price-tiny">Move between them whenever you like. Cancel from '
           "the Account tab. No contracts.</p>")
