@@ -119,32 +119,15 @@ class ClipProcessor:
         return meta
 
     async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
-        from src.output import kick_clips
-        from src.output.kick_clips import KickScopeError
+        """Unreachable, and kept only so the dispatch above stays total.
 
-        token = await user_store.get_kick_token(job.user_id)
-        if not token:
-            raise RuntimeError(f"No valid Kick token for user '{job.user_id}' — re-link Kick account")
-
-        db_user = user_store.get_by_id(job.user_id)
-        kick_slug = db_user.get("kick_slug", channel) if db_user else channel
-
-        log.info("creating_kick_clip", clip_id=meta.id, channel=channel,
-                 kick_slug=kick_slug, user_id=job.user_id)
-
-        try:
-            clip_url = await kick_clips.create_clip(token, kick_slug)
-        except KickScopeError as exc:
-            # Propagate with a user-friendly message so the dashboard can surface it
-            raise RuntimeError(
-                f"Kick clipping requires re-linking your Kick account to grant "
-                f"clip permissions. Go to Settings → Kick and re-link."
-            ) from exc
-
-        if not clip_url:
-            raise RuntimeError(f"Kick clip creation failed for '{channel}'")
-
-        meta.twitch_url = clip_url  # reuse field for clip URL
-        meta.status = "pending"
-        log.info("kick_clip_ready", clip_id=meta.id, url=clip_url)
-        return meta
+        This used to create a real Kick clip with the user's stored Kick OAuth
+        token. Those tokens are gone (see the note in src/dashboard/api.py where
+        the Kick OAuth routes were removed), and no Kick stream can be added in
+        the first place — POST /streams answers 503 for platform="kick". So the
+        only way to arrive here is a job queued before all of that, which should
+        fail loudly rather than half-work.
+        """
+        raise RuntimeError(
+            "Kick clipping is not available yet — Kick monitoring is switched off."
+        )

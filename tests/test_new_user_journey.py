@@ -202,7 +202,10 @@ def test_a_new_user_sees_no_queue_full_notice(app):
     "/", "/me", "/clips", "/streams", "/stats", "/profiles",
     "/streams/suggest", "/clips/undo", "/vod/jobs",
     "/publish/platforms", "/publish/schedule", "/feedback/mine",
-    "/feedback/unread-count", "/auth/kick/status",
+    # /auth/kick/status was here until the Kick OAuth flow was removed on
+    # 2026-08-27. It is not "a screen a new user opens" any more — there is no
+    # Kick account to have a status.
+    "/feedback/unread-count",
 ])
 def test_every_screen_a_new_user_opens_answers(app, path):
     """No 403, no 500 — the two that mean "you cannot use this"."""

@@ -376,7 +376,11 @@ class _FakeBuf:
 def _suggestion(slug, at=T0, **kw):
     return sc.Suggestion(slug=slug, url=f"https://clips.twitch.tv/{slug}",
                          embed_url=f"https://e/{slug}", thumbnail_url="",
-                         title="t", creator="fan", created_at=at,
+                         # No creator= here: Suggestion.__init__ only sets known
+                         # slots, so passing it would be a kwarg that silently
+                         # does nothing — a fixture that reads as if the name
+                         # still travels with the suggestion when it does not.
+                         title="t", created_at=at,
                          view_count=kw.get("views", 0),
                          clipper_count=kw.get("clippers", 1),
                          duration=30.0, channel="aceu")
@@ -457,7 +461,8 @@ async def test_a_landed_suggestion_carries_no_score_and_says_who_made_it(monkeyp
 
     c = landed[0]
     assert c["suggested"] is True
-    assert c["suggested_by"] == "fan" and c["clipper_count"] == 3
+    assert c["clipper_count"] == 3
+    assert "suggested_by" not in c, "the clipper's name is on the record again"
     assert c["suggested_views"] == 120
     assert c["twitch_clip_id"] == "s1"
     assert c["trigger_score"] == 0.0 and c["virality_score"] == 0.0, \
@@ -523,7 +528,7 @@ def _seed(api, **kw):
     clip = {"id": "sug1", "user_id": "punter", "platform": "twitch",
             "channel": "aceu", "status": "pending", "created_at": T0,
             "clip_title": "a moment", "trigger_score": 0.0,
-            "trigger_signals": [], "suggested": True, "suggested_by": "fan",
+            "trigger_signals": [], "suggested": True,
             "clipper_count": 2, "twitch_url": "https://clips.twitch.tv/s1"}
     clip.update(kw)
     api._clips["sug1"] = clip
@@ -722,16 +727,21 @@ def test_the_queue_describes_what_highlightz_found_not_who_clipped_it():
     assert "High interest" in body, "the card lost its audience-signal badge"
 
 
-def test_the_clipper_is_still_recorded_even_though_it_is_not_shown():
-    """Not surfacing it is not the same as discarding it. The name is who owns
-    the clip on Twitch, which is worth holding for support and for any question
-    about provenance later — hiding a field in the UI must not quietly become
-    deleting it from the record."""
+def test_the_clippers_name_is_not_recorded_at_all():
+    """This test used to assert the opposite, and the reversal is the point.
+
+    The argument for keeping `suggested_by` was provenance: the name is who
+    owns the clip on Twitch, so hiding it in the UI should not quietly become
+    deleting it. That argument did not survive the question "what reads it?" —
+    nothing did. It was a third party's identity, retained on the theory that
+    it might be useful, which is exactly the thing a privacy policy then has to
+    account for. A count of clippers carries the signal without the identity.
+    """
     from src.processor.metadata import ClipMetadata
-    d = ClipMetadata(suggested=True, suggested_by="pogchampion",
-                     clipper_count=3).to_dict()
-    assert d["suggested_by"] == "pogchampion"
-    assert d["clipper_count"] == 3
+    d = ClipMetadata(suggested=True, clipper_count=3).to_dict()
+    assert "suggested_by" not in d
+    assert d["clipper_count"] == 3, "the signal went out with the identity"
+    assert not any("suggested_by" in k for k in d), "the field came back renamed"
 
 
 def test_the_modal_does_not_disclaim_the_work():
@@ -864,7 +874,7 @@ async def test_the_race_guard_caps_suggestions_on_their_own_budget(api_client):
                 "id": f"s{i}", "user_id": "punter", "channel": "aceu",
                 "platform": "twitch", "status": "pending",
                 "created_at": T0 + i * 500,     # past the dedup window
-                "suggested": True, "suggested_by": "fan"})
+                "suggested": True})
         held = [c for c in api._clips.values() if c.get("suggested")]
         assert len(held) == 3, \
             f"the suggestion budget was not enforced at the race guard: {len(held)}"
@@ -893,3 +903,87 @@ async def test_the_race_guard_still_lets_triggered_clips_use_the_full_queue(api_
             f"triggered clips were capped at the suggestion budget: {len(held)}"
     finally:
         mp.undo()
+
+
+# ── retiring the field from clips already on disk ────────────────────────────
+
+def test_stored_clips_lose_the_clippers_name_when_the_store_is_opened(tmp_path, monkeypatch):
+    """Removing the field from the dataclass only stops NEW clips carrying it.
+
+    Every suggestion captured before that is still sitting in clips.json with a
+    third party's Twitch name in it. Stripping at load is what clears them, and
+    it has to reach the disk — a purge that only cleans the running process
+    leaves the name in the file for anyone who opens it.
+    """
+    import json
+    from src.dashboard import api
+
+    store = tmp_path / "clips.json"
+    store.write_text(json.dumps([
+        {"id": "c1", "channel": "aceu", "suggested": True,
+         "suggested_by": "pogchampion", "clipper_count": 3},
+        {"id": "c2", "channel": "lacy", "suggested": False},
+    ]))
+    monkeypatch.setattr(api, "_CLIPS_FILE", store)
+    monkeypatch.setattr(api, "_retired_fields_stripped", 0)
+
+    loaded = api._load_clips()
+    assert "suggested_by" not in loaded["c1"], "the name survived the load"
+    assert loaded["c1"]["clipper_count"] == 3, "the count went with the identity"
+    assert loaded["c2"] == {"id": "c2", "channel": "lacy", "suggested": False}
+    assert api._retired_fields_stripped == 1, \
+        "the rewrite trigger did not notice the legacy field"
+
+    # And the rewrite actually reaches the file.
+    monkeypatch.setattr(api, "_clips", loaded)
+    api._save_clips()
+    on_disk = json.loads(store.read_text())
+    assert not any("suggested_by" in c for c in on_disk), \
+        "the name is still in clips.json after the rewrite"
+
+
+def test_opening_a_clean_store_triggers_no_rewrite(tmp_path, monkeypatch):
+    """The rewrite must fire once, not on every boot."""
+    import json
+    from src.dashboard import api
+
+    store = tmp_path / "clips.json"
+    store.write_text(json.dumps([{"id": "c1", "channel": "aceu", "suggested": True}]))
+    monkeypatch.setattr(api, "_CLIPS_FILE", store)
+    monkeypatch.setattr(api, "_retired_fields_stripped", 0)
+
+    api._load_clips()
+    assert api._retired_fields_stripped == 0, \
+        "a clean store still asks for a rewrite on every restart"
+
+
+def test_there_is_nowhere_to_put_a_clippers_name():
+    """Data minimisation is about the SHAPE, not just what gets serialised.
+
+    Mutation testing found both of the holes this closes. Re-adding
+    `suggested_by` to ClipMetadata survived every assertion above, because
+    to_dict() no longer emits it — the field would sit there unwritten, waiting
+    for someone to populate it again. Same for the suggester: putting
+    `creator_name` back on the pending row survived, because Suggestion has no
+    slot to carry it into. Both are latent, and both are one line away from
+    storing a third party's name again. So assert the absence at the point of
+    collection, not at the point of output.
+    """
+    import dataclasses
+    import inspect
+    from src.processor.metadata import ClipMetadata
+
+    fields = {f.name for f in dataclasses.fields(ClipMetadata)}
+    assert "suggested_by" not in fields, "ClipMetadata has a slot for the clipper again"
+    assert "clipper_count" in fields, "the count went too — that is the signal"
+
+    # The suggester must not even read the name off the Helix response.
+    src = inspect.getsource(sc)
+    src = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
+    assert "creator_name" not in src, \
+        "the suggester reads the clipper's display name off the Helix row again"
+    assert "creator" not in sc.Suggestion.__slots__, \
+        "Suggestion can carry a clipper name again"
+    # creator_id stays: clustering needs it to exclude our own clips and to
+    # count DISTINCT clippers. It is never persisted.
+    assert "creator_id" in src

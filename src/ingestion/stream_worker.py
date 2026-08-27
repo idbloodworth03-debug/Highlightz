@@ -585,7 +585,6 @@ class StreamWorker:
                 trigger_score=0.0,
                 virality_score=0.0,
                 suggested=True,
-                suggested_by=s.creator,
                 clipper_count=s.clipper_count,
                 suggested_views=s.view_count,
             )

@@ -395,8 +395,9 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
 /* .rd-sugby (a chip naming the viewer whose clip this is) was removed. The
    queue now describes what HIGHLIGHTZ did — it detected the moment from a
    spike in audience interest — rather than crediting individual clippers,
-   which read as though the product had outsourced the work. The name is still
-   stored on the record (`suggested_by`); it is simply not surfaced here. */
+   which read as though the product had outsourced the work. The name is no
+   longer stored either: once nothing displayed it, `suggested_by` was a third
+   party's identity kept for no reason, so the field is gone from the record. */
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -3039,8 +3040,10 @@ function AccountScreen({ me }) {
   const isSubscribed = sub==='active'||sub==='trialing';
 
   const hasTwitch  = !!(me.twitch_login);
-  const hasKick    = !!(me.kick_slug);
-  const signedInWith = hasKick && !hasTwitch ? 'Kick' : 'Twitch';
+  // Twitch is the only way in. Signing in with Kick was already disabled at the
+  // route before the Kick OAuth flow was removed altogether, so there is no
+  // longer a second answer to this.
+  const signedInWith = 'Twitch';
 
   const deleteAccount = async () => {
     setDeleting(true); setDelErr('');
@@ -3157,15 +3160,16 @@ function AccountScreen({ me }) {
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
             </span>
+            {/* No Connect button and no linked-account state. Connecting Kick
+                ran a full OAuth flow and stored the user's Kick tokens, for a
+                platform whose monitoring is switched off — and both legal pages
+                say we store no Kick credentials. The row stays so Kick keeps its
+                place in the product; it just says what is actually true. */}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:13}}>Kick</div>
-              {hasKick
-                ? <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>@{me.kick_slug}</div>
-                : <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Not connected</div>}
+              <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Automated clipping is in progress</div>
             </div>
-            {hasKick
-              ? <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>✓ Connected</span>
-              : <a href="/auth/kick" className="rd-btn sm" style={{textDecoration:'none',background:'#53fc18',color:'#0a0a0a',fontWeight:700,border:'none',flexShrink:0}}>Connect</a>}
+            <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Coming soon</span>
           </div>
         </div>
 

@@ -28,13 +28,17 @@ class ClipMetadata:
     embed_url: str = ""        # iframe embed URL
     thumbnail_url: str = ""
     # ── Crowd suggestion (src/trigger/suggested_clips.py) ────────────────────
-    # A moment VIEWERS clipped, surfaced without consulting our score. The clip
-    # is the viewer's own — we did not create it — so `suggested_by` is not
-    # decoration: it is who this clip actually belongs to on Twitch, and the UI
-    # is expected to say so. trigger_score/virality_score stay 0.0 on these and
-    # that is not missing data, it is the point of the feature.
+    # A moment a spike in audience interest surfaced, without consulting our
+    # score. trigger_score/virality_score stay 0.0 on these and that is not
+    # missing data, it is the point of the feature.
+    #
+    # THERE IS NO `suggested_by`. It held the Twitch display name of the viewer
+    # who made the clip — a person who is not our user — and it was removed on
+    # 2026-08-27 because nothing read it: the UI stopped showing the clipper,
+    # and no logic ever consulted it. Storing a third party's name that nothing
+    # uses is a disclosure obligation bought for free. `clipper_count` is a
+    # count, not an identity, and stays.
     suggested: bool = False
-    suggested_by: str = ""        # creator_name of the viewer who clipped it
     clipper_count: int = 0        # distinct viewers who clipped this moment
     suggested_views: int = 0      # view count when we surfaced it
 
@@ -61,7 +65,6 @@ class ClipMetadata:
             "embed_url": self.embed_url,
             "thumbnail_url": self.thumbnail_url,
             "suggested": self.suggested,
-            "suggested_by": self.suggested_by,
             "clipper_count": self.clipper_count,
             "suggested_views": self.suggested_views,
         }

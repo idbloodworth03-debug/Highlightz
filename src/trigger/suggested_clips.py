@@ -141,8 +141,13 @@ MAX_AGE_SECS = 1800.0
 class Suggestion:
     """One moment the crowd picked, ready to land in the review queue."""
 
+    # No `creator`. The clipper's DISPLAY NAME used to ride along here purely to
+    # populate ClipMetadata.suggested_by, which nothing read — see the note in
+    # src/processor/metadata.py. `creator_id` still lives on the pending rows
+    # below because the clustering genuinely needs it (excluding clips we made
+    # ourselves, and counting DISTINCT clippers); it is never persisted.
     __slots__ = ("slug", "url", "embed_url", "thumbnail_url", "title",
-                 "creator", "created_at", "view_count", "clipper_count",
+                 "created_at", "view_count", "clipper_count",
                  "duration", "channel")
 
     def __init__(self, **kw) -> None:
@@ -220,7 +225,6 @@ class SuggestionBuffer:
                     "slug":       slug,
                     "ts":         ts,
                     "first_seen": now,
-                    "creator":    (row.get("creator_name") or "").strip(),
                     "creator_id": str(row.get("creator_id") or ""),
                     "title":      (row.get("title") or "").strip()[:120],
                     "url":        row.get("url") or f"https://clips.twitch.tv/{slug}",
@@ -272,7 +276,6 @@ class SuggestionBuffer:
                 embed_url=best["embed_url"],
                 thumbnail_url=best["thumbnail_url"],
                 title=best["title"],
-                creator=best["creator"],
                 created_at=best["ts"],
                 view_count=best["view_count"],
                 clipper_count=clippers,

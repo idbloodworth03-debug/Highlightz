@@ -284,14 +284,41 @@ def _clean_channel(channel: str) -> str:
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
+# Fields that used to be written and must not survive on disk. Stripping at
+# load (rather than in a script somebody has to remember to run) means the next
+# _save_clips() writes the file back without them, so a deploy is the whole
+# migration.
+#
+# `suggested_by` held the Twitch display name of the viewer who made a suggested
+# clip. Nothing read it, the UI never showed it, and it is a third party's
+# identity — so it was removed from ClipMetadata on 2026-08-27. Deleting the
+# field from the dataclass stops NEW clips carrying it; this is what clears the
+# ones already stored.
+_RETIRED_CLIP_FIELDS = ("suggested_by",)
+
+
 def _load_clips() -> dict:
     try:
-        return {c["id"]: c for c in json.loads(_CLIPS_FILE.read_text())}
+        rows = json.loads(_CLIPS_FILE.read_text())
     except FileNotFoundError:
         return {}
     except Exception:
         log.error("clips_file_load_failed", path=str(_CLIPS_FILE))
         return {}
+    global _retired_fields_stripped
+    for c in rows:
+        for field in _RETIRED_CLIP_FIELDS:
+            if field in c:
+                del c[field]
+                _retired_fields_stripped += 1
+    return {c["id"]: c for c in rows}
+
+
+# Set by _load_clips, read once at import below. Stripping in memory is not the
+# same as deleting the data: without the rewrite the name stays in clips.json
+# until some unrelated clip activity happens to save the file, and "we removed
+# it" would be true of the running process but not of the disk.
+_retired_fields_stripped = 0
 
 def _save_clips() -> None:
     _atomic_write(_CLIPS_FILE, json.dumps(list(_clips.values())))
@@ -326,6 +353,21 @@ def _save_feedback() -> None:
     _atomic_write(_FEEDBACK_FILE, json.dumps(_feedback))
 
 _clips:        dict[str, dict]           = _load_clips()
+
+# One rewrite, the first time a store containing a retired field is opened, so
+# the data actually leaves the disk rather than only the running process. After
+# that _load_clips finds nothing to strip and this never fires again.
+#
+# Wrapped, because a stats-style cleanup must never be the reason the service
+# fails to boot: a read-only or full disk here should cost us the rewrite, not
+# the process. The in-memory copy is already clean either way.
+if _retired_fields_stripped:
+    try:
+        _save_clips()
+        log.info("retired_clip_fields_purged", count=_retired_fields_stripped)
+    except Exception as exc:
+        log.warning("retired_clip_fields_purge_failed", error=str(exc))
+
 _streams:      dict[str, dict]           = _load_streams()
 _feedback:     list                      = _load_feedback()
 _ws_clients:   dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
@@ -371,25 +413,6 @@ _login_attempts: dict[str, tuple[int, float]] = {}
 _LOGIN_MAX_ATTEMPTS = 10
 _LOGIN_WINDOW       = 60  # seconds
 _login_rate_lock    = asyncio.Lock()
-
-# Kick OAuth initiation rate limit (per IP)
-_kick_oauth_attempts: dict[str, tuple[int, float]] = {}
-_KICK_OAUTH_MAX    = 20
-_KICK_OAUTH_WINDOW = 60
-_kick_oauth_lock   = asyncio.Lock()
-
-async def _check_kick_oauth_rate(ip: str) -> None:
-    async with _kick_oauth_lock:
-        now = time.time()
-        stale = [k for k, (_, ts) in list(_kick_oauth_attempts.items()) if now - ts > _KICK_OAUTH_WINDOW]
-        for k in stale:
-            _kick_oauth_attempts.pop(k, None)
-        attempts, window_start = _kick_oauth_attempts.get(ip, (0, now))
-        if now - window_start > _KICK_OAUTH_WINDOW:
-            attempts, window_start = 0, now
-        if attempts >= _KICK_OAUTH_MAX:
-            raise HTTPException(status_code=429, detail="Too many requests — wait a minute")
-        _kick_oauth_attempts[ip] = (attempts + 1, window_start)
 
 async def _check_login_rate(ip: str) -> None:
     async with _login_rate_lock:
@@ -1018,127 +1041,17 @@ async def me(request: Request):
     }
 
 
-# ── Kick OAuth ────────────────────────────────────────────────────────────────
-
-@app.get("/auth/kick")
-async def kick_login(request: Request, login: bool = False):
-    from src.auth.kick_oauth import authorization_url
-    ip = request.client.host if request.client else "unknown"
-    await _check_kick_oauth_rate(ip)
-    if not settings.kick_client_id:
-        raise HTTPException(status_code=503, detail="Kick OAuth not configured")
-    # Sign-in with Kick is disabled — Twitch is the only sign-in method. Kick may
-    # still be LINKED to an existing (Twitch-authenticated) account, so allow the
-    # flow only when the user is already logged in.
-    if login or not request.session.get("user_id"):
-        return RedirectResponse("/login")
-    state = secrets.token_urlsafe(16)
-    url, code_verifier = authorization_url(state)
-    request.session["kick_oauth_state"]    = state
-    request.session["kick_code_verifier"]  = code_verifier
-    if login:
-        request.session["kick_login_flow"] = True
-    return RedirectResponse(url)
-
-
-@app.get("/auth/kick/callback")
-async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
-    import traceback, urllib.parse as _up
-    from src.auth import kick_oauth, users as user_store
-    ip = request.client.host if request.client else "unknown"
-    await _check_kick_oauth_rate(ip)
-    login_flow = request.session.pop("kick_login_flow", False)
-
-    def err_redirect(reason: str):
-        # Truncate to avoid leaking internal hostnames/stack details in URL/Referer
-        safe = reason[:120]
-        msg = _up.quote(safe, safe="")
-        if login_flow:
-            return RedirectResponse(f"/login?error=kick_failed&kick_detail={msg}")
-        return RedirectResponse(f"/?kick_error=1&kick_detail={msg}")
-
-    if error:
-        log.warning("kick_callback_oauth_error", error=error)
-        return err_redirect(f"Kick returned: {error}")
-    expected_state = request.session.pop("kick_oauth_state", None)
-    if not code or state != expected_state:
-        log.warning("kick_callback_state_mismatch",
-                    has_code=bool(code), got_state=state, expected=expected_state)
-        return err_redirect("Session expired or state mismatch — please try again")
-    code_verifier = request.session.pop("kick_code_verifier", "")
-    if not code_verifier:
-        log.warning("kick_callback_no_verifier")
-        return err_redirect("PKCE verifier missing from session — please try again")
-    try:
-        tokens = await kick_oauth.exchange_code(code, code_verifier)
-        log.info("kick_tokens_received", keys=list(tokens.keys()),
-                 scope=tokens.get("scope", "MISSING"), token_type=tokens.get("token_type", "MISSING"))
-    except Exception as exc:
-        log.error("kick_token_exchange_failed", error=str(exc), tb=traceback.format_exc())
-        return err_redirect(f"Token exchange failed: {exc}")
-    # Try id_token first (OIDC — has user claims baked in)
-    kick_user = None
-    if tokens.get("id_token"):
-        kick_user = kick_oauth._decode_jwt_user(tokens["id_token"])
-        if kick_user and kick_user.get("id"):
-            log.info("kick_user_from_id_token", username=kick_user.get("username"))
-        else:
-            kick_user = None
-    if not kick_user:
-        try:
-            kick_user = await kick_oauth.get_user(tokens["access_token"])
-        except Exception as exc:
-            log.error("kick_get_user_failed", error=str(exc), tb=traceback.format_exc())
-            return err_redirect(f"Could not fetch Kick user: {exc}")
-
-    kick_id  = str(kick_user["id"])
-    username = (kick_user.get("username") or "").strip()
-    slug     = (kick_user.get("slug") or username).strip()
-    avatar   = kick_user.get("avatar_url", "")
-    # Some Kick token/introspection payloads omit the username/slug. Refuse rather
-    # than persist a blank username (which overwrites good data and breaks clip
-    # logic keyed on kick_slug) — the user can retry the link.
-    if not username or not slug:
-        log.warning("kick_username_missing", kick_id=kick_id)
-        return err_redirect("Could not read your Kick username — please try linking again.")
-    token_kwargs = dict(
-        access_token=tokens.get("access_token", ""),
-        refresh_token=tokens.get("refresh_token", ""),
-        expires_in=tokens.get("expires_in", 0),
-    )
-
-    uid = request.session.get("user_id")
-    try:
-        if uid:
-            # Already logged in — link Kick to existing account
-            user_store.link_kick_to_user(
-                user_id=uid, kick_id=kick_id, username=username,
-                slug=slug, avatar_url=avatar, **token_kwargs,
-            )
-            log.info("kick_linked", user_id=uid, kick_id=kick_id, username=username)
-            return RedirectResponse("/?kick_linked=1")
-        else:
-            # Sign-in / sign-up via Kick is disabled — Twitch is the only sign-in
-            # method. Reaching here without an existing session is a Kick sign-in
-            # attempt; refuse rather than create an account. (Linking, above, is
-            # still allowed for users already authenticated via Twitch.)
-            log.info("kick_signin_blocked", kick_id=kick_id)
-            return RedirectResponse("/login?error=kick_signin_disabled")
-    except Exception as exc:
-        log.error("kick_save_failed", error=str(exc))
-        return err_redirect(f"Could not save Kick account: {exc}")
-
-
-@app.get("/auth/kick/status")
-async def kick_status(request: Request):
-    """Returns whether the current user has a linked Kick account."""
-    from src.auth import users as user_store
-    uid = request.session.get("user_id", "")
-    db_user = user_store.get_by_id(uid) if uid else None
-    connected = bool(db_user and db_user.get("kick_id"))
-    slug = db_user.get("kick_slug", "") if db_user else ""
-    oauth_configured = bool(settings.kick_client_id and settings.kick_client_secret)
-    return {"connected": connected, "kick_slug": slug, "oauth_configured": oauth_configured}
+# ── Kick OAuth: REMOVED 2026-08-27 ────────────────────────────────────────────
+# There was a "Connect" button that ran a full Kick OAuth flow and stored the
+# user's Kick access AND refresh tokens — while Kick monitoring itself is
+# switched off (POST /streams returns 503 for platform="kick"). So we collected
+# credentials for a feature that cannot run, and both the Terms and the Privacy
+# Policy stated, in as many words, that no Kick credentials are requested or
+# stored. Removing the flow was the honest way to make that sentence true again.
+#
+# The "Kick is coming soon" UI, KICK_BLOCKED and the 503 all stay exactly as
+# they were — this removes the login, not the roadmap. Bring the flow back with
+# the feature, and disclose it in the same commit.
 
 
 @app.delete("/account", status_code=200)
@@ -8356,6 +8269,34 @@ def _free_plan_answer() -> str:
         "cancel from the Account tab.")
 
 
+def _tos_plans() -> str:
+    """Section 4 of the Terms, generated from PLAN_LIMITS.
+
+    The Terms said "the Service requires an active paid subscription" for two
+    months after the free tier reopened, because the sentence was typed and
+    nothing connected it to the plans. Deriving it means the document cannot
+    describe a product we do not sell.
+    """
+    from src.billing.plans import PLAN_LIMITS
+    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def chans(n: int) -> str:
+        return str(n) + (" channel" if n == 1 else " channels")
+
+    return (
+        '<p>The Service offers a free plan and two paid plans. The free plan does '
+        "not expire and never requires a payment method: it monitors "
+        + chans(f["max_streams"]) + " at a time, holds " + str(f["max_pending"])
+        + " clips in your review queue, and adds up to " + str(f["max_suggested"])
+        + " suggested clips on top of those. Starter is $" + str(st["price"])
+        + "/month for " + chans(st["max_streams"]) + " and a "
+        + str(st["max_pending"]) + "-clip queue. Pro is $" + str(pro["price"])
+        + "/month for " + chans(pro["max_streams"]) + ", a "
+        + str(pro["max_pending"]) + "-clip queue, the VOD Scanner and the Clip "
+        "Editor. Current plan details and prices are shown on our pricing page "
+        "and in your Account tab.</p>")
+
+
 LANDING_HTML = LANDING_HTML.replace("<!--FREEPLAN-->", _free_plan_answer(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 
@@ -8535,6 +8476,7 @@ TOS_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Terms of Service — Highlightz</title>
+<meta name="description" content="The terms that govern your use of Highlightz, including plans, your responsibilities for clips you create, and how broadcasters can opt out.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -8566,24 +8508,26 @@ TOS_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
-  <p>Highlightz is a SaaS platform that monitors live streams on Twitch and Kick, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Kick stream monitoring uses only Kick's publicly accessible chat and stream-status data — no Kick account credentials are required. Highlightz does not record, copy, download, or re-host stream video from either platform. The Service requires an active paid subscription to access core features.</p>
+  <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Highlightz does not record, copy, download, or re-host stream video. To measure loudness we may read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
+  <p>Support for Kick is not yet available. Kick channels cannot currently be monitored and no Kick account is connected to or required by the Service. If Kick support ships, these Terms and our Privacy Policy will be updated before it does.</p>
+  <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
 
   <h2>2. Eligibility</h2>
   <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
 
   <h2>3. Accounts and Platform Authorization</h2>
-  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
-  <p>Kick stream monitoring does not require a Kick account. The Service reads only publicly available Kick chat messages and stream-status information — the same data accessible to any viewer — via Kick's public WebSocket and API. No Kick credentials are stored.</p>
+  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. Twitch is the only way to sign in. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission), and, if you approve it on the sign-in screen, to read the email address on your Twitch account (the <code>user:read:email</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
   <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
-  <h2>4. Free Trial and Subscriptions</h2>
-  <p>Access to the Service requires a paid subscription, billed from the moment you subscribe. We may, at our sole discretion, grant individual accounts free promotional or trial access for a limited period. Promotional access requires no payment method, ends automatically at the end of its stated period without any charge, and does not convert into a paid subscription unless you subscribe yourself. We may modify or withdraw promotional access at any time.</p>
-  <p>Subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
+  <h2>4. Plans and Subscriptions</h2>
+  <!--TOSPLANS-->
+  <p>We may change what the free plan includes, or withdraw it, at any time. We may also, at our sole discretion, grant individual accounts free promotional access to a paid plan for a limited period. Promotional access requires no payment method, ends automatically at the end of its stated period without any charge, and does not convert into a paid subscription unless you subscribe yourself.</p>
+  <p>Paid subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
   <ul>
     <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
     <li>We do not issue refunds for partial billing periods or unused time.</li>
@@ -8593,7 +8537,7 @@ TOS_HTML = """<!DOCTYPE html>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
   <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct; it never records, stores, or re-hosts any stream video itself.</p>
-  <p>When monitoring Kick channels, the Service reads publicly available chat and stream data only. Any highlight detected on a Kick stream is presented to you for review; clip creation remains your action and your responsibility. The same streamer-content responsibilities described below apply equally to channels on any supported platform.</p>
+  <p><strong>Broadcasters may opt out.</strong> Any broadcaster can remove their channel from the Service at <a href="/opt-out">highlightz.app/opt-out</a>. Once a channel has opted out, no user can add it for monitoring and the Service will not create clips from it. If you are asked by a broadcaster to stop clipping their channel, stop; the opt-out page exists so that request can be enforced for everyone at once rather than relying on you.</p>
   <p>You acknowledge and agree that:</p>
   <ul>
     <li>Any clip you create may contain content owned by the broadcaster you clipped, by game publishers, by music rights holders, or by other third parties.</li>
@@ -8619,10 +8563,10 @@ TOS_HTML = """<!DOCTYPE html>
   <p>The Highlightz name, logo, software, branding, and all related materials are the exclusive property of ANTI Technology LLC and are protected by applicable intellectual property laws. Nothing in these Terms grants you any right to use our trademarks or branding without prior written consent.</p>
 
   <h2>8. Third-Party Services</h2>
-  <p>The Service integrates with third-party platforms including Twitch (authentication and clip creation), Kick (public stream and chat monitoring), and Stripe (payments). Your use of those platforms is governed by their respective terms of service, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a>, the <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>, and the <a href="https://kick.com/terms-of-service">Kick Terms of Service</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
+  <p>The Service integrates with two third-party platforms: Twitch (authentication and clip creation) and Stripe (payments). Your use of those platforms is governed by their respective terms, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a>, the <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>, and the <a href="https://stripe.com/legal/ssa">Stripe Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
 
   <h2>9. Data and Privacy</h2>
-  <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), and clip metadata such as clip links and trigger scores. We do not store stream video. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
+  <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), clip metadata such as clip links and trigger scores, a short sample of public chat messages captured alongside each clip, and any video you upload to the Clip Editor. We do not store stream video. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
 
   <h2>10. Disclaimers</h2>
   <p>THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS.</p>
@@ -8640,7 +8584,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>We may update these Terms from time to time. We will notify you of material changes by posting the updated Terms at this URL and updating the effective date. Your continued use of the Service after such changes constitutes acceptance of the updated Terms.</p>
 
   <h2>15. Governing Law</h2>
-  <p>These Terms are governed by the laws of the United States and the state in which ANTI Technology LLC is incorporated, without regard to conflict of law principles. Any disputes shall be resolved in the courts of competent jurisdiction in that state.</p>
+  <p>These Terms are governed by the laws of the State of New Jersey and applicable United States federal law, without regard to conflict of law principles. Any disputes shall be resolved in the state or federal courts of competent jurisdiction located in New Jersey, and you consent to the personal jurisdiction of those courts.</p>
 
   <h2>16. Contact</h2>
   <p>Questions about these Terms? Contact us at:<br>
@@ -8653,12 +8597,17 @@ TOS_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+# Filled here rather than beside _tos_plans(): TOS_HTML does not exist until
+# the literal above closes.
+TOS_HTML = TOS_HTML.replace("<!--TOSPLANS-->", _tos_plans(), 1)
+
 PRIVACY_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy Policy — Highlightz</title>
+<meta name="description" content="What Highlightz collects, why, who it is shared with, how long it is kept, and how to have it deleted.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -8690,7 +8639,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
@@ -8700,12 +8649,16 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
-    <li><strong>Kick public data</strong> — when you monitor a Kick channel, we read publicly available chat messages and live-stream status from Kick's public API and WebSocket. We do not collect or store any personal data about Kick viewers or streamers beyond the channel slug you enter. No Kick credentials are requested or stored.</li>
+    <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to 30 of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
+    <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a clip surfaced by a spike in audience interest we also store how many viewers clipped that moment and its view count — a count, not an identity; we do not store who they were. We do not store any stream video; clips are hosted by Twitch.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
+    <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
+    <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. This is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
+  <p><strong>Kick.</strong> Kick support is not live. We do not monitor Kick channels, and no Kick account can be connected to the Service — no Kick credentials are requested or stored. This will be updated before that changes.</p>
 
   <h2>2. How We Use Your Information</h2>
   <ul>
@@ -8713,6 +8666,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li>To create clips on your behalf via Twitch's Clips API when you or your trigger settings direct it.</li>
     <li>To process payments and manage your subscription via Stripe.</li>
     <li>To display your clip links and trigger analytics in your dashboard.</li>
+    <li>To tune detection for you: approving or rejecting a clip adjusts how sensitive the detector is on that channel, so the Service gets better at matching your taste. This affects only your own account.</li>
     <li>To investigate security incidents and prevent abuse.</li>
   </ul>
 
@@ -8720,13 +8674,13 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <p>We do not sell your personal data. We share information only with the following third parties as necessary to operate the Service:</p>
   <ul>
     <li><strong>Twitch</strong> — for authentication and for creating clips on your behalf. Governed by Twitch's Privacy Notice.</li>
-    <li><strong>Kick</strong> — public chat and stream-status data is read from Kick's public API and WebSocket. We do not transmit any of your personal data to Kick. Governed by Kick's Privacy Policy.</li>
     <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
   </ul>
   <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
 
   <h2>4. Data Retention</h2>
-  <p>We retain your account information, encrypted Twitch tokens, and clip metadata for as long as your account is active. When you delete your account, we remove your user record, encrypted tokens, clip metadata, and stream configurations. Clips you have already created remain hosted on Twitch under your Twitch account and are governed by Twitch; you can manage or delete them through Twitch. Log files may be retained for up to 90 days for security purposes.</p>
+  <p>We retain your account information, encrypted Twitch tokens, and clip metadata for as long as your account is active. When you delete your account we remove your user record, encrypted tokens, clip metadata and the chat samples stored with it, uploaded video, stream configurations, scheduled and exported items, per-stream statistics, and any feedback you sent us. Clips you have already created remain hosted on Twitch under your Twitch account and are governed by Twitch; you can manage or delete them through Twitch. Log files may be retained for up to 90 days for security purposes.</p>
+  <p>Broadcaster opt-out records are kept for as long as the opt-out stands, because deleting the record would lift the block — which is the opposite of what the broadcaster asked for. Contact us to have it removed.</p>
 
   <h2>5. Your Rights</h2>
   <p>You may request access to, correction of, or deletion of your personal data at any time by contacting us at <a href="mailto:support@highlightz.app">support@highlightz.app</a>, or by deleting your account directly from the Account settings page within the dashboard.</p>
@@ -8761,6 +8715,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cookie Policy — Highlightz</title>
+<meta name="description" content="The one cookie Highlightz sets, the two browser preferences it stores, and the third-party cookies it does not control.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -8802,7 +8757,7 @@ COOKIES_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: June 20, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
@@ -8815,10 +8770,16 @@ COOKIES_HTML = """<!DOCTYPE html>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
     <tr><td><code>session</code></td><td>Keeps you signed in between page loads. Contains an encrypted session identifier — no personal data is stored in the cookie itself.</td><td>7 days</td><td>Strictly necessary</td></tr>
   </table>
+  <p>The dashboard also uses your browser's local storage for two small preferences. These are not cookies and are never sent to our servers — they stay in your browser, and clearing your site data clears them.</p>
+  <table>
+    <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
+    <tr><td><code>hz_platform</code></td><td>Remembers which platform tab you were last on, so the dashboard opens where you left it.</td><td>Until cleared</td><td>Preference</td></tr>
+    <tr><td><code>hz_welcome_seen</code></td><td>Remembers that you have already seen the welcome screen, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
+  </table>
   <p>We do not use advertising cookies, tracking pixels, or third-party analytics cookies. We do not use Google Analytics or any equivalent service.</p>
 
   <h2>Third-Party Cookies</h2>
-  <p>When you sign in via Twitch, Twitch may set cookies on their own domain as part of the OAuth2 flow. These are governed by <a href="https://www.twitch.tv/p/legal/privacy-notice/" target="_blank" rel="noopener">Twitch's Privacy Notice</a>. When you complete a payment via Stripe, Stripe may set cookies on their domain. These are governed by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>. Kick stream and chat data is fetched server-side via Kick's public WebSocket and API — no cookies are set on your device as a result of Kick monitoring. We have no control over or access to any third-party cookies set on their respective domains.</p>
+  <p>When you sign in via Twitch, Twitch may set cookies on their own domain as part of the OAuth2 flow. These are governed by <a href="https://www.twitch.tv/p/legal/privacy-notice/" target="_blank" rel="noopener">Twitch's Privacy Notice</a>. When you complete a payment via Stripe, Stripe may set cookies on their domain. These are governed by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>. Clips are embedded from Twitch's own player, which may set cookies on Twitch's domain when a clip is played. We have no control over or access to any third-party cookies set on their respective domains.</p>
 
   <h2>Managing Cookies</h2>
   <p>You can control cookies through your browser settings. Blocking or deleting the session cookie will sign you out of the Service and require you to sign in again on your next visit. Most browsers allow you to:</p>

@@ -102,6 +102,11 @@ def _save(users: list[dict]) -> None:
     _ulog.debug("users_saved count=%d", len(users))
 
 
+# The two kick_* entries are deliberate even though nothing writes them any
+# more: records created before the Kick OAuth flow was removed still carry the
+# encrypted values until the purge script has run, and _public() is what keeps
+# them out of every API response in the meantime. Drop them from this tuple only
+# once no user record contains either field.
 _SECRET_FIELDS = ("password_hash", "salt", "tw_access", "tw_refresh", "kick_access", "kick_refresh")
 
 
@@ -690,134 +695,16 @@ def get_by_kick_id(kick_id: str) -> dict | None:
     return next((u for u in _load() if u.get("kick_id") == kick_id), None)
 
 
-def link_kick_to_user(
-    user_id: str,
-    kick_id: str,
-    username: str,
-    slug: str,
-    avatar_url: str,
-    access_token: str,
-    refresh_token: str,
-    expires_in: int,
-) -> dict:
-    """Link a Kick account to an existing Highlightz user (already logged in via Twitch).
-
-    Updates the user record with Kick OAuth fields and returns the public user dict.
-    """
-    users = _load()
-    expires_at = time.time() + max(int(expires_in) - 60, 0)
-    enc_access  = _encrypt(access_token)
-    enc_refresh = _encrypt(refresh_token)
-
-    for u in users:
-        if u["id"] == user_id:
-            u["kick_id"]         = kick_id
-            u["kick_slug"]       = slug
-            u["kick_username"]   = username
-            if avatar_url and not u.get("avatar_url"):
-                u["avatar_url"]  = avatar_url
-            if access_token:
-                u["kick_access"]     = enc_access
-                u["kick_refresh"]    = enc_refresh
-                u["kick_expires_at"] = expires_at
-            _save(users)
-            return _public(u)
-
-    raise ValueError(f"User '{user_id}' not found")
-
-
-def upsert_kick_user(
-    kick_id: str,
-    username: str,
-    slug: str,
-    avatar_url: str = "",
-    access_token: str = "",
-    refresh_token: str = "",
-    expires_in: int = 0,
-) -> dict:
-    """Find or create a Highlightz account identified solely by Kick ID.
-
-    Used when a user signs in with Kick without a pre-existing Twitch account.
-    Returns the public user dict (no secrets).
-    """
-    users = _load()
-    expires_at = time.time() + max(int(expires_in) - 60, 0)
-    enc_access  = _encrypt(access_token)
-    enc_refresh = _encrypt(refresh_token)
-    now = time.time()
-
-    existing = next((u for u in users if u.get("kick_id") == kick_id), None)
-    if existing:
-        existing["kick_slug"]     = slug
-        existing["kick_username"] = username
-        if avatar_url:
-            existing["avatar_url"] = avatar_url
-        if access_token:
-            existing["kick_access"]     = enc_access
-            existing["kick_refresh"]    = enc_refresh
-            existing["kick_expires_at"] = expires_at
-        _save(users)
-        return _public(existing)
-
-    # A new account begins with no access and goes through the paywall →
-    # checkout; free access exists only as an admin-granted timed trial.
-    user: dict = {
-        "id":                   secrets.token_urlsafe(16),
-        "username":             username,
-        "password_hash":        None,
-        "salt":                 None,
-        "is_admin":             False,
-        "kick_id":              kick_id,
-        "kick_slug":            slug,
-        "kick_username":        username,
-        "avatar_url":           avatar_url,
-        "kick_access":          enc_access,
-        "kick_refresh":         enc_refresh,
-        "kick_expires_at":      expires_at,
-        "stripe_customer_id":   None,
-        "subscription_status":  "none",
-        "trial_ends_at":        0,
-        "created_at":           now,
-    }
-    users.append(user)
-    _save(users)
-    return _public(user)
-
-
-def _store_refreshed_kick_tokens(user_id: str, access_token: str, refresh_token: str, expires_in: int) -> None:
-    users = _load()
-    for u in users:
-        if u["id"] == user_id:
-            u["kick_access"]     = _encrypt(access_token)
-            u["kick_refresh"]    = _encrypt(refresh_token)
-            u["kick_expires_at"] = time.time() + max(int(expires_in) - 60, 0)
-            break
-    _save(users)
-
-
-async def get_kick_token(user_id: str) -> str | None:
-    """Return a currently-valid Kick access token for the user, refreshing
-    it via the stored refresh token if it has expired. Returns None if the user
-    has no linked Kick account or the refresh fails."""
-    user = get_by_id(user_id)
-    if not user or not user.get("kick_access"):
-        return None
-
-    if time.time() < user.get("kick_expires_at", 0):
-        return _decrypt(user["kick_access"])
-
-    refresh = _decrypt(user.get("kick_refresh", ""))
-    if not refresh:
-        return None
-    from src.auth import kick_oauth
-    try:
-        tokens = await kick_oauth.refresh_access_token(refresh)
-    except Exception:
-        return None
-    access = tokens.get("access_token", "")
-    new_refresh = tokens.get("refresh_token", refresh)
-    _store_refreshed_kick_tokens(user_id, access, new_refresh, tokens.get("expires_in", 0))
-    return access or None
+# ── Kick account linking: REMOVED 2026-08-27 ──────────────────────────────────
+# link_kick_to_user, upsert_kick_user, _store_refreshed_kick_tokens and
+# get_kick_token lived here and wrote `kick_access` / `kick_refresh` /
+# `kick_expires_at` onto the user record. Kick monitoring is switched off and
+# both legal pages state that no Kick credentials are requested or stored, so
+# the flow that collected them is gone rather than the sentence that promised
+# it would not. `get_by_kick_id` above is kept: it only reads an id.
+#
+# Existing records may still carry the encrypted fields. scripts/purge_kick_credentials.py
+# strips them; run it once on production after deploying.
 
 
 def ensure_admin_exists(admin_password: str) -> None:
