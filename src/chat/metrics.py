@@ -8,12 +8,16 @@ import re
 from collections import deque, Counter
 from dataclasses import dataclass, field
 
-HIGH_ENERGY_KEYWORDS = {
-    "clip", "clipit", "pogchamp", "pog", "poggers", "omegalul", "lul",
-    "holy", "insane", "wtf", "omg", "nooo", "noway", "no way", "lets go",
-    "letsgo", "gg", "rip", "ez", "clutch", "monkas", "pepega", "sadge",
-    "widepeeposad", "catjam", "hyperclap", "clap", "goat",
-}
+# The vocabulary moved to src/chat/keywords.py when it stopped being English.
+# Re-exported here because the VOD analyzer and the preset rules import these
+# names from this module, and the split is about where words live rather than
+# which module owns chat metrics.
+from src.chat.keywords import (            # noqa: E402
+    CLIP_TRIGGER_PHRASES,
+    HIGH_ENERGY_KEYWORDS,
+    fold,
+    keyword_hit,
+)
 
 # Emotes that signal genuine hype/excitement — count 2.5x in weighted velocity.
 # Single-token messages matching these get amplified in the velocity calculation.
@@ -24,10 +28,6 @@ HYPE_EMOTES = frozenset({
     "widepeeposad", "painchamp",
 })
 HYPE_EMOTE_WEIGHT = 2.5
-
-CLIP_TRIGGER_PHRASES = re.compile(
-    r"\b(clip\s*it|someone\s*clip|clip\s*that|clip\s*this)\b", re.IGNORECASE
-)
 
 # A message consisting of a single word (typical Twitch emote or short reaction)
 _SINGLE_TOKEN = re.compile(r"^\w+$")
@@ -117,9 +117,16 @@ class ChatMetrics:
 
     def ingest(self, message: str, author: str = "") -> None:
         now = time.time()
-        tokens = set(re.findall(r"\w+", message.lower()))
-        keyword_hit = int(bool(tokens & self._keywords))
-        trigger_hit = int(bool(CLIP_TRIGGER_PHRASES.search(message)))
+        # Folded once and reused for both matchers. Lowercasing alone was
+        # enough while every keyword was ASCII; it is not enough for a message
+        # that arrives accented, or in Turkish — see keywords.fold().
+        folded = fold(message)
+        tokens = set(re.findall(r"\w+", folded))
+        kw_hit = int(keyword_hit(folded, tokens, self._keywords))
+        # Searched against the FOLDED text so "clippe ça" and "clippe ca" are
+        # the same request. The pattern is already case-insensitive; folding
+        # is what makes the accents agree.
+        trigger_hit = int(bool(CLIP_TRIGGER_PHRASES.search(folded)))
 
         # Emote weight: single-token hype emotes count 2.5x in weighted velocity
         weight = emote_weight(message)
@@ -128,7 +135,7 @@ class ChatMetrics:
         self._timestamps.append(now)
         self._messages.append(message)
         self._authors.append(author)
-        self._keyword_counts.append(keyword_hit)
+        self._keyword_counts.append(kw_hit)
         self._trigger_counts.append(trigger_hit)
         self._emote_weights.append(weight)
         self._long_window.append(now)

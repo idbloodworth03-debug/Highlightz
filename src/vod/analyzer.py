@@ -21,7 +21,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from config.settings import settings
 from src.chat.metrics import (
     HIGH_ENERGY_KEYWORDS, CLIP_TRIGGER_PHRASES,
-    emote_weight, emote_homogeneity_of,
+    emote_weight, emote_homogeneity_of, fold, keyword_hit,
 )
 from src.trigger.rules import get_rules
 from src.trigger import scoring
@@ -419,9 +419,16 @@ def _score_window(
         avg_message_length=avg_len)
     homo_score = scoring.emote_homogeneity_score(emote_homogeneity_of(texts))
 
-    kw_hits      = sum(1 for t in texts
-                       if bool(set(_re.findall(r"\w+", t.lower())) & HIGH_ENERGY_KEYWORDS))
-    trigger_hits = sum(1 for t in texts if CLIP_TRIGGER_PHRASES.search(t))
+    # Folded, then matched exactly the way ChatMetrics.ingest does it. This
+    # used to be an inline .lower() plus a set intersection, which silently
+    # could not match Japanese or Chinese (one token per sentence) and did not
+    # fold accents — so scanning a Spanish or Japanese VOD scored lower than
+    # the live engine did on the same stream.
+    _folded      = [fold(t) for t in texts]
+    kw_hits      = sum(1 for f in _folded
+                       if keyword_hit(f, set(_re.findall(r"\w+", f)),
+                                      HIGH_ENERGY_KEYWORDS))
+    trigger_hits = sum(1 for f in _folded if CLIP_TRIGGER_PHRASES.search(f))
     kw_score     = scoring.keyword_score(kw_hits, msg_count, trigger_hits)
 
     if texts:
@@ -651,7 +658,7 @@ async def run_vod_analysis(
             for msg in msg_by_sec.get(sec, []):
                 recent_deq.append((offset, msg))
                 lt_deq.append((offset, msg))
-                if msg["author"] and CLIP_TRIGGER_PHRASES.search(msg["text"]):
+                if msg["author"] and CLIP_TRIGGER_PHRASES.search(fold(msg["text"])):
                     clip_it_deq.append((offset, msg["author"]))
 
             # Prune sliding windows
