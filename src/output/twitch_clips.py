@@ -66,6 +66,41 @@ class ClipTitleRejectedError(RuntimeError):
     """
 
 
+class ClipClassificationError(RuntimeError):
+    """Twitch could not determine the stream's content classification.
+
+    "Failed to determine content classification" — Twitch's Create Clip refuses
+    until it knows how the broadcast is rated. It shows up on channels whose
+    Content Classification Labels are unset or still resolving, which in
+    practice means channels streaming content Twitch treats as intended for
+    certain audiences.
+
+    ITS OWN CLASS FOR THE SAME REASON ClipTitleRejectedError IS. The generic
+    path answers every failure with "it'll try again on the next moment", and
+    on a channel in this state that is untrue on every moment: the request
+    fails identically each time until something changes on Twitch's side. The
+    user watches the score spike, sees nothing arrive, and concludes the
+    detector is broken.
+
+    NOT permanent, so it must not stop the channel the way
+    ClipNotAuthorizedError does. It clears by itself once Twitch classifies the
+    broadcast, or once the streamer sets the labels on their own dashboard. So
+    it behaves like the automod case: back the channel off, say what is
+    actually wrong and who can fix it, and keep monitoring so it recovers on
+    its own.
+    """
+
+
+def is_classification_error(status: int, body: str) -> bool:
+    """True for the CCL refusal.
+
+    Matched on the message rather than the status: this has been seen on more
+    than one status code, and those codes also cover unrelated failures that
+    belong on the generic retry path.
+    """
+    return "content classification" in (body or "").lower()
+
+
 def is_title_rejected(status: int, body: str) -> bool:
     """True for the automod title refusal.
 
@@ -343,17 +378,28 @@ async def create_clip(user_token: str, broadcaster_id: str,
                         "from the streamer's own stream title, so this clears "
                         "when they change it.")
 
-                is_ccl_error = "content classification" in body.lower()
+                is_ccl_error = is_classification_error(resp.status, body)
                 if is_ccl_error and attempt < retries - 1:
                     log.warning("twitch_clip_ccl_retry", broadcaster_id=broadcaster_id,
                                 attempt=attempt + 1, retrying_in=retry_delay)
                     await asyncio.sleep(retry_delay)
                     continue
 
+                # Out of retries and still unclassified. RAISE rather than
+                # return None: None lands on the generic handler, which tells
+                # the user it will try again on the next moment — and on this
+                # channel it will fail the same way every time until Twitch or
+                # the streamer changes something. Saying so once is worth more
+                # than saying something false on every trigger.
+                if is_ccl_error:
+                    log.warning("twitch_clip_classification_failed",
+                                broadcaster_id=broadcaster_id, body=body[:200])
+                    raise ClipClassificationError(
+                        "Twitch could not determine this channel's content "
+                        "classification, so it refused to create the clip.")
+
                 log.warning("twitch_clip_create_failed", status=resp.status,
-                            broadcaster_id=broadcaster_id, body=body[:300],
-                            hint="Streamer may need to set Content Classification Labels on their Twitch dashboard"
-                                 if is_ccl_error else "")
+                            broadcaster_id=broadcaster_id, body=body[:300])
                 return None
     return None
 

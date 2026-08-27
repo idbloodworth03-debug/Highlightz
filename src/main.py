@@ -171,6 +171,15 @@ _QUEUE_RETRY_MAX   = 30.0
 _TITLE_AUTOMOD_BACKOFF_S = 600.0
 _title_automod_until: dict[str, float] = {}
 
+# Same shape, different cause: Twitch refusing to classify the broadcast. SHORTER
+# than the automod window because the two clear differently — an automod title
+# stays wrong until the streamer renames the stream, while classification often
+# resolves by itself a minute or two into a broadcast. Five minutes is long
+# enough to stop burning a post-roll sleep and a Helix call on every trigger,
+# short enough that a channel which sorts itself out is clipping again soon.
+_CLASSIFICATION_BACKOFF_S = 300.0
+_classification_until: dict[str, float] = {}
+
 
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
@@ -226,6 +235,19 @@ async def run_clip_processor() -> None:
                 # renamed the stream.
                 _title_automod_until.pop(job.channel, None)
                 log.info("clip_title_automod_retrying", channel=job.channel)
+
+            # And the same for an unclassified channel, for the same reason:
+            # skipping BEFORE the post-roll sleep and the Helix call is the
+            # whole saving.
+            _ccl_until = _classification_until.get(job.channel, 0.0)
+            if _ccl_until > time.time():
+                log.info("clip_skipped_classification", channel=job.channel,
+                         user_id=job.user_id,
+                         retry_in_s=round(_ccl_until - time.time()))
+                continue
+            if _ccl_until:
+                _classification_until.pop(job.channel, None)
+                log.info("clip_classification_retrying", channel=job.channel)
 
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
@@ -285,6 +307,38 @@ async def run_clip_processor() -> None:
                                      f"Nothing is wrong with your account — clipping "
                                      f"resumes on its own once the streamer changes "
                                      f"their title.")},
+                        user_id=_uid,
+                    )
+                except Exception:
+                    pass
+            continue
+        except twitch_clips.ClipClassificationError:
+            # Twitch will not classify this broadcast, so Create Clip refuses.
+            # Not permanent — it clears when Twitch resolves the rating or the
+            # streamer sets their labels — so the channel keeps being monitored
+            # and simply backs off. The message names who can fix it, because
+            # the answer is neither us nor the user: it is the broadcaster.
+            _uid = getattr(job, "user_id", "") if job else ""
+            _ch  = getattr(job, "channel", "") if job else ""
+            _first = _ch not in _classification_until
+            if _ch:
+                _classification_until[_ch] = time.time() + _CLASSIFICATION_BACKOFF_S
+            log.warning("clip_classification_backoff", channel=_ch, user_id=_uid,
+                        backoff_s=_CLASSIFICATION_BACKOFF_S, first=_first)
+            # ONCE per window. The generic path said "it'll try again on the
+            # next moment" on every single trigger, which on a channel in this
+            # state is untrue every time it is said.
+            if _uid and _first:
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "clip_failed", "channel": _ch or "that channel",
+                         "message": (f"Twitch will not clip {_ch} right now: it has "
+                                     f"not determined the channel's content "
+                                     f"classification. This usually means the "
+                                     f"streamer needs to set their Content "
+                                     f"Classification Labels on Twitch. Nothing is "
+                                     f"wrong with your account, and clipping resumes "
+                                     f"by itself once Twitch sorts it out.")},
                         user_id=_uid,
                     )
                 except Exception:
