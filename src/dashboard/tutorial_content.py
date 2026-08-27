@@ -100,9 +100,10 @@ QUICKSTART_LEAD = (
     # Derived, not typed: this quoted 20 and 3 as literals and would have gone
     # on stating them after the plan moved.
     "The free plan needs no card and does not expire — one channel watched, a "
-    f"queue of {PLAN_LIMITS['free']['max_pending']} clips, and up to "
+    f"queue of {PLAN_LIMITS['free']['max_pending']} clips, up to "
     f"{PLAN_LIMITS['free']['max_suggested']} more that Highlightz flags from a "
-    "spike in audience interest. You can be monitoring a live channel before "
+    f"spike in audience interest, and {PLAN_LIMITS['free']['max_library_week']} "
+    "clips a week you can keep. You can be monitoring a live channel before "
     "you finish reading this page."
 )
 
@@ -400,6 +401,12 @@ PLANS_TITLE = "What each plan gives you"
 # The first column is FREE, because that is what a new reader actually gets —
 # it is a standing tier now rather than a countdown, so it carries its own
 # numbers instead of borrowing pro's.
+def _week(limits: dict) -> str:
+    from src.billing.plans import UNLIMITED_PENDING
+    n = limits.get("max_library_week", 0)
+    return "Unlimited" if n >= UNLIMITED_PENDING else str(n)
+
+
 def _plan_rows() -> tuple[tuple[str, ...], ...]:
     from src.billing.plans import PLAN_LIMITS
     free = PLAN_LIMITS["free"]
@@ -414,6 +421,8 @@ def _plan_rows() -> tuple[tuple[str, ...], ...]:
          str(starter["max_pending"]), str(pro["max_pending"])),
         ("Crowd suggestions",      str(free["max_suggested"]),
          str(starter["max_suggested"]), str(pro["max_suggested"])),
+        # The sentinel is a number; printed raw it would read "1000000000".
+        ("Clips kept per week",    _week(free), _week(starter), _week(pro)),
         ("VOD Scanner",            "Yes" if free["vod"] else "No",
          "Yes" if starter["vod"] else "No", "Yes" if pro["vod"] else "No"),
     )

@@ -83,30 +83,6 @@ LOCKED_PLAN = "locked"
 # them deliberately. Note which number actually throttles delivery: for anyone
 # who reviews their queue it is MAX_PER_HOUR in suggested_clips.py, not this —
 # raising this alone would only let more pile up unreviewed, so both moved.
-_SUGGESTED = "max_suggested"
-
-PLAN_LIMITS: dict[str, dict] = {
-    # "Trial ended" was accurate while every account began with a free week.
-    # It is not any more, and with free reopened nothing lands here at all —
-    # the label survives for the one caller that can still reach it.
-    "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
-                "max_pending": 0, _SUGGESTED: 0, "vod": False, "uploads": False},
-    # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
-    # the product that still proves it works: one channel, twenty clips in the
-    # queue, and five suggested clips on top of those — see _SUGGESTED.
-    "free":    {"label": "Free", "price": 0, "max_streams": 1,
-                "max_pending": 20, _SUGGESTED: 5, "vod": False, "uploads": False},
-    "starter": {"label": "Starter", "price": 10, "max_streams": 3,
-                "max_pending": 50, _SUGGESTED: 25, "vod": False, "uploads": False},
-    "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
-                "max_pending": 200, _SUGGESTED: 75, "vod": True, "uploads": True},
-}
-
-PAID_PLANS = ("starter", "pro")
-DEFAULT_PLAN = FREE_PLAN
-
-# The pending-clip cap for admins: effectively none.
-#
 # A LARGE INT RATHER THAN math.inf, and that is not a style preference. This
 # number is serialised into the /me payload, and json.dumps(float("inf"))
 # emits the bare token `Infinity`, which is not valid JSON — the browser's
@@ -116,6 +92,53 @@ DEFAULT_PLAN = FREE_PLAN
 # nobody will ever fill.
 UNLIMITED_PENDING = 1_000_000_000
 
+_SUGGESTED = "max_suggested"
+
+# ── The weekly library allowance ──────────────────────────────────────────────
+# max_pending caps the REVIEW QUEUE — how many undecided clips may be waiting.
+# This caps the LIBRARY — how many clips you may KEEP in a rolling seven days.
+# They are different questions and a user can hit either one first.
+#
+# ROLLING SEVEN DAYS, not a calendar week. A Monday reset means everyone who
+# joins on a Saturday gets a two-day first "week", and it produces a stampede
+# every Monday morning. A rolling window treats every account the same on the
+# day it signs up.
+#
+# COUNTED FROM WHAT IS IN THE LIBRARY, so deleting a clip gives the slot back.
+# The alternative — counting approvals from the append-only ledger — is a truer
+# rate limit and cannot be worked around, but it means a user with five clips
+# in an empty library is told they are out of room, which reads as a bug. The
+# cap is on what you STORE, so it counts what is stored.
+_LIB_WEEK = "max_library_week"
+
+PLAN_LIMITS: dict[str, dict] = {
+    # "Trial ended" was accurate while every account began with a free week.
+    # It is not any more, and with free reopened nothing lands here at all —
+    # the label survives for the one caller that can still reach it.
+    "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
+                "max_pending": 0, _SUGGESTED: 0, _LIB_WEEK: 0,
+                "vod": False, "uploads": False},
+    # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
+    # the product that still proves it works: one channel, twenty clips in the
+    # queue, and five suggested clips on top of those — see _SUGGESTED.
+    "free":    {"label": "Free", "price": 0, "max_streams": 1,
+                "max_pending": 20, _SUGGESTED: 5, _LIB_WEEK: 30,
+                "vod": False, "uploads": False},
+    "starter": {"label": "Starter", "price": 10, "max_streams": 3,
+                "max_pending": 50, _SUGGESTED: 25, _LIB_WEEK: 100,
+                "vod": False, "uploads": False},
+    # Pro is the tier with no ceiling on what you keep, which is most of why
+    # somebody moves up from Starter.
+    "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
+                "max_pending": 200, _SUGGESTED: 75, _LIB_WEEK: UNLIMITED_PENDING,
+                "vod": True, "uploads": True},
+}
+
+PAID_PLANS = ("starter", "pro")
+DEFAULT_PLAN = FREE_PLAN
+
+# The pending-clip cap for admins: effectively none.
+#
 # Statuses that mean "this person is currently paying us" (or has been granted
 # the equivalent). Anything else — none, inactive, expired, cancelled, a typo
 # from a future Stripe change — falls through to free rather than to paid,
@@ -295,7 +318,11 @@ def limits_for(user: dict | None) -> dict:
     """
     limits = PLAN_LIMITS[get_plan(user)]
     if user and user.get("is_admin"):
-        return {**limits, "max_pending": UNLIMITED_PENDING}
+        # Both ceilings, not just the queue. An admin who could not keep a clip
+        # because of a weekly library cap would be blocked from the exact thing
+        # staff do most — working through a real queue to check the product.
+        return {**limits, "max_pending": UNLIMITED_PENDING,
+                _LIB_WEEK: UNLIMITED_PENDING}
     return limits
 
 

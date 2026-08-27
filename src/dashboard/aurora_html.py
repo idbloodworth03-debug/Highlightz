@@ -227,6 +227,12 @@ button{font-family:inherit;cursor:pointer}
 .rd-toolbar-meta{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-3);
   font-variant-numeric:tabular-nums}
 .rd-toolbar-meta svg{color:var(--live)}
+/* The last few of the weekly library allowance. Amber rather than red: they
+   have not done anything wrong and nothing is broken, they are just near the
+   end of what the plan keeps. Colour AND the wording change, so the state does
+   not rest on hue alone. */
+.rd-toolbar-meta.warn{color:var(--pending)}
+.rd-toolbar-meta.warn svg{color:var(--pending)}
 .rd-toolbar-acts{display:flex;gap:8px;align-items:center;margin-left:auto}
 /* The controls row: what you are LOOKING at, kept apart from the row above,
    which is what you can DESTROY. */
@@ -2131,6 +2137,24 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   // call — so there is no orphan for the user to find and contradict us with.
   const lostN = lost ? (lost.missed_24h || lost.lost_24h || 1) : 0;
   const nextPlan = lost && lost.next_plan;
+  // THE WEEKLY LIBRARY ALLOWANCE, counted here rather than fetched.
+  //
+  // Every approved clip is already in `clips`, so the browser can answer "how
+  // many did I keep this week" from what it is holding. That is not a
+  // shortcut — a number pushed from the server would need its own event and
+  // could drift out of step with the list on screen; this one is recomputed
+  // from the same data the user is looking at and cannot disagree with it.
+  // Only the CEILING comes from /me. Approving re-renders, so the meter moves
+  // the moment a clip lands, without a refresh.
+  const libCap  = (me && me.plan_limits && me.plan_limits.max_library_week) || 0;
+  const libSince = Date.now()/1000 - 7*24*60*60;
+  const libKept = Object.values(clips).filter(c =>
+    c.status === 'approved' && (c.approved_at || c.created_at || 0) >= libSince).length;
+  // The sentinel is a real number in JSON, so it has to be recognised rather
+  // than printed — "0 of 1000000000 kept" reads as a bug. Same guard the queue
+  // notice above uses.
+  const libCapped = libCap > 0 && libCap < 1000000000;
+  const libLeft = Math.max(0, libCap - libKept);
   return (
     <div className="rd-body rd-body-full" style={{flex:1}}>
       <section className="rd-main">
@@ -2190,6 +2214,18 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
               <Icon name="radio" size={12}/>
               {streamsArr.length} live
               {avgScore > 0 && <> · avg trigger {avgScore}</>}
+            </span>}
+          {/* Shown before it bites, not after. A limit a user only meets by
+              being refused reads as the product breaking; a counter they have
+              watched climb all week reads as a limit. Turns amber for the last
+              five so the wall is never a surprise. */}
+          {libCapped &&
+            <span className={'rd-toolbar-meta'+(libLeft<=5?' warn':'')}
+              title={'Your plan keeps ' + libCap + ' clips a week. Approving is paused once you reach it; the clips stay here until your week rolls over or you upgrade.'}>
+              <Icon name="film" size={12}/>
+              {libLeft > 0
+                ? libKept + ' of ' + libCap + ' kept this week'
+                : 'Weekly limit reached · ' + libCap + ' kept'}
             </span>}
           <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
@@ -2752,6 +2788,11 @@ function TrainingScreen() {
       if(r.ok || r.status===409){
         // Only ever resolve YOUR OWN clip. In cross-rate mode the clip belongs
         // to another account and approving it is not yours to do.
+        // The weekly library cap cannot refuse this one: /training/* is behind
+        // _require_labeler, and get_plan resolves every labeler to pro, which
+        // has no library ceiling. If that ever changes, a 403 here would leave
+        // the clip pending in Clip Review rather than losing it — recoverable,
+        // but it would need a message instead of this silent catch.
         if(mode==='own' && (verdict==='approve'||verdict==='reject')){
           await fetch(`/clips/${cur.id}/${verdict}`,{method:'POST'}).catch(()=>{});
         }
@@ -3076,7 +3117,7 @@ function AccountScreen({ me }) {
               {/* The admin cap is a large sentinel, not a real number, so it is
                   named rather than printed — "1000000000 pending clips" reads
                   as a bug, which is how anyone seeing it would report it. */}
-              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending >= 1000000000 ? 'unlimited' : me.plan_limits.max_pending} pending clips · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
+              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending >= 1000000000 ? 'unlimited' : me.plan_limits.max_pending} pending clips · ${me.plan_limits.max_library_week >= 1000000000 ? 'unlimited clips kept' : me.plan_limits.max_library_week + ' clips kept a week'} · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
             </div>
             <span style={{fontWeight:700,color:'var(--acc)'}}>{me.plan_label}</span>
           </div>}
@@ -5679,8 +5720,19 @@ function RdApp() {
   };
   const approveClip = async(id)=>{
     const r=await fetch(`/clips/${id}/approve`,{method:'POST'});
-    if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));}
-    else{flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();}
+    if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));return true;}
+    // A 403 is the weekly library cap, and it is the one failure here that is
+    // not an error: the clip is fine, it is still in review, and the server
+    // already wrote the sentence explaining that. Showing "it may have been
+    // removed. Refreshing..." would say the opposite of what happened and
+    // throw away a queue position the user can still use.
+    if(r.status===403){
+      const d=await r.json().catch(()=>null);
+      flash((d&&d.detail)||'You have kept all the clips your plan allows this week.');
+      return false;
+    }
+    flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();
+    return false;
   };
   const rejectClip = async(id)=>{
     await fetch(`/clips/${id}/reject`,{method:'POST'});

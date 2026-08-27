@@ -992,6 +992,13 @@ async def me(request: Request):
                                 # free user counting 20 + 3 clips on screen
                                 # reads the queue meter as broken.
                                 "max_suggested": limits.get("max_suggested", 0),
+                                # The weekly library allowance. The dashboard
+                                # counts what has been kept itself, from
+                                # approved_at on the clips it already holds —
+                                # so only the CEILING travels here, and the
+                                # meter cannot drift out of step with the list
+                                # on screen or go stale between events.
+                                "max_library_week": limits.get("max_library_week", 0),
                                 "vod": limits["vod"],
                                 "uploads": limits["uploads"]},
         # Release flags — what is switched ON for everyone, separate from what
@@ -2531,6 +2538,23 @@ async def approve_clip(request: Request, clip_id: str):
         clip = _clips.get(clip_id)
         if not clip or clip.get("user_id") != uid:
             raise HTTPException(status_code=404, detail="Clip not found")
+        # THE WEEKLY LIBRARY CAP. Checked inside the lock and against live
+        # state, so two tabs approving at once cannot both pass a check that
+        # only one of them had room for.
+        #
+        # RE-APPROVING SOMETHING ALREADY IN THE LIBRARY IS FREE. Without this
+        # the clip would be counted by library_room and then blocked by its own
+        # presence, so a double-click on an approved clip would report the
+        # library as full.
+        if clip.get("status") != "approved":
+            used, cap = library_room(uid)
+            if used >= cap:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(f"You have kept {used} of {cap} clips this week. "
+                            f"Upgrade to keep more, or come back when your "
+                            f"week rolls over — this clip stays in review "
+                            f"until then."))
         clip["status"] = "approved"
         # WHEN it entered the library, which is not when it was captured. The
         # library sorts on this: a clip caught on Tuesday and approved today
@@ -4002,6 +4026,40 @@ def suggestion_room(uid: str) -> tuple[int, int]:
     used = sum(1 for c in _clips.values()
                if c.get("status") == "pending" and c.get("user_id") == uid
                and c.get("suggested"))
+    return used, cap
+
+
+# Seven days, in seconds. Rolling rather than a calendar week — see the note on
+# _LIB_WEEK in plans.py for why a Monday reset is worse for everybody.
+LIBRARY_WEEK_SECS = 7 * 24 * 60 * 60
+
+
+def library_room(uid: str) -> tuple[int, int]:
+    """(clips this user has kept in the last seven days, what their plan allows).
+
+    A DIFFERENT QUESTION FROM pending_room. That one caps how many undecided
+    clips may wait; this caps how many a user may KEEP. Someone can hit either
+    first, and hitting one says nothing about the other.
+
+    COUNTS WHAT IS IN THE LIBRARY, so deleting a clip returns the slot. Counting
+    approvals from the append-only ledger instead would be a truer rate limit
+    and impossible to work around, but it would tell a user staring at an empty
+    library that they are out of room. The cap is on what you store, so it
+    counts what is stored.
+
+    `approved_at` is when it entered the library, which is the date this cap is
+    about — not created_at, which is when the moment happened. A clip captured
+    three weeks ago and kept today is kept today. Clips approved before that
+    field existed have no value; they fall back to created_at, which for a
+    clip that old is well outside the window either way.
+    """
+    from src.billing.plans import limits_for
+    from src.auth import users as _room_store
+    cap = limits_for(_room_store.get_by_id(uid)).get("max_library_week", 0)
+    cutoff = time.time() - LIBRARY_WEEK_SECS
+    used = sum(1 for c in _clips.values()
+               if c.get("status") == "approved" and c.get("user_id") == uid
+               and (c.get("approved_at") or c.get("created_at") or 0) >= cutoff)
     return used, cap
 
 
@@ -8189,12 +8247,19 @@ LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTM
 # get watched at once, so that is what the layout leads with. The cards are
 # different sizes because the plans are not equal.
 def _pricing() -> str:
-    from src.billing.plans import PLAN_LIMITS
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
     free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
 
     def tier(limits: dict, blurb: str, cls: str, *,
              fig_suffix: str, cta: str, cta_cls: str) -> str:
         chan = str(limits["max_streams"])
+        # The second number a visitor is buying, given its own line rather than
+        # buried in the blurb: how many clips the plan lets you KEEP each week.
+        # Derived, and the unlimited sentinel is turned into a word — printing
+        # it raw would put "1000000000 clips a week" on the pricing page.
+        week = limits.get("max_library_week", 0)
+        keep = ("<b>Unlimited clips</b> kept" if week >= UNLIMITED_PENDING
+                else "<b>" + str(week) + " clips</b> kept a week")
         return (
             '<div class="ptier ' + cls + '">'
             + '<div class="ptier-head"><span class="ptier-name">' + limits["label"] + "</span>"
@@ -8203,6 +8268,7 @@ def _pricing() -> str:
             + '<p class="ptier-chan"><b>' + chan
             + (" channel</b> watched at a time" if chan == "1"
                else " channels</b> watched at the same time") + "</p>"
+            + '<p class="ptier-chan">' + keep + "</p>"
             + '<p class="ptier-what">' + blurb + "</p>"
             + '<a href="/login" class="btn ' + cta_cls + ' btn-lg">' + cta + "</a></div>")
 
@@ -8216,22 +8282,23 @@ def _pricing() -> str:
     return (
         '<p class="price-lead"><b>Start on the free plan and stay there as long '
         "as you like.</b> There is no card to enter and no time limit on it. "
-        "The paid plans answer one question: how many channels do you need "
-        "watched at once?</p>"
+        "The plans differ on two things: how many channels get watched at "
+        "once, and how many clips you can keep each week.</p>"
         + '<div class="ptiers">'
         + tier(free,
-               "A queue that holds " + str(free["max_pending"]) + " clips, plus up to "
-               + str(free["max_suggested"]) + " suggested from a spike in audience "
-               "interest. The real product, in its smallest size.",
+               "A review queue that holds " + str(free["max_pending"])
+               + " clips, plus up to " + str(free["max_suggested"])
+               + " suggested from a spike in audience interest. The real "
+               "product, in its smallest size.",
                "ptier-a", fig_suffix="no card", cta="Start free", cta_cls="btn-quiet")
         + tier(st,
-               "A queue that holds " + str(st["max_pending"]) + " clips. "
+               "A review queue that holds " + str(st["max_pending"]) + " clips. "
                "Same detection, same formula, same everything else.",
                "ptier-b", fig_suffix="/month", cta="Get Starter", cta_cls="btn-quiet")
         + tier(pro,
-               "A queue that holds " + str(pro["max_pending"]) + " clips, plus the "
-               "VOD Scanner for pulling highlights out of streams that already "
-               "happened.",
+               "A review queue that holds " + str(pro["max_pending"]) + " clips, "
+               "no weekly limit on what you keep, plus the VOD Scanner for "
+               "pulling highlights out of streams that already happened.",
                "ptier-c", fig_suffix="/month", cta="Get Pro", cta_cls="btn-key")
         + "</div>"
         + '<p class="price-tiny">Move between them whenever you like. Cancel from '
@@ -8258,15 +8325,19 @@ def _free_plan_answer() -> str:
         + str(f["max_pending"]) + " clips in the review queue, and adds up to "
         + str(f["max_suggested"]) + " suggested clips on top of those &mdash; "
         "moments Highlightz flags from a spike in audience interest rather than "
-        "from the usual score. It is deliberately small, but it is the real "
+        "from the usual score. You can keep " + str(f["max_library_week"])
+        + " clips a week in your library; approving pauses when you reach that, "
+        "and the clips wait in review until your week rolls over. It is "
+        "deliberately small, but it is the real "
         "product: enough to find out whether the detector works on your channel "
         "before you spend anything. When you want more, Starter is $"
         + str(st["price"]) + "/month for " + chans(st["max_streams"])
-        + " at once and a " + str(st["max_pending"]) + "-clip queue, and "
-        "Pro is $" + str(pro["price"]) + "/month for " + chans(pro["max_streams"])
-        + ", a " + str(pro["max_pending"]) + "-clip queue and the VOD "
-        "Scanner for streams that already happened. Both renew monthly and "
-        "cancel from the Account tab.")
+        + " at once, a " + str(st["max_pending"]) + "-clip queue and "
+        + str(st["max_library_week"]) + " clips a week, and Pro is $"
+        + str(pro["price"]) + "/month for " + chans(pro["max_streams"])
+        + ", a " + str(pro["max_pending"]) + "-clip queue, no weekly keep "
+        "limit and the VOD Scanner for streams that already happened. Both "
+        "renew monthly and cancel from the Account tab.")
 
 
 def _tos_plans() -> str:
@@ -8287,14 +8358,19 @@ def _tos_plans() -> str:
         '<p>The Service offers a free plan and two paid plans. The free plan does '
         "not expire and never requires a payment method: it monitors "
         + chans(f["max_streams"]) + " at a time, holds " + str(f["max_pending"])
-        + " clips in your review queue, and adds up to " + str(f["max_suggested"])
-        + " suggested clips on top of those. Starter is $" + str(st["price"])
-        + "/month for " + chans(st["max_streams"]) + " and a "
-        + str(st["max_pending"]) + "-clip queue. Pro is $" + str(pro["price"])
-        + "/month for " + chans(pro["max_streams"]) + ", a "
-        + str(pro["max_pending"]) + "-clip queue, the VOD Scanner and the Clip "
-        "Editor. Current plan details and prices are shown on our pricing page "
-        "and in your Account tab.</p>")
+        + " clips in your review queue, adds up to " + str(f["max_suggested"])
+        + " suggested clips on top of those, and lets you keep "
+        + str(f["max_library_week"]) + " clips a week in your library. Starter "
+        "is $" + str(st["price"]) + "/month for " + chans(st["max_streams"])
+        + ", a " + str(st["max_pending"]) + "-clip queue and "
+        + str(st["max_library_week"]) + " clips a week. Pro is $"
+        + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
+        + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
+        "keep, the VOD Scanner and the Clip Editor. Current plan details and "
+        "prices are shown on our pricing page and in your Account tab.</p>"
+        "<p>Where a plan limits how many clips you may keep in a period, "
+        "reaching that limit pauses new approvals until the period rolls over. "
+        "Clips already in your library are never removed because of it.</p>")
 
 
 LANDING_HTML = LANDING_HTML.replace("<!--FREEPLAN-->", _free_plan_answer(), 1)
