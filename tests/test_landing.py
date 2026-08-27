@@ -555,3 +555,78 @@ def test_the_lightbox_is_revealed_before_the_player_loads():
     # the iframe still has no dimensions when src is assigned.
     reflow = block.index("void lb.offsetHeight;")
     assert reveal < reflow < load, "no forced layout between revealing and loading"
+
+
+# ── The sticky nav readout must not be chained to the hero ────────────────────
+
+def _hero_js() -> str:
+    """The hero IIFE's source, comments stripped.
+
+    Comments are not code. The first version of these assertions matched the
+    prose explaining the bug rather than the fix for it, and passed against a
+    tree where the fix had been reverted.
+    """
+    src = api.LANDING_HTML
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"^\s*//.*$", "", src, flags=re.M)
+    return src
+
+
+def test_the_nav_trigger_readout_keeps_moving_once_the_hero_scrolls_away():
+    """The nav is position:sticky, so the readout never leaves the screen.
+
+    Everything that wrote to it used to live in the hero's render(), which is
+    deliberately parked when the wall scrolls out of view — so the sparkline
+    froze mid-stroke on the first scroll and held one number for the rest of
+    the page. Verified in Chromium: before, the readout showed one distinct
+    frame over 2.4s after scrolling past the hero; after, 120.
+    """
+    js = _hero_js()
+
+    # There is a second loop, and its gate does NOT consult the scroll position.
+    m = re.search(r"function navRunning\(\)\{(.*?)\}", js, re.S)
+    assert m, "the nav readout has no loop of its own"
+    gate = m.group(1)
+    assert "onScreen" not in gate, \
+        "the nav readout is gated on the hero being on screen again"
+    # Hidden tab and reduced motion are refusals to animate at all, and both
+    # still have to be honoured — the bug was the scroll gate, not these.
+    assert "document.hidden" in gate and "reduce" in gate, \
+        "the nav loop ignores a hidden tab or reduced motion"
+
+    # The hero loop, by contrast, MUST stay parked: it drives four tiles,
+    # twenty signal bars and an embedded Twitch iframe that openStage() must
+    # never build off screen.
+    m = re.search(r"function running\(\)\{(.*?)\}", js, re.S)
+    assert m and "onScreen" in m.group(1), \
+        "the hero loop no longer parks when the wall scrolls away"
+
+    # Exactly one writer for the readout, so the two loops cannot drift into
+    # showing different numbers for the same thing.
+    assert len(re.findall(r"function navPaint\(", js)) == 1
+    for node in ("trigV", "trigLine"):
+        writes = re.findall(node + r"[.\[]", js)
+        # the `if(trigV)` / `if(trigLine)` guards are reads, not writes
+        assert len(writes) <= 3, f"{node} is written from more than one place"
+    # Both loops call navPaint(best), so a bare substring check passes even
+    # when render() has stopped routing through it — mutation testing walked
+    # straight through the first version of this. Look inside render() itself.
+    m = re.search(r"function render\(t\)\{(.*?)\n  \}", js, re.S)
+    assert m, "render() not found"
+    assert "navPaint(" in m.group(1), "render() no longer routes through navPaint"
+    m = re.search(r"function navTick\(now\)\{(.*?)\n  \}", js, re.S)
+    assert m and "navPaint(" in m.group(1), "navTick() does not paint the readout"
+
+
+def test_the_two_hero_loops_never_run_at_the_same_time():
+    """sync() is the only handover, and it cancels one before starting the other."""
+    js = _hero_js()
+    m = re.search(r"function sync\(\)\{(.*?)\n  \}", js, re.S)
+    assert m, "sync() not found"
+    body = m.group(1)
+    # Wall running -> nav loop cancelled.
+    assert re.search(r"if\(running\(\)\)\{[^}]*cancelAnimationFrame\(navRaf\)", body, re.S), \
+        "the nav loop is left running underneath the wall loop"
+    # Wall parked -> wall rAF cancelled before the nav loop is started.
+    assert body.index("cancelAnimationFrame(raf)") < body.index("navRunning()"), \
+        "the nav loop starts before the wall loop is cancelled"

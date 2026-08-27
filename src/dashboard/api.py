@@ -7867,16 +7867,25 @@ LANDING_HTML = """<!DOCTYPE html>
     // while the clip that crossed the line was still playing.
     if(staged&&firedScore) best=firedScore;
 
-    // One number lights the whole room. Only written when it actually moves —
-    // a custom property on <html> invalidates style for the entire document.
-    var lit=clamp((best-58)/34,0,1), q=Math.round(lit*20)/20;
-    if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
-    if(trigV) trigV.textContent=String(Math.round(best));
+    navPaint(best);
     // The through-line down the page edge reads the wall while the wall is on
     // screen. Leaving it on the scroll wave meant the rail said 0 while four
     // tiles behind it were showing real numbers.
     if(thScore) thScore.textContent=String(Math.round(best));
     if(thread) thread.classList.toggle('fired',fired);
+    if(capState&&!fired&&t>3200&&t<FIRE_MIN)
+      capState.textContent='chat surging on '+bestName;
+  }
+
+  /* Everything the NAV shows, and nothing else. Lifted out of render() so the
+     wall loop and the nav loop below cannot drift into showing two different
+     numbers for the same thing — there is one writer for these three nodes. */
+  function navPaint(best){
+    // One number lights the whole room. Only written when it actually moves —
+    // a custom property on <html> invalidates style for the entire document.
+    var lit=clamp((best-58)/34,0,1), q=Math.round(lit*20)/20;
+    if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
+    if(trigV) trigV.textContent=String(Math.round(best));
     if(trig) trig.classList.toggle('hot',lit>0);
     if(trigLine){
       spark.push(best); if(spark.length>14) spark.shift();
@@ -7888,8 +7897,6 @@ LANDING_HTML = """<!DOCTYPE html>
         trigLine.setAttribute('d',td);
       }
     }
-    if(capState&&!fired&&t>3200&&t<FIRE_MIN)
-      capState.textContent='chat surging on '+bestName;
   }
 
   function tick(now){
@@ -7921,6 +7928,44 @@ LANDING_HTML = """<!DOCTYPE html>
     raf=requestAnimationFrame(tick);
   }
 
+  /* ── THE NAV READOUT OUTLIVES THE WALL ─────────────────────────────────────
+     The nav is position:sticky and never leaves the screen — the markup calls
+     the readout "the signature, in its persistent form". But every write to it
+     lived in render(), which is driven by the loop below, which is parked the
+     moment the hero wall scrolls out of view. So the sparkline froze mid-stroke
+     on the first scroll and held one number for the entire rest of the page.
+
+     PARKING THE WALL LOOP IS STILL RIGHT and is not what changed. It drives
+     four tiles, twenty signal bars, a clip-path stage and an embedded Twitch
+     iframe, none of which are on screen, and openStage() must never build that
+     iframe where nobody can see it. What was wrong is that a 42x14 decoration
+     in a sticky bar was chained to it.
+
+     So the readout gets its own loop. It reads the SAME cycle through the SAME
+     scoreAt(), so the number still means what it meant before — it just does
+     pure arithmetic and writes three attributes, and it never advances the
+     cycle, touches the stage, or reseeds. Exactly one of the two loops runs at
+     a time; sync() below is the only place that hands over. */
+  var navRaf=0, navT=0, navLast=null;
+  function navTick(now){
+    navRaf=0;
+    if(navLast===null) navLast=now;
+    var dt=now-navLast; navLast=now;
+    if(dt>500) dt=STEP;               // came back from a freeze; do not jump
+    navT+=dt; if(navT>=CYCLE) navT-=CYCLE;
+    var i,best=0;
+    for(i=0;i<vis;i++){ var s=scoreAt(cyc[i],navT); if(s>best) best=s; }
+    navPaint(best);
+    navRaf=requestAnimationFrame(navTick);
+  }
+  // Hidden tab and reduced motion are refusals to animate at all. A scroll
+  // position is not one, which is the whole bug — so onScreen is absent here
+  // on purpose. `cyc` is required: the wall loop guards on `started` for the
+  // same reason, the showcase fetch has not resolved on the first callback.
+  function navRunning(){
+    return started && cyc && !document.hidden && !reduce;
+  }
+
   function running(){
     // `started` is not decoration. The wall is observed the moment it exists,
     // and the observer fires its first callback immediately — before the
@@ -7930,8 +7975,22 @@ LANDING_HTML = """<!DOCTYPE html>
     return started && !document.hidden && onScreen && !reduce;
   }
   function sync(){
-    if(running()){ if(!raf){ last=null; raf=requestAnimationFrame(tick); } }
-    else if(raf){ cancelAnimationFrame(raf); raf=0; if(frameEl) teardownFrame(); }
+    if(running()){
+      // The wall is back and owns the readout again.
+      if(navRaf){ cancelAnimationFrame(navRaf); navRaf=0; }
+      if(!raf){ last=null; raf=requestAnimationFrame(tick); }
+      return;
+    }
+    if(raf){ cancelAnimationFrame(raf); raf=0; if(frameEl) teardownFrame(); }
+    if(navRunning()){
+      // Pick the readout up where the wall left it rather than at zero, so
+      // scrolling past the hero is not a visible jump in the sparkline.
+      // Modulo, not a bare subtraction: with sound on, cycleLen runs past
+      // CYCLE for the clip's real duration, so the handover time can be well
+      // outside one period.
+      if(!navRaf){ navT=(elapsed-cycleStart)%CYCLE; navLast=null;
+                   navRaf=requestAnimationFrame(navTick); }
+    } else if(navRaf){ cancelAnimationFrame(navRaf); navRaf=0; }
   }
   var onScreen=true;
   if('IntersectionObserver' in window){
