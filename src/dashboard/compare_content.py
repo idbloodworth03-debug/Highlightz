@@ -58,20 +58,53 @@ class Product:
 
 # ── the three products ───────────────────────────────────────────────────────
 
+def _our_plans() -> tuple[Plan, ...]:
+    """Our own three tiers, read from PLAN_LIMITS.
+
+    THESE WERE TYPED OUT, and went stale exactly the way everything else that
+    quoted a plan number did: this page still advertised "3 crowd suggestions"
+    after free moved to 5, and never mentioned the weekly keep limit at all. It
+    is a public, indexed page comparing us to competitors — wrong numbers about
+    our OWN product are the worst place to have them.
+
+    The competitor entries below stay hand-written on purpose. Those are
+    observations about somebody else's pricing page, checked by a person on
+    CHECKED_ON and shown with that date; there is nothing in this codebase to
+    derive them from, and generating them would only make them look fresher
+    than they are.
+    """
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    free, st, pro = (PLAN_LIMITS["free"], PLAN_LIMITS["starter"],
+                     PLAN_LIMITS["pro"])
+
+    def chans(p: dict) -> str:
+        n = p["max_streams"]
+        return f"{n} channel monitored" if n == 1 else f"{n} channels monitored at once"
+
+    def keeps(p: dict) -> str:
+        n = p["max_library_week"]
+        return ("unlimited clips kept" if n >= UNLIMITED_PENDING
+                else f"{n} clips kept a week")
+
+    return (
+        Plan("Free", f"${free['price']}",
+             f"{chans(free)}, {free['max_pending']}-clip queue, "
+             f"{free['max_suggested']} crowd suggestions, {keeps(free)}. "
+             "No card, no time limit."),
+        Plan("Starter", f"${st['price']}/mo",
+             f"{chans(st)}, {st['max_pending']}-clip queue, {keeps(st)}."),
+        Plan("Pro", f"${pro['price']}/mo",
+             f"{chans(pro)}, {pro['max_pending']}-clip queue, {keeps(pro)}, "
+             "VOD Scanner."),
+    )
+
+
 HIGHLIGHTZ = Product(
     name="Highlightz",
     tagline="Watches your live streams and clips the moment it happens.",
     is_us=True,
     source_url="/#pricing",
-    plans=(
-        Plan("Free", "$0",
-             "1 channel monitored, 20-clip queue, 3 crowd suggestions. "
-             "No card, no time limit."),
-        Plan("Starter", "$10/mo",
-             "3 channels monitored at once, 50-clip queue."),
-        Plan("Pro", "$25/mo",
-             "10 channels monitored at once, 200-clip queue, VOD Scanner."),
-    ),
+    plans=_our_plans(),
 )
 
 OPUS = Product(

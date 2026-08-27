@@ -185,3 +185,170 @@ def test_the_legal_pages_have_meta_descriptions():
     for name, doc in DOCS.items():
         assert re.search(r'<meta name="description" content="[^"]{40,}"', doc), \
             f"the {name} page has no meta description"
+
+
+# ── the same drift, on every other public surface ────────────────────────────
+
+def _public_surfaces() -> dict:
+    """Everything a visitor or customer can read that quotes a plan number."""
+    import importlib
+    from src.dashboard import api as _api
+    from src.dashboard import compare_content as _cc, compare_html as _ch
+    from src.dashboard import tutorial_content as _tc
+    importlib.reload(_cc); importlib.reload(_ch); importlib.reload(_tc)
+    return {
+        "landing":  _api.LANDING_HTML,
+        "terms":    _api.TOS_HTML,
+        "paywall":  _api.PAYWALL_HTML,
+        "compare":  _ch.render(),
+        "tutorial": " ".join(" ".join(r) for r in _tc.PLAN_ROWS)
+                    + " " + _tc.QUICKSTART_LEAD,
+    }
+
+
+# Which plans each surface actually advertises. The paywall is the upgrade
+# page and shows only the paid tiers, so checking it against Free's numbers
+# would be asking it to quote something it deliberately does not.
+_SURFACE_PLANS = {
+    "landing":  ("free", "starter", "pro"),
+    "terms":    ("free", "starter", "pro"),
+    "paywall":  ("starter", "pro"),
+    "compare":  ("free", "starter", "pro"),
+    "tutorial": ("free", "starter", "pro"),
+}
+
+
+def _visible(html: str) -> str:
+    """Rendered words only. The first version of this matched raw HTML, so a
+    pixel value in a stylesheet counted as a plan number."""
+    html = re.sub(r"<style.*?</style>|<script.*?</script>|<!--.*?-->", " ",
+                  html, flags=re.S)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+
+def _quotes(text: str, n: int) -> bool:
+    """Whole numbers only. "20" is inside "200-clip queue" and "5" is inside
+    "$25", which made the first version of this fail on pages that were
+    perfectly correct."""
+    return re.search(rf"(?<!\d){n}(?!\d)", text) is not None
+
+
+# FREE ONLY, and that is a limitation worth stating rather than hiding.
+#
+# Free is where the advertised numbers live: it is the plan every public page
+# describes in full, and both bugs this test exists for were free's. The paid
+# tiers are quoted more selectively, and a bare-number sweep cannot tell one
+# use of a figure from another — Starter's max_suggested is 25 and Pro's price
+# is $25, so demanding every page "follow" a moved 25 fails on pages that are
+# entirely correct. The paid tiers are covered by the specific tests below.
+@pytest.mark.parametrize("limit,probe", [
+    ("max_streams", 8181), ("max_pending", 4242),
+    ("max_suggested", 3737), ("max_library_week", 9595),
+])
+def test_every_public_surface_follows_a_moved_plan_limit(limit, probe):
+    """The class of bug, not the instances of it.
+
+    Re-auditing found /compare still advertising "3 crowd suggestions" after
+    free moved to 5, and the paywall — the page where somebody decides to pay —
+    quoting every figure as a literal and never mentioning the weekly keep cap
+    at all. Both were missed twice by reading the legal documents, because the
+    documents were right; it was the OTHER pages that had gone stale.
+
+    So this checks no particular sentence. It moves a limit and asserts every
+    surface that advertises that plan moves with it. A new page that types its
+    numbers fails here on the day it is written.
+    """
+    plan = "free"
+    import importlib
+    from src.dashboard import api as _api
+
+    original = PLAN_LIMITS[plan][limit]
+    before = {n: _visible(h) for n, h in _public_surfaces().items()}
+    PLAN_LIMITS[plan][limit] = probe
+    try:
+        importlib.reload(_api)
+        after = {n: _visible(h) for n, h in _public_surfaces().items()}
+    finally:
+        # Restore BEFORE re-rendering: compare_content builds its plan lines at
+        # import time, so a reload while the probe is still in place bakes the
+        # probe into module state and leaks it into every later test.
+        PLAN_LIMITS[plan][limit] = original
+        importlib.reload(_api)
+        _public_surfaces()
+
+    stale = [n for n, plans in _SURFACE_PLANS.items()
+             if plan in plans
+             and _quotes(before[n], original)
+             and not _quotes(after[n], probe)]
+    assert not stale, (
+        f"{stale} quote {plan}'s {limit} but do not follow it — they type the "
+        f"number instead of reading PLAN_LIMITS")
+
+
+def test_the_compare_page_describes_our_real_plans():
+    from src.dashboard.compare_content import HIGHLIGHTZ
+    free = PLAN_LIMITS["free"]
+    note = next(p.note for p in HIGHLIGHTZ.plans if p.name == "Free")
+    assert str(free["max_suggested"]) in note, "the compare page's own numbers are stale"
+    assert str(free["max_library_week"]) in note, "it omits the weekly keep limit"
+
+
+def test_the_upgrade_page_names_what_upgrading_buys():
+    """The weekly cap is a main reason to upgrade; the paywall never said so."""
+    from src.dashboard.api import PAYWALL_HTML
+    st = PLAN_LIMITS["starter"]
+    assert f"{st['max_library_week']} clips kept a week" in PAYWALL_HTML
+    assert "Unlimited clips kept" in PAYWALL_HTML, "Pro's headline benefit is missing"
+    assert "1000000000" not in PAYWALL_HTML, "the sentinel reached the page"
+
+
+def test_the_privacy_policy_quotes_the_real_chat_sample_size():
+    """It said "up to 30" and the worker sliced [-30:]. Two literals that could
+    disagree, in a claim about how much of other people's chat we retain."""
+    from src.dashboard.api import PRIVACY_HTML
+    from src.ingestion.stream_worker import CHAT_SNAPSHOT_MESSAGES
+    assert f"up to {CHAT_SNAPSHOT_MESSAGES} of the chat messages" in PRIVACY_HTML
+    assert "<!--CHATN-->" not in PRIVACY_HTML, "the placeholder was left unfilled"
+
+
+def test_the_worker_actually_slices_by_the_constant_the_policy_quotes():
+    """Naming the constant is only half of it.
+
+    Mutation testing moved CHAT_SNAPSHOT_MESSAGES from 30 to 50 and nothing
+    failed — correctly, because the policy derives from it and both moved
+    together. That mutant is equivalent. The failure it could NOT reach is the
+    one worth pinning: someone leaving the constant at 30 while the slice goes
+    back to a literal. Then the policy quotes a number the code does not use,
+    which is the original bug wearing a constant.
+    """
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker)
+    # The chat_snapshot assignment specifically. A broader search matches the
+    # sentiment sampler a few hundred lines up, which also reads the last N
+    # messages but stores nothing — narrowing this was the difference between
+    # a test about retention and a test about any slice in the file.
+    m = re.search(r"chat_snapshot=\((.*?)\)", src, re.S)
+    assert m, "chat_snapshot is no longer assigned where this test looks"
+    assign = m.group(1)
+    assert "CHAT_SNAPSHOT_MESSAGES" in assign, \
+        "the stored chat sample is sliced by a literal again, not the constant "
+    assert not re.search(r"\[-\d+:\]", assign), \
+        "a hardcoded slice length is back on the stored chat sample"
+
+
+def test_the_drift_sweep_cannot_be_fooled_by_a_stylesheet():
+    """Guards the guard.
+
+    The first version of the sweep matched raw HTML, so a `padding:20px` in a
+    stylesheet read as the page quoting free's 20-clip queue — which is how it
+    reported four perfectly correct pages as stale. If _visible stops stripping,
+    the sweep goes back to reporting noise and stops being trusted.
+    """
+    styled = '<style>.x{padding:4242px}</style><p>Twenty clips</p>'
+    assert not _quotes(_visible(styled), 4242), \
+        "_visible lets stylesheet numbers count as page copy"
+    assert "Twenty clips" in _visible(styled), "_visible ate the actual copy"
+    # And whole-number matching, or "20" matches inside "200-clip queue".
+    assert not _quotes("a 200-clip queue", 20)
+    assert _quotes("a 20-clip queue", 20)

@@ -33,6 +33,12 @@ from src.profiles.profile import StreamerProfile
 
 log = structlog.get_logger(__name__)
 
+# How many chat messages are stored alongside a clip, so the user can see why it
+# was flagged. NAMED because the Privacy Policy quotes this number: it is the
+# one place we say how much chat we retain, and a literal here plus a literal
+# there is two numbers that can disagree. src/dashboard/api.py imports it.
+CHAT_SNAPSHOT_MESSAGES = 30
+
 # Our own clips are real Twitch clips and appear in the same Get Clips results
 # as viewers'. Learning from them would be learning from ourselves. Cached
 # because it reads two JSON files; refreshed a few times an hour is plenty.
@@ -605,7 +611,8 @@ class StreamWorker:
                 {"type": str(s.type).split(".")[-1], "value": s.value, "metadata": s.metadata}
                 for s in event.signals
             ],
-            chat_snapshot=snapshot.messages[-30:] if snapshot else [],
+            chat_snapshot=(snapshot.messages[-CHAT_SNAPSHOT_MESSAGES:]
+                           if snapshot else []),
             stream_title=info.title if info else "",
             game=info.game if info else "",
             pre_roll=event.pre_roll,

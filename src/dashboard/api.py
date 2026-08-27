@@ -8512,29 +8512,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
   <span class="badge">Highlightz</span>
   <h1>{headline}</h1>
   <p class="sub">Hi {username} — {subline}</p>
-  <div class="plan-row">
-    <div class="plan">
-      <div class="plan-name">Starter</div>
-      <div class="plan-price">$10<span>/mo</span></div>
-      <ul class="plan-feats">
-        <li>3 monitored streams</li>
-        <li>50-clip review queue</li>
-        <li>Live clip detection &amp; analytics</li>
-      </ul>
-      <a href="/billing/checkout?plan=starter" class="cta ghost">Choose Starter</a>
-    </div>
-    <div class="plan pro">
-      <div class="plan-pop">Most popular</div>
-      <div class="plan-name">Pro</div>
-      <div class="plan-price">$25<span>/mo</span></div>
-      <ul class="plan-feats">
-        <li>10 monitored streams</li>
-        <li>200-clip review queue</li>
-        <li>VOD Scanner included</li>
-      </ul>
-      <a href="/billing/checkout?plan=pro" class="cta">Choose Pro</a>
-    </div>
-  </div>
+  <!--PAYWALLPLANS-->
   <p class="sub" style="font-size:13px;margin-top:14px">{cta_note}</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
@@ -8545,6 +8523,48 @@ PAYWALL_HTML = """<!DOCTYPE html>
 </div>
 </body>
 </html>"""
+
+def _paywall_plans() -> str:
+    """The two paid cards on the upgrade page, generated from PLAN_LIMITS.
+
+    Every figure here was typed. They happened to be correct, but this is the
+    page where somebody decides to pay — the worst place to quote a stale
+    number — and it had already fallen behind in a way that mattered: the
+    weekly keep limit is now one of the main reasons to upgrade and the page
+    did not mention it at all.
+    """
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    st, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def keeps(p: dict) -> str:
+        n = p["max_library_week"]
+        return ("Unlimited clips kept" if n >= UNLIMITED_PENDING
+                else str(n) + " clips kept a week")
+
+    def card(p: dict, key: str, cls: str, cta_cls: str, extra: list[str],
+             popular: bool) -> str:
+        feats = ([str(p["max_streams"]) + " monitored streams",
+                  str(p["max_pending"]) + "-clip review queue",
+                  keeps(p)] + extra)
+        return ('<div class="plan ' + cls + '">'
+                + ('<div class="plan-pop">Most popular</div>' if popular else "")
+                + '<div class="plan-name">' + p["label"] + "</div>"
+                + '<div class="plan-price">$' + str(p["price"]) + "<span>/mo</span></div>"
+                + '<ul class="plan-feats">'
+                + "".join("<li>" + f + "</li>" for f in feats)
+                + "</ul>"
+                + '<a href="/billing/checkout?plan=' + key + '" class="cta '
+                + cta_cls + '">Choose ' + p["label"] + "</a></div>")
+
+    return ('<div class="plan-row">'
+            + card(st, "starter", "", "ghost",
+                   ["Live clip detection &amp; analytics"], False)
+            + card(pro, "pro", "pro", "",
+                   ["VOD Scanner included"], True)
+            + "</div>")
+
+
+PAYWALL_HTML = PAYWALL_HTML.replace("<!--PAYWALLPLANS-->", _paywall_plans(), 1)
 
 TOS_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -8725,7 +8745,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
-    <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to 30 of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
+    <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
     <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a clip surfaced by a spike in audience interest we also store how many viewers clipped that moment and its view count — a count, not an identity; we do not store who they were. We do not store any stream video; clips are hosted by Twitch.</li>
@@ -8784,6 +8804,13 @@ PRIVACY_HTML = """<!DOCTYPE html>
 </div>
 </body>
 </html>"""
+
+# The one quantity the Privacy Policy states about retained chat. Read from
+# the worker rather than typed, so changing how much chat a clip keeps
+# cannot leave the policy describing the old amount.
+from src.ingestion.stream_worker import CHAT_SNAPSHOT_MESSAGES  # noqa: E402
+PRIVACY_HTML = PRIVACY_HTML.replace(
+    "<!--CHATN-->", str(CHAT_SNAPSHOT_MESSAGES), 1)
 
 COOKIES_HTML = """<!DOCTYPE html>
 <html lang="en">
