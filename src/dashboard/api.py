@@ -9120,7 +9120,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="toolbar">
       <input class="field" id="u-search" placeholder="Search name, Twitch login or email">
       <div class="chips" id="u-chips">
-        <button class="chip on" data-f="active">Active</button>
+        <button class="chip on" data-f="active" title="Everyone currently on the product — free, paying, on trial and staff. Cancelled accounts keep free access but are listed under Lapsed.">Active</button>
         <button class="chip" data-f="pro">Pro</button>
         <button class="chip" data-f="starter">Starter</button>
         <button class="chip" data-f="free">Free</button>
@@ -9395,10 +9395,25 @@ function userMatches(u){
   }
   const st = userState(u);
   if(U_FILTER === 'all') return true;
-  // "Active" means someone currently getting the paid product, staff included —
-  // that is the working set, and it is the default because a list dominated by
-  // signed-up-once accounts buries the people who are actually using this.
-  if(U_FILTER === 'active') return st === 'admin' || st === 'active' || st === 'trialing';
+  // "Active" = everyone whose relationship with the product is CURRENT, which
+  // now includes the free tier.
+  //
+  // It used to mean "getting the PAID product", and that was right while free
+  // was closed: an account that had signed up and not paid had nothing, so a
+  // list full of them buried the real users. Reopening the free tier inverted
+  // that. A free signup is a live user of the product — often the newest one —
+  // and the default view was hiding exactly the people the free tier exists to
+  // attract. `none` is what a fresh Twitch signup carries.
+  //
+  // WHY `lapsed` IS STILL OUT, since it is the obvious next question: a
+  // cancelled account also drops to free (see plans.get_plan — "never
+  // subscribed, cancelled, lapsed, or a finished trial — all four land on
+  // free"), so it is NOT excluded for lack of access. It is excluded because
+  // somebody who paid and stopped is a churn event, and folding them in here
+  // would bury that in the one view that is open by default. The Lapsed chip
+  // is where they belong.
+  if(U_FILTER === 'active') return st === 'admin' || st === 'active'
+                                || st === 'trialing' || st === 'none';
   if(U_FILTER === 'trialing') return st === 'trialing';
   if(U_FILTER === 'lapsed') return st === 'lapsed';
   // Everyone who began the signup and did not come out the other side. The
