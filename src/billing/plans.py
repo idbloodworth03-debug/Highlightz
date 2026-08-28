@@ -180,7 +180,7 @@ GRACE_STATUSES = ("past_due", "incomplete")
 FUNNEL_STAGES = (
     "staff",             # admin/trainer — never in the funnel
     "legacy",            # pre-cutover account on its own terms
-    "signed_up",         # connected Twitch, never clicked through to pay
+    "signed_up",         # connected Twitch, on the free tier
     "checkout_started",  # reached Stripe's card form, no subscription yet
     "checkout_dropped",  # a Stripe customer exists but no subscription
     "trialing",          # card on file, not yet charged
@@ -192,7 +192,12 @@ FUNNEL_STAGES = (
 FUNNEL_LABELS = {
     "staff":            "Staff",
     "legacy":           "Legacy account",
-    "signed_up":        "Signed up, never opened checkout",
+    # NOT "never opened checkout". That wording is left over from when free
+    # was closed and a signup with no payment really was an incomplete
+    # journey. Free is a real tier now, so this is where a lot of people are
+    # MEANT to end up — describing it as a failure to pay is both wrong and
+    # the reason the admin table was flagging healthy accounts.
+    "signed_up":        "On the free tier",
     "checkout_started": "Left at the card form",
     "checkout_dropped": "Checkout abandoned",
     "trialing":         "On trial",
@@ -200,6 +205,18 @@ FUNNEL_LABELS = {
     "past_due":         "Card failing",
     "lapsed":           "Lapsed",
 }
+
+
+# The stages that mean somebody set out to pay and did not arrive. These are
+# the rows worth a second line in the admin table and the ones the "Stalled"
+# chip is for.
+#
+# `signed_up` IS DELIBERATELY NOT HERE. It was, while free was closed: an
+# account that had signed up and not paid had nothing, so it was a stall. Now
+# it is the free tier working as intended, and leaving it in meant every
+# healthy free user carried a "never opened checkout" note and flooded the one
+# list you go to when somebody says they paid and have no access.
+FUNNEL_STALLED = ("checkout_started", "checkout_dropped")
 
 
 def funnel_stage(user: dict | None) -> str:

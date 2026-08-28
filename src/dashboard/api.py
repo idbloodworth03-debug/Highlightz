@@ -9835,7 +9835,7 @@ function planNote(u){
 // Where they got to, shown ONLY when it adds something the plan pill does not.
 // A paying customer's stage is "paying" and the pill already says so; printing
 // it again is noise on every row. The stalls are the rows worth a second line.
-const STALLED = ['signed_up', 'checkout_started', 'checkout_dropped'];
+const STALLED = <!--STALLED-->;
 
 function stageNote(u){
   const st = u.funnel_stage || '';
@@ -10989,7 +10989,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   // the paywall, a trial about to lapse — were the ones there was no way to
   // contact, because not writing in was the whole problem.
   let PEOPLE=[], SEL=new Set(), CMP_Q='', CMP_F='all';
-  const STALLED=['signed_up','checkout_started','checkout_dropped'];
+  const STALLED = <!--STALLED-->;
 
   function inFilter(u){
     if(CMP_F==='selected') return SEL.has(u.id);
@@ -11108,6 +11108,14 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 </script>
 </body>
 </html>"""
+
+# Filled after both literals close — the ordering rule this file already
+# follows for every other placeholder. One source, two script blocks: these
+# were two hand-typed copies of the same list, which is how a change to one
+# silently leaves the other behind.
+_STALLED_JSON = json.dumps(list(_plans.FUNNEL_STALLED))
+ADMIN_HTML = ADMIN_HTML.replace("<!--STALLED-->", _STALLED_JSON, 1)
+_ADMIN_FEEDBACK_HTML = _ADMIN_FEEDBACK_HTML.replace("<!--STALLED-->", _STALLED_JSON, 1)
 
 _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <html lang="en">
