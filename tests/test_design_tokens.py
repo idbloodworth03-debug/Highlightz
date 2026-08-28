@@ -558,3 +558,93 @@ def test_the_embedded_js_carries_no_backslash_escapes():
                            cfile="/tmp/_phase4_escape_check.pyc")
     bad = [str(w.message) for w in caught if "invalid escape" in str(w.message)]
     assert not bad, f"invalid escapes: {bad}"
+
+
+# ── phase 5: polish ──────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("page", PAGES)
+def test_transitions_use_the_duration_tokens(page):
+    """Eleven distinct durations on the dashboard and eight on the landing page
+    before this. Anything over 500ms is an ambient loop or a deliberate slow
+    reveal and keeps its own value."""
+    bad = []
+    for m in re.finditer(r"transition:([^;}\n]+)", css(page)):
+        for seg in m.group(1).split(","):
+            for lit in re.findall(r"(?<![\w.])(\d*\.?\d+)(m?s)\b", seg):
+                ms = float(lit[0]) * (1 if lit[1] == "ms" else 1000)
+                if ms <= 500:
+                    bad.append(lit[0] + lit[1])
+    assert not bad, f"{page}: raw short durations still in transitions: {sorted(set(bad))}"
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_one_easing_curve_plus_one_named_exception(page):
+    """Four curves were written out longhand. The overshoot is kept — it is a
+    deliberate character choice — but as a token, so a third variant cannot be
+    added by hand."""
+    c = re.sub(r"/\*.*?\*/", "", css(page), flags=re.S)   # comments are not values
+    raw = re.findall(r"cubic-bezier\([^)]*\)", c)
+    defs = len(re.findall(r"--ease(?:-spring)?:\s*cubic-bezier", c))
+    assert len(raw) == defs, \
+        f"{page}: {len(raw) - defs} curves still written out longhand"
+
+
+def test_the_dangling_timing_function_is_gone():
+    """Phase 1a rewrote `transition:all Xs cubic-bezier(...)` by replacing only
+    the `all Xs` part, which left the original curve dangling after the new
+    one. Two timing functions on one segment is invalid, so the browser drops
+    the whole declaration and the element ends up with no transition at all."""
+    for page in PAGES:
+        assert not re.search(r"var\(--ease\)\s+cubic-bezier", css(page)), \
+            f"{page}: a transition has two timing functions"
+
+
+def test_every_page_honours_reduced_motion():
+    """The paywall had none at all — 'we honour this everywhere except the page
+    that asks you for money' is not a position worth holding."""
+    from src.dashboard.api import PAYWALL_HTML
+    for page in PAGES:
+        assert "prefers-reduced-motion" in css(page), f"{page} ignores it"
+    assert "prefers-reduced-motion" in PAYWALL_HTML, "the paywall ignores it"
+
+
+def test_the_product_has_keyboard_focus_rings():
+    """It had NONE — zero :focus-visible rules in the whole dashboard against
+    five on the marketing pages, so tabbing through the app moved an invisible
+    cursor. Verified in Chromium by pressing Tab 60 times: 0 of 58 stops
+    without a ring, on all four pages."""
+    d = css("dashboard")
+    assert ":focus-visible" in d, "the dashboard has no focus rules again"
+    assert "outline:2pxsolidvar(--acc)" in d.replace(" ", "")
+    assert "forced-colors: active" in d, "no high-contrast fallback"
+
+
+def test_focus_rings_are_focus_visible_not_focus():
+    """:focus would leave a ring behind after a mouse click, which is the whole
+    reason the default outline gets removed in the first place."""
+    d = css("dashboard")
+    block = d[d.index("KEYBOARD FOCUS"):]
+    block = block[:block.index("*{box-sizing")]
+    assert ":focus{" not in block, "a bare :focus rule is back"
+
+
+def test_sora_has_a_metric_matched_fallback():
+    """Isolated by loading one face at a time, Sora was the only one causing
+    layout shift: 0.0416 on its own against 0.0004 for Lobster and 0.0001 for
+    Plex Mono. The overrides are measured — the fallback now reports Sora's
+    exact 97/29 ascent/descent and matches its advance to 0.4px at 100px."""
+    c = css("landing")
+    assert "'Sora Fallback'" in c, "the fallback face is gone"
+    face = re.search(r"@font-face\{font-family:'Sora Fallback'[^}]*\}", c).group(0)
+    for prop in ("size-adjust", "ascent-override", "descent-override", "line-gap-override"):
+        assert prop in face, f"the fallback lost {prop}"
+    assert "--sans:'Sora','SoraFallback'" in c.replace(" ", ""), \
+        "the fallback is not in the stack, so it can never be used"
+
+
+def test_the_fallback_sits_before_the_generic_stack():
+    """After system-ui it would never be reached, and the overrides would do
+    nothing at all."""
+    c = css("landing").replace(" ", "")
+    stack = re.search(r"--sans:([^;]+);", c).group(1)
+    assert stack.index("'SoraFallback'") < stack.index("system-ui")

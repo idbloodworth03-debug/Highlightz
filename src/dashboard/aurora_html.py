@@ -143,6 +143,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .wake-chip,.wake-frame,.wake-status{opacity:1;transform:none}
   .wake-rule{transform:scaleX(1)}
 }
+/* ══ KEYBOARD FOCUS ═══════════════════════════════════════════════════════
+   THE PRODUCT HAD NONE. Not a thin one, not an inherited one — zero
+   :focus-visible rules in the whole dashboard, against five on the marketing
+   pages. Measured in Chromium on the Clip Review screen: 49 visible
+   interactive elements with neither an outline nor a ring when focused. The
+   nav rail, every action button, every link button. Tabbing through the app
+   moved an invisible cursor.
+
+   :focus-visible rather than :focus, so a mouse click does not leave a ring
+   behind — that is the reason the default outline gets removed in the first
+   place, and removing it without putting this back is how the product ended
+   up here.
+
+   One rule, from the tokens, on the base element types plus the classes the
+   app actually uses. outline-offset keeps the ring clear of the border on
+   controls that already have one. ══ */
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible,
+.rd-btn:focus-visible,.rd-navitem:focus-visible,.rd-menu-btn:focus-visible,
+.rd-dir:focus-visible,.rd-input:focus-visible,.rd-filter:focus-visible,
+.rd-user-chip:focus-visible,.plat-sw-btn:focus-visible{
+  outline:2px solid var(--acc);outline-offset:2px;border-radius:var(--r-sm)}
+/* Inside the nav rail the items are flush to the edge, so the ring needs to
+   sit inside the box rather than outside it or the left half is clipped. */
+.rd-nav .rd-navitem:focus-visible{outline-offset:-2px}
+/* Windows high-contrast replaces colours wholesale; a transparent outline is
+   the documented way to keep a visible ring there. */
+@media (forced-colors: active){
+  :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+    outline:2px solid CanvasText}
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:var(--font);color:var(--fg);background:var(--rd-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
@@ -198,13 +228,13 @@ button{font-family:inherit;cursor:pointer}
 @keyframes spin{to{transform:rotate(360deg)}}
 .rd-search{flex:1;max-width:420px;position:relative}
 .rd-search input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-pill);
-  color:var(--fg);font-size:12px;padding:8px 12px 8px 32px;outline:none;transition:.18s}
+  color:var(--fg);font-size:12px;padding:8px 12px 8px 32px;outline:none;transition:var(--dur-fast)}
 .rd-search input::placeholder{color:var(--fg-3)}
 .rd-search input:focus{border-color:rgba(196,137,228,.5);background:rgba(255,255,255,.06);box-shadow:0 0 0 4px rgba(184,106,220,.12)}
 .rd-search .si{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--fg-3)}
 .rd-header .spacer{flex:1}
 .rd-iconbtn{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
-  background:rgba(255,255,255,.04);border:1px solid var(--hair);color:var(--fg-2);transition:.18s}
+  background:rgba(255,255,255,.04);border:1px solid var(--hair);color:var(--fg-2);transition:var(--dur-fast)}
 .rd-iconbtn:hover{color:var(--fg);background:rgba(255,255,255,.08)}
 .rd-avatar{width:38px;height:38px;border-radius:50%;background:var(--grad);display:grid;place-items:center;
   font-weight:700;font-size:14px;color:#14021c;border:none;box-shadow:var(--glow)}
@@ -219,7 +249,7 @@ button{font-family:inherit;cursor:pointer}
 /* Clip Review has no side rail any more — adding streams moved to Live
    Streams — so the grid takes the full width instead of leaving a gap. */
 .rd-body-full{grid-template-columns:1fr}
-.rd-streampick{cursor:pointer;border-radius:15px;transition:.15s}
+.rd-streampick{cursor:pointer;border-radius:15px;transition:var(--dur-fast)}
 .rd-streampick.on{box-shadow:0 0 0 1px var(--acc-2)}
 .rd-rail{border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
 .rd-rail-head{display:flex;align-items:center;justify-content:space-between}
@@ -253,7 +283,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-suggx:focus{opacity:1}
 .rd-suggx:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .rd-input{flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
-  color:var(--fg);font-size:12px;padding:12px 12px;outline:none;transition:.18s}
+  color:var(--fg);font-size:12px;padding:12px 12px;outline:none;transition:var(--dur-fast)}
 .rd-input::placeholder{color:var(--fg-3)}
 .rd-input:focus{border-color:rgba(196,137,228,.5);box-shadow:0 0 0 4px rgba(184,106,220,.1)}
 .rd-select{background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
@@ -261,7 +291,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-select option{background:#15151c}
 .rd-btn{border:none;border-radius:var(--r-md);padding:12px 16px;font-size:12px;font-weight:600;
   display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;
-  background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:.18s;white-space:nowrap}
+  background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:var(--dur-fast);white-space:nowrap}
 .rd-btn:hover{background:rgba(255,255,255,.1)}
 .kick-theme{--acc:#53fc18;--acc-2:#39b515;--grad:linear-gradient(135deg,#53fc18 0%,#39b515 100%);--grad-soft:linear-gradient(135deg,rgba(83,252,24,.14),rgba(57,181,21,.10));--glow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.4)}
 .kick-theme .rd-btn.grad{box-shadow:0 6px 18px -6px rgba(83,252,24,.5)}
@@ -278,7 +308,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-btn.ghost-force:hover{background:rgba(255,138,76,.24)}
 .rd-btn.sm{padding:8px 12px;font-size:12px;border-radius:10px}
 .rd-streams{display:flex;flex-direction:column;gap:8px;overflow-y:auto;padding-right:4px;min-height:0}
-.rd-stream{border-radius:var(--r-md);padding:12px;background:rgba(255,255,255,.025);border:1px solid var(--hair);transition:.18s}
+.rd-stream{border-radius:var(--r-md);padding:12px;background:rgba(255,255,255,.025);border:1px solid var(--hair);transition:var(--dur-fast)}
 .rd-stream:hover{border-color:var(--hair-2);background:rgba(255,255,255,.045)}
 .rd-stream-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .rd-stream-top>div:first-child{min-width:0;flex:1;overflow:hidden}
@@ -287,7 +317,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-stream .mt{font-size:12px;color:var(--fg-2);margin-top:4px;display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .rd-chip{font-size:12px;font-weight:600;padding:4px 8px;border-radius:var(--r-pill);background:rgba(255,255,255,.06);color:var(--fg-2);text-transform:capitalize}
 .rd-stream-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
-.rd-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:transparent;border:none;color:var(--fg-3);transition:.15s}
+.rd-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:transparent;border:none;color:var(--fg-3);transition:var(--dur-fast)}
 .rd-x:hover{color:var(--danger);background:var(--danger-soft)}
 .rd-score{margin-top:12px}
 .rd-score-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
@@ -373,19 +403,19 @@ button{font-family:inherit;cursor:pointer}
   color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
   border-top-left-radius:0;border-bottom-left-radius:0;
   border-top-right-radius:var(--r-md);border-bottom-right-radius:var(--r-md);
-  padding:8px 12px;cursor:pointer;transition:.16s;white-space:nowrap}
+  padding:8px 12px;cursor:pointer;transition:var(--dur-fast);white-space:nowrap}
 .rd-dir:hover{color:var(--fg);background:rgba(255,255,255,.07);border-color:var(--hair-2)}
 
 /* ── RdMenu ── a dropdown that obeys this stylesheet, unlike <select>. */
 .rd-menu{position:relative}
 .rd-menu-btn{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:12px;font-weight:600;
   color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
-  border-radius:var(--r-md);padding:8px 12px;cursor:pointer;transition:.16s;white-space:nowrap}
+  border-radius:var(--r-md);padding:8px 12px;cursor:pointer;transition:var(--dur-fast);white-space:nowrap}
 .rd-menu-btn:hover{color:var(--fg);background:rgba(255,255,255,.07);border-color:var(--hair-2)}
 .rd-menu-btn.open{color:var(--fg);border-color:var(--acc);background:rgba(184,106,220,.10)}
 .rd-menu-lbl{color:var(--fg-3);font-weight:600}
 .rd-menu-val{color:var(--fg);font-weight:700;max-width:15ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rd-menu-caret{display:flex;color:var(--fg-3);transition:transform .18s}
+.rd-menu-caret{display:flex;color:var(--fg-3);transition:transform var(--dur-fast)}
 .rd-menu-caret.open{transform:rotate(180deg)}
 .rd-menu-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:60;min-width:100%;
   max-height:290px;overflow-y:auto;padding:4px;border-radius:12px;
@@ -394,7 +424,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-menu-pop.right{left:auto;right:0}
 .rd-menu-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
   font:inherit;font-size:12px;font-weight:600;color:var(--fg-2);background:none;border:0;
-  padding:8px 8px;border-radius:8px;cursor:pointer;transition:.12s}
+  padding:8px 8px;border-radius:8px;cursor:pointer;transition:var(--dur-fast)}
 .rd-menu-item:hover{background:rgba(255,255,255,.06);color:var(--fg)}
 .rd-menu-item.on{color:var(--acc);background:rgba(184,106,220,.12)}
 .rd-menu-item-l{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -407,16 +437,16 @@ button{font-family:inherit;cursor:pointer}
 .cull-slider{width:100%;accent-color:var(--acc);cursor:pointer}
 .cull-preview{display:flex;justify-content:space-between;font-size:12px;font-weight:700}
 .plat-switch{position:relative;display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:4px;user-select:none}
-.plat-sw-pill{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:99px;pointer-events:none;transition:transform .35s cubic-bezier(.34,1.4,.64,1),background .3s ease,box-shadow .3s ease}
+.plat-sw-pill{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:99px;pointer-events:none;transition:transform var(--dur-slow) var(--ease-spring),background var(--dur-slow) ease,box-shadow var(--dur-slow) ease}
 .plat-sw-pill.kick{transform:translateX(100%);background:#53fc18;box-shadow:0 2px 14px -3px rgba(83,252,24,.7)}
 .plat-sw-pill.twitch{transform:translateX(0);background:#9146ff;box-shadow:0 2px 14px -3px rgba(145,70,255,.7)}
-.plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color .25s ease,transform .12s ease;-webkit-tap-highlight-color:transparent}
+.plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color var(--dur-slow) ease,transform var(--dur-fast) ease;-webkit-tap-highlight-color:transparent}
 .plat-sw-btn:active{transform:scale(.93)}
 .plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
 .rd-filters{display:flex;gap:4px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;
   display:inline-flex;align-items:center;gap:8px;
-  padding:8px 12px;border-radius:var(--r-pill);transition:.18s}
+  padding:8px 12px;border-radius:var(--r-pill);transition:var(--dur-fast)}
 .rd-filter:hover{color:var(--fg)}
 .rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(184,106,220,.6)}
 /* .rd-filter-n (the count badge on a chip) was removed with Clip Review's
@@ -429,7 +459,7 @@ button{font-family:inherit;cursor:pointer}
    310px grid minimum and clips the action row (the "Open on Twitch" button) once
    columns get wider. The grid still stretches every card in a row to the tallest,
    so rows stay level. */
-.rd-clip{border-radius:var(--r-lg);overflow:hidden;background:var(--panel);border:1px solid var(--hair);transition:transform .22s cubic-bezier(.4,0,.2,1),border-color .22s,box-shadow .22s;display:flex;flex-direction:column;min-height:360px}
+.rd-clip{border-radius:var(--r-lg);overflow:hidden;background:var(--panel);border:1px solid var(--hair);transition:transform var(--dur-slow) var(--ease),border-color var(--dur-slow),box-shadow var(--dur-slow);display:flex;flex-direction:column;min-height:360px}
 .rd-clip:hover{transform:translateY(-4px);border-color:rgba(196,137,228,.35);box-shadow:var(--shadow-card)}
 /* aspect-ratio, not the height:0 + padding-bottom:56.25% hack. Percentage padding
    resolves to ZERO while a grid row is being intrinsically sized, so the row came
@@ -442,7 +472,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55));pointer-events:none;z-index:1}
 .rd-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
 .rd-play .ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;padding-left:4px;
-  background:rgba(20,12,30,.4);border:1.5px solid rgba(255,255,255,.85);color:#fff;backdrop-filter:blur(4px);transition:transform .2s,background .2s}
+  background:rgba(20,12,30,.4);border:1.5px solid rgba(255,255,255,.85);color:#fff;backdrop-filter:blur(4px);transition:transform var(--dur-fast),background var(--dur-fast)}
 .rd-clip:hover .rd-play .ring{transform:scale(1.08);background:var(--grad);border-color:transparent;box-shadow:var(--glow)}
 /* Both badges overlay the clip player, so a backdrop-filter on them means the
    browser re-blurs that patch of video on every decoded frame. They also sit
@@ -559,13 +589,13 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
    navigating away. font:inherit and the background reset are what stop a
    button inheriting the browser's chrome instead of this style. */
 .rd-emptylink{display:inline-block;margin-top:16px;font-size:12px;font-weight:600;color:var(--acc);
-  padding:8px 16px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s;
+  padding:8px 16px;border-radius:9px;border:1px solid var(--hair-2);transition:var(--dur-fast);
   font-family:inherit;background:none;cursor:pointer}
 .rd-emptylink:hover{background:rgba(255,255,255,.05);border-color:var(--acc);color:var(--fg)}
 .rd-toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,90px);opacity:0;
   display:inline-flex;align-items:center;gap:8px;padding:12px 16px;border-radius:var(--r-pill);
   background:rgba(18,14,24,.85);border:1px solid rgba(196,137,228,.35);color:var(--fg);font-size:12px;font-weight:500;
-  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 40px -12px rgba(0,0,0,.7);z-index:50;transition:transform var(--dur-fast) var(--ease),opacity var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease) cubic-bezier(.34,1.56,.64,1)}
+  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 40px -12px rgba(0,0,0,.7);z-index:50;transition:transform var(--dur-fast) var(--ease),opacity var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
 .rd-toast.show{transform:translate(-50%,0);opacity:1}
 .rd-undo{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;
   display:flex;align-items:center;gap:12px;padding:12px 12px;border-radius:12px;
@@ -597,7 +627,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-nav .logo img{height:34px;filter:drop-shadow(0 0 12px rgba(196,137,228,.45))}
 .rd-navitem{width:88px;height:64px;border-radius:16px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:4px;background:transparent;border:none;
-  color:var(--fg-3);font-size:12px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
+  color:var(--fg-3);font-size:12px;font-weight:600;letter-spacing:.01em;transition:var(--dur-fast);position:relative}
 .rd-navitem:hover{color:var(--fg-2);background:rgba(255,255,255,.05)}
 /* Closed off on Kick. The button is really `disabled`; this only makes that
    legible — and the not-allowed cursor plus killed hover stops it reading as
@@ -633,7 +663,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-chanlist{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;padding-right:4px}
 .rd-chanlist .rd-eyebrow{padding:4px 4px 4px}
 .rd-chan{text-align:left;padding:12px;border-radius:15px;background:rgba(255,255,255,.025);
-  border:1px solid var(--hair);transition:.16s;display:flex;align-items:center;gap:12px;width:100%}
+  border:1px solid var(--hair);transition:var(--dur-fast);display:flex;align-items:center;gap:12px;width:100%}
 .rd-chan:hover{background:rgba(255,255,255,.05)}
 .rd-chan.active{background:var(--grad-soft);border-color:rgba(196,137,228,.32)}
 .rd-chan .av{width:38px;height:38px;border-radius:12px;background:var(--grad);display:grid;place-items:center;
@@ -727,7 +757,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-card .desc{font-size:12px;color:var(--fg-3);margin:4px 0 16px 32px}
 /* ── Clip Editor ── */
 .rd-drop{border:2px dashed var(--hair);border-radius:16px;padding:32px 16px;text-align:center;
-  cursor:pointer;transition:border-color .18s,background .18s;background:rgba(255,255,255,.015)}
+  cursor:pointer;transition:border-color var(--dur-fast),background var(--dur-fast);background:rgba(255,255,255,.015)}
 .rd-drop:hover{border-color:var(--acc-2);background:rgba(184,106,220,.05)}
 .rd-drop.over{border-color:var(--acc);background:rgba(184,106,220,.11)}
 .rd-drop .di{color:var(--acc);margin-bottom:8px}
@@ -748,12 +778,12 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-tw iframe{width:100%;aspect-ratio:16/9;border:none;display:block;background:#000}
 .rd-tw .tw-thumb{position:relative;display:block;width:100%;aspect-ratio:16/9;padding:0;border:none;
   background:#0b0b12;cursor:pointer;overflow:hidden}
-.rd-tw .tw-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s}
+.rd-tw .tw-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform var(--dur-slow)}
 .rd-tw .tw-thumb:hover img{transform:scale(1.04)}
 .rd-tw .tw-noimg{width:100%;height:100%;display:grid;place-items:center;color:var(--fg-3)}
 .rd-tw .tw-play{position:absolute;inset:0;margin:auto;width:40px;height:40px;border-radius:50%;
   display:grid;place-items:center;background:rgba(0,0,0,.55);color:#fff;
-  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:.18s}
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:var(--dur-fast)}
 .rd-tw .tw-thumb:hover .tw-play{background:var(--acc-2);transform:scale(1.08)}
 .rd-tw .tw-dur{position:absolute;right:7px;bottom:7px;font-size:12px;font-weight:700;color:#fff;
   background:rgba(0,0,0,.7);padding:4px 4px;border-radius:6px}
@@ -787,7 +817,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .ed-in:focus{outline:none;border-color:var(--acc-2)}
 .ed-seg{display:flex;gap:4px;flex-wrap:wrap}
 .ed-seg button{flex:1;min-width:64px;padding:8px 8px;border-radius:9px;font-size:12px;font-weight:700;
-  background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:.15s}
+  background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:var(--dur-fast)}
 .ed-seg button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .ed-track{position:relative;height:36px;border-radius:10px;background:rgba(255,255,255,.06);
   border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:4px}
@@ -848,7 +878,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-lost .tx{flex:1;min-width:0;font-size:12px;line-height:1.5;color:var(--fg-2)}
 .rd-lost .tx b{color:#f7a745}
 .rd-lost-x{flex-shrink:0;background:none;border:0;color:var(--fg-3);font-size:24px;
-  line-height:1;cursor:pointer;padding:0 4px;transition:color .12s}
+  line-height:1;cursor:pointer;padding:0 4px;transition:color var(--dur-fast)}
 .rd-lost-x:hover{color:var(--fg-1)}
 @media(max-width:640px){.rd-lost{flex-direction:column;align-items:flex-start}}
 .rv{max-width:460px;width:100%;padding:24px 24px;border-radius:20px;
@@ -857,7 +887,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rv-sub{font-size:12px;color:var(--fg-3);margin:0;line-height:1.5}
 .rv-stars{display:flex;gap:4px;margin:4px 0}
 .rv-star{background:none;border:0;cursor:pointer;font-size:30px;line-height:1;
-  padding:0 4px;color:rgba(255,255,255,.2);transition:color .12s}
+  padding:0 4px;color:rgba(255,255,255,.2);transition:color var(--dur-fast)}
 .rv-star.on{color:#ffc25c}
 .rv-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;
   color:var(--fg-2);cursor:pointer;line-height:1.4}
@@ -879,7 +909,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,1
 .rd-picks{display:flex;gap:8px;flex-wrap:wrap}
 .rd-pick{display:inline-flex;align-items:center;gap:8px;max-width:220px;padding:8px 12px;
   border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);
-  color:var(--fg-2);font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+  color:var(--fg-2);font-size:12px;font-weight:600;cursor:pointer;transition:var(--dur-fast)}
 .rd-pick:hover{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .rd-pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-uprow{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--hair)}
@@ -1019,7 +1049,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
     flex-direction:column;align-items:stretch;gap:4px;padding:16px 12px calc(18px + env(safe-area-inset-bottom));
     border-right:1px solid var(--hair);border-top:none;overflow-y:auto;
     background:#0c0c12;
-    transform:translateX(-102%);transition:transform .26s cubic-bezier(.4,0,.2,1);
+    transform:translateX(-102%);transition:transform var(--dur-slow) var(--ease);
     box-shadow:0 0 40px rgba(0,0,0,.6)}
   .rd-nav.open{transform:translateX(0)}
   .rd-nav .logo{display:flex;justify-content:center;margin-bottom:12px}
@@ -1031,7 +1061,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-navitem .navbadge{position:static;order:3;margin-left:auto}
   /* Scrim: tap anywhere off the drawer to dismiss. */
   .rd-navscrim{position:fixed;inset:0;z-index:59;background:rgba(0,0,0,.55);
-    opacity:0;pointer-events:none;transition:opacity .26s ease;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+    opacity:0;pointer-events:none;transition:opacity var(--dur-slow) ease;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
   .rd-navscrim.open{opacity:1;pointer-events:auto}
   .rd-menubtn{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
     flex-shrink:0;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--hair);
@@ -1141,15 +1171,19 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-nav .logo img{animation:rdLogoGlow 4.5s ease-in-out infinite alternate}
   @keyframes rdLogoGlow{from{filter:drop-shadow(0 0 9px rgba(196,137,228,.4))}
     to{filter:drop-shadow(0 0 17px rgba(196,137,228,.75))}}
-  .rd-screen{animation:rdScreenIn .4s cubic-bezier(.16,1,.3,1)}
+  .rd-screen{animation:rdScreenIn var(--dur-slow) var(--ease)}
   @keyframes rdScreenIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  .rd-grid .rd-clip{animation:rdCardIn .5s cubic-bezier(.16,1,.3,1) backwards}
-  .rd-grid .rd-clip:nth-child(2){animation-delay:.05s}
-  .rd-grid .rd-clip:nth-child(3){animation-delay:.1s}
-  .rd-grid .rd-clip:nth-child(4){animation-delay:.15s}
-  .rd-grid .rd-clip:nth-child(5){animation-delay:.2s}
-  .rd-grid .rd-clip:nth-child(6){animation-delay:.25s}
-  @keyframes rdCardIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  /* REMOVED: a staggered fade-up on the first six clip cards, 400ms with
+     delays out to 250ms. Decoration removed for this phase, and the reason is
+     what the screen is FOR: Clip Review is a work surface where you approve
+     and reject in a run, and the grid re-renders on every decision. The
+     stagger therefore did not play once on arrival — it replayed on every
+     click, so the cards nearest the one you just acted on slid up again while
+     you were reaching for the next. An entrance that repeats is not an
+     entrance, it is a flinch.
+
+     .rd-screen keeps its entrance: a screen is entered once per navigation,
+     which is the case the animation was written for. */
 }
 @media(max-width:700px){
   /* Cull panel: fixed bottom sheet above nav bar so it can't overflow the right edge */
@@ -3517,7 +3551,7 @@ function FeedbackScreen({ onSeen }) {
                 <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                   {CATEGORIES.map(c=>(
                     <button key={c} onClick={()=>setCategory(c)} style={{
-                      padding:'4px 12px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'.15s',
+                      padding:'4px 12px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'var(--dur-fast)',
                       background: category===c ? 'rgba(184,106,220,.2)' : 'rgba(255,255,255,.05)',
                       borderColor: category===c ? 'rgba(184,106,220,.5)' : 'rgba(255,255,255,.09)',
                       color: category===c ? 'var(--acc)' : 'var(--fg-3)',
@@ -5193,7 +5227,7 @@ function ScanActivity({ job }) {
       </div>
       <div className="rd-track working" style={{height:6}}>
         <div className="rd-fill" style={{width:(job.progress||0)+'%',background:'var(--grad)',
-                                         transition:'width .5s ease'}}/>
+                                         transition:'width var(--dur-slow) ease'}}/>
       </div>
       {job.phase === 'audio' && (
         <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4,lineHeight:1.5}}>

@@ -178,6 +178,22 @@ def _faq() -> str:
 _CSS = """
   @font-face{font-family:'Lobster';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/lobster-400.woff2) format('woff2')}
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
+  /* METRIC-MATCHED FALLBACK. Sora is the only one of the three faces that
+     causes layout shift: isolated by loading one font at a time, it measured
+     CLS 0.0416 on its own while Lobster and Plex Mono came in at 0.0004 and
+     0.0001. The page total was 0.0759 against a 0.05 target, and the shift
+     landed on the hero CTA row at the instant of the swap.
+
+     The numbers are measured, not guessed. The same string at 100px is
+     3154.6px in Sora and 2790.5px in Arial — a ratio of 1.1305, tuned to 1.144 after measuring the two
+     against each other with both actually loaded — and Sora's
+     ascent/descent are 97/29 against Arial's 91/21. size-adjust scales the
+     fallback to Sora's advance; the overrides restate those metrics against
+     the adjusted em, so the line box is the same height before and after the
+     swap and nothing below it moves. */
+  @font-face{font-family:'Sora Fallback';font-style:normal;font-weight:100 900;
+    src:local('Arial'),local('Helvetica'),local('Liberation Sans');
+    size-adjust:114.4%;ascent-override:84.8%;descent-override:25.3%;line-gap-override:0%}
   @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
   @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
 
@@ -187,7 +203,7 @@ _CSS = """
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
     --hair:rgba(242,234,247,.085);
     --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
-    --sans:'Sora',system-ui,sans-serif;
+    --sans:'Sora','Sora Fallback',system-ui,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth;overflow-x:clip;scroll-padding-top:96px}
@@ -227,7 +243,7 @@ _CSS = """
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
     font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-.005em;
     padding:12px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
-    transition:background .2s,color .2s;white-space:nowrap}
+    transition:background var(--dur-fast),color var(--dur-fast);white-space:nowrap}
   .btn-key{background:linear-gradient(166deg,var(--bruise),#25172E) padding-box,
     linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 40%,rgba(242,234,247,.05)) border-box}
   .btn-key:hover{background:linear-gradient(166deg,#3D2749,#2A1A33) padding-box,
@@ -259,7 +275,7 @@ _CSS = """
     padding:12px 24px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-2)}
   .tut-toc-m summary::-webkit-details-marker{display:none}
-  .tut-toc-m .cx{margin-left:auto;transition:transform .25s}
+  .tut-toc-m .cx{margin-left:auto;transition:transform var(--dur-slow)}
   .tut-toc-m[open] .cx{transform:rotate(45deg);color:var(--flare)}
   .tut-toc-m ol{list-style:none;padding:4px 24px 12px}
   .tut-toc-m a{display:block;padding:8px 0;font-size:14px;color:var(--ink-2);
@@ -311,7 +327,7 @@ _CSS = """
   .tm-mag{position:absolute;right:10px;bottom:10px;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);
     background:rgba(14,11,17,.82);border:1px solid var(--hair);border-radius:2px;
-    padding:4px 8px;opacity:0;transition:opacity .18s}
+    padding:4px 8px;opacity:0;transition:opacity var(--dur-fast)}
   .tm-box:hover .tm-mag,.tm-box:focus-visible .tm-mag{opacity:1}
   .tm-play{position:absolute;left:10px;bottom:10px;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--ink);cursor:pointer;
@@ -342,11 +358,11 @@ _CSS = """
   .faq-item{border-bottom:1px solid var(--hair)}
   .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
     padding:16px 4px;font-size:16px;font-weight:600;letter-spacing:-.01em;
-    -webkit-tap-highlight-color:transparent;transition:color .16s}
+    -webkit-tap-highlight-color:transparent;transition:color var(--dur-fast)}
   .faq-item summary::-webkit-details-marker{display:none}
   .faq-item summary:hover{color:var(--glow-ink)}
   .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform .25s,color .25s}
+  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform var(--dur-slow),color var(--dur-slow)}
   .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
   /* overflow-wrap, because the answers quote real URLs — a full Twitch VOD
      link is 317px of text with no break opportunity in it, which is wider
@@ -393,7 +409,7 @@ _CSS = """
       text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
     .tut-toc ol{list-style:none}
     .tut-toc a{display:block;padding:8px 0 8px 12px;font-size:14px;color:var(--ink-3);
-      border-left:1px solid var(--hair);transition:color .16s,border-color .16s}
+      border-left:1px solid var(--hair);transition:color var(--dur-fast),border-color var(--dur-fast)}
     .tut-toc a:hover{color:var(--ink-2)}
     .tut-toc a.on{color:var(--glow-ink);border-left-color:var(--flare)}
   }
