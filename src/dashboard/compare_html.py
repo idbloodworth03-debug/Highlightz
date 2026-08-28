@@ -30,70 +30,70 @@ _DESC = ("Honest comparison of Highlightz, Opus Clip and Eklipse for stream "
 
 _CSS = BASE_CSS + """
   /* ── comparison-specific ─────────────────────────────────────────────── */
-  .cmp-hero{padding:96px 0 44px;text-align:center}
-  .cmp-hero h1{font-size:clamp(34px,5.2vw,60px);line-height:1.04;letter-spacing:-.025em;
-    margin:16px auto 18px;max-width:15ch}
+  .cmp-hero{padding:96px 0 48px;text-align:center}
+  .cmp-hero h1{font-size:clamp(34px,5.2vw,60px);line-height:1;letter-spacing:-.025em;
+    margin:16px auto 16px;max-width:15ch}
   .cmp-hero .lead{color:var(--ink-2);font-size:clamp(16px,1.7vw,19.5px);line-height:1.6;
     max-width:60ch;margin:0 auto}
 
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:52px 0 12px}
-  .card{border:1px solid var(--hair);border-radius:16px;padding:26px 24px;background:var(--wall);
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:48px 0 12px}
+  .card{border:1px solid var(--hair);border-radius:16px;padding:24px 24px;background:var(--wall);
     display:flex;flex-direction:column}
   .card.ours{border-color:rgba(184,106,220,.45);background:
     linear-gradient(180deg,rgba(184,106,220,.10),rgba(184,106,220,.02))}
-  .card h3{font-size:19px;letter-spacing:-.01em;margin-bottom:6px}
-  .card .tag{color:var(--ink-3);font-size:13.5px;line-height:1.5;min-height:44px}
+  .card h3{font-size:17px;letter-spacing:-.01em;margin-bottom:4px}
+  .card .tag{color:var(--ink-3);font-size:14px;line-height:1.5;min-height:44px}
   .card .plan{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-    padding:11px 0;border-top:1px solid var(--hair)}
+    padding:12px 0;border-top:1px solid var(--hair)}
   .card .plan:first-of-type{margin-top:16px}
-  .card .pn{font-size:13.5px;color:var(--ink-2)}
-  .card .pp{font-family:var(--mono);font-size:15px;color:var(--ink);white-space:nowrap}
+  .card .pn{font-size:14px;color:var(--ink-2)}
+  .card .pp{font-family:var(--mono);font-size:14px;color:var(--ink);white-space:nowrap}
   .card.ours .pp{color:var(--glow-ink)}
-  .card .pnote{font-size:12.5px;color:var(--ink-3);line-height:1.5;padding-bottom:11px}
+  .card .pnote{font-size:12px;color:var(--ink-3);line-height:1.5;padding-bottom:12px}
   /* margin-top:auto — the three cards stretch to the tallest, and a source note
      floating mid-card reads as unfinished. Pinned to the bottom they line up. */
-  .card .src{margin-top:auto;padding-top:16px;font-size:11.5px;color:var(--ink-3);line-height:1.5}
+  .card .src{margin-top:auto;padding-top:16px;font-size:12px;color:var(--ink-3);line-height:1.5}
   .card .src a{color:var(--ink-3)}
 
-  .caveat{margin:18px 0 0;padding:13px 16px;border-radius:11px;font-size:13px;line-height:1.55;
+  .caveat{margin:16px 0 0;padding:12px 16px;border-radius:11px;font-size:12px;line-height:1.5;
     border:1px solid rgba(247,167,69,.32);background:rgba(247,167,69,.07);color:var(--ink-2)}
 
-  .math{margin:64px 0;padding:34px 32px;border:1px solid var(--hair);border-radius:18px;
+  .math{margin:64px 0;padding:32px 32px;border:1px solid var(--hair);border-radius:18px;
     background:var(--wall)}
   .math h2{font-size:clamp(23px,2.7vw,32px);letter-spacing:-.02em;margin:12px 0 16px;max-width:22ch}
-  .math p{color:var(--ink-2);font-size:15.5px;line-height:1.7;max-width:66ch}
-  .math p + p{margin-top:14px}
+  .math p{color:var(--ink-2);font-size:16px;line-height:1.7;max-width:66ch}
+  .math p + p{margin-top:12px}
 
-  .matrix{width:100%;border-collapse:collapse;margin-top:14px;font-size:14.5px}
-  .matrix th,.matrix td{padding:15px 14px;border-bottom:1px solid var(--hair);text-align:left;
+  .matrix{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+  .matrix th,.matrix td{padding:16px 12px;border-bottom:1px solid var(--hair);text-align:left;
     vertical-align:top}
-  .matrix thead th{font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  .matrix thead th{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.06em;
     text-transform:uppercase;color:var(--ink-3);border-bottom-color:var(--bruise)}
   .matrix thead th.us{color:var(--glow-ink)}
   .matrix td.c{text-align:center;width:118px;white-space:nowrap}
   .matrix tbody tr:hover{background:rgba(242,234,247,.022)}
-  .matrix .feat{color:var(--ink);line-height:1.45}
-  .matrix .why{display:block;margin-top:5px;color:var(--ink-3);font-size:13px;line-height:1.55}
+  .matrix .feat{color:var(--ink);line-height:1.4}
+  .matrix .why{display:block;margin-top:4px;color:var(--ink-3);font-size:12px;line-height:1.5}
   .yes{color:#7BE0A8;font-weight:600}
   .no{color:var(--ink-3)}
-  .part{color:var(--ember);font-family:var(--mono);font-size:12.5px}
+  .part{color:var(--ember);font-family:var(--mono);font-size:12px}
   .mwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
-  .fair{margin:64px 0;padding:34px 32px;border:1px solid var(--hair);border-radius:18px}
-  .fair h2{font-size:clamp(23px,2.7vw,30px);letter-spacing:-.02em;margin:12px 0 22px}
+  .fair{margin:64px 0;padding:32px 32px;border:1px solid var(--hair);border-radius:18px}
+  .fair h2{font-size:clamp(23px,2.7vw,30px);letter-spacing:-.02em;margin:12px 0 24px}
   .fair .pt{padding:16px 0;border-top:1px solid var(--hair)}
-  .fair .pt b{display:block;font-size:15.5px;margin-bottom:6px}
-  .fair .pt span{color:var(--ink-2);font-size:14.5px;line-height:1.65}
+  .fair .pt b{display:block;font-size:16px;margin-bottom:4px}
+  .fair .pt span{color:var(--ink-2);font-size:14px;line-height:1.6}
 
-  .closer{text-align:center;padding:74px 0 30px}
-  .closer h2{font-size:clamp(26px,3.2vw,38px);letter-spacing:-.022em;margin-bottom:18px}
-  .closer p{color:var(--ink-2);font-size:16px;line-height:1.7;max-width:62ch;margin:0 auto 28px}
-  .closer .note{font-size:13px;color:var(--ink-3);margin-top:14px}
+  .closer{text-align:center;padding:64px 0 32px}
+  .closer h2{font-size:clamp(26px,3.2vw,38px);letter-spacing:-.022em;margin-bottom:16px}
+  .closer p{color:var(--ink-2);font-size:16px;line-height:1.7;max-width:62ch;margin:0 auto 24px}
+  .closer .note{font-size:12px;color:var(--ink-3);margin-top:12px}
 
   @media (max-width:900px){
-    .cards{grid-template-columns:1fr;gap:14px}
+    .cards{grid-template-columns:1fr;gap:12px}
     .card .tag{min-height:0}
-    .math,.fair{padding:26px 20px}
+    .math,.fair{padding:24px 16px}
     /* Stacked, not scrolled. Horizontally scrolling a comparison table means
        reading one product at a time, which is the one thing the page exists to
        avoid. Each row becomes a card: the claim, then all three answers. */
@@ -101,12 +101,12 @@ _CSS = BASE_CSS + """
     .matrix{font-size:14px;min-width:0}
     .matrix thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
     .matrix,.matrix tbody,.matrix tr,.matrix td{display:block;width:100%}
-    .matrix tr{padding:18px 0;border-bottom:1px solid var(--hair)}
+    .matrix tr{padding:16px 0;border-bottom:1px solid var(--hair)}
     .matrix tr:hover{background:none}
     .matrix td{border:0;padding:0}
-    .matrix td.c{display:inline-flex;align-items:baseline;gap:7px;width:auto;
+    .matrix td.c{display:inline-flex;align-items:baseline;gap:8px;width:auto;
       margin:12px 16px 0 0;text-align:left}
-    .matrix td.c::before{content:attr(data-l);font-family:var(--mono);font-size:10px;
+    .matrix td.c::before{content:attr(data-l);font-family:var(--mono);font-size:12px;
       letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
   }
 """
@@ -274,7 +274,7 @@ def render() -> str:
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-key" style="padding:10px 18px;font-size:13.5px">Get started</a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
   </div>
 </nav>
 

@@ -1195,7 +1195,7 @@ async def optout_confirm_page(request: Request):
     avatar_section = (
         f'<img class="avatar" src="{_html.escape(avatar)}" alt="">'
         if avatar and avatar.startswith("https://") else
-        '<div class="avatar-placeholder"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c79bff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg></div>'
+        '<div class="avatar-placeholder"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c489e4" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg></div>'
     )
     html_out = (
         _OPTOUT_CONFIRM_HTML
@@ -2136,9 +2136,9 @@ _PORTAL_ERROR_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="robots" content="noindex"><title>Billing portal unavailable</title>
 <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background:#0b0b12;color:#e8e8f0;font:15px/1.6 'Sora',system-ui,sans-serif;text-align:center}
-.card{max-width:420px;padding:40px 32px;background:#14141f;border:1px solid #26263a;border-radius:16px}
-h1{font-size:19px;margin:0 0 10px}p{color:#9a9aae;margin:0 0 22px}
-a{display:inline-block;padding:11px 22px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#a855f7);
+.card{max-width:420px;padding:32px 32px;background:#14141f;border:1px solid #26263a;border-radius:16px}
+h1{font-size:17px;margin:0 0 8px}p{color:#9a9aae;margin:0 0 24px}
+a{display:inline-block;padding:12px 24px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#b86adc);
 color:#fff;text-decoration:none;font-weight:600}</style></head><body><div class="card">
 <h1>Billing portal is temporarily unavailable</h1>
 <p>Your subscription is fine — nothing has changed. Please try again in a few
@@ -4635,10 +4635,10 @@ async def admin_page(request: Request):
             f"""<!DOCTYPE html><html><head><title>Admin — Not Authorized</title>
             <style>body{{font-family:system-ui,sans-serif;background:#0a0a0e;color:#fff;display:flex;
             align-items:center;justify-content:center;min-height:100vh;margin:0}}
-            .box{{text-align:center;max-width:520px;padding:40px}}
-            h1{{font-size:28px;margin-bottom:12px;color:#f87171}}
+            .box{{text-align:center;max-width:520px;padding:32px}}
+            h1{{font-size:30px;margin-bottom:12px;color:#f87171}}
             p{{color:#a0a0b0;line-height:1.6;margin-bottom:8px}}
-            code{{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:4px;font-size:13px}}
+            code{{background:rgba(255,255,255,.08);padding:4px 8px;border-radius:4px;font-size:12px}}
             a{{color:#9146ff;text-decoration:none}}</style></head>
             <body><div class="box">
             <h1>403 — Not an admin</h1>
@@ -6080,6 +6080,17 @@ LANDING_HTML = """<!DOCTYPE html>
     /* ONE curve, whole site. Durations are the only thing that varies. */
     --ease:cubic-bezier(.16,1,.3,1);
     --t-micro:150ms; --t-move:300ms; --t-enter:600ms; --t-slow:800ms;
+    /* The same three names the dashboard uses, so one vocabulary covers both
+       surfaces. The four above are kept because existing rules reference them. */
+    --dur-fast:150ms; --dur-slow:400ms; --dur-event:900ms;
+    /* SPACING SCALE. Section rhythm is --s-9; the score wall, and only the
+       score wall, gets --s-10. If --s-10 appears twice, the second is wrong. */
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+    --s-6:32px; --s-7:48px; --s-8:64px; --s-9:96px; --s-10:128px;
+    /* TYPE SCALE. Seven steps. The nine fractional sizes this replaced never
+       landed on a device pixel. */
+    --t-caption:12px; --t-small:14px; --t-body:16px; --t-h3:17px;
+    --t-h2:24px; --t-h1:30px;
     /* The sticky nav's height, which anchor targets subtract so they do not
        land underneath it. This is only the FALLBACK: between about 940 and
        1140px the nav links wrap and it grows to 83 and then 102px, so a
@@ -6126,7 +6137,7 @@ LANDING_HTML = """<!DOCTYPE html>
      `clip` (unlike `hidden`) does NOT create a scroll container, so sticky
      keeps working. Same fix already applied to /tutorial. */
   body{background:var(--bone);color:var(--ink-2);font-family:var(--sans);font-weight:400;
-    font-size:16.5px;line-height:1.65;
+    font-size:16px;line-height:1.6;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 
   /* ── Surfaces. A container declares which world it is in and RE-DECLARES the
@@ -6164,10 +6175,10 @@ LANDING_HTML = """<!DOCTYPE html>
   .thread-thresh{position:absolute;left:-4px;right:-4px;bottom:62%;height:1px;
     background:var(--ember-ink);opacity:.5}
   .thread-read{font-family:var(--mono);text-align:center;line-height:1}
-  .thread-score{display:block;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;
+  .thread-score{display:block;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
     color:var(--ink-2)}
   .thread.fired .thread-score{color:var(--plum)}
-  .thread-lab{display:block;margin-top:3px;font-size:9px;letter-spacing:.16em;
+  .thread-lab{display:block;margin-top:4px;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3)}
   /* The fire: a wash of purple over the section being entered. Opacity only. */
   .seam::after,.wash::after{content:'';position:absolute;left:50%;transform:translateX(-50%);
@@ -6254,17 +6265,17 @@ LANDING_HTML = """<!DOCTYPE html>
       linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
 
   /* ── Type scale ── */
-  .kicker{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+  .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ember-ink);display:flex;align-items:center;gap:12px}
   .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(247,167,69,.35),transparent);max-width:190px}
   .kicker.center{justify-content:center}
   .kicker.center::before{content:'';flex:1;height:1px;background:linear-gradient(270deg,rgba(247,167,69,.35),transparent);max-width:120px}
   .kicker.center::after{max-width:120px}
   h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
-    line-height:1.14;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
+    line-height:1.1;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
   .sec-head.kicked h2.sec-title{margin-top:16px}
-  .sec-sub{font-size:16px;color:var(--ink-2);max-width:600px;line-height:1.62}
-  .mono-l{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:600px;line-height:1.6}
+  .mono-l{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3)}
   .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
     font-feature-settings:'tnum' 1,'zero' 1;letter-spacing:-.01em}
@@ -6272,9 +6283,9 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ── Buttons. Not painted purple — LIT. The face is a surface in the room and
      the rim is where the monitor hits it; hover moves the light closer. Ink
      stays near-white because violet-on-bruise is 4.3:1 and would fail. ── */
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;
-    font-family:var(--sans);font-weight:600;font-size:14.5px;letter-spacing:-.005em;
-    padding:13px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+    font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-.005em;
+    padding:12px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
     transition:background .2s,color .2s;white-space:nowrap}
   .btn-key{background:linear-gradient(168deg,#7B3A9E,#5B2472);border-color:transparent;
     color:#FFF9FE;box-shadow:0 10px 26px -10px rgba(184,106,220,.55),
@@ -6291,8 +6302,8 @@ LANDING_HTML = """<!DOCTYPE html>
   /* On a dark band the quiet button inverts back. */
   .band-dark .btn-quiet{background:transparent;border-color:rgba(242,234,247,.24);color:var(--ink)}
   .band-dark .btn-quiet:hover{color:#FFF;border-color:var(--iris);background:rgba(184,106,220,.12)}
-  .btn-lg{padding:16px 30px;font-size:15.5px}
-  .btn-wide{width:100%;padding:15px}
+  .btn-lg{padding:16px 32px;font-size:16px}
+  .btn-wide{width:100%;padding:16px}
 
   /* ── Layout ── */
   /* ── WIDTHS. The old page ran one 1140px column from top to bottom, which is
@@ -6315,21 +6326,21 @@ LANDING_HTML = """<!DOCTYPE html>
     .wrap{max-width:1360px}
     body{font-size:17px}
   }
-  section{padding-top:46px;padding-bottom:46px}
+  section{padding-top:48px;padding-bottom:48px}
   /* ── Section rhythm: weight, not a metronome ──────────────────────────────
      Every section shared one padding value, which is a large part of why the
      page scanned as generated: real editing shows up as some things being
      given more room than others. These are set by what each section is FOR.
      The argument and the decision get air; the reference material does not. */
-  #how{padding-top:74px;padding-bottom:78px}         /* the argument */
-  #pricing{padding-top:70px;padding-bottom:72px}     /* the decision */
-    #features{padding-top:44px;padding-bottom:52px}
-  #examples{padding-top:52px;padding-bottom:46px}
-  #faq{padding-top:40px;padding-bottom:56px}         /* reference, deliberately tighter */
+  #how{padding-top:64px;padding-bottom:64px}         /* the argument */
+  #pricing{padding-top:64px;padding-bottom:64px}     /* the decision */
+    #features{padding-top:48px;padding-bottom:48px}
+  #examples{padding-top:48px;padding-bottom:48px}
+  #faq{padding-top:32px;padding-bottom:48px}         /* reference, deliberately tighter */
   @media (max-width:760px){
-    #how{padding-top:52px;padding-bottom:54px}
-    #pricing{padding-top:50px;padding-bottom:52px}
-    #features,#examples,#faq{padding-top:38px;padding-bottom:40px}
+    #how{padding-top:48px;padding-bottom:48px}
+    #pricing{padding-top:48px;padding-bottom:48px}
+    #features,#examples,#faq{padding-top:32px;padding-bottom:32px}
   }
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
@@ -6346,7 +6357,7 @@ LANDING_HTML = """<!DOCTYPE html>
     background:rgba(23,19,28,.78);
     -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);
     border-bottom:1px solid var(--hair);
-    display:flex;align-items:center;gap:18px;padding:13px 26px}
+    display:flex;align-items:center;gap:16px;padding:12px 24px}
   /* The hairline under the nav is the through-line's first appearance: it
      brightens as the score climbs, so the mechanic is visible before you have
      scrolled anywhere. Transform/opacity only — this is a colour on a 1px box,
@@ -6354,28 +6365,28 @@ LANDING_HTML = """<!DOCTYPE html>
   .nav::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
     background:linear-gradient(90deg,transparent,rgba(184,106,220,calc(.28 + var(--lit)*.72)) 50%,transparent);
     opacity:calc(.35 + var(--lit)*.65);transition:opacity var(--t-move) var(--ease)}
-  .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
   /* No border-radius any more: that existed only to round the corners of the
      plate the old JPEG carried. The mark is transparent now, so there is no
      rectangle to soften. */
   .nav-logo img{height:22px}
   .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--ink)}
-  .nav-links{display:flex;align-items:center;gap:2px;margin-left:14px}
+  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
   .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 11px;border-radius:3px;transition:color .16s,background .16s}
+    color:var(--ink-3);padding:8px 12px;border-radius:3px;transition:color .16s,background .16s}
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
 
   /* ── SIGNATURE, persistent form. The trigger score never leaves the screen:
      a live readout welded into the nav, fed by the same loop as the hero demo.
      Below threshold it burns amber (the lamp); above, it snaps violet. ── */
-  .trig{display:flex;align-items:center;gap:9px;padding:6px 12px 6px 11px;border-radius:3px;
+  .trig{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 12px;border-radius:3px;
     border:1px solid transparent;
     background:linear-gradient(var(--wall),var(--wall)) padding-box,
       linear-gradient(215deg,rgba(247,167,69,calc(.30 + var(--lit)*.6)),rgba(242,234,247,.05)) border-box;
-    margin-right:6px}
-  .trig-k{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.18em;
+    margin-right:4px}
+  .trig-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--ink-3)}
   .trig-v{font-family:var(--mono);font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;
     color:var(--ember);min-width:2.2ch;text-align:right;transition:color .3s}
@@ -6387,15 +6398,15 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ HERO. The lede sits on top; the wall takes every pixel underneath it.
      The wall is four live channels being scored right now — the same loop the
      product runs, at the same 1s cadence, against the same threshold. ══ */
-  .hero{position:relative;padding-top:26px;padding-bottom:18px}
+  .hero{position:relative;padding-top:24px;padding-bottom:16px}
   .room-light{display:none}
   .hero-lede{display:grid;gap:0 clamp(28px,4vw,64px);align-items:end;
-    padding:2px 0 16px}
+    padding:4px 0 16px}
   @media(min-width:980px){
     .hero-lede{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
   }
   .hero-copy h1{font-family:var(--display);font-weight:400;
-    font-size:clamp(40px,6.2vw,80px);line-height:.98;letter-spacing:-.005em;
+    font-size:clamp(40px,6.2vw,80px);line-height:1;letter-spacing:-.005em;
     color:var(--ink);margin:8px 0 0}
   /* The accent word is LIT, not painted: a solid fill plus the spill it would
      throw onto the dark around it. No gradient, no stroke. */
@@ -6404,17 +6415,17 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The page is dark throughout now, so there is no second surface for the
      accent to switch on — one value, and the halo can stay. */
   .band-dark .accent{color:#B86ADC}
-  .hero-copy p.lead{font-size:17px;line-height:1.5;color:var(--ink-2);max-width:46ch;margin:14px 0 0}
+  .hero-copy p.lead{font-size:17px;line-height:1.5;color:var(--ink-2);max-width:46ch;margin:12px 0 0}
   /* The right half of the lede: actions, not more prose. Bottom-aligned so the
      CTA row and the slogan's baseline sit on the same line. */
-  .hero-act{display:flex;flex-direction:column;align-items:flex-start;gap:14px;
-    padding-top:22px}
+  .hero-act{display:flex;flex-direction:column;align-items:flex-start;gap:12px;
+    padding-top:24px}
   @media(min-width:980px){ .hero-act{align-items:flex-end;padding-top:0} }
   /* Stacked, the lede was costing 500px of a 1024px viewport and pushing the
      wall off the bottom. Same content, laid across instead of down. */
   @media(max-width:979px){
     .hero-lede{padding-bottom:16px}
-    .hero-copy p.lead{font-size:16px;margin-top:14px}
+    .hero-copy p.lead{font-size:16px;margin-top:12px}
     .hero-act{flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px 16px;
       padding-top:16px}
     .hero-act .no-ai{margin-bottom:0}
@@ -6425,37 +6436,37 @@ LANDING_HTML = """<!DOCTYPE html>
      the strongest true thing here, so it gets read: one step up in size, body
      ink rather than the muted step, and the two claims that matter carry the
      weight while "then from $10/mo" stays quiet. */
-  .hero-note{font-family:var(--mono);font-size:13px;color:var(--ink-2);letter-spacing:.02em}
+  .hero-note{font-family:var(--mono);font-size:14px;color:var(--ink-2);letter-spacing:.02em}
   /* Each clause wraps as one unit. Without this the line broke inside
      "then from $10/mo" and left a lone "then" hanging off the end. */
   .hero-note span{white-space:nowrap}
   .hero-note b{color:var(--ember);font-weight:600}
   /* Tags on a rule, not pills with dots. */
-  .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:34px;border-top:1px solid var(--hair);padding-top:16px}
+  .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:32px;border-top:1px solid var(--hair);padding-top:16px}
   /* ── NO AI badge — the hero's first claim ──────────────────────────────
      Sits ABOVE the slogan because it is the one thing that separates this
      from every other clipping tool, and burying it in the tag row (where it
      lived) meant nobody read it. Links to #formula: the claim is only worth
      making if the reader can immediately go and check it. */
-  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:10px;
-    padding:9px 16px 9px 12px;border-radius:99px;text-decoration:none;
+  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px;
+    padding:8px 16px 8px 12px;border-radius:99px;text-decoration:none;
     border:1px solid rgba(247,167,69,.38);
     background:linear-gradient(90deg,rgba(247,167,69,.12),rgba(247,167,69,.03));
     transition:border-color .2s var(--ease),background .2s var(--ease)}
   .no-ai:hover{border-color:rgba(247,167,69,.62);
     background:linear-gradient(90deg,rgba(247,167,69,.18),rgba(247,167,69,.05))}
-  .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12.5px;letter-spacing:.14em;
+  .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
     color:var(--ember);white-space:nowrap}
-  .no-ai-t{font-size:13.5px;line-height:1.35;color:var(--ink-2)}
+  .no-ai-t{font-size:14px;line-height:1.4;color:var(--ink-2)}
   .no-ai-t b{color:var(--ink)}
   @media (max-width:560px){
-    .no-ai{gap:9px;padding:8px 13px 8px 10px}
-    .no-ai-x{font-size:11.5px}
-    .no-ai-t{font-size:12.5px}
+    .no-ai{gap:8px;padding:8px 12px 8px 8px}
+    .no-ai-x{font-size:12px}
+    .no-ai-t{font-size:12px}
   }
   .tag.tag-key{color:var(--ember);border-right-color:rgba(247,167,69,.3)}
 
-  .tag{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  .tag{font-family:var(--mono);font-size:12px;letter-spacing:.09em;text-transform:uppercase;
     color:var(--ink-3);padding-right:16px;margin-right:16px;border-right:1px solid var(--hair);line-height:1.4}
   .tag:last-child{border-right:none;margin-right:0;padding-right:0}
 
@@ -6469,7 +6480,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
      Everything that moves here moves on transform, opacity or clip-path. No
      width, height, top or filter is animated anywhere in this block. ══ */
-  .wall{position:relative;display:grid;gap:10px;min-height:0;
+  .wall{position:relative;display:grid;gap:8px;min-height:0;
     grid-template-columns:repeat(4,minmax(0,1fr))}
   /* Under 1180 the wall drops to TWO channels, not to a 2x2. Four tiles in two
      rows needs about 900px of height, the lede takes the rest, and the second
@@ -6486,7 +6497,7 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
   .tile{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;
-    padding:13px 14px 11px;border-radius:4px;overflow:hidden;
+    padding:12px 12px 12px;border-radius:4px;overflow:hidden;
     border:1px solid transparent;
     background:linear-gradient(172deg,#211628,var(--wall) 58%,#150F1B) padding-box,
       linear-gradient(215deg,rgba(210,106,251,calc(.30 + var(--lit)*.50)),
@@ -6503,22 +6514,22 @@ LANDING_HTML = """<!DOCTYPE html>
   .tile.fire{box-shadow:0 0 0 1px rgba(210,106,251,.42),0 0 70px -22px rgba(210,106,251,.85)}
 
   .tile-top{display:flex;align-items:baseline;gap:8px;min-width:0}
-  .tile-ch{display:inline-flex;align-items:center;gap:7px;min-width:0;
+  .tile-ch{display:inline-flex;align-items:center;gap:8px;min-width:0;
     font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tile-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--ember);
     box-shadow:0 0 8px var(--ember)}
-  .tile-game{margin-left:auto;flex:none;font-family:var(--mono);font-size:9.5px;
+  .tile-game{margin-left:auto;flex:none;font-family:var(--mono);font-size:12px;
     letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
     max-width:44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-  .tile-read{display:flex;align-items:baseline;gap:8px;margin-top:6px}
+  .tile-read{display:flex;align-items:baseline;gap:8px;margin-top:4px}
   .tile-score{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-size:clamp(34px,4.4vw,66px);line-height:.92;letter-spacing:-.03em;color:var(--ember);
+    font-size:clamp(34px,4.4vw,66px);line-height:1;letter-spacing:-.03em;color:var(--ember);
     transition:color var(--t-micro) var(--ease),text-shadow var(--t-move) var(--ease)}
   .tile.hot  .tile-score{color:var(--glow-ink)}
   .tile.fire .tile-score{color:var(--flare);text-shadow:0 0 30px rgba(210,106,251,.55)}
-  .tile-th{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  .tile-th{font-family:var(--mono);font-size:12px;letter-spacing:.13em;text-transform:uppercase;
     color:var(--ink-3);font-variant-numeric:tabular-nums}
 
   /* margin-top:auto, so the readout stays at the top of the tile and the
@@ -6541,16 +6552,16 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The near-miss caption. It is the honest half of the demo, so it gets to
      be legible rather than decorative. */
   .tile-flag{position:absolute;left:0;bottom:6px;font-family:var(--mono);font-weight:600;
-    font-size:9px;letter-spacing:.18em;color:var(--ink-3);
+    font-size:12px;letter-spacing:.18em;color:var(--ink-3);
     opacity:0;transform:translate3d(0,4px,0);
     transition:opacity var(--t-move) var(--ease),transform var(--t-move) var(--ease)}
   .tile-flag.on{opacity:1;transform:none;color:var(--ember)}
   .tile.fire .tile-flag{color:var(--flare)}
 
   .tile-sigs{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
-    gap:6px;margin-top:10px}
+    gap:4px;margin-top:8px}
   .tile-sigs li{min-width:0}
-  .sg-k{display:block;font-family:var(--mono);font-size:8px;letter-spacing:.1em;
+  .sg-k{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.1em;
     text-transform:uppercase;color:var(--ink-3);white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
   .sg-b{display:block;height:2px;margin-top:4px;background:var(--hair);border-radius:2px;
@@ -6620,13 +6631,13 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Its own row now, so it is a solid strip rather than a scrim fading over
      the picture. A hairline separates it from the player instead. */
   .stage-bar{position:relative;z-index:2;
-    display:flex;align-items:center;gap:12px;padding:11px 14px;
+    display:flex;align-items:center;gap:12px;padding:12px 12px;
     background:var(--void);border-top:1px solid var(--hair)}
-  .stage-fired{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.2em;
+  .stage-fired{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.2em;
     color:var(--flare);white-space:nowrap}
-  .stage-score{font-family:var(--mono);font-weight:600;font-size:19px;color:var(--flare);
+  .stage-score{font-family:var(--mono);font-weight:600;font-size:17px;color:var(--flare);
     font-variant-numeric:tabular-nums;line-height:1}
-  .stage-meta{min-width:0;font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  .stage-meta{min-width:0;font-family:var(--mono);font-size:12px;color:var(--ink-3);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .stage-meta b{color:var(--ink-2);font-weight:600}
   /* A HINT, NOT A BUTTON, and the distinction is the whole point. A Twitch
@@ -6638,36 +6649,36 @@ LANDING_HTML = """<!DOCTYPE html>
      wired to something that cannot work is worse than no button.
 
      pointer-events:none so it never intercepts the click it is asking for. */
-  .stage-hint{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:7px;
+  .stage-hint{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:8px;
     pointer-events:none;
-    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--ink-3);
     transition:opacity var(--t-move) var(--ease)}
   .stage-hint svg{display:block;flex:none;color:var(--ember)}
   /* Once they have clicked into the player they know where the control is. */
   .stage.engaged .stage-hint{opacity:0}
-  .stage-out{flex:none;font-family:var(--mono);font-size:10.5px;
+  .stage-out{flex:none;font-family:var(--mono);font-size:12px;
     letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
-    border-bottom:1px solid var(--hair-2);padding-bottom:2px;
+    border-bottom:1px solid var(--hair-2);padding-bottom:4px;
     transition:color var(--t-micro) var(--ease),border-color var(--t-micro) var(--ease)}
   .stage-out:hover{color:var(--ink);border-color:var(--flare)}
   @media(max-width:640px){
     .stage-meta{display:none}
-    .stage-bar{gap:9px;padding:10px 11px}
+    .stage-bar{gap:8px;padding:8px 12px}
   }
   /* The reduced-motion frame sits the stage in one tile's cell, so the bar has
      a quarter of the width the media query above is reasoning about. */
   .stage.compact .stage-meta{display:none}
-  .stage.compact .stage-bar{gap:9px;padding:10px 11px}
-  .stage.compact .stage-out{font-size:9.5px}
+  .stage.compact .stage-bar{gap:8px;padding:8px 12px}
+  .stage.compact .stage-out{font-size:12px}
   .stage.compact .stage-hint .lab{display:none}
   @media(max-width:640px){
     .stage-hint{letter-spacing:.1em}
     .stage-hint .lab{display:none}
   }
 
-  .wall-cap{display:flex;align-items:center;gap:10px;margin-top:9px;
-    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  .wall-cap{display:flex;align-items:center;gap:8px;margin-top:8px;
+    font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--ink-3)}
   .wall-cap b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
   .wall-cap .sep{flex:1 1 auto;height:1px;background:var(--hair)}
@@ -6681,14 +6692,14 @@ LANDING_HTML = """<!DOCTYPE html>
      supposed to be running is the thing you cannot see. Everything here buys
      vertical space back so at least one whole tile is above the fold. ── */
   @media(max-width:700px){
-    .hero.hero-band{padding-top:10px}
-    .hero-lede{padding:0 0 14px}
-    .kicker{margin-bottom:6px}
+    .hero.hero-band{padding-top:8px}
+    .hero-lede{padding:0 0 12px}
+    .kicker{margin-bottom:4px}
     .hero-copy h1{font-size:clamp(33px,9.4vw,46px);margin-top:8px}
-    .hero-copy p.lead{font-size:15.5px;line-height:1.45;margin-top:12px}
-    .hero-act{padding-top:14px;gap:10px 12px}
-    .hero-ctas{width:100%;flex-wrap:nowrap;gap:9px}
-    .hero-ctas .btn-lg{flex:1 1 0;min-width:0;padding:14px 10px;font-size:14px;
+    .hero-copy p.lead{font-size:16px;line-height:1.4;margin-top:12px}
+    .hero-act{padding-top:12px;gap:8px 12px}
+    .hero-ctas{width:100%;flex-wrap:nowrap;gap:8px}
+    .hero-ctas .btn-lg{flex:1 1 0;min-width:0;padding:12px 8px;font-size:14px;
       text-align:center;justify-content:center}
     .hero-note{font-size:12px}
     /* The wall below IS the demonstration that this is not a picture, so on a
@@ -6696,10 +6707,10 @@ LANDING_HTML = """<!DOCTYPE html>
        the reader can already see. */
     .lead-tail{display:none}
     .wall{gap:8px}
-    .tile{padding:10px 11px 9px}
+    .tile{padding:8px 12px 8px}
     .tile-chart{height:118px;max-height:118px;min-height:64px}
-    .tile-score{font-size:36px}
-    .wall-cap{font-size:9.5px;letter-spacing:.08em}
+    .tile-score{font-size:30px}
+    .wall-cap{font-size:12px;letter-spacing:.08em}
   }
 
 
@@ -6708,10 +6719,10 @@ LANDING_HTML = """<!DOCTYPE html>
      is where it comes from. */
   @media(max-width:420px){
     .hero-copy h1{font-size:clamp(30px,8.6vw,40px)}
-    .hero-copy p.lead{font-size:14.5px;line-height:1.4;margin-top:10px}
-    .hero-act{padding-top:11px;gap:9px 10px}
-    .hero-ctas .btn-lg{padding:12px 8px;font-size:13.5px}
-    .kicker{font-size:10px}
+    .hero-copy p.lead{font-size:14px;line-height:1.4;margin-top:8px}
+    .hero-act{padding-top:12px;gap:8px 8px}
+    .hero-ctas .btn-lg{padding:12px 8px;font-size:14px}
+    .kicker{font-size:12px}
     .tile-chart{height:106px;max-height:106px}
   }
 
@@ -6722,15 +6733,15 @@ LANDING_HTML = """<!DOCTYPE html>
      a number to show, and a fixed template would leave its column empty. */
   .stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .stat{padding:24px 0 24px 26px;border-left:1px solid var(--hair)}
+  .stat{padding:24px 0 24px 24px;border-left:1px solid var(--hair)}
   .stat:first-child{padding-left:0;border-left:none}
   .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-size:34px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:11px}
+    font-size:30px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:12px}
   .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
-  .stat .k{font-size:13px;color:var(--ink-2);margin-top:11px;max-width:26ch;line-height:1.5}
+  .stat .k{font-size:12px;color:var(--ink-2);margin-top:12px;max-width:26ch;line-height:1.5}
 
   /* ══ EXAMPLE CLIPS ══ */
-  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:38px}
+  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:32px}
   .ex-card{display:block;border-radius:3px;overflow:hidden;min-width:0;flex:0 1 calc(25% - 10.5px);
     border:1px solid transparent;
     background:linear-gradient(var(--wall),var(--wall)) padding-box,
@@ -6742,32 +6753,32 @@ LANDING_HTML = """<!DOCTYPE html>
   .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
   .ex-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(8,5,11,.72))}
   .ex-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
-  .ex-play span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;padding-left:3px;
+  .ex-play span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;padding-left:4px;
     background:rgba(14,11,17,.5);border:1px solid rgba(242,234,247,.6);color:var(--ink);transition:.2s}
   .ex-card:hover .ex-play span{background:var(--flare);border-color:transparent;color:#170A1E}
   .ex-badge{position:absolute;top:9px;right:9px;z-index:2;font-family:var(--mono);font-weight:600;
-    font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);
+    font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);
     background:rgba(14,11,17,.72);padding:4px 8px;border-radius:2px}
   .ex-badge i{display:none}
-  .ex-body{padding:12px 13px 14px}
-  .ex-title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ex-meta{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:5px;
-    display:flex;gap:6px;align-items:center;min-width:0;letter-spacing:.04em}
+  .ex-body{padding:12px 12px 12px}
+  .ex-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ex-meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;
+    display:flex;gap:4px;align-items:center;min-width:0;letter-spacing:.04em}
   .ex-meta b{color:var(--glow-ink);font-weight:400}
   .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* ══ WHO IT'S FOR — BREAK 1. Not three cards in a row: hairline-ruled rows
      with a mono label in a fixed left gutter and the prose in a wide right
      column. Different shape, different density, no icon-in-a-tinted-square. ══ */
-  .who-list{margin-top:40px;border-top:1px solid var(--hair)}
-  .who-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:26px;
-    padding:28px 0;border-bottom:1px solid var(--hair);align-items:start;transition:background .25s}
+  .who-list{margin-top:32px;border-top:1px solid var(--hair)}
+  .who-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:24px;
+    padding:24px 0;border-bottom:1px solid var(--hair);align-items:start;transition:background .25s}
   .who-row:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 62%)}
-  .who-l{display:flex;align-items:flex-start;justify-content:center;color:var(--ember);padding-top:2px}
-  .who-l span{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+  .who-l{display:flex;align-items:flex-start;justify-content:center;color:var(--ember);padding-top:4px}
+  .who-l span{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3)}
-  .who-row h3{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px}
-  .who-row p{font-size:15px;color:var(--ink-2);line-height:1.62;max-width:60ch}
+  .who-row h3{font-size:17px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
+  .who-row p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:60ch}
 
   /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
      amber down the left until step 4, where the clip actually fires and it
@@ -6776,17 +6787,17 @@ LANDING_HTML = """<!DOCTYPE html>
      Back to dropdowns by request. Kept from the open version: seven questions
      instead of twelve, and the two groups, so the list is still short enough to
      scan before anything is opened. */
-  .faq-group{margin-top:30px}
-  .faq-group + .faq-group{margin-top:38px}
-  .faq-h{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
+  .faq-group{margin-top:32px}
+  .faq-group + .faq-group{margin-top:32px}
+  .faq-h{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);margin:0 0 12px}
   .faq-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-    gap:0 34px;align-content:start}
+    gap:0 32px;align-content:start}
   .faq-item{border-top:1px solid var(--hair)}
   .faq-item:last-child{border-bottom:1px solid var(--hair)}
-  .faq-q{list-style:none;cursor:pointer;margin:0;padding:15px 30px 15px 0;
-    position:relative;font-size:15px;font-weight:600;color:var(--ink);
-    line-height:1.45;transition:color .16s ease}
+  .faq-q{list-style:none;cursor:pointer;margin:0;padding:16px 32px 16px 0;
+    position:relative;font-size:14px;font-weight:600;color:var(--ink);
+    line-height:1.4;transition:color .16s ease}
   .faq-q::-webkit-details-marker{display:none}
   .faq-q:hover{color:var(--glow)}
   /* Visible keyboard focus: the summary is a real tab stop. */
@@ -6797,11 +6808,11 @@ LANDING_HTML = """<!DOCTYPE html>
     top:50%;background:var(--ink-3);transition:transform .22s cubic-bezier(.4,0,.2,1),
     background .16s ease}
   .faq-q::before{width:11px;height:1.5px;margin-top:-.75px}
-  .faq-q::after{width:1.5px;height:11px;margin-top:-5.5px;right:10.75px}
+  .faq-q::after{width:1.5px;height:11px;margin-top:-4px;right:10.75px}
   .faq-item[open] .faq-q::after{transform:scaleY(0)}
   .faq-item[open] .faq-q{color:var(--glow)}
   .faq-q:hover::before,.faq-q:hover::after{background:var(--glow)}
-  .faq-a{margin:0;padding:0 34px 18px 0;font-size:14.5px;line-height:1.68;
+  .faq-a{margin:0;padding:0 32px 16px 0;font-size:14px;line-height:1.7;
     color:var(--ink-2)}
   @media (max-width:760px){
     .faq-cols{grid-template-columns:minmax(0,1fr)}
@@ -6812,8 +6823,8 @@ LANDING_HTML = """<!DOCTYPE html>
      are not equal and the layout says so: Pro is wider and brighter because it
      is the one most people want, Starter sits beside it as a real option
      rather than a decoy. Different radii and padding on the two, on purpose. */
-  .price-lead{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:60ch;
-    margin:0 0 30px}
+  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:60ch;
+    margin:0 0 32px}
   .price-lead b{color:var(--ink)}
   /* A LADDER, not three equal cards. The row grows left to right — width,
      padding, corner radius and price size all step up — because the plans are
@@ -6822,33 +6833,33 @@ LANDING_HTML = """<!DOCTYPE html>
      channels get watched at once), starting at one. */
   .ptiers{display:grid;
     grid-template-columns:minmax(0,.72fr) minmax(0,.86fr) minmax(0,1fr);
-    gap:18px;align-items:stretch}
-  .ptier{display:flex;flex-direction:column;gap:13px;
+    gap:16px;align-items:stretch}
+  .ptier{display:flex;flex-direction:column;gap:12px;
     border:1px solid var(--hair);background:rgba(255,255,255,.018)}
-  .ptier-a{border-radius:3px;padding:22px 22px 24px}
-  .ptier-b{border-radius:4px;padding:26px 26px 28px}
-  .ptier-c{border-radius:7px;padding:32px 32px 34px;
+  .ptier-a{border-radius:3px;padding:24px 24px 24px}
+  .ptier-b{border-radius:4px;padding:24px 24px 24px}
+  .ptier-c{border-radius:7px;padding:32px 32px 32px;
     border-color:rgba(184,106,220,.34);background:rgba(184,106,220,.055);
     box-shadow:0 20px 50px -30px rgba(184,106,220,.5)}
   /* The free card's $0 is the number most visitors are looking for, so it is
      not allowed to be the quietest thing in the row. */
   .ptier-a .ptier-fig{color:var(--ink)}
   .ptier-a .ptier-fig i{color:#7ddba4}
-  .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+  .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
     flex-wrap:wrap}
-  .ptier-name{font-family:var(--sans);font-weight:700;font-size:15px;
+  .ptier-name{font-family:var(--sans);font-weight:700;font-size:14px;
     letter-spacing:.01em;color:var(--ink)}
   .ptier-fig{font-family:var(--sans);font-weight:700;letter-spacing:-.02em;
-    font-size:34px;color:var(--ink)}
+    font-size:30px;color:var(--ink)}
   .ptier-a .ptier-fig{font-size:30px}
-  .ptier-c .ptier-fig{font-size:40px;color:var(--glow)}
-  .ptier-fig i{font-style:normal;font-size:13px;font-weight:600;color:var(--ink-3);
-    margin-left:3px}
-  .ptier-chan{margin:0;font-size:15px;color:var(--ink-2);line-height:1.5}
+  .ptier-c .ptier-fig{font-size:44px;color:var(--glow)}
+  .ptier-fig i{font-style:normal;font-size:12px;font-weight:600;color:var(--ink-3);
+    margin-left:4px}
+  .ptier-chan{margin:0;font-size:14px;color:var(--ink-2);line-height:1.5}
   .ptier-chan b{color:var(--ink)}
-  .ptier-what{margin:0;font-size:14px;line-height:1.62;color:var(--ink-3)}
+  .ptier-what{margin:0;font-size:14px;line-height:1.6;color:var(--ink-3)}
   .ptier .btn{margin-top:auto;align-self:flex-start}
-  .price-tiny{margin:20px 0 0;font-size:13px;color:var(--ink-3)}
+  .price-tiny{margin:16px 0 0;font-size:12px;color:var(--ink-3)}
   /* Three columns need to break earlier than two did: at 760 the middle card
      was 210px wide and its price wrapped under its own name. */
   @media (max-width:980px){
@@ -6858,8 +6869,8 @@ LANDING_HTML = """<!DOCTYPE html>
   @media (max-width:700px){
     .ptiers{grid-template-columns:minmax(0,1fr);gap:16px}
     .ptier-a{grid-column:auto}
-    .ptier-c{padding:26px 24px 28px}
-    .ptier-c .ptier-fig{font-size:34px}
+    .ptier-c{padding:24px 24px 24px}
+    .ptier-c .ptier-fig{font-size:30px}
   }
 
   /* ── How it works: three steps, deliberately unequal ──────────────────────
@@ -6868,43 +6879,43 @@ LANDING_HTML = """<!DOCTYPE html>
      point of not using a symmetric grid. The step marker is small type rather
      than an oversized numeral. */
   .flow{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.36fr) minmax(0,.82fr);
-    gap:0;margin-top:34px;align-items:start}
-  .flow-step{padding:4px 34px 8px;border-left:1px solid var(--hair)}
+    gap:0;margin-top:32px;align-items:start}
+  .flow-step{padding:4px 32px 8px;border-left:1px solid var(--hair)}
   .flow-step:first-child{padding-left:0;border-left:0}
   .flow-step:last-child{padding-right:0}
   /* The middle step is the argument, so it sits slightly proud of the others. */
-  .flow-b{padding-top:0;padding-bottom:22px}
-  .flow-mark{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
-  .flow-step h3{font-family:var(--sans);font-weight:650;font-size:19px;letter-spacing:-.015em;
-    line-height:1.25;color:var(--ink);margin:0 0 10px}
-  .flow-b h3{font-size:22px}
-  .flow-step p{font-size:14.5px;line-height:1.68;color:var(--ink-2);margin:0 0 11px}
-  .flow-note{font-size:13.5px;color:var(--ink-3);line-height:1.6}
-  .flow-note b{color:var(--ink);font-weight:650}
+  .flow-b{padding-top:0;padding-bottom:24px}
+  .flow-mark{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
+  .flow-step h3{font-family:var(--sans);font-weight:700;font-size:17px;letter-spacing:-.015em;
+    line-height:1.25;color:var(--ink);margin:0 0 8px}
+  .flow-b h3{font-size:24px}
+  .flow-step p{font-size:14px;line-height:1.7;color:var(--ink-2);margin:0 0 12px}
+  .flow-note{font-size:14px;color:var(--ink-3);line-height:1.6}
+  .flow-note b{color:var(--ink);font-weight:700}
   /* The equation drops to one column inside the narrower step. */
-  .flow .formula{grid-template-columns:minmax(0,1fr);gap:22px;margin:18px 0 14px;
-    padding:22px 22px 20px;border-radius:4px}
-  .flow .signal{grid-template-columns:104px minmax(0,1fr);gap:14px;padding:8px 0}
-  .flow .sk{font-size:12.5px}
-  .flow .eq.num{font-size:40px}
-  .flow .formula-eq{font-size:13px}
+  .flow .formula{grid-template-columns:minmax(0,1fr);gap:24px;margin:16px 0 12px;
+    padding:24px 24px 16px;border-radius:4px}
+  .flow .signal{grid-template-columns:104px minmax(0,1fr);gap:12px;padding:8px 0}
+  .flow .sk{font-size:12px}
+  .flow .eq.num{font-size:44px}
+  .flow .formula-eq{font-size:12px}
   @media (max-width:1000px){
-    .flow{grid-template-columns:minmax(0,1fr);gap:30px}
-    .flow-step{padding:0 0 0 18px;border-left:2px solid var(--hair)}
-    .flow-step:first-child{padding-left:18px;border-left:2px solid var(--hair)}
+    .flow{grid-template-columns:minmax(0,1fr);gap:32px}
+    .flow-step{padding:0 0 0 16px;border-left:2px solid var(--hair)}
+    .flow-step:first-child{padding-left:16px;border-left:2px solid var(--hair)}
     .flow-b{padding-bottom:0}
   }
-  .steps{margin-top:40px;position:relative}
-  .step{display:grid;grid-template-columns:76px minmax(0,1fr);gap:26px;padding:0 0 34px}
+  .steps{margin-top:32px;position:relative}
+  .step{display:grid;grid-template-columns:76px minmax(0,1fr);gap:24px;padding:0 0 32px}
   .step:last-child{padding-bottom:0}
   .rail{position:relative;display:flex;justify-content:center}
   .rail::before{content:'';position:absolute;top:0;bottom:-34px;left:50%;width:1px;
     background:var(--rail,rgba(247,167,69,.3))}
   .step:last-child .rail::before{bottom:auto;height:26px}
-  .rail-node{position:relative;z-index:1;margin-top:3px;width:26px;height:26px;border-radius:50%;
+  .rail-node{position:relative;z-index:1;margin-top:4px;width:26px;height:26px;border-radius:50%;
     background:var(--void);border:1px solid var(--node,rgba(247,167,69,.45));
-    display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:11px;
+    display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:12px;
     color:var(--node-ink,var(--ember))}
   .step-2 .rail::before,.step-3 .rail::before{--rail:linear-gradient(180deg,rgba(247,167,69,.3),rgba(184,106,220,.4))}
   .step-3 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
@@ -6912,34 +6923,34 @@ LANDING_HTML = """<!DOCTYPE html>
   .step-4 .rail-node{--node:var(--flare);--node-ink:var(--flare);
     box-shadow:0 0 22px -4px rgba(210,106,251,.75)}
   .step-5 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
-  .step-body{padding:2px 0 0}
-  .step h3{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-bottom:7px}
-  .step p{font-size:15px;color:var(--ink-2);line-height:1.65;max-width:64ch}
+  .step-body{padding:4px 0 0}
+  .step h3{font-size:17px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
+  .step p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:64ch}
   /* Step 4 is where the threshold is crossed, so it is the panel nearest the
      light — the only one in this section with a surface at all. */
-  .step-4 .step-body{padding:20px 22px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
+  .step-4 .step-body{padding:16px 24px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
     background:linear-gradient(166deg,#26182F,var(--wall)) padding-box,
       linear-gradient(215deg,rgba(210,106,251,.5),rgba(184,106,220,.12) 38%,rgba(242,234,247,.03)) border-box}
 
   /* ══ FORMULA — BREAK 3. Not a centred card of pills: an actual equation.
      Five measured signals stacked on the left, one score on the right. ══ */
-  .formula{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:50px;
-    align-items:center;margin-top:38px;padding:38px 40px;border-radius:3px;border:1px solid transparent;
+  .formula{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;
+    align-items:center;margin-top:32px;padding:32px 32px;border-radius:3px;border:1px solid transparent;
     background:linear-gradient(172deg,#1C1424,#140F1A) padding-box,
       linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.05) 44%,rgba(242,234,247,.018)) border-box}
   .signal-row{display:flex;flex-direction:column;gap:0}
-  .signal{display:grid;grid-template-columns:152px minmax(0,1fr);gap:20px;align-items:center;
-    padding:11px 0;border-bottom:1px solid var(--hair)}
+  .signal{display:grid;grid-template-columns:152px minmax(0,1fr);gap:16px;align-items:center;
+    padding:12px 0;border-bottom:1px solid var(--hair)}
   .signal:last-of-type{border-bottom:none}
-  .signal .sk{font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
+  .signal .sk{font-family:var(--mono);font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
   .signal .sb{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
   .signal .sb i{display:block;height:100%;background:var(--sc,var(--ember))}
   .plus{display:none}
-  .formula-out{text-align:left;border-left:1px solid var(--hair);padding-left:34px}
+  .formula-out{text-align:left;border-left:1px solid var(--hair);padding-left:32px}
   .formula-out .eq{font-family:var(--mono);font-weight:600;font-size:clamp(46px,6vw,68px);
     line-height:1;letter-spacing:-.04em;color:var(--flare);font-variant-numeric:tabular-nums;
     text-shadow:0 0 40px rgba(210,106,251,.4)}
-  .formula-eq{font-size:14.5px;color:var(--ink-2);margin-top:16px;line-height:1.5;max-width:24ch}
+  .formula-eq{font-size:14px;color:var(--ink-2);margin-top:16px;line-height:1.5;max-width:24ch}
 
   /* ══ FEATURES. Two columns, hairlines instead of cards, mono index instead
      of an icon in a tinted square. ══ */
@@ -6956,12 +6967,12 @@ LANDING_HTML = """<!DOCTYPE html>
      the banned shape: the thing stopping it being a grid of equal cards is the
      labelled structure, not a count of items. */
   #features .sec-title{margin-bottom:4px}
-  .feat-group{margin-top:30px;padding-top:26px;border-top:1px solid var(--hair)}
-  .feat-group:first-of-type{margin-top:22px}
+  .feat-group{margin-top:32px;padding-top:24px;border-top:1px solid var(--hair)}
+  .feat-group:first-of-type{margin-top:24px}
   /* The mono label is the whole fix: it tells you what the next two or three
      items have in common before you read them. */
-  .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:10.5px;
-    letter-spacing:.18em;text-transform:uppercase;color:var(--ember);margin-bottom:18px}
+  .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ember);margin-bottom:16px}
   .feat-grid{display:grid;gap:clamp(22px,2.6vw,44px);align-items:start}
   /* Unequal on purpose, and the two shapes share a first column so the groups
      line up down the page instead of each starting somewhere new. */
@@ -6970,42 +6981,42 @@ LANDING_HTML = """<!DOCTYPE html>
      against 759 and looked like a mistake rather than a choice. */
   .feat-cols-2{grid-template-columns:minmax(0,1.08fr) minmax(0,1.42fr)}
   .feat{min-width:0}
-  .feat h3{font-size:16.5px;font-weight:700;letter-spacing:-.015em;margin-bottom:7px}
-  .feat p{font-size:14.5px;color:var(--ink-2);line-height:1.6}
+  .feat h3{font-size:16px;font-weight:700;letter-spacing:-.015em;margin-bottom:8px}
+  .feat p{font-size:14px;color:var(--ink-2);line-height:1.6}
   /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
      dead gap. The measure is capped so a full-width paragraph does not run to
      1200px and become unreadable. */
   .feat-wide h3{font-size:clamp(20px,2.1vw,26px);letter-spacing:-.022em;
-    line-height:1.2;margin-bottom:10px}
+    line-height:1.2;margin-bottom:8px}
   .feat-wide p{font-size:16px;max-width:82ch}
   @media (max-width:900px){
     .feat-grid{grid-template-columns:minmax(0,1fr);gap:24px}
-    .feat-group{margin-top:24px;padding-top:22px}
+    .feat-group{margin-top:24px;padding-top:24px}
   }
 
   /* ══ PRICING. Depth from value, not shadow: Pro stands nearest the monitor
      and is a lit surface; the other two recede into the wall. ══ */
-  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px;margin:42px auto 0}
+  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px;margin:48px auto 0}
   .price-card{position:relative;border-radius:3px;border:1px solid transparent;
     background:linear-gradient(var(--wall),var(--wall)) padding-box,
       linear-gradient(215deg,rgba(242,234,247,.16),rgba(242,234,247,.04) 50%,rgba(242,234,247,.015)) border-box}
   .price-card.pro{background:linear-gradient(168deg,#2A1B35,#1B1221 70%) padding-box,
       linear-gradient(215deg,var(--flare),rgba(184,106,220,.28) 34%,rgba(242,234,247,.06) 70%,rgba(242,234,247,.02)) border-box}
-  .price-in{padding:34px 30px 32px;height:100%;display:flex;flex-direction:column}
-  .price-pop{position:absolute;top:0;right:0;font-family:var(--mono);font-weight:600;font-size:9.5px;
-    letter-spacing:.16em;text-transform:uppercase;color:var(--flare);padding:9px 14px}
-  .price-badge{font-family:var(--mono);font-weight:600;font-size:10.5px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:20px}
+  .price-in{padding:32px 32px 32px;height:100%;display:flex;flex-direction:column}
+  .price-pop{position:absolute;top:0;right:0;font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--flare);padding:8px 12px}
+  .price-badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:16px}
   .price-card.pro .price-badge{color:var(--glow-ink)}
-  .price-amt{display:flex;align-items:baseline;gap:3px}
-  .price-amt .cur{font-family:var(--mono);font-size:22px;color:var(--ink-3);align-self:flex-start;margin-top:9px}
-  .price-amt .num{font-family:var(--mono);font-weight:600;font-size:64px;letter-spacing:-.05em;
+  .price-amt{display:flex;align-items:baseline;gap:4px}
+  .price-amt .cur{font-family:var(--mono);font-size:24px;color:var(--ink-3);align-self:flex-start;margin-top:8px}
+  .price-amt .num{font-family:var(--mono);font-weight:600;font-size:44px;letter-spacing:-.05em;
     line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
   .price-card.pro .price-amt .num{color:var(--ember)}
-  .price-amt .per{font-family:var(--mono);font-size:13px;color:var(--ink-3);margin-left:5px}
-  .price-sub{font-size:14px;color:var(--ink-2);margin:14px 0 24px;line-height:1.55}
-  .price-list{flex:1;display:flex;flex-direction:column;gap:11px;margin-bottom:28px;
-    border-top:1px solid var(--hair);padding-top:20px}
+  .price-amt .per{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-left:4px}
+  .price-sub{font-size:14px;color:var(--ink-2);margin:12px 0 24px;line-height:1.5}
+  .price-list{flex:1;display:flex;flex-direction:column;gap:12px;margin-bottom:24px;
+    border-top:1px solid var(--hair);padding-top:16px}
   /* NOT flex on the row. With display:flex every inline <b> becomes its own
      flex item, so "Monitor up to <b>3 streams</b> at once" laid out as three
      columns and broke mid-phrase. Absolute-positioning the tick keeps the text
@@ -7013,41 +7024,44 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-list .li{position:relative;padding-left:24px;font-size:14px;color:var(--ink-2);line-height:1.5}
   .price-list .ck{position:absolute;left:0;top:0;font-family:var(--sans);font-size:12px;color:var(--ember)}
   .price-list .li b{color:var(--ink);font-weight:600}
-  .price-promo{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--ink-3);margin-top:20px}
+  .price-promo{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--ink-3);margin-top:16px}
   .price-promo b{color:var(--ember);font-weight:400}
 
   /* ══ FAQ. Hairline rows, no card. ══ */
-  .faq-list{max-width:780px;margin:38px auto 0;border-top:1px solid var(--hair)}
+  .faq-list{max-width:780px;margin:32px auto 0;border-top:1px solid var(--hair)}
   .faq-item{border-bottom:1px solid var(--hair)}
   .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
-    padding:19px 2px;font-size:16px;font-weight:600;letter-spacing:-.01em;
+    padding:16px 4px;font-size:16px;font-weight:600;letter-spacing:-.01em;
     -webkit-tap-highlight-color:transparent;transition:color .16s}
   .faq-item summary::-webkit-details-marker{display:none}
   .faq-item summary:hover{color:var(--glow-ink)}
   .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:15px;color:var(--ink-3);transition:transform .25s,color .25s}
+  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform .25s,color .25s}
   .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
-  .faq-a{padding:0 2px 20px;font-size:14.5px;color:var(--ink-2);line-height:1.72;max-width:70ch}
+  .faq-a{padding:0 4px 16px;font-size:14px;color:var(--ink-2);line-height:1.7;max-width:70ch}
   .faq-a b{color:var(--ink);font-weight:600}
 
   /* ══ FINAL CTA — the room at its brightest ══ */
-  .final{position:relative;text-align:center;padding-top:66px;padding-bottom:86px}
-  .final::before{content:'';position:absolute;left:50%;top:0;width:min(760px,90vw);height:320px;
-    transform:translateX(-50%);pointer-events:none;z-index:-1;
-    background:radial-gradient(50% 60% at 50% 0%,rgba(184,106,220,.2),transparent 70%)}
+  .final{position:relative;text-align:center;padding-top:64px;padding-bottom:96px}
+  /* REMOVED: a 320px blurred purple bloom floated above this heading. It is
+     the one decoration on the page that was doing nothing except looking like
+     a landing page — a soft glowing shape behind the words, which is the
+     house style of every AI-generated hero on the internet and reads as such.
+     The band already changes surface tone at this boundary, so the section is
+     marked out without it, and the heading is stronger on a flat ground. */
   .final h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(34px,5.4vw,58px);
-    line-height:1.06;letter-spacing:-.005em;color:var(--ink);margin-bottom:20px}
+    line-height:1.1;letter-spacing:-.005em;color:var(--ink);margin-bottom:16px}
   .final p{font-size:17px;color:var(--ink-2);max-width:530px;margin:0 auto 32px;line-height:1.6}
 
   /* ══ FOOTER ══ */
-  .footer{border-top:1px solid var(--hair);padding:34px 26px;text-align:center;
-    font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--ink-3);line-height:2.1}
+  .footer{border-top:1px solid var(--hair);padding:32px 24px;text-align:center;
+    font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink-3);line-height:2.1}
   .footer a{color:var(--ink-3);border-bottom:1px solid transparent}
   .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
-  .footer .fl{margin-bottom:6px}
+  .footer .fl{margin-bottom:4px}
 
   /* ══ Example-clip lightbox ══ */
-  .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:22px}
+  .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px}
   .exl-bg{position:absolute;inset:0;background:rgba(8,5,11,.9)}
   /* Twitch's clip embed picks its rendition by ADAPTIVE BITRATE, and player
      size is the main input — there is no documented URL parameter to force
@@ -7066,9 +7080,9 @@ LANDING_HTML = """<!DOCTYPE html>
      percentage of WIDTH and cannot honour a height cap. */
   .exl-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000}
   .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-  .exl-meta{display:flex;align-items:center;gap:12px;padding:13px 16px}
+  .exl-meta{display:flex;align-items:center;gap:12px;padding:12px 16px}
   .exl-title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .exl-out{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
+  .exl-out{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
   .exl-out:hover{color:var(--flare)}
   .exl-close{position:absolute;top:9px;right:9px;z-index:2;width:32px;height:32px;border-radius:2px;
     border:1px solid rgba(242,234,247,.15);cursor:pointer;background:rgba(14,11,17,.8);color:var(--ink);
@@ -7077,36 +7091,36 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ Responsive ══ */
   @media(max-width:1000px){
-    .hero{grid-template-columns:minmax(0,1fr);gap:44px;padding-top:52px}
+    .hero{grid-template-columns:minmax(0,1fr);gap:48px;padding-top:48px}
     .ex-card{flex-basis:calc(33.333% - 9.34px)}
-    .formula{grid-template-columns:minmax(0,1fr);gap:30px;padding:32px 28px}
-    .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:26px}
-      .who-row{grid-template-columns:74px minmax(0,1fr);gap:20px}
+    .formula{grid-template-columns:minmax(0,1fr);gap:32px;padding:32px 24px}
+    .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:24px}
+      .who-row{grid-template-columns:74px minmax(0,1fr);gap:16px}
   }
   @media(max-width:720px){
-    section{padding-top:38px;padding-bottom:38px}
-    .wrap{padding-left:20px;padding-right:20px}
+    section{padding-top:32px;padding-bottom:32px}
+    .wrap{padding-left:16px;padding-right:16px}
     .ex-card{flex-basis:calc(50% - 7px)}
     .stats{grid-auto-flow:row;grid-auto-columns:auto}
-    .stat{padding:20px 0;border-left:none;border-top:1px solid var(--hair)}
+    .stat{padding:16px 0;border-left:none;border-top:1px solid var(--hair)}
     .stat:first-child{border-top:none}
     .stat .k{max-width:none}
-    .nav{padding:11px 18px;gap:10px}
+    .nav{padding:12px 16px;gap:8px}
     /* Measured: the nav is 67px here, not 71. */
     :root{--nav-h:67px}
     .nav-links{display:none}
     .nav-logo span{display:none}
-    .trig{padding:5px 9px;margin-right:2px}
+    .trig{padding:4px 8px;margin-right:4px}
     .trig-k{display:none}
-    .who-row{grid-template-columns:minmax(0,1fr);gap:10px;padding:24px 0}
+    .who-row{grid-template-columns:minmax(0,1fr);gap:8px;padding:24px 0}
     .who-l{justify-content:flex-start}
-    .step{grid-template-columns:44px minmax(0,1fr);gap:18px}
-    .rail-node{width:22px;height:22px;font-size:10px}
+    .step{grid-template-columns:44px minmax(0,1fr);gap:16px}
+    .rail-node{width:22px;height:22px;font-size:12px}
     .step-4 .step-body{padding:16px 16px;margin-top:-12px}
     .demo-cap{text-align:left}
-    .price-in{padding:28px 24px}
-    .price-amt .num{font-size:52px}
-    .final{padding-top:52px;padding-bottom:66px}
+    .price-in{padding:24px 24px}
+    .price-amt .num{font-size:44px}
+    .final{padding-top:48px;padding-bottom:64px}
   }
   /* The section links collapse at 900, not 720. Measured at 768: logo 205 +
      links 349 + right group 293 + padding 44 = 891, so everything from 721 to
@@ -7182,7 +7196,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <span class="trig-v" id="trig-v">92</span>
     </div>
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-key" style="padding:10px 18px;font-size:13.5px">Get started</a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
   </div>
 </nav>
 
@@ -8691,36 +8705,36 @@ LOGIN_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
   /* width was a flat 360px, which hangs off a 320px screen — and this is the
      sign-in card, so the overflow lands on the one button the page exists
      for. max-width keeps the same size everywhere it fits. */
-  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:44px 40px;width:100%;max-width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
-  .logo-wrap{display:flex;justify-content:center;margin-bottom:22px}
-  .logo-wrap img{height:54px;width:auto;filter:drop-shadow(0 0 18px rgba(199,155,255,.4))}
-  h1{font-size:26px;font-weight:800;color:#c79bff;margin-bottom:4px;letter-spacing:-.02em}
-  .sub{font-size:13px;color:#9c9caa;margin-bottom:18px}
-  .price-pill{display:inline-flex;align-items:center;gap:7px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c79bff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:99px;margin-bottom:22px}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 32px;width:100%;max-width:360px;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:24px}
+  .logo-wrap img{height:54px;width:auto;filter:drop-shadow(0 0 18px rgba(196,137,228,.4))}
+  h1{font-size:24px;font-weight:800;color:#c489e4;margin-bottom:4px;letter-spacing:-.02em}
+  .sub{font-size:12px;color:#b9aec4;margin-bottom:16px}
+  .price-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(145,70,255,.14);border:1px solid rgba(145,70,255,.35);color:#c489e4;font-size:12px;font-weight:700;padding:8px 12px;border-radius:99px;margin-bottom:24px}
   .price-pill .dot{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
-  .price-note{font-size:11px;color:#5d5d6b;text-align:center;margin-top:12px}
-  .twitch-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
+  .price-note{font-size:12px;color:#9c90a6;text-align:center;margin-top:12px}
+  .twitch-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s}
   .twitch-btn:hover{background:#772ce8}
   .twitch-btn svg{flex-shrink:0}
-  .or-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .or-divider{display:flex;align-items:center;gap:12px;margin:12px 0;color:#9c90a6;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
-  .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#5d5d6b;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+  .divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:#9c90a6;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
-  label{font-size:12px;color:#9c9caa;display:block;margin-bottom:6px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
-  input{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#f6f6f9;padding:11px 13px;font-size:14px;outline:none;margin-bottom:14px;transition:.18s}
-  input:focus{border-color:rgba(199,155,255,.5);box-shadow:0 0 0 4px rgba(168,85,247,.1)}
-  .pw-btn{width:100%;background:rgba(255,255,255,.06);color:#f6f6f9;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+  label{font-size:12px;color:#b9aec4;display:block;margin-bottom:4px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+  input{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;color:#f2eaf7;padding:12px 12px;font-size:14px;outline:none;margin-bottom:12px;transition:.18s}
+  input:focus{border-color:rgba(196,137,228,.5);box-shadow:0 0 0 4px rgba(184,106,220,.1)}
+  .pw-btn{width:100%;background:rgba(255,255,255,.06);color:#f2eaf7;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px;font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
   .pw-btn:hover{background:rgba(255,255,255,.1)}
-  .error{color:#ff5a78;font-size:12px;margin-bottom:14px;background:rgba(255,90,120,.12);padding:10px 13px;border-radius:10px;border:1px solid rgba(255,90,120,.25)}
-  .admin-toggle{font-size:11px;color:#5d5d6b;text-align:center;margin-top:18px;cursor:pointer;text-decoration:underline}
+  .error{color:#ff5a78;font-size:12px;margin-bottom:12px;background:rgba(255,90,120,.12);padding:8px 12px;border-radius:10px;border:1px solid rgba(255,90,120,.25)}
+  .admin-toggle{font-size:12px;color:#9c90a6;text-align:center;margin-top:16px;cursor:pointer;text-decoration:underline}
   #admin-form{display:none;margin-top:16px}
-  .footer{margin-top:28px;text-align:center;font-size:11px;color:#3d3d4a;line-height:1.7}
-  .footer a{color:#5d5d6b;text-decoration:none}.footer a:hover{color:#9c9caa}
+  .footer{margin-top:24px;text-align:center;font-size:12px;color:#9c90a6;line-height:1.7}
+  .footer a{color:#9c90a6;text-decoration:none}.footer a:hover{color:#b9aec4}
 </style>
 </head>
 <body>
@@ -8763,41 +8777,41 @@ PAYWALL_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
-  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 44px;max-width:560px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
-  .plan-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px;text-align:left}
-  .plan{position:relative;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px 18px;display:flex;flex-direction:column}
-  .plan.pro{border-color:rgba(168,85,247,.55);box-shadow:0 0 30px -12px rgba(168,85,247,.5)}
-  .plan-pop{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#a855f7);padding:3px 10px;border-radius:99px;white-space:nowrap}
-  .plan-name{font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#c79bff}
-  .plan-price{font-size:28px;font-weight:800;margin:4px 0 10px}
-  .plan-price span{font-size:13px;color:#9c9caa;font-weight:600}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:16px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.22),transparent 60%),radial-gradient(600px 350px at 85% 8%,rgba(249,67,255,.14),transparent 55%)}
+  .card{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:48px 48px;max-width:560px;width:100%;text-align:center;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+  .plan-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px;text-align:left}
+  .plan{position:relative;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px 16px;display:flex;flex-direction:column}
+  .plan.pro{border-color:rgba(184,106,220,.55);box-shadow:0 0 30px -12px rgba(184,106,220,.5)}
+  .plan-pop{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#f943ff,#b86adc);padding:4px 8px;border-radius:99px;white-space:nowrap}
+  .plan-name{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#c489e4}
+  .plan-price{font-size:30px;font-weight:800;margin:4px 0 8px}
+  .plan-price span{font-size:12px;color:#b9aec4;font-weight:600}
   .plan-feats{list-style:none;margin:0 0 16px;padding:0;flex:1}
-  .plan-feats li{font-size:12.5px;color:#b8b8c8;padding:3px 0 3px 16px;position:relative}
-  .plan-feats li::before{content:'✓';position:absolute;left:0;color:#34d399;font-weight:800;font-size:11px}
-  .plan .cta{margin-bottom:0;padding:11px;font-size:13.5px}
+  .plan-feats li{font-size:12px;color:#b9aec4;padding:4px 0 4px 16px;position:relative}
+  .plan-feats li::before{content:'✓';position:absolute;left:0;color:#34d399;font-weight:800;font-size:12px}
+  .plan .cta{margin-bottom:0;padding:12px;font-size:14px}
   .cta.ghost{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);box-shadow:none}
   .cta.ghost:hover{background:rgba(255,255,255,.12);filter:none}
   @media(max-width:520px){.plan-row{grid-template-columns:1fr}}
-  .logo-wrap{display:flex;justify-content:center;margin-bottom:20px}
-  .logo-wrap img{height:46px;filter:drop-shadow(0 0 14px rgba(199,155,255,.4))}
-  .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(199,155,255,.12);border:1px solid rgba(199,155,255,.25);color:#c79bff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:99px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:22px}
-  h1{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:10px}
-  .sub{font-size:14px;color:#9c9caa;margin-bottom:32px;line-height:1.6}
-  .features{text-align:left;margin-bottom:32px;display:flex;flex-direction:column;gap:10px}
+  .logo-wrap{display:flex;justify-content:center;margin-bottom:16px}
+  .logo-wrap img{height:46px;filter:drop-shadow(0 0 14px rgba(196,137,228,.4))}
+  .badge{display:inline-flex;align-items:center;gap:4px;background:rgba(196,137,228,.12);border:1px solid rgba(196,137,228,.25);color:#c489e4;font-size:12px;font-weight:700;padding:4px 12px;border-radius:99px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:24px}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
+  .sub{font-size:14px;color:#b9aec4;margin-bottom:32px;line-height:1.6}
+  .features{text-align:left;margin-bottom:32px;display:flex;flex-direction:column;gap:8px}
   .feat{display:flex;align-items:center;gap:12px;font-size:14px}
-  .feat .ic{width:24px;height:24px;border-radius:8px;background:rgba(199,155,255,.12);color:#c79bff;display:grid;place-items:center;flex-shrink:0;font-size:13px}
-  .cta{display:block;width:100%;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);color:#fff;border:none;border-radius:13px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;transition:filter .15s;box-shadow:0 6px 24px -6px rgba(168,85,247,.6);margin-bottom:12px}
+  .feat .ic{width:24px;height:24px;border-radius:8px;background:rgba(196,137,228,.12);color:#c489e4;display:grid;place-items:center;flex-shrink:0;font-size:12px}
+  .cta{display:block;width:100%;background:linear-gradient(135deg,#f943ff 0%,#b86adc 52%,#7c6bff 100%);color:#fff;border:none;border-radius:13px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:filter .15s;box-shadow:0 6px 24px -6px rgba(184,106,220,.6);margin-bottom:12px}
   .cta:hover{filter:brightness(1.08)}
-  .manage{display:block;font-size:12px;color:#5d5d6b;text-align:center;margin-top:6px;text-decoration:none}
-  .manage:hover{color:#9c9caa}
-  .logout{display:block;font-size:12px;color:#5d5d6b;text-align:center;margin-top:16px;text-decoration:none}
-  .logout:hover{color:#9c9caa}
-  .footer{margin-top:28px;text-align:center;font-size:11px;color:#3d3d4a;line-height:1.7}
-  .footer a{color:#5d5d6b;text-decoration:none}.footer a:hover{color:#9c9caa}
+  .manage{display:block;font-size:12px;color:#9c90a6;text-align:center;margin-top:4px;text-decoration:none}
+  .manage:hover{color:#b9aec4}
+  .logout{display:block;font-size:12px;color:#9c90a6;text-align:center;margin-top:16px;text-decoration:none}
+  .logout:hover{color:#b9aec4}
+  .footer{margin-top:24px;text-align:center;font-size:12px;color:#9c90a6;line-height:1.7}
+  .footer a{color:#9c90a6;text-decoration:none}.footer a:hover{color:#b9aec4}
 @media(max-width:480px){
-  .card{padding:32px 22px;border-radius:18px}
+  .card{padding:32px 24px;border-radius:18px}
   h1{font-size:24px}
 }
 </style>
@@ -8809,7 +8823,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
   <h1>{headline}</h1>
   <p class="sub">Hi {username} — {subline}</p>
   <!--PAYWALLPLANS-->
-  <p class="sub" style="font-size:13px;margin-top:14px">{cta_note}</p>
+  <p class="sub" style="font-size:12px;margin-top:14px">{cta_note}</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
   <a href="#" class="logout" onclick="fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';});return false;">Sign out</a>
 </div>
@@ -8874,24 +8888,24 @@ TOS_HTML = """<!DOCTYPE html>
 <!--SOCIAL_TOS-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
   .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
-  .back:hover{color:#c79bff}
-  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
-  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
-  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
-  ul{padding-left:20px;margin-bottom:14px}
-  li{font-size:14px;color:#b8b8c8;margin-bottom:6px}
-  a{color:#c79bff;text-decoration:none}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:.15s}
+  .back:hover{color:#c489e4}
+  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
+  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
+  ul{padding-left:16px;margin-bottom:12px}
+  li{font-size:14px;color:#b9aec4;margin-bottom:4px}
+  a{color:#c489e4;text-decoration:none}
   a:hover{text-decoration:underline}
   .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
 </style>
 </head>
 <body>
@@ -9006,24 +9020,24 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <!--SOCIAL_PRIVACY-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
   .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
-  .back:hover{color:#c79bff}
-  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
-  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
-  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
-  ul{padding-left:20px;margin-bottom:14px}
-  li{font-size:14px;color:#b8b8c8;margin-bottom:6px}
-  a{color:#c79bff;text-decoration:none}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:.15s}
+  .back:hover{color:#c489e4}
+  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
+  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
+  ul{padding-left:16px;margin-bottom:12px}
+  li{font-size:14px;color:#b9aec4;margin-bottom:4px}
+  a{color:#c489e4;text-decoration:none}
   a:hover{text-decoration:underline}
   .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
 </style>
 </head>
 <body>
@@ -9099,7 +9113,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   Email: <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
 
   <div class="divider"></div>
-  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#5d5d6b">Terms of Service</a> &middot; <a href="/cookies" style="color:#5d5d6b">Cookie Policy</a></div>
+  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#9c90a6">Terms of Service</a> &middot; <a href="/cookies" style="color:#9c90a6">Cookie Policy</a></div>
 </div>
 </body>
 </html>"""
@@ -9122,19 +9136,19 @@ COOKIES_HTML = """<!DOCTYPE html>
 <!--SOCIAL_COOKIES-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.15),transparent 60%)}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
   .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#5d5d6b;font-size:13px;text-decoration:none;margin-bottom:40px;transition:.15s}
-  .back:hover{color:#c79bff}
-  .logo{display:flex;align-items:center;gap:14px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(199,155,255,.4))}
-  .logo span{font-size:22px;font-weight:800;color:#c79bff;letter-spacing:-.02em}
-  h1{font-size:32px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:13px;color:#5d5d6b;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c79bff;margin:36px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b8b8c8;margin-bottom:14px}
-  table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:.15s}
+  .back:hover{color:#c489e4}
+  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
+  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
+  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
+  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
+  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:12px}
   /* The cookie table is four columns with a long Purpose cell and needs
      376px; below that it pushed the whole page sideways, because there is
      no wrapper element in the markup to scroll it. Making the table itself
@@ -9144,12 +9158,12 @@ COOKIES_HTML = """<!DOCTYPE html>
   @media(max-width:560px){
     table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   }
-  th{text-align:left;color:#5d5d6b;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
-  td{padding:10px 12px;color:#b8b8c8;border-bottom:1px solid rgba(255,255,255,.04)}
-  a{color:#c79bff;text-decoration:none}
+  th{text-align:left;color:#9c90a6;font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
+  td{padding:8px 12px;color:#b9aec4;border-bottom:1px solid rgba(255,255,255,.04)}
+  a{color:#c489e4;text-decoration:none}
   a:hover{text-decoration:underline}
   .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#3d3d4a;text-align:center}
+  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
 </style>
 </head>
 <body>
@@ -9196,7 +9210,7 @@ COOKIES_HTML = """<!DOCTYPE html>
   <p>Questions? Contact us at <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
 
   <div class="divider"></div>
-  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#5d5d6b">Terms of Service</a> &middot; <a href="/privacy" style="color:#5d5d6b">Privacy Policy</a></div>
+  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#9c90a6">Terms of Service</a> &middot; <a href="/privacy" style="color:#9c90a6">Privacy Policy</a></div>
 </div>
 </body>
 </html>"""
@@ -9256,109 +9270,109 @@ ADMIN_HTML = """<!DOCTYPE html>
   ::selection{background:rgba(210,106,251,.3)}
 
   /* ── Top bar ── */
-  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
-    padding:12px 26px;background:var(--void);border-bottom:1px solid transparent;
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+    padding:12px 24px;background:var(--void);border-bottom:1px solid transparent;
     background-image:linear-gradient(var(--void),var(--void)),
       linear-gradient(270deg,rgba(184,106,220,.34),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
     background-origin:padding-box,border-box;background-clip:padding-box,border-box}
-  .logo{display:flex;align-items:center;gap:10px}
+  .logo{display:flex;align-items:center;gap:8px}
   .logo img{height:22px}
-  .logo span{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase}
-  .badge{font-family:var(--mono);font-weight:600;font-size:9.5px;letter-spacing:.18em;
+  .logo span{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+  .badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--flare);border:1px solid rgba(210,106,251,.35);
-    padding:3px 8px;border-radius:2px}
-  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px}
-  .tlink{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--ink-3);
-    padding:7px 11px;border-radius:3px;transition:color .15s,background .15s;white-space:nowrap}
+    padding:4px 8px;border-radius:2px}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .tlink{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--ink-3);
+    padding:8px 12px;border-radius:3px;transition:color .15s,background .15s;white-space:nowrap}
   .tlink:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .tlink .n{color:var(--ember)}
 
-  .wrap{max-width:1240px;margin:0 auto;padding:30px 26px 70px}
-  h1{font-size:25px;font-weight:700;letter-spacing:-.025em}
-  .meta{font-size:13.5px;color:var(--ink-2);margin-top:4px}
+  .wrap{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:24px;font-weight:700;letter-spacing:-.025em}
+  .meta{font-size:14px;color:var(--ink-2);margin-top:4px}
 
   /* ── Overview rail. Not six floating tiles: one ruled strip, uneven weight,
      each figure carrying the second number that makes it mean something. ── */
-  .rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:26px 0 8px;
+  .rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:24px 0 8px;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .cell{padding:18px 0 18px 20px;border-left:1px solid var(--hair);min-width:0}
+  .cell{padding:16px 0 16px 16px;border-left:1px solid var(--hair);min-width:0}
   .cell:first-child{padding-left:0;border-left:none}
   .cell .v{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-size:27px;letter-spacing:-.03em;line-height:1.1;color:var(--ink)}
+    font-size:24px;letter-spacing:-.03em;line-height:1.1;color:var(--ink)}
   .cell.hot .v{color:var(--ember)}
-  .cell .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--ink-3);margin-top:9px}
-  .cell .s{font-size:12px;color:var(--ink-2);margin-top:5px;line-height:1.4;
-    min-height:2.8em;padding-right:14px}
+  .cell .k{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);margin-top:8px}
+  .cell .s{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.4;
+    min-height:2.8em;padding-right:12px}
 
   /* ── Tabs ── */
-  .tabs{display:flex;gap:0;margin:30px 0 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
-  .tab{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  .tabs{display:flex;gap:0;margin:32px 0 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--ink-3);background:none;border:none;border-bottom:2px solid transparent;
-    padding:12px 16px;cursor:pointer;transition:color .16s,border-color .16s;margin-bottom:-1px}
+    padding:12px 16px;cursor:pointer;transition:color .16s,border-color .16s;margin-bottom:-4px}
   .tab:hover{color:var(--ink-2)}
   .tab.on{color:var(--ink);border-bottom-color:var(--flare)}
-  .tab .c{color:var(--ink-3);margin-left:7px}
+  .tab .c{color:var(--ink-3);margin-left:8px}
   .tab.on .c{color:var(--ember)}
   .panel{display:none;padding-top:24px}
   .panel.on{display:block}
-  .lede{font-size:13.5px;color:var(--ink-2);max-width:74ch;margin-bottom:18px;line-height:1.6}
+  .lede{font-size:14px;color:var(--ink-2);max-width:74ch;margin-bottom:16px;line-height:1.6}
   .lede b{color:var(--ink);font-weight:600}
-  .block{margin-bottom:44px}
-  .block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .block{margin-bottom:48px}
+  .block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
   .block-head h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
-  .block-head .c{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--ink-3)}
+  .block-head .c{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-3)}
 
   /* ── Toolbar ── */
-  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px}
   .field{background:var(--wall);border:1px solid var(--hair);color:var(--ink);border-radius:3px;
-    padding:8px 11px;font-size:13px;font-family:var(--sans);flex:1 1 260px;max-width:340px;min-width:0}
+    padding:8px 12px;font-size:12px;font-family:var(--sans);flex:1 1 260px;max-width:340px;min-width:0}
   .field::placeholder{color:var(--ink-3)}
   .field:focus{outline:none;border-color:rgba(184,106,220,.5)}
   .chips{display:flex;gap:0;border:1px solid var(--hair);border-radius:3px;overflow:hidden}
-  .chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  .chip{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
     color:var(--ink-3);background:none;border:none;border-right:1px solid var(--hair);
     padding:8px 12px;cursor:pointer;transition:.15s}
   .chip:last-child{border-right:none}
   .chip:hover{color:var(--ink-2);background:rgba(242,234,247,.04)}
   .chip.on{color:var(--void);background:var(--ember);font-weight:600}
-  .spacer{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+  .spacer{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.06em}
 
   /* ── Tables ── */
   .tw{overflow-x:auto}
   table{width:100%;border-collapse:collapse}
-  th{text-align:left;font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--ink-3);
-    text-transform:uppercase;letter-spacing:.16em;padding:0 14px 10px 0;border-bottom:1px solid var(--hair);
+  th{text-align:left;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-3);
+    text-transform:uppercase;letter-spacing:.16em;padding:0 12px 8px 0;border-bottom:1px solid var(--hair);
     white-space:nowrap}
   th:last-child{padding-right:0}
-  td{padding:13px 14px 13px 0;font-size:13.5px;border-bottom:1px solid var(--hair);vertical-align:middle}
+  td{padding:12px 12px 12px 0;font-size:14px;border-bottom:1px solid var(--hair);vertical-align:middle}
   td:last-child{padding-right:0}
   tbody tr:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 70%)}
   tr.u-row{cursor:pointer}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
   .dim{color:var(--ink-3)}
-  .who{display:flex;align-items:center;gap:11px;min-width:0}
+  .who{display:flex;align-items:center;gap:12px;min-width:0}
   .avatar{width:30px;height:30px;border-radius:3px;object-fit:cover;flex-shrink:0;
     background:linear-gradient(150deg,#3A2348,#231733);border:1px solid var(--hair)}
   .username{font-weight:600;letter-spacing:-.01em}
-  .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:3px;letter-spacing:.03em}
+  .sub{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.03em}
 
   /* ── Plan + status marks. Text, not filled pills: a table of eight coloured
      lozenges is unreadable, and the plan is the thing you scan for. ── */
-  .plan{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .plan{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
   .plan-pro{color:var(--flare)}
   .plan-starter{color:var(--glow-ink)}
   .plan-free{color:var(--ink-3)}
-  .plan-note{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:3px;letter-spacing:.06em}
+  .plan-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.06em}
   .plan-note.pay{color:var(--good)}
   .plan-note.trial{color:var(--ember)}
   .plan-note.lapsed{color:var(--bad)}
-  .tagm{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--ember);border:1px solid rgba(247,167,69,.3);padding:1px 6px;border-radius:2px;margin-left:7px}
+  .tagm{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ember);border:1px solid rgba(247,167,69,.3);padding:4px 4px;border-radius:2px;margin-left:8px}
   .tagm.adm{color:var(--flare);border-color:rgba(210,106,251,.35)}
 
   /* ── Buttons ── */
-  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:6px 12px;border-radius:3px;
+  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:4px 12px;border-radius:3px;
     cursor:pointer;border:1px solid var(--hair);background:var(--wall);color:var(--ink-2);
     transition:.15s;white-space:nowrap}
   .btn:hover{color:var(--ink);border-color:rgba(184,106,220,.45)}
@@ -9373,11 +9387,11 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn-good:hover{color:var(--good);border-color:rgba(74,222,128,.6)}
   .btn-bad{color:var(--bad);border-color:rgba(255,122,138,.28)}
   .btn-bad:hover{color:var(--bad);border-color:rgba(255,122,138,.6)}
-  select.btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+  select.btn{font-family:var(--mono);font-size:12px;letter-spacing:.06em}
   select.btn option{background:#16121C;color:var(--ink);font-family:var(--sans)}
-  .acts{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-  .empty,.loading{padding:34px 0;text-align:center;color:var(--ink-3);font-size:13px}
-  .err{color:var(--bad);font-size:13px;padding:20px 0}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .empty,.loading{padding:32px 0;text-align:center;color:var(--ink-3);font-size:12px}
+  .err{color:var(--bad);font-size:12px;padding:16px 0}
 
   /* ── Sortable header ── */
   th.sortable{cursor:pointer;user-select:none}
@@ -9391,7 +9405,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 
   /* ── Toast ── */
   .toast{position:fixed;bottom:22px;right:22px;background:var(--wall);border:1px solid var(--hair);
-    border-radius:3px;padding:12px 18px;font-size:13px;font-weight:600;opacity:0;transform:translateY(6px);
+    border-radius:3px;padding:12px 16px;font-size:12px;font-weight:600;opacity:0;transform:translateY(6px);
     transition:.22s;pointer-events:none;z-index:999}
   .toast.show{opacity:1;transform:none}
   .toast.ok{border-color:rgba(74,222,128,.45);color:var(--good)}
@@ -9411,17 +9425,17 @@ ADMIN_HTML = """<!DOCTYPE html>
     display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;
     transition:transform .26s cubic-bezier(.4,0,.2,1),visibility .26s}
   .drawer.open{transform:none;visibility:visible}
-  .drawer-head{display:flex;align-items:flex-start;gap:12px;padding:20px 24px;border-bottom:1px solid var(--hair)}
+  .drawer-head{display:flex;align-items:flex-start;gap:12px;padding:16px 24px;border-bottom:1px solid var(--hair)}
   .drawer-head h3{font-size:17px;font-weight:700;letter-spacing:-.02em}
-  .drawer-head .s{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:4px;letter-spacing:.05em}
+  .drawer-head .s{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.05em}
   .x{margin-left:auto;width:28px;height:28px;border-radius:3px;background:var(--wall);
     border:1px solid var(--hair);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0}
   .x:hover{color:var(--ink);border-color:rgba(210,106,251,.5)}
-  .drawer-body{overflow-y:auto;padding:22px 24px 40px;display:flex;flex-direction:column;gap:26px}
-  .dh{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
-    color:var(--ink-3);padding-bottom:9px;border-bottom:1px solid var(--hair);margin-bottom:13px}
-  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:7px 14px;font-size:13px}
-  .kv dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+  .drawer-body{overflow-y:auto;padding:24px 24px 32px;display:flex;flex-direction:column;gap:24px}
+  .dh{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-3);padding-bottom:8px;border-bottom:1px solid var(--hair);margin-bottom:12px}
+  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:8px 12px;font-size:12px}
+  .kv dt{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:4px}
   .kv dd{color:var(--ink-2);word-break:break-word}
   .kv dd b{color:var(--ink);font-weight:600}
   /* Lifetime clip decisions. Five small readouts on one row so the shape of
@@ -9429,11 +9443,11 @@ ADMIN_HTML = """<!DOCTYPE html>
      scrolls: the drawer is narrow on a phone and a number you have to swipe
      to reach is a number nobody reads. */
   .stat-row{display:flex;flex-wrap:wrap;gap:8px}
-  .sbox{flex:1 1 84px;min-width:0;padding:10px 12px;border-radius:3px;
+  .sbox{flex:1 1 84px;min-width:0;padding:8px 12px;border-radius:3px;
     border:1px solid var(--hair);background:rgba(242,234,247,.02)}
-  .sbox b{display:block;font-family:var(--mono);font-weight:600;font-size:19px;
+  .sbox b{display:block;font-family:var(--mono);font-weight:600;font-size:17px;
     font-variant-numeric:tabular-nums;line-height:1.1}
-  .sbox span{display:block;margin-top:3px;font-family:var(--mono);font-size:9px;
+  .sbox span{display:block;margin-top:4px;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--fg-2)}
   /* --good and --bad, which is what THIS page defines. --live is a dashboard
      token and does not exist here, so `accepted` was rendering in plain ink
@@ -9441,7 +9455,7 @@ ADMIN_HTML = """<!DOCTYPE html>
      and only half of it was coloured. */
   .sbox.good b{color:var(--good)}
   .sbox.bad b{color:var(--bad)}
-  .srow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair);font-size:13px}
+  .srow{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--hair);font-size:12px}
   .srow:last-child{border-bottom:none}
   .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
   .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
@@ -9451,20 +9465,20 @@ ADMIN_HTML = """<!DOCTYPE html>
      marked. Colour alone would not be enough — the status word carries the same
      information for anyone who cannot see the difference between the rules. */
   .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:12px;align-items:center;
-    padding:9px 0 9px 11px;border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
-    font-size:13px}
+    padding:8px 0 8px 12px;border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
+    font-size:12px}
   .crow:last-child{border-bottom:none}
   .crow.ok{border-left-color:var(--good);
     background:linear-gradient(90deg,rgba(74,222,128,.06),transparent 45%)}
-  .crow .st{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+  .crow .st{font-family:var(--mono);font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-3)}
   .crow.ok .st{color:var(--good)}
   .crow.ok b{color:var(--ink)}
-  .ct{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:3px;
+  .ct{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.03em}
-  .danger{border:1px solid rgba(255,122,138,.22);border-radius:3px;padding:16px 18px}
+  .danger{border:1px solid rgba(255,122,138,.22);border-radius:3px;padding:16px 16px}
   .danger .dh{border-bottom-color:rgba(255,122,138,.22);color:var(--bad)}
-  .danger p{font-size:12.5px;color:var(--ink-3);margin-bottom:13px;line-height:1.55}
+  .danger p{font-size:12px;color:var(--ink-3);margin-bottom:12px;line-height:1.5}
 
   @media(max-width:980px){
     .rail{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -9472,8 +9486,8 @@ ADMIN_HTML = """<!DOCTYPE html>
     .cell:nth-child(-n+3){border-bottom:1px solid var(--hair)}
   }
   @media(max-width:660px){
-    .wrap{padding:22px 16px 60px}
-    .topbar{padding:10px 16px;gap:8px}
+    .wrap{padding:24px 16px 64px}
+    .topbar{padding:8px 16px;gap:8px}
     .logo span{display:none}
     .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
     .cell{padding-left:16px}
@@ -9483,8 +9497,8 @@ ADMIN_HTML = """<!DOCTYPE html>
     .acts{justify-content:flex-start}
     .topbar{flex-wrap:wrap;row-gap:4px}
     .topbar-right{margin-left:0;width:100%;justify-content:flex-start;gap:0}
-    .tlink{padding:6px 9px;font-size:11px}
-    .tab{padding:10px 11px;font-size:10.5px}
+    .tlink{padding:4px 8px;font-size:12px}
+    .tab{padding:8px 12px;font-size:12px}
     /* User | Membership | Actions only. Streams, clips and joined-date are all
        in the drawer, and keeping them here just pushed the actions off-screen. */
     #u-wrap th:nth-child(n+3),#u-wrap td:nth-child(n+3){display:none}
@@ -9492,8 +9506,8 @@ ADMIN_HTML = """<!DOCTYPE html>
        broken rather than as scrollable. */
     .chips{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
     .chip{flex:0 0 auto}
-    .kv{grid-template-columns:minmax(0,1fr);gap:2px 0}
-    .kv dd{margin-bottom:9px}
+    .kv{grid-template-columns:minmax(0,1fr);gap:4px 0}
+    .kv dd{margin-bottom:8px}
   }
 </style>
 </head>
@@ -10519,7 +10533,7 @@ function crRender(){
           + ' aged out before review, so the keep rate counts them as not kept. '
           + 'Of what was actually reviewed: ' + r.kept_of_reviewed_pct + '%.</p>';
       }
-      inner += ss.map(s => '<div style="display:flex;align-items:center;gap:12px;padding:5px 0;font-size:12.5px">'
+      inner += ss.map(s => '<div style="display:flex;align-items:center;gap:12px;padding:4px 0;font-size:12.5px">'
         + '<span class="dim" style="width:118px;flex-shrink:0;font-family:var(--mono);font-size:11px">' + crWhen(s.started_at) + '</span>'
         + '<span class="bar"><i style="width:' + (s.caught ? (s.approved/s.caught*100) : 0) + '%"></i></span>'
         + '<span class="num" style="width:150px;flex-shrink:0;text-align:right;font-size:12px">'
@@ -10644,13 +10658,13 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 30%,rgba(168,85,247,.18),transparent 60%)}
-  .wrap{padding:40px 24px}
-  .code{font-size:100px;font-weight:800;letter-spacing:-.05em;background:linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1}
-  h1{font-size:22px;font-weight:700;margin:16px 0 8px;letter-spacing:-.02em}
-  p{font-size:14px;color:#9c9caa;margin-bottom:28px}
-  a{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f6f6f9;border-radius:12px;padding:11px 20px;font-size:13px;font-weight:600;text-decoration:none;transition:.15s}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 30%,rgba(184,106,220,.18),transparent 60%)}
+  .wrap{padding:32px 24px}
+  .code{font-size:44px;font-weight:800;letter-spacing:-.05em;background:linear-gradient(135deg,#f943ff 0%,#b86adc 52%,#7c6bff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1}
+  h1{font-size:24px;font-weight:700;margin:16px 0 8px;letter-spacing:-.02em}
+  p{font-size:14px;color:#b9aec4;margin-bottom:24px}
+  a{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:#f2eaf7;border-radius:12px;padding:12px 16px;font-size:12px;font-weight:600;text-decoration:none;transition:.15s}
   a:hover{background:rgba(255,255,255,.1)}
 </style>
 </head>
@@ -10668,29 +10682,29 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 
 _OPTOUT_BASE_STYLE = """
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 500px at 50% 20%,rgba(168,85,247,.15),transparent 60%)}
-.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:40px 36px;max-width:480px;width:100%;text-align:center}
-.logo{font-size:22px;font-weight:800;background:linear-gradient(135deg,#f943ff,#a855f7,#7c6bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:28px}
-h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
-p{font-size:14px;color:#9c9caa;line-height:1.6;margin-bottom:20px}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;transition:.15s}
+body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 500px at 50% 20%,rgba(184,106,220,.15),transparent 60%)}
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:32px 32px;max-width:480px;width:100%;text-align:center}
+.logo{font-size:24px;font-weight:800;background:linear-gradient(135deg,#f943ff,#b86adc,#7c6bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:24px}
+h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
+p{font-size:14px;color:#b9aec4;line-height:1.6;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;transition:.15s}
 .btn-twitch{background:#9146ff;color:#fff}
 .btn-twitch:hover{background:#7c39d4}
-.btn-confirm{background:linear-gradient(135deg,#f943ff,#a855f7);color:#fff;width:100%;justify-content:center;font-size:15px;padding:14px}
+.btn-confirm{background:linear-gradient(135deg,#f943ff,#b86adc);color:#fff;width:100%;justify-content:center;font-size:14px;padding:12px}
 .btn-confirm:hover{opacity:.9}
-.btn-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#9c9caa;font-size:13px}
-.btn-back:hover{background:rgba(255,255,255,.1);color:#f6f6f9}
-.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 16px;display:block;border:2px solid rgba(168,85,247,.4)}
-.avatar-placeholder{width:72px;height:72px;border-radius:50%;background:rgba(168,85,247,.2);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:28px}
-.name{font-size:18px;font-weight:700;margin-bottom:4px}
-.handle{font-size:13px;color:#9c9caa;margin-bottom:24px}
-.warning{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:12px 16px;font-size:13px;color:#fca5a5;margin-bottom:24px;text-align:left}
-.success-icon{font-size:52px;margin-bottom:16px}
+.btn-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#b9aec4;font-size:12px}
+.btn-back:hover{background:rgba(255,255,255,.1);color:#f2eaf7}
+.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 16px;display:block;border:2px solid rgba(184,106,220,.4)}
+.avatar-placeholder{width:72px;height:72px;border-radius:50%;background:rgba(184,106,220,.2);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:30px}
+.name{font-size:17px;font-weight:700;margin-bottom:4px}
+.handle{font-size:12px;color:#b9aec4;margin-bottom:24px}
+.warning{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:12px 16px;font-size:12px;color:#fca5a5;margin-bottom:24px;text-align:left}
+.success-icon{font-size:44px;margin-bottom:16px}
 .steps{text-align:left;margin-bottom:24px}
-.steps li{font-size:13px;color:#9c9caa;padding:5px 0;padding-left:20px;position:relative;line-height:1.5}
-.steps li::before{content:'✓';position:absolute;left:0;color:#a855f7}
-.divider{height:1px;background:rgba(255,255,255,.07);margin:20px 0}
+.steps li{font-size:12px;color:#b9aec4;padding:4px 0;padding-left:16px;position:relative;line-height:1.5}
+.steps li::before{content:'✓';position:absolute;left:0;color:#b86adc}
+.divider{height:1px;background:rgba(255,255,255,.07);margin:16px 0}
 """
 
 _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
@@ -10715,13 +10729,13 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
     <li>Your channel will be permanently blacklisted — no users will be able to add it</li>
   </ul>
   <div class="divider"></div>
-  <p style="font-size:13px;margin-bottom:20px">You must be the actual owner of the Twitch channel. We verify this through Twitch's official login — you cannot opt out someone else's channel.</p>
+  <p style="font-size:12px;margin-bottom:20px">You must be the actual owner of the Twitch channel. We verify this through Twitch's official login — you cannot opt out someone else's channel.</p>
   <a href="/auth/twitch?intent=optout" class="btn btn-twitch">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
     Verify with Twitch
   </a>
   <div class="divider"></div>
-  <p style="font-size:12px;color:#6b6b7b;margin-bottom:0">Already a Highlightz user? <a href="/login" style="color:#a855f7;text-decoration:none">Log in here</a></p>
+  <p style="font-size:12px;color:#6b6b7b;margin-bottom:0">Already a Highlightz user? <a href="/login" style="color:#b86adc;text-decoration:none">Log in here</a></p>
 </div>
 </body>
 </html>"""
@@ -10778,7 +10792,7 @@ _OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
   <div class="success-icon">✅</div>
   <h1>You've been opted out</h1>
   <p>Your channel has been added to the Highlightz blacklist. No users on this platform will be able to monitor or clip your stream going forward.</p>
-  <p style="font-size:13px">If you change your mind in the future, contact <a href="mailto:support@highlightz.app" style="color:#a855f7;text-decoration:none">support@highlightz.app</a> to be removed.</p>
+  <p style="font-size:13px">If you change your mind in the future, contact <a href="mailto:support@highlightz.app" style="color:#b86adc;text-decoration:none">support@highlightz.app</a> to be removed.</p>
 </div>
 </body>
 </html>"""
@@ -10792,30 +10806,30 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px;min-height:100vh}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(168,85,247,.18),transparent 60%)}
-  .topbar{display:flex;align-items:center;gap:16px;margin-bottom:28px}
-  .back{color:#9c9caa;text-decoration:none;font-size:13px;font-weight:600}
-  .back:hover{color:#f6f6f9}
-  h1{font-size:22px;font-weight:800;letter-spacing:-.02em}
-  .badge{display:inline-flex;align-items:center;gap:5px;background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c79bff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px}
-  .empty{text-align:center;padding:64px 0;color:#5d5d6b;font-size:14px}
+  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;padding:32px 24px;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.18),transparent 60%)}
+  .topbar{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+  .back{color:#b9aec4;text-decoration:none;font-size:12px;font-weight:600}
+  .back:hover{color:#f2eaf7}
+  h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+  .badge{display:inline-flex;align-items:center;gap:4px;background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c489e4;font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px}
+  .empty{text-align:center;padding:64px 0;color:#9c90a6;font-size:14px}
   .fb-list{display:flex;flex-direction:column;gap:12px;max-width:820px}
-  .fb-item{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 20px;transition:border-color .15s}
+  .fb-item{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 16px;transition:border-color .15s}
   .fb-item.unread{border-color:rgba(145,70,255,.4);background:rgba(145,70,255,.06)}
-  .fb-meta{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-  .fb-user{font-weight:700;font-size:14px;color:#f6f6f9}
-  .fb-cat{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:rgba(255,255,255,.07);color:#9c9caa;text-transform:capitalize}
-  .fb-time{font-size:11px;color:#5d5d6b;margin-left:auto}
-  .fb-msg{font-size:14px;color:#d4d4e0;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+  .fb-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .fb-user{font-weight:700;font-size:14px;color:#f2eaf7}
+  .fb-cat{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:rgba(255,255,255,.07);color:#b9aec4;text-transform:capitalize}
+  .fb-time{font-size:12px;color:#9c90a6;margin-left:auto}
+  .fb-msg{font-size:14px;color:#d4d4e0;line-height:1.6;white-space:pre-wrap;word-break:break-word}
   .fb-actions{display:flex;gap:8px;margin-top:12px}
-  .btn{padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:.15s}
-  .btn-read{background:rgba(255,255,255,.07);color:#9c9caa}
-  .btn-read:hover{background:rgba(255,255,255,.12);color:#f6f6f9}
+  .btn{padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-read{background:rgba(255,255,255,.07);color:#b9aec4}
+  .btn-read:hover{background:rgba(255,255,255,.12);color:#f2eaf7}
   .btn-del{background:rgba(255,80,80,.12);color:#ff8080;border:1px solid rgba(255,80,80,.2)}
   .btn-del:hover{background:rgba(255,80,80,.2)}
-  .new-dot{width:8px;height:8px;border-radius:50%;background:#a855f7;box-shadow:0 0 8px #a855f7;flex-shrink:0}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(255,255,255,.12);color:#f6f6f9;padding:10px 20px;border-radius:12px;font-size:13px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
+  .new-dot{width:8px;height:8px;border-radius:50%;background:#b86adc;box-shadow:0 0 8px #b86adc;flex-shrink:0}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(255,255,255,.12);color:#f2eaf7;padding:8px 16px;border-radius:12px;font-size:12px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
   .toast.show{opacity:1}
 </style>
 </head>
@@ -10826,55 +10840,55 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   <span class="badge" id="unread-badge" style="display:none"></span>
 </div>
 <style>
-  .fb-reply{margin:10px 0 0;padding:9px 12px;border-left:2px solid #a855f7;
-    background:rgba(168,85,247,.07);border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
-  .fb-reply b{display:block;font-size:11px;color:#c79bff;margin-bottom:3px}
+  .fb-reply{margin:8px 0 0;padding:8px 12px;border-left:2px solid #b86adc;
+    background:rgba(184,106,220,.07);border-radius:0 6px 6px 0;font-size:12px;line-height:1.5}
+  .fb-reply b{display:block;font-size:12px;color:#c489e4;margin-bottom:4px}
   /* A reply FROM the user reads as inbound: neutral rail, no purple. Same
      colour for both directions would make a thread unreadable at a glance. */
   .fb-reply.from-user{border-left-color:rgba(255,255,255,.25);background:rgba(255,255,255,.04)}
-  .fb-reply.from-user b{color:#9c9caa}
-  .fb-replybox{display:flex;gap:8px;margin-top:10px;align-items:flex-start}
-  .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:13px;
-    padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
+  .fb-reply.from-user b{color:#b9aec4}
+  .fb-replybox{display:flex;gap:8px;margin-top:8px;align-items:flex-start}
+  .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:12px;
+    padding:8px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
     background:rgba(255,255,255,.04);color:inherit}
-  .fb-replybox textarea:focus{outline:2px solid #a855f7;outline-offset:1px}
+  .fb-replybox textarea:focus{outline:2px solid #b86adc;outline-offset:1px}
   .btn-reply{background:#7c3aed;border-color:transparent;color:#fff;white-space:nowrap}
 
   /* ── Compose: starting a thread with somebody who has not written in ── */
-  .compose{max-width:820px;margin-bottom:22px;background:rgba(255,255,255,.035);
-    border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 20px}
-  .compose h2{font-size:15px;font-weight:700;margin-bottom:3px}
-  .compose .hint{font-size:12px;color:#8b8b99;margin-bottom:14px;line-height:1.55}
-  .cmp-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-    color:#8b8b99;margin-bottom:7px;display:block}
-  .cmp-search{width:100%;padding:8px 11px;border-radius:9px;font:inherit;font-size:13px;
+  .compose{max-width:820px;margin-bottom:24px;background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 16px}
+  .compose h2{font-size:14px;font-weight:700;margin-bottom:4px}
+  .compose .hint{font-size:12px;color:#8b8b99;margin-bottom:12px;line-height:1.5}
+  .cmp-label{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:#8b8b99;margin-bottom:8px;display:block}
+  .cmp-search{width:100%;padding:8px 12px;border-radius:9px;font:inherit;font-size:12px;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:inherit}
-  .cmp-search:focus{outline:2px solid #a855f7;outline-offset:1px}
-  .cmp-chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
-  .cmp-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:99px;cursor:pointer;
-    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#9c9caa;transition:.15s}
-  .cmp-chip:hover{color:#f6f6f9;border-color:rgba(255,255,255,.22)}
-  .cmp-chip.on{background:rgba(145,70,255,.18);border-color:rgba(145,70,255,.45);color:#c79bff}
+  .cmp-search:focus{outline:2px solid #b86adc;outline-offset:1px}
+  .cmp-chips{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
+  .cmp-chip{font-size:12px;font-weight:600;padding:4px 8px;border-radius:99px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#b9aec4;transition:.15s}
+  .cmp-chip:hover{color:#f2eaf7;border-color:rgba(255,255,255,.22)}
+  .cmp-chip.on{background:rgba(145,70,255,.18);border-color:rgba(145,70,255,.45);color:#c489e4}
   /* Scrolls rather than growing: the whole point is that this sits above the
      feedback list, and a hundred users would push it off the screen. */
   .cmp-people{max-height:210px;overflow-y:auto;border:1px solid rgba(255,255,255,.08);
-    border-radius:10px;padding:5px;display:flex;flex-direction:column;gap:1px}
-  .cmp-person{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;
-    cursor:pointer;font-size:13px;transition:.12s}
+    border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:4px}
+  .cmp-person{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:8px;
+    cursor:pointer;font-size:12px;transition:.12s}
   .cmp-person:hover{background:rgba(255,255,255,.05)}
   .cmp-person.on{background:rgba(145,70,255,.13)}
-  .cmp-person input{accent-color:#a855f7;cursor:pointer;flex-shrink:0}
-  .cmp-nm{font-weight:600;color:#f6f6f9}
+  .cmp-person input{accent-color:#b86adc;cursor:pointer;flex-shrink:0}
+  .cmp-nm{font-weight:600;color:#f2eaf7}
   /* Truncates with an ellipsis rather than being sliced mid-word by the row
      edge: "Signed up, never opened ch" reads as a rendering fault. */
-  .cmp-meta{font-size:11px;color:#6f6f80;margin-left:auto;text-align:right;white-space:nowrap;
+  .cmp-meta{font-size:12px;color:#6f6f80;margin-left:auto;text-align:right;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
-  .cmp-none{padding:14px;text-align:center;color:#5d5d6b;font-size:12.5px}
+  .cmp-none{padding:12px;text-align:center;color:#9c90a6;font-size:12px}
   .cmp-foot{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
   .cmp-count{font-size:12px;color:#8b8b99}
-  .cmp-count b{color:#c79bff}
-  .fb-started{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;
-    background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c79bff}
+  .cmp-count b{color:#c489e4}
+  .fb-started{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;
+    background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c489e4}
 </style>
 
 <div class="compose">
@@ -10901,7 +10915,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
   <label class="cmp-label" for="cmp-msg" style="margin-top:14px">Message</label>
   <textarea id="cmp-msg" rows="4" maxlength="2000" class="cmp-search"
     placeholder="Write your message — they see it in the app, and can reply."
-    style="resize:vertical;line-height:1.55"></textarea>
+    style="resize:vertical;line-height:1.5"></textarea>
   <div class="cmp-foot">
     <button class="btn btn-reply" id="cmp-send">Send message</button>
     <span class="cmp-count" id="cmp-left">0/2000</span>
@@ -11126,19 +11140,19 @@ _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;padding:32px 24px}
-body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 0,rgba(168,85,247,.12),transparent 60%)}
-h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.sub{font-size:13px;color:#9c9caa;margin-bottom:24px}
-.back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#a855f7;text-decoration:none;margin-bottom:20px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px 12px;color:#9c9caa;border-bottom:1px solid rgba(255,255,255,.08);font-weight:500}
-td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle}
+body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;padding:32px 24px}
+body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 0,rgba(184,106,220,.12),transparent 60%)}
+h1{font-size:17px;font-weight:700;margin-bottom:4px}
+.sub{font-size:12px;color:#b9aec4;margin-bottom:24px}
+.back{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#b86adc;text-decoration:none;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:8px 12px;color:#b9aec4;border-bottom:1px solid rgba(255,255,255,.08);font-weight:500}
+td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle}
 tr:hover td{background:rgba(255,255,255,.02)}
-.btn-remove{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-remove{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-remove:hover{background:rgba(239,68,68,.2)}
-.empty{color:#9c9caa;font-size:14px;padding:32px 0;text-align:center}
-.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:#f6f6f9;padding:12px 20px;border-radius:12px;font-size:13px;opacity:0;transition:.3s;z-index:9999}
+.empty{color:#b9aec4;font-size:14px;padding:32px 0;text-align:center}
+.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;border:1px solid rgba(184,106,220,.3);color:#f2eaf7;padding:12px 16px;border-radius:12px;font-size:12px;opacity:0;transition:.3s;z-index:9999}
 .toast.show{opacity:1}
 </style>
 </head>
@@ -11161,7 +11175,7 @@ async function remove(id,name){
 async function load(){
   const items=await api('/admin/optout/list');
   if(!items.length){document.getElementById('wrap').innerHTML='<div class="empty">No streamers have opted out yet.</div>';return}
-  const rows=items.map(i=>'<tr><td><strong>'+esc(i.display_name)+'</strong><br><span style="color:#9c9caa;font-size:12px">@'+esc(i.twitch_login)+'</span></td><td style="color:#9c9caa">'+esc(i.twitch_id)+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
+  const rows=items.map(i=>'<tr><td><strong>'+esc(i.display_name)+'</strong><br><span style="color:#b9aec4;font-size:12px">@'+esc(i.twitch_login)+'</span></td><td style="color:#b9aec4">'+esc(i.twitch_id)+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
   document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted Out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 load();

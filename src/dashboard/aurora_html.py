@@ -8,29 +8,54 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <title>Highlightz</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+/* Self-hosted, like the four faces the marketing pages already load. This
+   was an @import of Google Fonts from inside <style> — the slowest possible
+   way to load a face, because the stylesheet has to parse before the request
+   even starts, and a third-party request on every dashboard load. Same
+   typeface, same weight range: nothing about the rendering changes. */
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 800;
+  font-display:swap;src:url(/static/fonts/inter-var.woff2) format('woff2')}
 :root {
-  --rd-bg: #08080b; --rd-bg-2: #0d0d12;
+  --rd-bg: #0e0b11; --rd-bg-2: #17131c;
   --panel: rgba(255,255,255,.035); --panel-2: rgba(255,255,255,.055); --panel-hi: rgba(255,255,255,.08);
   --hair: rgba(255,255,255,.08); --hair-2: rgba(255,255,255,.14);
-  --fg: #f6f6f9; --fg-2: #9c9caa; --fg-3: #5d5d6b;
-  --acc: #c79bff; --acc-2: #a855f7;
-  --grad: linear-gradient(135deg,#f943ff 0%,#a855f7 52%,#7c6bff 100%);
+  --fg: #f2eaf7; --fg-2: #b9aec4; --fg-3: #9c90a6;
+  --acc: #c489e4; --acc-2: #b86adc;
+  --grad: linear-gradient(135deg,#f943ff 0%,#b86adc 52%,#7c6bff 100%);
   --grad-soft: linear-gradient(135deg,rgba(249,67,255,.18),rgba(124,107,255,.18));
-  --glow: 0 0 0 1px rgba(199,155,255,.35),0 8px 30px -6px rgba(168,85,247,.45);
+  --glow: 0 0 0 1px rgba(196,137,228,.35),0 8px 30px -6px rgba(184,106,220,.45);
   --live: #2ee08a; --live-soft: rgba(46,224,138,.14);
   --pending: #ffc25c; --pending-soft: rgba(255,194,92,.14);
+  /* Gold, and NOT a shade of --pending. This is the crowd-suggestion
+     identity: it was chosen to be visibly unlike the viral badge next to
+     it, and folding it into the warn colour erased that. */
+  --sug: #ffd45e; --sug-deep: #ff9d00;
   --danger: #ff5a78; --danger-soft: rgba(255,90,120,.14);
   --r-sm:10px; --r-md:14px; --r-lg:18px; --r-xl:24px; --r-pill:999px;
   --font:'Inter',system-ui,-apple-system,sans-serif;
   --shadow-1:0 1px 2px rgba(0,0,0,.4); --shadow-2:0 10px 30px -10px rgba(0,0,0,.6);
   --shadow-card:0 18px 40px -16px rgba(0,0,0,.65);
+  /* SPACING SCALE. Every margin, padding and gap in this file now resolves to
+     one of these. 779 values across the four styled surfaces were off any
+     scale before this; nothing gets an arbitrary number again. */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --s-6:32px; --s-7:48px; --s-8:64px; --s-9:96px; --s-10:128px;
+  /* TYPE SCALE. Seven steps, no fractional pixels — a fractional size never
+     lands on a device pixel, which is most of why the product read as
+     slightly-off everywhere. */
+  --t-caption:12px; --t-small:14px; --t-body:16px; --t-h3:17px;
+  --t-h2:24px; --t-h1:30px; --t-display:44px;
+  --measure:68ch;
+  /* MOTION. One curve, matching the marketing site's, and three durations.
+     --dur-event is reserved for the score wall trigger and nothing else. */
+  --ease:cubic-bezier(.16,1,.3,1);
+  --dur-fast:150ms; --dur-slow:400ms; --dur-event:900ms;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:var(--font);color:var(--fg);background:var(--rd-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font-family:inherit;cursor:pointer}
-::selection{background:rgba(199,155,255,.3)}
+::selection{background:rgba(196,137,228,.3)}
 /* grid-template-rows is NOT optional here. Without it the single row is
    implicit and `auto`, which sizes to the frame's max-content — so a tall
    screen made the frame taller than the 100vh app and the bottom fell off the
@@ -66,24 +91,24 @@ button{font-family:inherit;cursor:pointer}
 .rd-header{height:68px}
 .rd-screen{min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .rd-app::before{content:'';position:fixed;inset:0;z-index:-2;
-  background:radial-gradient(900px 480px at 18% -8%,rgba(168,85,247,.20),transparent 60%),
+  background:radial-gradient(900px 480px at 18% -8%,rgba(184,106,220,.20),transparent 60%),
     radial-gradient(760px 420px at 92% 6%,rgba(249,67,255,.13),transparent 55%),
     radial-gradient(700px 600px at 60% 110%,rgba(124,107,255,.12),transparent 60%),var(--rd-bg)}
 .rd-app::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
   background:radial-gradient(120% 120% at 50% 0%,transparent 60%,rgba(0,0,0,.55))}
 .glass{background:var(--panel);border:1px solid var(--hair);-webkit-backdrop-filter:blur(22px) saturate(140%);backdrop-filter:blur(22px) saturate(140%)}
-.rd-header{display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--hair);
+.rd-header{display:flex;align-items:center;gap:16px;padding:0 24px;border-bottom:1px solid var(--hair);
   background:rgba(10,10,14,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:5}
-.rd-live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--live);
-  background:var(--live-soft);padding:6px 12px;border-radius:var(--r-pill);border:1px solid rgba(46,224,138,.25)}
+.rd-live{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--live);
+  background:var(--live-soft);padding:4px 12px;border-radius:var(--r-pill);border:1px solid rgba(46,224,138,.25)}
 .rd-live .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:ping 2s infinite}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(46,224,138,.5)}70%{box-shadow:0 0 0 7px rgba(46,224,138,0)}100%{box-shadow:0 0 0 0 rgba(46,224,138,0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .rd-search{flex:1;max-width:420px;position:relative}
 .rd-search input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-pill);
-  color:var(--fg);font-size:13px;padding:10px 14px 10px 38px;outline:none;transition:.18s}
+  color:var(--fg);font-size:12px;padding:8px 12px 8px 32px;outline:none;transition:.18s}
 .rd-search input::placeholder{color:var(--fg-3)}
-.rd-search input:focus{border-color:rgba(199,155,255,.5);background:rgba(255,255,255,.06);box-shadow:0 0 0 4px rgba(168,85,247,.12)}
+.rd-search input:focus{border-color:rgba(196,137,228,.5);background:rgba(255,255,255,.06);box-shadow:0 0 0 4px rgba(184,106,220,.12)}
 .rd-search .si{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--fg-3)}
 .rd-header .spacer{flex:1}
 .rd-iconbtn{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
@@ -91,13 +116,13 @@ button{font-family:inherit;cursor:pointer}
 .rd-iconbtn:hover{color:var(--fg);background:rgba(255,255,255,.08)}
 .rd-avatar{width:38px;height:38px;border-radius:50%;background:var(--grad);display:grid;place-items:center;
   font-weight:700;font-size:14px;color:#14021c;border:none;box-shadow:var(--glow)}
-.rd-user-chip{display:flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;border-radius:999px;
+.rd-user-chip{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 4px;border-radius:999px;
   background:rgba(255,255,255,.05);border:1px solid var(--hair)}
 .rd-user-chip img{width:32px;height:32px;border-radius:50%;object-fit:cover}
 .rd-user-chip .uc-init{width:32px;height:32px;border-radius:50%;background:var(--grad);display:grid;
-  place-items:center;font-weight:700;font-size:13px;color:#14021c}
-.rd-user-chip .uc-name{font-size:13px;font-weight:600;color:var(--fg-2)}
-.rd-body{display:grid;grid-template-columns:322px 1fr;gap:18px;padding:18px 22px;overflow:hidden;min-height:0}
+  place-items:center;font-weight:700;font-size:12px;color:#14021c}
+.rd-user-chip .uc-name{font-size:12px;font-weight:600;color:var(--fg-2)}
+.rd-body{display:grid;grid-template-columns:322px 1fr;gap:16px;padding:16px 24px;overflow:hidden;min-height:0}
 .rd-col{min-height:0;display:flex;flex-direction:column;gap:16px}
 /* Clip Review has no side rail any more — adding streams moved to Live
    Streams — so the grid takes the full width instead of leaving a gap. */
@@ -106,44 +131,44 @@ button{font-family:inherit;cursor:pointer}
 .rd-streampick.on{box-shadow:0 0 0 1px var(--acc-2)}
 .rd-rail{border-radius:var(--r-lg);padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden}
 .rd-rail-head{display:flex;align-items:center;justify-content:space-between}
-.rd-eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
-.rd-count{font-size:11px;font-weight:600;color:var(--fg-2);background:rgba(255,255,255,.05);padding:3px 9px;border-radius:var(--r-pill)}
+.rd-eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
+.rd-count{font-size:12px;font-weight:600;color:var(--fg-2);background:rgba(255,255,255,.05);padding:4px 8px;border-radius:var(--r-pill)}
 .rd-addrow{display:flex;gap:8px}
 .rd-suggwrap{position:relative;flex:1;min-width:0;display:flex}
 .rd-suggwrap .rd-input{width:100%}
 .rd-sugg{position:absolute;top:calc(100% + 6px);left:0;z-index:60;background:#101016;
   border:1px solid var(--hair-2);border-radius:12px;box-shadow:0 14px 36px rgba(0,0,0,.55);
-  max-height:320px;overflow-y:auto;overflow-x:hidden;padding:6px;
+  max-height:320px;overflow-y:auto;overflow-x:hidden;padding:4px;
   /* Wider than the input on purpose: names + LIVE + viewers/game must fit on
      one line with no horizontal scrolling. Caps to the viewport on phones. */
   width:340px;max-width:calc(100vw - 44px)}
-.rd-sugglabel{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);padding:7px 9px 3px}
-.rd-suggitem{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--fg)}
+.rd-sugglabel{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);padding:8px 8px 4px}
+.rd-suggitem{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:8px;cursor:pointer;font-size:12px;color:var(--fg)}
 .rd-suggitem:hover{background:rgba(255,255,255,.06)}
-.rd-suggitem .meta2{color:var(--fg-3);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rd-sugglive{font-size:9.5px;font-weight:800;letter-spacing:.05em;color:#fff;background:#e91916;border-radius:4px;padding:1px 5px;flex-shrink:0}
-.rd-suggempty{padding:12px 9px;font-size:12.5px;color:var(--fg-3)}
+.rd-suggitem .meta2{color:var(--fg-3);font-size:12px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-sugglive{font-size:12px;font-weight:800;letter-spacing:.05em;color:#fff;background:#e91916;border-radius:4px;padding:4px 4px;flex-shrink:0}
+.rd-suggempty{padding:12px 8px;font-size:12px;color:var(--fg-3)}
 /* The label row carries the "Clear all" action, so it stops being padding-only
    and becomes a flex row. Same padding as before so nothing shifts. */
-.rd-sugglabelrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px 3px}
+.rd-sugglabelrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 8px 4px}
 .rd-sugglabelrow .rd-sugglabel{padding:0}
-.rd-suggclear{background:none;border:0;cursor:pointer;font:inherit;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);padding:2px 4px;border-radius:5px}
+.rd-suggclear{background:none;border:0;cursor:pointer;font:inherit;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);padding:4px 4px;border-radius:5px}
 .rd-suggclear:hover{color:var(--fg);background:rgba(255,255,255,.07)}
 /* Per-row dismiss. Hidden until the row is hovered so eight of these do not
    read as a column of buttons, but kept focusable for keyboard users. */
-.rd-suggx{margin-left:auto;flex-shrink:0;background:none;border:0;cursor:pointer;color:var(--fg-3);opacity:0;padding:2px;border-radius:5px;display:flex;align-items:center}
+.rd-suggx{margin-left:auto;flex-shrink:0;background:none;border:0;cursor:pointer;color:var(--fg-3);opacity:0;padding:4px;border-radius:5px;display:flex;align-items:center}
 .rd-suggitem:hover .rd-suggx{opacity:1}
 .rd-suggx:focus{opacity:1}
 .rd-suggx:hover{color:var(--fg);background:rgba(255,255,255,.1)}
 .rd-input{flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
-  color:var(--fg);font-size:13px;padding:11px 13px;outline:none;transition:.18s}
+  color:var(--fg);font-size:12px;padding:12px 12px;outline:none;transition:.18s}
 .rd-input::placeholder{color:var(--fg-3)}
-.rd-input:focus{border-color:rgba(199,155,255,.5);box-shadow:0 0 0 4px rgba(168,85,247,.1)}
+.rd-input:focus{border-color:rgba(196,137,228,.5);box-shadow:0 0 0 4px rgba(184,106,220,.1)}
 .rd-select{background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
-  color:var(--fg);font-size:13px;padding:0 10px;outline:none;cursor:pointer}
+  color:var(--fg);font-size:12px;padding:0 8px;outline:none;cursor:pointer}
 .rd-select option{background:#15151c}
-.rd-btn{border:none;border-radius:var(--r-md);padding:11px 16px;font-size:13px;font-weight:600;
-  display:inline-flex;align-items:center;justify-content:center;gap:7px;color:#fff;
+.rd-btn{border:none;border-radius:var(--r-md);padding:12px 16px;font-size:12px;font-weight:600;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:.18s;white-space:nowrap}
 .rd-btn:hover{background:rgba(255,255,255,.1)}
 .kick-theme{--acc:#53fc18;--acc-2:#39b515;--grad:linear-gradient(135deg,#53fc18 0%,#39b515 100%);--grad-soft:linear-gradient(135deg,rgba(83,252,24,.14),rgba(57,181,21,.10));--glow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.4)}
@@ -151,31 +176,31 @@ button{font-family:inherit;cursor:pointer}
 .kick-theme .rd-filter.active{box-shadow:0 4px 14px -4px rgba(83,252,24,.5)}
 .kick-theme .rd-navitem.active::before{background:rgba(83,252,24,.1)}
 .kick-theme .rd-navitem.active .ic{color:#53fc18}
-.rd-btn.grad{background:var(--grad);border:none;color:#fff;box-shadow:0 6px 18px -6px rgba(168,85,247,.6)}
-.rd-btn.grad:hover{filter:brightness(1.08);box-shadow:0 8px 24px -6px rgba(168,85,247,.75)}
+.rd-btn.grad{background:var(--grad);border:none;color:#fff;box-shadow:0 6px 18px -6px rgba(184,106,220,.6)}
+.rd-btn.grad:hover{filter:brightness(1.08);box-shadow:0 8px 24px -6px rgba(184,106,220,.75)}
 .rd-btn.live{background:var(--live);color:#052012;border:none}
 .rd-btn.live:hover{filter:brightness(1.08)}
 .rd-btn.danger{background:var(--danger-soft);color:var(--danger);border:1px solid rgba(255,90,120,.3)}
 .rd-btn.danger:hover{background:rgba(255,90,120,.22)}
-.rd-btn.ghost-force{background:rgba(255,138,76,.14);color:#ff9a52;border:1px solid rgba(255,138,76,.3)}
+.rd-btn.ghost-force{background:rgba(255,138,76,.14);color:#f7a745;border:1px solid rgba(255,138,76,.3)}
 .rd-btn.ghost-force:hover{background:rgba(255,138,76,.24)}
-.rd-btn.sm{padding:7px 11px;font-size:12px;border-radius:10px}
-.rd-streams{display:flex;flex-direction:column;gap:10px;overflow-y:auto;padding-right:2px;min-height:0}
-.rd-stream{border-radius:var(--r-md);padding:13px;background:rgba(255,255,255,.025);border:1px solid var(--hair);transition:.18s}
+.rd-btn.sm{padding:8px 12px;font-size:12px;border-radius:10px}
+.rd-streams{display:flex;flex-direction:column;gap:8px;overflow-y:auto;padding-right:4px;min-height:0}
+.rd-stream{border-radius:var(--r-md);padding:12px;background:rgba(255,255,255,.025);border:1px solid var(--hair);transition:.18s}
 .rd-stream:hover{border-color:var(--hair-2);background:rgba(255,255,255,.045)}
 .rd-stream-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .rd-stream-top>div:first-child{min-width:0;flex:1;overflow:hidden}
-.rd-stream .nm{font-size:14px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:7px;overflow:hidden}
+.rd-stream .nm{font-size:14px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;overflow:hidden}
 .rd-stream .nm .plat{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.rd-stream .mt{font-size:11px;color:var(--fg-2);margin-top:3px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.rd-chip{font-size:10px;font-weight:600;padding:2px 7px;border-radius:var(--r-pill);background:rgba(255,255,255,.06);color:var(--fg-2);text-transform:capitalize}
-.rd-stream-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.rd-stream .mt{font-size:12px;color:var(--fg-2);margin-top:4px;display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.rd-chip{font-size:12px;font-weight:600;padding:4px 8px;border-radius:var(--r-pill);background:rgba(255,255,255,.06);color:var(--fg-2);text-transform:capitalize}
+.rd-stream-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
 .rd-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:transparent;border:none;color:var(--fg-3);transition:.15s}
 .rd-x:hover{color:var(--danger);background:var(--danger-soft)}
 .rd-score{margin-top:12px}
-.rd-score-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
-.rd-score-top .lbl{font-size:11px;color:var(--fg-2);font-weight:500}
-.rd-score-top .val{font-size:20px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.rd-score-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+.rd-score-top .lbl{font-size:12px;color:var(--fg-2);font-weight:500}
+.rd-score-top .val{font-size:17px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
 .rd-track{height:8px;border-radius:var(--r-pill);background:rgba(255,255,255,.07);overflow:hidden;position:relative}
 .rd-fill{height:100%;border-radius:var(--r-pill);transition:background .6s;position:relative}
 .rd-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:14px;background:rgba(255,255,255,.5);filter:blur(5px);opacity:.7}
@@ -186,45 +211,45 @@ button{font-family:inherit;cursor:pointer}
    indistinguishable from a hung job. This keeps moving regardless of progress,
    and works at 0% where a fill-based shimmer would have nothing to shimmer. */
 .rd-track.working::after{content:'';position:absolute;top:0;bottom:0;width:36%;
-  background:linear-gradient(90deg,transparent,rgba(199,155,255,.5),transparent);
+  background:linear-gradient(90deg,transparent,rgba(196,137,228,.5),transparent);
   animation:rdScan 1.7s ease-in-out infinite;pointer-events:none}
 @keyframes rdScan{0%{left:-36%}100%{left:100%}}
 .rd-livedot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);
-  margin-right:7px;vertical-align:middle;animation:rdBreathe 1.4s ease-in-out infinite}
+  margin-right:8px;vertical-align:middle;animation:rdBreathe 1.4s ease-in-out infinite}
 @keyframes rdBreathe{0%,100%{opacity:.35;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
 @media(prefers-reduced-motion:reduce){
   /* Still legible without motion: the elapsed counter alone proves liveness. */
   .rd-track.working::after{animation:none;opacity:.25}
   .rd-livedot{animation:none;opacity:.9}
 }
-.rd-sigs{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
-.rd-sig{font-size:10px;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
+.rd-sigs{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+.rd-sig{font-size:12px;padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--fg-2);font-variant-numeric:tabular-nums}
 /* Training studio sliders */
-.tr-dim-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
-.tr-dim-label{font-size:13.5px;font-weight:700}
-.tr-dim-hint{font-size:11.5px;font-weight:500;color:var(--fg-3);margin-left:9px}
-.tr-dim-val{font-size:18px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums;min-width:26px;text-align:right}
+.tr-dim-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.tr-dim-label{font-size:14px;font-weight:700}
+.tr-dim-hint{font-size:12px;font-weight:500;color:var(--fg-3);margin-left:8px}
+.tr-dim-val{font-size:17px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums;min-width:26px;text-align:right}
 .tr-slider{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:rgba(255,255,255,.09);border-radius:99px;outline:none;cursor:pointer}
-.tr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#f943ff,#a855f7);box-shadow:0 0 10px rgba(168,85,247,.6);cursor:pointer}
-.tr-slider::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:linear-gradient(135deg,#f943ff,#a855f7);box-shadow:0 0 10px rgba(168,85,247,.6);cursor:pointer}
-.rd-profile{margin-top:12px;padding:11px;border-radius:var(--r-md);background:rgba(0,0,0,.25);border:1px solid var(--hair)}
-.rd-pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px 12px}
-.rd-pcell .k{font-size:10px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
-.rd-pcell .v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
-.rd-learn{margin-top:10px;font-size:10px;font-weight:600;display:flex;align-items:center;gap:6px}
+.tr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#f943ff,#b86adc);box-shadow:0 0 10px rgba(184,106,220,.6);cursor:pointer}
+.tr-slider::-moz-range-thumb{width:18px;height:18px;border:none;border-radius:50%;background:linear-gradient(135deg,#f943ff,#b86adc);box-shadow:0 0 10px rgba(184,106,220,.6);cursor:pointer}
+.rd-profile{margin-top:12px;padding:12px;border-radius:var(--r-md);background:rgba(0,0,0,.25);border:1px solid var(--hair)}
+.rd-pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.rd-pcell .k{font-size:12px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.rd-pcell .v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+.rd-learn{margin-top:8px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px}
 .rd-learnbar{flex:1;height:4px;border-radius:var(--r-pill);background:rgba(255,255,255,.08);overflow:hidden}
-.rd-learnbar>div{height:100%;background:var(--grad);border-radius:var(--r-pill);transition:width .4s}
-.rd-empty{text-align:center;color:var(--fg-3);font-size:13px;padding:32px 12px;line-height:1.6}
-.rd-empty .ic{color:var(--fg-3);display:flex;justify-content:center;margin-bottom:10px}
+.rd-learnbar>div{height:100%;background:var(--grad);border-radius:var(--r-pill);transition:transform var(--dur-slow) var(--ease)}
+.rd-empty{text-align:center;color:var(--fg-3);font-size:12px;padding:32px 12px;line-height:1.6}
+.rd-empty .ic{color:var(--fg-3);display:flex;justify-content:center;margin-bottom:8px}
 .rd-main{min-height:0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
 .rd-toolbar{display:flex;align-items:center;gap:12px}
 .rd-toolbar h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
 /* The title line now carries the count itself, because the screen name is
    already in the page header two inches above and saying it twice cost a whole
    row. Sized up from 12px accordingly: it is the first thing on the line. */
-.rd-toolbar-count{font-size:14.5px;font-weight:700;color:var(--fg);letter-spacing:-.01em;
+.rd-toolbar-count{font-size:14px;font-weight:700;color:var(--fg);letter-spacing:-.01em;
   font-variant-numeric:tabular-nums}
-.rd-toolbar-meta{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-3);
+.rd-toolbar-meta{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--fg-3);
   font-variant-numeric:tabular-nums}
 .rd-toolbar-meta svg{color:var(--live)}
 /* The last few of the weekly library allowance. Amber rather than red: they
@@ -236,14 +261,14 @@ button{font-family:inherit;cursor:pointer}
 .rd-toolbar-acts{display:flex;gap:8px;align-items:center;margin-left:auto}
 /* The controls row: what you are LOOKING at, kept apart from the row above,
    which is what you can DESTROY. */
-.rd-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rd-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .rd-sortwrap{display:flex;align-items:center;gap:0;margin-left:auto}
 /* Sort field and direction read as one control, so they are welded: the field
    menu loses its right radius and the direction button its left, and they
    share the seam. Two separate pills invited people to read the arrow as
    unrelated to the menu beside it. */
 .rd-sortwrap .rd-menu-btn{border-top-right-radius:0;border-bottom-right-radius:0;border-right-color:transparent}
-.rd-dir{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:600;
+.rd-dir{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:12px;font-weight:600;
   color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
   border-top-left-radius:0;border-bottom-left-radius:0;
   border-top-right-radius:var(--r-md);border-bottom-right-radius:var(--r-md);
@@ -252,59 +277,59 @@ button{font-family:inherit;cursor:pointer}
 
 /* ── RdMenu ── a dropdown that obeys this stylesheet, unlike <select>. */
 .rd-menu{position:relative}
-.rd-menu-btn{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;font-weight:600;
+.rd-menu-btn{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:12px;font-weight:600;
   color:var(--fg-2);background:rgba(255,255,255,.04);border:1px solid var(--hair);
   border-radius:var(--r-md);padding:8px 12px;cursor:pointer;transition:.16s;white-space:nowrap}
 .rd-menu-btn:hover{color:var(--fg);background:rgba(255,255,255,.07);border-color:var(--hair-2)}
-.rd-menu-btn.open{color:var(--fg);border-color:var(--acc);background:rgba(168,85,247,.10)}
+.rd-menu-btn.open{color:var(--fg);border-color:var(--acc);background:rgba(184,106,220,.10)}
 .rd-menu-lbl{color:var(--fg-3);font-weight:600}
-.rd-menu-val{color:var(--fg);font-weight:650;max-width:15ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-menu-val{color:var(--fg);font-weight:700;max-width:15ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rd-menu-caret{display:flex;color:var(--fg-3);transition:transform .18s}
 .rd-menu-caret.open{transform:rotate(180deg)}
 .rd-menu-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:60;min-width:100%;
-  max-height:290px;overflow-y:auto;padding:5px;border-radius:12px;
+  max-height:290px;overflow-y:auto;padding:4px;border-radius:12px;
   background:#15151f;border:1px solid var(--hair-2);
-  box-shadow:0 18px 40px -12px rgba(0,0,0,.7);display:flex;flex-direction:column;gap:1px}
+  box-shadow:0 18px 40px -12px rgba(0,0,0,.7);display:flex;flex-direction:column;gap:4px}
 .rd-menu-pop.right{left:auto;right:0}
-.rd-menu-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
-  font:inherit;font-size:13px;font-weight:600;color:var(--fg-2);background:none;border:0;
-  padding:8px 10px;border-radius:8px;cursor:pointer;transition:.12s}
+.rd-menu-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  font:inherit;font-size:12px;font-weight:600;color:var(--fg-2);background:none;border:0;
+  padding:8px 8px;border-radius:8px;cursor:pointer;transition:.12s}
 .rd-menu-item:hover{background:rgba(255,255,255,.06);color:var(--fg)}
-.rd-menu-item.on{color:var(--acc);background:rgba(168,85,247,.12)}
+.rd-menu-item.on{color:var(--acc);background:rgba(184,106,220,.12)}
 .rd-menu-item-l{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rd-menu-item-s{font-size:11px;color:var(--fg-3);font-weight:500}
+.rd-menu-item-s{font-size:12px;color:var(--fg-3);font-weight:500}
 .rd-menu-tick{display:flex;flex-shrink:0}
-.cull-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:260px;padding:16px;border-radius:12px;display:flex;flex-direction:column;gap:10px}
+.cull-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:260px;padding:16px;border-radius:12px;display:flex;flex-direction:column;gap:8px}
 .cull-row{display:flex;justify-content:space-between;align-items:baseline}
 .cull-lbl{font-size:12px;color:var(--fg-2);font-weight:600}
-.cull-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.cull-val{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
 .cull-slider{width:100%;accent-color:var(--acc);cursor:pointer}
 .cull-preview{display:flex;justify-content:space-between;font-size:12px;font-weight:700}
-.plat-switch{position:relative;display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:3px;user-select:none}
+.plat-switch{position:relative;display:flex;gap:0;background:rgba(255,255,255,.06);border:1px solid var(--hair);border-radius:99px;padding:4px;user-select:none}
 .plat-sw-pill{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:99px;pointer-events:none;transition:transform .35s cubic-bezier(.34,1.4,.64,1),background .3s ease,box-shadow .3s ease}
 .plat-sw-pill.kick{transform:translateX(100%);background:#53fc18;box-shadow:0 2px 14px -3px rgba(83,252,24,.7)}
 .plat-sw-pill.twitch{transform:translateX(0);background:#9146ff;box-shadow:0 2px 14px -3px rgba(145,70,255,.7)}
-.plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color .25s ease,transform .12s ease;-webkit-tap-highlight-color:transparent}
+.plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color .25s ease,transform .12s ease;-webkit-tap-highlight-color:transparent}
 .plat-sw-btn:active{transform:scale(.93)}
 .plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
-.rd-filters{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
+.rd-filters{display:flex;gap:4px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;
-  display:inline-flex;align-items:center;gap:7px;
-  padding:7px 13px;border-radius:var(--r-pill);transition:.18s}
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 12px;border-radius:var(--r-pill);transition:.18s}
 .rd-filter:hover{color:var(--fg)}
-.rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(168,85,247,.6)}
+.rd-filter.active{color:#fff;background:var(--grad);box-shadow:0 4px 14px -4px rgba(184,106,220,.6)}
 /* .rd-filter-n (the count badge on a chip) was removed with Clip Review's
    status chips — Review is pending-only now, so All/Pending/Approved was one
    live chip and two that selected nothing. The chip styles above stay: the
    Training mode toggle and the admin sort still use them, without counts. */
-.rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;align-content:start;align-items:stretch;min-height:0}
+.rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;align-content:start;align-items:stretch;min-height:0}
 /* min-height, not height. The thumbnail is 16:9 of the COLUMN width, so a card in
    a wide column is taller than one in a narrow column — a fixed 360px fits at the
    310px grid minimum and clips the action row (the "Open on Twitch" button) once
    columns get wider. The grid still stretches every card in a row to the tallest,
    so rows stay level. */
 .rd-clip{border-radius:var(--r-lg);overflow:hidden;background:var(--panel);border:1px solid var(--hair);transition:transform .22s cubic-bezier(.4,0,.2,1),border-color .22s,box-shadow .22s;display:flex;flex-direction:column;min-height:360px}
-.rd-clip:hover{transform:translateY(-4px);border-color:rgba(199,155,255,.35);box-shadow:var(--shadow-card)}
+.rd-clip:hover{transform:translateY(-4px);border-color:rgba(196,137,228,.35);box-shadow:var(--shadow-card)}
 /* aspect-ratio, not the height:0 + padding-bottom:56.25% hack. Percentage padding
    resolves to ZERO while a grid row is being intrinsically sized, so the row came
    out shorter than the card it had to hold and the thumbnail pushed the buttons
@@ -315,7 +340,7 @@ button{font-family:inherit;cursor:pointer}
 .rd-thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55))}
 .rd-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55));pointer-events:none;z-index:1}
 .rd-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
-.rd-play .ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;padding-left:3px;
+.rd-play .ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;padding-left:4px;
   background:rgba(20,12,30,.4);border:1.5px solid rgba(255,255,255,.85);color:#fff;backdrop-filter:blur(4px);transition:transform .2s,background .2s}
 .rd-clip:hover .rd-play .ring{transform:scale(1.08);background:var(--grad);border-color:transparent;box-shadow:var(--glow)}
 /* Both badges overlay the clip player, so a backdrop-filter on them means the
@@ -323,21 +348,21 @@ button{font-family:inherit;cursor:pointer}
    one-per-card in the review grid, each its own blur layer, which is what made
    scrolling a full queue heavy. An opaque background gives the same contrast
    over a bright thumbnail for none of the per-frame cost. */
-.rd-scorebadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
-  font-size:12px;font-weight:700;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
+.rd-scorebadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:700;padding:4px 8px;border-radius:var(--r-pill);color:#fff;
   background:rgba(10,8,14,.82);border:1px solid rgba(255,255,255,.16);font-variant-numeric:tabular-nums}
 .rd-scorebadge .pip{width:6px;height:6px;border-radius:50%}
-.rd-viralbadge{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
-  font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:var(--r-pill);color:#fff;
+.rd-viralbadge{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:800;padding:4px 8px;border-radius:var(--r-pill);color:#fff;
   background:rgba(10,8,14,.82);border:1px solid rgba(255,255,255,.16);font-variant-numeric:tabular-nums}
-.rd-viralbadge.hot{background:linear-gradient(135deg,#ff7700,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(255,119,0,.65)}
-.rd-viralbadge.warm{color:#ffcc5c;border-color:rgba(255,204,92,.35)}
+.rd-viralbadge.hot{background:linear-gradient(135deg,#f7a745,#f943ff);border-color:transparent;box-shadow:0 3px 14px -3px rgba(247,167,69,.65)}
+.rd-viralbadge.warm{color:#ffc25c;border-color:rgba(255,194,92,.35)}
 /* HIGH INTEREST. Highlightz measured an unusual spike of audience activity at
    this timestamp — used by both the crowd suggester and the VOD scanner, which
    are the same finding arrived at two ways. Sits under the virality badge so
    both are readable. */
-.rd-clippedbadge{position:absolute;top:38px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
-  font-size:10.5px;font-weight:800;letter-spacing:.02em;padding:3px 8px;border-radius:99px;color:#0b0b12;
+.rd-clippedbadge{position:absolute;top:38px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:800;letter-spacing:.02em;padding:4px 8px;border-radius:99px;color:#0b0b12;
   background:linear-gradient(135deg,#3ee08a,#2ee0c8);box-shadow:0 3px 12px -3px rgba(62,224,138,.6)}
 /* ── Crowd suggestions ────────────────────────────────────────────────────
    A moment VIEWERS clipped, surfaced without consulting our score. It has to
@@ -378,25 +403,25 @@ button{font-family:inherit;cursor:pointer}
    The card still reads as gold, glowing and alive; it just stopped repainting
    a 310x323 region twenty times over on every frame to do it. */
 .rd-clip.suggested{position:relative;border-color:rgba(255,197,61,.7);
-  box-shadow:0 0 0 1px rgba(255,197,61,.3),0 4px 14px -6px rgba(255,168,0,.45)}
+  box-shadow:0 0 0 1px rgba(255,197,61,.3),0 4px 14px -6px rgba(247,167,69,.45)}
 .rd-clip.suggested:hover{border-color:rgba(255,197,61,.95);
-  box-shadow:0 0 0 1px rgba(255,197,61,.45),0 8px 22px -8px rgba(255,168,0,.6)}
-.rd-sugbadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
-  font-size:11.5px;font-weight:800;letter-spacing:.02em;padding:5px 10px;border-radius:var(--r-pill);
+  box-shadow:0 0 0 1px rgba(255,197,61,.45),0 8px 22px -8px rgba(247,167,69,.6)}
+.rd-sugbadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:800;letter-spacing:.02em;padding:4px 8px;border-radius:var(--r-pill);
   color:#2a1a00;background:linear-gradient(135deg,#ffd45e,#ff9d00);
   animation:sugpulse 2.6s ease-in-out infinite}
 /* The pulse, on the badge and nothing else. ~90x26px of repaint per card
    instead of the whole card, which is the entire difference between 23% of
    frames dropped and none. */
 @keyframes sugpulse{
-  0%,100%{box-shadow:0 3px 10px -3px rgba(255,168,0,.5)}
-  50%{box-shadow:0 3px 20px -2px rgba(255,168,0,.95)}
+  0%,100%{box-shadow:0 3px 10px -3px rgba(247,167,69,.5)}
+  50%{box-shadow:0 3px 20px -2px rgba(247,167,69,.95)}
 }
 /* A player is open: stop animating. Same reasoning as the blur rules below —
    anything repainting on a timer competes with video decode. */
-body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,168,0,.7)}
+body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,167,69,.7)}
 @media(prefers-reduced-motion:reduce){
-  .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,168,0,.7)}
+  .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,167,69,.7)}
 }
 /* .rd-sugby (a chip naming the viewer whose clip this is) was removed. The
    queue now describes what HIGHLIGHTZ did — it detected the moment from a
@@ -407,52 +432,52 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
 /* Amber, matching the weekly-allowance warning: not an error and not a
    verdict on the clip, just a fact that changes what you can do with it. Sits
    bottom-right so it never collides with the score or suggested badge. */
-.rd-agebadge{position:absolute;right:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
-  font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:3px 8px;border-radius:7px;
+.rd-agebadge{position:absolute;right:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 8px;border-radius:7px;
   color:#0a0a0a;background:rgba(250,204,21,.92)}
-.rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
-  background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
-.rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
+.rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:12px;font-weight:600;color:#fff;
+  background:rgba(10,8,14,.6);padding:4px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
+.rd-clip-body{padding:12px;flex:1;display:flex;flex-direction:column}
 .rd-clip-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.rd-clip-ch{font-size:14px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:7px}
-.rd-clip-ch .av{width:22px;height:22px;border-radius:7px;background:var(--grad);display:grid;place-items:center;font-size:11px;font-weight:800;color:#1a0322}
-.rd-status{font-size:11px;font-weight:600;padding:4px 10px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:5px;text-transform:capitalize}
+.rd-clip-ch{font-size:14px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.rd-clip-ch .av{width:22px;height:22px;border-radius:7px;background:var(--grad);display:grid;place-items:center;font-size:12px;font-weight:800;color:#1a0322}
+.rd-status{font-size:12px;font-weight:600;padding:4px 8px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:4px;text-transform:capitalize}
 .rd-status.pending{background:var(--pending-soft);color:var(--pending)}
 .rd-status.approved{background:var(--live-soft);color:var(--live)}
 .rd-status.rejected{background:var(--danger-soft);color:var(--danger)}
-.rd-clip-title{font-size:13px;color:var(--fg);margin-top:9px;font-weight:500;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rd-clip-meta{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap;overflow:hidden;max-height:48px}
-.rd-tag{font-size:11px;color:var(--fg-2);background:rgba(255,255,255,.05);padding:3px 9px;border-radius:var(--r-pill)}
-.rd-clip-actions{display:flex;gap:9px;margin-top:auto;padding-top:14px;flex-wrap:wrap}
+.rd-clip-title{font-size:12px;color:var(--fg);margin-top:8px;font-weight:500;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-clip-meta{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;overflow:hidden;max-height:48px}
+.rd-tag{font-size:12px;color:var(--fg-2);background:rgba(255,255,255,.05);padding:4px 8px;border-radius:var(--r-pill)}
+.rd-clip-actions{display:flex;gap:8px;margin-top:auto;padding-top:12px;flex-wrap:wrap}
 .rd-clip-actions .rd-btn{flex:1}
-.rd-resolved{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--fg-2);padding:4px 0;flex-wrap:wrap}
-.rd-grid-empty{grid-column:1/-1;text-align:center;padding:70px 0;color:var(--fg-3)}
+.rd-resolved{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:4px 0;flex-wrap:wrap}
+.rd-grid-empty{grid-column:1/-1;text-align:center;padding:64px 0;color:var(--fg-3)}
 .rd-grid-empty .ic{display:flex;justify-content:center;margin-bottom:16px;color:var(--fg-3)}
-.rd-grid-empty .big{font-size:18px;font-weight:700;color:var(--fg);margin-bottom:8px;letter-spacing:-.01em}
+.rd-grid-empty .big{font-size:17px;font-weight:700;color:var(--fg);margin-bottom:8px;letter-spacing:-.01em}
 /* A <button> now, not an <a> — it switches route inside the SPA rather than
    navigating away. font:inherit and the background reset are what stop a
    button inheriting the browser's chrome instead of this style. */
-.rd-emptylink{display:inline-block;margin-top:16px;font-size:13px;font-weight:600;color:var(--acc);
-  padding:8px 15px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s;
+.rd-emptylink{display:inline-block;margin-top:16px;font-size:12px;font-weight:600;color:var(--acc);
+  padding:8px 16px;border-radius:9px;border:1px solid var(--hair-2);transition:.16s;
   font-family:inherit;background:none;cursor:pointer}
 .rd-emptylink:hover{background:rgba(255,255,255,.05);border-color:var(--acc);color:var(--fg)}
 .rd-toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,90px);opacity:0;
-  display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:var(--r-pill);
-  background:rgba(18,14,24,.85);border:1px solid rgba(199,155,255,.35);color:var(--fg);font-size:13px;font-weight:500;
-  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 40px -12px rgba(0,0,0,.7);z-index:50;transition:all .35s cubic-bezier(.34,1.56,.64,1)}
+  display:inline-flex;align-items:center;gap:8px;padding:12px 16px;border-radius:var(--r-pill);
+  background:rgba(18,14,24,.85);border:1px solid rgba(196,137,228,.35);color:var(--fg);font-size:12px;font-weight:500;
+  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 40px -12px rgba(0,0,0,.7);z-index:50;transition:transform var(--dur-fast) var(--ease),opacity var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease) cubic-bezier(.34,1.56,.64,1)}
 .rd-toast.show{transform:translate(-50%,0);opacity:1}
 .rd-undo{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;
-  display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:12px;
+  display:flex;align-items:center;gap:12px;padding:12px 12px;border-radius:12px;
   background:rgba(18,18,24,.96);border:1px solid var(--hair-2);
-  box-shadow:0 10px 34px rgba(0,0,0,.5);font-size:13px;color:var(--fg);
+  box-shadow:0 10px 34px rgba(0,0,0,.5);font-size:12px;color:var(--fg);
   -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
 .rd-undo .ico{display:flex;color:var(--fg-3)}
 .rd-undo .msg{font-weight:600}
-.rd-undo .act{background:rgba(168,85,247,.18);border:1px solid var(--acc);color:var(--acc);
-  font-weight:700;font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer}
-.rd-undo .act:hover{background:rgba(168,85,247,.3);color:var(--fg)}
-.rd-undo .left{font-size:11px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:26px}
-.rd-undo .x{background:none;border:none;color:var(--fg-3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+.rd-undo .act{background:rgba(184,106,220,.18);border:1px solid var(--acc);color:var(--acc);
+  font-weight:700;font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer}
+.rd-undo .act:hover{background:rgba(184,106,220,.3);color:var(--fg)}
+.rd-undo .left{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:26px}
+.rd-undo .x{background:none;border:none;color:var(--fg-3);cursor:pointer;font-size:14px;line-height:1;padding:0 4px}
 .rd-undo .x:hover{color:var(--fg)}
 @media(max-width:600px){.rd-undo{left:12px;right:12px;transform:none;justify-content:center}}
 .rd-toast .ico{width:24px;height:24px;border-radius:50%;background:var(--grad);display:grid;place-items:center;color:#fff}
@@ -460,18 +485,18 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.18);background-clip:padding-box}
-.rd-nav{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 0;
+.rd-nav{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 0;
   border-right:1px solid var(--hair);background:rgba(10,10,14,.5);
   -webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:6}
-.rd-nav .logo{margin-bottom:18px;display:flex}
+.rd-nav .logo{margin-bottom:16px;display:flex}
 /* The mark is a transparent PNG cropped to its own ink, so `height` is now the
    height of the GLYPH — under the old plated JPEG the same 44px was mostly
    empty background with a ~19px mark floating in it. Sizes here and everywhere
    else were re-picked against the visible mark, not carried over. */
-.rd-nav .logo img{height:34px;filter:drop-shadow(0 0 12px rgba(199,155,255,.45))}
+.rd-nav .logo img{height:34px;filter:drop-shadow(0 0 12px rgba(196,137,228,.45))}
 .rd-navitem{width:88px;height:64px;border-radius:16px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:5px;background:transparent;border:none;
-  color:var(--fg-3);font-size:11.5px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
+  align-items:center;justify-content:center;gap:4px;background:transparent;border:none;
+  color:var(--fg-3);font-size:12px;font-weight:600;letter-spacing:.01em;transition:.16s;position:relative}
 .rd-navitem:hover{color:var(--fg-2);background:rgba(255,255,255,.05)}
 /* Closed off on Kick. The button is really `disabled`; this only makes that
    legible — and the not-allowed cursor plus killed hover stops it reading as
@@ -480,142 +505,142 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
 .rd-navitem.blocked:hover{color:var(--fg-3);background:transparent}
 .rd-navitem.active{color:#fff}
 .rd-navitem.active::before{content:'';position:absolute;inset:0;border-radius:16px;
-  background:var(--grad-soft);border:1px solid rgba(199,155,255,.3)}
+  background:var(--grad-soft);border:1px solid rgba(196,137,228,.3)}
 .rd-navitem.active .ic{color:var(--acc)}
 .rd-navitem .ic,.rd-navitem span{position:relative;z-index:1}
 .rd-nav .sp{flex:1}
 /* Drawer affordances exist only at the mobile breakpoint (see @media below). */
 .rd-menubtn,.rd-navscrim{display:none}
 .rd-nav .navbadge{position:absolute;top:7px;right:9px;min-width:16px;height:16px;padding:0 4px;
-  border-radius:99px;background:var(--grad);color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;z-index:2}
-.rd-header .htitle{font-size:18px;font-weight:700;letter-spacing:-.02em}
-.rd-header .hsub{font-size:12px;color:var(--fg-3);margin-top:1px}
-.rd-scroll{flex:1;overflow-y:auto;min-height:0;padding:20px 22px}
+  border-radius:99px;background:var(--grad);color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;z-index:2}
+.rd-header .htitle{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.rd-header .hsub{font-size:12px;color:var(--fg-3);margin-top:4px}
+.rd-scroll{flex:1;overflow-y:auto;min-height:0;padding:16px 24px}
 .rd-section-title{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 /* The Clip Review header rows, reused on a screen whose container has no flex
    gap of its own. Same two rows, same order, so the two clip screens read the
    same way. */
 .rd-cliphead{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
-.rd-section-title h2{font-size:19px;font-weight:800;letter-spacing:-.025em}
+.rd-section-title h2{font-size:17px;font-weight:800;letter-spacing:-.025em}
 .rd-section-title .cnt{font-size:12px;color:var(--fg-3)}
 /* 322px matches the old Clip Review rail: the add-stream box moved here and
    the search input needs the same room, otherwise the placeholder truncates
    next to the preset dropdown. */
-.rd-streams-layout{display:grid;grid-template-columns:322px 1fr;gap:18px;flex:1;min-height:0;padding:20px 22px}
+.rd-streams-layout{display:grid;grid-template-columns:322px 1fr;gap:16px;flex:1;min-height:0;padding:16px 24px}
 /* Search above preset — side by side leaves the input too narrow to read. */
 .rd-addrow{flex-direction:column}
-.rd-chanlist{display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:0;padding-right:2px}
-.rd-chanlist .rd-eyebrow{padding:4px 2px 2px}
+.rd-chanlist{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;padding-right:4px}
+.rd-chanlist .rd-eyebrow{padding:4px 4px 4px}
 .rd-chan{text-align:left;padding:12px;border-radius:15px;background:rgba(255,255,255,.025);
-  border:1px solid var(--hair);transition:.16s;display:flex;align-items:center;gap:11px;width:100%}
+  border:1px solid var(--hair);transition:.16s;display:flex;align-items:center;gap:12px;width:100%}
 .rd-chan:hover{background:rgba(255,255,255,.05)}
-.rd-chan.active{background:var(--grad-soft);border-color:rgba(199,155,255,.32)}
+.rd-chan.active{background:var(--grad-soft);border-color:rgba(196,137,228,.32)}
 .rd-chan .av{width:38px;height:38px;border-radius:12px;background:var(--grad);display:grid;place-items:center;
-  font-weight:800;color:#1a0322;font-size:13px;flex-shrink:0}
+  font-weight:800;color:#1a0322;font-size:12px;flex-shrink:0}
 .rd-chan .nm{font-weight:700;font-size:14px;letter-spacing:-.01em}
-.rd-chan .mt{font-size:11px;color:var(--fg-2);margin-top:2px}
+.rd-chan .mt{font-size:12px;color:var(--fg-2);margin-top:4px}
 .rd-chan .mini{margin-left:auto;font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
 .rd-detail{display:flex;flex-direction:column;gap:16px;overflow-y:auto;min-height:0;padding-right:4px}
-.rd-detail-head{display:flex;align-items:center;gap:15px}
+.rd-detail-head{display:flex;align-items:center;gap:16px}
 .rd-detail-head .av{width:54px;height:54px;border-radius:16px;background:var(--grad);display:grid;place-items:center;
-  font-weight:800;color:#1a0322;font-size:19px;box-shadow:var(--glow)}
-.rd-detail-head h2{font-size:23px;font-weight:800;letter-spacing:-.025em}
-.rd-detail-head .mt{font-size:12px;color:var(--fg-2);margin-top:3px;display:flex;gap:7px;align-items:center}
+  font-weight:800;color:#1a0322;font-size:17px;box-shadow:var(--glow)}
+.rd-detail-head h2{font-size:24px;font-weight:800;letter-spacing:-.025em}
+.rd-detail-head .mt{font-size:12px;color:var(--fg-2);margin-top:4px;display:flex;gap:8px;align-items:center}
 .rd-detail-head .sp{flex:1}
-.rd-card2{border-radius:18px;padding:18px}
-.rd-chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
-.rd-chart-head .lbl{font-size:13px;font-weight:600;color:var(--fg-2)}
+.rd-card2{border-radius:18px;padding:16px}
+.rd-chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.rd-chart-head .lbl{font-size:12px;font-weight:600;color:var(--fg-2)}
 .rd-chart-head .big{font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .rd-chart{width:100%;height:150px;display:block}
 .rd-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.rd-metric{border-radius:15px;padding:15px}
-.rd-metric .k{font-size:11px;color:var(--fg-2);font-weight:500}
-.rd-metric .v{font-size:24px;font-weight:800;letter-spacing:-.03em;margin-top:7px;font-variant-numeric:tabular-nums}
-.rd-weight{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+.rd-metric{border-radius:15px;padding:16px}
+.rd-metric .k{font-size:12px;color:var(--fg-2);font-weight:500}
+.rd-metric .v{font-size:24px;font-weight:800;letter-spacing:-.03em;margin-top:8px;font-variant-numeric:tabular-nums}
+.rd-weight{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .rd-weight:last-child{margin-bottom:0}
 .rd-weight .wl{width:130px;font-size:12px;color:var(--fg-2)}
 .rd-weight .wt{flex:1;height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-.rd-weight .wf{height:100%;border-radius:99px;background:var(--grad);transition:width .4s}
+.rd-weight .wf{height:100%;border-radius:99px;background:var(--grad);transition:transform var(--dur-slow) var(--ease)}
 .rd-weight .wv{width:46px;text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
 .rd-settings{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px;width:100%}
 /* ── Tutorial tab ── two columns: a sticky contents rail and the prose. The
    rail is position:sticky inside the scroller, so it follows without a scroll
    listener moving it. */
-.rd-tut{max-width:1060px;margin:0 auto;width:100%;display:grid;grid-template-columns:186px minmax(0,1fr);gap:34px;align-items:start}
-.tut-toc{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding-top:4px}
-.tut-toc-k{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3);padding:0 10px 8px}
-.tut-toc-l{text-align:left;background:none;border:0;cursor:pointer;font:inherit;font-size:12.5px;color:var(--fg-2);padding:6px 10px;border-radius:8px;border-left:2px solid transparent}
+.rd-tut{max-width:1060px;margin:0 auto;width:100%;display:grid;grid-template-columns:186px minmax(0,1fr);gap:32px;align-items:start}
+.tut-toc{position:sticky;top:0;display:flex;flex-direction:column;gap:4px;padding-top:4px}
+.tut-toc-k{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3);padding:0 8px 8px}
+.tut-toc-l{text-align:left;background:none;border:0;cursor:pointer;font:inherit;font-size:12px;color:var(--fg-2);padding:4px 8px;border-radius:8px;border-left:2px solid transparent}
 .tut-toc-l:hover{color:var(--fg);background:rgba(255,255,255,.04)}
-.tut-toc-l.on{color:var(--acc);border-left-color:var(--acc);background:rgba(168,85,247,.10);font-weight:600}
-.tut-toc-out{margin-top:12px;font-size:12px;color:var(--fg-3);text-decoration:none;padding:6px 10px}
+.tut-toc-l.on{color:var(--acc);border-left-color:var(--acc);background:rgba(184,106,220,.10);font-weight:600}
+.tut-toc-out{margin-top:12px;font-size:12px;color:var(--fg-3);text-decoration:none;padding:4px 8px}
 .tut-toc-out:hover{color:var(--acc)}
-.tut-main{min-width:0;display:flex;flex-direction:column;gap:26px;padding-bottom:60px}
+.tut-main{min-width:0;display:flex;flex-direction:column;gap:24px;padding-bottom:64px}
 /* scroll-margin so a jumped-to heading is not welded to the top edge */
-.tut-sec{scroll-margin-top:14px;min-width:0}
-.tut-title{font-size:23px;font-weight:800;letter-spacing:-.025em;margin-bottom:9px}
-.tut-lead{font-size:14.5px;color:var(--fg-2);line-height:1.65;max-width:66ch}
-.tut-h{font-size:16.5px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:9px}
-.tut-plan{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);background:rgba(168,85,247,.16);padding:3px 8px;border-radius:999px}
+.tut-sec{scroll-margin-top:12px;min-width:0}
+.tut-title{font-size:24px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
+.tut-lead{font-size:14px;color:var(--fg-2);line-height:1.6;max-width:66ch}
+.tut-h{font-size:16px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.tut-plan{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);background:rgba(184,106,220,.16);padding:4px 8px;border-radius:999px}
 .tut-body{font-size:14px;color:var(--fg-2);line-height:1.7;max-width:66ch}
-.tut-body b,.tut-steps b,.tut-note b,.tut-tip b{color:var(--fg);font-weight:650}
-.tut-steps{margin:12px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:7px;font-size:14px;color:var(--fg-2);line-height:1.65;max-width:66ch}
-.tut-note{margin-top:11px;font-size:13px;color:var(--fg-3);line-height:1.6;max-width:66ch}
+.tut-body b,.tut-steps b,.tut-note b,.tut-tip b{color:var(--fg);font-weight:700}
+.tut-steps{margin:12px 0 0;padding-left:16px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--fg-2);line-height:1.6;max-width:66ch}
+.tut-note{margin-top:12px;font-size:12px;color:var(--fg-3);line-height:1.6;max-width:66ch}
 .tut-fig{margin:16px 0 0}
 .tut-media{width:100%;height:auto;border-radius:12px;border:1px solid var(--hair);display:block;background:rgba(255,255,255,.02)}
-.tut-cap{margin-top:8px;font-size:12.5px;color:var(--fg-3);line-height:1.55}
-.tut-ph{margin-top:16px;border:1px dashed var(--hair);border-radius:12px;padding:26px 22px;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.02)}
-.tut-ph-k{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3)}
-.tut-ph-a{font-size:13px;color:var(--fg-2);line-height:1.6}
-.tut-tip{margin-top:14px;border-left:2px solid var(--acc);background:rgba(168,85,247,.07);border-radius:0 10px 10px 0;padding:12px 16px}
-.tut-tip-k{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
-.tut-tip p{margin-top:5px;font-size:13.5px;color:var(--fg-2);line-height:1.65}
-.tut-tablewrap{margin-top:14px;overflow-x:auto;border:1px solid var(--hair);border-radius:12px}
-.tut-table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:460px}
-.tut-table th,.tut-table td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--hair)}
-.tut-table thead th{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);font-weight:700}
+.tut-cap{margin-top:8px;font-size:12px;color:var(--fg-3);line-height:1.5}
+.tut-ph{margin-top:16px;border:1px dashed var(--hair);border-radius:12px;padding:24px 24px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,.02)}
+.tut-ph-k{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3)}
+.tut-ph-a{font-size:12px;color:var(--fg-2);line-height:1.6}
+.tut-tip{margin-top:12px;border-left:2px solid var(--acc);background:rgba(184,106,220,.07);border-radius:0 10px 10px 0;padding:12px 16px}
+.tut-tip-k{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+.tut-tip p{margin-top:4px;font-size:14px;color:var(--fg-2);line-height:1.6}
+.tut-tablewrap{margin-top:12px;overflow-x:auto;border:1px solid var(--hair);border-radius:12px}
+.tut-table{width:100%;border-collapse:collapse;font-size:14px;min-width:460px}
+.tut-table th,.tut-table td{padding:12px 12px;text-align:left;border-bottom:1px solid var(--hair)}
+.tut-table thead th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);font-weight:700}
 .tut-table tbody th{font-weight:600;color:var(--fg-2)}
 .tut-table tbody tr:last-child th,.tut-table tbody tr:last-child td{border-bottom:0}
-.tut-faq{margin-top:14px;border-top:1px solid var(--hair)}
+.tut-faq{margin-top:12px;border-top:1px solid var(--hair)}
 .tut-q{border-bottom:1px solid var(--hair)}
-.tut-q-h{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;background:none;border:0;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--fg);text-align:left;padding:14px 2px}
+.tut-q-h{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;background:none;border:0;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--fg);text-align:left;padding:12px 4px}
 .tut-q-h:hover{color:var(--acc)}
 .tut-q-c{color:var(--fg-3);font-size:17px;flex-shrink:0}
 .tut-q.on .tut-q-c{color:var(--acc)}
-.tut-q-a{padding:0 2px 15px;font-size:13.5px;color:var(--fg-2);line-height:1.7;max-width:70ch}
+.tut-q-a{padding:0 4px 16px;font-size:14px;color:var(--fg-2);line-height:1.7;max-width:70ch}
 .tut-q-a b{color:var(--fg)}
 .tut-q-a a{color:var(--acc)}
 @media(max-width:820px){
   /* The rail becomes a scrolling strip above the prose rather than vanishing —
      on a phone the contents list is how you skip to the part you need. */
-  .rd-tut{grid-template-columns:1fr;gap:18px}
-  .tut-toc{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px}
+  .rd-tut{grid-template-columns:1fr;gap:16px}
+  .tut-toc{position:static;flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px}
   .tut-toc-k{display:none}
   .tut-toc-l{white-space:nowrap;border-left:0;border-bottom:2px solid transparent;border-radius:8px 8px 0 0}
   .tut-toc-l.on{border-left:0;border-bottom-color:var(--acc)}
   .tut-toc-out{margin-top:0;white-space:nowrap}
-  .tut-title{font-size:20px}
+  .tut-title{font-size:17px}
 }
-.rd-card{border-radius:18px;padding:22px}
-.rd-card h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+.rd-card{border-radius:18px;padding:24px}
+.rd-card h3{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
 .rd-card h3 .si{width:30px;height:30px;border-radius:9px;background:var(--grad-soft);color:var(--acc);display:grid;place-items:center}
-.rd-card .desc{font-size:12px;color:var(--fg-3);margin:6px 0 18px 40px}
+.rd-card .desc{font-size:12px;color:var(--fg-3);margin:4px 0 16px 32px}
 /* ── Clip Editor ── */
-.rd-drop{border:2px dashed var(--hair);border-radius:16px;padding:34px 20px;text-align:center;
+.rd-drop{border:2px dashed var(--hair);border-radius:16px;padding:32px 16px;text-align:center;
   cursor:pointer;transition:border-color .18s,background .18s;background:rgba(255,255,255,.015)}
-.rd-drop:hover{border-color:var(--acc-2);background:rgba(168,85,247,.05)}
-.rd-drop.over{border-color:var(--acc);background:rgba(168,85,247,.11)}
-.rd-drop .di{color:var(--acc);margin-bottom:10px}
-.rd-drop .dt{font-size:14px;font-weight:700;margin-bottom:5px}
+.rd-drop:hover{border-color:var(--acc-2);background:rgba(184,106,220,.05)}
+.rd-drop.over{border-color:var(--acc);background:rgba(184,106,220,.11)}
+.rd-drop .di{color:var(--acc);margin-bottom:8px}
+.rd-drop .dt{font-size:14px;font-weight:700;margin-bottom:4px}
 .rd-drop .ds{font-size:12px;color:var(--fg-3)}
-.rd-quota{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin:9px 0 6px}
-.rd-quota i{display:block;height:100%;border-radius:99px;background:var(--grad);transition:width .3s}
-.rd-quota-full i{background:linear-gradient(135deg,#ff5a78,#ff8a4c)}
+.rd-quota{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;margin:8px 0 4px}
+.rd-quota i{display:block;height:100%;border-radius:99px;background:var(--grad);transition:transform var(--dur-slow) var(--ease)}
+.rd-quota-full i{background:linear-gradient(135deg,#ff5a78,#f7a745)}
 .rd-up{border-radius:14px;border:1px solid var(--hair);background:rgba(255,255,255,.02);overflow:hidden;
   display:flex;flex-direction:column}
 .rd-up video{width:100%;aspect-ratio:16/9;background:#000;display:block;object-fit:contain}
-.rd-up .ub{padding:11px 13px;display:flex;align-items:center;gap:10px}
-.rd-up .un{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.rd-up .um{font-size:11px;color:var(--fg-3);margin-top:2px}
+.rd-up .ub{padding:12px 12px;display:flex;align-items:center;gap:8px}
+.rd-up .un{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.rd-up .um{font-size:12px;color:var(--fg-3);margin-top:4px}
 /* Twitch clip import cards */
 .rd-tw{border-radius:14px;border:1px solid var(--hair);background:rgba(255,255,255,.02);
   overflow:hidden;display:flex;flex-direction:column}
@@ -629,148 +654,148 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
   display:grid;place-items:center;background:rgba(0,0,0,.55);color:#fff;
   -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);transition:.18s}
 .rd-tw .tw-thumb:hover .tw-play{background:var(--acc-2);transform:scale(1.08)}
-.rd-tw .tw-dur{position:absolute;right:7px;bottom:7px;font-size:10.5px;font-weight:700;color:#fff;
-  background:rgba(0,0,0,.7);padding:2px 6px;border-radius:6px}
-.rd-tw .tw-meta{padding:10px 12px;display:flex;flex-direction:column;gap:3px;min-width:0}
-.rd-tw .tw-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rd-tw .tw-sub{font-size:11px;color:var(--fg-3)}
-.rd-tw .tw-link{font-size:11px;color:var(--acc);font-weight:600;margin-top:2px}
+.rd-tw .tw-dur{position:absolute;right:7px;bottom:7px;font-size:12px;font-weight:700;color:#fff;
+  background:rgba(0,0,0,.7);padding:4px 4px;border-radius:6px}
+.rd-tw .tw-meta{padding:8px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.rd-tw .tw-title{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-tw .tw-sub{font-size:12px;color:var(--fg-3)}
+.rd-tw .tw-link{font-size:12px;color:var(--acc);font-weight:600;margin-top:4px}
 .rd-tw .tw-link:hover{text-decoration:underline}
 /* ── Editor ── */
-.tw-box{width:min(900px,100%);border-radius:18px;padding:18px}
+.tw-box{width:min(900px,100%);border-radius:18px;padding:16px}
 .tw-frame{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
 .tw-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
-  align-items:center;justify-content:center;padding:20px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.ed{width:min(1080px,100%);max-height:94vh;overflow-y:auto;border-radius:20px;padding:20px;
+  align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.ed{width:min(1080px,100%);max-height:94vh;overflow-y:auto;border-radius:20px;padding:16px;
   background:var(--panel);border:1px solid var(--hair)}
 .ed-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .ed-head h3{font-size:16px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ed-body{display:grid;grid-template-columns:1fr 260px;gap:18px}
+.ed-body{display:grid;grid-template-columns:1fr 260px;gap:16px}
 @media(max-width:820px){.ed-body{grid-template-columns:1fr}}
 .ed-stage{background:#000;border-radius:14px;overflow:hidden;display:grid;place-items:center;min-height:300px}
 .ed-stage canvas{max-width:100%;max-height:56vh;display:block}
 .ed-side{display:flex;flex-direction:column;gap:16px}
-.ed-grp{display:flex;flex-direction:column;gap:7px}
-.ed-grp label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ed-grp{display:flex;flex-direction:column;gap:8px}
+.ed-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
 .ed-row{display:flex;align-items:center;gap:8px}
 .ed-row input[type=range]{flex:1;accent-color:var(--acc);cursor:pointer}
-.ed-num{font-size:11px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.ed-num{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
 .ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:10px;
-  padding:8px 10px;color:var(--fg);font-size:13px;font-family:inherit}
+  padding:8px 8px;color:var(--fg);font-size:12px;font-family:inherit}
 .ed-in:focus{outline:none;border-color:var(--acc-2)}
-.ed-seg{display:flex;gap:6px;flex-wrap:wrap}
-.ed-seg button{flex:1;min-width:64px;padding:7px 9px;border-radius:9px;font-size:11.5px;font-weight:700;
+.ed-seg{display:flex;gap:4px;flex-wrap:wrap}
+.ed-seg button{flex:1;min-width:64px;padding:8px 8px;border-radius:9px;font-size:12px;font-weight:700;
   background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:.15s}
-.ed-seg button.on{background:var(--grad-soft);border-color:rgba(199,155,255,.4);color:#fff}
+.ed-seg button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .ed-track{position:relative;height:36px;border-radius:10px;background:rgba(255,255,255,.06);
-  border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:2px}
+  border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:4px}
 .ed-track .sel{position:absolute;top:0;bottom:0;background:var(--grad-soft);
   border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
 /* margin-left pulls the bar half its width so it stays visible at both ends
    instead of being clipped away by the track's overflow:hidden at 0%/100%. */
-.ed-track .play{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;
+.ed-track .play{position:absolute;top:0;bottom:0;width:3px;margin-left:-4px;
   background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
 .ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
-.ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .15s}
-.ed-note{font-size:11px;color:var(--fg-3);line-height:1.5}
-.pub-row{display:flex;align-items:center;gap:9px;margin-top:7px}
+.ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:transform var(--dur-slow) var(--ease)}
+.ed-note{font-size:12px;color:var(--fg-3);line-height:1.5}
+.pub-row{display:flex;align-items:center;gap:8px;margin-top:8px}
 .pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
-.pub-ok{font-size:11px;color:var(--acc)}
-.pub-warn{font-size:11px;color:#ff9a52;line-height:1.4}
-.q-row{display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;
+.pub-ok{font-size:12px;color:var(--acc)}
+.pub-warn{font-size:12px;color:#f7a745;line-height:1.4}
+.q-row{display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:4px;
   border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--hair)}
-.q-row.due{border-color:rgba(168,85,247,.5);background:var(--grad-soft)}
+.q-row.due{border-color:rgba(184,106,220,.5);background:var(--grad-soft)}
 .q-row.missed{border-color:rgba(255,138,76,.35)}
-.q-when{flex-shrink:0;min-width:74px;font-size:11.5px;font-weight:700;color:var(--acc)}
-.q-row.missed .q-when{color:#ff9a52}
+.q-when{flex-shrink:0;min-width:74px;font-size:12px;font-weight:700;color:var(--acc)}
+.q-row.missed .q-when{color:#f7a745}
 .q-mid{flex:1;min-width:0}
-.q-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.q-sub{font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-list{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.q-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q-sub{font-size:12px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 .sc-card{display:flex;gap:16px;padding:16px;border-radius:18px}
 @media(max-width:760px){.sc-card{flex-direction:column}}
-.sc-card.due{border-color:rgba(168,85,247,.55)}
+.sc-card.due{border-color:rgba(184,106,220,.55)}
 .sc-card.missed{border-color:rgba(255,138,76,.4)}
 .sc-media{flex-shrink:0;width:184px}
 @media(max-width:760px){.sc-media{width:100%}}
 .sc-media video{width:100%;border-radius:12px;background:#000;aspect-ratio:9/16;object-fit:contain}
-.sc-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
-.sc-top{display:flex;align-items:center;gap:10px}
+.sc-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.sc-top{display:flex;align-items:center;gap:8px}
 .sc-name{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-when{font-size:11.5px;font-weight:800;color:var(--acc);flex-shrink:0}
-.sc-when.missed{color:#ff9a52}
-.sc-plats{display:flex;flex-direction:column;gap:6px}
+.sc-when{font-size:12px;font-weight:800;color:var(--acc);flex-shrink:0}
+.sc-when.missed{color:#f7a745}
+.sc-plats{display:flex;flex-direction:column;gap:4px}
 .sc-plat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .sc-plat .rd-btn{min-width:96px;justify-content:center}
 .sc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.sr-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sr-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 @media(max-width:620px){.sr-tiles{grid-template-columns:repeat(2,1fr)}}
 .sr-tile{background:rgba(255,255,255,.04);border:1px solid var(--hair);
   border-radius:12px;padding:12px;text-align:center}
-.sr-tile .k{font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.05em}
-.sr-tile .v{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-top:3px}
-.sr-list{margin-top:10px;display:flex;flex-direction:column;gap:7px}
-.sr-row{display:flex;align-items:center;gap:11px}
-.sr-when{flex-shrink:0;width:104px;font-size:11.5px;color:var(--fg-3)}
+.sr-tile .k{font-size:12px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.05em}
+.sr-tile .v{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:4px}
+.sr-list{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.sr-row{display:flex;align-items:center;gap:12px}
+.sr-when{flex-shrink:0;width:104px;font-size:12px;color:var(--fg-3)}
 .sr-bar{flex:1;height:8px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
 .sr-bar i{display:block;height:100%;background:var(--grad);border-radius:99px}
-.sr-nums{flex-shrink:0;font-size:11.5px;color:var(--fg-2)}
-.rd-lost{display:flex;align-items:center;gap:13px;padding:13px 16px;margin-bottom:14px;
+.sr-nums{flex-shrink:0;font-size:12px;color:var(--fg-2)}
+.rd-lost{display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:12px;
   border-radius:14px;background:rgba(255,138,76,.09);border:1px solid rgba(255,138,76,.3)}
-.rd-lost .ic{flex-shrink:0;color:#ff9a52;display:grid;place-items:center}
-.rd-lost .tx{flex:1;min-width:0;font-size:12.8px;line-height:1.5;color:var(--fg-2)}
-.rd-lost .tx b{color:#ff9a52}
-.rd-lost-x{flex-shrink:0;background:none;border:0;color:var(--fg-3);font-size:22px;
-  line-height:1;cursor:pointer;padding:0 2px;transition:color .12s}
+.rd-lost .ic{flex-shrink:0;color:#f7a745;display:grid;place-items:center}
+.rd-lost .tx{flex:1;min-width:0;font-size:12px;line-height:1.5;color:var(--fg-2)}
+.rd-lost .tx b{color:#f7a745}
+.rd-lost-x{flex-shrink:0;background:none;border:0;color:var(--fg-3);font-size:24px;
+  line-height:1;cursor:pointer;padding:0 4px;transition:color .12s}
 .rd-lost-x:hover{color:var(--fg-1)}
 @media(max-width:640px){.rd-lost{flex-direction:column;align-items:flex-start}}
-.rv{max-width:460px;width:100%;padding:26px 28px;border-radius:20px;
+.rv{max-width:460px;width:100%;padding:24px 24px;border-radius:20px;
   display:flex;flex-direction:column;gap:12px}
-.rv h3{font-size:19px;font-weight:800;margin:0}
-.rv-sub{font-size:12.5px;color:var(--fg-3);margin:0;line-height:1.5}
-.rv-stars{display:flex;gap:4px;margin:2px 0}
-.rv-star{background:none;border:0;cursor:pointer;font-size:32px;line-height:1;
-  padding:0 2px;color:rgba(255,255,255,.2);transition:color .12s}
-.rv-star.on{color:#ffc75a}
-.rv-check{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;
-  color:var(--fg-2);cursor:pointer;line-height:1.45}
-.rv-check input{margin-top:2px;flex-shrink:0}
+.rv h3{font-size:17px;font-weight:800;margin:0}
+.rv-sub{font-size:12px;color:var(--fg-3);margin:0;line-height:1.5}
+.rv-stars{display:flex;gap:4px;margin:4px 0}
+.rv-star{background:none;border:0;cursor:pointer;font-size:30px;line-height:1;
+  padding:0 4px;color:rgba(255,255,255,.2);transition:color .12s}
+.rv-star.on{color:#ffc25c}
+.rv-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;
+  color:var(--fg-2);cursor:pointer;line-height:1.4}
+.rv-check input{margin-top:4px;flex-shrink:0}
 .rv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
 .rv-actions .rd-btn.grad{flex:1 1 120px;justify-content:center}
-.rv-done{display:flex;flex-direction:column;align-items:center;gap:10px;
-  padding:22px 0;color:var(--acc);text-align:center}
-.ed-warn{font-size:11.5px;color:#ff9a52;background:rgba(255,138,76,.1);
-  border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 10px;line-height:1.45}
-.rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.rv-done{display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:24px 0;color:var(--acc);text-align:center}
+.ed-warn{font-size:12px;color:#f7a745;background:rgba(255,138,76,.1);
+  border:1px solid rgba(255,138,76,.28);border-radius:10px;padding:8px 8px;line-height:1.4}
+.rd-how{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media(max-width:760px){.rd-how{grid-template-columns:1fr}}
-.rd-step{display:flex;gap:11px;align-items:flex-start;padding:13px 15px;border-radius:14px;
+.rd-step{display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:14px;
   background:rgba(255,255,255,.025);border:1px solid var(--hair)}
 .rd-step .sn{flex-shrink:0;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
-  background:var(--grad-soft);color:var(--acc);font-size:11.5px;font-weight:800}
-.rd-step .st{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:3px}
-.rd-step .sb{font-size:11.5px;color:var(--fg-3);line-height:1.5}
+  background:var(--grad-soft);color:var(--acc);font-size:12px;font-weight:800}
+.rd-step .st{font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px}
+.rd-step .sb{font-size:12px;color:var(--fg-3);line-height:1.5}
 .rd-picks{display:flex;gap:8px;flex-wrap:wrap}
-.rd-pick{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:7px 11px;
+.rd-pick{display:inline-flex;align-items:center;gap:8px;max-width:220px;padding:8px 12px;
   border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);
   color:var(--fg-2);font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
-.rd-pick:hover{background:var(--grad-soft);border-color:rgba(199,155,255,.4);color:#fff}
+.rd-pick:hover{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .rd-pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rd-uprow{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--hair)}
+.rd-uprow{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--hair)}
 .rd-uprow:last-child{border-bottom:none}
 .rd-uprow .pb{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-.rd-uprow .pb i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:width .2s}
+.rd-uprow .pb i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:transform var(--dur-slow) var(--ease)}
 .rd-preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.rd-preset{border-radius:14px;padding:15px;border:1px solid var(--hair);background:rgba(255,255,255,.02)}
+.rd-preset{border-radius:14px;padding:16px;border:1px solid var(--hair);background:rgba(255,255,255,.02)}
 .rd-preset .pn{font-weight:700;font-size:14px;text-transform:capitalize;display:flex;align-items:center;justify-content:space-between}
-.rd-preset .pn .badge2{font-size:10px;font-weight:700;color:var(--acc);background:var(--grad-soft);padding:3px 8px;border-radius:99px}
-.rd-preset .pr{display:flex;justify-content:space-between;font-size:11px;color:var(--fg-2);margin-top:9px}
+.rd-preset .pn .badge2{font-size:12px;font-weight:700;color:var(--acc);background:var(--grad-soft);padding:4px 8px;border-radius:99px}
+.rd-preset .pr{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-2);margin-top:8px}
 .rd-preset .pr b{color:var(--fg);font-weight:700;font-variant-numeric:tabular-nums}
-.rd-field{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--hair)}
+.rd-field{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--hair)}
 .rd-field:last-child{border-bottom:none;padding-bottom:0}
 .rd-field:first-of-type{padding-top:0}
-.rd-field .fl{font-size:13px;font-weight:500}
-.rd-field .fd{font-size:11px;color:var(--fg-3);margin-top:3px}
+.rd-field .fl{font-size:12px;font-weight:500}
+.rd-field .fd{font-size:12px;color:var(--fg-3);margin-top:4px}
 /* NO backdrop-filter here, deliberately. This element covers the whole
    viewport, so a blur on it makes the browser re-blur everything behind it on
    every frame ANYTHING behind changes — and the nav logo (rdLogoGlow), the
@@ -844,21 +869,21 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 .rd-modal-close:hover{background:rgba(10,8,14,.85)}
 .rd-modal-play{position:absolute;inset:0;display:grid;place-items:center}
 .rd-modal-play .ring{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;padding-left:4px;background:var(--grad);color:#fff;box-shadow:var(--glow)}
-.rd-modal-body{padding:20px 22px;overflow-y:auto}
+.rd-modal-body{padding:16px 24px;overflow-y:auto}
 .rd-modal-head{display:flex;align-items:center;gap:12px}
 .rd-modal-head .av{width:40px;height:40px;border-radius:12px;background:var(--grad);display:grid;place-items:center;font-weight:800;color:#1a0322}
 .rd-modal-head h3{font-size:17px;font-weight:700;letter-spacing:-.02em}
-.rd-modal-head .mt{font-size:12px;color:var(--fg-2);margin-top:2px}
-.rd-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:20px}
+.rd-modal-head .mt{font-size:12px;color:var(--fg-2);margin-top:4px}
+.rd-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px}
 .rd-sigbar{margin-bottom:12px}
-.rd-sigbar .sh{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px}
+.rd-sigbar .sh{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px}
 .rd-sigbar .sh .sk{color:var(--fg-2)}
 .rd-sigbar .sh .sv{font-weight:700;font-variant-numeric:tabular-nums}
 .rd-sigbar .st{height:7px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
 .rd-sigbar .sf{height:100%;border-radius:99px;background:var(--grad)}
-.rd-modal-actions{display:flex;gap:10px;margin-top:8px}
+.rd-modal-actions{display:flex;gap:8px;margin-top:8px}
 .rd-modal-actions .rd-btn{flex:1}
-.rd-meta-row{display:flex;justify-content:space-between;font-size:13px;padding:9px 0;border-bottom:1px solid var(--hair)}
+.rd-meta-row{display:flex;justify-content:space-between;font-size:12px;padding:8px 0;border-bottom:1px solid var(--hair)}
 .rd-meta-row:last-child{border-bottom:none}
 .rd-meta-row .mk{color:var(--fg-2)}
 .rd-meta-row .mv{font-weight:600}
@@ -890,16 +915,16 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
      every screen and squeezed 9 tabs into it; the drawer gives the content
      the full viewport and each destination a full-width row. */
   .rd-nav{position:fixed;top:0;bottom:0;left:0;z-index:60;width:268px;max-width:82vw;
-    flex-direction:column;align-items:stretch;gap:4px;padding:18px 12px calc(18px + env(safe-area-inset-bottom));
+    flex-direction:column;align-items:stretch;gap:4px;padding:16px 12px calc(18px + env(safe-area-inset-bottom));
     border-right:1px solid var(--hair);border-top:none;overflow-y:auto;
     background:#0c0c12;
     transform:translateX(-102%);transition:transform .26s cubic-bezier(.4,0,.2,1);
     box-shadow:0 0 40px rgba(0,0,0,.6)}
   .rd-nav.open{transform:translateX(0)}
-  .rd-nav .logo{display:flex;justify-content:center;margin-bottom:14px}
+  .rd-nav .logo{display:flex;justify-content:center;margin-bottom:12px}
   .rd-nav .sp{flex:1;display:block;min-height:10px}
   .rd-navitem{width:auto;height:auto;min-height:48px;flex-direction:row;justify-content:flex-start;
-    align-items:center;gap:12px;padding:0 14px;border-radius:12px;font-size:14px;font-weight:600;text-align:left}
+    align-items:center;gap:12px;padding:0 12px;border-radius:12px;font-size:14px;font-weight:600;text-align:left}
   /* Badge is first in DOM (absolute on desktop); in the row layout it belongs
      at the end — order:3 keeps it there instead of shoving the icon/label right. */
   .rd-navitem .navbadge{position:static;order:3;margin-left:auto}
@@ -916,9 +941,9 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-frame > .rd-screen{flex:0 0 auto}
 
   /* Header */
-  .rd-header{padding:0 12px;gap:10px;height:56px}
+  .rd-header{padding:0 12px;gap:8px;height:56px}
   .rd-menubtn{display:inline-flex}
-  .rd-header .htitle{font-size:15px}
+  .rd-header .htitle{font-size:14px}
   .rd-header .hsub{display:none}
   .rd-header .rd-live{display:none}
 
@@ -928,7 +953,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-main{gap:12px;overflow:visible}
   .rd-toolbar{flex-wrap:wrap;gap:8px}
   .rd-filters{margin-left:0;width:100%;justify-content:space-between}
-  .rd-filter{flex:1;text-align:center;padding:7px 6px}
+  .rd-filter{flex:1;text-align:center;padding:8px 4px}
   .rd-grid{grid-template-columns:1fr;padding-right:0;overflow:visible}
   .rd-clip{height:auto}
 
@@ -937,28 +962,28 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-chanlist{overflow-y:visible;max-height:none}
   .rd-detail{overflow-y:visible}
   .rd-metrics{grid-template-columns:repeat(2,1fr);gap:8px}
-  .rd-weight .wl{width:90px;font-size:11px}
+  .rd-weight .wl{width:90px;font-size:12px}
 
   /* Settings */
   .rd-scroll{padding:12px}
   .rd-settings{gap:12px}
-  .rd-preset-grid{grid-template-columns:1fr;gap:10px}
+  .rd-preset-grid{grid-template-columns:1fr;gap:8px}
   .rd-card{padding:16px}
 
   /* Modal: full-screen sheet */
   .rd-modal-bg{padding:0;align-items:flex-end}
   .rd-modal{width:100%;max-height:92dvh;border-radius:22px 22px 0 0;overflow:hidden}
   .rd-modal-media{padding-bottom:56.25%}
-  .rd-modal-body{flex:1;min-height:0;overflow-y:auto;padding:14px 16px}
+  .rd-modal-body{flex:1;min-height:0;overflow-y:auto;padding:12px 16px}
   .rd-modal-grid{grid-template-columns:1fr;gap:16px}
   .rd-modal-actions{flex-wrap:wrap}
 
   /* Header: hide username text, just show avatar on narrow screens */
   .rd-user-chip .uc-name{display:none}
-  .rd-user-chip{padding:2px;gap:0}
+  .rd-user-chip{padding:4px;gap:0}
 
   /* Toast: no bottom bar to sit above now */
-  .rd-toast{bottom:20px;font-size:12px;padding:10px 16px;max-width:90vw;text-align:center}
+  .rd-toast{bottom:20px;font-size:12px;padding:8px 16px;max-width:90vw;text-align:center}
 }
 /* ═══ Aurora v2 — pure-CSS visual layer. Appended last so it wins at equal
    specificity; NO markup/logic depends on it. Theme-aware: every accent is
@@ -966,7 +991,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
    theme keeps working. Wrapped fallbacks degrade to the original look. ═══ */
 .rd-app::before{content:'';position:fixed;inset:0;z-index:-2;
   background:
-    radial-gradient(1050px 560px at 15% -10%,rgba(168,85,247,.26),transparent 62%),
+    radial-gradient(1050px 560px at 15% -10%,rgba(184,106,220,.26),transparent 62%),
     radial-gradient(860px 500px at 94% 2%,rgba(249,67,255,.16),transparent 58%),
     radial-gradient(940px 720px at 55% 116%,rgba(124,107,255,.16),transparent 62%),
     var(--rd-bg)}
@@ -1000,7 +1025,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 .rd-btn.grad{position:relative;overflow:hidden}
 .rd-btn.grad::after{content:'';position:absolute;top:0;left:-80%;width:50%;height:100%;
   background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);
-  transform:skewX(-20deg);transition:left .5s ease}
+  transform:skewX(-20deg);transition:transform var(--dur-slow) var(--ease)}
 .rd-btn.grad:hover::after{left:135%}
 .rd-clip:hover{box-shadow:0 26px 54px -20px rgba(0,0,0,.72),
   0 0 44px -16px color-mix(in srgb,var(--acc-2) 55%,transparent)}
@@ -1013,8 +1038,8 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 ::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--acc-2) 44%,rgba(255,255,255,.1));background-clip:padding-box}
 @media(prefers-reduced-motion:no-preference){
   .rd-nav .logo img{animation:rdLogoGlow 4.5s ease-in-out infinite alternate}
-  @keyframes rdLogoGlow{from{filter:drop-shadow(0 0 9px rgba(199,155,255,.4))}
-    to{filter:drop-shadow(0 0 17px rgba(199,155,255,.75))}}
+  @keyframes rdLogoGlow{from{filter:drop-shadow(0 0 9px rgba(196,137,228,.4))}
+    to{filter:drop-shadow(0 0 17px rgba(196,137,228,.75))}}
   .rd-screen{animation:rdScreenIn .4s cubic-bezier(.16,1,.3,1)}
   @keyframes rdScreenIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
   .rd-grid .rd-clip{animation:rdCardIn .5s cubic-bezier(.16,1,.3,1) backwards}
@@ -1042,12 +1067,12 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-body{grid-template-columns:minmax(0,1fr)}
   .rd-streams-layout{grid-template-columns:minmax(0,1fr)}
   .rd-frame,.rd-screen,.rd-main,.rd-col,.rd-rail{min-width:0}
-  .rd-header{flex-wrap:wrap;height:auto;min-height:0;padding:10px 12px;gap:8px 10px}
+  .rd-header{flex-wrap:wrap;height:auto;min-height:0;padding:8px 12px;gap:8px 8px}
   .rd-header>*{min-width:0}
   .rd-header .htitle{font-size:16px}
   .rd-header .hsub{display:none}
-  .plat-sw-btn{padding:7px 13px;font-size:11px}
-  .rd-live{font-size:11px;padding:5px 9px}
+  .plat-sw-btn{padding:8px 12px;font-size:12px}
+  .rd-live{font-size:12px;padding:4px 8px}
   .rd-toolbar{flex-wrap:wrap;gap:8px}
   .rd-addrow{flex-wrap:wrap}
   .rd-addrow .rd-input{flex:1 1 100%}
@@ -1056,14 +1081,14 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-grid{grid-template-columns:1fr}
   /* The bottom nav is gone (drawer now), so scrolling content keeps only a
      small breathing gap instead of reserving a whole tab bar's height. */
-  .rd-body,.rd-scroll,.rd-streams-layout{padding-bottom:18px}
-  .rd-detail,.rd-chanlist{padding-bottom:18px}
+  .rd-body,.rd-scroll,.rd-streams-layout{padding-bottom:16px}
+  .rd-detail,.rd-chanlist{padding-bottom:16px}
   /* Opaque drawer: the aurora layer above gives .rd-nav a translucent
      gradient, which would let page content read through a panel that now
      floats OVER the content instead of sitting beside it. */
   .rd-nav{background:#0c0c12}
   /* First-run welcome card: phone-comfortable padding */
-  .wm-card{padding:26px 20px !important;border-radius:18px !important}
+  .wm-card{padding:24px 16px !important;border-radius:18px !important}
   /* Toolbars: the two filter groups (status + sort) must wrap, not push wide */
   .rd-toolbar>div{flex-wrap:wrap;min-width:0}
   .rd-filters{width:auto;max-width:100%;flex-wrap:wrap}
@@ -1075,7 +1100,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   /* Stream detail header: long channel names wrap; Force clip stays on screen */
   .rd-detail-head{flex-wrap:wrap}
   .rd-detail-head>div{min-width:0}
-  .rd-detail-head h2{font-size:19px;word-break:break-word}
+  .rd-detail-head h2{font-size:17px;word-break:break-word}
 }
 </style>
 </head>
@@ -1292,11 +1317,11 @@ function RdScoreChart({ data }) {
   return (
     <svg className="rd-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stopColor="rgba(168,85,247,.5)"/><stop offset="1" stopColor="rgba(168,85,247,0)"/>
+        <stop offset="0" stopColor="rgba(184,106,220,.5)"/><stop offset="1" stopColor="rgba(184,106,220,0)"/>
       </linearGradient></defs>
       {[25,50,75].map(y=><line key={y} x1="0" x2={w} y1={h-(y/100)*(h-2*pad)-pad} y2={h-(y/100)*(h-2*pad)-pad} stroke="rgba(255,255,255,.05)" strokeWidth="1"/>)}
       <path d={area} fill="url(#cg)"/>
-      <path d={line} fill="none" stroke="#c79bff" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
+      <path d={line} fill="none" stroke="#c489e4" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
       <circle cx={last[0]} cy={last[1]} r="3.5" fill="#fff"/>
     </svg>
   );
@@ -1388,7 +1413,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
         })()}</div>
         <div className="rd-sigs">{Object.entries(breakdown).filter(([k])=>!k.startsWith('_')).map(([k,v])=>{
           const active=typeof v==='number'&&v>0.05;
-          return <span className="rd-sig" key={k} style={active?{background:'rgba(168,85,247,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
+          return <span className="rd-sig" key={k} style={active?{background:'rgba(184,106,220,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
         })}</div>
         <div className="rd-sigs" style={{marginTop:4}}>{[
           breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>AUDIO {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
@@ -1744,9 +1769,9 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               </div>}
               {isAdmin && clip.status==='approved' && clip.platform==='twitch' && onFeature &&
                 <button className="rd-btn sm" style={{marginTop:10,width:'100%',justifyContent:'center',
-                    background:featured?'rgba(255,194,92,.14)':'rgba(168,85,247,.14)',
-                    border:featured?'1px solid rgba(255,194,92,.35)':'1px solid rgba(168,85,247,.35)',
-                    color:featured?'#ffc25c':'#c79bff'}}
+                    background:featured?'rgba(255,194,92,.14)':'rgba(184,106,220,.14)',
+                    border:featured?'1px solid rgba(255,194,92,.35)':'1px solid rgba(184,106,220,.35)',
+                    color:featured?'#ffc25c':'#c489e4'}}
                   onClick={()=>onFeature(clip.id)}>
                   <Icon name="sparkles" size={13}/>{featured?'Remove from landing page':'Feature on landing page'}
                 </button>}
@@ -2264,7 +2289,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
           <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
               <div style={{position:'relative'}}>
-                <button className={'rd-btn sm'+(showCull?' active':'')} onClick={()=>setShowCull(v=>!v)} style={{background:showCull?'rgba(168,85,247,.18)':'rgba(255,255,255,.06)',border:'1px solid',borderColor:showCull?'var(--acc)':'var(--hair)',color:showCull?'var(--acc)':'var(--fg-2)'}}>
+                <button className={'rd-btn sm'+(showCull?' active':'')} onClick={()=>setShowCull(v=>!v)} style={{background:showCull?'rgba(184,106,220,.18)':'rgba(255,255,255,.06)',border:'1px solid',borderColor:showCull?'var(--acc)':'var(--hair)',color:showCull?'var(--acc)':'var(--fg-2)'}}>
                   <Icon name="sparkles" size={13}/>Cull clips
                 </button>
                 {showCull && <CullPanel clips={clips} onDone={()=>setShowCull(false)}/>}
@@ -2870,7 +2895,7 @@ function TrainingScreen() {
             </div>
             {agree && agree.clips_rated_twice > 0 &&
               <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-                <span className="rd-tag" style={{background:'rgba(168,85,247,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>
+                <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>
                   {agree.clips_rated_twice} rated twice
                 </span>
                 {agree.agreement!==null && <span className="rd-tag">
@@ -2895,7 +2920,7 @@ function TrainingScreen() {
           <Icon name="sparkles" size={15}/>
           <span style={{flex:1,minWidth:220}}><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
           {stats && <span style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-            <span className="rd-tag" style={{background:'rgba(168,85,247,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>{stats.total} trained</span>
+            <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>{stats.total} trained</span>
             {Object.entries(stats.by_labeler||{}).sort((a,b)=>b[1]-a[1]).map(([name,n])=>
               <span key={name} className="rd-tag">{name}: {n}</span>)}
           </span>}
@@ -3191,7 +3216,7 @@ function AccountScreen({ me }) {
               <Icon name="zap" size={14}/>See plans
             </a>
           </div>}
-          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'#9c9caa'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
+          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'#b9aec4'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
         </div>
 
         {/* Profile & Connected Platforms */}
@@ -3378,9 +3403,9 @@ function FeedbackScreen({ onSeen }) {
                   {CATEGORIES.map(c=>(
                     <button key={c} onClick={()=>setCategory(c)} style={{
                       padding:'6px 14px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'.15s',
-                      background: category===c ? 'rgba(168,85,247,.2)' : 'rgba(255,255,255,.05)',
-                      borderColor: category===c ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.09)',
-                      color: category===c ? '#c79bff' : 'var(--fg-3)',
+                      background: category===c ? 'rgba(184,106,220,.2)' : 'rgba(255,255,255,.05)',
+                      borderColor: category===c ? 'rgba(184,106,220,.5)' : 'rgba(255,255,255,.09)',
+                      color: category===c ? '#c489e4' : 'var(--fg-3)',
                     }}>{c}</button>
                   ))}
                 </div>
@@ -3412,7 +3437,7 @@ function FeedbackScreen({ onSeen }) {
             <div style={{display:'flex',flexDirection:'column',gap:14,marginTop:14}}>
               {threads.map(t=>(
                 <div key={t.id} style={{border:'1px solid var(--hair)',borderRadius:10,padding:'12px 14px',
-                    background:t.reply_unread?'rgba(168,85,247,.07)':'transparent'}}>
+                    background:t.reply_unread?'rgba(184,106,220,.07)':'transparent'}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
                     <span style={{fontFamily:'ui-monospace,monospace',fontSize:10.5,letterSpacing:'.12em',
                       textTransform:'uppercase',color:t.from_admin_start?'var(--acc)':'var(--fg-3)'}}>
@@ -4874,7 +4899,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         {me && me.is_admin && me.features && !(me.features.uploads && me.features.clip_import) &&
           <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,
                        background:'rgba(255,138,76,.12)',border:'1px solid rgba(255,138,76,.32)',
-                       fontSize:12.5,color:'#ff9a52',fontWeight:600}}>
+                       fontSize:12.5,color:'#f7a745',fontWeight:600}}>
             <Icon name="cog" size={15}/>
             <span>Admin preview — parts of this screen are hidden from your users. Set{' '}
               {!me.features.clip_import && <code style={{fontFamily:'monospace'}}>CLIP_IMPORT_ENABLED=true</code>}
@@ -5309,7 +5334,7 @@ function WelcomeOverlay({ onClose }) {
     <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
       <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
-          <img src="/static/logo-mark.png" alt="Highlightz" style={{height:40,filter:'drop-shadow(0 0 14px rgba(199,155,255,.4))'}}/>
+          <img src="/static/logo-mark.png" alt="Highlightz" style={{height:40,filter:'drop-shadow(0 0 14px rgba(196,137,228,.4))'}}/>
         </div>
         <h1 style={{fontSize:26,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
         <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:26}}>
@@ -5332,7 +5357,7 @@ function WelcomeOverlay({ onClose }) {
 
         <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center',marginBottom:26}}>
           {['Formula-based — not AI','Adapts to each streamer','Multiple streams at once','Fully connected to Twitch'].map(t=>(
-            <span key={t} style={{fontSize:12,fontWeight:600,padding:'6px 13px',borderRadius:99,background:'rgba(168,85,247,.12)',border:'1px solid rgba(168,85,247,.3)',color:'#c79bff'}}>{t}</span>
+            <span key={t} style={{fontSize:12,fontWeight:600,padding:'6px 13px',borderRadius:99,background:'rgba(184,106,220,.12)',border:'1px solid rgba(184,106,220,.3)',color:'#c489e4'}}>{t}</span>
           ))}
         </div>
 
@@ -5349,12 +5374,12 @@ function WelcomeOverlay({ onClose }) {
 // screen reads as part of whatever the user was looking at.
 const UC_THEME = {
   kick:   { a:'#53fc18', b:'#39b515' },
-  violet: { a:'#c79bff', b:'#a855f7' },
+  violet: { a:'#c489e4', b:'#b86adc' },
 };
 
 function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note }) {
   const { a, b } = UC_THEME[theme] || UC_THEME.kick;
-  const tint = (o)=>theme==='kick'?`rgba(83,252,24,${o})`:`rgba(168,85,247,${o})`;
+  const tint = (o)=>theme==='kick'?`rgba(83,252,24,${o})`:`rgba(184,106,220,${o})`;
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
                  textAlign:'center',minHeight:'70vh',padding:'40px 24px',gap:22}}>
@@ -5928,9 +5953,9 @@ function RdApp() {
             <span className="uc-name">{me.username||'Account'}</span>
           </button>
         </header>
-        {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c79bff',fontWeight:600}}>
+        {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c489e4',fontWeight:600}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
-          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#9c9caa',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#b9aec4',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
           <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
         <main className="rd-screen">{screen}</main>

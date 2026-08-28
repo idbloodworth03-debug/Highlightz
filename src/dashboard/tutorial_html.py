@@ -190,7 +190,7 @@ _CSS = """
     --sans:'Sora',system-ui,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth;overflow-x:clip;scroll-padding-top:86px}
+  html{scroll-behavior:smooth;overflow-x:clip;scroll-padding-top:96px}
   /* NO overflow-x:hidden ON BODY. It computes overflow-y to `auto`, which makes
      body a scroll container — and then `position:sticky` children stick to
      body's scrollport instead of the viewport, so they never engage at all.
@@ -198,7 +198,7 @@ _CSS = """
      on <html> above stops sideways scrolling without creating a scroll
      container, which is exactly the difference between `clip` and `hidden`. */
   body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
-    font-size:15.5px;line-height:1.68;
+    font-size:16px;line-height:1.7;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
   a{text-decoration:none;color:inherit}
   ::selection{background:rgba(210,106,251,.3);color:#fff}
@@ -208,25 +208,25 @@ _CSS = """
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size:180px 180px}
 
-  .wrap{max-width:1140px;margin:0 auto;padding-left:26px;padding-right:26px}
+  .wrap{max-width:1140px;margin:0 auto;padding-left:24px;padding-right:24px}
 
   /* Nav copied from the landing page so the two pages share one header. */
   .nav{position:sticky;top:0;z-index:60;background:var(--void);
-    border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:18px;padding:13px 26px}
-  .nav-logo{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:16px;padding:12px 24px}
+  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
   .nav-logo img{height:22px}
   .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--ink)}
-  .nav-links{display:flex;align-items:center;gap:2px;margin-left:14px}
+  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
   .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 11px;border-radius:3px}
+    color:var(--ink-3);padding:8px 12px;border-radius:3px}
   .nav-link:hover{color:var(--ink)}
   .nav-link.on{color:var(--glow-ink)}
-  .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
 
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;
-    font-family:var(--sans);font-weight:600;font-size:14.5px;letter-spacing:-.005em;
-    padding:13px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+    font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-.005em;
+    padding:12px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
     transition:background .2s,color .2s;white-space:nowrap}
   .btn-key{background:linear-gradient(166deg,var(--bruise),#25172E) padding-box,
     linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 40%,rgba(242,234,247,.05)) border-box}
@@ -234,70 +234,70 @@ _CSS = """
     linear-gradient(215deg,rgba(210,106,251,.9),rgba(184,106,220,.3) 40%,rgba(242,234,247,.07)) border-box}
   .btn-quiet{background:linear-gradient(var(--wall),var(--wall)) padding-box,
     linear-gradient(215deg,rgba(184,106,220,.32),rgba(242,234,247,.05) 50%,rgba(242,234,247,.02)) border-box}
-  .btn-lg{padding:16px 30px;font-size:15.5px}
+  .btn-lg{padding:16px 32px;font-size:16px}
 
-  .kicker{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+  .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ember);display:flex;align-items:center;gap:12px}
   .kicker::after{content:'';flex:1;height:1px;max-width:190px;
     background:linear-gradient(90deg,rgba(247,167,69,.35),transparent)}
 
   /* ── Hero ── */
-  .tut-hero{padding:56px 0 34px}
+  .tut-hero{padding:48px 0 32px}
   .tut-hero h1{font-family:'Lobster',Georgia,serif;font-weight:400;
-    font-size:clamp(38px,6vw,64px);line-height:1.04;letter-spacing:-.005em;margin:18px 0 18px}
-  .tut-hero .lead{font-size:18px;color:var(--ink-2);max-width:620px;line-height:1.6}
+    font-size:clamp(38px,6vw,64px);line-height:1;letter-spacing:-.005em;margin:16px 0 16px}
+  .tut-hero .lead{font-size:17px;color:var(--ink-2);max-width:620px;line-height:1.6}
 
   /* ── Layout: TOC rail + content ── */
   .tut-grid{display:block}
   .tut-toc{display:none}
-  .tut-main{min-width:0;padding-bottom:40px}
+  .tut-main{min-width:0;padding-bottom:32px}
 
   /* Mobile TOC: a real <details> so it is keyboard-operable with no JS. */
-  .tut-toc-m{position:sticky;top:53px;z-index:40;margin:0 -26px 26px;
+  .tut-toc-m{position:sticky;top:53px;z-index:40;margin:0 -24px 24px;
     background:var(--void);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .tut-toc-m summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
-    padding:13px 26px;font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+  .tut-toc-m summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+    padding:12px 24px;font-family:var(--mono);font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-2)}
   .tut-toc-m summary::-webkit-details-marker{display:none}
   .tut-toc-m .cx{margin-left:auto;transition:transform .25s}
   .tut-toc-m[open] .cx{transform:rotate(45deg);color:var(--flare)}
-  .tut-toc-m ol{list-style:none;padding:2px 26px 14px}
-  .tut-toc-m a{display:block;padding:9px 0;font-size:14px;color:var(--ink-2);
+  .tut-toc-m ol{list-style:none;padding:4px 24px 12px}
+  .tut-toc-m a{display:block;padding:8px 0;font-size:14px;color:var(--ink-2);
     border-bottom:1px solid var(--hair)}
   .tut-toc-m li:last-child a{border-bottom:none}
 
-  .tut-sec{padding:34px 0;border-top:1px solid var(--hair)}
+  .tut-sec{padding:32px 0;border-top:1px solid var(--hair)}
   .tut-sec:first-of-type{border-top:none}
   .tut-h{font-family:var(--sans);font-weight:700;font-size:clamp(22px,3vw,29px);
-    line-height:1.18;letter-spacing:-.022em;margin-bottom:12px;display:flex;
+    line-height:1.2;letter-spacing:-.022em;margin-bottom:12px;display:flex;
     align-items:center;gap:12px;flex-wrap:wrap;scroll-margin-top:96px}
-  .tut-plan{font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.14em;
+  .tut-plan{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ember);border:1px solid rgba(247,167,69,.4);
-    border-radius:2px;padding:3px 8px}
-  .tut-body{font-size:16px;color:var(--ink-2);max-width:68ch;line-height:1.66}
+    border-radius:2px;padding:4px 8px}
+  .tut-body{font-size:16px;color:var(--ink-2);max-width:68ch;line-height:1.6}
   .tut-body b,.tut-steps b{color:var(--ink);font-weight:600}
-  .tut-steps{margin:20px 0 0;padding-left:0;list-style:none;counter-reset:tstep;max-width:68ch}
+  .tut-steps{margin:16px 0 0;padding-left:0;list-style:none;counter-reset:tstep;max-width:68ch}
   /* overflow-wrap: the steps quote a full Twitch VOD URL in bold — 317px of
      text with no break opportunity, wider than the column on any phone at
      375px or below. Measured on the page: it is a <li>, not the FAQ answer,
      which is where the first attempt at this fix went. */
-  .tut-steps li{counter-increment:tstep;position:relative;padding-left:38px;margin-bottom:11px;
+  .tut-steps li{counter-increment:tstep;position:relative;padding-left:32px;margin-bottom:12px;
     overflow-wrap:anywhere;
-    font-size:15px;color:var(--ink-2);line-height:1.6}
+    font-size:14px;color:var(--ink-2);line-height:1.6}
   .tut-steps li::before{content:counter(tstep);position:absolute;left:0;top:1px;
     width:24px;height:24px;border-radius:2px;display:grid;place-items:center;
-    font-family:var(--mono);font-weight:600;font-size:11px;color:var(--glow-ink);
+    font-family:var(--mono);font-weight:600;font-size:12px;color:var(--glow-ink);
     background:var(--wall);border:1px solid rgba(184,106,220,.28)}
   .tut-note{margin-top:16px;font-size:14px;color:var(--ink-3);max-width:68ch;line-height:1.6}
   .tut-note b{color:var(--ink-2);font-weight:600}
 
-  .tut-tip{margin-top:22px;max-width:68ch;border:1px solid transparent;border-radius:3px;
-    padding:15px 18px;display:flex;gap:14px;align-items:flex-start;
+  .tut-tip{margin-top:24px;max-width:68ch;border:1px solid transparent;border-radius:3px;
+    padding:16px 16px;display:flex;gap:12px;align-items:flex-start;
     background:linear-gradient(var(--wall),var(--wall)) padding-box,
       linear-gradient(215deg,rgba(247,167,69,.4),rgba(247,167,69,.06) 45%,rgba(242,234,247,.02)) border-box}
-  .tut-tip-k{font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ember);flex-shrink:0;padding-top:3px}
-  .tut-tip p{font-size:14.5px;color:var(--ink-2);line-height:1.62}
+  .tut-tip-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ember);flex-shrink:0;padding-top:4px}
+  .tut-tip p{font-size:14px;color:var(--ink-2);line-height:1.6}
   .tut-tip b{color:var(--ink);font-weight:600}
 
   /* ── Media ── */
@@ -308,91 +308,91 @@ _CSS = """
       linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.05) 50%,rgba(242,234,247,.02)) border-box}
   .tm-i,.tm-v{display:block;width:100%;height:auto;aspect-ratio:var(--tm-w)/var(--tm-h)}
   .tm-v{cursor:pointer;background:#000}
-  .tm-mag{position:absolute;right:10px;bottom:10px;font-family:var(--mono);font-size:10px;
+  .tm-mag{position:absolute;right:10px;bottom:10px;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);
     background:rgba(14,11,17,.82);border:1px solid var(--hair);border-radius:2px;
-    padding:5px 9px;opacity:0;transition:opacity .18s}
+    padding:4px 8px;opacity:0;transition:opacity .18s}
   .tm-box:hover .tm-mag,.tm-box:focus-visible .tm-mag{opacity:1}
-  .tm-play{position:absolute;left:10px;bottom:10px;font-family:var(--mono);font-size:10px;
+  .tm-play{position:absolute;left:10px;bottom:10px;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--ink);cursor:pointer;
-    background:rgba(14,11,17,.82);border:1px solid rgba(184,106,220,.45);border-radius:2px;padding:6px 10px}
+    background:rgba(14,11,17,.82);border:1px solid rgba(184,106,220,.45);border-radius:2px;padding:4px 8px}
   .tm-play:hover{border-color:var(--flare)}
-  .tm-cap{margin-top:10px;font-size:13.5px;color:var(--ink-3);line-height:1.6;max-width:68ch}
+  .tm-cap{margin-top:8px;font-size:14px;color:var(--ink-3);line-height:1.6;max-width:68ch}
 
   .tm-ph{aspect-ratio:var(--tm-w)/var(--tm-h);border:1px dashed rgba(184,106,220,.3);
     border-radius:3px;background:var(--wall);display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center}
-  .tm-ph-k{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+  .tm-ph-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--glow-ink)}
-  .tm-ph-f{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
-  .tm-ph-a{font-size:13.5px;color:var(--ink-3);max-width:44ch;line-height:1.55}
+  .tm-ph-f{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  .tm-ph-a{font-size:14px;color:var(--ink-3);max-width:44ch;line-height:1.5}
 
   /* ── Plans table ── */
-  .tut-tablewrap{overflow-x:auto;margin-top:22px;-webkit-overflow-scrolling:touch}
-  .tut-table{border-collapse:collapse;width:100%;min-width:460px;font-size:14.5px}
-  .tut-table th,.tut-table td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--hair)}
-  .tut-table thead th{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.14em;
+  .tut-tablewrap{overflow-x:auto;margin-top:24px;-webkit-overflow-scrolling:touch}
+  .tut-table{border-collapse:collapse;width:100%;min-width:460px;font-size:14px}
+  .tut-table th,.tut-table td{padding:12px 12px;text-align:left;border-bottom:1px solid var(--hair)}
+  .tut-table thead th{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-3)}
   .tut-table tbody th{font-weight:500;color:var(--ink-2)}
   .tut-table td{font-family:var(--mono);color:var(--ink)}
   .tut-table tr td:last-child{color:var(--glow-ink)}
 
   /* ── FAQ (same primitives as the landing page) ── */
-  .faq-list{max-width:780px;margin:26px 0 0;border-top:1px solid var(--hair)}
+  .faq-list{max-width:780px;margin:24px 0 0;border-top:1px solid var(--hair)}
   .faq-item{border-bottom:1px solid var(--hair)}
   .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
-    padding:19px 2px;font-size:16px;font-weight:600;letter-spacing:-.01em;
+    padding:16px 4px;font-size:16px;font-weight:600;letter-spacing:-.01em;
     -webkit-tap-highlight-color:transparent;transition:color .16s}
   .faq-item summary::-webkit-details-marker{display:none}
   .faq-item summary:hover{color:var(--glow-ink)}
   .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:15px;color:var(--ink-3);transition:transform .25s,color .25s}
+  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform .25s,color .25s}
   .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
   /* overflow-wrap, because the answers quote real URLs — a full Twitch VOD
      link is 317px of text with no break opportunity in it, which is wider
      than the column on a 360px phone and pushed the whole page sideways. */
-  .faq-a{padding:0 2px 20px;font-size:14.5px;color:var(--ink-2);line-height:1.72;
+  .faq-a{padding:0 4px 16px;font-size:14px;color:var(--ink-2);line-height:1.7;
     max-width:70ch;overflow-wrap:anywhere}
   .faq-a b{color:var(--ink);font-weight:600}
   .faq-a a{color:var(--glow-ink);border-bottom:1px solid rgba(184,106,220,.4)}
 
   /* ── Closing ── */
-  .tut-cta{position:relative;text-align:center;padding:60px 0 30px;border-top:1px solid var(--hair);margin-top:34px}
+  .tut-cta{position:relative;text-align:center;padding:64px 0 32px;border-top:1px solid var(--hair);margin-top:32px}
   .tut-cta h2{font-family:'Lobster',Georgia,serif;font-weight:400;
-    font-size:clamp(30px,4.6vw,46px);line-height:1.08;margin-bottom:16px}
-  .tut-cta p{font-size:16.5px;color:var(--ink-2);max-width:520px;margin:0 auto 26px;line-height:1.6}
-  .tut-support{max-width:640px;margin:34px auto 0;padding-top:22px;border-top:1px solid var(--hair);
-    font-size:14.5px;color:var(--ink-2);line-height:1.7}
-  .tut-support h3{font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;
+    font-size:clamp(30px,4.6vw,46px);line-height:1.1;margin-bottom:16px}
+  .tut-cta p{font-size:16px;color:var(--ink-2);max-width:520px;margin:0 auto 24px;line-height:1.6}
+  .tut-support{max-width:640px;margin:32px auto 0;padding-top:24px;border-top:1px solid var(--hair);
+    font-size:14px;color:var(--ink-2);line-height:1.7}
+  .tut-support h3{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
   .tut-support a{color:var(--glow-ink);border-bottom:1px solid rgba(184,106,220,.4)}
   .tut-support b{color:var(--ink);font-weight:600}
 
-  .footer{border-top:1px solid var(--hair);padding:34px 26px;text-align:center;
+  .footer{border-top:1px solid var(--hair);padding:32px 24px;text-align:center;
     font-size:12px;color:var(--ink-3);line-height:1.8}
   .footer a{color:var(--ink-3);border-bottom:1px solid transparent}
   .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
-  .footer .fl{margin-bottom:6px}
+  .footer .fl{margin-bottom:4px}
 
   /* ── Lightbox ── */
   .lb{border:none;padding:0;background:transparent;max-width:96vw;max-height:96vh}
   .lb::backdrop{background:rgba(8,6,10,.9)}
   .lb img{display:block;max-width:96vw;max-height:88vh;width:auto;height:auto;border-radius:3px}
-  .lb-x{position:absolute;top:-40px;right:0;font-family:var(--mono);font-size:11px;
+  .lb-x{position:absolute;top:-40px;right:0;font-family:var(--mono);font-size:12px;
     letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);cursor:pointer;
-    background:transparent;border:1px solid var(--hair);border-radius:2px;padding:7px 12px}
+    background:transparent;border:1px solid var(--hair);border-radius:2px;padding:8px 12px}
   .lb-x:hover{color:var(--ink);border-color:var(--ink-3)}
   .lb-wrap{position:relative}
 
   /* ── Desktop: sticky scroll-spy rail ── */
   @media(min-width:960px){
-    .tut-grid{display:grid;grid-template-columns:212px 1fr;gap:56px;align-items:start}
-    .tut-toc{display:block;position:sticky;top:86px;padding-bottom:40px}
+    .tut-grid{display:grid;grid-template-columns:212px 1fr;gap:48px;align-items:start}
+    .tut-toc{display:block;position:sticky;top:86px;padding-bottom:32px}
     .tut-toc-m{display:none}
-    .tut-toc-k{font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;
-      text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
+    .tut-toc-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
+      text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
     .tut-toc ol{list-style:none}
-    .tut-toc a{display:block;padding:7px 0 7px 14px;font-size:13.5px;color:var(--ink-3);
+    .tut-toc a{display:block;padding:8px 0 8px 12px;font-size:14px;color:var(--ink-3);
       border-left:1px solid var(--hair);transition:color .16s,border-color .16s}
     .tut-toc a:hover{color:var(--ink-2)}
     .tut-toc a.on{color:var(--glow-ink);border-left-color:var(--flare)}
@@ -407,7 +407,7 @@ _CSS = """
   }
   @media(max-width:700px){
     .nav-logo span{display:none}
-    .tut-hero{padding:34px 0 22px}
+    .tut-hero{padding:32px 0 24px}
   }
   @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
@@ -616,7 +616,7 @@ def render() -> str:
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-key" style="padding:10px 18px;font-size:13.5px">Get started</a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
   </div>
 </nav>
 
