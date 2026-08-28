@@ -51,6 +51,8 @@ PLAN RESOLUTION (get_plan) — the ordering matters and each rule is load-bearin
      why it is checked last and requires status == 'active'.
 """
 
+import time
+
 FREE_PLAN = "free"
 LEGACY_PAID_PLAN = "pro"      # what a pre-tiers subscriber is grandfathered to
 
@@ -214,6 +216,12 @@ def funnel_stage(user: dict | None) -> str:
     if user.get("is_admin") or user.get("is_labeler"):
         return "staff"
     status = user.get("subscription_status") or "none"
+    if status == "trialing" and trial_expired(user):
+        # A finished trial is not a trial in flight. Left as "trialing" it
+        # inflates the trialing count in the funnel with people who are no
+        # longer converting, and hides them from the lapsed bucket where the
+        # follow-up actually belongs.
+        status = "expired"
     if status == "trialing":
         return "trialing"
     if status == "active":
@@ -235,6 +243,36 @@ def funnel_stage(user: dict | None) -> str:
     return "signed_up"
 
 
+def trial_expired(user: dict | None, now: float | None = None) -> bool:
+    """Has this user's trial run out?
+
+    THE ONE PLACE THAT DECIDES. This condition used to live only inside the
+    dashboard auth middleware, which runs on the REQUESTING user — so it only
+    ever fired when the trialing user themselves made a request. Somebody whose
+    trial ended and who never came back was exactly the person it never ran
+    for, and their stored status stayed `trialing` indefinitely: the admin table
+    read "Trial ends" against a date already in the past, and get_plan below
+    still resolved them to pro.
+
+    `trial_ends_at > 0` IS LOAD-BEARING, not a tidy-up — the same trap the
+    middleware documents. `_ends_at` is 0 for "we do not know when this ends",
+    and a bare `ends_at < now` reads 0 as "expired in 1970", so it would expire
+    every trial with no stored end date. That shape is not hypothetical: a
+    card-up-front Stripe trial whose webhook has not landed yet, or landed
+    without a trial_end, has exactly it. Expiring those would revoke a customer
+    at the instant they paid.
+
+    Failing open is right here regardless. A trialing status with no end date
+    means we do not know when it ends; Stripe does, and it holds their card.
+    """
+    if not user or user.get("subscription_status") != "trialing":
+        return False
+    ends_at = float(user.get("trial_ends_at") or 0)
+    if ends_at <= 0:
+        return False
+    return (time.time() if now is None else now) >= ends_at
+
+
 def get_plan(user: dict | None) -> str:
     """Resolve the effective plan for a user dict (public or full)."""
     if not user:
@@ -249,6 +287,13 @@ def get_plan(user: dict | None) -> str:
         return "pro"
 
     status = user.get("subscription_status")
+    if status == "trialing" and trial_expired(user):
+        # The trial is over. Before this line the answer here was "pro" until
+        # the user next made a request and the middleware rewrote their stored
+        # status — so anything that reads limits WITHOUT them making a request
+        # (the admin table, the background per-plan caps) kept treating a
+        # finished trial as Pro.
+        status = "expired"
     if status == "trialing":
         # A trial granted with an explicit tier honours it, so an admin can comp
         # someone Starter for a month. Without one it stays Pro — that is the

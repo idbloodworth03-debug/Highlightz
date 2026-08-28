@@ -52,6 +52,7 @@ except ImportError:
 from config.settings import settings
 from src.dashboard import undo
 from src.trigger import dismissed_suggestions as _dismissed
+from src.billing import plans as _plans
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
@@ -183,8 +184,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 # ends; Stripe does, and it has their card. Letting them work
                 # until Stripe says otherwise costs at most a few days of
                 # product. Guessing "expired" costs a customer.
-                if status == "trialing" and trial_ends_at > 0 \
-                        and time.time() >= trial_ends_at:
+                # The condition itself now lives in plans.trial_expired, so
+                # this and every reader that does NOT run on the user's own
+                # request (the admin table, get_plan, funnel_stage) reach the
+                # same verdict. Two copies is how the admin page came to show
+                # "Trial ends" against a date already past.
+                if _plans.trial_expired(db_user):
                     status = "expired"
                     # Persist the transition once so the DB reflects reality
                     # (accurate admin stats; trial ledger already blocks re-grants).
@@ -4688,6 +4693,14 @@ async def admin_list_users(request: Request):
         # Where the email came from, so the panel can say. A billing address is
         # one somebody typed to receive receipts; a Twitch account address may
         # be years old and unread. Worth telling apart before you rely on it.
+        # THE EFFECTIVE STATUS, not the stored one. The stored field only
+        # becomes "expired" when the user themselves makes a request — and
+        # somebody whose trial ran out and who never came back is exactly the
+        # person that never happens for. Reading it raw is why a finished trial
+        # showed as "Trial ends <a date last week>". Not written back here: a
+        # GET must not mutate, and the middleware persists it on their return.
+        if _plans.trial_expired(u):
+            u["subscription_status"] = "expired"
         u["email_source"] = u.get("email_source", "") if u.get("email") else ""
         # Two different questions, so two fields.
         #
@@ -9797,7 +9810,19 @@ function planNote(u){
   if(u.is_admin) return ['Staff — comped', ''];
   if(u.is_labeler) return ['Trainer — comped', ''];
   const st = u.subscription_status;
-  if(st === 'trialing') return ['Trial' + (u.trial_ends_at ? ' ends ' + fmt(u.trial_ends_at) : ''), 'trial'];
+  // Past tense once the date is behind us. The backend now sends 'expired'
+  // for a finished trial, so this branch is normally only reached by a live
+  // one — but a row rendered from a cached payload, or a trial that ends
+  // between the fetch and the paint, must not claim a past date is upcoming.
+  if(st === 'trialing'){
+    if(u.trial_ends_at && u.trial_ends_at * 1000 <= Date.now())
+      return ['Trial ended ' + fmt(u.trial_ends_at), 'lapsed'];
+    return ['Trial' + (u.trial_ends_at ? ' ends ' + fmt(u.trial_ends_at) : ''), 'trial'];
+  }
+  // A trial that ran out. Distinct from a cancelled subscription: nobody
+  // decided to leave, the clock did, and the follow-up is different.
+  if(st === 'expired') return [u.trial_ends_at ? 'Trial ended ' + fmt(u.trial_ends_at)
+                                               : 'Trial ended', 'lapsed'];
   // A comped tier and a paid one look identical without this — and they are
   // the two you most need to tell apart when reading the table.
   if(st === 'active') return u.plan_source === 'granted'
@@ -9828,7 +9853,13 @@ function userState(u){
   const st = u.subscription_status;
   if(st === 'trialing') return 'trialing';
   if(st === 'active') return 'active';
-  if(st === 'inactive' || st === 'canceled') return 'lapsed';
+  // A trial that ran out belongs with the churn, not with fresh signups.
+  // 'expired' used to fall through to 'none' — the bucket meaning "brand new,
+  // never subscribed" — so a finished trial sat in the default Active view and
+  // never appeared under Lapsed, which is the one list you would go looking
+  // for them in. They still keep free access; this is about which story the
+  // row tells, and theirs is "started paying attention, then stopped".
+  if(st === 'inactive' || st === 'canceled' || st === 'expired') return 'lapsed';
   return 'none';
 }
 
