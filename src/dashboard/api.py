@@ -6441,7 +6441,21 @@ LANDING_HTML = """<!DOCTYPE html>
     display:flex;flex-direction:column;justify-content:center;align-items:center;
     padding:clamp(72px,12vh,140px) clamp(16px,4vw,72px);
     position:relative;overflow:hidden}
-  .cover-in{display:flex;flex-direction:column;align-items:center;
+  /* The seam. Pitch black meeting the site's plum-black in a hard cut is what
+     made the two screens read as two different websites -- the slide swept
+     straight through an edge between two worlds. So the site's own light
+     leaks up onto the bottom of the cover: its base tone (the rgba is
+     --bone #17131C) blending in, and the same purple every seam wash on the
+     page uses, rising from below the fold. The cover becomes the same room
+     with the lights off, and the cue's line points down into the glow. */
+  .cover::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:0;
+    height:clamp(200px,32vh,340px);pointer-events:none;
+    background:
+      radial-gradient(110% 100% at 50% 100%,rgba(184,106,220,.14),transparent 64%),
+      linear-gradient(180deg,rgba(23,19,28,0),rgba(23,19,28,.72))}
+  /* Content and cue above the leak -- the light is behind them, not on them. */
+  .cover-in{position:relative;z-index:1;
+    display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:clamp(32px,7vh,80px);
     width:100%;max-width:1140px;margin:0 auto}
   .cover-mark{display:flex;flex-direction:column;align-items:center;
@@ -6456,7 +6470,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .cover .stats{width:100%}
   /* The only instruction on the screen, so it is small and it is the only
      thing moving. */
-  .cover-cue{position:absolute;left:0;right:0;bottom:clamp(20px,3.5vh,36px);
+  .cover-cue{position:absolute;left:0;right:0;bottom:clamp(20px,3.5vh,36px);z-index:1;
     display:flex;flex-direction:column;align-items:center;gap:var(--s-3);
     font-family:var(--mono);font-size:11px;letter-spacing:.22em;
     text-transform:uppercase;color:var(--ink-3);pointer-events:none}

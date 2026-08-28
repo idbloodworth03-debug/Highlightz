@@ -576,3 +576,21 @@ def test_a_slide_cannot_swallow_input_forever():
     on a clock, or the page stops responding to the wheel entirely."""
     s = _slides()
     assert "Date.now() - t0 > 1400" in s, "no ceiling on the sliding lock"
+
+
+def test_the_cover_and_the_site_share_their_light():
+    """The cover stayed pitch black while the site is a purple-lit plum-black,
+    and the hard cut between the two at the seam read as two different
+    websites. The site's light leaks up onto the bottom of the cover instead:
+    its base tone (--bone, rgba 23,19,28) and the same purple every seam wash
+    uses (184,106,220). The cover base itself stays #000 — the leak is a
+    pseudo-element, so pitch black at the top is untouched."""
+    seam = re.search(r"\.cover::after\{([^}]*)\}", HTML).group(1)
+    assert "rgba(23,19,28" in seam, "the seam no longer blends into the site's base"
+    assert "rgba(184,106,220" in seam, "the seam lost the site's purple"
+    assert "pointer-events:none" in seam, "the seam can swallow clicks"
+    cov = re.search(r"\n  \.cover\{([^}]*)\}", HTML).group(1)
+    assert "background:#000" in cov, "the cover base is no longer pitch black"
+    # the lockup and the cue sit above the leak, not under it
+    assert "z-index:1" in re.search(r"\.cover-in\{([^}]*)\}", HTML).group(1)
+    assert "z-index:1" in re.search(r"\.cover-cue\{([^}]*)\}", HTML).group(1)
