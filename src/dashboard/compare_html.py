@@ -177,6 +177,48 @@ def _faq() -> str:
     return "".join(items)
 
 
+def _comparison_schema() -> str:
+    """ItemList of the three products, generated from compare_content.
+
+    THE HONEST TYPE FOR THIS PAGE. There is no "comparison" schema, and dressing
+    the page up as a Review or an AggregateRating would be asserting a rating
+    nobody gave. An ItemList of SoftwareApplication says exactly what the page
+    is: three named products with their prices, in a stated order.
+
+    OUR OWN OFFERS ARE DERIVED from PLAN_LIMITS via compare_content; the
+    competitor prices are the hand-checked figures shown on the page with their
+    CHECKED_ON date, so the markup can never claim to be fresher than the page.
+    """
+    import json
+    items = []
+    for i, prod in enumerate(C.PRODUCTS, start=1):
+        offers = [{
+            "@type": "Offer",
+            "name": pl.name,
+            "price": "".join(ch for ch in pl.price if ch.isdigit() or ch == ".") or "0",
+            "priceCurrency": "USD",
+            "description": pl.note,
+        } for pl in prod.plans]
+        items.append({
+            "@type": "ListItem",
+            "position": i,
+            "item": {
+                "@type": "SoftwareApplication",
+                "name": prod.name,
+                "applicationCategory": "MultimediaApplication",
+                "operatingSystem": "Web",
+                "description": prod.tagline,
+                "offers": offers,
+            },
+        })
+    data = {"@context": "https://schema.org", "@type": "ItemList",
+            "name": "Highlightz compared with Opus Clip and Eklipse",
+            "itemListOrder": "https://schema.org/ItemListUnordered",
+            "numberOfItems": len(items), "itemListElement": items}
+    return ('<script type="application/ld+json">'
+            + json.dumps(data, ensure_ascii=False) + "</script>")
+
+
 def render() -> str:
     caveat = ""
     if not C.PRICES_CONFIRMED:
@@ -214,6 +256,7 @@ def render() -> str:
 <meta name="twitter:title" content=\"""" + escape(_TITLE) + """\">
 <meta name="twitter:description" content=\"""" + escape(_DESC) + """\">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v2.png">
+""" + _comparison_schema() + """
 <style>""" + _CSS + """</style>
 </head>
 <body>

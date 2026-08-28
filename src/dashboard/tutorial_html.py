@@ -523,6 +523,47 @@ _DESC = ("Step-by-step guide to Highlightz: connect Twitch, monitor a live chann
          "Free to start — no card, no time limit.")
 
 
+def _howto_schema() -> str:
+    """HowTo structured data, generated from the real QUICKSTART steps.
+
+    WHY THIS PAGE AND THIS TYPE. The tutorial is literally a numbered
+    walkthrough with named UI labels, which is exactly what HowTo describes.
+    Search engines can show the steps directly, and a language model reading
+    the page gets the procedure as data instead of having to infer it from
+    prose — which is the difference between being summarised correctly and
+    being summarised from the marketing copy.
+
+    GENERATED, NEVER TYPED. Every step here is the same string the page
+    renders. A hand-written copy would drift the first time a button is
+    renamed, and structured data that disagrees with the visible page is worse
+    than none: it is what search engines treat as deceptive markup.
+    """
+    import json
+    steps = []
+    for i, sec in enumerate(C.QUICKSTART, start=1):
+        # The bold **labels** are real UI text; strip the markers for the
+        # schema, which is read by machines rather than rendered.
+        text = " ".join(st.replace("**", "") for st in sec.steps) or sec.body
+        steps.append({
+            "@type": "HowToStep",
+            "position": i,
+            "name": sec.title,
+            "text": text,
+            "url": "https://highlightz.app/tutorial#" + sec.id,
+        })
+    data = {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        "name": _TITLE,
+        "description": _DESC,
+        "totalTime": "PT5M",
+        "supply": [], "tool": [],
+        "step": steps,
+    }
+    return ('<script type="application/ld+json">'
+            + json.dumps(data, ensure_ascii=False) + "</script>")
+
+
 def render() -> str:
     toc = _toc_entries()
     toc_links = "".join('<li><a href="#' + i + '" data-spy="' + i + '">'
@@ -556,6 +597,7 @@ def render() -> str:
 <meta name="twitter:title" content=\"""" + escape(_TITLE) + """\">
 <meta name="twitter:description" content=\"""" + escape(_DESC) + """\">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v2.png">
+""" + _howto_schema() + """
 <style>""" + _CSS + """</style>
 </head>
 <body>

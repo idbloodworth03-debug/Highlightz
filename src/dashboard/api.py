@@ -69,7 +69,10 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
                   "/landing/showcase", "/robots.txt", "/sitemap.xml", "/tutorial",
-                  "/compare"}
+                  # A crawler-facing file behind a login is a crawler-facing
+                  # file that does not exist. robots.txt and sitemap.xml are
+                  # here for the same reason.
+                  "/compare", "/llms.txt"}
 # Short referral links. Open, because the whole point is that a signed-out
 # stranger clicks them — if the auth middleware bounced them to /login first,
 # the ref would be gone before any handler saw it.
@@ -5523,8 +5526,101 @@ async def robots_txt():
         "Disallow: /profiles\n"
         "Disallow: /vod\n"
         "Disallow: /me\n"
+        # Personal invite and referral links. Nothing secret behind them, but
+        # they are one-to-one links meant for the person they were sent to;
+        # indexing them puts somebody's referral code in search results.
+        "Disallow: /i/\n"
+        "Disallow: /r/\n"
         "Sitemap: https://highlightz.app/sitemap.xml\n"
     )
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+async def llms_txt():
+    """What this product is, in the format a language model reads best.
+
+    WHY IT EXISTS. A model answering "what should I use to clip my Twitch
+    stream automatically" reads pages, not marketing. HTML makes it infer the
+    product from nav, CSS and copy written to persuade a human; a short
+    markdown brief states the same facts plainly and links the pages worth
+    reading. This is the /llms.txt convention (llmstxt.org) — a growing number
+    of crawlers look for it, and the ones that do not lose nothing.
+
+    EVERY NUMBER IS DERIVED. Same rule as every other surface in this codebase:
+    the plan limits come from PLAN_LIMITS, so this cannot start advertising
+    figures the product stopped offering. That failure has already happened
+    twice here, on the pricing page and on /compare.
+
+    NOTHING HERE IS NON-PUBLIC. It is the landing page's own claims in plainer
+    words — no internals, no counts of real users, no channel names.
+    """
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def keeps(p: dict) -> str:
+        n = p["max_library_week"]
+        return "unlimited clips kept" if n >= UNLIMITED_PENDING else f"{n} clips kept a week"
+
+    return f"""# Highlightz
+
+> Highlightz watches live Twitch streams and creates the clip itself, the
+> moment something happens. It is not an editor you upload footage to: it
+> monitors the live broadcast, scores the moment, and calls Twitch's official
+> Clips API on your behalf.
+
+## What it does
+
+- Monitors live Twitch channels continuously and clips automatically, with no
+  one watching the stream.
+- Scores each moment from public signals: chat message velocity, hype keywords
+  in many languages, chat sentiment, emote spam, and stream audio level.
+- Creates real Twitch clips through the official Clips API using your own
+  authorised Twitch account. It never records, downloads, re-hosts or stores
+  stream video.
+- Surfaces moments the score missed, by watching for unusual spikes in audience
+  clipping activity on the channels you monitor.
+- Puts every clip in a review queue first. Nothing is published automatically.
+- Scans finished broadcasts (VODs) for highlights on the Pro plan.
+
+## Who it is for
+
+Streamers who want their own highlights clipped while they play, and clippers
+and editors who follow several channels at once and cannot watch them all.
+
+## Plans
+
+- Free — $0, no card, no time limit. {f['max_streams']} channel monitored,
+  {f['max_pending']}-clip review queue, {keeps(f)}.
+- Starter — ${st['price']}/month. {st['max_streams']} channels at once,
+  {st['max_pending']}-clip queue, {keeps(st)}.
+- Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
+  {pro['max_pending']}-clip queue, {keeps(pro)}, plus the VOD Scanner.
+
+## How it differs from upload-based clippers
+
+Tools like Opus Clip and Eklipse take a finished video and cut it up
+afterwards. Highlightz watches the stream live and clips as it happens, so a
+moment is captured while it is still on air. Because clips are made through
+Twitch's own API, they live on Twitch under the streamer's account rather than
+being re-hosted elsewhere.
+
+## Pages
+
+- [Home](https://highlightz.app/): what it does, pricing, FAQ.
+- [Tutorial](https://highlightz.app/tutorial): step-by-step setup and how each
+  screen works.
+- [Comparison](https://highlightz.app/compare): Highlightz vs Opus Clip vs
+  Eklipse on price and features.
+- [Terms of Service](https://highlightz.app/tos)
+- [Privacy Policy](https://highlightz.app/privacy)
+- [Broadcaster opt-out](https://highlightz.app/opt-out): any Twitch streamer
+  can remove their channel from the service here.
+
+## Notes
+
+- Kick support is not live yet.
+- Highlightz is operated by ANTI Technology LLC.
+"""
 
 
 @app.get("/sitemap.xml")
@@ -5564,6 +5660,16 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
         raise HTTPException(status_code=400, detail="Only approved clips can be featured")
     if clip.get("platform") != "twitch" or not clip.get("twitch_url"):
         raise HTTPException(status_code=400, detail="Only Twitch clips can be featured")
+    # The landing hero plays featured clips in an iframe, and an age-gated clip
+    # cannot play in one — Twitch has no way to confirm a viewer's age inside a
+    # third-party frame. Featuring one puts a dead black player on the marketing
+    # page, which is the first thing a visitor sees. The dashboard routes these
+    # to Twitch instead; the landing page has no signed-in viewer to route.
+    if clip.get("age_restricted"):
+        raise HTTPException(
+            status_code=400,
+            detail="This clip is age-restricted on Twitch, so it cannot play in "
+                   "the landing page player. Feature a different one.")
     if len(items) >= _SHOWCASE_MAX:
         # Refuse rather than silently evicting the oldest — the admin screen
         # shows the cap, and a surprise drop off the landing page is worse
