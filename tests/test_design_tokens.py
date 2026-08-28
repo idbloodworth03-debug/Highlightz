@@ -361,3 +361,78 @@ def test_the_ambient_hot_glow_is_gone():
     c = css("landing")
     assert not re.search(r"\.tile\.hot\{[^}]*box-shadow", c), "the ambient glow is back"
     assert re.search(r"\.tile\.fire\{[^}]*box-shadow", c), "the fire lost its glow"
+
+
+# ── phase 3: landing page rhythm ─────────────────────────────────────────────
+
+def test_every_section_boundary_is_the_same():
+    """The sequence used to be 112 / 112 / 96 / 80, and the two 112s read as
+    hesitations in the scroll. Each section contributes the same half-gap, so
+    every boundary between two sections is exactly --s-9."""
+    c = css("landing")
+    m = re.search(r"section\{padding-top:var\(--s-(\d+)\);padding-bottom:var\(--s-(\d+)\)\}", c)
+    assert m, "the section rule is no longer written in tokens"
+    assert m.group(1) == m.group(2), "sections are asymmetric again"
+
+
+def test_section_emphasis_moved_inside_rather_than_disappearing():
+    """The prior design deliberately gave the argument and the decision more
+    room than the reference material, and that judgement is worth keeping. It
+    just cannot be paid for out of the boundaries."""
+    c = css("landing").replace("\n", "").replace("  ", "")
+    gaps = dict(re.findall(r"#(how|pricing|faq) \.sec-title\{margin-bottom:var\(--s-(\d+)\)", c))
+    assert set(gaps) == {"how", "pricing", "faq"}
+    assert int(gaps["how"]) > int(gaps["faq"]), \
+        "the argument no longer gets more room than the reference material"
+
+
+def test_no_prose_runs_past_the_readable_band():
+    """Fourteen blocks ran over 75 characters, the worst at 144. Every one was
+    a width problem — not a word of copy changed."""
+    c = css("landing")
+    assert "--measure:52ch" in c.replace(" ", ""), "the measure token moved"
+    for sel in (".faq-a", ".faq-more", ".price-tiny", ".price-lead", ".feat p", ".feat-wide p"):
+        rule = re.search(re.escape(sel) + r"\{([^}]*)\}", c)
+        assert rule and "var(--measure)" in rule.group(1), f"{sel} lost its measure"
+
+
+def test_the_measure_is_calibrated_to_real_characters_not_to_ch():
+    """`ch` is the width of the digit zero, which in Sora is 9.17px at 14px
+    against an average character of 6.9px. The plan's 68ch therefore allowed 90
+    characters — thirteen blocks stayed too wide while appearing to be capped.
+    52ch is the value that actually lands inside the band."""
+    c = css("landing").replace(" ", "")
+    val = int(re.search(r"--measure:(\d+)ch", c).group(1))
+    assert 46 <= val <= 58, f"--measure is {val}ch; outside the calibrated range"
+
+
+def test_the_pricing_ladder_survived_but_the_buttons_share_a_baseline():
+    """Width, radius, price size, border and glow all still step up — the plans
+    are not equal. Only the bottom padding is shared, because three buttons
+    that miss a common baseline by 8px read as misaligned, not as deliberate."""
+    c = css("landing")
+    bots = []
+    for t in ("a", "b", "c"):
+        rule = re.search(r"\.ptier-" + t + r"\{([^}]*)\}", c).group(1)
+        # The LAST token of the shorthand is the bottom edge. A non-greedy match
+        # from the start of `padding:` returns the TOP one, which is exactly the
+        # value that is still allowed to differ — so that version of this test
+        # passed and failed for reasons unrelated to what it is checking.
+        shorthand = re.search(r"padding:([^;}]+)", rule).group(1).strip()
+        bots.append(shorthand.split()[-1])
+    assert len(set(bots)) == 1, f"the CTA baseline is broken again: {bots}"
+    radii = [re.search(r"border-radius:(\d+px)", re.search(r"\.ptier-" + t + r"\{([^}]*)\}", c).group(1)).group(1)
+             for t in ("a", "b", "c")]
+    assert len(set(radii)) == 3, "the ladder was flattened; the plans are not equal"
+
+
+def test_the_dead_faq_stylesheet_is_gone():
+    """A complete second FAQ stylesheet for markup that does not exist. Three of
+    its rules used selectors the LIVE FAQ also uses and, being later in the
+    sheet, won — so dead CSS was overriding live CSS and .faq-a ignored the
+    measure no matter what the real rule said."""
+    c = css("landing")
+    assert ".faq-list{" not in c, "the dead FAQ block is back"
+    assert c.count(".faq-a{") == 1, "there are two .faq-a rules again"
+    from src.dashboard.api import LANDING_HTML
+    assert 'class="faq-cols"' in LANDING_HTML, "the live FAQ markup changed"

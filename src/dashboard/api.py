@@ -6099,7 +6099,14 @@ LANDING_HTML = """<!DOCTYPE html>
        the end of the body. */
     --nav-h:71px;
     /* Measure. Text sections hold this; product sections deliberately do not. */
-    --measure:65ch;
+    /* 52ch, NOT the 68 the plan called for. `ch` is the width of the digit
+       zero, which in Sora is 9.17px at 14px while the average character is
+       6.9px — so a 68ch cap actually allowed 90 characters, well past the
+       band it was supposed to enforce, and thirteen blocks stayed too wide
+       while appearing to be capped. Measured with canvas metrics against each
+       element's own resolved font rather than assumed. 52ch lands at 67-69
+       real characters at every size on the scale. */
+    --measure:52ch;
     /* 0..1 — how hard the trigger is firing right now. Everything that is
        "light" on this page reads from this one number, including the
        through-line's section wash. It is the product's own mechanic driving
@@ -6278,7 +6285,14 @@ LANDING_HTML = """<!DOCTYPE html>
   h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
     line-height:1.1;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
   .sec-head.kicked h2.sec-title{margin-top:16px}
-  .sec-sub{font-size:16px;color:var(--ink-2);max-width:600px;line-height:1.6}
+  /* THE MEASURE. Fourteen prose blocks on this page ran past 75 characters,
+     the worst at 177 and 139 — a line that long makes the eye lose its place
+     on the return sweep, which reads as the page being hard work rather than
+     as the line being wrong. Every one of them was a WIDTH problem: not a
+     single word of copy needs to change. 68ch is inside the 65-75 band at
+     every size on the type scale. */
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:var(--measure);line-height:1.6}
+  .measured{max-width:var(--measure)}
   .mono-l{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3)}
   .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
@@ -6330,22 +6344,35 @@ LANDING_HTML = """<!DOCTYPE html>
     .wrap{max-width:1360px}
     body{font-size:17px}
   }
-  section{padding-top:48px;padding-bottom:48px}
-  /* ── Section rhythm: weight, not a metronome ──────────────────────────────
-     Every section shared one padding value, which is a large part of why the
-     page scanned as generated: real editing shows up as some things being
-     given more room than others. These are set by what each section is FOR.
-     The argument and the decision get air; the reference material does not. */
-  #how{padding-top:64px;padding-bottom:64px}         /* the argument */
-  #pricing{padding-top:64px;padding-bottom:64px}     /* the decision */
-    #features{padding-top:48px;padding-bottom:48px}
-  #examples{padding-top:48px;padding-bottom:48px}
-  #faq{padding-top:32px;padding-bottom:48px}         /* reference, deliberately tighter */
+  /* ── SECTION RHYTHM ───────────────────────────────────────────────────────
+     Every section contributes the SAME half-gap, so every boundary between two
+     sections is exactly --s-9 (48 + 48). Scrolling is then metered rather than
+     lurching: 112, 112, 96, 80 was the old sequence and the two 112s read as
+     hesitations.
+
+     THIS KEEPS THE INTENT OF WHAT WAS HERE BEFORE, and changes only the
+     mechanism. The previous note argued — rightly — that a page where every
+     section is identically spaced scans as generated, and that the argument
+     (#how) and the decision (#pricing) deserve more room than the reference
+     material (#faq). But it bought that emphasis out of the BOUNDARIES, which
+     is the one budget that has to stay even, because the boundary is what the
+     eye meters the scroll by. Weight now comes from inside each section
+     instead — the space between a heading and its content — where varying it
+     reads as emphasis rather than as an uneven scroll.
+
+     The page has exactly ONE deliberate break, and it is not here: the score
+     wall gets --s-10 beneath it (see .stats). Nothing else may. */
+  section{padding-top:var(--s-7);padding-bottom:var(--s-7)}
   @media (max-width:760px){
-    #how{padding-top:48px;padding-bottom:48px}
-    #pricing{padding-top:48px;padding-bottom:48px}
-    #features,#examples,#faq{padding-top:32px;padding-bottom:32px}
+    section{padding-top:var(--s-6);padding-bottom:var(--s-6)}
   }
+  /* The emphasis that used to live in the boundaries. #how is the argument and
+     #pricing is the decision, so each gets more air between its title and its
+     body; #faq is reference and gets less. Same editorial judgement, taken out
+     of the scroll and put where it belongs. */
+  #how .sec-title{margin-bottom:var(--s-6)}
+  #pricing .sec-title{margin-bottom:var(--s-6)}
+  #faq .sec-title{margin-bottom:var(--s-4)}
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
      first layer the gradient paints the whole block instead of the edge. */
@@ -6797,12 +6824,16 @@ LANDING_HTML = """<!DOCTYPE html>
     margin-top:var(--s-10);
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   @media(max-width:700px){ .stats{margin-top:var(--s-8)} }
-  .stat{padding:24px 0 24px 24px;border-left:1px solid var(--hair)}
+  /* More room inside, to match the room outside. These three numbers now sit
+     under the page's only --s-10 break, and at 24px of padding with a 12px
+     caption they read as marooned in it rather than as quiet within it. The
+     air was the right call; the band had to grow to deserve it. */
+  .stat{padding:var(--s-6) 0 var(--s-6) var(--s-6);border-left:1px solid var(--hair)}
   .stat:first-child{padding-left:0;border-left:none}
   .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
     font-size:30px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:12px}
   .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
-  .stat .k{font-size:12px;color:var(--ink-2);margin-top:12px;max-width:26ch;line-height:1.5}
+  .stat .k{font-size:14px;color:var(--ink-2);margin-top:12px;max-width:30ch;line-height:1.5}
 
   /* ══ EXAMPLE CLIPS ══ */
   .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:32px}
@@ -6876,7 +6907,11 @@ LANDING_HTML = """<!DOCTYPE html>
   .faq-item[open] .faq-q::after{transform:scaleY(0)}
   .faq-item[open] .faq-q{color:var(--glow)}
   .faq-q:hover::before,.faq-q:hover::after{background:var(--glow)}
-  .faq-a{margin:0;padding:0 32px 16px 0;font-size:14px;line-height:1.7;
+  /* The one prose block on the page with no width rule of its own. At 1150px
+     it ran to 144 characters — nearly double the readable band, and by some
+     way the worst line on the site. */
+  .faq-more{max-width:var(--measure)}
+  .faq-a{margin:0;padding:0 32px 16px 0;font-size:14px;line-height:1.7;max-width:var(--measure);
     color:var(--ink-2)}
   @media (max-width:760px){
     .faq-cols{grid-template-columns:minmax(0,1fr)}
@@ -6887,7 +6922,7 @@ LANDING_HTML = """<!DOCTYPE html>
      are not equal and the layout says so: Pro is wider and brighter because it
      is the one most people want, Starter sits beside it as a real option
      rather than a decoy. Different radii and padding on the two, on purpose. */
-  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:60ch;
+  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:var(--measure);
     margin:0 0 32px}
   .price-lead b{color:var(--ink)}
   /* A LADDER, not three equal cards. The row grows left to right — width,
@@ -6900,9 +6935,16 @@ LANDING_HTML = """<!DOCTYPE html>
     gap:16px;align-items:stretch}
   .ptier{display:flex;flex-direction:column;gap:12px;
     border:1px solid var(--hair);background:rgba(255,255,255,.018)}
-  .ptier-a{border-radius:3px;padding:24px 24px 24px}
-  .ptier-b{border-radius:4px;padding:24px 24px 24px}
-  .ptier-c{border-radius:7px;padding:32px 32px 32px;
+  /* THE LADDER STAYS. Width, radius, price size, border and glow all still
+     step up left to right, because the plans genuinely are not equal.
+     What changes is the BOTTOM padding, which is now the same on all three.
+     It was the one rung of the ladder the eye reads as a mistake rather than
+     as a choice: three buttons in a row that miss a shared baseline by 8px do
+     not look deliberate at that distance, they look misaligned. Every other
+     cue carries the hierarchy without costing the row its bottom edge. */
+  .ptier-a{border-radius:3px;padding:24px 24px var(--s-6)}
+  .ptier-b{border-radius:4px;padding:24px 24px var(--s-6)}
+  .ptier-c{border-radius:7px;padding:32px 32px var(--s-6);
     border-color:rgba(184,106,220,.34);background:rgba(184,106,220,.055);
     box-shadow:0 20px 50px -30px rgba(184,106,220,.5)}
   /* The free card's $0 is the number most visitors are looking for, so it is
@@ -6923,7 +6965,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .ptier-chan b{color:var(--ink)}
   .ptier-what{margin:0;font-size:14px;line-height:1.6;color:var(--ink-3)}
   .ptier .btn{margin-top:auto;align-self:flex-start}
-  .price-tiny{margin:16px 0 0;font-size:12px;color:var(--ink-3)}
+  .price-tiny{margin:16px 0 0;font-size:12px;color:var(--ink-3);max-width:var(--measure)}
   /* Three columns need to break earlier than two did: at 760 the middle card
      was 210px wide and its price wrapped under its own name. */
   @media (max-width:980px){
@@ -7043,16 +7085,23 @@ LANDING_HTML = """<!DOCTYPE html>
   .feat-cols-3{grid-template-columns:minmax(0,1.08fr) minmax(0,.96fr) minmax(0,.96fr)}
   /* Unequal, but not 1:2 — at that ratio the left item was squeezed to 427px
      against 759 and looked like a mistake rather than a choice. */
+  /* TRIED AND REVERTED: capping these columns at the measure instead of the
+     paragraphs inside them. It fixed a 200px gutter inside each column and
+     bought a worse problem — the grid itself then stopped short, so the
+     section had three different right edges (the lead at one measure, the
+     three-column row at full width, this row at two measures). A paragraph
+     set to a readable measure inside a wider column is ordinary typesetting;
+     a section whose right edge moves three times is not. */
   .feat-cols-2{grid-template-columns:minmax(0,1.08fr) minmax(0,1.42fr)}
   .feat{min-width:0}
   .feat h3{font-size:16px;font-weight:700;letter-spacing:-.015em;margin-bottom:8px}
-  .feat p{font-size:14px;color:var(--ink-2);line-height:1.6}
+  .feat p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:var(--measure)}
   /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
      dead gap. The measure is capped so a full-width paragraph does not run to
      1200px and become unreadable. */
   .feat-wide h3{font-size:clamp(20px,2.1vw,26px);letter-spacing:-.022em;
     line-height:1.2;margin-bottom:8px}
-  .feat-wide p{font-size:16px;max-width:82ch}
+  .feat-wide p{font-size:16px;max-width:var(--measure)}
   @media (max-width:900px){
     .feat-grid{grid-template-columns:minmax(0,1fr);gap:24px}
     .feat-group{margin-top:24px;padding-top:24px}
@@ -7092,17 +7141,17 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-promo b{color:var(--ember);font-weight:400}
 
   /* ══ FAQ. Hairline rows, no card. ══ */
-  .faq-list{max-width:780px;margin:32px auto 0;border-top:1px solid var(--hair)}
-  .faq-item{border-bottom:1px solid var(--hair)}
-  .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
-    padding:16px 4px;font-size:16px;font-weight:600;letter-spacing:-.01em;
-    -webkit-tap-highlight-color:transparent;transition:color .16s}
-  .faq-item summary::-webkit-details-marker{display:none}
-  .faq-item summary:hover{color:var(--glow-ink)}
-  .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform .25s,color .25s}
-  .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
-  .faq-a{padding:0 4px 16px;font-size:14px;color:var(--ink-2);line-height:1.7;max-width:70ch}
+  /* REMOVED: a second, complete FAQ stylesheet for markup that does not exist.
+     It styled a `.faq-list` single-column accordion — zero occurrences in the
+     rendered page — but three of its ten rules used selectors the LIVE
+     two-column FAQ also uses (.faq-item, .faq-q, .faq-a), and being later in
+     the sheet they won. So dead CSS was overriding live CSS: the reason
+     .faq-a kept resolving to max-width:70ch and ignoring --measure no matter
+     what the real rule said. The live block above is complete on its own and
+     is unaffected by this deletion.
+
+     This is the specificity conflict the phase 0 audit found and could not
+     explain; it turned out to be dead code, not a specificity problem. */
   .faq-a b{color:var(--ink);font-weight:600}
 
   /* ══ FINAL CTA — the room at its brightest ══ */

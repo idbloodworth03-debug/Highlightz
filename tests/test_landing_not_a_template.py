@@ -185,11 +185,31 @@ def test_the_lead_claim_does_not_split_its_heading_away_from_its_text():
 
 # ── craft rules ──────────────────────────────────────────────────────────────
 
-def test_section_padding_is_not_one_value_everywhere():
-    """Uniformity everywhere is the visual signature of generated design."""
-    vals = set(re.findall(r"#(?:how|pricing|product|features|examples|faq)\{padding-top:(\d+)px",
-                          CSS.replace("\n", "").replace("  ", "")))
-    assert len(vals) >= 3, f"section padding takes only {len(vals)} value(s)"
+def test_sections_are_not_all_weighted_the_same():
+    """Uniformity everywhere is the visual signature of generated design — and
+    that is still the rule. What changed is WHERE the variation lives.
+
+    This used to require three different section PADDING values, which bought
+    emphasis out of the boundaries between sections. That is the one budget
+    that has to stay even: the boundary is what the eye meters the scroll by,
+    and paying for emphasis from it produced a 112/112/96/80 sequence in which
+    the two 112s read as hesitations. Every boundary is now exactly --s-9.
+
+    The editorial judgement it was protecting is intact and still asserted
+    below: the argument (#how) and the decision (#pricing) get more room than
+    the reference material (#faq). It is now taken from the space between a
+    section's title and its body, where varying it reads as emphasis rather
+    than as an uneven scroll."""
+    css = CSS.replace("\n", "").replace("  ", "")
+    gaps = dict(re.findall(r"#(how|pricing|faq) \.sec-title\{margin-bottom:var\(--s-(\d+)\)", css))
+    assert set(gaps) == {"how", "pricing", "faq"}, f"section weighting is gone: {gaps}"
+    assert len(set(gaps.values())) >= 2, \
+        f"every section is weighted identically again: {gaps}"
+    assert int(gaps["how"]) > int(gaps["faq"]), \
+        "the argument no longer gets more room than the reference material"
+    # And the boundaries themselves must stay even.
+    m = re.search(r"section\{padding-top:var\(--s-(\d+)\);padding-bottom:var\(--s-(\d+)\)\}", css)
+    assert m and m.group(1) == m.group(2), "section boundaries are uneven again"
 
 
 def test_there_is_no_blurred_glow_blob():

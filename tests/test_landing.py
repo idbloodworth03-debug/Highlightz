@@ -435,9 +435,19 @@ def test_landing_vertical_rhythm_stays_tight():
     import re
     css = api.LANDING_HTML
     block = css[css.index("section{"):css.index("}", css.index("section{"))]
-    pads = [int(v) for v in re.findall(r"padding-(?:top|bottom):(\d+)px", block)]
+    # Reads the TOKEN now, not a literal. The rule was rewritten onto --s-7 in
+    # the design pass; asserting on `\d+px` made this test check the mechanism
+    # rather than the outcome, and it went red on a change that made the seams
+    # tighter, not looser. What matters is unchanged: top and bottom are both
+    # set explicitly, and the resulting seam is not a dead band.
+    pads = re.findall(r"padding-(?:top|bottom):var\(--s-(\d+)\)", block)
     assert len(pads) == 2, "section should set top and bottom padding explicitly"
-    assert max(pads) <= 50, f"section padding crept back up: {pads}"
+    STEP = {"1": 4, "2": 8, "3": 12, "4": 16, "5": 24, "6": 32, "7": 48,
+            "8": 64, "9": 96, "10": 128}
+    px = [STEP[v] for v in pads]
+    assert max(px) <= 50, f"section padding crept back up: {px}"
+    # And the thing the 128px dead band actually was: a SEAM is two paddings.
+    assert sum(px) <= 96, f"the seam between two sections is {sum(px)}px"
 
 
 def test_the_body_is_not_a_scroll_container():
