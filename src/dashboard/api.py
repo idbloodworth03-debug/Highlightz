@@ -6202,6 +6202,10 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   /* The wall takes the height that is left; the caption takes what it needs.
      min-height:0 on both, or the grid row refuses to shrink below content. */
+  /* THE ONE RHYTHM BREAK ON THE PAGE. Every other section boundary is --s-9;
+     the wall gets --s-10 beneath it. That extra air is the entire mechanism by
+     which this reads as the subject of the page rather than as one more block
+     in the stack — nothing else is allowed to use it. */
   .hero-stack{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0}
   .band-dark,.panel,.tile,.stage,.exl-card{
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
@@ -6510,7 +6514,14 @@ LANDING_HTML = """<!DOCTYPE html>
     transition:opacity var(--t-enter) var(--ease) var(--d,0ms),
       transform var(--t-enter) var(--ease) var(--d,0ms)}
   /* Hot = climbing hard but still under. Fire = over the line. */
-  .tile.hot{box-shadow:0 0 0 1px rgba(184,106,220,.22),0 0 46px -30px rgba(184,106,220,.8)}
+  /* REMOVED: a soft purple glow around the whole tile whenever a channel came
+     within ten of its threshold. It earned its place when the threshold line
+     was an 18%-opacity dash and the trace was one flat colour — the glow was
+     the ONLY way to tell a tile was close. Now the line is a real datum and
+     the trace changes weight and colour the moment it crosses, both of which
+     say the same thing precisely instead of atmospherically. Two signals for
+     one state, and the vaguer one goes. .tile.fire keeps its glow: that marks
+     an event, not a proximity. */
   .tile.fire{box-shadow:0 0 0 1px rgba(210,106,251,.42),0 0 70px -22px rgba(210,106,251,.85)}
 
   .tile-top{display:flex;align-items:baseline;gap:8px;min-width:0}
@@ -6537,16 +6548,55 @@ LANDING_HTML = """<!DOCTYPE html>
      roughly 25 and 95, so a chart stretched to a 430px tile plotted a thin
      line across a large empty rectangle. Bounding it keeps the trace dense
      and gives the slack to the number, which is what people read. */
-  .tile-chart{position:relative;flex:0 1 auto;min-height:88px;max-height:210px;
-    height:clamp(96px,20vh,210px);margin-top:auto;
+  /* Taller. The chart is the only part of the tile that carries the argument —
+     the header names the channel, the readout gives the number, and both are
+     legible in a glance. The trace needs room for the threshold line to sit
+     clear of the top and bottom edges, or a crossing happens in the last few
+     pixels of the box and reads as the line being touched rather than passed. */
+  /* flex:1, NOT margin-top:auto. The chart used to be a fixed height pinned to
+     the bottom of the tile, so every pixel the tile had spare opened as a gap
+     between the readout and the top of the chart. Making the chart taller made
+     the gap SMALLER but did not close it; making the tile taller reopened it.
+     Letting the chart take the slack means the trace grows with the tile and
+     the readout stays where it belongs, directly above its own chart. */
+  .tile-chart{position:relative;flex:1 1 auto;min-height:112px;margin-top:12px;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   .tile-chart svg{display:block;width:100%;height:100%}
+  /* Deliberately quieter than it was: this is the below-threshold half, and
+     it has to sit back so the clipped bright copy above the line reads as an
+     event rather than as more of the same. */
   .tile-line{fill:none;stroke:var(--glow);stroke-width:1.5;stroke-linejoin:round;
     stroke-linecap:round;vector-effect:non-scaling-stroke;
     transition:stroke var(--t-move) var(--ease)}
   .tile.fire .tile-line{stroke:var(--flare)}
-  .tile-thline{stroke:rgba(242,234,247,.18);stroke-width:1;stroke-dasharray:3 6;
-    vector-effect:non-scaling-stroke}
+  /* THE DATUM. This was rgba(242,234,247,.18) in a 3/6 dash — the faintest
+     mark in the tile. It is the line the entire product is about: the whole
+     claim is that a channel is measured against ITS OWN number and you can
+     watch the score cross it. Drawn at 18% it read as chart furniture, so the
+     crossing had to be inferred from the numeral rather than seen. Now it is
+     the strongest hairline in the tile, and it is the accent colour rather
+     than ink because it belongs to the formula, not to the grid. */
+  .tile-thline{stroke:rgba(196,137,228,.55);stroke-width:1;stroke-dasharray:none;
+    vector-effect:non-scaling-stroke;transition:stroke var(--dur-slow) var(--ease)}
+  .tile.hot  .tile-thline{stroke:rgba(196,137,228,.8)}
+  .tile.fire .tile-thline{stroke:var(--flare)}
+  /* The reading, at the line rather than in the header. `thr 71` used to sit
+     in the top row about a hundred pixels above the mark it describes, so the
+     number and the line it names were two unrelated pieces of furniture. */
+  .tile-thmark{position:absolute;right:0;transform:translateY(-50%);
+    font-family:var(--mono);font-size:12px;letter-spacing:.1em;
+    color:var(--glow-ink);opacity:.75;pointer-events:none;
+    background:linear-gradient(90deg,transparent,var(--bone) 40%);padding-left:8px;
+    transition:opacity var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+  .tile.fire .tile-thmark{color:var(--flare);opacity:1}
+  /* THE CROSSING, DRAWN. The trace was one stroke for the whole nine-second
+     window, so the moment that matters looked identical to the moment before
+     it. This is the same path a second time, clipped to the region above the
+     channel's own threshold: below the line the trace is quiet, above it the
+     stroke is brighter and heavier. Nothing is animated to do this — it is
+     two paths and a clip rect, so it costs one extra draw per frame. */
+  .tile-line-over{fill:none;stroke:var(--flare);stroke-width:2.4;
+    stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
   .tile-head{fill:var(--glow);transition:fill var(--t-move) var(--ease)}
   .tile.fire .tile-head{fill:var(--flare)}
   /* The near-miss caption. It is the honest half of the demo, so it gets to
@@ -6603,7 +6653,12 @@ LANDING_HTML = """<!DOCTYPE html>
      is as wide as 16:9 allows OR the full width, whichever is smaller. If a
      browser does not understand cqh the whole declaration is dropped and the
      preceding width:100% stands. */
-  .stage-media{position:relative;min-height:0;background:#08060B;
+  /* overflow:hidden because .stage-wash below is scale(1.1) — a deliberate
+     bleed so the blurred fill reaches the edges of the letterbox bands. The
+     parent never clipped it, so the extra 10% simply escaped; at 375px that
+     put 1.2px of it past the viewport and gave the page a horizontal scroll.
+     A bleed that is not clipped is not a bleed, it is an overflow. */
+  .stage-media{position:relative;min-height:0;background:#08060B;overflow:hidden;
     container-type:size;display:grid;place-items:center}
   /* The wall is wide on a desktop and tall on a phone; a 16:9 clip leaves
      bands either way, and on a phone they are over half the stage. The same
@@ -6731,8 +6786,17 @@ LANDING_HTML = """<!DOCTYPE html>
      hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
   /* auto-flow, not fixed columns: the clip-count tile is hidden until there is
      a number to show, and a fixed template would leave its column empty. */
+  /* THE ONE RHYTHM BREAK ON THE PAGE, and it lives HERE rather than on the
+     wall itself. The first attempt put --s-10 as padding inside .hero-stack —
+     but the hero is min-height:100svh with the stack in a minmax(0,1fr) row,
+     so the padding came straight out of the wall: it lost 97px and dropped
+     from 8.1% of the page to less. Air below a fixed-height box has to be
+     added outside it, so it is the gap before the stats band instead. Every
+     other section boundary on the page is --s-9. */
   .stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
+    margin-top:var(--s-10);
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  @media(max-width:700px){ .stats{margin-top:var(--s-8)} }
   .stat{padding:24px 0 24px 24px;border-left:1px solid var(--hair)}
   .stat:first-child{padding-left:0;border-left:none}
   .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
@@ -7856,11 +7920,28 @@ LANDING_HTML = """<!DOCTYPE html>
       thl.setAttribute('x1','0'); thl.setAttribute('x2',String(VW));
       var ln=document.createElementNS('http://www.w3.org/2000/svg','path');
       ln.setAttribute('class','tile-line');
+      // THE ABOVE-THRESHOLD HALF. Same d, drawn again, clipped to everything
+      // above this channel's own line. Two paths and a rect rather than a
+      // stroke that changes colour part way along, because SVG has no way to
+      // vary a stroke by y and splitting the point list would put a seam at
+      // the crossing — the one place it must not be.
+      var defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+      var cp=document.createElementNS('http://www.w3.org/2000/svg','clipPath');
+      var cid='thclip'+i; cp.setAttribute('id',cid);
+      var crect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      crect.setAttribute('x','0'); crect.setAttribute('y','0');
+      crect.setAttribute('width',String(VW)); crect.setAttribute('height','0');
+      cp.appendChild(crect); defs.appendChild(cp);
+      var lnOver=document.createElementNS('http://www.w3.org/2000/svg','path');
+      lnOver.setAttribute('class','tile-line-over');
+      lnOver.setAttribute('clip-path','url(#'+cid+')');
       var hd=document.createElementNS('http://www.w3.org/2000/svg','circle');
       hd.setAttribute('class','tile-head'); hd.setAttribute('r','2.6');
-      svg.appendChild(thl); svg.appendChild(ln); svg.appendChild(hd);
+      svg.appendChild(defs); svg.appendChild(thl); svg.appendChild(ln);
+      svg.appendChild(lnOver); svg.appendChild(hd);
       var flag=document.createElement('span'); flag.className='tile-flag';
-      chart.appendChild(svg); chart.appendChild(flag);
+      var thmark=document.createElement('span'); thmark.className='tile-thmark';
+      chart.appendChild(svg); chart.appendChild(flag); chart.appendChild(thmark);
 
       var sigs=document.createElement('ul'); sigs.className='tile-sigs';
       var bars=[];
@@ -7875,6 +7956,7 @@ LANDING_HTML = """<!DOCTYPE html>
       t.appendChild(top); t.appendChild(read); t.appendChild(chart); t.appendChild(sigs);
       frag.appendChild(t);
       els.push({root:t,chT:chT,game:gm,score:sc,th:th,line:ln,head:hd,thl:thl,
+                lineOver:lnOver,clipRect:crect,thmark:thmark,
                 flag:flag,bars:bars,pts:[]});
     }
     wall.insertBefore(frag,stage);
@@ -7893,6 +7975,14 @@ LANDING_HTML = """<!DOCTYPE html>
       e.th.textContent='thr '+tl.thresh;
       var y=yFor(tl.thresh).toFixed(1);
       e.thl.setAttribute('y1',y); e.thl.setAttribute('y2',y);
+      // Everything above the line, in viewBox units, is what the bright copy
+      // of the trace is allowed to paint into.
+      e.clipRect.setAttribute('height',y);
+      // And the reading rides the line. The SVG is stretched with
+      // preserveAspectRatio=none, so a percentage of the chart's height is the
+      // only position that survives the tile being any size.
+      e.thmark.textContent='thr '+tl.thresh;
+      e.thmark.style.top=(yFor(tl.thresh)/VH*100).toFixed(2)+'%';
       e.root.classList.remove('hot','fire');
       e.flag.classList.remove('on'); e.flag.textContent='';
       // Backfill the rolling window before the first frame. A chart that draws
@@ -8066,6 +8156,7 @@ LANDING_HTML = """<!DOCTYPE html>
         d+=(k===0?'M':' L')+ax.toFixed(1)+','+ay.toFixed(1);
       }
       if(d){ e.line.setAttribute('d',d);
+             e.lineOver.setAttribute('d',d);
              e.head.setAttribute('cx',ax.toFixed(1));
              e.head.setAttribute('cy',ay.toFixed(1)); }
       for(k=0;k<5;k++) e.bars[k].style.setProperty('--v',sigAt(tl,t,k).toFixed(3));

@@ -273,3 +273,91 @@ def test_inline_styles_prefer_tokens_over_palette_literals():
     for o in _inline_objects():
         found |= {h.lower() for h in re.findall(r"#[0-9a-fA-F]{3,8}\b", o)}
     assert found <= allowed, f"palette colours still written longhand inline: {found - allowed}"
+
+
+# ── phase 2: the score wall ──────────────────────────────────────────────────
+
+def test_the_threshold_is_the_strongest_hairline_not_the_faintest():
+    """It was rgba(242,234,247,.18) in a 3/6 dash — the faintest mark in the
+    tile, and the line the entire product is about. A crossing had to be
+    inferred from the numeral because the thing being crossed was barely there."""
+    c = css("landing")
+    rule = re.search(r"\.tile-thline\{([^}]*)\}", c).group(1)
+    assert "rgba(196,137,228" in rule, "the datum is not drawn in the accent"
+    assert "dasharray:none" in rule.replace(" ", ""), "the datum is dashed again"
+    alpha = float(re.search(r"rgba\(196,137,228,([\d.]+)\)", rule).group(1))
+    assert alpha >= 0.4, f"the datum is back to {alpha} opacity"
+
+
+def test_the_threshold_reading_sits_at_the_line():
+    """`thr 71` used to be in the tile header, about a hundred pixels above the
+    mark it names."""
+    c = css("landing")
+    assert ".tile-thmark{" in c
+    from src.dashboard.api import LANDING_HTML
+    assert "thmark.style.top" in LANDING_HTML, "the reading is not positioned at the line"
+    assert "e.thmark.textContent='thr '+tl.thresh" in LANDING_HTML
+
+
+def test_the_crossing_is_drawn_not_inferred():
+    """The trace was one stroke for the whole nine-second window, so the moment
+    that matters looked identical to the moment before it."""
+    c = css("landing")
+    over = re.search(r"\.tile-line-over\{([^}]*)\}", c).group(1)
+    base = re.search(r"\.tile-line\{([^}]*)\}", c).group(1)
+    ow = float(re.search(r"stroke-width:([\d.]+)", over).group(1))
+    bw = float(re.search(r"stroke-width:([\d.]+)", base).group(1))
+    assert ow > bw, "the above-threshold trace is not heavier than the quiet half"
+    assert "var(--flare)" in over and "var(--glow)" in base, "both halves are the same colour"
+
+
+def test_the_bright_half_is_clipped_to_this_channels_own_threshold():
+    """One shared line across all four tiles would have been a lie — the four
+    thresholds are genuinely different (71/68/70/67) and yFor() puts them at
+    different heights on a shared 0-100 axis. Each tile clips its own."""
+    from src.dashboard.api import LANDING_HTML
+    assert "clipPath" in LANDING_HTML and "thclip" in LANDING_HTML
+    assert "e.clipRect.setAttribute('height',y)" in LANDING_HTML, \
+        "the clip is not tied to this tile's own threshold y"
+    assert "e.lineOver.setAttribute('d',d)" in LANDING_HTML, \
+        "the two halves have drifted onto different paths — a seam at the crossing"
+
+
+def test_the_wall_gets_the_only_rhythm_break_and_not_from_its_own_height():
+    """The first attempt put --s-10 as padding INSIDE .hero-stack. The hero is
+    min-height:100svh with the stack in a minmax(0,1fr) row, so the padding came
+    straight out of the wall: it lost 97px. Air below a fixed-height box has to
+    be added outside it."""
+    c = css("landing")
+    stack = re.search(r"\.hero-stack\{([^}]*)\}", c).group(1)
+    assert "--s-10" not in stack, "the break is inside the hero again, eating the wall"
+    stats = re.search(r"\.stats\{([^}]*)\}", c).group(1)
+    assert "var(--s-10)" in stats, "the wall lost its breathing room"
+
+
+def test_the_chart_takes_the_tiles_slack():
+    """It was a fixed height pinned with margin-top:auto, so every spare pixel
+    opened as a gap between the readout and the top of the chart."""
+    c = css("landing")
+    rule = re.search(r"\.tile-chart\{([^}]*)\}", c).group(1)
+    assert "flex:1 1 auto" in rule, "the chart no longer absorbs the slack"
+    assert "margin-top:auto" not in rule, "the chart is pinned to the bottom again"
+
+
+def test_the_stage_wash_is_clipped():
+    """.stage-wash is scale(1.1) — a deliberate bleed so the blur reaches the
+    letterbox edges. Its parent never clipped it, so at 375px 1.2px of it sat
+    past the viewport and gave the page a horizontal scrollbar."""
+    c = css("landing")
+    media = re.search(r"\.stage-media\{([^}]*)\}", c).group(1)
+    assert "overflow:hidden" in media, "the bleed is unclipped again"
+
+
+def test_the_ambient_hot_glow_is_gone():
+    """Decoration removed this phase. It was the only way to tell a tile was
+    near its threshold back when the line was invisible; the datum and the
+    two-tone trace now say it precisely. .tile.fire keeps its glow — that marks
+    an event, not a proximity."""
+    c = css("landing")
+    assert not re.search(r"\.tile\.hot\{[^}]*box-shadow", c), "the ambient glow is back"
+    assert re.search(r"\.tile\.fire\{[^}]*box-shadow", c), "the fire lost its glow"
