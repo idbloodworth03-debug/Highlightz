@@ -1395,16 +1395,16 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           <div className="rd-fill" style={{width:score+'%',background:scoreFill(score)}}/>
           {breakdown._threshold!=null&&<div className="rd-thr" style={{left:Math.min(breakdown._threshold,99)+'%'}} title={'Fires at '+breakdown._threshold}/>}
         </div>
-        <div className="rd-sigs" style={{marginTop:6}}>{(()=>{
+        <div className="rd-sigs" style={{marginTop:4}}>{(()=>{
           const live = s.status==='live';
           const chips = [];
           if (staleSecs===null) chips.push(<span className="rd-sig" key="hb" style={{color:'var(--fg-3)'}}>&#9679; engine — waiting for first update…</span>);
-          else if (staleSecs<=10) chips.push(<span className="rd-sig" key="hb" style={{color:'#86efac'}}>&#9679; engine live</span>);
+          else if (staleSecs<=10) chips.push(<span className="rd-sig" key="hb" style={{color:'var(--live)'}}>&#9679; engine live</span>);
           else if (!live) chips.push(<span className="rd-sig" key="hb" style={{color:'var(--fg-3)'}}>&#9679; engine idle — stream {s.status}</span>);
-          else chips.push(<span className="rd-sig" key="hb" style={{background:'rgba(239,68,68,.14)',color:'#f87171'}}>&#9679; engine — no updates for {staleSecs}s</span>);
+          else chips.push(<span className="rd-sig" key="hb" style={{background:'rgba(255,90,120,.14)',color:'var(--danger)'}}>&#9679; engine — no updates for {staleSecs}s</span>);
           if (breakdown._chat_vps!=null) {
             const last = breakdown._last_chat_s;
-            const col = last<0 ? '#f87171' : last<30 ? '#86efac' : last<120 ? 'var(--pending)' : '#f87171';
+            const col = last<0 ? 'var(--danger)' : last<30 ? 'var(--live)' : last<120 ? 'var(--pending)' : 'var(--danger)';
             const fresh = last<0 ? 'no chat received yet' : 'last msg '+(last<=1?'just now':last+'s ago');
             chips.push(<span className="rd-sig" key="chat" style={{color:col}}>CHAT {breakdown._chat_vps}/s{breakdown._chat_base_vps>0?' (base '+breakdown._chat_base_vps+')':''} &middot; {fresh}</span>);
           }
@@ -1416,14 +1416,14 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           return <span className="rd-sig" key={k} style={active?{background:'rgba(184,106,220,.18)',color:'var(--fg-1)'}:{}}>{k}: {typeof v==='number'?v.toFixed(2):v}</span>;
         })}</div>
         <div className="rd-sigs" style={{marginTop:4}}>{[
-          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'#86efac':'var(--fg-3)'}}>AUDIO {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
+          breakdown._audio_db!=null&&<span className="rd-sig" key="adb" style={{color:breakdown._audio_db>-50?'var(--live)':'var(--fg-3)'}}>AUDIO {breakdown._audio_db}dB peak {breakdown._audio_peak_db}dB (base {breakdown._audio_base_db}dB)</span>,
           breakdown._viewers!=null&&<span className="rd-sig" key="vc" style={{color:'var(--fg-2)'}}>VIEWERS {breakdown._viewers} (base {breakdown._viewer_base})</span>,
         ].filter(Boolean)}</div>
       </div>
       <div className="rd-profile">
         <div className="rd-pgrid">
           <div className="rd-pcell"><div className="k">Threshold</div><div className="v">{p.trigger_threshold?p.trigger_threshold.toFixed(0):'—'}</div></div>
-          <div className="rd-pcell"><div className="k">Velocity</div><div className="v">{p.avg_velocity>0?p.avg_velocity.toFixed(1):'—'}<span style={{fontSize:10,color:'var(--fg-3)',fontWeight:500}}> m/s</span></div></div>
+          <div className="rd-pcell"><div className="k">Velocity</div><div className="v">{p.avg_velocity>0?p.avg_velocity.toFixed(1):'—'}<span style={{fontSize:12,color:'var(--fg-3)',fontWeight:500}}> m/s</span></div></div>
           <div className="rd-pcell"><div className="k">Clips</div><div className="v">{p.total_clips||0}</div></div>
           <div className="rd-pcell"><div className="k">Approval</div>
             <div className="v" style={{color:!p.total_clips?'var(--fg)':p.approval_rate>=0.7?'var(--live)':p.approval_rate>=0.4?'var(--pending)':'var(--danger)'}}>
@@ -1534,7 +1534,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
           </> : libraryMode && clip.status==='approved' ? <>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on Twitch</a>}
-            {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(239,68,68,.1)',color:'var(--danger)',borderColor:'rgba(239,68,68,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
+            {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(255,90,120,.1)',color:'var(--danger)',borderColor:'rgba(255,90,120,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
@@ -1574,7 +1574,7 @@ function RdToast({ msg }) {
 }
 
 function Spinner() {
-  return <span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite',marginRight:6,verticalAlign:'middle'}}/>;
+  return <span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite',marginRight:4,verticalAlign:'middle'}}/>;
 }
 
 function fmtSecs(s) {
@@ -1684,18 +1684,18 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
             : <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
         </div>
 
-        {gated && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'10px 12px',fontSize:12.5,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
-          <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}}>
+        {gated && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
+          <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
             <Icon name="zap" size={13}/>Age-restricted on Twitch
           </span>
           <span style={{color:'var(--fg-3)'}}>It cannot play here, but it plays on Twitch.</span>
           {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm"
             style={{textDecoration:'none',flexShrink:0}}>Watch on Twitch ↗</a>}
         </div>}
-        {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'9px 12px',fontSize:12.5,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+        {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
           <span style={{color:'var(--fg-3)'}}>Player showing an error?</span>
           <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
-          {twHref && <a href={twHref} target="_blank" rel="noopener" style={{color:'#a5b4fc',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
+          {twHref && <a href={twHref} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
         </div>}
 
         <div className="rd-modal-body">
@@ -1711,9 +1711,9 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                   under a heading claiming this is why the detector triggered.
                   That is a fabricated explanation of a decision nothing made.
                   The honest panel says what actually put the clip here. */}
-              <div className="rd-eyebrow" style={{marginBottom:14}}>{sug?'Why it is here':'Why it fired'}</div>
+              <div className="rd-eyebrow" style={{marginBottom:12}}>{sug?'Why it is here':'Why it fired'}</div>
               {sug
-                ? <div style={{fontSize:13,lineHeight:1.65,color:'var(--fg-2)'}}>
+                ? <div style={{fontSize:12,lineHeight:1.65,color:'var(--fg-2)'}}>
                     {/* WHAT HIGHLIGHTZ DID, not who else was involved. This
                         panel used to name the viewer whose clip it is and end
                         on "Highlightz did not create it" — accurate about the
@@ -1722,13 +1722,13 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                         work. The detection IS ours: a second detector watching
                         audience behaviour instead of chat and audio. That is
                         what this now says. */}
-                    <p style={{margin:'0 0 10px'}}>
+                    <p style={{margin:'0 0 8px'}}>
                       <b style={{color:'var(--fg)'}}>Highlightz flagged this moment</b>
                       {clip.clipper_count>1
                         ? <> from an unusually strong spike in audience interest.</>
                         : <> from a spike in audience interest.</>}
                     </p>
-                    <p style={{margin:'0 0 10px'}}>
+                    <p style={{margin:'0 0 8px'}}>
                       {/* NOT "every signal on the left" — on a suggestion this
                           text replaces the signal bars, so there is no left to
                           point at. Caught by looking at the rendered modal. */}
@@ -1750,7 +1750,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                   })}
             </div>
             <div>
-              <div className="rd-eyebrow" style={{marginBottom:14}}>Details</div>
+              <div className="rd-eyebrow" style={{marginBottom:12}}>Details</div>
               <div className="rd-meta-row"><span className="mk">Duration</span><span className="mv">{dur||'—'}</span></div>
               <div className="rd-meta-row"><span className="mk">Platform</span><span className="mv" style={{textTransform:'capitalize'}}>{clip.platform}</span></div>
               <div className="rd-meta-row"><span className="mk">Game</span><span className="mv">{clip.game||'—'}</span></div>
@@ -1760,7 +1760,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                   actions; the word names our measurement, and it is the part
                   that actually helps somebody decide. */}
               {sug && clip.clipper_count>0 && <div className="rd-meta-row"><span className="mk">Audience signal</span>
-                <span className="mv" style={{color:'#ffc53d'}}>{clip.clipper_count>2?'Very strong':clip.clipper_count>1?'Strong':'Detected'}</span></div>}
+                <span className="mv" style={{color:'var(--pending)'}}>{clip.clipper_count>2?'Very strong':clip.clipper_count>1?'Strong':'Detected'}</span></div>}
               {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
               {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none',marginTop:12,width:'100%',justifyContent:'center'}}><Icon name="play" size={14}/>Open on Twitch</a>}
               {clip.status==='pending' && <div className="rd-modal-actions">
@@ -1768,10 +1768,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                 <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
               </div>}
               {isAdmin && clip.status==='approved' && clip.platform==='twitch' && onFeature &&
-                <button className="rd-btn sm" style={{marginTop:10,width:'100%',justifyContent:'center',
+                <button className="rd-btn sm" style={{marginTop:8,width:'100%',justifyContent:'center',
                     background:featured?'rgba(255,194,92,.14)':'rgba(184,106,220,.14)',
                     border:featured?'1px solid rgba(255,194,92,.35)':'1px solid rgba(184,106,220,.35)',
-                    color:featured?'#ffc25c':'#c489e4'}}
+                    color:featured?'var(--pending)':'var(--acc)'}}
                   onClick={()=>onFeature(clip.id)}>
                   <Icon name="sparkles" size={13}/>{featured?'Remove from landing page':'Feature on landing page'}
                 </button>}
@@ -1934,7 +1934,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                           <div key={r.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(r.login);}}>
                             {r.avatar ? <img src={r.avatar} alt="" style={{width:22,height:22,borderRadius:'50%',flexShrink:0}}/> : <span style={{width:22,flexShrink:0}}/>}
                             <div style={{minWidth:0,flex:1}}>
-                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                              <div style={{display:'flex',alignItems:'center',gap:4}}>
                                 <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name||r.login}</span>
                                 {r.is_live && <span className="rd-sugglive">LIVE</span>}
                               </div>
@@ -1971,7 +1971,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                         {(sugg.popular||[]).map(p=>(
                           <div key={'p'+p.login} className="rd-suggitem" onMouseDown={e=>{e.preventDefault();pick(p.login);}}>
                             <div style={{minWidth:0,flex:1}}>
-                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                              <div style={{display:'flex',alignItems:'center',gap:4}}>
                                 <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||p.login}</span>
                                 <span className="rd-sugglive">LIVE</span>
                               </div>
@@ -1998,7 +1998,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
               <option value="sports">Sports</option>
             </select>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:6,marginTop:6,padding:'5px 10px',borderRadius:8,background:'rgba(255,255,255,.04)',border:'1px solid var(--hair)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:4,marginTop:4,padding:'4px 8px',borderRadius:8,background:'rgba(255,255,255,.04)',border:'1px solid var(--hair)'}}>
             <span style={{width:7,height:7,borderRadius:'50%',background:'var(--acc)',boxShadow:'0 0 6px var(--acc)',flexShrink:0}}/>
             <span style={{fontSize:12,fontWeight:600,color:'var(--fg-2)',textTransform:'capitalize'}}>{activePlatform}</span>
           </div>
@@ -2060,12 +2060,12 @@ function ClearQueueButton({ pending }) {
     );
   }
   return (
-    <span style={{display:'inline-flex',gap:6,alignItems:'center'}}>
+    <span style={{display:'inline-flex',gap:4,alignItems:'center'}}>
       <span style={{fontSize:12,color:'var(--fg-2)',fontWeight:600}}>
         Clear {pending} clip{pending===1?'':'s'}?
       </span>
       <button className="rd-btn sm" disabled={busy} onClick={run}
-        style={{background:'rgba(239,68,68,.16)',border:'1px solid rgba(239,68,68,.5)',color:'#fca5a5'}}>
+        style={{background:'rgba(255,90,120,.16)',border:'1px solid rgba(255,90,120,.5)',color:'var(--danger)'}}>
         {busy ? 'Clearing…' : 'Yes, clear'}
       </button>
       <button className="rd-btn sm" disabled={busy} onClick={()=>setArmed(false)}
@@ -2369,20 +2369,20 @@ function ChannelPerformance() {
   },[]);
   if(!stats || !stats.length) return null;
   return (
-    <div className="rd-card glass" style={{marginTop:18}}>
+    <div className="rd-card glass" style={{marginTop:16}}>
       <h3><span className="si"><Icon name="trending" size={15}/></span>Channel performance</h3>
       <div className="desc">All time, per channel — including streamers you no longer monitor.</div>
           {stats.map(r=><div key={r.channel} style={{borderBottom:'1px solid var(--hair)',paddingBottom:16,marginBottom:16}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:15,fontWeight:700,color:'var(--acc)'}}>{r.channel}</span>
+              <span style={{fontSize:14,fontWeight:700,color:'var(--acc)'}}>{r.channel}</span>
               <span style={{fontSize:12,color:'var(--fg-3)'}}>{r.clips_this_week} clips this week</span>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
               {[['Total clips',r.total_clips,'var(--fg)'],['Approval rate',r.approval_rate+'%',r.approval_rate>=60?'var(--live)':r.approval_rate>=30?'var(--pending)':'var(--danger)'],
                 ['Avg score',r.avg_score,'var(--fg)'],['Avg virality',r.avg_virality,'var(--acc)'],['Pending',r.pending,'var(--pending)'],['Top signal',r.top_signal,'var(--fg)']
-              ].map(([k,v,c])=><div key={k} style={{background:'rgba(255,255,255,.03)',borderRadius:12,padding:'12px 14px'}}>
-                <div style={{fontSize:11,color:'var(--fg-3)',marginBottom:4}}>{k}</div>
-                <div style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
+              ].map(([k,v,c])=><div key={k} style={{background:'rgba(255,255,255,.03)',borderRadius:12,padding:'12px 12px'}}>
+                <div style={{fontSize:12,color:'var(--fg-3)',marginBottom:4}}>{k}</div>
+                <div style={{fontSize:17,fontWeight:700,color:c}}>{v}</div>
               </div>)}
             </div>
           </div>)}
@@ -2402,7 +2402,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}/>
       <div className="rd-detail">
-        <div className="rd-grid-empty" style={{padding:'70px 0'}}>
+        <div className="rd-grid-empty" style={{padding:'64px 0'}}>
           <div className="ic"><Icon name="radio" size={42}/></div>
           <div className="big">No streams monitored yet</div>
           <div>Search a streamer on the left to start watching for highlights.</div>
@@ -2443,7 +2443,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
         </div>
         <div className="rd-metrics">
           <div className="rd-metric glass"><div className="k">Threshold</div><div className="v">{p.trigger_threshold?p.trigger_threshold.toFixed(0):'—'}</div></div>
-          <div className="rd-metric glass"><div className="k">Avg velocity</div><div className="v">{p.avg_velocity>0?p.avg_velocity.toFixed(1):'—'}<span style={{fontSize:11,color:'var(--fg-3)'}}> m/s</span></div></div>
+          <div className="rd-metric glass"><div className="k">Avg velocity</div><div className="v">{p.avg_velocity>0?p.avg_velocity.toFixed(1):'—'}<span style={{fontSize:12,color:'var(--fg-3)'}}> m/s</span></div></div>
           <div className="rd-metric glass"><div className="k">Approval rate</div>
             <div className="v" style={{color:p.approval_rate>=.7?'var(--live)':p.approval_rate>=.4?'var(--pending)':'var(--danger)'}}>
               {p.total_clips?Math.round(p.approval_rate*100)+'%':'—'}
@@ -2452,7 +2452,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           <div className="rd-metric glass"><div className="k">Total clips</div><div className="v">{p.total_clips||0}</div></div>
         </div>
         {Object.keys(sw).length>0 && <div className="rd-card2 glass">
-          <h3 style={{fontSize:14,fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:9}}><Icon name="sliders" size={15} style={{color:'var(--acc)'}}/>Learned signal weights</h3>
+          <h3 style={{fontSize:14,fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:8}}><Icon name="sliders" size={15} style={{color:'var(--acc)'}}/>Learned signal weights</h3>
           {WK.filter(k=>sw[k]!=null).map(k=>{const v=sw[k]||1;const pct=Math.min(100,(v/2.5)*100);return <div className="rd-weight" key={k}>
             <span className="wl">{signalLabel(k)}</span>
             <span className="wt"><span className="wf" style={{width:pct+'%'}}/></span>
@@ -2681,7 +2681,7 @@ function TutorialScreen({ doc, onGo }){
 
   if(!doc) return (
     <div className="rd-scroll"><div className="rd-tut">
-      <div className="rd-empty" style={{padding:40}}>Loading the walkthrough…</div>
+      <div className="rd-empty" style={{padding:32}}>Loading the walkthrough…</div>
     </div></div>
   );
 
@@ -2873,7 +2873,7 @@ function TrainingScreen() {
         <div className="rd-section-title">
           <span className="cnt">{queue===null?'Loading…':queue.length+' clip'+(queue.length===1?'':'s')+' waiting for you'}{stats?` · ${stats.total} scored by the team`:''}</span>
         </div>
-        <div className="rd-filters" style={{marginBottom:14,alignSelf:'flex-start'}}>
+        <div className="rd-filters" style={{marginBottom:12,alignSelf:'flex-start'}}>
           {[['own','My queue'],['agreement','Cross-rate']].map(([m,label])=>(
             <button key={m} className={'rd-filter'+(mode===m?' active':'')}
               onClick={()=>setMode(m)}
@@ -2884,10 +2884,10 @@ function TrainingScreen() {
             </button>))}
         </div>
         {mode==='agreement' &&
-          <div className="rd-card glass" style={{marginBottom:14,padding:'14px 18px'}}>
-            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:agree&&agree.clips_rated_twice?10:0}}>
+          <div className="rd-card glass" style={{marginBottom:12,padding:'12px 16px'}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:agree&&agree.clips_rated_twice?10:0}}>
               <Icon name="sparkles" size={15}/>
-              <span style={{flex:1,minWidth:240,fontSize:12.5,color:'var(--fg-2)'}}>
+              <span style={{flex:1,minWidth:240,fontSize:12,color:'var(--fg-2)'}}>
                 <b style={{color:'var(--fg)'}}>Somebody already rated these.</b> You will
                 not be shown what they said — an anchored second opinion measures
                 suggestibility, not agreement. Rate what YOU saw.
@@ -2895,7 +2895,7 @@ function TrainingScreen() {
             </div>
             {agree && agree.clips_rated_twice > 0 &&
               <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-                <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>
+                <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:12}}>
                   {agree.clips_rated_twice} rated twice
                 </span>
                 {agree.agreement!==null && <span className="rd-tag">
@@ -2916,17 +2916,17 @@ function TrainingScreen() {
                 very first measurement of whether this team agrees with itself.
               </div>}
           </div>}
-        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+        <div className="rd-card glass" style={{marginBottom:12,padding:'12px 16px',fontSize:12,color:'var(--fg-2)',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="sparkles" size={15}/>
           <span style={{flex:1,minWidth:220}}><b style={{color:'var(--fg)'}}>You're scoring blind.</b> The bot's numbers are hidden on purpose — rate what YOU saw, 1 (nothing) to 10 (insane). Your scores get paired with the bot's hidden read to recalibrate the formula.</span>
-          {stats && <span style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-            <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:13}}>{stats.total} trained</span>
+          {stats && <span style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap'}}>
+            <span className="rd-tag" style={{background:'rgba(184,106,220,.16)',color:'var(--acc)',fontWeight:800,fontSize:12}}>{stats.total} trained</span>
             {Object.entries(stats.by_labeler||{}).sort((a,b)=>b[1]-a[1]).map(([name,n])=>
               <span key={name} className="rd-tag">{name}: {n}</span>)}
           </span>}
         </div>
         {!cur
-          ? <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
               <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="check" size={36}/></div>
               <h3 style={{fontSize:17,justifyContent:'center'}}>Queue clear</h3>
               <div className="desc">{mode==='agreement'
@@ -2935,7 +2935,7 @@ function TrainingScreen() {
             </div>
           : <div className="rd-card glass">
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:8,marginBottom:12}}>
-                <h3 style={{margin:0}}>{cur.channel}<span style={{fontSize:12,color:'var(--fg-3)',fontWeight:500,marginLeft:10}}>{cur.game||''}</span></h3>
+                <h3 style={{margin:0}}>{cur.channel}<span style={{fontSize:12,color:'var(--fg-3)',fontWeight:500,marginLeft:8}}>{cur.game||''}</span></h3>
                 <span style={{fontSize:12,color:'var(--fg-3)'}}>{new Date((cur.created_at||0)*1000).toLocaleString()}</span>
               </div>
               {embedSrc
@@ -2943,14 +2943,14 @@ function TrainingScreen() {
                     <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
                       <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen scrolling="no" title="Clip"/>
                     </div>
-                    <div style={{display:'flex',alignItems:'center',gap:12,marginTop:8,fontSize:11.5,color:'var(--fg-3)'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:12,marginTop:8,fontSize:12,color:'var(--fg-3)'}}>
                       <span>Player showing an error?</span>
                       <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
-                      {cur.twitch_url && <a href={cur.twitch_url} target="_blank" rel="noopener" style={{color:'#a5b4fc',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
+                      {cur.twitch_url && <a href={cur.twitch_url} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
                     </div>
                   </>
                 : <a href={cur.twitch_url||'#'} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>Watch on Twitch ↗</a>}
-              <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{marginTop:16,display:'flex',flexDirection:'column',gap:12}}>
                 {DIMS.map(([key,label,hint])=>(
                   <div key={key} className="tr-dim">
                     <div className="tr-dim-head">
@@ -2963,7 +2963,7 @@ function TrainingScreen() {
                   </div>
                 ))}
               </div>
-              <div style={{display:'flex',gap:10,marginTop:20,flexWrap:'wrap',alignItems:'center'}}>
+              <div style={{display:'flex',gap:8,marginTop:16,flexWrap:'wrap',alignItems:'center'}}>
                 {/* Approve/Reject belong to the clip's OWNER. In cross-rate mode
                     it is somebody else's clip, so scoring is the whole job. */}
                 {mode==='own' ? <>
@@ -3011,21 +3011,21 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
     .sort((a,b)=>(b.virality_score||0)-(a.virality_score||0));
   const full = featured.length >= max;
   const thumb = (c)=> c.thumbnail_url
-    ? <img src={c.thumbnail_url} alt="" style={{width:96,height:54,objectFit:'cover',borderRadius:8,flexShrink:0,background:'#15111f'}}/>
+    ? <img src={c.thumbnail_url} alt="" style={{width:96,height:54,objectFit:'cover',borderRadius:8,flexShrink:0,background:'var(--rd-bg-2)'}}/>
     : <div style={{width:96,height:54,borderRadius:8,flexShrink:0,background:'linear-gradient(135deg,#2a1840,#3a1a4d)'}}/>;
   const row = (c, right)=>(
-    <div key={c.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 12px',borderRadius:12,
+    <div key={c.id} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 12px',borderRadius:12,
       background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',minWidth:0}}>
       {thumb(c)}
       <div style={{minWidth:0,flex:1}}>
-        <div style={{fontWeight:700,fontSize:13.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        <div style={{fontWeight:700,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
           {c.clip_title||c.stream_title||'Clip'}</div>
-        <div style={{fontSize:11.5,color:'var(--fg-3)',marginTop:2}}>
+        <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>
           {/* Same suppression as the review card: a crowd suggestion has no
               trigger score, and "0% trigger" here would read as a rating. */}
           {c.channel}{c.game?' · '+c.game:''} · {c.suggested?'suggested':Math.round(c.score||c.trigger_score||0)+'% trigger'}</div>
       </div>
-      <div style={{display:'flex',gap:6,flexShrink:0}}>{right}</div>
+      <div style={{display:'flex',gap:4,flexShrink:0}}>{right}</div>
     </div>
   );
   return (
@@ -3035,22 +3035,22 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
           <h2>On the landing page</h2>
           <span className="cnt">{featured.length} of {max} slots · {inHero.length} in the hero · {inGallery.length} in the examples</span>
         </div>
-        {heroShort && <div className="rd-card glass" style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+        {heroShort && <div className="rd-card glass" style={{padding:'8px 16px',marginBottom:12,fontSize:12,color:'var(--pending)'}}>
           The hero wall draws four tiles and only {inHero.length} clip{inHero.length===1?' is':'s are'} set
           to Hero, so it will repeat {inHero.length===1?'that one':'them'}. Add {4-inHero.length} more.
         </div>}
         {inHero.length >= 4 && heroChannels.size < 4 && <div className="rd-card glass"
-          style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          style={{padding:'8px 16px',marginBottom:12,fontSize:12,color:'var(--pending)'}}>
           The hero clips come from only {heroChannels.size} channel{heroChannels.size===1?'':'s'}. The wall
           is meant to show several channels being watched at once, so it currently argues the opposite —
           feature a clip from {4-heroChannels.size} more channel{4-heroChannels.size===1?'':'s'}.
         </div>}
         {inGallery.length === 0 && featured.length > 0 && <div className="rd-card glass"
-          style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+          style={{padding:'8px 16px',marginBottom:12,fontSize:12,color:'var(--pending)'}}>
           Nothing is set to Examples, so the sample clips section is hidden on the landing page.
         </div>}
-        <div className="rd-card glass" style={{marginBottom:14,padding:'12px 18px',fontSize:12.5,color:'var(--fg-2)',
-          display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+        <div className="rd-card glass" style={{marginBottom:12,padding:'12px 16px',fontSize:12,color:'var(--fg-2)',
+          display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           <Icon name="trending" size={15}/>
           <span style={{flex:1,minWidth:220}}>These are the real clips visitors see at
             highlightz.app. <b>Hero</b> puts a clip in the animated wall at the top —
@@ -3062,7 +3062,7 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
           <a href="/" target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none'}}>View live page ↗</a>
         </div>
         {featured.length===0
-          ? <div className="rd-card glass" style={{textAlign:'center',padding:'34px 24px',marginBottom:22}}>
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'32px 24px',marginBottom:24}}>
               <div className="desc">No clips featured yet — add a few from the list below and the
                 examples section appears on the landing page.</div>
             </div>
@@ -3095,14 +3095,14 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
           <h2>Approved clips you can add</h2>
           <span className="cnt">{eligible.length} available</span>
         </div>
-        <div style={{margin:'10px 0 12px'}}>
+        <div style={{margin:'8px 0 12px'}}>
           <input className="rd-input" placeholder="filter by streamer" value={q} onChange={e=>setQ(e.target.value)}
             style={{maxWidth:280}}/>
         </div>
-        {full && <div className="rd-card glass" style={{padding:'10px 16px',marginBottom:12,fontSize:12.5,color:'#ffc25c'}}>
+        {full && <div className="rd-card glass" style={{padding:'8px 16px',marginBottom:12,fontSize:12,color:'var(--pending)'}}>
           All {max} slots are full — remove one above to add another.</div>}
         {eligible.length===0
-          ? <div className="rd-card glass" style={{textAlign:'center',padding:'30px 24px'}}>
+          ? <div className="rd-card glass" style={{textAlign:'center',padding:'32px 24px'}}>
               <div className="desc">{q.trim()?'No approved clips from that streamer.':'Approve some Twitch clips first — approved clips show up here.'}</div>
             </div>
           : <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -3182,7 +3182,7 @@ function AccountScreen({ me }) {
           </div>}
           {sub==='active' && me.plan==='starter' && <div className="rd-field">
             <div><div className="fl">Upgrade to Pro</div><div className="fd">10 streams, 200 pending clips, and the VOD scanner — $25/month</div></div>
-            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade
             </a>
           </div>}
@@ -3197,7 +3197,7 @@ function AccountScreen({ me }) {
           </div>}
           {isTrial && !me.trial_converts && <div className="rd-field">
             <div><div className="fl">Keep your access</div><div className="fd">Subscribe before the trial ends and nothing stops — your clips and streams carry straight over</div></div>
-            <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+            <a href="/billing/checkout" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Subscribe
             </a>
           </div>}
@@ -3212,11 +3212,11 @@ function AccountScreen({ me }) {
                 Pro is $25 for 10 streams, 200 pending, the VOD scanner and the
                 Clip Editor.
               </div></div>
-            <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+            <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>See plans
             </a>
           </div>}
-          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'#b9aec4'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
+          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'var(--fg-2)'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
         </div>
 
         {/* Profile & Connected Platforms */}
@@ -3225,13 +3225,13 @@ function AccountScreen({ me }) {
           <div className="desc">Your account and connected streaming platforms.</div>
 
           {/* Avatar + display name + sign out */}
-          <div style={{display:'flex',alignItems:'center',gap:14,padding:'12px 0 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
             {me.avatar_url
               ? <img src={me.avatar_url} alt={me.username} style={{width:48,height:48,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
-              : <span style={{width:48,height:48,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:18,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
+              : <span style={{width:48,height:48,borderRadius:'50%',background:'var(--grad)',display:'grid',placeItems:'center',fontWeight:700,color:'#14021c',fontSize:17,flexShrink:0}}>{(me.username||'?')[0].toUpperCase()}</span>}
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:700,fontSize:15,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{me.username||'—'}</div>
-              <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>Signed in with {signedInWith}</div>
+              <div style={{fontWeight:700,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{me.username||'—'}</div>
+              <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>Signed in with {signedInWith}</div>
             </div>
             <button className="rd-btn sm danger" style={{flexShrink:0}}
               onClick={()=>fetch('/logout',{method:'POST'}).then(()=>{location.href='/login';})}>
@@ -3240,23 +3240,23 @@ function AccountScreen({ me }) {
           </div>
 
           {/* Twitch row */}
-          <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 0',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(145,71,255,.18)',display:'grid',placeItems:'center',flexShrink:0}}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="#9147ff"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="#9146ff"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
             </span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,fontSize:13}}>Twitch</div>
+              <div style={{fontWeight:600,fontSize:12}}>Twitch</div>
               {hasTwitch
-                ? <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>@{me.twitch_login}</div>
-                : <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Not connected</div>}
+                ? <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>@{me.twitch_login}</div>
+                : <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>Not connected</div>}
             </div>
             {hasTwitch
-              ? <span style={{fontSize:12,color:'#9147ff',fontWeight:600,flexShrink:0}}>✓ Connected</span>
+              ? <span style={{fontSize:12,color:'#9146ff',fontWeight:600,flexShrink:0}}>✓ Connected</span>
               : <a href="/auth/twitch" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}>Connect</a>}
           </div>
 
           {/* Kick row */}
-          <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 0 4px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0 4px'}}>
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
             </span>
@@ -3266,8 +3266,8 @@ function AccountScreen({ me }) {
                 say we store no Kick credentials. The row stays so Kick keeps its
                 place in the product; it just says what is actually true. */}
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,fontSize:13}}>Kick</div>
-              <div style={{fontSize:11,color:'var(--fg-3)',marginTop:1}}>Automated clipping is in progress</div>
+              <div style={{fontWeight:600,fontSize:12}}>Kick</div>
+              <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>Automated clipping is in progress</div>
             </div>
             <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Coming soon</span>
           </div>
@@ -3292,12 +3292,12 @@ function AccountScreen({ me }) {
           {isSubscribed && <div style={{fontSize:12,color:'var(--pending)',marginBottom:12,padding:'8px 12px',background:'rgba(255,194,92,.08)',borderRadius:10,border:'1px solid rgba(255,194,92,.2)'}}>
             You have an active subscription. Cancel it via <a href="/billing/portal" style={{color:'var(--pending)'}}>Manage billing</a> before deleting your account so you are not charged again.
           </div>}
-          {delErr && <div style={{fontSize:12,color:'var(--danger)',marginBottom:10}}>{delErr}</div>}
+          {delErr && <div style={{fontSize:12,color:'var(--danger)',marginBottom:8}}>{delErr}</div>}
           {!confirmDel
             ? <button className="rd-btn danger" onClick={()=>setConfirmDel(true)}>Delete my account</button>
-            : <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                <div style={{fontSize:13,color:'var(--danger)',fontWeight:600}}>This will delete all your clips, streams, and account data. Continue?</div>
-                <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+            : <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{fontSize:12,color:'var(--danger)',fontWeight:600}}>This will delete all your clips, streams, and account data. Continue?</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                   <button className="rd-btn danger" onClick={deleteAccount} disabled={deleting} style={{flex:'1 1 auto'}}>
                     {deleting ? 'Deleting…' : 'Yes, delete everything'}
                   </button>
@@ -3306,7 +3306,7 @@ function AccountScreen({ me }) {
               </div>}
         </div>
 
-        <div style={{textAlign:'center',fontSize:11,color:'var(--fg-3)',paddingBottom:24}}>
+        <div style={{textAlign:'center',fontSize:12,color:'var(--fg-3)',paddingBottom:24}}>
           &copy; 2026 ANTI Technology LLC — All rights reserved.
         </div>
       </div>
@@ -3390,39 +3390,39 @@ function FeedbackScreen({ onSeen }) {
           <div className="desc">Questions, suggestions, bug reports — we read everything.</div>
           {sent ? (
             <div style={{padding:'24px 0',textAlign:'center'}}>
-              <div style={{fontSize:32,marginBottom:12}}>✓</div>
+              <div style={{fontSize:30,marginBottom:12}}>✓</div>
               <div style={{fontWeight:700,marginBottom:8}}>Thanks for your feedback!</div>
-              <div style={{fontSize:13,color:'var(--fg-3)',marginBottom:20}}>We'll review it shortly.</div>
+              <div style={{fontSize:12,color:'var(--fg-3)',marginBottom:16}}>We'll review it shortly.</div>
               <button className="rd-btn" onClick={()=>{setSent(false);loadThreads();}}>Send another</button>
             </div>
           ) : (
             <>
-              <div style={{marginBottom:14}}>
-                <div style={{fontSize:11,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Category</div>
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Category</div>
                 <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                   {CATEGORIES.map(c=>(
                     <button key={c} onClick={()=>setCategory(c)} style={{
-                      padding:'6px 14px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'.15s',
+                      padding:'4px 12px',borderRadius:99,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid',transition:'.15s',
                       background: category===c ? 'rgba(184,106,220,.2)' : 'rgba(255,255,255,.05)',
                       borderColor: category===c ? 'rgba(184,106,220,.5)' : 'rgba(255,255,255,.09)',
-                      color: category===c ? '#c489e4' : 'var(--fg-3)',
+                      color: category===c ? 'var(--acc)' : 'var(--fg-3)',
                     }}>{c}</button>
                   ))}
                 </div>
               </div>
-              <div style={{marginBottom:14}}>
-                <div style={{fontSize:11,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Message</div>
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--fg-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:8}}>Message</div>
                 <textarea
                   value={message}
                   onChange={e=>setMessage(e.target.value)}
                   placeholder="Tell us what's on your mind…"
                   maxLength={2000}
                   rows={6}
-                  style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.09)',borderRadius:12,color:'var(--fg)',padding:'12px 14px',fontSize:14,resize:'vertical',outline:'none',fontFamily:'inherit',lineHeight:1.6}}
+                  style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.09)',borderRadius:12,color:'var(--fg)',padding:'12px 12px',fontSize:14,resize:'vertical',outline:'none',fontFamily:'inherit',lineHeight:1.6}}
                 />
-                <div style={{textAlign:'right',fontSize:11,color:'var(--fg-3)',marginTop:4}}>{message.length}/2000</div>
+                <div style={{textAlign:'right',fontSize:12,color:'var(--fg-3)',marginTop:4}}>{message.length}/2000</div>
               </div>
-              {err && <div style={{color:'var(--danger)',fontSize:13,marginBottom:12,padding:'8px 12px',background:'rgba(255,90,120,.08)',borderRadius:9,border:'1px solid rgba(255,90,120,.2)'}}>{err}</div>}
+              {err && <div style={{color:'var(--danger)',fontSize:12,marginBottom:12,padding:'8px 12px',background:'rgba(255,90,120,.08)',borderRadius:9,border:'1px solid rgba(255,90,120,.2)'}}>{err}</div>}
               <button className="rd-btn grad" onClick={submit} disabled={sending} style={{opacity:sending?.6:1}}>
                 <Icon name="chat" size={14}/>{sending ? 'Sending…' : 'Send feedback'}
               </button>
@@ -3434,15 +3434,15 @@ function FeedbackScreen({ onSeen }) {
           <div className="rd-card glass" style={{marginTop:16}}>
             <h3><span className="si"><Icon name="chat" size={15}/></span>Your messages</h3>
             <div className="desc">Your conversations with us — anything you have sent, anything we have sent you, and every reply either way.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:14,marginTop:14}}>
+            <div style={{display:'flex',flexDirection:'column',gap:12,marginTop:12}}>
               {threads.map(t=>(
-                <div key={t.id} style={{border:'1px solid var(--hair)',borderRadius:10,padding:'12px 14px',
+                <div key={t.id} style={{border:'1px solid var(--hair)',borderRadius:10,padding:'12px 12px',
                     background:t.reply_unread?'rgba(184,106,220,.07)':'transparent'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <span style={{fontFamily:'ui-monospace,monospace',fontSize:10.5,letterSpacing:'.12em',
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                    <span style={{fontFamily:'ui-monospace,monospace',fontSize:12,letterSpacing:'.12em',
                       textTransform:'uppercase',color:t.from_admin_start?'var(--acc)':'var(--fg-3)'}}>
                       {t.from_admin_start ? 'From Highlightz' : t.category}</span>
-                    <span style={{fontSize:11,color:'var(--fg-3)'}}>{fmtTime(t.created_at)}</span>
+                    <span style={{fontSize:12,color:'var(--fg-3)'}}>{fmtTime(t.created_at)}</span>
                     {t.reply_unread && <span className="navbadge" style={{position:'static'}}>new</span>}
                   </div>
                   {/* A thread WE opened has no opening message from them, so
@@ -3451,15 +3451,15 @@ function FeedbackScreen({ onSeen }) {
                       the right name and colour. Without this guard it drew an
                       empty bubble above every message we send. */}
                   {!t.from_admin_start &&
-                    <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>}
+                    <div style={{fontSize:14,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{t.message}</div>}
                   {(t.replies||[]).map((r,ri)=>(
-                    <div key={ri} style={{marginTop:10,paddingLeft:12,
+                    <div key={ri} style={{marginTop:8,paddingLeft:12,
                         borderLeft:'2px solid '+(r.from_admin===false?'var(--hair-2)':'var(--acc)')}}>
-                      <div style={{fontSize:11,fontWeight:700,marginBottom:3,
+                      <div style={{fontSize:12,fontWeight:700,marginBottom:4,
                           color:r.from_admin===false?'var(--fg-3)':'var(--acc)'}}>
                         {r.from_admin===false?'You':'Highlightz'}</div>
-                      <div style={{fontSize:13.5,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{r.message}</div>
-                      <div style={{fontSize:11,color:'var(--fg-3)',marginTop:3}}>{fmtTime(r.at)}</div>
+                      <div style={{fontSize:14,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{r.message}</div>
+                      <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>{fmtTime(r.at)}</div>
                     </div>
                   ))}
                   {replyTo===t.id ? (
@@ -3467,8 +3467,8 @@ function FeedbackScreen({ onSeen }) {
                       <textarea className="rd-input" rows={3} value={replyMsg} autoFocus
                         onChange={e=>setReplyMsg(e.target.value)}
                         placeholder="Write your reply…"
-                        style={{width:'100%',resize:'vertical',fontFamily:'inherit',fontSize:13.5}}/>
-                      {replyErr && <div style={{fontSize:12,color:'var(--bad)',marginTop:6}}>{replyErr}</div>}
+                        style={{width:'100%',resize:'vertical',fontFamily:'inherit',fontSize:14}}/>
+                      {replyErr && <div style={{fontSize:12,color:'var(--bad)',marginTop:4}}>{replyErr}</div>}
                       <div style={{display:'flex',gap:8,marginTop:8}}>
                         <button className="rd-btn grad" onClick={()=>sendReply(t.id)}>Send reply</button>
                         <button className="rd-btn" onClick={()=>{setReplyTo('');setReplyMsg('');setReplyErr('');}}>Cancel</button>
@@ -3551,8 +3551,8 @@ function TwitchImport() {
             {loading ? 'Loading…' : 'Load my Twitch clips'}
           </button>
         : <>
-            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
-              <span style={{fontSize:12.5,color:'var(--fg-3)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:12}}>
+              <span style={{fontSize:12,color:'var(--fg-3)'}}>
                 {clips.length} clip{clips.length===1?'':'s'} loaded
               </span>
               <div className="rd-filters" style={{marginLeft:'auto'}}>
@@ -3564,14 +3564,14 @@ function TwitchImport() {
             </div>
 
             {clips.length===0 && !loading &&
-              <div className="rd-grid-empty" style={{padding:'34px 0'}}>
+              <div className="rd-grid-empty" style={{padding:'32px 0'}}>
                 <div className="ic"><Icon name="film" size={38}/></div>
                 <div className="big">No clips on your channel yet</div>
                 <div>Clips you or your viewers create on Twitch will show up here.</div>
               </div>}
 
             {clips.length>0 &&
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:12}}>
                 {shown.map(c=>(
                   <div className="rd-tw" key={c.id}>
                     <button className="tw-thumb" onClick={()=>setPlay(c)} title="Play clip">
@@ -3593,7 +3593,7 @@ function TwitchImport() {
               </div>}
 
             {cursor &&
-              <button className="rd-btn" style={{marginTop:14}} disabled={loading}
+              <button className="rd-btn" style={{marginTop:12}} disabled={loading}
                 onClick={()=>fetchPage(cursor)}>
                 {loading ? 'Loading…' : 'Load more'}
               </button>}
@@ -3616,7 +3616,7 @@ function TwitchImport() {
             <iframe src={play.embed_url + '&parent=' + location.hostname + '&autoplay=true'}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen title={play.title||'Clip'}/>
           </div>
-          <div className="ed-note" style={{marginTop:10}}>
+          <div className="ed-note" style={{marginTop:8}}>
             {(play.view_count||0).toLocaleString()} views
             {play.creator_name ? ' · clipped by ' + play.creator_name : ''} ·{' '}
             <a href={play.url} target="_blank" rel="noopener noreferrer"
@@ -4275,7 +4275,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             <video ref={videoRef} src={clip.url} onLoadedMetadata={onMeta} playsInline
               crossOrigin="anonymous" style={{display:'none'}}/>
 
-            <div style={{display:'flex',alignItems:'center',gap:10,marginTop:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:12}}>
               <button className="rd-btn sm" onClick={togglePlay} disabled={busy}>
                 {playing ? 'Pause' : 'Play'}
               </button>
@@ -4290,7 +4290,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               <div className="play" ref={headRef} style={{left:0}}/>
             </div>
 
-            <div className="ed-grp" style={{marginTop:10}}>
+            <div className="ed-grp" style={{marginTop:8}}>
               <div className="ed-row">
                 <span className="ed-num" style={{textAlign:'left',minWidth:34}}>Start</span>
                 <input type="range" min="0" max={dur||0} step="0.05" value={inPt} disabled={busy}
@@ -4715,7 +4715,7 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
         your own account — a reminder here is a nudge, not an upload.
       </div>
 
-      <div className="ed-seg" style={{maxWidth:280,marginTop:14}}>
+      <div className="ed-seg" style={{maxWidth:280,marginTop:12}}>
         <button className={tab==='todo'?'on':''} onClick={()=>setTab('todo')}>
           To post{pending.length?' ('+pending.length+')':''}
         </button>
@@ -4725,12 +4725,12 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
       </div>
 
       {!uploadsOn &&
-        <div className="ed-warn" style={{marginTop:14}}>
+        <div className="ed-warn" style={{marginTop:12}}>
           The Clip Editor is switched off, so nothing can reach the Scheduler yet.
         </div>}
 
       {shown.length === 0
-        ? <div className="rd-card glass" style={{marginTop:14}}>
+        ? <div className="rd-card glass" style={{marginTop:12}}>
             <h3><span className="si"><Icon name="clock" size={15}/></span>
               {tab==='todo' ? 'Nothing waiting to post' : 'Nothing posted yet'}</h3>
             <div className="desc">
@@ -4864,14 +4864,14 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
       <div className="rd-scroll">
         <div className="rd-settings">
           <div className="rd-section-title"><h2>Clip Editor</h2></div>
-          <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+          <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
             <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="upload" size={40}/></div>
-            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>Clip Editor is a Pro feature</h3>
+            <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Clip Editor is a Pro feature</h3>
             <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
               Bring your own clips into Highlightz to edit and publish. Included with
               Pro, along with the VOD scanner, 10 monitored streams and a 200-clip queue.
             </div>
-            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
             </a>
           </div>
@@ -4897,9 +4897,9 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             feature looks identical to a launched one, and that is how
             something ships by accident. */}
         {me && me.is_admin && me.features && !(me.features.uploads && me.features.clip_import) &&
-          <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,
+          <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:12,
                        background:'rgba(255,138,76,.12)',border:'1px solid rgba(255,138,76,.32)',
-                       fontSize:12.5,color:'#f7a745',fontWeight:600}}>
+                       fontSize:12,color:'var(--pending)',fontWeight:600}}>
             <Icon name="cog" size={15}/>
             <span>Admin preview — parts of this screen are hidden from your users. Set{' '}
               {!me.features.clip_import && <code style={{fontFamily:'monospace'}}>CLIP_IMPORT_ENABLED=true</code>}
@@ -4955,8 +4955,8 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
               this the only visible route in is "upload something", which is a
               dead end for a user who already has clips here and just wants to
               re-cut one. */}
-          {uploads.length>0 && <div style={{marginTop:14}}>
-            <div className="ed-note" style={{marginBottom:7}}>
+          {uploads.length>0 && <div style={{marginTop:12}}>
+            <div className="ed-note" style={{marginBottom:8}}>
               Or edit one you've already uploaded:
             </div>
             <div className="rd-picks">
@@ -4970,12 +4970,12 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             </div>
           </div>}
 
-          {running.length>0 && <div style={{marginTop:14}}>
+          {running.length>0 && <div style={{marginTop:12}}>
             {running.map(([id,p])=>(
               <div className="rd-uprow" key={id}>
                 <div style={{fontSize:12,fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
                 <div className="pb"><i style={{width:(p.err?100:p.pct)+'%',background:p.err?'var(--danger)':undefined}}/></div>
-                <div style={{fontSize:11,color:p.err?'var(--danger)':'var(--fg-3)',minWidth:76,textAlign:'right'}}>
+                <div style={{fontSize:12,color:p.err?'var(--danger)':'var(--fg-3)',minWidth:76,textAlign:'right'}}>
                   {p.err ? p.err : (p.pct<100?p.pct+'%':'Processing...')}
                 </div>
               </div>
@@ -4986,7 +4986,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
 
           {quota && <div style={{marginTop:16}}>
             <div className={'rd-quota'+(pct>=90?' rd-quota-full':'')}><i style={{width:pct+'%'}}/></div>
-            <div style={{fontSize:11,color:'var(--fg-3)'}}>
+            <div style={{fontSize:12,color:'var(--fg-3)'}}>
               {fmtBytes(quota.used)} of {fmtBytes(quota.limit)} used · {fmtBytes(quota.remaining)} free
             </div>
           </div>}
@@ -4997,12 +4997,12 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
           <div className="desc">Everything you've uploaded. Hit Edit on any of them to trim,
             reframe and export — publishing straight to TikTok lands here next.</div>
           {uploads.length===0
-            ? <div className="rd-grid-empty" style={{padding:'40px 0'}}>
+            ? <div className="rd-grid-empty" style={{padding:'32px 0'}}>
                 <div className="ic"><Icon name="film" size={38}/></div>
                 <div className="big">No clips uploaded yet</div>
                 <div>Drop a clip above and the editor opens automatically.</div>
               </div>
-            : <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+            : <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:12}}>
                 {uploads.map(u=>(
                   <div className="rd-up" key={u.id}>
                     <video src={u.url} controls preload="metadata"/>
@@ -5065,9 +5065,9 @@ function ScanActivity({ job }) {
         : '');
 
   return (
-    <div style={{marginBottom:14}}>
+    <div style={{marginBottom:12}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
-                   fontSize:12,color:'var(--fg-2)',marginBottom:6,gap:10}}>
+                   fontSize:12,color:'var(--fg-2)',marginBottom:4,gap:8}}>
         <span style={{minWidth:0}}>
           <span className="rd-livedot"/>{label}
           {detail && <span style={{color:'var(--fg-3)'}}> · {detail}</span>}
@@ -5081,7 +5081,7 @@ function ScanActivity({ job }) {
                                          transition:'width .5s ease'}}/>
       </div>
       {job.phase === 'audio' && (
-        <div style={{fontSize:11,color:'var(--fg-3)',marginTop:6,lineHeight:1.5}}>
+        <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4,lineHeight:1.5}}>
           Audio scans take a few minutes — the stream is being listened to so loud
           moments get caught even when chat is quiet. You can leave this tab.
         </div>
@@ -5183,15 +5183,15 @@ function VodScreen({ clips, me }) {
       <div className="rd-scroll">
         <div className="rd-settings">
           <div className="rd-section-title"><h2>Past Streams</h2></div>
-          <div className="rd-card glass" style={{textAlign:'center',padding:'42px 28px'}}>
+          <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
             <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="film" size={40}/></div>
-            <h3 style={{fontSize:18,marginBottom:8,justifyContent:'center'}}>VOD scanning is a Pro feature</h3>
+            <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>VOD scanning is a Pro feature</h3>
             <div className="desc" style={{maxWidth:440,margin:'0 auto 20px'}}>
               Scan past broadcasts for highlights you missed — the formula replays the
               whole VOD's chat and surfaces the best moments. Included with Pro, along
               with 10 monitored streams and a 200-clip review queue.
             </div>
-            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:7,alignItems:'center'}}>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
             </a>
           </div>
@@ -5216,7 +5216,7 @@ function VodScreen({ clips, me }) {
               onKeyDown={e=>e.key==='Enter'&&!scanning&&analyze()}
               disabled={scanning}
             />
-            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               <select className="rd-select" style={{height:40}} value={preset} onChange={e=>setPreset(e.target.value)} disabled={scanning}>
                 {PRESETS.map(p=><option key={p} value={p}>{p[0].toUpperCase()+p.slice(1)}</option>)}
               </select>
@@ -5228,29 +5228,29 @@ function VodScreen({ clips, me }) {
               </button>}
             </div>
           </div>
-          {err && <div style={{marginTop:10,padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13}}>{err}</div>}
-          <div style={{marginTop:14,padding:'10px 13px',borderRadius:10,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>
+          {err && <div style={{marginTop:8,padding:'8px 12px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:12}}>{err}</div>}
+          <div style={{marginTop:12,padding:'8px 12px',borderRadius:10,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>
             <strong style={{color:'var(--fg-2)'}}>How it works:</strong> The bot pulls the VOD{audioOn?' chat replay and its audio track':' chat replay'}, then scans second-by-second with the same scoring engine as live monitoring — chat velocity, keywords, sentiment{audioOn?', and audio spikes':''}. When the score crosses the threshold, a moment is found. Each moment links to that exact timestamp in the VOD, and lands in your review queue automatically.{audioOn?' Audio scans take a few minutes; nothing is recorded or stored — only loudness is measured.':''}
           </div>
         </div>
 
         {shown.length>0 && shown.map(job=>(
           <div key={job.id} className="rd-card glass">
-            <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:14}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:12}}>
               {job.thumbnail_url
                 ? <img src={job.thumbnail_url} alt="" onError={e=>{e.target.style.display='none'}} style={{width:80,height:45,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
                 : <div style={{width:80,height:45,borderRadius:8,background:'var(--grad-soft)',flexShrink:0,display:'grid',placeItems:'center'}}><Icon name="video" size={18} style={{color:'var(--acc)'}}/></div>}
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:14,marginBottom:3,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
                   {job.vod_title||`VOD ${job.vod_id}`}
                 </div>
-                <div style={{fontSize:12,color:'var(--fg-2)',display:'flex',gap:10,flexWrap:'wrap'}}>
+                <div style={{fontSize:12,color:'var(--fg-2)',display:'flex',gap:8,flexWrap:'wrap'}}>
                   {job.channel && <span>{job.channel}</span>}
                   {job.game && <span>{job.game}</span>}
-                  {job.duration>0 && <span><Icon name="clock" size={11} style={{display:'inline',verticalAlign:'middle',marginRight:3}}/>{fmtDuration(job.duration)}</span>}
+                  {job.duration>0 && <span><Icon name="clock" size={11} style={{display:'inline',verticalAlign:'middle',marginRight:4}}/>{fmtDuration(job.duration)}</span>}
                 </div>
               </div>
-              <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+              <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
                 {job.status==='running' && <button className="rd-btn sm danger" onClick={()=>cancelJob(job.id)}>Cancel</button>}
                 {job.status==='done' && <button className="rd-btn sm" onClick={()=>cancelJob(job.id)} title="Remove"><Icon name="trash" size={13}/></button>}
               </div>
@@ -5259,13 +5259,13 @@ function VodScreen({ clips, me }) {
             {job.status==='running' && <ScanActivity job={job}/>}
 
             {job.status==='failed' && (
-              <div style={{padding:'9px 13px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:13,marginBottom:12}}>
+              <div style={{padding:'8px 12px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:12,marginBottom:12}}>
                 {job.error||'Analysis failed'}
               </div>
             )}
 
             {job.status==='done' && (
-              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'var(--live)',fontWeight:600,marginBottom:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'var(--live)',fontWeight:600,marginBottom:12}}>
                 <Icon name="check" size={14}/>
                 {(job.moments||[]).length===0
                   ? 'No highlight moments found in this VOD.'
@@ -5280,19 +5280,19 @@ function VodScreen({ clips, me }) {
                   const sc = Math.round(m.score||0);
                   return (
                     <div key={m.id} style={{
-                      display:'flex',alignItems:'center',gap:12,padding:'10px 13px',
+                      display:'flex',alignItems:'center',gap:12,padding:'8px 12px',
                       borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',
                     }}>
                       <span style={{
                         minWidth:36,height:36,borderRadius:10,
                         background: sc>=75?'var(--live-soft)':sc>=50?'var(--pending-soft)':'var(--grad-soft)',
                         color: sc>=75?'var(--live)':sc>=50?'var(--pending)':'var(--acc)',
-                        display:'grid',placeItems:'center',fontWeight:800,fontSize:13,flexShrink:0,
+                        display:'grid',placeItems:'center',fontWeight:800,fontSize:12,flexShrink:0,
                         fontVariantNumeric:'tabular-nums',
                       }}>{sc}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600,fontSize:13}}>{m.timestamp}</div>
-                        <div style={{fontSize:11,color:'var(--fg-3)',marginTop:2}}>
+                        <div style={{fontWeight:600,fontSize:12}}>{m.timestamp}</div>
+                        <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>
                           {(m.trigger_signals||[]).filter(s=>s.value>0.1).map(s=>s.type.replace('CHAT_','').replace('_',' ')).join(' · ')}
                         </div>
                       </div>
@@ -5309,7 +5309,7 @@ function VodScreen({ clips, me }) {
         ))}
 
         {jobs.length===0 && !scanning && (
-          <div className="rd-grid-empty" style={{paddingTop:40}}>
+          <div className="rd-grid-empty" style={{paddingTop:32}}>
             <div className="ic"><Icon name="video" size={42}/></div>
             <div className="big">No VOD scans yet</div>
             <div>Paste a Twitch VOD URL above to find highlight moments from any past stream.</div>
@@ -5322,27 +5322,27 @@ function VodScreen({ clips, me }) {
 
 function WelcomeOverlay({ onClose }) {
   const Step = ({n, title, body}) => (
-    <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
-      <span style={{width:28,height:28,borderRadius:9,background:'var(--grad-soft)',color:'var(--acc)',display:'grid',placeItems:'center',fontSize:13,fontWeight:800,flexShrink:0}}>{n}</span>
+    <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+      <span style={{width:28,height:28,borderRadius:9,background:'var(--grad-soft)',color:'var(--acc)',display:'grid',placeItems:'center',fontSize:12,fontWeight:800,flexShrink:0}}>{n}</span>
       <div>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{title}</div>
-        <div style={{fontSize:13,color:'var(--fg-3)',lineHeight:1.6}}>{body}</div>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{title}</div>
+        <div style={{fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>{body}</div>
       </div>
     </div>
   );
   return (
-    <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
-      <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'40px 42px',maxHeight:'92vh',overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',marginBottom:18}}>
+    <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
+      <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'32px 48px',maxHeight:'92vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:16}}>
           <img src="/static/logo-mark.png" alt="Highlightz" style={{height:40,filter:'drop-shadow(0 0 14px rgba(196,137,228,.4))'}}/>
         </div>
-        <h1 style={{fontSize:26,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
-        <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:26}}>
+        <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
+        <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:24}}>
           A tool that makes clipping easier. Highlightz watches your streams live and
           captures the best moments automatically — so you never miss a highlight again.
         </p>
 
-        <div style={{display:'flex',flexDirection:'column',gap:18,marginBottom:26}}>
+        <div style={{display:'flex',flexDirection:'column',gap:16,marginBottom:24}}>
           <Step n="1" title="Add any live Twitch channel"
             body="Monitor multiple streams at the same time — your own channel, streamers you clip for, or anyone live right now."/>
           <Step n="2" title="A formula scores every second — not AI"
@@ -5355,13 +5355,16 @@ function WelcomeOverlay({ onClose }) {
             body="Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula tunes itself to your taste."/>
         </div>
 
-        <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center',marginBottom:26}}>
-          {['Formula-based — not AI','Adapts to each streamer','Multiple streams at once','Fully connected to Twitch'].map(t=>(
-            <span key={t} style={{fontSize:12,fontWeight:600,padding:'6px 13px',borderRadius:99,background:'rgba(184,106,220,.12)',border:'1px solid rgba(184,106,220,.3)',color:'#c489e4'}}>{t}</span>
-          ))}
-        </div>
+        {/* REMOVED: a row of four pills reading "Formula-based — not AI",
+            "Adapts to each streamer", "Multiple streams at once", "Fully
+            connected to Twitch". Every one of them restated, in fewer words,
+            a numbered step sitting directly above it — the same claim twice on
+            one screen, in a modal that already asks for 250 words of reading
+            before the product can be reached. This is the decoration removed
+            for this phase. The steps themselves are untouched; the screen this
+            whole overlay belongs to is reworked in phase 4. */}
 
-        <button className="rd-btn grad" style={{width:'100%',justifyContent:'center',padding:'13px',fontSize:15}} onClick={onClose}>
+        <button className="rd-btn grad" style={{width:'100%',justifyContent:'center',padding:'12px',fontSize:14}} onClick={onClose}>
           <Icon name="zap" size={15}/>Start clipping
         </button>
       </div>
@@ -5374,7 +5377,7 @@ function WelcomeOverlay({ onClose }) {
 // screen reads as part of whatever the user was looking at.
 const UC_THEME = {
   kick:   { a:'#53fc18', b:'#39b515' },
-  violet: { a:'#c489e4', b:'#b86adc' },
+  violet: { a:'var(--acc)', b:'#b86adc' },
 };
 
 function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note }) {
@@ -5382,25 +5385,25 @@ function UnderConstruction({ theme='kick', title='Kick is coming soon', children
   const tint = (o)=>theme==='kick'?`rgba(83,252,24,${o})`:`rgba(184,106,220,${o})`;
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                 textAlign:'center',minHeight:'70vh',padding:'40px 24px',gap:22}}>
+                 textAlign:'center',minHeight:'70vh',padding:'32px 24px',gap:24}}>
       <div style={{width:96,height:96,borderRadius:26,display:'grid',placeItems:'center',color:a,
                    background:tint(.1),border:'1px solid '+tint(.32),
                    boxShadow:'0 12px 40px -14px '+tint(.45)}}><Icon name="cog" size={44}/></div>
-      <div style={{display:'inline-flex',alignItems:'center',gap:9,padding:'7px 16px',borderRadius:999,
+      <div style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',borderRadius:999,
                    background:tint(.12),border:'1px solid '+tint(.35),
-                   color:a,fontWeight:800,fontSize:12.5,letterSpacing:'.14em',textTransform:'uppercase'}}>
+                   color:a,fontWeight:800,fontSize:12,letterSpacing:'.14em',textTransform:'uppercase'}}>
         <span style={{width:8,height:8,borderRadius:'50%',background:a,boxShadow:'0 0 10px '+a}}/>
         Under Construction
       </div>
-      <h1 style={{margin:0,fontSize:38,fontWeight:900,letterSpacing:'-.02em',
+      <h1 style={{margin:0,fontSize:44,fontWeight:900,letterSpacing:'-.02em',
                   background:`linear-gradient(135deg,${a},${b})`,
                   WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
         {title}
       </h1>
-      <p style={{margin:0,maxWidth:560,fontSize:15.5,lineHeight:1.6,color:'var(--fg-2)'}}>
+      <p style={{margin:0,maxWidth:560,fontSize:16,lineHeight:1.6,color:'var(--fg-2)'}}>
         {children}
       </p>
-      <p style={{margin:0,fontSize:13,color:'var(--fg-3)'}}>
+      <p style={{margin:0,fontSize:12,color:'var(--fg-3)'}}>
         {note || "Thanks for your patience — we'll flip this on the moment it's solid."}
       </p>
     </div>
@@ -5953,10 +5956,10 @@ function RdApp() {
             <span className="uc-name">{me.username||'Account'}</span>
           </button>
         </header>
-        {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:10,padding:'9px 22px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12.5,color:'#c489e4',fontWeight:600}}>
-          <span style={{width:7,height:7,borderRadius:'50%',background:'#22c55e',boxShadow:'0 0 8px #22c55e',flexShrink:0}}/>
-          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'#b9aec4',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
-          <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'5px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
+        {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 24px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12,color:'var(--acc)',fontWeight:600}}>
+          <span style={{width:7,height:7,borderRadius:'50%',background:'var(--live)',boxShadow:'0 0 8px var(--live)',flexShrink:0}}/>
+          <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'var(--fg-2)',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
+          <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
         <main className="rd-screen">{screen}</main>
       </div>

@@ -164,3 +164,112 @@ def test_the_final_cta_bloom_is_gone():
     c = css("landing")
     m = re.search(r"\.final::before\{[^}]*\}", c)
     assert not m, "the bloom is back"
+
+
+# ── phase 1b: the inline styles ──────────────────────────────────────────────
+
+def _inline_objects() -> list[str]:
+    """Every style={{…}} body in the dashboard, brace-matched.
+
+    Not a regex over the file: an inline object can contain nested braces
+    (ternaries, template literals), and a naive `\\{\\{(.*?)\\}\\}` stops at the
+    first one and hands back half a declaration.
+    """
+    import src.dashboard.aurora_html as mod
+    from pathlib import Path
+    src = Path(mod.__file__).read_text(encoding="utf-8")
+    out, i = [], 0
+    while True:
+        j = src.find("style={{", i)
+        if j < 0:
+            return out
+        k, d = j + 7, 0
+        while k < len(src):
+            if src[k] == "{":
+                d += 1
+            elif src[k] == "}":
+                d -= 1
+                if d == 0:
+                    break
+            k += 1
+        out.append(src[j + 8:k])
+        i = k
+
+
+_INLINE_SPACE = {"padding", "margin", "gap", "paddingTop", "paddingBottom",
+                 "paddingLeft", "paddingRight", "marginTop", "marginBottom",
+                 "marginLeft", "marginRight", "rowGap", "columnGap"}
+# `(?:,|\Z)` — BOTH terminators. An earlier version of this check required a
+# following comma, which meant the LAST declaration in every object was invisible
+# to it. The transform it was checking had the same bug, so the check passed by
+# sharing it and 77 off-scale values survived. A verification that can only see
+# what the transform saw is not a verification.
+_INLINE_DECL = (r"\b(\w+)\s*:\s*('[-\d.px ]*'|\"[-\d.px ]*\"|-?\d+(?:\.\d+)?)"
+                r"(?=\s*(?:,|\Z))")
+
+
+def test_inline_spacing_is_on_the_scale():
+    """1069 declarations across 361 objects that no CSS refactor can reach —
+    React writes them camelCase with bare numbers, so `padding:26` is 26px and
+    Phase 1a's stylesheet regex correctly never saw them."""
+    bad = []
+    for o in _inline_objects():
+        for m in re.finditer(_INLINE_DECL, o):
+            if m.group(1) in _INLINE_SPACE:
+                for v in re.findall(r"-?\d+(?:\.\d+)?", m.group(2)):
+                    if abs(float(v)) not in SCALE:
+                        bad.append(f"{m.group(1)}:{v}")
+    assert not bad, f"{len(bad)} off-scale inline spacing values: {sorted(set(bad))[:10]}"
+
+
+def test_inline_font_sizes_are_on_the_scale():
+    steps = {12, 14, 16, 17, 24, 30, 44}
+    bad = []
+    for o in _inline_objects():
+        for m in re.finditer(_INLINE_DECL, o):
+            if m.group(1) == "fontSize":
+                for v in re.findall(r"-?\d+(?:\.\d+)?", m.group(2)):
+                    if float(v) not in steps:
+                        bad.append(v)
+    assert not bad, f"off-scale inline font sizes: {sorted(set(bad))}"
+
+
+def test_the_last_declaration_in_an_object_is_actually_checked():
+    """Guards the guard. If _INLINE_DECL stops requiring a trailing comma to be
+    optional, every check above silently stops seeing final declarations — the
+    exact hole that let 77 values through."""
+    probe = "color:'red',marginTop:14"
+    found = [m.group(1) for m in re.finditer(_INLINE_DECL, probe)]
+    assert "marginTop" in found, "the pattern cannot see a trailing declaration"
+
+
+def test_no_off_palette_colours_hide_in_inline_styles():
+    """These were invisible to every stylesheet analysis because they existed
+    only inside style={{…}}: a mint green, an indigo, two reds and a tenth
+    amber, none of them in the palette, each doing a job a token already
+    covers."""
+    gone = ("#86efac", "#a5b4fc", "#22c55e", "#f87171", "#fca5a5", "#ffc53d", "#15111f")
+    body = " ".join(_inline_objects()).lower()
+    back = [h for h in gone if h in body]
+    assert not back, f"off-palette colours returned: {back}"
+
+
+def test_the_twitch_purple_is_spelled_one_way():
+    """It was written #9146ff twice and #9147ff twice — one digit apart, in a
+    brand colour that has exactly one correct value."""
+    import src.dashboard.aurora_html as mod
+    from pathlib import Path
+    src = Path(mod.__file__).read_text(encoding="utf-8").lower()
+    assert "#9147ff" not in src, "the mistyped Twitch purple is back"
+    assert "#9146ff" in src
+
+
+def test_inline_styles_prefer_tokens_over_palette_literals():
+    """A palette colour written longhand inline cannot follow the palette. Only
+    non-palette literals are allowed to remain — pure black and white, the
+    Twitch brand purple, the Kick theme green, and three gradient stops."""
+    allowed = {"#fff", "#000", "#9146ff", "#53fc18", "#2a1840", "#3a1a4d", "#14021c"}
+    found = set()
+    for o in _inline_objects():
+        found |= {h.lower() for h in re.findall(r"#[0-9a-fA-F]{3,8}\b", o)}
+    assert found <= allowed, f"palette colours still written longhand inline: {found - allowed}"
