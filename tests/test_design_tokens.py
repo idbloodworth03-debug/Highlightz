@@ -436,3 +436,125 @@ def test_the_dead_faq_stylesheet_is_gone():
     assert c.count(".faq-a{") == 1, "there are two .faq-a rules again"
     from src.dashboard.api import LANDING_HTML
     assert 'class="faq-cols"' in LANDING_HTML, "the live FAQ markup changed"
+
+
+# ── phase 4: the post-login states ───────────────────────────────────────────
+
+def _dash() -> str:
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    return DASHBOARD_HTML
+
+
+def test_the_welcome_modal_is_gone_entirely():
+    """It opened on every new account with ~250 words and five numbered steps,
+    blocking the product behind a document. Deleted rather than disabled, so it
+    cannot come back by uncommenting one line."""
+    d = _dash()
+    assert "function WelcomeOverlay" not in d, "the component is back"
+    assert "Welcome to Highlightz" not in d, "its copy is back"
+    assert "<WelcomeOverlay" not in d, "it is being rendered again"
+
+
+def test_first_run_does_one_thing():
+    """One input, one button, one line saying what happens next."""
+    d = _dash()
+    assert "function FirstRun(" in d
+    assert "Add a channel to watch." in d
+    body = d[d.index("function FirstRun("):]
+    body = body[:body.index("\n}\n")]
+    assert body.count("<input") == 1, "first run has more than one input"
+    assert body.count("<button") == 1, "first run offers more than one action"
+
+
+def test_first_run_replaces_the_shell_rather_than_sitting_inside_it():
+    """A nav rail, a platform switch and a live pill are answers to questions
+    somebody with no channels has not asked. The gate must return BEFORE the
+    shell is built."""
+    d = _dash()
+    gate = d.index("return <FirstRun onAdd={addStream}/>;")
+    shell = d.index("<nav className={'rd-nav'")
+    assert gate < shell, "the shell is constructed before the first-run gate"
+
+
+def test_first_run_is_gated_on_clips_too_not_just_streams():
+    """Somebody who added a channel, collected clips and later removed the
+    channel is not a new user. Dropping them onto a bare input would read as
+    their account having been wiped."""
+    d = _dash()
+    g = d[d.index("if (me && me.id && Object.keys(streams).length === 0"):]
+    g = g[:g.index("}")]
+    assert "Object.keys(clips).length === 0" in g, "the gate ignores existing clips"
+    assert "seenBefore" in g, "the gate ignores whether they have been here before"
+
+
+def test_the_wake_plays_once_and_only_on_the_first_channel():
+    """On the second and later adds it would be a 1.5s wall in front of a
+    dashboard the user is already using — the thing this phase removes."""
+    d = _dash()
+    assert "const first = Object.keys(streams).length === 0;" in d
+    assert "if (first) {" in d and "setWake({channel:s.channel" in d
+
+
+def test_the_wake_animates_only_transform_and_opacity():
+    d = _dash()
+    for sel in (".wake-chip", ".wake-frame", ".wake-rule", ".wake-status"):
+        rule = re.search(re.escape(sel) + r"\{([^}]*)\}", d)
+        assert rule, sel
+        trans = re.search(r"transition:([^;}]*)", rule.group(1))
+        if trans:
+            for prop in ("width", "height", "top", "left", "margin", "padding"):
+                assert prop not in trans.group(1), f"{sel} transitions {prop}"
+
+
+def test_the_wake_counter_cannot_resize_its_own_container():
+    """A counter that reflows the box around it is the jitter this project
+    already fixed once on the landing page."""
+    rule = re.search(r"\.wake-score\{([^}]*)\}", _dash()).group(1)
+    assert "tabular-nums" in rule and "min-width" in rule
+
+
+def test_reduced_motion_flattens_the_wake_to_its_final_frame():
+    d = _dash()
+    blocks = [b.split("}\n}")[0] for b in d.split("@media(prefers-reduced-motion:reduce){")[1:]]
+    wake = [b for b in blocks if "wake" in b]
+    assert wake, "the wake ignores prefers-reduced-motion"
+    assert "transition:none" in wake[0]
+    assert "opacity:1" in wake[0] and "transform:none" in wake[0], \
+        "reduced motion hides the wake instead of showing its end state"
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    assert "matchMedia('(prefers-reduced-motion: reduce)')" in DASHBOARD_HTML, \
+        "the counter still animates under reduced motion"
+
+
+def test_the_returning_count_leads():
+    """Clip Review is the screen a returning user lands on, and the count was
+    set at 14px in a row of controls — the same size as the sort labels."""
+    rule = re.search(r"\.rd-toolbar-count\{([^}]*)\}", _dash()).group(1)
+    assert re.search(r"font-size:var\(--t-(h1|h2|h3|display)\)", rule), \
+        "the count is back to body size"
+    assert "tabular-nums" in rule and "min-width" in rule, \
+        "the count can shift the controls beside it when it changes"
+
+
+def test_no_third_copy_of_the_queue_numbers():
+    """A TodayHeader was planned for the Live Streams screen. Rendering the app
+    showed the default route is Clip Review, whose toolbar already carries the
+    count, the live channels and the weekly meter — so it would have been a
+    third copy of the same data on a screen nobody lands on."""
+    d = _dash()
+    assert "function TodayHeader" not in d, "the duplicate header was shipped"
+    assert "kept this week" in d, "the weekly meter went missing"
+
+
+def test_the_embedded_js_carries_no_backslash_escapes():
+    """This file is a Python triple-quoted string. A JS regex escaping a dot is
+    an invalid Python escape — a warning today, a SyntaxError later, at which
+    point the module stops importing and the app does not boot. The first
+    version of FirstRun shipped one, and so did the comment warning about it."""
+    import warnings, py_compile
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        py_compile.compile("src/dashboard/aurora_html.py", doraise=True,
+                           cfile="/tmp/_phase4_escape_check.pyc")
+    bad = [str(w.message) for w in caught if "invalid escape" in str(w.message)]
+    assert not bad, f"invalid escapes: {bad}"

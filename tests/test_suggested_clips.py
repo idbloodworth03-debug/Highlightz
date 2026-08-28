@@ -838,8 +838,13 @@ def test_the_glow_does_not_go_back_to_a_thirty_pixel_blur():
 
 
 def test_the_pulse_respects_reduced_motion():
-    block = CSS.split("@media(prefers-reduced-motion:reduce){")[1].split("}\n}")[0]
-    assert "sug" in block or "animation:none" in block
+    # The block that actually mentions the pulse, not the first one in the
+    # sheet. There are several reduced-motion blocks now, and indexing [1]
+    # meant this asserted against whichever happened to come first.
+    blocks = [b.split("}\n}")[0]
+              for b in CSS.split("@media(prefers-reduced-motion:reduce){")[1:]]
+    assert any("sug" in b or "animation:none" in b for b in blocks), \
+        "no reduced-motion block disables the suggested-clip pulse"
 
 
 def test_the_pulse_cannot_swallow_the_click():

@@ -51,6 +51,98 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   --ease:cubic-bezier(.16,1,.3,1);
   --dur-fast:150ms; --dur-slow:400ms; --dur-event:900ms;
 }
+/* ══ FIRST RUN ════════════════════════════════════════════════════════════
+   THE PROBLEM THIS REPLACES. A brand-new account's first sight of the product
+   was a fixed-inset blurred overlay carrying a logo, a heading, a lead
+   paragraph, five numbered steps and a CTA — about 250 words — with the
+   dashboard greyed out behind it. Everything it said is already on the landing
+   page and in the walkthrough, both of which the user has just had the chance
+   to read. It was a document standing between somebody and the thing they had
+   just signed up for.
+
+   Behind it was the second half of the problem: a full dashboard chrome — nav
+   rail, header, platform switch, live pill, user chip — wrapped around an
+   empty panel that said there was nothing to report. An empty screen is an
+   invitation to act, not a report that there is nothing to report.
+
+   So this state does exactly one thing: get a channel name entered. One input,
+   one button, one line saying what happens next. No nav, no tabs, no zeroed
+   stats. Everything else in the app appears the moment there is something for
+   it to hold. ══ */
+.fr{min-height:100vh;display:grid;place-items:center;padding:var(--s-5);
+  background:var(--rd-bg)}
+.fr-in{width:100%;max-width:520px;text-align:center}
+.fr-mark{height:32px;margin-bottom:var(--s-6);opacity:.9}
+.fr h1{font-size:var(--t-h1);font-weight:800;letter-spacing:-.025em;
+  line-height:1.15;margin-bottom:var(--s-3)}
+.fr-sub{font-size:var(--t-small);color:var(--fg-2);line-height:1.6;
+  margin-bottom:var(--s-6)}
+.fr-row{display:flex;gap:var(--s-2);align-items:stretch}
+.fr-row .rd-input{flex:1;font-size:var(--t-body);padding:var(--s-3) var(--s-4)}
+.fr-note{margin-top:var(--s-4);font-size:var(--t-caption);color:var(--fg-3);
+  letter-spacing:.02em}
+.fr-err{margin-top:var(--s-3);font-size:var(--t-small);color:var(--danger)}
+@media(max-width:520px){
+  .fr-row{flex-direction:column}
+}
+
+/* ══ THE WAKE ═════════════════════════════════════════════════════════════
+   What happens between "a channel was added" and "the dashboard is running".
+   It used to be nothing: the panel simply swapped. Three beats over 1.5s, all
+   transform and opacity, so the system reads as coming up rather than as a
+   screen being replaced.
+
+   beat 1  0-400ms   the channel name settles in as a chip
+   beat 2  400-900ms the frame draws: hairlines, then the threshold sweeps
+   beat 3  900-1500  the score counts up from zero and the trace begins  ══ */
+.wake{position:fixed;inset:0;z-index:40;display:grid;place-items:center;
+  background:var(--rd-bg);padding:var(--s-5)}
+.wake-in{width:100%;max-width:560px}
+.wake-chip{display:inline-flex;align-items:center;gap:var(--s-2);
+  padding:var(--s-1) var(--s-3);border-radius:var(--r-pill);
+  border:1px solid var(--hair-2);font-size:var(--t-caption);font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--acc);
+  opacity:0;transform:translate3d(0,8px,0);
+  transition:opacity var(--dur-slow) var(--ease),transform var(--dur-slow) var(--ease)}
+.wake.b1 .wake-chip{opacity:1;transform:none}
+.wake-frame{margin-top:var(--s-5);border:1px solid var(--hair);border-radius:var(--r-md);
+  padding:var(--s-5);opacity:0;transform:translate3d(0,12px,0);
+  transition:opacity var(--dur-slow) var(--ease),transform var(--dur-slow) var(--ease)}
+.wake.b2 .wake-frame{opacity:1;transform:none}
+.wake-score{font-size:var(--t-display);font-weight:800;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1;min-width:3ch;display:inline-block}
+.wake-rule{height:1px;background:var(--acc);margin:var(--s-4) 0;
+  transform:scaleX(0);transform-origin:left center;
+  transition:transform var(--dur-slow) var(--ease)}
+.wake.b2 .wake-rule{transform:scaleX(1)}
+.wake-lab{font-size:var(--t-caption);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--fg-3)}
+.wake-status{margin-top:var(--s-4);font-size:var(--t-small);color:var(--fg-2);
+  opacity:0;transition:opacity var(--dur-slow) var(--ease)}
+.wake.b3 .wake-status{opacity:1}
+
+/* ══ THE RETURNING HEADER ═════════════════════════════════════════════════
+   One fact, at the size of the fact. Coming back to the product, the thing
+   that matters is how many clips are waiting and whether the week's keep limit
+   is close — not a row of panels each holding a number. ══ */
+.today{display:flex;align-items:flex-end;gap:var(--s-5);flex-wrap:wrap;
+  padding:var(--s-5) 0 var(--s-6)}
+.today-n{font-size:var(--t-display);font-weight:800;letter-spacing:-.03em;
+  line-height:.9;font-variant-numeric:tabular-nums;color:var(--fg)}
+.today-k{font-size:var(--t-body);color:var(--fg-2);margin-bottom:4px}
+.today-act{margin-left:auto}
+.today-meter{width:100%;margin-top:var(--s-2);font-size:var(--t-caption);
+  color:var(--fg-3);letter-spacing:.02em}
+.today-bar{height:4px;border-radius:var(--r-pill);background:var(--hair);
+  overflow:hidden;margin-top:var(--s-2);max-width:280px}
+.today-bar i{display:block;height:100%;background:var(--pending);
+  transform-origin:left center;transform:scaleX(var(--v,0));
+  transition:transform var(--dur-slow) var(--ease)}
+@media(prefers-reduced-motion:reduce){
+  .wake-chip,.wake-frame,.wake-rule,.wake-status,.today-bar i{transition:none}
+  .wake-chip,.wake-frame,.wake-status{opacity:1;transform:none}
+  .wake-rule{transform:scaleX(1)}
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:var(--font);color:var(--fg);background:var(--rd-bg);-webkit-font-smoothing:antialiased;overflow:hidden}
@@ -247,8 +339,17 @@ button{font-family:inherit;cursor:pointer}
 /* The title line now carries the count itself, because the screen name is
    already in the page header two inches above and saying it twice cost a whole
    row. Sized up from 12px accordingly: it is the first thing on the line. */
-.rd-toolbar-count{font-size:14px;font-weight:700;color:var(--fg);letter-spacing:-.01em;
-  font-variant-numeric:tabular-nums}
+/* LEAD WITH IT. This is the single fact that decides what a returning user
+   does, and Clip Review is the screen they land on — but it was set at 14px
+   in a row of controls, the same size as the sort labels beside it. At
+   --t-h2 it is the first thing the eye lands on and the rest of the toolbar
+   reads as what it is: the controls for the thing the number counts.
+   tabular-nums and a fixed min-width so 9 becoming 10 cannot shift the
+   controls to its right. */
+.rd-toolbar-count{font-size:var(--t-h2);font-weight:800;color:var(--fg);
+  letter-spacing:-.025em;line-height:1;font-variant-numeric:tabular-nums;
+  min-width:5ch;margin-right:var(--s-2)}
+@media(max-width:700px){ .rd-toolbar-count{font-size:var(--t-h3)} }
 .rd-toolbar-meta{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--fg-3);
   font-variant-numeric:tabular-nums}
 .rd-toolbar-meta svg{color:var(--live)}
@@ -2390,6 +2491,20 @@ function ChannelPerformance() {
   );
 }
 
+/* THE RETURNING STATES were going to get a TodayHeader here: the queue count
+   at display size with one action beside it, on the Live Streams screen.
+
+   IT WAS NOT BUILT, because rendering the app showed the plan had the wrong
+   screen. The default route is Clip Review, not Live Streams — a returning
+   user never sees Live Streams first — and Clip Review's toolbar already
+   carries all three facts the header was going to lead with: how many clips
+   are waiting, how many channels are live, and how many of the week's keeps
+   are used, the last of which already turns amber for the final five. A
+   header on a screen nobody lands on, repeating numbers that are already on
+   the screen they DO land on, would have been a third copy of the same data.
+
+   What was actually wrong is that the count sits at 12px in a toolbar. So the
+   count is promoted below, and nothing is duplicated. */
 function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
@@ -5320,57 +5435,117 @@ function VodScreen({ clips, me }) {
   );
 }
 
-function WelcomeOverlay({ onClose }) {
-  const Step = ({n, title, body}) => (
-    <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-      <span style={{width:28,height:28,borderRadius:9,background:'var(--grad-soft)',color:'var(--acc)',display:'grid',placeItems:'center',fontSize:12,fontWeight:800,flexShrink:0}}>{n}</span>
-      <div>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{title}</div>
-        <div style={{fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>{body}</div>
-      </div>
-    </div>
-  );
+/* ONE INPUT, ONE BUTTON. See the .fr note in the stylesheet for what this
+   replaced and why. It deliberately renders INSTEAD of the app shell rather
+   than inside it: a nav rail and a platform switch are answers to questions
+   somebody with no channels has not asked yet.
+
+   It calls the same onAdd the normal panel calls, so there is one add path and
+   no second copy of the validation to drift. */
+function FirstRun({ onAdd }) {
+  const [ch, setCh] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const inputRef = useRef(null);
+  useEffect(()=>{ if(inputRef.current) inputRef.current.focus(); },[]);
+  const submit = async (e) => {
+    if (e) e.preventDefault();
+    // Deliberately written without a regex. This whole file is a Python
+    // triple-quoted string, so a JS regex literal escaping a dot is an
+    // invalid PYTHON escape — today a warning, and slated to become a
+    // SyntaxError that stops the module importing. String operations do the
+    // same job and cannot trip it.
+    let raw = ch.trim();
+    const cut = raw.lastIndexOf('twitch.tv/');
+    if (cut >= 0) raw = raw.slice(cut + 10);
+    const name = Array.from(raw).filter(c =>
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') || c === '_').join('');
+    if (!name) { setErr('Enter a Twitch channel name.'); return; }
+    setBusy(true); setErr('');
+    try { await onAdd(name, 'default', 'twitch'); }
+    catch { setErr('Could not start watching that channel.'); }
+    setBusy(false);
+  };
   return (
-    <div style={{position:'fixed',inset:0,zIndex:60,background:'rgba(5,4,8,.78)',backdropFilter:'blur(10px)',WebkitBackdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflowY:'auto'}}>
-      <div className="glass wm-card" style={{borderRadius:24,maxWidth:640,width:'100%',padding:'32px 48px',maxHeight:'92vh',overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'center',marginBottom:16}}>
-          <img src="/static/logo-mark.png" alt="Highlightz" style={{height:40,filter:'drop-shadow(0 0 14px rgba(196,137,228,.4))'}}/>
-        </div>
-        <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-.025em',textAlign:'center',marginBottom:8}}>Welcome to Highlightz</h1>
-        <p style={{fontSize:14,color:'var(--fg-3)',textAlign:'center',lineHeight:1.65,marginBottom:24}}>
-          A tool that makes clipping easier. Highlightz watches your streams live and
-          captures the best moments automatically — so you never miss a highlight again.
-        </p>
-
-        <div style={{display:'flex',flexDirection:'column',gap:16,marginBottom:24}}>
-          <Step n="1" title="Add any live Twitch channel"
-            body="Monitor multiple streams at the same time — your own channel, streamers you clip for, or anyone live right now."/>
-          <Step n="2" title="A formula scores every second — not AI"
-            body="Highlightz uses a transparent mathematical formula that combines chat speed, audio spikes, keywords, viewer surges, and hype moments into one live score. No AI, no black box — you can watch the score move in real time."/>
-          <Step n="3" title="It adapts to every streamer"
-            body="The formula learns each channel's normal — a quiet chess stream and a loud FPS stream trigger at the same fairness. The more it watches, the sharper it gets."/>
-          <Step n="4" title="Clips are created right on Twitch"
-            body="Fully connected to your Twitch account. When the score crosses the threshold, a real Twitch clip is created instantly under your account — hosted by Twitch, ready to share."/>
-          <Step n="5" title="You stay in control"
-            body="Every clip lands in your review queue. Approve the keepers, reject the misses — and the formula tunes itself to your taste."/>
-        </div>
-
-        {/* REMOVED: a row of four pills reading "Formula-based — not AI",
-            "Adapts to each streamer", "Multiple streams at once", "Fully
-            connected to Twitch". Every one of them restated, in fewer words,
-            a numbered step sitting directly above it — the same claim twice on
-            one screen, in a modal that already asks for 250 words of reading
-            before the product can be reached. This is the decoration removed
-            for this phase. The steps themselves are untouched; the screen this
-            whole overlay belongs to is reworked in phase 4. */}
-
-        <button className="rd-btn grad" style={{width:'100%',justifyContent:'center',padding:'12px',fontSize:14}} onClick={onClose}>
-          <Icon name="zap" size={15}/>Start clipping
-        </button>
+    <div className="fr">
+      <div className="fr-in">
+        <img className="fr-mark" src="/static/logo-mark.png" alt="Highlightz"/>
+        <h1>Add a channel to watch.</h1>
+        <p className="fr-sub">Any live Twitch channel. Yours, or someone else&rsquo;s.</p>
+        <form className="fr-row" onSubmit={submit}>
+          <input ref={inputRef} className="rd-input" value={ch} placeholder="twitch.tv/"
+            onChange={e=>setCh(e.target.value)} aria-label="Twitch channel name"
+            autoComplete="off" spellCheck="false"/>
+          <button className="rd-btn grad" type="submit" disabled={busy||!ch.trim()}>
+            <Icon name="zap" size={15}/>{busy?'Starting':'Watch'}
+          </button>
+        </form>
+        {err && <div className="fr-err">{err}</div>}
+        <div className="fr-note">Scoring starts within seconds of the channel going live.</div>
       </div>
     </div>
   );
 }
+
+/* THE 1.5s WAKE. Three beats, driven by class not by keyframes, so every step
+   is transform and opacity and reduced-motion can flatten the whole thing to
+   its final frame by disabling one transition rule.
+
+   The numeral counts from zero to whatever the channel is actually scoring.
+   It is tabular and min-width:3ch so the box cannot resize as digits land —
+   a counter that reflows its own container is the jitter this project already
+   fixed once on the landing page. */
+function WakeSequence({ channel, score, onDone }) {
+  const [beat, setBeat] = useState(0);
+  const [n, setN] = useState(0);
+  const reduced = typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  useEffect(()=>{
+    if (reduced) { setBeat(3); setN(score||0); const t=setTimeout(onDone,300); return ()=>clearTimeout(t); }
+    const ts = [setTimeout(()=>setBeat(1), 30),
+                setTimeout(()=>setBeat(2), 400),
+                setTimeout(()=>setBeat(3), 900),
+                setTimeout(onDone, 1500)];
+    return ()=>ts.forEach(clearTimeout);
+  },[]);
+  useEffect(()=>{
+    if (beat < 3 || reduced) return;
+    const target = score||0; const started = Date.now();
+    const id = setInterval(()=>{
+      const t = Math.min(1,(Date.now()-started)/520);
+      setN(Math.round(target*t));
+      if (t>=1) clearInterval(id);
+    }, 40);
+    return ()=>clearInterval(id);
+  },[beat]);
+  const cls = 'wake' + (beat>=1?' b1':'') + (beat>=2?' b2':'') + (beat>=3?' b3':'');
+  return (
+    <div className={cls} role="status" aria-live="polite">
+      <div className="wake-in">
+        <span className="wake-chip"><span className="dot"/>{channel}</span>
+        <div className="wake-frame">
+          <span className="wake-score">{n}</span>
+          <div className="wake-rule"/>
+          <div className="wake-lab">live score &middot; watching</div>
+          <div className="wake-status">Watching {channel}. Clips appear the moment one fires.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* WelcomeOverlay lived here: a fixed-inset blurred modal with a logo, a
+   heading, a lead paragraph, five numbered steps and a CTA — about 250 words
+   standing between a new account and the product it had just signed up for.
+   Nothing in it was untrue and nothing in it was needed: every claim is on the
+   landing page and in the walkthrough, both of which the user has already had
+   the chance to read, and the one claim that matters — that a score moves and
+   crosses a line — is now shown rather than described, 1.5 seconds after they
+   type a channel name.
+
+   Its render was removed with the rest of phase 4; the component is deleted
+   here so it cannot be reinstated by uncommenting one line. */
 
 // Shared "not ready yet" screen. Two callers with different palettes: Kick
 // (green) and held-back features like Clip Editor (the app's purple), so the
@@ -5435,8 +5610,13 @@ function RdApp() {
   // Mobile nav drawer. Desktop CSS ignores the class entirely (the rail is
   // always visible there), so this state is inert above the breakpoint.
   const [navOpen, setNavOpen] = useState(false);
-  const [welcome, setWelcome] = useState(()=>{ try { return !localStorage.getItem('hz_welcome_seen'); } catch { return false; } });
-  const dismissWelcome = () => { try { localStorage.setItem('hz_welcome_seen','1'); } catch {} setWelcome(false); };
+  // THE WELCOME MODAL IS RETIRED. It opened on a brand-new account with ~250
+  // words and five numbered steps, blocking the product behind a document. The
+  // first-run screen below replaces it: one input, one button. The localStorage
+  // key is still read once, and only to decide whether somebody has been here
+  // before — never to show the overlay again.
+  const [wake, setWake] = useState(null);       // {channel, score} during the 1.5s wake
+  const seenBefore = (()=>{ try { return !!localStorage.getItem('hz_welcome_seen'); } catch { return true; } })();
   const [streams, setStreams] = useState({});
   const [scores, setScores] = useState({});
   const [profiles, setProfiles] = useState({});
@@ -5764,8 +5944,17 @@ function RdApp() {
       const s=await r.json();
       // Use s.channel (backend-normalised, lowercased) as the key so the
       // subsequent WebSocket stream_added event doesn't create a duplicate entry.
+      const first = Object.keys(streams).length === 0;
       setStreams(p=>({...p,[s.channel]:s}));
-      flash('Monitoring '+s.channel);
+      // The wake plays ONLY on the first channel a user ever adds. On the
+      // second and later it would be a 1.5s wall in front of a dashboard they
+      // are already using, which is the thing this phase exists to remove.
+      if (first) {
+        try { localStorage.setItem('hz_welcome_seen','1'); } catch {}
+        setWake({channel:s.channel, score:0});
+      } else {
+        flash('Monitoring '+s.channel);
+      }
     }catch{flash('Failed to add stream');}
   };
   const removeStream = async(channel)=>{
@@ -5909,6 +6098,21 @@ function RdApp() {
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
   else screen=<SettingsScreen {...{streams}}/>;
 
+  // FIRST RUN. Rendered INSTEAD of the shell, not inside it: a nav rail, a
+  // platform switch and a live pill are answers to questions somebody with no
+  // channels has not asked yet. The whole app appears the moment there is
+  // something for it to hold.
+  //
+  // Gated on streams AND clips, not streams alone. Somebody who added a
+  // channel, collected clips and later removed the channel is not a new user,
+  // and dropping them onto a bare input would read as their account having
+  // been wiped. `me.id` gates on /me having landed, so the screen cannot flash
+  // before the app knows what the account has.
+  if (me && me.id && Object.keys(streams).length === 0
+      && Object.keys(clips).length === 0 && !seenBefore) {
+    return <FirstRun onAdd={addStream}/>;
+  }
+
   return (
     <div className={'rd-app'+(activePlatform==='kick'?' kick-theme':'')} id="rd-app" data-grad="violet" data-density="comfortable" data-glow="on">
 
@@ -5969,7 +6173,9 @@ function RdApp() {
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
-      {welcome && <WelcomeOverlay onClose={dismissWelcome}/>}
+      {wake && <WakeSequence channel={wake.channel}
+        score={(scores[wake.channel]||{}).score||0}
+        onDone={()=>{ setWake(null); flash('Monitoring '+wake.channel); }}/>}
     </div>
   );
 }

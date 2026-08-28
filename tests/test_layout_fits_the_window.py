@@ -111,18 +111,30 @@ def test_the_frame_still_clips_rather_than_growing():
 
 # ── the mobile mode, which deliberately does the opposite ────────────────────
 
-def _media_block(query: str) -> str:
-    i = CSS.index(query)
-    depth, out = 0, []
-    for ch in CSS[i:]:
-        out.append(ch)
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                break
-    return "".join(out)
+def _media_block(query: str, containing: str = "") -> str:
+    """The block for `query` that contains `containing`.
+
+    A stylesheet can hold several blocks with the same media query — this one
+    now has four at max-width:700px — and taking the first match makes every
+    assertion depend on source order. It went red when an unrelated rule was
+    added ABOVE the layout block, which is a test failing for a reason that has
+    nothing to do with what it checks."""
+    start = 0
+    while True:
+        i = CSS.index(query, start)
+        depth, out = 0, []
+        for ch in CSS[i:]:
+            out.append(ch)
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        block = "".join(out)
+        if not containing or containing in block:
+            return block
+        start = i + len(query)
 
 
 def test_the_narrow_layout_goes_back_to_scrolling_the_page():
@@ -130,7 +142,7 @@ def test_the_narrow_layout_goes_back_to_scrolling_the_page():
     pinned frame. Pinning the row at every width would trap it in one screen —
     the opposite bug, and the fix for the desktop one causes it if the
     breakpoint is not given its own value back."""
-    block = _media_block("@media(max-width:700px)")
+    block = _media_block("@media(max-width:700px)", containing="min-height:100dvh")
     assert "height:auto" in block and "min-height:100dvh" in block
     assert "grid-template-rows:auto" in block, \
         "the narrow layout inherits the pinned row and cannot scroll"

@@ -154,9 +154,13 @@ def test_the_count_reads_as_the_heading_now_that_it_is_first():
     heading gone it is the first thing on the line and has to carry it."""
     m = re.search(r"\.rd-toolbar-count\{([^}]*)\}", CSS)
     assert m, ".rd-toolbar-count rule not found"
-    size = re.search(r"font-size:([\d.]+)px", m.group(1))
-    assert size and float(size.group(1)) >= 14, \
-        "the count is still styled as supporting text under a heading that is gone"
+    # Reads the TOKEN. The rule was moved onto the type scale, and the count is
+    # now --t-h2 rather than 14px — which is MORE of what this test wants, not
+    # less, so matching on a literal px value made it fail on an improvement.
+    tok = re.search(r"font-size:var\(--t-(\w+)\)", m.group(1))
+    assert tok, "the count no longer sets a size from the type scale"
+    assert tok.group(1) in ("h1", "h2", "h3", "display"), \
+        f"the count is set at --t-{tok.group(1)}, which is body copy or smaller"
 
 
 # ── 2. the Python repr on screen ─────────────────────────────────────────────
