@@ -6503,20 +6503,31 @@ LANDING_HTML = """<!DOCTYPE html>
      from every other clipping tool, and burying it in the tag row (where it
      lived) meant nobody read it. Links to #formula: the claim is only worth
      making if the reader can immediately go and check it. */
+  /* SIMPLIFIED. It was carrying two typefaces, two sizes, two weights, two
+     text colours and a left-to-right gradient inside a forty-pixel pill — six
+     variables to say one thing, which is why it read as busy rather than as a
+     claim. What is left is the structure: a mono label, a hairline, and the
+     sentence. The label stays mono because every other instrument label on
+     this page is mono and it is doing the same job; everything after the rule
+     is one size, one weight, one colour.
+
+     Flat tint, not a gradient. A gradient across 40px is a direction the eye
+     follows for no reason — there is nothing at the end of it. */
   .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px;
-    padding:8px 16px 8px 12px;border-radius:99px;text-decoration:none;
-    border:1px solid rgba(247,167,69,.38);
-    background:linear-gradient(90deg,rgba(247,167,69,.12),rgba(247,167,69,.03));
+    padding:8px 16px;border-radius:99px;text-decoration:none;
+    border:1px solid rgba(247,167,69,.32);background:rgba(247,167,69,.07);
     transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
-  .no-ai:hover{border-color:rgba(247,167,69,.62);
-    background:linear-gradient(90deg,rgba(247,167,69,.18),rgba(247,167,69,.05))}
+  .no-ai:hover{border-color:rgba(247,167,69,.55);background:rgba(247,167,69,.12)}
   .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
     color:var(--ember);white-space:nowrap}
-  .no-ai-t{font-size:14px;line-height:1.4;color:var(--ink-2)}
-  .no-ai-t b{color:var(--ink)}
+  /* The separator does the work the second colour and the bold used to do. */
+  .no-ai-x::after{content:'';display:inline-block;width:1px;height:12px;
+    margin-left:12px;vertical-align:-2px;background:rgba(247,167,69,.34)}
+  .no-ai-t{font-size:14px;line-height:1.4;color:var(--ink-2);font-weight:400}
+  .no-ai-t b{color:inherit;font-weight:inherit}
   @media (max-width:560px){
-    .no-ai{gap:8px;padding:8px 12px 8px 8px}
-    .no-ai-x{font-size:12px}
+    .no-ai{gap:8px;padding:8px 12px}
+    .no-ai-x::after{margin-left:8px}
     .no-ai-t{font-size:12px}
   }
   .tag.tag-key{color:var(--ember);border-right-color:rgba(247,167,69,.3)}
@@ -7379,24 +7390,14 @@ LANDING_HTML = """<!DOCTYPE html>
        which is also exactly what prefers-reduced-motion gets. -->
   <div class="hero-stack">
     <div class="wall" id="wall">
-      <div class="stage" id="stage">
-        <div class="stage-media">
-          <img class="stage-wash" id="stage-wash" alt="" aria-hidden="true" decoding="async">
-          <div class="stage-box">
-            <img class="stage-poster" id="stage-poster" alt="" decoding="async">
-            <div class="stage-frame" id="stage-frame"></div>
-          </div>
-        </div>
-        <div class="stage-bar">
-          <span class="stage-fired">TRIGGER FIRED</span>
-          <span class="stage-score" id="stage-score">0</span>
-          <span class="stage-meta" id="stage-meta"></span>
-          <span class="stage-hint" id="stage-hint">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z" opacity=".55"/><path d="M19 5 5 19" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-            <span class="lab">Click the clip for sound</span>
-          </span>
-          <a class="stage-out" id="stage-out" href="#" target="_blank" rel="noopener">Watch on Twitch</a>
-        </div>
+      <!-- The clip stage lived here: when a channel crossed its threshold the
+           firing tile expanded into a full-width Twitch player, held for the
+           clip's duration, then collapsed back. It is gone. The wall is a
+           monitor, and a monitor that stops monitoring every fourteen seconds
+           to play you a video is not showing you the thing it claims to do.
+           The crossing is still the payoff — the trace goes bright above the
+           line and the tile marks OVER THRESHOLD — and the page keeps running
+           instead of pausing. -->
       </div>
     </div>
     <div class="wall-cap">
@@ -7810,15 +7811,8 @@ LANDING_HTML = """<!DOCTYPE html>
 (function(){
   var wall=document.getElementById('wall');
   if(!wall) return;
-  var stage=document.getElementById('stage'),
-      poster=document.getElementById('stage-poster'),
-      frameBox=document.getElementById('stage-frame'),
-      stScore=document.getElementById('stage-score'),
-      stMeta=document.getElementById('stage-meta'),
-      stOut=document.getElementById('stage-out'),
-      capRate=document.getElementById('wall-rate'),
-      capState=document.getElementById('wall-state'),
-      wash=document.getElementById('stage-wash');
+  var capRate=document.getElementById('wall-rate'),
+      capState=document.getElementById('wall-state');
   var trig=document.getElementById('trig'), trigV=document.getElementById('trig-v'),
       trigLine=document.getElementById('trig-line');
   var thread=document.getElementById('thread'),
@@ -7826,7 +7820,7 @@ LANDING_HTML = """<!DOCTYPE html>
   var root=document.documentElement;
   var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var CYCLE=14000, WIN=9000, STEP=250, VW=300, VH=110, COLLAPSE=600;
+  var CYCLE=14000, WIN=9000, STEP=250, VW=300, VH=110;
 
   /* ── SOUND ────────────────────────────────────────────────────────────────
      The clip autoplays MUTED and there is no way around that from out here.
@@ -7916,7 +7910,7 @@ LANDING_HTML = """<!DOCTYPE html>
         // The spike HOLDS for as long as the clip is on screen. It decays
         // only after the stage collapses. A moment that is still being
         // clipped has not stopped being hot, and letting the score sag while
-        // its own clip plays made the nav readout contradict the stage.
+        // its own clip plays made the nav readout contradict the wall.
         beats=[{at:1500,rise:900,hold:1500,fall:900,peak:15},
                {at:5300,rise:950,hold:6300,fall:1400,peak:56}];
       } else if(i===missI){
@@ -8035,7 +8029,7 @@ LANDING_HTML = """<!DOCTYPE html>
                 lineOver:lnOver,clipRect:crect,thmark:thmark,
                 flag:flag,bars:bars,pts:[]});
     }
-    wall.insertBefore(frag,stage);
+    wall.appendChild(frag);
   }
   buildTiles();
 
@@ -8074,139 +8068,33 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
   /* ── the fire ──────────────────────────────────────────────────────────── */
-  var frameEl=null;
-  function teardownFrame(){
-    if(frameEl){ frameEl.src='about:blank'; frameEl.remove(); frameEl=null; }
-    frameBox.classList.remove('ready');
-  }
-  function openStage(tl,score){
-    var rectSrc=els[cycFireI].root.getBoundingClientRect();
-    var wr=wall.getBoundingClientRect();
-    stScore.textContent=String(score);
-    if(tl.clip){
-      stMeta.innerHTML='';
-      var b=document.createElement('b'); b.textContent=tl.clip.channel||'';
-      stMeta.appendChild(b);
-      stMeta.appendChild(document.createTextNode(' '+(tl.clip.clip_title||'')));
-      stOut.href=tl.clip.twitch_url||'#';
-      stOut.style.display='';
-      var hi=hiRes(tl.clip.thumbnail_url||'');
-      if(hi){
-        poster.style.display='';
-        poster.setAttribute('data-tried','0');
-        poster.onerror=function(){
-          if(poster.getAttribute('data-tried')!=='1'){
-            // Step DOWN to the stored size rather than giving up: the 1280
-            // variant 404s on a freshly created clip until Twitch has finished
-            // generating its preview frames.
-            poster.setAttribute('data-tried','1');
-            poster.src=tl.clip.thumbnail_url||'';
-            if(wash) wash.src=tl.clip.thumbnail_url||'';
-          } else {
-            poster.style.display='none';
-            if(wash) wash.style.display='none';
-          }
-        };
-        poster.src=hi;
-        if(wash){ wash.style.display=''; wash.src=hi; }
-      } else {
-        poster.removeAttribute('src'); poster.style.display='none';
-        if(wash){ wash.removeAttribute('src'); wash.style.display='none'; }
-      }
-    } else {
-      stMeta.textContent='clip created on Twitch';
-      stOut.style.display='none';
-      poster.removeAttribute('src'); poster.style.display='none';
-      if(wash){ wash.removeAttribute('src'); wash.style.display='none'; }
-    }
+  /* REMOVED: teardownFrame, openStage, embedSrc, closeStage and holdFor —
+     the machinery that expanded the firing tile into a full-width Twitch
+     player, held it for the clip's real duration, then collapsed it back.
+     About 120 lines, an iframe, a poster, a blurred wash, a clip-path
+     animation and a sound-consent path, all so the wall could stop being a
+     wall every fourteen seconds.
 
-    // The poster is up in the same frame the tile opens. The player is asked
-    // for only after that, and only ever one at a time — nothing on this page
-    // preloads video. If Twitch is slow, blocked, or declines to autoplay, the
-    // poster simply stays and the moment still lands.
-    // THE START VALUE IS COMMITTED WITH THE TRANSITION OFF, and that matters
-    // for exactly one cycle in every visit: the first.
-    //
-    // The stage rests at the stylesheet's inset(50% 50% 50% 50%) until it has
-    // opened once. Assigning the tile's rect with the transition live does not
-    // set that value, it starts an 800ms animation TOWARDS it — so a frame
-    // later, when the end value goes on, the computed clip-path is still near
-    // 50% and the clip expands from the middle of the wall instead of sliding
-    // out of the tile that fired. Measured: first open began at inset(43.7%),
-    // every later one at inset(0px 1001.1px 0px 0px). Later cycles looked
-    // right only by luck, because closeStage leaves the stage resting on the
-    // tile rect and the assignment is then a no-op.
-    var from='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
-      (wr.right-rectSrc.right).toFixed(1)+'px '+
-      (wr.bottom-rectSrc.bottom).toFixed(1)+'px '+
-      (rectSrc.left-wr.left).toFixed(1)+'px round 4px)';
-    stage.style.transition='none';
-    stage.style.clipPath=from;
-    stage.classList.remove('out');
-    stage.classList.add('on');
-    wall.classList.add('staged');
-    void stage.offsetWidth;          // `from` is now the real, un-animated state
-    stage.style.transition='';       // hand timing back to the stylesheet
-    stage.style.clipPath='inset(0px 0px 0px 0px round 4px)';
-
-    if(reduce||!tl.clip) return;
-    var src=embedFor(tl.clip);
-    if(!src) return;
-    teardownFrame();
-    frameEl=document.createElement('iframe');
-    frameEl.setAttribute('allow','autoplay; encrypted-media');
-    frameEl.setAttribute('allowfullscreen','');
-    frameEl.setAttribute('title',tl.clip.clip_title||'Clip');
-    frameEl.setAttribute('loading','lazy');
-    frameEl.addEventListener('load',function(){ frameBox.classList.add('ready'); });
-    frameEl.src=embedSrc(src);
-    frameBox.appendChild(frameEl);
-  }
-  function embedSrc(src){
-    // muted=true stays. THAT direction of the flag is honoured, and it is the
-    // only reason the clip is allowed to start playing by itself.
-    return src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+
-      '&autoplay=true&muted=true';
-  }
-  function closeStage(){
-    var e=els[cycFireI]; if(!e) return;
-    var rectSrc=e.root.getBoundingClientRect(), wr=wall.getBoundingClientRect();
-    stage.classList.add('out');
-    stage.style.clipPath='inset('+(rectSrc.top-wr.top).toFixed(1)+'px '+
-      (wr.right-rectSrc.right).toFixed(1)+'px '+
-      (wr.bottom-rectSrc.bottom).toFixed(1)+'px '+
-      (rectSrc.left-wr.left).toFixed(1)+'px round 4px)';
-    stage.classList.remove('on');
-    wall.classList.remove('staged');
-    teardownFrame();
-  }
+     The wall is a monitor. The crossing is still the moment — the trace goes
+     bright and heavy above the line, the tile marks OVER THRESHOLD, and the
+     caption says a clip was taken — and the page carries on monitoring
+     instead of pausing to play a video at you. */
 
   /* ── the loop ──────────────────────────────────────────────────────────── */
-  var cycIdx=-1, cyc=null, cycFireI=0, fired=false, staged=false, closed=false;
+  /* `closed` and `engaged` are gone with the stage: one tracked whether the
+     clip player had collapsed again, the other whether a visitor had clicked
+     into it for sound. Neither has anything to be true about now. */
+  var cycIdx=-1, cyc=null, cycFireI=0, fired=false, staged=false;
   var started=false;
-  var elapsed=0, cycleStart=0, cycleLen=CYCLE, firedScore=0, engaged=false;
+  var elapsed=0, cycleStart=0, cycleLen=CYCLE, firedScore=0;
   var last=null, raf=0, lastStep=-1, lastLit=-1, vis=visibleCount();
   var spark=[];
-
-  /* Left alone, the clip is a seven-second beat in a fourteen-second loop and
-     then the wall comes back. Once somebody has clicked INTO the player —
-     which on this page means they went looking for the sound — they are
-     watching it, and snatching it away mid-clip is rude. So the stage then
-     holds for the clip's real duration. Twitch clips run 5-60s; clamped both
-     ends so a missing or absurd duration cannot strand the hero on one frame. */
-  function holdFor(tl){
-    if(!engaged||!tl||!tl.clip) return CYCLE;
-    var d=parseFloat(tl.clip.duration_seconds)||20;
-    d=clamp(d,8,45);
-    return Math.max(CYCLE, 6800 + d*1000 + 1200);
-  }
 
   function reseed(){
     cycIdx++;
     cyc=buildCycle(cycIdx); cycFireI=cyc.fireI;
-    fired=false; staged=false; closed=false; lastStep=-1; spark=[];
-    cycleLen=CYCLE; firedScore=0; engaged=false;
-    stage.classList.remove('engaged');
+    fired=false; staged=false; lastStep=-1; spark=[];
+    cycleLen=CYCLE; firedScore=0;
     dress(cyc);
     if(capRate) capRate.textContent=String(vis);
     if(capState) capState.textContent='watching';
@@ -8315,15 +8203,14 @@ LANDING_HTML = """<!DOCTYPE html>
     if(t-lastStep>=STEP||lastStep<0){
       lastStep=t;
       render(t);
+      // The fire used to open the clip stage here. It now only reports: the
+      // tile keeps its OVER THRESHOLD mark and the caption says what happened.
+      // The cycle length stays CYCLE, because nothing has to be held on screen
+      // for a video to finish playing any more.
       if(fired&&!staged&&t>=6000){
         staged=true;
         firedScore=Math.round(scoreAt(cyc[cycFireI],t));
-        cycleLen=holdFor(cyc[cycFireI]);
-        openStage(cyc[cycFireI],firedScore);
-      }
-      if(staged&&!closed&&t>=cycleLen-COLLAPSE){
-        closed=true; closeStage();
-        if(capState) capState.textContent='clip saved to your queue';
+        if(capState) capState.textContent='trigger fired · clip saved to your queue';
       }
     }
     raf=requestAnimationFrame(tick);
@@ -8337,10 +8224,11 @@ LANDING_HTML = """<!DOCTYPE html>
      on the first scroll and held one number for the entire rest of the page.
 
      PARKING THE WALL LOOP IS STILL RIGHT and is not what changed. It drives
-     four tiles, twenty signal bars, a clip-path stage and an embedded Twitch
-     iframe, none of which are on screen, and openStage() must never build that
-     iframe where nobody can see it. What was wrong is that a 42x14 decoration
-     in a sticky bar was chained to it.
+     four tiles and twenty signal bars, none of which are on screen. (It also
+     used to drive a clip-path stage and an embedded Twitch iframe, which made
+     parking it doubly important — that machinery is gone now, but the loop is
+     still work nobody can see.) What was wrong is that a 42x14 decoration in a
+     sticky bar was chained to it.
 
      So the readout gets its own loop. It reads the SAME cycle through the SAME
      scoreAt(), so the number still means what it meant before — it just does
@@ -8382,7 +8270,7 @@ LANDING_HTML = """<!DOCTYPE html>
       if(!raf){ last=null; raf=requestAnimationFrame(tick); }
       return;
     }
-    if(raf){ cancelAnimationFrame(raf); raf=0; if(frameEl) teardownFrame(); }
+    if(raf){ cancelAnimationFrame(raf); raf=0; }
     if(navRunning()){
       // Pick the readout up where the wall left it rather than at zero, so
       // scrolling past the hero is not a visible jump in the sparkline.
@@ -8404,28 +8292,11 @@ LANDING_HTML = """<!DOCTYPE html>
   root.setAttribute('data-hero','1');
   document.addEventListener('visibilitychange',sync);
 
-  /* ── DID THEY CLICK INTO THE PLAYER? ──────────────────────────────────────
-     A cross-origin iframe swallows its own clicks: no event of ours ever fires
-     for them, and there is no API to ask. The one signal that does cross the
-     boundary is focus — clicking inside an iframe blurs the parent window and
-     leaves document.activeElement pointing at that iframe. It is the standard
-     way to detect this and it is the only way.
-
-     Checked on a timeout because activeElement is not updated until after the
-     blur handler returns. False positives are cheap here: the worst case is
-     the hero letting a clip play out that nobody was watching. */
-  window.addEventListener('blur', function(){
-    setTimeout(function(){
-      if(!frameEl || document.activeElement!==frameEl) return;
-      if(engaged) return;
-      engaged=true;
-      stage.classList.add('engaged');
-      var tl=cyc&&cyc[cycFireI];
-      var t=elapsed-cycleStart;
-      // Never retroactively shorter than where the clock already is.
-      cycleLen=Math.max(holdFor(tl), t+COLLAPSE+400);
-    },0);
-  });
+  /* REMOVED with the stage: a blur/activeElement probe that detected a click
+     INTO the cross-origin player (the only signal that crosses that boundary),
+     plus the click-to-unmute handler it fed. Both existed to give an embedded
+     clip sound consent and to hold the cycle open for the clip's real duration.
+     There is no player to click into any more. */
   window.addEventListener('resize',function(){
     var v=visibleCount();
     if(v!==vis){ vis=v; if(capRate) capRate.textContent=String(vis); }
@@ -8445,21 +8316,11 @@ LANDING_HTML = """<!DOCTYPE html>
     var i; for(i=0;i<4;i++) els[i].root.classList.add('in');
     var t=6600;
     render(t);
-    if(capState) capState.textContent='trigger fired · clip saved';
-    openStage(cyc[cycFireI],Math.round(scoreAt(cyc[cycFireI],t)));
-    // POSITION it over the tile, do not CLIP it to the tile. The 16:9 media
-    // box centres itself inside the stage, so a stage that still spans the
-    // whole wall and is merely clipped down puts the clip out in the middle of
-    // the wall and shows a 36px slice of its left edge. Moving the stage's own
-    // box means the media centres inside the tile, where it belongs.
-    var tr=els[cycFireI].root.getBoundingClientRect(), wr=wall.getBoundingClientRect();
-    stage.style.clipPath='none';
-    stage.style.left=(tr.left-wr.left).toFixed(1)+'px';
-    stage.style.top=(tr.top-wr.top).toFixed(1)+'px';
-    stage.style.right=(wr.right-tr.right).toFixed(1)+'px';
-    stage.style.bottom=(wr.bottom-tr.bottom).toFixed(1)+'px';
-    stage.classList.add('compact');
-    wall.classList.remove('staged');
+    if(capState) capState.textContent='trigger fired · clip saved to your queue';
+    // Reduced motion gets the same frame everyone else ends on: four channels
+    // scored, thresholds drawn, one of them over its line. It used to also
+    // compose the clip player into the firing tile, which was the most moving
+    // part of a frame whose whole purpose is that nothing moves.
   }
 
   function start(){

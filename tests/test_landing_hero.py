@@ -58,9 +58,29 @@ def test_the_landing_page_did_not_regrow_the_dashboard_stylesheet():
 # ── the wall exists and is wired ─────────────────────────────────────────────
 
 def test_the_hero_is_the_wall():
-    for el in ('id="wall"', 'id="stage"', 'id="stage-poster"', 'id="stage-frame"',
-               'id="wall-state"'):
+    for el in ('id="wall"', 'id="wall-state"', 'id="wall-rate"'):
         assert el in HTML, f"the hero lost {el}"
+
+
+def test_the_hero_does_not_play_a_clip_at_you():
+    """The wall used to stop being a wall every fourteen seconds: the firing
+    tile expanded into a full-width Twitch player, held for the clip's real
+    duration, then collapsed. A monitor that pauses to play you a video is not
+    demonstrating monitoring. The crossing is still the payoff — the trace goes
+    bright above the line and the tile marks OVER THRESHOLD — and the page
+    keeps running."""
+    for gone in ('id="stage"', 'id="stage-poster"', 'id="stage-frame"',
+                 'id="stage-out"', 'class="stage-bar"', 'TRIGGER FIRED'):
+        assert gone not in HTML, f"the clip stage is back: {gone}"
+    # Comments are documentation, not code — the removal notes name the
+    # functions they removed, which is the point of them.
+    code = re.sub(r"/\*.*?\*/", "", JS, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
+    for fn in ('openStage', 'closeStage', 'teardownFrame', 'holdFor'):
+        assert fn not in code, f"stage machinery is back: {fn}"
+    # And no iframe anywhere in the hero: the wall must never build a player.
+    hero = HTML[HTML.index('class="hero-stack"'):HTML.index('id="examples"')]
+    assert "<iframe" not in hero, "the hero builds a player again"
 
 
 def test_the_wall_fills_the_viewport_and_is_not_boxed_into_the_text_column():
@@ -168,36 +188,13 @@ def test_nothing_fires_before_the_wall_has_settled():
 
 # ── the clips are real ───────────────────────────────────────────────────────
 
-def test_the_wall_shows_the_owners_curated_clips():
-    """The channels on screen are showcase entries, so the names, games and
-    footage are the real ones. Invented channel names were one of the four
-    tells this whole redesign was about."""
-    assert "/landing/showcase" in JS, "the wall stopped reading the showcase"
-    assert "tl.clip.channel" in JS
-    assert "tl.clip.thumbnail_url" in JS
-
 
 def test_the_showcase_endpoint_is_still_public():
     assert "/landing/showcase" in api._OPEN_PATHS
 
 
-def test_the_poster_asks_for_the_full_size_and_steps_down_rather_than_giving_up():
-    """A freshly created clip 404s on the 1280 variant until Twitch has
-    generated its preview frames. Removing the image outright on that error
-    left a stage with no picture at all — worse than the soft one."""
-    assert "-preview-1280x720." in JS
-    assert "data-tried" in JS, "the hi-res fallback chain is gone"
-
 
 # ── the quality floor ────────────────────────────────────────────────────────
-
-def test_only_the_firing_clip_is_ever_fetched():
-    """One player, created on the cross and destroyed on collapse. Nothing on
-    this page preloads video."""
-    assert JS.count("createElement('iframe')") == 1, \
-        "more than one player can exist"
-    assert "teardownFrame" in JS
-    assert "frameEl.src='about:blank'" in JS, "the player is not really stopped"
 
 
 def test_the_loop_stops_when_nobody_is_looking():
@@ -227,46 +224,7 @@ def test_nothing_in_the_hero_animates_a_layout_property():
         assert prop not in HTML, f"the hero animates {prop.split(':')[1]}"
 
 
-def test_the_first_clip_opens_from_its_tile_like_every_other_one():
-    """REPORTED: the first clip "just jumps in instead of a smooth slide".
 
-    The stage rests at the stylesheet's inset(50% 50% 50% 50%) until it has
-    opened once. Assigning the tile's rect with the transition live does not
-    SET that value, it starts an 800ms animation towards it — so a frame later,
-    when the end value goes on, the computed clip-path is still near 50% and
-    the clip expands from the middle of the wall. Measured before the fix: the
-    first open began at inset(43.7%), every later one at
-    inset(0px 1001.1px 0px 0px). The later ones were right only by luck,
-    because closeStage leaves the stage resting on the tile rect.
-
-    So the start value is committed with the transition switched off, and the
-    order is the whole fix: none, set, reflow, restore, animate."""
-    body = JS[JS.index("function openStage("):]
-    body = body[:body.index("function closeStage(")]
-
-    off = body.index("stage.style.transition='none'")
-    start = body.index("stage.style.clipPath=from")
-    reflow = body.index("void stage.offsetWidth")
-    restore = body.index("stage.style.transition=''")
-    end = body.index("stage.style.clipPath='inset(0px 0px 0px 0px")
-
-    assert off < start, "the start rect is assigned before transitions are off"
-    assert start < reflow, "the start rect is not committed by a reflow"
-    assert reflow < restore, "transitions come back before the reflow commits"
-    assert restore < end, "the open would run with transitions still disabled"
-
-
-def test_the_stage_reveals_rather_than_scaling_so_the_clip_is_never_distorted():
-    assert "clip-path:inset(" in HTML
-    assert "transition:clip-path" in HTML
-
-
-def test_the_clip_gets_a_real_aspect_ratio():
-    """The wall is about 3:1 and a clip is 16:9. Handing the player the whole
-    wall letterboxed it down to a strip."""
-    assert "aspect-ratio:16/9" in HTML
-    assert "container-type:size" in HTML, \
-        "the media frame lost the container it measures itself against"
 
 
 # ── sound ───────────────────────────────────────────────────────────────────
@@ -288,134 +246,34 @@ def test_the_clip_gets_a_real_aspect_ratio():
 # the bar POINTS AT the player's own control instead of impersonating it, and
 # nothing re-adds a muted=false toggle.
 
-def test_the_clip_is_always_muted():
-    """Both walls at once. Browsers block autoplay with audio, so muted is what
-    buys the hero the right to play at all; and Twitch would ignore the flag in
-    the other direction anyway."""
-    assert "'&autoplay=true&muted=true'" in JS, \
-        "the embed no longer pins muted=true, so it may not autoplay at all"
 
 
-def test_nothing_tries_to_unmute_through_the_embed_url():
-    """The specific broken fix, kept out. muted=false appears in this file only
-    inside comments explaining why it does not work."""
-    code = re.sub(r"/\*.*?\*/", "", JS, flags=re.S)
-    code = re.sub(r"//[^\n]*", "", code)
-    assert "muted=false" not in code, \
-        "something is trying to unmute via the embed URL again; Twitch ignores it"
-    assert "muted='+(" not in code, "the mute flag is conditional again"
 
 
-def test_the_bar_points_at_the_players_own_control():
-    """The only thing that CAN unmute a clip is inside the iframe, so the page
-    says where it is rather than offering a switch wired to nothing."""
-    assert 'id="stage-hint"' in HTML
-    assert "Click the clip for sound" in HTML
-    assert 'id="stage-sound"' not in HTML, "the button that cannot work is back"
 
 
-def test_the_hint_cannot_swallow_the_click_it_is_asking_for():
-    """It sits in the stage bar, over the player. A hint that eats the click is
-    worse than no hint."""
-    m = re.search(r"\.stage-hint\{([^}]*)\}", HTML)
-    assert m and "pointer-events:none" in m.group(1), \
-        "the hint can intercept the click on the player"
 
 
-def test_clicking_into_the_player_is_detected():
-    """A cross-origin iframe swallows its own clicks and there is no API to
-    ask. Focus is the one signal that crosses: clicking inside an iframe blurs
-    the parent and leaves document.activeElement on that iframe."""
-    assert "window.addEventListener('blur'" in JS
-    assert "document.activeElement!==frameEl" in JS, \
-        "the engagement check no longer identifies WHICH element took focus"
-    assert "setTimeout(" in JS[JS.index("window.addEventListener('blur'"):], \
-        "activeElement is read synchronously in the blur handler, before it updates"
-
-
-def test_nothing_of_ours_is_drawn_on_top_of_the_player():
-    """REPORTED: "I can't unmute it when it pops up either."
-
-    The stage bar was absolutely positioned across the bottom of the stage,
-    which is exactly where Twitch draws the clip player's own controls — mute
-    button included. elementFromPoint at the centre of that control strip
-    returned .stage-bar. The one control on the page that CAN unmute a clip
-    was under 44px of our own chrome and could not be clicked at all. Measured
-    before the fix: 55 of 484 sampled points across four viewports were covered,
-    every one of them in the bottom rows.
-
-    So the stage is two grid rows now — the player, then our chrome — and the
-    bar sits beneath the picture rather than over it. This asserts the shape,
-    because the shape is what makes the control reachable."""
-    m = re.search(r"\.stage\{([^}]*)\}", HTML)
-    assert m, "the stage rule is gone"
-    assert "grid-template-rows:minmax(0,1fr) auto" in m.group(1), \
-        "the stage is no longer a media row plus a chrome row"
-
-    bar = re.search(r"\.stage-bar\{([^}]*)\}", HTML)
-    assert bar, "the stage bar rule is gone"
-    assert "position:absolute" not in bar.group(1), \
-        "the bar is absolutely positioned again — it will sit on the player's controls"
-    assert "bottom:0" not in bar.group(1), \
-        "the bar is pinned to the bottom of the stage, over Twitch's own controls"
-
-    media = re.search(r"\.stage-media\{([^}]*)\}", HTML)
-    assert media and "position:absolute" not in media.group(1), \
-        "the media is absolutely positioned again, so the bar must overlay it"
-
-
-def test_a_clip_someone_is_watching_is_allowed_to_finish():
-    """Left alone the clip is a beat in a loop. Once somebody has clicked into
-    the player — which on this page means they went looking for the sound —
-    they are watching it, and taking it away mid-clip is rude."""
-    assert "function holdFor(" in JS
-    assert "if(!engaged||!tl||!tl.clip) return CYCLE;" in JS, \
-        "the hold no longer depends on whether anyone is actually watching"
-    assert "duration_seconds" in JS, "the hold ignores the clip's real length"
-    m = re.search(r"d=clamp\(d,(\d+),(\d+)\);", JS.replace(" ", ""))
-    assert m, "the duration is unclamped — a bad value can strand the hero"
-    assert int(m.group(2)) <= 60, "a clip could hold the hero for over a minute"
-
-
-def test_engagement_does_not_leak_into_the_next_clip():
-    """A new cycle is a new clip nobody has asked to hear yet."""
-    reseed = JS[JS.index("function reseed(){"):]
-    reseed = reseed[:reseed.index("\n  }")]
-    assert "engaged=false" in reseed, "engagement survives into the next clip"
-
-
-def test_the_cycle_length_is_not_a_modulo_any_more():
-    """A period that changes partway through cannot be expressed as
-    elapsed % CYCLE, and the watch-it-out hold changes it."""
-    assert "elapsed%CYCLE" not in JS.replace(" ", ""), \
-        "the fixed-period clock is back and the hold cannot work"
-    assert "cycleStart" in JS and "cycleLen" in JS
-
-
-def test_the_readouts_hold_while_a_clip_is_playing():
-    """The firing tile's beat decays underneath the stage. Letting the nav and
-    the rail follow it down meant they drifted to baseline while the clip that
-    crossed the line was still on screen."""
-    assert "if(staged&&firedScore) best=firedScore;" in JS.replace("  ", " ")
 
 
 # ── reduced motion ───────────────────────────────────────────────────────────
 
 def test_reduced_motion_gets_no_motion_at_all():
-    """Not less — none. And no player: an autoplaying video is exactly what
-    somebody setting that preference is asking not to receive."""
+    """Not less — none. The second assertion here guarded against reduced
+    motion booting a video player; there is no player to boot any more, and
+    the check that replaced it is stronger: no player exists on any path."""
     assert "if(reduce){ composeStatic(); return; }" in JS
-    assert "if(reduce||!tl.clip) return;" in JS, \
-        "reduced motion can now boot a video player"
 
 
 def test_the_reduced_motion_frame_still_shows_the_wall():
-    """Opening the stage over the whole wall left a frame whose only content
-    was a clip — throwing away the part that carries the argument: channels
-    still being scored, thresholds visible, one of them over the line."""
+    """The frame has to carry the argument: four channels scored, thresholds
+    drawn, one of them over its line. It used to also compose a clip player
+    into the firing tile, which was the most moving part of a frame whose
+    entire purpose is that nothing moves."""
     assert "composeStatic" in JS
-    assert "stage.classList.add('compact')" in JS, \
-        "the static stage covers the whole wall again"
+    assert "els[i].root.classList.add('in')" in JS, "the static frame shows no tiles"
+    assert "stage" not in JS.split("function composeStatic")[1][:900], \
+        "the static frame composes a player again"
 
 
 # ── phones ───────────────────────────────────────────────────────────────────

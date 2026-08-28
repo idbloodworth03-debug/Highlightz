@@ -69,7 +69,9 @@ def test_landing_html_has_price_counter_and_demo():
     # The live capture is the hero itself now: a wall of channels being scored,
     # one of which crosses and fires. `#demo` was the single-channel widget it
     # replaced.
-    assert 'id="wall"' in html and "TRIGGER FIRED" in html
+    # "TRIGGER FIRED" was the clip stage's banner. The stage is gone — the wall
+    # reports the crossing in place instead of pausing to play the clip.
+    assert 'id="wall"' in html and 'id="wall-state"' in html
 
 
 def test_showcase_endpoint_public_and_curated(tmp_path, monkeypatch):
