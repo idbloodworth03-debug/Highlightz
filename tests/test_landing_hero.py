@@ -432,6 +432,36 @@ def test_the_cover_is_pitch_black_and_can_grow_past_the_viewport():
         "the cover has a fixed height and will clip its own content"
 
 
+def test_the_cover_is_never_half_on_the_black_and_half_off_it():
+    """The lockup is centred, so it starts leaving through the TOP of the
+    viewport after only its own offset — 272px at 1440x950, not the 684px a
+    0.72-of-a-screen budget assumed. It was still at 60% opacity when the top
+    edge cut it in half, which is a logo sliced off with the numbers still
+    hanging there.
+
+    The budget is the content's own distance to the top now, less the lift, so
+    opacity reaches zero exactly as the first pixel would be clipped. This
+    pins the derivation; the geometry itself is checked in a browser by
+    stepping through the whole cover 4px at a time and asserting the lockup is
+    never visible while any part of it is outside the black."""
+    block = HTML[HTML.index("function measureCover()"):]
+    block = block[:block.index("function frame()")]
+    assert "coverIn.offsetTop" in block, \
+        "the fade budget is not measured from the content's own position"
+    # getBoundingClientRect includes the transform this same code writes, so
+    # measuring with it would feed back on itself.
+    assert "getBoundingClientRect" not in block, \
+        "the budget is measured with a rect that includes its own transform"
+    # innerHeight appears legitimately on the line that caches WHEN we last
+    # measured, so this looks at the assignment that computes the budget.
+    budget_line = next(ln for ln in block.splitlines() if "coverBudget =" in ln)
+    assert "innerHeight" not in budget_line, \
+        "the budget is back to being a fraction of the viewport"
+    assert "top" in budget_line, "the budget ignores where the content sits"
+    # and the lift may not cost more than a quarter of what there is to spend
+    assert "Math.min(40, top * 0.25)" in block, "the lift is not capped"
+
+
 def test_scrolling_off_the_cover_costs_no_layout():
     """The reveal moves transform and opacity only. Animating height, top or
     margin here would reflow the whole page on every frame."""

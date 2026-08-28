@@ -8564,7 +8564,31 @@ LANDING_HTML = """<!DOCTYPE html>
      below may only ever take the cover AWAY. */
   var coverIn = document.getElementById('cover-in');
   var coverCue = document.getElementById('cover-cue');
+  var coverEl = document.getElementById('cover');
   var coverWasPast = null;
+
+  /* HOW FAR THE FADE GETS TO RUN. Not a fixed fraction of the screen: the
+     content is centred, so it starts leaving through the TOP of the viewport
+     after only its own offset — 272px at 1440x950. A budget of 0.72 of a
+     screen meant it was still at 60% opacity when the top edge cut it in half,
+     which is the "half on the black, half off" state. The budget is the
+     content's own distance to the top instead, less the lift, so opacity hits
+     zero at the exact moment its first pixel would be clipped: it is either
+     on the black screen or it is gone, never sliced.
+     offsetTop and not getBoundingClientRect: the rect includes the transform
+     this same code is writing, so measuring with it would feed back on
+     itself. offsetTop is layout, which the transform does not touch. */
+  var coverBudget = 1, coverLift = 0, coverMeasuredAt = -1;
+  function measureCover(){
+    coverMeasuredAt = window.innerHeight;
+    var top = coverIn.offsetTop + (coverEl ? coverEl.offsetTop : 0);
+    /* The lift eats the budget it moves through, so it is capped at a quarter
+       of it. On a phone the content nearly fills the screen — top is about 95
+       against 272 on a desktop — and a flat 40px lift would have spent nearly
+       half of what there is to spend. */
+    coverLift = Math.min(40, top * 0.25);
+    coverBudget = Math.max(40, top - coverLift);
+  }
 
   function frame(){
     ticking = false;
@@ -8573,14 +8597,16 @@ LANDING_HTML = """<!DOCTYPE html>
     var prog = h > 0 ? Math.min(1, Math.max(0, y / h)) : 0;
 
     if (coverIn){
-      /* Fully gone by 72% of a screen: the cover has to be finished before
-         the nav sticks, or the two overlap for a moment and read as one
-         crowded screen. */
-      var k = Math.min(1, y / Math.max(1, window.innerHeight * 0.72));
+      /* Re-measured only when the viewport height changes, because the budget
+         depends on where centring put the content. Reading it every frame
+         would force a layout on every scroll event. */
+      if (window.innerHeight !== coverMeasuredAt) measureCover();
+      var k = Math.min(1, y / coverBudget);
       coverIn.style.opacity = (1 - k).toFixed(3);
-      coverIn.style.transform = 'translate3d(0,' + (-k * 64).toFixed(1) + 'px,0)';
-      /* The cue has done its job the instant you scroll at all. */
-      if (coverCue) coverCue.style.opacity = (1 - Math.min(1, y / 180)).toFixed(3);
+      coverIn.style.transform = 'translate3d(0,' + (-k * coverLift).toFixed(1) + 'px,0)';
+      /* Same k, so the whole cover shares one timeline and nothing is left
+         behind on the black after the rest of it has gone. */
+      if (coverCue) coverCue.style.opacity = (1 - k).toFixed(3);
       var past = y > window.innerHeight * 0.6;
       if (past !== coverWasPast){
         coverWasPast = past;
