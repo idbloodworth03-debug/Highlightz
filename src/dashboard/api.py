@@ -6455,6 +6455,36 @@ LANDING_HTML = """<!DOCTYPE html>
      product runs, at the same 1s cadence, against the same threshold. ══ */
   .hero{position:relative;padding-top:24px;padding-bottom:16px}
   .room-light{display:none}
+  /* ── THE MASTHEAD ────────────────────────────────────────────────────────
+     Mark and wordmark, centred, first thing on the page. The wordmark reuses
+     the nav's exact treatment — mono, 600, uppercase, .12em — because a name
+     set two different ways on one screen reads as two different names; only
+     the size changes.
+
+     It is NOT allowed to eat the wall. The hero is min-height:100svh with the
+     wall in a minmax(0,1fr) row, so anything added above it comes straight out
+     of the wall's height — that is exactly how the wall lost 97px in an
+     earlier pass. The clamp is sized against the space actually available, and
+     it collapses hard on short viewports. */
+  .hero-mark{display:flex;flex-direction:column;align-items:center;
+    gap:var(--s-3);padding:var(--s-5) 0 var(--s-6);text-align:center}
+  /* No filter, no glow: the nav mark in the corner is painted flat, and this
+     is that same lockup at a larger size. A drop-shadow here would make the
+     two read as different treatments of the same logo. */
+  .hero-mark img{height:clamp(56px,7vw,96px);width:auto;display:block}
+  .hero-wordmark{font-family:var(--mono);font-weight:600;
+    font-size:clamp(22px,3.2vw,38px);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink);line-height:1}
+  /* A short window is the case this has to survive: a laptop at 720 has no
+     room for a 96px mark, a 38px wordmark AND the wall underneath. */
+  @media(max-height:820px){
+    .hero-mark{padding:var(--s-3) 0 var(--s-4);gap:var(--s-2)}
+    .hero-mark img{height:clamp(44px,5vw,64px)}
+    .hero-wordmark{font-size:clamp(19px,2.4vw,26px)}
+  }
+  @media(max-width:700px){
+    .hero-mark{padding:var(--s-4) 0 var(--s-5)}
+  }
   .hero-lede{display:grid;gap:0 clamp(28px,4vw,64px);align-items:end;
     padding:4px 0 16px}
   @media(min-width:980px){
@@ -7366,6 +7396,20 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="thread-lab">score</span></div>
 </div>
 <header class="wrap hero hero-band">
+  <!-- The masthead. Same mark and same wordmark as the nav — one logo, one
+       spelling, one letterspacing — just at the size a first impression needs.
+       decoding=sync and fetchpriority=high because this is now the first thing
+       on the page and it must not arrive after the headline. The dimensions
+       are the file's NATURAL 374x501, not the rendered size: the browser takes
+       the aspect ratio from them and combines it with the CSS height, so the
+       reserved box is the right SHAPE. Passing 96x96 reserved a square for an
+       image that is taller than it is wide, which is a layout shift dressed up
+       as a fix. -->
+  <div class="hero-mark">
+    <img src="/static/logo-mark.png" alt="" width="374" height="501"
+         decoding="sync" fetchpriority="high">
+    <span class="hero-wordmark">Highlightz</span>
+  </div>
   <div class="hero-lede">
     <div class="hero-copy">
       <div class="kicker">Automatic Twitch clipping</div>

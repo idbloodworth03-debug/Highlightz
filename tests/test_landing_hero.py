@@ -322,3 +322,65 @@ def test_the_wall_still_works_with_no_curated_clips_at_all():
     assert "pick.push(chosen||{clip:null,name:names[j%names.length]})" in JS, \
         "a tile can end up with no name when the pool is empty"
     assert "var clips=[], names=[" in JS, "the fallback names are gone"
+
+
+# ── the masthead ─────────────────────────────────────────────────────────────
+
+def test_the_page_opens_with_the_logo_and_the_name():
+    """Front and centre, first thing on the page."""
+    mark = HTML[HTML.index('class="hero-mark"'):]
+    mark = mark[:mark.index("</div>")]
+    assert "/static/logo-mark.png" in mark, "the masthead uses a different logo"
+    assert "Highlightz" in HTML[HTML.index('class="hero-wordmark"'):][:80]
+    # and it comes BEFORE the rest of the hero
+    assert HTML.index('class="hero-mark"') < HTML.index('class="hero-lede"')
+
+
+def test_the_wordmark_matches_the_nav_exactly():
+    """A name set two different ways on one screen reads as two different
+    names. Only the size may differ between the nav and the masthead."""
+    nav = re.search(r"\.nav-logo span\{([^}]*)\}", HTML).group(1)
+    mast = re.search(r"\.hero-wordmark\{([^}]*)\}", HTML).group(1)
+    for prop in ("font-family", "font-weight", "letter-spacing", "text-transform"):
+        a = re.search(prop + r":([^;]+)", nav)
+        b = re.search(prop + r":([^;]+)", mast)
+        assert a and b and a.group(1) == b.group(1), \
+            f"the masthead and the nav disagree on {prop}"
+
+
+def test_the_logo_reserves_its_real_shape():
+    """The file is 374x501 — taller than it is wide. Declaring 96x96 would
+    reserve a square box for it, which is a layout shift dressed up as a fix.
+    The attributes are the natural size; the browser takes the ratio from them
+    and combines it with the CSS height."""
+    import struct
+    from pathlib import Path
+    from src.dashboard.api import _STATIC_DIR
+    raw = Path(_STATIC_DIR, "logo-mark.png").read_bytes()
+    w, h = struct.unpack(">II", raw[16:24])
+    mark = HTML[HTML.index('class="hero-mark"'):]
+    mark = mark[:mark.index("</div>")]
+    assert f'width="{w}"' in mark and f'height="{h}"' in mark, \
+        f"the masthead declares a shape that is not the file's {w}x{h}"
+
+
+def test_the_masthead_mark_is_painted_flat_like_the_nav_mark():
+    """Same logo, same treatment. A glow on the big one and none on the small
+    one makes a single mark read as two. The nav img rule carries no filter,
+    so neither may this one."""
+    nav = re.search(r"\.nav-logo img\{([^}]*)\}", HTML).group(1)
+    mast = re.search(r"\.hero-mark img\{([^}]*)\}", HTML).group(1)
+    assert "filter" not in nav, "the nav mark grew a filter; re-check this pair"
+    assert "filter" not in mast, \
+        "the masthead mark is decorated in a way the nav mark is not"
+
+
+def test_the_masthead_does_not_crush_the_wall_on_a_short_screen():
+    """The hero is min-height:100svh with the wall in a minmax(0,1fr) row, so
+    anything added above it comes straight out of the wall's height. A laptop
+    at 720 has no room for a 96px mark AND a 38px wordmark AND the wall."""
+    assert "@media(max-height:820px){" in HTML, \
+        "the masthead does not shrink on a short viewport"
+    block = HTML[HTML.index("@media(max-height:820px){"):]
+    block = block[:block.index("}\n") + 200]
+    assert ".hero-mark" in block and ".hero-wordmark" in block
