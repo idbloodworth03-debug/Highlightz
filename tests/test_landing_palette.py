@@ -215,10 +215,11 @@ def test_the_signature_is_wired_to_one_number():
     # of the page's horizontal overflow (inset:-26% pushed it 182px past each
     # edge of a 699px element, giving a 915px scrollWidth at a 768px viewport).
     # Four consumers still read the score, so the room still responds.
-    # .tile{ replaced .demo{ when the single-channel widget became the wall.
-    # Four tiles all reading the same number is more of the room responding,
-    # not less.
-    for sel in (".nav::after{", ".tile{", ".trig{", ".thread-fill{"):
+    # .wall{ replaced .tile{: when the tiles lost their gradient-border cards
+    # for the cover's hairline language, the consumer moved to the wall's top
+    # hairline -- the frame of the whole instrument brightens with the score,
+    # mirroring the nav's hairline, instead of four card borders doing it.
+    for sel in (".nav::after{", ".wall{", ".trig{", ".thread-fill{"):
         block = CSS[CSS.index(sel):CSS.index("}", CSS.index(sel))]
         assert "var(--lit)" in block, f"{sel[:-1]} no longer reacts to the score"
     # And it is written from the loop, throttled to changes rather than frames.

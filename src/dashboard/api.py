@@ -6246,6 +6246,12 @@ LANDING_HTML = """<!DOCTYPE html>
   .hero.hero-band{min-height:calc(100svh - 72px);display:grid;
     grid-template-rows:auto minmax(0,1fr);align-content:stretch;
     margin-bottom:var(--s-10);
+    /* The cover's ground, carried through. Near-black at the top where slide
+       2 arrives, easing back to the page base at the bottom so the section
+       after the wall starts from --bone with no visible edge. This is the
+       same "lights off" darkness the cover set, one room, not a lighter
+       second website underneath it. */
+    background:linear-gradient(180deg,#09070C 0%,#0B0910 62%,var(--bone) 100%);
     max-width:none;padding-left:clamp(16px,4vw,72px);padding-right:clamp(16px,4vw,72px)}
   @media(max-width:700px){ .hero.hero-band{margin-bottom:var(--s-8)} }
   @media(min-width:1600px){
@@ -6630,7 +6636,19 @@ LANDING_HTML = """<!DOCTYPE html>
 
      Everything that moves here moves on transform, opacity or clip-path. No
      width, height, top or filter is animated anywhere in this block. ══ */
-  .wall{position:relative;display:grid;gap:8px;min-height:0;
+  /* The stats band's language, exactly: one hairline above, one below, cells
+     divided by vertical hairlines, no fills. The wall is the page's biggest
+     surface, and as four gradient-bordered cards it was the one thing still
+     dressed like a different website than the cover. */
+  /* The top hairline reads the live score, exactly like the nav's: the frame
+     of the instrument brightens as a channel climbs. This keeps the wall a
+     CONSUMER of --lit -- the tiles' gradient border used to be one, and a
+     room that stops responding to the score has lost the page's entire
+     mechanic, however clean it looks. */
+  .wall{position:relative;display:grid;gap:0;min-height:0;
+    border-top:1px solid rgba(184,106,220,calc(.12 + var(--lit)*.30));
+    border-bottom:1px solid var(--hair);
+    transition:border-color var(--t-move) var(--ease);
     grid-template-columns:repeat(4,minmax(0,1fr))}
   /* Under 1180 the wall drops to TWO channels, not to a 2x2. Four tiles in two
      rows needs about 900px of height, the lede takes the rest, and the second
@@ -6646,14 +6664,25 @@ LANDING_HTML = """<!DOCTYPE html>
     .wall{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr))}
   }
 
+  /* A cell, not a card: transparent on the dark ground, a hairline on the
+     left edge like the stat dividers, everything carried by the trace and the
+     number. The gradient border, the gradient fill and the radius all went --
+     three pieces of chrome the cover proved the room does not need. */
   .tile{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;
-    padding:12px 12px 12px;border-radius:4px;overflow:hidden;
-    border:1px solid transparent;
-    background:linear-gradient(172deg,#211628,var(--wall) 58%,#150F1B) padding-box,
-      linear-gradient(215deg,rgba(210,106,251,calc(.30 + var(--lit)*.50)),
-        rgba(184,106,220,.14) 55%,rgba(242,234,247,.05) 78%,rgba(242,234,247,.02)) border-box;
+    padding:var(--s-4) var(--s-4) var(--s-3);overflow:hidden;
+    border-left:1px solid var(--hair);background:transparent;
     transition:box-shadow var(--t-move) var(--ease),opacity var(--t-move) var(--ease),
-      transform var(--t-move) var(--ease)}
+      background var(--t-move) var(--ease),transform var(--t-move) var(--ease)}
+  .tile:first-child{border-left:none;padding-left:0}
+  /* Stacked rows on a phone, so the dividers turn horizontal -- same as the
+     stats band when it stacks. AFTER the base rule on purpose: these are the
+     same specificity, so putting them before it (inside the wall's own media
+     block above) let the base border-left win and drew a stray vertical
+     hairline on every stacked tile. */
+  @media(max-width:700px){
+    .tile{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-right:0}
+    .tile:first-child{border-top:none}
+  }
   /* Entry. Staggered in JS by writing --d; transform and opacity only. */
   .tile{opacity:0;transform:translate3d(0,14px,0)}
   .tile.in{opacity:1;transform:none;
@@ -6668,7 +6697,10 @@ LANDING_HTML = """<!DOCTYPE html>
      say the same thing precisely instead of atmospherically. Two signals for
      one state, and the vaguer one goes. .tile.fire keeps its glow: that marks
      an event, not a proximity. */
-  .tile.fire{box-shadow:0 0 0 1px rgba(210,106,251,.42),0 0 70px -22px rgba(210,106,251,.85)}
+  /* A wash of light in the cell, not a ring around a card -- the cell has no
+     card edge to ring any more. Still an event marker, still temporary. */
+  .tile.fire{background:rgba(184,106,220,.055);
+    box-shadow:0 0 70px -22px rgba(210,106,251,.7)}
 
   .tile-top{display:flex;align-items:baseline;gap:8px;min-width:0}
   .tile-ch{display:inline-flex;align-items:center;gap:8px;min-width:0;

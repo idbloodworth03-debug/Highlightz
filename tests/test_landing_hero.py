@@ -616,3 +616,23 @@ def test_ember_belongs_to_the_instruments_not_the_prose():
     tile = re.search(r"\.tile-score\{([^}]*)\}", HTML)
     assert tile and ("ember" in tile.group(1) or "247,167,69" in tile.group(1)), \
         "the tile scores lost their ember — the instrument colour is gone too"
+
+
+def test_the_wall_speaks_the_covers_language():
+    """The wall was four gradient-bordered cards on a plum ground — dressed
+    like a different website than the cover the reader just left. It is the
+    stats band's construction now: hairline above and below, cells divided by
+    hairlines, no fills, on the cover's own near-black. The hero ground eases
+    back to --bone at its bottom so the next section starts with no edge."""
+    tile = re.search(r"\n  \.tile\{([^}]*)\}", HTML).group(1)
+    assert "border-radius" not in tile, "the tiles grew corners again"
+    assert "border-box" not in tile, "the gradient border is back"
+    assert "background:transparent" in tile, "the tiles have a card fill again"
+    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
+    assert "#09070C" in band and "var(--bone)" in band, \
+        "the hero ground no longer carries the cover's darkness"
+    # stacked rows on a phone divide horizontally, and the override must sit
+    # AFTER the base .tile rule or the base border-left silently wins
+    i_base = HTML.index("\n  .tile{")
+    i_phone = HTML.index("border-top:1px solid var(--hair);padding-left:0;padding-right:0")
+    assert i_phone > i_base, "the phone divider override is before the base rule again"
