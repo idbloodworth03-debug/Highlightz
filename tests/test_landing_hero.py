@@ -494,3 +494,85 @@ def test_the_score_rail_stays_off_the_cover():
         "the score rail never comes back after the cover"
     assert "classList.toggle('past-cover'" in HTML, \
         "nothing ever adds the past-cover class"
+
+
+# ── two slides ───────────────────────────────────────────────────────────────
+
+def _slides() -> str:
+    """The slide controller's source, from its comment banner to the reduced-
+    motion gate at the bottom of the script."""
+    start = HTML.index("TWO SLIDES")
+    return HTML[start:HTML.index("if (!reduce)", start)]
+
+
+def test_the_cover_and_the_site_are_two_slides_not_a_scroll():
+    """One gesture on the cover carries you to the top of the site in a single
+    move; one gesture up from the top of the site carries you back. Fading
+    alone still let you come to REST anywhere inside the transition, which is
+    the half-on half-off state that was reported twice.
+
+    Not CSS scroll-snap, and that is measured, not taste: on this page
+    `mandatory` snapping dragged the scroll back to 0 from 150/500/900/1400/
+    2500, and `proximity` left 500 resting at 334 — the exact broken state.
+    So the controller is script, and this pins its shape."""
+    s = _slides()
+    assert "function slideTo(" in s and "behavior: 'smooth'" in s
+    for binding in ("'wheel'", "'keydown'", "'touchstart'", "'touchmove'"):
+        assert binding in s, f"no {binding} binding — that input can strand you"
+
+
+def test_a_gesture_is_only_swallowed_when_a_slide_was_taken():
+    """preventDefault on a gesture the controller did NOT act on would stop
+    the reader scrolling down off the top of the site. slideIntent reports
+    whether it consumed the gesture, and every cancel is behind it."""
+    s = _slides()
+    assert "if (slideIntent(e.deltaY > 0)) e.preventDefault()" in s
+    assert "if (slideIntent(down)) e.preventDefault()" in s
+    assert "if (slideIntent(dy > 0)) e.preventDefault()" in s
+
+
+def test_the_slides_disengage_when_the_cover_outgrows_the_window():
+    """At 375 the stats band stacks and the cover can be taller than the
+    viewport. Swallowing scroll there would trap the reader inside the cover
+    with no way to reach its own bottom half."""
+    s = _slides()
+    assert "function coverFits()" in s
+    assert "coverEl.offsetHeight <= window.innerHeight + 1" in s
+    # every entry point checks it
+    assert s.count("coverFits()") >= 4, \
+        "an input path skips the coverFits gate"
+
+
+def test_resting_inside_the_transition_is_impossible_from_any_route():
+    """Gesture hijacking covers the wheel, the keys and a swipe — but not a
+    scrollbar drag, and not scrolling up from deep in the page. The backstop
+    watches actual scroll position: anything that comes to rest inside the
+    transition is taken to the NEARER slide, debounced so it never fights a
+    gesture in progress."""
+    s = _slides()
+    assert "function armRest()" in s
+    assert "y * 2 < h ? 0 : h" in s, "the backstop lost 'nearer slide'"
+    assert "setTimeout" in s and "clearTimeout" in s, "the backstop is not debounced"
+    # and it is actually armed from the scroll handler
+    assert "if (slidesBound) armRest()" in HTML
+
+
+def test_the_slides_leave_typing_and_reduced_motion_alone():
+    """Arrow keys inside an input are text editing, not navigation. And under
+    prefers-reduced-motion the page must simply scroll — taking someone's
+    scroll away and teleporting them a screen is the kind of movement that
+    setting exists to refuse."""
+    s = _slides()
+    assert "t.tagName === 'INPUT'" in s and "t.isContentEditable" in s
+    # bindSlides is called exactly once, inside the !reduce branch
+    tail = HTML[HTML.index("if (!reduce)"):]
+    assert "bindSlides();" in tail, "the slides are never bound"
+    assert HTML.count("bindSlides();") == 1
+
+
+def test_a_slide_cannot_swallow_input_forever():
+    """sliding=true suppresses input while the smooth scroll runs. If that
+    scroll never lands — interrupted, background tab — the flag must release
+    on a clock, or the page stops responding to the wheel entirely."""
+    s = _slides()
+    assert "Date.now() - t0 > 1400" in s, "no ceiling on the sliding lock"

@@ -8650,12 +8650,127 @@ LANDING_HTML = """<!DOCTYPE html>
       seams[j].classList.toggle('lit', entering && over);
     }
   }
-  function onScroll(){ if (!ticking){ ticking = true; requestAnimationFrame(frame); } }
+  var slidesBound = false;
+  function onScroll(){
+    if (!ticking){ ticking = true; requestAnimationFrame(frame); }
+    if (slidesBound) armRest();
+  }
+
+  /* ── TWO SLIDES ──────────────────────────────────────────────────────────
+     The cover and the site, with nothing in between. One scroll gesture on the
+     cover carries you to the top of the site in a single move; one scroll up
+     from the top of the site carries you back. Fading alone was not enough:
+     you could still come to REST anywhere inside the transition, which is what
+     made the cover read as half on the black screen and half off it. There is
+     no third resting place now.
+
+     Not CSS scroll-snap. Measured in Chromium on this page: `mandatory` with
+     snap points only at the top drags you back to 0 from anywhere in the
+     document (150/500/900/1400/2500 all landed at 0), and `proximity` leaves
+     the middle un-snapped (500 landed at 334) -- which is the exact state
+     being fixed.
+
+     It engages only when the cover FITS the window. If the content is taller
+     than the viewport there is real scrolling to do inside the cover, and
+     swallowing that would trap the reader with no way to see the rest. */
+  var sliding = false, touchY = 0;
+
+  function coverFits(){
+    return !!coverEl && coverEl.offsetHeight <= window.innerHeight + 1;
+  }
+  function scrollY(){ return window.scrollY || window.pageYOffset || 0; }
+  /* -1 on the cover, 0 at the top of the site, 1 past both (hands off). */
+  function slideZone(){
+    if (!coverEl) return 1;
+    var h = coverEl.offsetHeight, y = scrollY();
+    if (y < h - 2) return -1;
+    if (y <= h + 2) return 0;
+    return 1;
+  }
+  function slideTo(target){
+    sliding = true;
+    window.scrollTo({ top: target, behavior: 'smooth' });
+    var t0 = Date.now();
+    (function settle(){
+      /* Released on arrival, with a ceiling so a scroll that never lands --
+         an interrupted smooth scroll, a background tab -- cannot leave input
+         swallowed forever. */
+      if (Math.abs(scrollY() - target) < 2 || Date.now() - t0 > 1400){
+        sliding = false; return;
+      }
+      requestAnimationFrame(settle);
+    })();
+  }
+  /* True only when this gesture was consumed, so the caller knows whether it
+     may cancel the event. Cancelling on a gesture we did NOT act on would stop
+     the reader scrolling down off the top of the site. */
+  function slideIntent(down){
+    if (sliding || !coverFits()) return false;
+    var z = slideZone();
+    if (down && z === -1){ slideTo(coverEl.offsetHeight); return true; }
+    if (!down && z === 0){ slideTo(0); return true; }
+    return false;
+  }
+
+  /* The backstop. Hijacking gestures covers the wheel, the keys and a swipe,
+     but not every way into the middle: dragging the scrollbar lands wherever
+     you drop it, and scrolling UP from deep in the page is deliberately not
+     hijacked (hands off past both slides) so it can carry you into the cover
+     from below. Whatever the route, if the scroll comes to rest INSIDE the
+     transition it is taken to the nearer of the two slides. Debounced, so it
+     only ever acts on a scroll that has already stopped -- it never fights a
+     gesture in progress. */
+  var restTimer = 0;
+  function armRest(){
+    if (!coverFits()) return;
+    clearTimeout(restTimer);
+    restTimer = setTimeout(function(){
+      if (sliding) return;
+      var h = coverEl.offsetHeight, y = scrollY();
+      if (y > 2 && y < h - 2) slideTo(y * 2 < h ? 0 : h);
+    }, 140);
+  }
+
+  function bindSlides(){
+    slidesBound = true;
+    window.addEventListener('wheel', function(e){
+      if (!coverFits()) return;
+      if (sliding && slideZone() < 1){ e.preventDefault(); return; }
+      if (!e.deltaY) return;
+      if (slideIntent(e.deltaY > 0)) e.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener('keydown', function(e){
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      var k = e.key;
+      var down = (k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'Spacebar');
+      var up = (k === 'ArrowUp' || k === 'PageUp');
+      if (!down && !up) return;
+      if (slideIntent(down)) e.preventDefault();
+    });
+
+    window.addEventListener('touchstart', function(e){
+      if (e.touches && e.touches.length) touchY = e.touches[0].clientY;
+    }, { passive: true });
+
+    window.addEventListener('touchmove', function(e){
+      if (!coverFits() || !e.touches || !e.touches.length) return;
+      if (sliding && slideZone() < 1){ e.preventDefault(); return; }
+      var dy = touchY - e.touches[0].clientY;
+      if (Math.abs(dy) < 6) return;
+      if (slideIntent(dy > 0)) e.preventDefault();
+    }, { passive: false });
+  }
 
   if (!reduce){
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
     frame();
+    /* Not under reduced motion: taking someone's scroll away and teleporting
+       them a screen is the kind of movement that setting exists to refuse.
+       There the page just scrolls, and the cover is one tall black block. */
+    bindSlides();
   } else if (thread){ thread.style.display = 'none'; }
 })();
 </script>
