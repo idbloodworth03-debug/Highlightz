@@ -331,8 +331,12 @@ def test_the_wall_gets_the_only_rhythm_break_and_not_from_its_own_height():
     c = css("landing")
     stack = re.search(r"\.hero-stack\{([^}]*)\}", c).group(1)
     assert "--s-10" not in stack, "the break is inside the hero again, eating the wall"
-    stats = re.search(r"\.stats\{([^}]*)\}", c).group(1)
-    assert "var(--s-10)" in stats, "the wall lost its breathing room"
+    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", c).group(1)
+    assert "margin-bottom:var(--s-10)" in band, "the wall lost its breathing room"
+    # A margin and not padding, for the same reason it was never padding: the
+    # hero is min-height:100svh, so padding is taken from the wall's own row.
+    assert not re.search(r"padding-(?:bottom|top):var\(--s-10\)", band), \
+        "the break is padding again, so it comes out of the wall"
 
 
 def test_the_chart_takes_the_tiles_slack():

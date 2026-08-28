@@ -50,8 +50,15 @@ def test_the_product_screenshots_stay_gone(gone):
 
 def test_the_landing_page_did_not_regrow_the_dashboard_stylesheet():
     """The captures shipped 56KB of the app's own CSS to every visitor. Nothing
-    should quietly reintroduce that."""
-    assert len(HTML) < 160_000, (
+    should quietly reintroduce that.
+
+    The ceiling is 56KB above where the page actually sits, which is the size
+    of the thing this is watching for. It was 160,000 against a 155,002-char
+    page — under 5KB of headroom, so the cover tripped it, and a tripwire that
+    fires on a 5KB feature is one somebody eventually raises without reading
+    it. Raise this only against a measured page size, never to make a red test
+    go away."""
+    assert len(HTML) < 216_000, (
         f"the landing page is {len(HTML)} chars — something large came back")
 
 
@@ -324,63 +331,136 @@ def test_the_wall_still_works_with_no_curated_clips_at_all():
     assert "var clips=[], names=[" in JS, "the fallback names are gone"
 
 
-# ── the masthead ─────────────────────────────────────────────────────────────
+# ── the cover ───────────────────────────────────────────────────────────────
 
-def test_the_page_opens_with_the_logo_and_the_name():
-    """Front and centre, first thing on the page."""
-    mark = HTML[HTML.index('class="hero-mark"'):]
-    mark = mark[:mark.index("</div>")]
-    assert "/static/logo-mark.png" in mark, "the masthead uses a different logo"
-    assert "Highlightz" in HTML[HTML.index('class="hero-wordmark"'):][:80]
-    # and it comes BEFORE the rest of the hero
-    assert HTML.index('class="hero-mark"') < HTML.index('class="hero-lede"')
+def _cover() -> str:
+    """The cover element's markup, from its opening tag to the nav that ends
+    it. Sliced on the nav rather than on a </div>, because the cover contains
+    nested divs and matching the first close would stop inside the lockup."""
+    start = HTML.index('<div class="cover" id="cover">')
+    return HTML[start:HTML.index('<nav class="nav">', start)]
 
 
-def test_the_wordmark_matches_the_nav_exactly():
-    """A name set two different ways on one screen reads as two different
-    names. Only the size may differ between the nav and the masthead."""
+def test_the_site_opens_on_the_cover_and_nothing_else():
+    """First screen: the mark, the name, the numbers. The cover is the FIRST
+    thing in the body — ahead of the nav, which is what puts the nav below the
+    fold at rest without any script hiding it."""
+    body = HTML.index("<body>")
+    assert HTML.index('<div class="cover" id="cover">') < HTML.index('<nav class="nav">'), \
+        "the nav is painted on top of the cover"
+    between = HTML[body + len("<body>"):HTML.index('<div class="cover" id="cover">')]
+    assert "<div" not in between and "<section" not in between, \
+        "something else renders before the cover"
+    cover = _cover()
+    assert "/static/logo-mark.png" in cover, "the cover lost the logo"
+    assert 'class="cover-word">Highlightz<' in cover, "the cover lost the name"
+    assert 'class="stats"' in cover, "the stats band is not on the cover"
+
+
+def test_the_stats_band_is_on_the_cover_and_only_there():
+    """It was moved, not copied. Two stats bands would mean two elements with
+    id=stat-clips, and the render-time reveal would only ever find the first."""
+    assert HTML.count('class="stats"') == 1, "the stats band exists twice"
+    for one_id in ("stat-clips", "stat-kept", "lp-count", "lp-kept"):
+        assert HTML.count(f'id="{one_id}"') == 1, f"{one_id} is duplicated"
+
+
+def test_the_live_numbers_still_get_revealed_after_the_move():
+    """The band is revealed by string replacement at render time. Moving the
+    markup reindented it, so this pins the exact needles _landing_html looks
+    for — a whitespace-sensitive one would now silently never match."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api)
+    for needle in (
+        '<div class="stat stat-big" id="stat-clips" style="display:none">',
+        '<div class="stat stat-big" id="stat-kept" style="display:none">',
+        '<span id="lp-count" data-count="0">0</span>',
+        '<span id="lp-kept" data-kept="0">0%</span>',
+    ):
+        assert needle in HTML, f"the markup no longer contains {needle!r}"
+        assert src.count(needle) >= 2, \
+            f"nothing replaces {needle!r} any more, so the number stays hidden"
+
+
+def test_the_cover_word_matches_the_nav_exactly():
+    """A name set two different ways on one site reads as two different names.
+    Only the size may differ between the nav and the cover."""
     nav = re.search(r"\.nav-logo span\{([^}]*)\}", HTML).group(1)
-    mast = re.search(r"\.hero-wordmark\{([^}]*)\}", HTML).group(1)
+    cov = re.search(r"\.cover-word\{([^}]*)\}", HTML).group(1)
     for prop in ("font-family", "font-weight", "letter-spacing", "text-transform"):
         a = re.search(prop + r":([^;]+)", nav)
-        b = re.search(prop + r":([^;]+)", mast)
+        b = re.search(prop + r":([^;]+)", cov)
         assert a and b and a.group(1) == b.group(1), \
-            f"the masthead and the nav disagree on {prop}"
+            f"the cover and the nav disagree on {prop}"
+
+
+def test_the_cover_mark_is_painted_flat_like_the_nav_mark():
+    """Same logo, same treatment. A glow on the big one and none on the small
+    one makes a single mark read as two."""
+    nav = re.search(r"\.nav-logo img\{([^}]*)\}", HTML).group(1)
+    cov = re.search(r"\.cover-mark img\{([^}]*)\}", HTML).group(1)
+    assert "filter" not in nav, "the nav mark grew a filter; re-check this pair"
+    assert "filter" not in cov, \
+        "the cover mark is decorated in a way the nav mark is not"
 
 
 def test_the_logo_reserves_its_real_shape():
-    """The file is 374x501 — taller than it is wide. Declaring 96x96 would
-    reserve a square box for it, which is a layout shift dressed up as a fix.
-    The attributes are the natural size; the browser takes the ratio from them
-    and combines it with the CSS height."""
+    """The file is 374x501 — taller than it is wide. Declaring a square would
+    reserve the wrong box, which is a layout shift dressed up as a fix. The
+    attributes are the natural size; the browser takes the ratio from them and
+    combines it with the CSS height."""
     import struct
     from pathlib import Path
     from src.dashboard.api import _STATIC_DIR
     raw = Path(_STATIC_DIR, "logo-mark.png").read_bytes()
     w, h = struct.unpack(">II", raw[16:24])
-    mark = HTML[HTML.index('class="hero-mark"'):]
-    mark = mark[:mark.index("</div>")]
-    assert f'width="{w}"' in mark and f'height="{h}"' in mark, \
-        f"the masthead declares a shape that is not the file's {w}x{h}"
+    cover = _cover()
+    assert f'width="{w}"' in cover and f'height="{h}"' in cover, \
+        f"the cover declares a shape that is not the file's {w}x{h}"
 
 
-def test_the_masthead_mark_is_painted_flat_like_the_nav_mark():
-    """Same logo, same treatment. A glow on the big one and none on the small
-    one makes a single mark read as two. The nav img rule carries no filter,
-    so neither may this one."""
-    nav = re.search(r"\.nav-logo img\{([^}]*)\}", HTML).group(1)
-    mast = re.search(r"\.hero-mark img\{([^}]*)\}", HTML).group(1)
-    assert "filter" not in nav, "the nav mark grew a filter; re-check this pair"
-    assert "filter" not in mast, \
-        "the masthead mark is decorated in a way the nav mark is not"
+def test_the_cover_is_pitch_black_and_can_grow_past_the_viewport():
+    """#000, not var(--void): the cover is emptier than the site behind it, and
+    that difference is what makes scrolling off it feel like arriving. And
+    min-height, not height — at 375 the stats band stacks into five rows and a
+    fixed height would clip the numbers off the bottom."""
+    cov = re.search(r"\n  \.cover\{([^}]*)\}", HTML).group(1)
+    assert "background:#000" in cov, "the cover is not pitch black"
+    assert "min-height:100svh" in cov, "the cover is not a full screen"
+    assert re.search(r"(^|;)height:", cov) is None, \
+        "the cover has a fixed height and will clip its own content"
 
 
-def test_the_masthead_does_not_crush_the_wall_on_a_short_screen():
-    """The hero is min-height:100svh with the wall in a minmax(0,1fr) row, so
-    anything added above it comes straight out of the wall's height. A laptop
-    at 720 has no room for a 96px mark AND a 38px wordmark AND the wall."""
-    assert "@media(max-height:820px){" in HTML, \
-        "the masthead does not shrink on a short viewport"
-    block = HTML[HTML.index("@media(max-height:820px){"):]
-    block = block[:block.index("}\n") + 200]
-    assert ".hero-mark" in block and ".hero-wordmark" in block
+def test_scrolling_off_the_cover_costs_no_layout():
+    """The reveal moves transform and opacity only. Animating height, top or
+    margin here would reflow the whole page on every frame."""
+    # Not JS: that name is the WALL's script only (see the slice at the top of
+    # this file, which stops at the through-line). The reveal lives in the
+    # scroll block much further down the page.
+    block = HTML[HTML.index("if (coverIn){"):]
+    block = block[:block.index("var over = lit")]
+    for banned in ("style.height", "style.top", "style.margin", "style.display"):
+        assert banned not in block, f"the cover reveal writes {banned}"
+    assert "coverIn.style.opacity" in block and "coverIn.style.transform" in block
+
+
+def test_the_cover_is_readable_with_no_javascript():
+    """frame() never runs under prefers-reduced-motion — the scroll listener is
+    not even attached. So the resting state in CSS has to be the visible one,
+    and the script may only ever take the cover away."""
+    assert "opacity" not in re.search(r"\n  \.cover-in\{([^}]*)\}", HTML).group(1)
+    assert "transform" not in re.search(r"\n  \.cover-in\{([^}]*)\}", HTML).group(1)
+
+
+def test_the_score_rail_stays_off_the_cover():
+    """"Just the logo, the name and the numbers" — a floating score readout on
+    top of the black is exactly the "else". It is hidden by default so JS-off
+    and reduced-motion get the clean screen too, not just the animated path."""
+    thread = re.findall(r"\n  \.thread\{([^}]*)\}", HTML)
+    assert any("opacity:0" in t for t in thread), \
+        "the score rail is visible on the cover"
+    assert "body.past-cover .thread{opacity:1}" in HTML, \
+        "the score rail never comes back after the cover"
+    assert "classList.toggle('past-cover'" in HTML, \
+        "nothing ever adds the past-cover class"

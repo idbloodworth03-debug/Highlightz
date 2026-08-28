@@ -6194,6 +6194,14 @@ LANDING_HTML = """<!DOCTYPE html>
     z-index:55;display:none;flex-direction:column;align-items:center;gap:12px;
     pointer-events:none}
   @media(min-width:900px){ .thread{display:flex} }
+  /* The cover is the mark, the name and the numbers, and nothing else — a
+     floating score rail on top of it is exactly the "else". It fades in once
+     the cover is most of the way gone. Opacity only: the element keeps its
+     box, so nothing reflows when it appears. Default is hidden, so with JS off
+     or under reduced motion (where the scroll handler never runs) the rail
+     simply stays away rather than sitting on the black. */
+  .thread{opacity:0;transition:opacity var(--t-move) var(--ease)}
+  body.past-cover .thread{opacity:1}
   .thread-rail{position:relative;width:1px;height:min(42vh,340px);
     background:linear-gradient(180deg,transparent,var(--hair-2) 12%,var(--hair-2) 88%,transparent)}
   /* Fill is scaled, never resized: transform only, so it never triggers layout. */
@@ -6225,9 +6233,21 @@ LANDING_HTML = """<!DOCTYPE html>
      queries, and a single-class .hero-band rule loses to every one of them —
      which is how the wall ended up boxed into a 1280 column with the bottom
      third of the viewport empty under it. */
+  /* THE ONE RHYTHM BREAK ON THE PAGE. Every other section boundary is --s-9;
+     the wall gets --s-10 beneath it, and that extra air is the entire
+     mechanism by which the wall reads as the subject of the page rather than
+     as one more block in the stack. It is a MARGIN, not padding: the hero is
+     min-height:100svh with the wall in a minmax(0,1fr) row, so padding here
+     would come straight out of the wall's own height — it lost 97px that way
+     the first time this was attempted. Air below a fixed-height box has to be
+     added outside the box. (It used to hang off .stats as a margin-top; the
+     stats band moved to the cover, so the break moved to the thing it was
+     always actually about.) */
   .hero.hero-band{min-height:calc(100svh - 72px);display:grid;
     grid-template-rows:auto minmax(0,1fr);align-content:stretch;
+    margin-bottom:var(--s-10);
     max-width:none;padding-left:clamp(16px,4vw,72px);padding-right:clamp(16px,4vw,72px)}
+  @media(max-width:700px){ .hero.hero-band{margin-bottom:var(--s-8)} }
   @media(min-width:1600px){
     .hero.hero-band{padding-left:5vw;padding-right:5vw}
   }
@@ -6406,6 +6426,48 @@ LANDING_HTML = """<!DOCTYPE html>
     border-top:1px solid var(--hair)}
   .sec-head.center .sec-sub{margin:0 auto}
 
+  /* ── THE COVER. One screen: the mark, the name, the numbers. ──────────────
+     #000 and not var(--void): the point is that it is emptier than the site
+     behind it, and --void is the site's black.
+     The lockup is centred on the SCREEN, not in the space above the cue — the
+     cue is out of flow at the bottom edge. Giving it a grid row of its own
+     pushed everything up and left a dead band under the numbers. The symmetric
+     padding floor (72px) is taller than the cue (~65px), which is what keeps
+     the two apart on a short window without positioning anything by hand.
+     min-height, not height: at 375 the band stacks and can outgrow the
+     viewport, and centring inside a fixed height clips it off the TOP where it
+     cannot be scrolled to. */
+  .cover{background:#000;min-height:100svh;
+    display:flex;flex-direction:column;justify-content:center;align-items:center;
+    padding:clamp(72px,12vh,140px) clamp(16px,4vw,72px);
+    position:relative;overflow:hidden}
+  .cover-in{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:clamp(32px,7vh,80px);
+    width:100%;max-width:1140px;margin:0 auto}
+  .cover-mark{display:flex;flex-direction:column;align-items:center;
+    gap:var(--s-4);text-align:center}
+  /* Flat and mono-600-uppercase-.12em: the nav's lockup at the size a first
+     screen needs, and nothing else. Only font-size differs. One logo painted
+     two ways, or a name set two ways, reads as two of them. */
+  .cover-mark img{height:clamp(76px,12vh,140px);width:auto;display:block}
+  .cover-word{font-family:var(--mono);font-weight:600;
+    font-size:clamp(24px,4.6vw,54px);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink);line-height:1}
+  .cover .stats{width:100%}
+  /* The only instruction on the screen, so it is small and it is the only
+     thing moving. */
+  .cover-cue{position:absolute;left:0;right:0;bottom:clamp(20px,3.5vh,36px);
+    display:flex;flex-direction:column;align-items:center;gap:var(--s-3);
+    font-family:var(--mono);font-size:11px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--ink-3);pointer-events:none}
+  .cover-cue-l{width:1px;height:clamp(24px,4vh,40px);transform-origin:top;
+    background:linear-gradient(180deg,transparent,var(--glow));
+    animation:cue 2.4s var(--ease) infinite}
+  @media(max-width:700px){
+    .cover{padding-top:clamp(28px,6vh,48px)}
+    .cover-in{gap:clamp(28px,5vh,44px)}
+  }
+
   /* ── Nav. Sits IN the room: same black, one hairline that is brighter on the
      side the light comes from. No blur, no glass. ── */
   .nav{position:sticky;top:0;z-index:60;
@@ -6455,36 +6517,6 @@ LANDING_HTML = """<!DOCTYPE html>
      product runs, at the same 1s cadence, against the same threshold. ══ */
   .hero{position:relative;padding-top:24px;padding-bottom:16px}
   .room-light{display:none}
-  /* ── THE MASTHEAD ────────────────────────────────────────────────────────
-     Mark and wordmark, centred, first thing on the page. The wordmark reuses
-     the nav's exact treatment — mono, 600, uppercase, .12em — because a name
-     set two different ways on one screen reads as two different names; only
-     the size changes.
-
-     It is NOT allowed to eat the wall. The hero is min-height:100svh with the
-     wall in a minmax(0,1fr) row, so anything added above it comes straight out
-     of the wall's height — that is exactly how the wall lost 97px in an
-     earlier pass. The clamp is sized against the space actually available, and
-     it collapses hard on short viewports. */
-  .hero-mark{display:flex;flex-direction:column;align-items:center;
-    gap:var(--s-3);padding:var(--s-5) 0 var(--s-6);text-align:center}
-  /* No filter, no glow: the nav mark in the corner is painted flat, and this
-     is that same lockup at a larger size. A drop-shadow here would make the
-     two read as different treatments of the same logo. */
-  .hero-mark img{height:clamp(56px,7vw,96px);width:auto;display:block}
-  .hero-wordmark{font-family:var(--mono);font-weight:600;
-    font-size:clamp(22px,3.2vw,38px);letter-spacing:.12em;text-transform:uppercase;
-    color:var(--ink);line-height:1}
-  /* A short window is the case this has to survive: a laptop at 720 has no
-     room for a 96px mark, a 38px wordmark AND the wall underneath. */
-  @media(max-height:820px){
-    .hero-mark{padding:var(--s-3) 0 var(--s-4);gap:var(--s-2)}
-    .hero-mark img{height:clamp(44px,5vw,64px)}
-    .hero-wordmark{font-size:clamp(19px,2.4vw,26px)}
-  }
-  @media(max-width:700px){
-    .hero-mark{padding:var(--s-4) 0 var(--s-5)}
-  }
   .hero-lede{display:grid;gap:0 clamp(28px,4vw,64px);align-items:end;
     padding:4px 0 16px}
   @media(min-width:980px){
@@ -6881,22 +6913,21 @@ LANDING_HTML = """<!DOCTYPE html>
      hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
   /* auto-flow, not fixed columns: the clip-count tile is hidden until there is
      a number to show, and a fixed template would leave its column empty. */
-  /* THE ONE RHYTHM BREAK ON THE PAGE, and it lives HERE rather than on the
-     wall itself. The first attempt put --s-10 as padding inside .hero-stack —
-     but the hero is min-height:100svh with the stack in a minmax(0,1fr) row,
-     so the padding came straight out of the wall: it lost 97px and dropped
-     from 8.1% of the page to less. Air below a fixed-height box has to be
-     added outside it, so it is the gap before the stats band instead. Every
-     other section boundary on the page is --s-9. */
+  /* The band lives on the cover now, so it no longer owns the page's one
+     rhythm break — see the margin-bottom on .hero.hero-band, which is where
+     that --s-10 moved to. It is still a margin and not padding for the same
+     reason it always was: the hero is min-height:100svh with the wall in a
+     minmax(0,1fr) row, so air added INSIDE the hero comes straight out of the
+     wall. It lost 97px that way once already. */
   .stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
-    margin-top:var(--s-10);
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  @media(max-width:700px){ .stats{margin-top:var(--s-8)} }
-  /* More room inside, to match the room outside. These three numbers now sit
-     under the page's only --s-10 break, and at 24px of padding with a 12px
-     caption they read as marooned in it rather than as quiet within it. The
-     air was the right call; the band had to grow to deserve it. */
-  .stat{padding:var(--s-6) 0 var(--s-6) var(--s-6);border-left:1px solid var(--hair)}
+  /* Room inside to match the room around it: at 24px of padding with a 12px
+     caption these numbers read as marooned rather than as quiet. */
+  /* Right padding, not 0: at 768 the four cells are ~176px wide and the
+     longest caption wraps to exactly the divider, so "Starter" sits on the
+     rule. That was survivable when the band was a strip halfway down the
+     page. It is the first thing on the site now. */
+  .stat{padding:var(--s-6) var(--s-5) var(--s-6) var(--s-6);border-left:1px solid var(--hair)}
   .stat:first-child{padding-left:0;border-left:none}
   .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
     font-size:30px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:12px}
@@ -7345,15 +7376,73 @@ LANDING_HTML = """<!DOCTYPE html>
     html{scroll-behavior:auto}
     .demo-live i,.dc-spin{animation:none}
     .breathe{animation:none}
+    /* The cue still reads as a cue standing still — it is a line pointing down
+       under the word "scroll". */
+    .cover-cue-l{animation:none;opacity:.75}
   }
   @media(prefers-reduced-motion:no-preference){
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
+    /* A stroke drawn downward, twice as long a pause as it takes to draw. */
+    @keyframes cue{
+      0%{transform:scaleY(0);opacity:0}
+      28%{transform:scaleY(1);opacity:1}
+      70%{transform:scaleY(1);opacity:1}
+      100%{transform:scaleY(1);opacity:0}
+    }
   }
 </style>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
+<!-- THE COVER. Above the nav on purpose: the nav is position:sticky, so with
+     the cover ahead of it the nav is simply below the fold at rest and sticks
+     the moment it scrolls up. Nothing hides it, and it works with JS off.
+     width/height are the file's NATURAL 374x501 — the browser takes the ratio
+     from them and combines it with the CSS height, so the reserved box is the
+     right SHAPE; a square would be a layout shift dressed up as a fix. -->
+<div class="cover" id="cover">
+  <div class="cover-in" id="cover-in">
+    <div class="cover-mark">
+      <img src="/static/logo-mark.png" alt="" width="374" height="501"
+           decoding="sync" fetchpriority="high">
+      <span class="cover-word">Highlightz</span>
+    </div>
+    <!-- Stats band, moved here from below the hero. The id and style
+         attributes are matched by string replacement in _landing_html to
+         reveal the live numbers, so they must stay byte-identical. -->
+    <div class="stats">
+      <div class="stat">
+        <div class="n" data-count="10">10</div>
+        <div class="k">channels watched at once on Pro, 3 on Starter</div>
+      </div>
+      <div class="stat">
+        <div class="n" data-count="7">7</div>
+        <div class="k">live signals blended into every score</div>
+      </div>
+      <div class="stat">
+        <div class="n" data-count="1" data-suffix="s">1s</div>
+        <div class="k">every second of every channel is scored</div>
+      </div>
+      <!-- Last, not first: hidden until there is a real number, and a hidden
+           first child would leave a stray divider at the edge of the band. -->
+      <div class="stat stat-big" id="stat-clips" style="display:none">
+        <div class="n"><span id="lp-count" data-count="0">0</span></div>
+        <div class="k">clips captured and counting</div>
+      </div>
+      <!-- Beside the count, and only ever beside it: how many of those clips
+           streamers actually kept. Hidden until enough have been judged for the
+           percentage to mean anything. -->
+      <div class="stat stat-big" id="stat-kept" style="display:none">
+        <div class="n"><span id="lp-kept" data-kept="0">0%</span></div>
+        <div class="k">kept reviewed clips</div>
+      </div>
+    </div>
+  </div>
+  <div class="cover-cue" id="cover-cue" aria-hidden="true">
+    <span class="cover-cue-l"></span><span>scroll</span>
+  </div>
+</div>
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-links">
@@ -7396,20 +7485,6 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="thread-lab">score</span></div>
 </div>
 <header class="wrap hero hero-band">
-  <!-- The masthead. Same mark and same wordmark as the nav — one logo, one
-       spelling, one letterspacing — just at the size a first impression needs.
-       decoding=sync and fetchpriority=high because this is now the first thing
-       on the page and it must not arrive after the headline. The dimensions
-       are the file's NATURAL 374x501, not the rendered size: the browser takes
-       the aspect ratio from them and combines it with the CSS height, so the
-       reserved box is the right SHAPE. Passing 96x96 reserved a square for an
-       image that is taller than it is wide, which is a layout shift dressed up
-       as a fix. -->
-  <div class="hero-mark">
-    <img src="/static/logo-mark.png" alt="" width="374" height="501"
-         decoding="sync" fetchpriority="high">
-    <span class="hero-wordmark">Highlightz</span>
-  </div>
   <div class="hero-lede">
     <div class="hero-copy">
       <div class="kicker">Automatic Twitch clipping</div>
@@ -7451,37 +7526,6 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
   </div>
 </header>
-
-<!-- Stats band -->
-<div class="wrap">
-  <div class="stats">
-    <div class="stat">
-      <div class="n" data-count="10">10</div>
-      <div class="k">channels watched at once on Pro, 3 on Starter</div>
-    </div>
-    <div class="stat">
-      <div class="n" data-count="7">7</div>
-      <div class="k">live signals blended into every score</div>
-    </div>
-    <div class="stat">
-      <div class="n" data-count="1" data-suffix="s">1s</div>
-      <div class="k">every second of every channel is scored</div>
-    </div>
-    <!-- Last, not first: hidden until there is a real number, and a hidden
-         first child would leave a stray divider at the edge of the band. -->
-    <div class="stat stat-big" id="stat-clips" style="display:none">
-      <div class="n"><span id="lp-count" data-count="0">0</span></div>
-      <div class="k">clips captured and counting</div>
-    </div>
-    <!-- Beside the count, and only ever beside it: how many of those clips
-         streamers actually kept. Hidden until enough have been judged for the
-         percentage to mean anything. -->
-    <div class="stat stat-big" id="stat-kept" style="display:none">
-      <div class="n"><span id="lp-kept" data-kept="0">0%</span></div>
-      <div class="k">kept reviewed clips</div>
-    </div>
-  </div>
-</div>
 
 <!-- Example clips (admin-curated; hidden until the showcase has entries) -->
 <section class="wrap full band-sand seam" id="examples" style="display:none">
@@ -8512,11 +8556,37 @@ LANDING_HTML = """<!DOCTYPE html>
   var seams = Array.prototype.slice.call(document.querySelectorAll('.seam, .wash'));
   var ticking = false, lastFired = -1;
 
+  /* ── the cover reveal. The cover keeps its box; only its contents lift and
+     fade, so the page below rises into a screen that is emptying rather than
+     one being pushed. Transform and opacity only — nothing here reflows.
+     The resting state is fully visible and untransformed, which is what JS-off
+     and reduced motion get (frame() is never called there), so everything
+     below may only ever take the cover AWAY. */
+  var coverIn = document.getElementById('cover-in');
+  var coverCue = document.getElementById('cover-cue');
+  var coverWasPast = null;
+
   function frame(){
     ticking = false;
     var h = document.documentElement.scrollHeight - window.innerHeight;
     var y = window.scrollY || window.pageYOffset;
     var prog = h > 0 ? Math.min(1, Math.max(0, y / h)) : 0;
+
+    if (coverIn){
+      /* Fully gone by 72% of a screen: the cover has to be finished before
+         the nav sticks, or the two overlap for a moment and read as one
+         crowded screen. */
+      var k = Math.min(1, y / Math.max(1, window.innerHeight * 0.72));
+      coverIn.style.opacity = (1 - k).toFixed(3);
+      coverIn.style.transform = 'translate3d(0,' + (-k * 64).toFixed(1) + 'px,0)';
+      /* The cue has done its job the instant you scroll at all. */
+      if (coverCue) coverCue.style.opacity = (1 - Math.min(1, y / 180)).toFixed(3);
+      var past = y > window.innerHeight * 0.6;
+      if (past !== coverWasPast){
+        coverWasPast = past;
+        document.body.classList.toggle('past-cover', past);
+      }
+    }
 
     /* The score is not the scroll position. It rides a wave so it rises and
        falls the way a real trigger score does, and peaks at section seams. */
