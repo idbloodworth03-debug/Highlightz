@@ -37,6 +37,10 @@ class ClipJob:
     virality_score: float = 0.0
     clip_title: str = ""
     user_id: str = ""
+    # Captured from a channel flagged mature — see StreamInfo.is_mature. Rides
+    # on the job rather than being looked up later, because by the time the
+    # processor runs the stream may have ended and the flag would be gone.
+    age_restricted: bool = False
     # Wall-clock time the moment was captured (enqueue time). The clip processor
     # drops jobs older than the Twitch capture window — see MAX_CLIP_JOB_AGE_SECS
     # in src/main.py — so a backlog can never drain stale moments into

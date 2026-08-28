@@ -27,6 +27,14 @@ class ClipMetadata:
     twitch_url: str = ""       # public watch page
     embed_url: str = ""        # iframe embed URL
     thumbnail_url: str = ""
+    # Captured from a channel Twitch flags as intended for mature audiences.
+    # NOT a judgement about the clip: it decides how the clip is PLAYED. An
+    # age-gated clip cannot be shown in our embedded player, because Twitch
+    # cannot confirm a viewer's age inside a third-party iframe, so the
+    # dashboard sends these straight to Twitch rather than rendering a frame
+    # that will sit there black. Read off the Get Streams response the worker
+    # already makes for liveness, so it costs no extra Helix call.
+    age_restricted: bool = False
     # ── Crowd suggestion (src/trigger/suggested_clips.py) ────────────────────
     # A moment a spike in audience interest surfaced, without consulting our
     # score. trigger_score/virality_score stay 0.0 on these and that is not
@@ -64,6 +72,7 @@ class ClipMetadata:
             "twitch_url": self.twitch_url,
             "embed_url": self.embed_url,
             "thumbnail_url": self.thumbnail_url,
+            "age_restricted": self.age_restricted,
             "suggested": self.suggested,
             "clipper_count": self.clipper_count,
             "suggested_views": self.suggested_views,

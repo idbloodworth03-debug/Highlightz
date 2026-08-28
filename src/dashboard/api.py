@@ -4704,6 +4704,21 @@ async def admin_revoke_invite(request: Request, code: str):
     return Response(status_code=204)
 
 
+@app.get("/admin/clip-refusals")
+async def admin_clip_refusals(request: Request):
+    """Channels Twitch is currently refusing to clip, worst-recent first.
+
+    Exists because "is this one channel or everywhere" was only answerable by
+    grepping journalctl on the right day. A channel drops off this list the
+    moment it produces a clip again, so what is here is what is broken NOW.
+    """
+    _require_admin(request)
+    from src.stats import clip_refusals
+    rows = clip_refusals.all_rows()
+    return {"rows": rows, "total": sum(int(r.get("count", 0)) for r in rows),
+            "channels": len(rows)}
+
+
 @app.get("/admin/overview")
 async def admin_overview(request: Request):
     """Platform totals, computed on the server from the real ledgers.
@@ -8748,7 +8763,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a clip surfaced by a spike in audience interest we also store how many viewers clipped that moment and its view count — a count, not an identity; we do not store who they were. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a clip surfaced by a spike in audience interest we also store how many viewers clipped that moment and its view count — a count, not an identity; we do not store who they were. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. We do not store any stream video; clips are hosted by Twitch.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
@@ -9211,6 +9226,15 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="cell"><div class="v" id="ov-live">&mdash;</div><div class="k">Live now</div><div class="s" id="ov-live-s"></div></div>
   </div>
 
+  <!-- Channels Twitch is refusing to clip. HIDDEN when there are none, because
+       an empty panel on a healthy box is noise that trains you to ignore the
+       row. It appears only when something is actually wrong. -->
+  <div id="refusals-box" style="display:none;margin:0 0 18px">
+    <div class="hd"><h2>Channels Twitch is refusing to clip</h2>
+      <span class="sub" id="refusals-sum"></span></div>
+    <div id="refusals-wrap"></div>
+  </div>
+
   <div class="tabs" id="tabs">
     <button class="tab on" data-tab="users">Users<span class="c" id="tc-users"></span></button>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
@@ -9434,6 +9458,35 @@ async function loadOverview(){
   set('ov-keep-s', n0(c.kept) + ' kept of ' + n0(c.kept + c.rejected) + ' reviewed · ' + n0(c.expired) + ' aged out');
   set('ov-live', n0(s.live));
   set('ov-live-s', n0(s.registered) + ' streams registered');
+  loadRefusals();
+}
+
+// Which channels are currently un-clippable, and why. Three different causes
+// with three different fixes, so the reason is spelled out rather than left as
+// a code — the answer to "what do I do about it" is different for each.
+const REFUSAL_LABEL = {
+  classification: 'Twitch cannot determine the content classification for this channel — the streamer needs to set their Content Classification Labels.',
+  title_automod:  'The stream title did not pass Twitch automod — clears when the streamer renames the stream.',
+  not_authorized: 'The broadcaster has clipping restricted on Twitch.',
+};
+
+async function loadRefusals(){
+  let d;
+  try { d = await api('/admin/clip-refusals'); } catch(e){ return; }
+  const box = document.getElementById('refusals-box');
+  if(!d || !d.rows || !d.rows.length){ box.style.display='none'; return; }
+  box.style.display='';
+  document.getElementById('refusals-sum').textContent =
+    d.channels + ' channel' + (d.channels===1?'':'s') + ' · ' + n0(d.total) + ' refused attempts';
+  let html = '<table><thead><tr><th>Channel</th><th>Refusals</th>'
+    + '<th>Last seen</th><th>Why, and who can fix it</th></tr></thead><tbody>';
+  d.rows.forEach(function(r){
+    html += '<tr><td><b>' + esc(r.channel) + '</b></td>'
+      + '<td>' + n0(r.count) + '</td>'
+      + '<td>' + (r.last_seen ? new Date(r.last_seen*1000).toLocaleString() : '&mdash;') + '</td>'
+      + '<td>' + esc(REFUSAL_LABEL[r.reason] || r.reason || '') + '</td></tr>';
+  });
+  document.getElementById('refusals-wrap').innerHTML = html + '</tbody></table>';
 }
 
 // ── users ───────────────────────────────────────────────────────────────────

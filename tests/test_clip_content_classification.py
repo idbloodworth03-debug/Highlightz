@@ -240,3 +240,88 @@ def test_the_backoff_window_is_shorter_than_the_automod_one():
     assert m._CLASSIFICATION_BACKOFF_S < m._TITLE_AUTOMOD_BACKOFF_S
     assert m._CLASSIFICATION_BACKOFF_S >= 60, \
         "too short to stop burning a Helix call on every trigger"
+
+
+# ── the tally that answers "is this everywhere or one channel" ───────────────
+
+@pytest.fixture()
+def refusals(tmp_path, monkeypatch):
+    from src.stats import clip_refusals as cr
+    monkeypatch.setattr(cr, "_FILE", tmp_path / "clip_refusals.json")
+    return cr
+
+
+def test_a_refusal_is_counted_per_channel(refusals):
+    refusals.record("aceu", refusals.CLASSIFICATION)
+    refusals.record("aceu", refusals.CLASSIFICATION)
+    refusals.record("lacy", refusals.TITLE_AUTOMOD)
+    rows = {r["channel"]: r for r in refusals.all_rows()}
+    assert rows["aceu"]["count"] == 2
+    assert rows["lacy"]["count"] == 1
+    assert rows["aceu"]["reason"] == refusals.CLASSIFICATION
+
+
+def test_a_channel_that_clips_again_drops_off_the_list(refusals):
+    """Without this the tally only grows and a channel that recovered weeks ago
+    still reads as broken — which makes the admin list useless within a month."""
+    refusals.record("aceu", refusals.CLASSIFICATION)
+    assert refusals.all_rows()
+    refusals.clear("aceu")
+    assert refusals.all_rows() == []
+
+
+def test_the_success_path_actually_clears_it():
+    """The clear() call has to be on the path a real clip takes, not just
+    available. It is the only thing that keeps the list current."""
+    import inspect
+    import src.main as m
+    src = inspect.getsource(m)
+    i = src.index("meta = await asyncio.wait_for(processor.process(job)")
+    window = src[i:i + 600]
+    assert "_refusals.clear(job.channel)" in window, \
+        "a successful clip does not clear the channel's refusal record"
+
+
+def test_the_newest_problem_is_listed_first(refusals):
+    import time as _t
+    refusals.record("old", refusals.CLASSIFICATION)
+    _t.sleep(0.01)
+    refusals.record("new", refusals.CLASSIFICATION)
+    assert [r["channel"] for r in refusals.all_rows()][0] == "new"
+
+
+def test_all_three_refusal_causes_are_recorded():
+    """They have three different fixes, so collapsing them would lose the only
+    thing that makes the list actionable."""
+    import inspect
+    import src.main as m
+    src = inspect.getsource(m)
+    for reason in ("CLASSIFICATION", "TITLE_AUTOMOD", "NOT_AUTHORIZED"):
+        assert f"_refusals.record(_ch, _refusals.{reason})" in src, \
+            f"{reason} refusals are not recorded"
+
+
+def test_a_corrupt_or_missing_store_is_survivable(refusals, tmp_path):
+    """A diagnostic counter must never be the reason the clip pipeline breaks."""
+    assert refusals.all_rows() == []          # missing file
+    (tmp_path / "clip_refusals.json").write_text("{not json")
+    assert refusals.all_rows() == []          # corrupt file
+    refusals.record("aceu", refusals.CLASSIFICATION)   # and still writable
+    assert refusals.all_rows()[0]["channel"] == "aceu"
+
+
+def test_the_admin_panel_hides_itself_when_nothing_is_wrong():
+    """An empty panel on a healthy box trains you to ignore the row it lives
+    in, so it only appears when there is something to act on."""
+    from src.dashboard.api import ADMIN_HTML
+    assert 'id="refusals-box"' in ADMIN_HTML
+    assert 'style="display:none' in ADMIN_HTML.split('id="refusals-box"')[1][:80]
+    assert "box.style.display='none'" in ADMIN_HTML
+
+
+def test_the_admin_panel_explains_the_fix_not_just_the_code():
+    """"classification" tells an admin nothing. Who can fix it does."""
+    from src.dashboard.api import ADMIN_HTML
+    assert "Content Classification Labels" in ADMIN_HTML
+    assert "renames the stream" in ADMIN_HTML
+    assert "clipping restricted" in ADMIN_HTML

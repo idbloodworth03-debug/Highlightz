@@ -31,6 +31,14 @@ class StreamInfo:
     title: str = ""
     game: str = ""
     viewer_count: int = 0
+    # The broadcaster's own "intended for mature audiences" flag. Twitch returns
+    # it on every Get Streams response, which we already call for liveness — so
+    # this costs no extra request and nothing against the shared rate limit. It
+    # is NOT the same thing as the content-classification refusal that stops
+    # clips being created: a mature channel often clips fine, and the refusal
+    # can hit a channel that is not flagged. This says "what we capture here
+    # will be age-gated", which is what decides whether a clip is worth posting.
+    is_mature: bool = False
 
 
 class BasePlatform(ABC):

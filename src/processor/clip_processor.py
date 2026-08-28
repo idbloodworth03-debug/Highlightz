@@ -46,6 +46,7 @@ class ClipProcessor:
             virality_score=job.virality_score,
             clip_title=job.clip_title,
             user_id=job.user_id,
+            age_restricted=getattr(job, "age_restricted", False),
         )
 
         if job.platform == "kick":

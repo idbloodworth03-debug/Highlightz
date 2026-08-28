@@ -404,6 +404,12 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(255,1
    which read as though the product had outsourced the work. The name is no
    longer stored either: once nothing displayed it, `suggested_by` was a third
    party's identity kept for no reason, so the field is gone from the record. */
+/* Amber, matching the weekly-allowance warning: not an error and not a
+   verdict on the clip, just a fact that changes what you can do with it. Sits
+   bottom-right so it never collides with the score or suggested badge. */
+.rd-agebadge{position:absolute;right:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;
+  font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:3px 8px;border-radius:7px;
+  color:#0a0a0a;background:rgba(250,204,21,.92)}
 .rd-dur{position:absolute;left:10px;bottom:10px;z-index:2;font-size:11px;font-weight:600;color:#fff;
   background:rgba(10,8,14,.6);padding:3px 8px;border-radius:7px;font-variant-numeric:tabular-nums}
 .rd-clip-body{padding:14px;flex:1;display:flex;flex-direction:column}
@@ -1474,6 +1480,14 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
           title="Highlightz measured unusually high audience interest at this moment">
           <Icon name="trending" size={11}/>High interest
         </span>}
+        {/* Visible BEFORE the card is opened, because that is when it changes
+            what you do: a gated clip cannot be reviewed inline, and on a plan
+            with a weekly keep limit it is worth knowing before you spend a
+            slot on something you have to leave the site to watch. */}
+        {clip.age_restricted && <span className="rd-agebadge"
+          title="This channel is flagged mature on Twitch. The clip plays on Twitch, not in this player.">
+          <Icon name="zap" size={11}/>Age-restricted
+        </span>}
         {dur && <span className="rd-dur">{dur}</span>}
       </div>
       <div className="rd-clip-body">
@@ -1601,13 +1615,25 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
   // autoplay=false + tap-to-play the embed works on modern mobile browsers,
   // and the "Player not loading? Watch on Twitch" link below stays as the
   // escape hatch for any device that still refuses.)
-  const embedSrc = embed
+  // AGE-RESTRICTED CLIPS GET NO IFRAME AT ALL.
+  //
+  // Twitch gates mature content behind an age confirmation, and inside a
+  // third-party frame it cannot make one: the viewer's Twitch session is a
+  // third-party cookie, which browsers block, so the player has no way to know
+  // who is watching and refuses. The clip is fine — it plays on Twitch, where
+  // that session is first-party. What we were rendering was a black box with a
+  // play button that could never work.
+  //
+  // So do not render it. Send them where it plays, and say why in one line.
+  const gated = !!clip.age_restricted;
+  const embedSrc = (embed && !gated)
     ? embed + (embed.indexOf('?')>=0?'&':'?') + 'parent=' + location.hostname + '&autoplay=false'
     : '';
   // With no inline embed (no embed_url stored) the clip can only play on
   // Twitch — make the whole media area a tap target so it opens even when the
   // thumbnail image is broken (the old absolutely-positioned play link was an
   // unreliable hit target on mobile once the broken <img> collapsed).
+  // Which now includes every gated clip, so the whole media area opens Twitch.
   const canLinkOut = !embedSrc && !!twHref;
   const openClip = () => { if (twHref) window.open(twHref, '_blank', 'noopener'); };
   const sigMap = {};
@@ -1623,7 +1649,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
       <div className="rd-modal" onClick={e=>e.stopPropagation()}>
         <div className="rd-modal-media" style={canLinkOut?{cursor:'pointer'}:undefined} onClick={canLinkOut?openClip:undefined}>
           {embedSrc
-            ? <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
+            ? <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : thumb
               ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
@@ -1633,6 +1659,14 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
             : <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
         </div>
 
+        {gated && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'10px 12px',fontSize:12.5,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
+          <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}}>
+            <Icon name="zap" size={13}/>Age-restricted on Twitch
+          </span>
+          <span style={{color:'var(--fg-3)'}}>It cannot play here, but it plays on Twitch.</span>
+          {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm"
+            style={{textDecoration:'none',flexShrink:0}}>Watch on Twitch ↗</a>}
+        </div>}
         {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,padding:'9px 12px',fontSize:12.5,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
           <span style={{color:'var(--fg-3)'}}>Player showing an error?</span>
           <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
@@ -2882,7 +2916,7 @@ function TrainingScreen() {
               {embedSrc
                 ? <>
                     <div style={{position:'relative',paddingBottom:'56.25%',borderRadius:12,overflow:'hidden',background:'#000'}}>
-                      <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allowFullScreen scrolling="no" title="Clip"/>
+                      <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} style={{position:'absolute',inset:0,width:'100%',height:'100%',border:0}} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen scrolling="no" title="Clip"/>
                     </div>
                     <div style={{display:'flex',alignItems:'center',gap:12,marginTop:8,fontSize:11.5,color:'var(--fg-3)'}}>
                       <span>Player showing an error?</span>
@@ -3555,7 +3589,7 @@ function TwitchImport() {
           </div>
           <div className="tw-frame">
             <iframe src={play.embed_url + '&parent=' + location.hostname + '&autoplay=true'}
-              allowFullScreen title={play.title||'Clip'}/>
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen title={play.title||'Clip'}/>
           </div>
           <div className="ed-note" style={{marginTop:10}}>
             {(play.view_count||0).toLocaleString()} views

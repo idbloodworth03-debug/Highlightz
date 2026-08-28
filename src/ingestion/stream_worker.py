@@ -578,6 +578,9 @@ class StreamWorker:
                 # notify_clip_ready's dedup window recognise a moment we
                 # already clipped ourselves and drop this as a duplicate.
                 created_at=s.created_at,
+                # A suggestion comes off the same channel, so it is gated the
+                # same way — the player has to route it identically.
+                age_restricted=bool(info.is_mature) if info else False,
                 stream_title=info.title if info else "",
                 game=info.game if info else "",
                 clip_title=s.title,
@@ -613,6 +616,11 @@ class StreamWorker:
             ],
             chat_snapshot=(snapshot.messages[-CHAT_SNAPSHOT_MESSAGES:]
                            if snapshot else []),
+            # Read off the Get Streams response we already make for liveness,
+            # so it costs nothing. Carried on the JOB rather than looked up in
+            # the processor, because the stream may have ended by then and the
+            # flag would be gone.
+            age_restricted=bool(info.is_mature) if info else False,
             stream_title=info.title if info else "",
             game=info.game if info else "",
             pre_roll=event.pre_roll,

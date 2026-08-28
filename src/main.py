@@ -28,6 +28,10 @@ from src.output import twitch_clips
 
 log = structlog.get_logger(__name__)
 
+# A tally of channels Twitch refuses to clip, so 'is this everywhere or one
+# channel' is answerable without knowing which day to grep.
+from src.stats import clip_refusals as _refusals  # noqa: E402
+
 # channel -> AudioMeter (transient loudness probes; no media stored)
 SHARED_BUFFERS: dict = {}
 PLATFORM_MAP = {"twitch": TwitchPlatform, "youtube": YouTubePlatform, "kick": KickPlatform}
@@ -255,6 +259,11 @@ async def run_clip_processor() -> None:
             # get_clip polling (≤50s) + overhead. 180s leaves comfortable margin
             # so a valid-but-slow clip isn't cut off mid-poll and lost.
             meta = await asyncio.wait_for(processor.process(job), timeout=180.0)
+            # A clip came out, so whatever Twitch was refusing about this
+            # channel is over. Without this the tally only ever grows and a
+            # channel that recovered weeks ago still reads as broken — which
+            # would make the admin list useless within a month.
+            _refusals.clear(job.channel)
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
@@ -295,6 +304,7 @@ async def run_clip_processor() -> None:
                 _title_automod_until[_ch] = time.time() + _TITLE_AUTOMOD_BACKOFF_S
             log.warning("clip_title_automod_backoff", channel=_ch, user_id=_uid,
                         backoff_s=_TITLE_AUTOMOD_BACKOFF_S, first=_first)
+            _refusals.record(_ch, _refusals.TITLE_AUTOMOD)
             # ONCE per backoff window, not once per moment. The old generic path
             # sent a toast on every failure, which on this channel meant 265 of
             # them in six hours, all saying something untrue about trying again.
@@ -325,6 +335,7 @@ async def run_clip_processor() -> None:
                 _classification_until[_ch] = time.time() + _CLASSIFICATION_BACKOFF_S
             log.warning("clip_classification_backoff", channel=_ch, user_id=_uid,
                         backoff_s=_CLASSIFICATION_BACKOFF_S, first=_first)
+            _refusals.record(_ch, _refusals.CLASSIFICATION)
             # ONCE per window. The generic path said "it'll try again on the
             # next moment" on every single trigger, which on a channel in this
             # state is untrue every time it is said.
@@ -356,6 +367,7 @@ async def run_clip_processor() -> None:
             _uid = getattr(job, "user_id", "") if job else ""
             _ch  = getattr(job, "channel", "") if job else ""
             log.warning("clip_channel_not_clippable", channel=_ch, user_id=_uid)
+            _refusals.record(_ch, _refusals.NOT_AUTHORIZED)
             if _ch:
                 try:
                     await dashboard_api.stop_stream_internal(_ch, _uid)

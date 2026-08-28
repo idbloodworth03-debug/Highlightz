@@ -126,6 +126,10 @@ def test_what_the_code_stores_on_a_clip_is_what_the_policy_describes():
         "twitch_clip_id", "twitch_url", "embed_url", "thumbnail_url",
         "suggested", "clipper_count", "suggested_views",
         "chat_snapshot",          # disclosed as "chat samples"
+        # Twitch's own label ON THE CHANNEL, not information about a person.
+        # Disclosed anyway in the clip-metadata bullet, because the list being
+        # complete is worth more than the argument that it need not be.
+        "age_restricted",
     }
     actual = {f.name for f in dataclasses.fields(ClipMetadata)}
     undisclosed = actual - covered

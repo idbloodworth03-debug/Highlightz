@@ -84,6 +84,7 @@ class TwitchPlatform(BasePlatform):
             title=stream.get("title", "").encode("ascii", errors="ignore").decode(),
             game=stream.get("game_name", "").encode("ascii", errors="ignore").decode(),
             viewer_count=stream.get("viewer_count", 0),
+            is_mature=bool(stream.get("is_mature", False)),
         )
 
     async def is_live(self, channel: str) -> bool:
