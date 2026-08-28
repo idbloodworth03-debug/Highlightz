@@ -556,6 +556,7 @@ class StreamWorker:
         """
         from src.dashboard import api as dashboard_api
         from src.processor.metadata import ClipMetadata
+        from src.trigger import dismissed_suggestions
 
         ripe = buf.ready()
         if not ripe:
@@ -565,6 +566,17 @@ class StreamWorker:
         info = self._stream_info
 
         for s in ripe:
+            # Already said no to this moment. Checked HERE rather than in the
+            # buffer because the buffer is shared by every worker watching this
+            # channel — one user clearing their queue must not suppress a
+            # suggestion another user has never been shown. The buffer's own
+            # guards are in-memory and cover a single process; this one is what
+            # survives a restart, which is when the reappearance was happening.
+            if dismissed_suggestions.is_dismissed(uid, s.channel, s.slug,
+                                                  s.created_at):
+                log.info("suggested_clip_skipped_dismissed", channel=s.channel,
+                         user_id=uid, slug=s.slug)
+                continue
             if used >= room:
                 log.info("suggested_clip_skipped_budget", channel=s.channel,
                          user_id=uid, waiting=used, suggestion_cap=room)

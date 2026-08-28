@@ -51,6 +51,7 @@ except ImportError:
 
 from config.settings import settings
 from src.dashboard import undo
+from src.trigger import dismissed_suggestions as _dismissed
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
@@ -2569,6 +2570,11 @@ async def undo_last(request: Request, entry_id: str | None = None):
         if not _excluded_from_learning(clip):
             stream_stats.record(stream_stats.UNDONE, clip)
 
+    # "Gone unless it comes back from the undo button" — so undo, and only undo,
+    # lifts the tombstone. An undo entry that merely EXPIRES leaves it standing:
+    # that dismissal was real.
+    _dismissed.forget(uid, restored)
+
     for clip in restored:
         await broadcast({"event": "clip_ready", "clip": clip}, user_id=uid)
 
@@ -2700,6 +2706,12 @@ async def reject_clip(request: Request, clip_id: str):
     # undo, so the entry has to already be there when it asks. Broadcasting
     # first left a window — here, a profile load and save — in which the answer
     # was "nothing", and the undo offer was silently lost.
+    # A crowd suggestion is a Twitch clip that still exists and that the poll
+    # keeps returning for several more minutes. Deleting our row was the only
+    # thing that had been stopping it being suggested again, so the "no" has to
+    # outlive the row. Undo lifts it; see dismissed_suggestions.
+    _dismissed.dismiss(uid, [clip])
+
     undo.push(undo.UndoEntry(
         user_id=uid, kind="reject", label="Rejected 1 clip",
         clips=[clip], profiles_before=profiles_before,
@@ -2732,6 +2744,7 @@ async def delete_clip_endpoint(request: Request, clip_id: str):
             raise HTTPException(status_code=404, detail="Clip not found")
         _clips.pop(clip_id)
         _save_clips()
+    _dismissed.dismiss(uid, [clip])
     undo.push(undo.UndoEntry(
         user_id=uid, kind="delete", label="Deleted 1 clip",
         clips=[clip], held_files=_hold_files([clip])), on_drop=_drop_undo_entry)
@@ -2775,6 +2788,12 @@ async def clear_pending_clips(request: Request):
         # channel's outcome ledger either — same carve-out as reject/approve.
         if not _excluded_from_learning(clip):
             stream_stats.record(stream_stats.CLEARED, clip)
+
+    # THE REPORTED BUG. Clearing the queue is the action most likely to be taken
+    # in bulk and the one that used to bring suggestions straight back: it
+    # deletes the rows, and the rows were the only durable record that these
+    # moments had already been offered.
+    _dismissed.dismiss(uid, removed)
 
     # Before the broadcasts, not after — clip_removed is what prompts the tab to
     # ask what it can undo, and the entry has to exist by then.
@@ -2833,6 +2852,7 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
 
     # Before the broadcasts — see the note in reject_clip.
     if culled:
+        _dismissed.dismiss(uid, culled)
         undo.push(undo.UndoEntry(
             user_id=uid, kind="cull",
             label=f"Culled {len(culled)} clip" + ("" if len(culled) == 1 else "s"),
