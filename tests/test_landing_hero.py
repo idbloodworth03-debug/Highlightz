@@ -293,3 +293,32 @@ def test_the_simulation_agrees_with_the_stylesheet_about_what_is_visible():
     assert css_bp.group(1) == js_bp.group(1), (
         f"CSS drops to two tiles at {css_bp.group(1)}px but the simulation "
         f"switches at {js_bp.group(1)}px")
+
+
+def test_the_wall_never_shows_the_same_channel_twice():
+    """A wall claiming to watch four channels at once has to show four
+    channels. The curated showcase can easily hold three clips from the same
+    streamer — it did — so a row of four read stableronaldo, stableronaldo,
+    jynxzi, jynxzi.
+
+    Fixed in two places, because either alone leaves a hole: the pool is
+    deduplicated by channel when it is fetched, AND the per-cycle selection
+    skips a name already taken, backfilling from the invented names. The second
+    is what covers a pool that is short, empty, or not yet loaded.
+    """
+    # deduplicated at the source
+    assert "if(!k||seen[k]) return;" in JS, "the clip pool is not deduplicated by channel"
+    # and again when the four tiles are chosen
+    sel = JS[JS.index("var pick=[], used={}"):]
+    sel = sel[:sel.index("var out=[],i;")]
+    assert "if(k && !used[k])" in sel, "a cycle can pick the same channel twice"
+    assert "if(!used[nm.toLowerCase()])" in sel, \
+        "the invented names can collide with a real channel or with each other"
+
+
+def test_the_wall_still_works_with_no_curated_clips_at_all():
+    """The pool is empty until /landing/showcase returns, and may stay empty.
+    Every tile must still get a name."""
+    assert "pick.push(chosen||{clip:null,name:names[j%names.length]})" in JS, \
+        "a tile can end up with no name when the pool is empty"
+    assert "var clips=[], names=[" in JS, "the fallback names are gone"

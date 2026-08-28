@@ -7897,6 +7897,27 @@ LANDING_HTML = """<!DOCTYPE html>
     var fireI=idx%vis;                     // rotates, so every channel gets one
     var missI=vis>1?((fireI+1+Math.floor(rnd()*(vis-1)))%vis):0;
     if(missI===fireI) missI=(fireI+1)%vis;
+    // FOUR DISTINCT NAMES, always. `clips` is deduplicated by channel when it
+    // is fetched, but it can still be shorter than four — or empty, before the
+    // request lands — so the invented names backfill the rest, skipping any
+    // that a real clip has already taken. Rotating by idx means each cycle
+    // starts one further along, so over time every curated channel appears.
+    var pick=[], used={}, ci=0, ni=0, j;
+    for(j=0;j<4;j++){
+      var chosen=null;
+      while(ci<clips.length){
+        var c=clips[(idx*4+ci)%clips.length]; ci++;
+        var k=(c.channel||'').toLowerCase();
+        if(k && !used[k]){ used[k]=1; chosen={clip:c,name:c.channel}; break; }
+      }
+      if(!chosen){
+        while(ni<names.length*2){
+          var nm=names[(idx*4+ni)%names.length]; ni++;
+          if(!used[nm.toLowerCase()]){ used[nm.toLowerCase()]=1; chosen={clip:null,name:nm}; break; }
+        }
+      }
+      pick.push(chosen||{clip:null,name:names[j%names.length]});
+    }
     var out=[],i;
     for(i=0;i<4;i++){
       var base=Math.round(24+rnd()*11);          // 24..35
@@ -7925,8 +7946,8 @@ LANDING_HTML = """<!DOCTYPE html>
         n1:noiseArr(rnd,14), n2:noiseArr(rnd,26), sn:sn,
         w:[.9+rnd()*.1,.8+rnd()*.2,.7+rnd()*.3,.75+rnd()*.25,.85+rnd()*.15],
         fires:(i===fireI), misses:(i===missI),
-        clip:clips.length?clips[(idx*4+i)%clips.length]:null,
-        name:names[(idx*4+i)%names.length]
+        clip:pick[i].clip,
+        name:pick[i].name
       });
     }
     out.fireI=fireI; out.missI=missI;
@@ -8335,7 +8356,21 @@ LANDING_HTML = """<!DOCTYPE html>
     // One curated list, two destinations. `!== false` rather than a truthy
     // check so an entry saved before placement existed still shows up.
     .then(function(d){
-      clips=(((d&&d.clips)||[]).filter(function(c){ return c.hero !== false; }));
+      // ONE PER CHANNEL. The wall shows four tiles side by side, and the
+      // curated list can easily hold three clips from the same streamer — so
+      // the same name appeared twice, or even three times, in a row of four.
+      // A wall that claims to watch four channels at once has to show four
+      // channels. Later clips from a channel already in the pool are dropped
+      // here rather than filtered at render, so every consumer of `clips`
+      // sees the same deduplicated list.
+      var seen={}, pool=[];
+      (((d&&d.clips)||[]).filter(function(c){ return c.hero !== false; }))
+        .forEach(function(c){
+          var k=(c.channel||'').toLowerCase();
+          if(!k||seen[k]) return;
+          seen[k]=1; pool.push(c);
+        });
+      clips=pool;
     })
     .catch(function(){})
     .then(start,start);
