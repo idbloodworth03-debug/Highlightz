@@ -594,3 +594,25 @@ def test_the_cover_and_the_site_share_their_light():
     # the lockup and the cue sit above the leak, not under it
     assert "z-index:1" in re.search(r"\.cover-in\{([^}]*)\}", HTML).group(1)
     assert "z-index:1" in re.search(r"\.cover-cue\{([^}]*)\}", HTML).group(1)
+
+
+def test_ember_belongs_to_the_instruments_not_the_prose():
+    """The hero had a gold kicker over a gold badge over a gold offer over
+    four gold scores. Ember is the instrument colour — the tile scores, the
+    cover's big stat — and the prose layer above the wall lives in the same
+    purple light as the cover: kicker quiet, badge in the seam's own
+    rgba(184,106,220), offer weighted with ink instead of a third colour."""
+    kicker = re.search(r"\n  \.kicker\{([^}]*)\}", HTML).group(1)
+    assert "var(--ink-3)" in kicker and "ember" not in kicker
+    kline = re.search(r"\.kicker::after\{([^}]*)\}", HTML).group(1)
+    assert "247,167,69" not in kline, "the kicker's line is still a gold fade"
+    badge = re.search(r"\n  \.no-ai\{([^}]*)\}", HTML).group(1)
+    assert "rgba(184,106,220" in badge and "247,167,69" not in badge
+    x = re.search(r"\.no-ai-x\{([^}]*)\}", HTML).group(1)
+    assert "var(--glow-ink)" in x and "ember" not in x
+    note_b = re.search(r"\.hero-note b\{([^}]*)\}", HTML).group(1)
+    assert "var(--ink)" in note_b and "ember" not in note_b
+    # and the instruments KEEP it — this is a reassignment, not a purge
+    tile = re.search(r"\.tile-score\{([^}]*)\}", HTML)
+    assert tile and ("ember" in tile.group(1) or "247,167,69" in tile.group(1)), \
+        "the tile scores lost their ember — the instrument colour is gone too"

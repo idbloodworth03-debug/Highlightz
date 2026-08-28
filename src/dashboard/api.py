@@ -6320,12 +6320,13 @@ LANDING_HTML = """<!DOCTYPE html>
       linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
 
   /* ── Type scale ── */
+  /* Quiet, like the small mono labels on the cover (the SCROLL cue, the stat
+     captions). Ember belongs to the instruments — the tile scores, the big
+     stat — and a gold label over a gold badge over four gold scores was the
+     "too much going on". The hairline is the page's own, not a gold fade. */
   .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ember-ink);display:flex;align-items:center;gap:12px}
-  .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(247,167,69,.35),transparent);max-width:190px}
-  .kicker.center{justify-content:center}
-  .kicker.center::before{content:'';flex:1;height:1px;background:linear-gradient(270deg,rgba(247,167,69,.35),transparent);max-width:120px}
-  .kicker.center::after{max-width:120px}
+    text-transform:uppercase;color:var(--ink-3);display:flex;align-items:center;gap:12px}
+  .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--hair-2),transparent);max-width:190px}
   h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
     line-height:1.1;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
   .sec-head.kicked h2.sec-title{margin-top:16px}
@@ -6571,7 +6572,10 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Each clause wraps as one unit. Without this the line broke inside
      "then from $10/mo" and left a lone "then" hanging off the end. */
   .hero-note span{white-space:nowrap}
-  .hero-note b{color:var(--ember);font-weight:600}
+  /* Weight in the ink, not in a third colour: white bold against the muted
+     line carries "free to start / no card" without adding another gold moment
+     between the purple button and the gold scores below. */
+  .hero-note b{color:var(--ink);font-weight:600}
   /* Tags on a rule, not pills with dots. */
   .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:32px;border-top:1px solid var(--hair);padding-top:16px}
   /* ── NO AI badge — the hero's first claim ──────────────────────────────
@@ -6589,16 +6593,20 @@ LANDING_HTML = """<!DOCTYPE html>
 
      Flat tint, not a gradient. A gradient across 40px is a direction the eye
      follows for no reason — there is nothing at the end of it. */
+  /* Purple, not gold: the badge is part of the page's light now — the same
+     rgba(184,106,220) as the seam glow, the traces and the accent word right
+     under it — so the hero reads as one lit room instead of a gold layer
+     stacked on a purple one. */
   .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px;
     padding:8px 16px;border-radius:99px;text-decoration:none;
-    border:1px solid rgba(247,167,69,.32);background:rgba(247,167,69,.07);
+    border:1px solid rgba(184,106,220,.28);background:rgba(184,106,220,.06);
     transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
-  .no-ai:hover{border-color:rgba(247,167,69,.55);background:rgba(247,167,69,.12)}
+  .no-ai:hover{border-color:rgba(184,106,220,.5);background:rgba(184,106,220,.10)}
   .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
-    color:var(--ember);white-space:nowrap}
+    color:var(--glow-ink);white-space:nowrap}
   /* The separator does the work the second colour and the bold used to do. */
   .no-ai-x::after{content:'';display:inline-block;width:1px;height:12px;
-    margin-left:12px;vertical-align:-2px;background:rgba(247,167,69,.34)}
+    margin-left:12px;vertical-align:-2px;background:rgba(184,106,220,.30)}
   .no-ai-t{font-size:14px;line-height:1.4;color:var(--ink-2);font-weight:400}
   .no-ai-t b{color:inherit;font-weight:inherit}
   @media (max-width:560px){
