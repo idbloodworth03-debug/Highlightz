@@ -244,9 +244,14 @@ def test_seo_layer():
     types = set()
     for b in blocks:
         data = _json.loads(b)          # must be valid JSON
-        types.add(data.get("@type"))
-    assert types == {"SoftwareApplication", "FAQPage"}
-    faq = [_json.loads(b) for b in blocks if _json.loads(b)["@type"] == "FAQPage"][0]
+        # A block may be a single node or an @graph of related nodes — the
+        # Organization/WebSite pair is one graph because they reference each
+        # other by @id, and splitting them into two blocks would leave the
+        # cross-reference dangling.
+        for node in data.get("@graph", [data]):
+            types.add(node.get("@type"))
+    assert types == {"SoftwareApplication", "FAQPage", "Organization", "WebSite"}
+    faq = [_json.loads(b) for b in blocks if _json.loads(b).get("@type") == "FAQPage"][0]
     assert all("<" not in q["acceptedAnswer"]["text"] for q in faq["mainEntity"])  # plain text
     # The schema is DERIVED from the visible FAQ, so assert they agree rather
     # than counting to a literal. Serving Google answers the page no longer

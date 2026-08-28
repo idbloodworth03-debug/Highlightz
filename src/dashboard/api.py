@@ -73,6 +73,58 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # file that does not exist. robots.txt and sitemap.xml are
                   # here for the same reason.
                   "/compare", "/llms.txt"}
+# ── shared head tags for the secondary public pages ──────────────────────────
+
+SITE_ORIGIN = "https://highlightz.app"
+OG_CARD = SITE_ORIGIN + "/static/og-card-v4.png"
+
+# Official Highlightz profiles on other sites, for schema.org sameAs. Each entry
+# is a claim that this URL is the SAME organisation, so only put a profile here
+# that is genuinely ours — a wrong one is worse than an empty list. Filling this
+# in is what links the social accounts to the brand in a knowledge panel.
+ORG_PROFILES: tuple[str, ...] = ()
+
+
+def _social_head(path: str, title: str, desc: str) -> str:
+    """Canonical URL and link-preview tags for a public page.
+
+    WHY CANONICAL MATTERS MORE THAN IT LOOKS. Without it, `/tos`, `/tos/`,
+    `www.highlightz.app/tos` and the http:// form are four separate documents
+    to a crawler, and whatever ranking the page earns is split between them.
+    The three marketing pages have always declared one; the legal pages and
+    the opt-out page never did, which is the whole reason this exists.
+
+    THE PREVIEW TAGS ARE NOT VANITY. The opt-out page is what a broadcaster
+    lands on when they are annoyed and want off the service, and its link gets
+    pasted into Discord. A bare grey link there reads as sketchy; the same link
+    with a title and a card reads as a real company.
+
+    ONE CARD IMAGE. Every page points at OG_CARD rather than carrying its own
+    literal, because the three pages that had one had already drifted onto two
+    different versions of the same picture.
+    """
+    t, d = html_escape(title, quote=True), html_escape(desc, quote=True)
+    url = SITE_ORIGIN + path
+    return (
+        '<link rel="canonical" href="' + url + '">\n'
+        '<meta property="og:type" content="website">\n'
+        '<meta property="og:site_name" content="Highlightz">\n'
+        '<meta property="og:url" content="' + url + '">\n'
+        '<meta property="og:title" content="' + t + '">\n'
+        '<meta property="og:description" content="' + d + '">\n'
+        '<meta property="og:image" content="' + OG_CARD + '">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        '<meta name="twitter:title" content="' + t + '">\n'
+        '<meta name="twitter:description" content="' + d + '">\n'
+        '<meta name="twitter:image" content="' + OG_CARD + '">\n'
+        # The plain-markdown brief for language models. There is no registered
+        # discovery mechanism for /llms.txt beyond the well-known path, so a
+        # rel="alternate" is the closest honest signal that it exists.
+        '<link rel="alternate" type="text/markdown" href="'
+        + SITE_ORIGIN + '/llms.txt" title="Highlightz for language models">'
+    )
+
+
 # Short referral links. Open, because the whole point is that a signed-out
 # stranger clicks them — if the auth middleware bounced them to /login first,
 # the ref would be gone before any handler saw it.
@@ -5532,6 +5584,11 @@ async def robots_txt():
         "Disallow: /i/\n"
         "Disallow: /r/\n"
         "Sitemap: https://highlightz.app/sitemap.xml\n"
+        # A comment, because robots.txt has no directive for this and inventing
+        # one would just be ignored. /llms.txt is found at its well-known path;
+        # this is here for the crawlers that read the file as text, and the
+        # rel="alternate" in each page head is the machine-readable half.
+        "# LLM-readable summary: https://highlightz.app/llms.txt\n"
     )
 
 
@@ -5623,11 +5680,48 @@ being re-hosted elsewhere.
 """
 
 
+# Which source file actually renders each public page. This is what makes
+# <lastmod> honest: the pages are generated from Python, so the mtime of the
+# module that builds one IS the date that page last changed. Deploys are a git
+# checkout, so the mtime moves when — and only when — the file is rewritten.
+_PAGE_SOURCE = {
+    "/":         "src/dashboard/api.py",
+    "/tos":      "src/dashboard/api.py",
+    "/privacy":  "src/dashboard/api.py",
+    "/cookies":  "src/dashboard/api.py",
+    "/opt-out":  "src/dashboard/api.py",
+    "/tutorial": "src/dashboard/tutorial_content.py",
+    "/compare":  "src/dashboard/compare_content.py",
+}
+
+
+def _page_lastmod(path: str) -> str:
+    """W3C date for a page, or "" if the file cannot be read.
+
+    A MISSING lastmod IS BETTER THAN A WRONG ONE. A sitemap that claims every
+    page changed today, every day, is the single fastest way to get crawlers to
+    stop trusting the file — so anything unreadable is simply omitted rather
+    than filled in with now().
+    """
+    src = _PAGE_SOURCE.get(path)
+    if not src:
+        return ""
+    try:
+        ts = (Path(__file__).resolve().parents[2] / src).stat().st_mtime
+    except OSError:
+        return ""
+    return time.strftime("%Y-%m-%d", time.gmtime(ts))
+
+
 @app.get("/sitemap.xml")
 async def sitemap_xml():
     pages = ["/", "/tutorial", "/compare", "/tos", "/privacy", "/cookies", "/opt-out"]
-    urls = "".join(
-        f"<url><loc>https://highlightz.app{p}</loc></url>" for p in pages)
+    urls = ""
+    for p in pages:
+        mod = _page_lastmod(p)
+        urls += ("<url><loc>https://highlightz.app" + p + "</loc>"
+                 + (f"<lastmod>{mod}</lastmod>" if mod else "")
+                 + "</url>")
     xml = ('<?xml version="1.0" encoding="UTF-8"?>'
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
            + urls + "</urlset>")
@@ -5860,6 +5954,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v4.png">
 <meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
+<link rel="alternate" type="text/markdown" href="https://highlightz.app/llms.txt" title="Highlightz for language models">
 <style>
   /* ══════════════════════════════════════════════════════════════════════
      DAYLIT ROOM, LIT MONITORS
@@ -8354,7 +8449,54 @@ def _faq_schema(html: str) -> str:
     return '<script type="application/ld+json">' + blob + "</script>"
 
 
-LANDING_HTML = LANDING_HTML.replace("<!--FAQ_SCHEMA-->", _faq_schema(LANDING_HTML), 1)
+def _org_schema() -> str:
+    """Organization and WebSite as first-class entities.
+
+    WHY, WHEN SoftwareApplication ALREADY NAMES THE PUBLISHER. A nested
+    `publisher` describes who made the product; it does not declare that the
+    company itself is a thing with an identity. The top-level Organization is
+    what a knowledge graph attaches to — and what a language model reads when
+    asked who is behind Highlightz. @id ties the two together so this reads as
+    one entity rather than two companies with the same name.
+
+    sameAs IS EMPTY ON PURPOSE. It is the list of profiles that PROVE the same
+    organisation — X, Discord, GitHub, LinkedIn. Filling it with guesses would
+    assert ownership of accounts we have not confirmed, and a wrong sameAs is
+    worse than none. Add the real handles to ORG_PROFILES and this picks them
+    up; that is the single change that most helps a brand panel appear.
+    """
+    org = {"@type": "Organization",
+           "@id": SITE_ORIGIN + "/#organization",
+           "name": "ANTI Technology LLC",
+           "alternateName": "Highlightz",
+           "url": SITE_ORIGIN + "/",
+           "logo": {"@type": "ImageObject",
+                    "url": SITE_ORIGIN + "/static/logo-mark.png"},
+           "email": "support@highlightz.app",
+           "foundingDate": "2026",
+           "address": {"@type": "PostalAddress",
+                       "addressRegion": "NJ", "addressCountry": "US"},
+           "contactPoint": {"@type": "ContactPoint",
+                            "contactType": "customer support",
+                            "email": "support@highlightz.app",
+                            "availableLanguage": "English"}}
+    if ORG_PROFILES:
+        org["sameAs"] = list(ORG_PROFILES)
+    site = {"@type": "WebSite",
+            "@id": SITE_ORIGIN + "/#website",
+            "url": SITE_ORIGIN + "/",
+            "name": "Highlightz",
+            "description": "Automatic Twitch clipping across every channel you "
+                           "watch, using a transparent scoring formula.",
+            "inLanguage": "en",
+            "publisher": {"@id": SITE_ORIGIN + "/#organization"}}
+    blob = json.dumps({"@context": "https://schema.org",
+                       "@graph": [org, site]})
+    return '<script type="application/ld+json">' + blob + "</script>"
+
+
+LANDING_HTML = LANDING_HTML.replace(
+    "<!--FAQ_SCHEMA-->", _org_schema() + _faq_schema(LANDING_HTML), 1)
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
@@ -8687,6 +8829,7 @@ def _paywall_plans() -> str:
 
 PAYWALL_HTML = PAYWALL_HTML.replace("<!--PAYWALLPLANS-->", _paywall_plans(), 1)
 
+
 TOS_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8695,6 +8838,7 @@ TOS_HTML = """<!DOCTYPE html>
 <title>Terms of Service — Highlightz</title>
 <meta name="description" content="The terms that govern your use of Highlightz, including plans, your responsibilities for clips you create, and how broadcasters can opt out.">
 <link rel="icon" type="image/png" href="/static/icon.png">
+<!--SOCIAL_TOS-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -8826,6 +8970,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <title>Privacy Policy — Highlightz</title>
 <meta name="description" content="What Highlightz collects, why, who it is shared with, how long it is kept, and how to have it deleted.">
 <link rel="icon" type="image/png" href="/static/icon.png">
+<!--SOCIAL_PRIVACY-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -8941,6 +9086,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <title>Cookie Policy — Highlightz</title>
 <meta name="description" content="The one cookie Highlightz sets, the two browser preferences it stores, and the third-party cookies it does not control.">
 <link rel="icon" type="image/png" href="/static/icon.png">
+<!--SOCIAL_COOKIES-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:#08080b;color:#f6f6f9;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 80px}
@@ -9021,6 +9167,22 @@ COOKIES_HTML = """<!DOCTYPE html>
 </div>
 </body>
 </html>"""
+
+# Filled after the literals close, not beside _social_head() — the same
+# ordering rule the plan placeholders in this file follow. A NameError here is
+# an import-time crash of the whole app, so it is worth being boring about.
+TOS_HTML = TOS_HTML.replace("<!--SOCIAL_TOS-->", _social_head(
+    "/tos", "Terms of Service — Highlightz",
+    "The terms that govern your use of Highlightz, including plans, your "
+    "responsibilities for clips you create, and how broadcasters can opt out."), 1)
+PRIVACY_HTML = PRIVACY_HTML.replace("<!--SOCIAL_PRIVACY-->", _social_head(
+    "/privacy", "Privacy Policy — Highlightz",
+    "What Highlightz collects, why, who it is shared with, how long it is kept, "
+    "and how to have it deleted."), 1)
+COOKIES_HTML = COOKIES_HTML.replace("<!--SOCIAL_COOKIES-->", _social_head(
+    "/cookies", "Cookie Policy — Highlightz",
+    "The one cookie Highlightz sets, the two browser preferences it stores, and "
+    "the third-party cookies it does not control."), 1)
 
 ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -10486,7 +10648,9 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Streamer Opt-Out — Highlightz</title>
+<meta name="description" content="Any Twitch broadcaster can remove their channel from Highlightz here. Enter the channel name and confirm — no account needed, and it takes effect immediately.">
 <link rel="icon" type="image/png" href="/static/icon.png">
+<!--SOCIAL_OPTOUT-->
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
 </head>
 <body>
@@ -10511,11 +10675,17 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+_OPTOUT_LANDING_HTML = _OPTOUT_LANDING_HTML.replace("<!--SOCIAL_OPTOUT-->", _social_head(
+    "/opt-out", "Streamer Opt-Out — Highlightz",
+    "Any Twitch broadcaster can remove their channel from Highlightz here. "
+    "Enter the channel name and confirm — no account needed."), 1)
+
 _OPTOUT_CONFIRM_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
 <title>Confirm Opt-Out — Highlightz</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
@@ -10546,6 +10716,7 @@ _OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
 <title>Opted Out — Highlightz</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
