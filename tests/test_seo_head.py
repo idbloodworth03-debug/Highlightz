@@ -239,3 +239,68 @@ def test_same_as_is_absent_rather_than_guessed():
 def test_all_landing_json_ld_parses():
     """One malformed block invalidates the lot as far as a crawler cares."""
     assert len(_graph()) >= 4
+
+
+# ── the page a crawler reads, not the page a browser draws ───────────────────
+
+def test_the_core_claims_survive_with_no_javascript_and_no_css():
+    """THE REGRESSION THIS GUARDS. One session removed the hero's copy, then
+    the nav, then rebuilt everything below the cover — each step deleted
+    visible text, and the only reason the page still reads is that the claims
+    happen to survive elsewhere. An LLM or search crawler gets exactly this:
+    the body with scripts, styles and comments stripped. Whatever the design
+    does next, these facts must stay in that text.
+
+    Extraction detail that already bit once: index("<body") matches the LITERAL
+    <body> inside a CSS comment thousands of characters before the real tag —
+    the body must be found after </head>."""
+    import re
+    from src.dashboard.api import LANDING_HTML as H
+    start = H.index("<body", H.index("</head>"))
+    body = re.sub(r"<script.*?</script>", " ", H[start:], flags=re.S)
+    body = re.sub(r"<!--.*?-->", " ", body, flags=re.S)
+    txt = re.sub(r"<[^>]+>", " ", body)
+    txt = re.sub(r"\s+", " ", txt).lower()
+
+    for claim in (
+        "highlightz",                      # who
+        "twitch",                          # where
+        "clip",                            # what
+        "formula",                         # how, and the differentiator
+        "no black box",                    # the position
+        "free",                            # the offer
+        "official twitch api",             # the compliance story
+        "opt out",                         # the streamer-consent story
+        "review queue",                    # nothing auto-publishes
+        "vod scanner",                     # the pro feature
+        "threshold",                       # the mechanism's vocabulary
+    ):
+        assert claim in txt, f"{claim!r} is no longer in the crawlable text"
+    # and enough of it to summarise from — a page of chrome with 500 chars of
+    # prose is not a source, whatever the probes say
+    assert len(txt) > 4000, f"only {len(txt)} chars of crawlable text remain"
+    # Twitch must appear in the FIRST screenful of text, not only in the FAQ:
+    # a model skimming the opening should learn what this is without the head.
+    assert "twitch" in txt[:1200], "the opening text no longer says Twitch"
+
+
+def test_every_public_page_still_carries_its_schema():
+    """The redesign machine keeps running; the structured data must not fall
+    off the truck. FAQ is derived from the live markup so it follows edits by
+    construction — the assertion here is that each page still SHIPS its type."""
+    import json, re
+    from src.dashboard.api import LANDING_HTML
+    from src.dashboard import tutorial_html, compare_html
+
+    def types(html):
+        out = []
+        for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S):
+            d = json.loads(b)                     # also: every blob must PARSE
+            t = d.get("@type") or [x.get("@type") for x in d.get("@graph", [])]
+            out.extend(t if isinstance(t, list) else [t])
+        return out
+
+    assert set(types(LANDING_HTML)) >= {"SoftwareApplication", "Organization",
+                                        "WebSite", "FAQPage"}
+    assert "HowTo" in types(tutorial_html.render())
+    assert "ItemList" in types(compare_html.render())

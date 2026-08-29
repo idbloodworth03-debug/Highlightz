@@ -7286,7 +7286,7 @@ LANDING_HTML = """<!DOCTYPE html>
        instrument filling the room. Tiles and readouts are still written by
        JS; the empty #wall below is the no-JS/reduced-motion frame. -->
   <div class="hero-side">
-    <span class="side-k">Live &middot; scored every second</span>
+    <span class="side-k">Live Twitch channels &middot; scored every second</span>
     <h2 class="side-h">Four channels. <br>One formula. <br>No pause button.</h2>
     <p class="side-p">Each tile is a channel being watched the way the product
       watches yours &mdash; scored every second against its own threshold.
