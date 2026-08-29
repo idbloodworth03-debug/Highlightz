@@ -163,7 +163,7 @@ def test_the_plan_numbers_match_what_billing_enforces():
     # it at all.
     for label, key in (("Channels at once", "max_streams"),
                        ("Clips held for review", "max_pending"),
-                       ("Crowd suggestions", "max_suggested")):
+                       ("Highlight clips", "max_suggested")):
         assert rows[label] == tuple(
             str(PLAN_LIMITS[p][key]) for p in ("free", "starter", "pro")), \
             f"the {label} row drifted from PLAN_LIMITS"

@@ -168,7 +168,7 @@ def test_the_tutorial_plan_table_leads_with_free_and_derives_its_numbers():
     rows = {r[0]: r for r in PLAN_ROWS[1:]}
     assert rows["Channels at once"][1] == str(PLAN_LIMITS["free"]["max_streams"])
     assert rows["Clips held for review"][1] == str(PLAN_LIMITS["free"]["max_pending"])
-    assert rows["Crowd suggestions"][1] == str(PLAN_LIMITS["free"]["max_suggested"])
+    assert rows["Highlight clips"][1] == str(PLAN_LIMITS["free"]["max_suggested"])
     assert rows["VOD Scanner"][1] == "No", "the tutorial gives free the VOD scanner"
 
 

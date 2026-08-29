@@ -101,8 +101,8 @@ QUICKSTART_LEAD = (
     # on stating them after the plan moved.
     "The free plan needs no card and does not expire — one channel watched, a "
     f"queue of {PLAN_LIMITS['free']['max_pending']} clips, up to "
-    f"{PLAN_LIMITS['free']['max_suggested']} more that Highlightz flags from a "
-    f"spike in audience interest, and {PLAN_LIMITS['free']['max_library_week']} "
+    f"{PLAN_LIMITS['free']['max_suggested']} highlight clips on top of that, "
+    f"and {PLAN_LIMITS['free']['max_library_week']} "
     "clips a week you can keep. You can be monitoring a live channel before "
     "you finish reading this page."
 )
@@ -278,6 +278,42 @@ FEATURES: tuple[Section, ...] = (
         ),
     ),
     Section(
+        id="highlight-clips",
+        nav="Highlight clips",
+        title="Highlight clips",
+        body=(
+            "Some clips arrive wearing a purple **Highlight** badge. These are the "
+            "ones Highlightz rates as your strongest material — moments it has "
+            "good reason to think will travel further than the rest of the queue. "
+            "They are worth watching first."
+        ),
+        steps=(
+            "Look for the purple **Highlight** badge in the corner of a clip.",
+            "Beside it, a second badge — **Trending**, **Huge clip**, **Blowing "
+            "up** and so on — says how strong the signal was.",
+            "Watch it and **Approve** or **Reject** it like any other clip.",
+        ),
+        tip=(
+            "If you only have time for a handful, start with these. They are the "
+            "clips most likely to be worth posting, which makes them the fastest "
+            "way to get value out of a long queue."
+        ),
+        # NO MECHANISM, on the owner's instruction: the tutorial says what these
+        # are worth, not how they are found. Two things still constrain the
+        # wording. It may not promise virality — the site's whole pitch is a
+        # formula that does not overclaim, and the virality model measured close
+        # to blind (within-labeler r = -0.060), so "will go viral" would be a
+        # claim the product cannot keep. And it may not credit viewers with the
+        # find; that framing was deliberately removed from the queue once
+        # already. "Strongest material", "most likely to travel" carries the
+        # value without either.
+        note=(
+            "Every plan gets these, and they have their own allowance — see the "
+            "plan table below. They never take a slot from a clip the detector "
+            "caught on its own."
+        ),
+    ),
+    Section(
         id="clip-library",
         nav="Clip Library",
         title="Clip Library",
@@ -419,7 +455,7 @@ def _plan_rows() -> tuple[tuple[str, ...], ...]:
          str(starter["max_streams"]), str(pro["max_streams"])),
         ("Clips held for review",  str(free["max_pending"]),
          str(starter["max_pending"]), str(pro["max_pending"])),
-        ("Crowd suggestions",      str(free["max_suggested"]),
+        ("Highlight clips",        str(free["max_suggested"]),
          str(starter["max_suggested"]), str(pro["max_suggested"])),
         # The sentinel is a number; printed raw it would read "1000000000".
         ("Clips kept per week",    _week(free), _week(starter), _week(pro)),
