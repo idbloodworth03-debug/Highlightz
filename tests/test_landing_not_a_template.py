@@ -243,66 +243,21 @@ def test_the_anchors_in_the_page_all_resolve():
         assert href in ids, f'href="#{href}" points at a section that does not exist'
 
 
-def test_anchors_do_not_land_underneath_the_sticky_nav():
-    """REPORTED: "the Features tab does nothing". It did scroll — it landed the
-    section at viewport top, which is UNDER a 71px sticky nav. #features has
-    44px of top padding, so "What you get" came to rest at y=44 with the nav
-    covering it to y=71. Over half the heading hidden, and from a short scroll
-    that reads as the click doing nothing.
+def test_anchor_targets_still_reserve_breathing_room():
+    """Four tests about the sticky nav lived here: anchors clearing it, its
+    height being measured with a ResizeObserver, its links matching scroll
+    order, and every link having a target. The nav was removed on the owner's
+    call, so all four described hardware that no longer exists and were
+    deleted rather than kept alive against a ghost.
 
-    scroll-margin-top is the mechanism and the page simply never had it, while
-    /tutorial has had it all along. Asserted on the ELEMENT TYPES that get
-    linked to rather than on a list of ids, so a section added later inherits
-    the fix instead of quietly repeating the bug."""
+    What survives is the part that is still true without a nav: sections keep
+    a small scroll-margin so an external link like /#pricing does not land the
+    heading flush against the viewport edge — and it must NOT reference
+    --nav-h, which no longer exists and would resolve the margin to nothing."""
     m = re.search(r"section\[id\][^{]*\{scroll-margin-top:([^}]+)\}", CSS)
-    assert m, "anchor targets have no scroll-margin-top; they will land under the nav"
-    assert "--nav-h" in m.group(1), \
-        f"scroll-margin-top is {m.group(1)!r} — a hardcoded value drifts from the nav"
-
-
-def test_the_nav_height_is_measured_rather_than_assumed():
-    """The nav is not one height. Its links wrap between roughly 940 and
-    1140px and it goes 71 -> 83 -> 102px, so any hardcoded --nav-h is wrong
-    across a 200px band and every anchor in that band lands behind the bar
-    again. Measured at runtime, with the constant kept only as a fallback.
-
-    A ResizeObserver, not a resize listener: the nav also changes height when
-    its own contents change — the Example clips link appears only once the
-    showcase fetch resolves, which fires no resize event."""
-    assert "--nav-h:71px" in CSS, "the no-JS fallback is gone"
-    assert "ResizeObserver(measure).observe(nav)" in HTML, \
-        "the nav height is no longer measured; the fallback will be wrong when it wraps"
-    assert "root.style.setProperty('--nav-h'" in HTML
-    assert "h!==last" in HTML, \
-        "--nav-h is written on every observation, invalidating document style each time"
-
-
-def test_the_nav_lists_sections_in_the_order_you_scroll_through_them():
-    """The nav read How it works, Example clips — while the page scrolls Example
-    clips, How it works. Two orders for the same five sections makes the page
-    feel like it jumps around when you use the nav.
-
-    Derived from the document on both sides, so moving a section without moving
-    its link fails here rather than shipping."""
-    body = HTML[HTML.index("<body"):]
-    block = body[body.index('<div class="nav-links">'):]
-    block = block[:block.index("</div>")]
-    nav = re.findall(r'href="(#[^"]+)"', block)
-    sections = ["#" + i for i in re.findall(r'<section[^>]*id="([^"]+)"', body)]
-    in_page = [s for s in sections if s in nav]
-    assert nav == in_page, (
-        f"nav order {nav} does not match scroll order {in_page}")
-    assert len(nav) >= 4, "the in-page nav lost most of its links"
-
-
-def test_every_in_page_nav_link_has_a_section():
-    """The other half: a nav entry pointing at nothing at all."""
-    body = HTML[HTML.index("<body"):]
-    ids = set(re.findall(r'<section[^>]*id="([^"]+)"', body))
-    block = body[body.index('<div class="nav-links">'):]
-    block = block[:block.index("</div>")]
-    for href in re.findall(r'href="#([^"]+)"', block):
-        assert href in ids, f'nav links to #{href}, which is not a section'
+    assert m, "anchor targets lost their scroll-margin"
+    assert "--nav-h" not in m.group(1), \
+        "scroll-margin references --nav-h, which no longer exists"
 
 
 def test_the_faq_schema_matches_the_visible_questions():

@@ -97,7 +97,9 @@ def test_the_wall_fills_the_viewport_and_is_not_boxed_into_the_text_column():
     assert ".hero.hero-band{" in HTML
     m = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML)
     assert m and "max-width:none" in m.group(1)
-    assert "min-height:calc(100svh" in m.group(1)
+    # 100svh flat, not calc(100svh - 72px): the 72 was the nav's height, and
+    # the nav is gone.
+    assert "min-height:100svh" in m.group(1)
 
 
 def test_the_score_is_still_the_one_number_that_lights_the_page():
@@ -338,19 +340,20 @@ def _cover() -> str:
     it. Sliced on the nav rather than on a </div>, because the cover contains
     nested divs and matching the first close would stop inside the lockup."""
     start = HTML.index('<div class="cover" id="cover">')
-    return HTML[start:HTML.index('<nav class="nav">', start)]
+    return HTML[start:HTML.index('THE THROUGH-LINE', start)]
 
 
 def test_the_site_opens_on_the_cover_and_nothing_else():
     """First screen: the mark, the name, the numbers. The cover is the FIRST
-    thing in the body — ahead of the nav, which is what puts the nav below the
-    fold at rest without any script hiding it."""
+    thing in the body — and the nav that used to sit under it is gone
+    entirely, so slide 2 is the wall with nothing above it."""
     body = HTML.index("<body>")
-    assert HTML.index('<div class="cover" id="cover">') < HTML.index('<nav class="nav">'), \
-        "the nav is painted on top of the cover"
     between = HTML[body + len("<body>"):HTML.index('<div class="cover" id="cover">')]
     assert "<div" not in between and "<section" not in between, \
         "something else renders before the cover"
+    live = re.sub(r"/\*.*?\*/", "", HTML, flags=re.S)
+    live = re.sub(r"<!--.*?-->", "", live, flags=re.S)
+    assert "<nav" not in live, "a nav came back"
     cover = _cover()
     assert "/static/logo-mark.png" in cover, "the cover lost the logo"
     assert 'class="cover-word">Highlightz<' in cover, "the cover lost the name"
@@ -383,26 +386,21 @@ def test_the_live_numbers_still_get_revealed_after_the_move():
             f"nothing replaces {needle!r} any more, so the number stays hidden"
 
 
-def test_the_cover_word_matches_the_nav_exactly():
-    """A name set two different ways on one site reads as two different names.
-    Only the size may differ between the nav and the cover."""
-    nav = re.search(r"\.nav-logo span\{([^}]*)\}", HTML).group(1)
+def test_the_cover_word_keeps_the_wordmark_treatment():
+    """This used to assert the cover matched the nav's lockup declaration for
+    declaration. The nav is gone, so the cover IS the wordmark now — the
+    treatment it inherited (mono, 600, .12em, uppercase) is pinned directly."""
     cov = re.search(r"\.cover-word\{([^}]*)\}", HTML).group(1)
-    for prop in ("font-family", "font-weight", "letter-spacing", "text-transform"):
-        a = re.search(prop + r":([^;]+)", nav)
-        b = re.search(prop + r":([^;]+)", cov)
-        assert a and b and a.group(1) == b.group(1), \
-            f"the cover and the nav disagree on {prop}"
+    for needle in ("font-family:var(--mono)", "font-weight:600",
+                   "letter-spacing:.12em", "text-transform:uppercase"):
+        assert needle in cov, f"the wordmark lost {needle}"
 
 
-def test_the_cover_mark_is_painted_flat_like_the_nav_mark():
-    """Same logo, same treatment. A glow on the big one and none on the small
-    one makes a single mark read as two."""
-    nav = re.search(r"\.nav-logo img\{([^}]*)\}", HTML).group(1)
+def test_the_cover_mark_is_painted_flat():
+    """No filter, no glow on the logo: the mark is flat, and everything lit on
+    this page is lit by the room, not by decoration stuck to the brand."""
     cov = re.search(r"\.cover-mark img\{([^}]*)\}", HTML).group(1)
-    assert "filter" not in nav, "the nav mark grew a filter; re-check this pair"
-    assert "filter" not in cov, \
-        "the cover mark is decorated in a way the nav mark is not"
+    assert "filter" not in cov, "the cover mark is decorated again"
 
 
 def test_the_logo_reserves_its_real_shape():
@@ -586,7 +584,10 @@ def test_the_cover_and_the_site_share_their_light():
     uses (184,106,220). The cover base itself stays #000 — the leak is a
     pseudo-element, so pitch black at the top is untouched."""
     seam = re.search(r"\.cover::after\{([^}]*)\}", HTML).group(1)
-    assert "rgba(23,19,28" in seam, "the seam no longer blends into the site's base"
+    # rgba(9,7,12): the HERO's top tone. It was the nav's plum until the nav
+    # was removed; blending into a surface that no longer exists left a tone
+    # step mid-slide.
+    assert "rgba(9,7,12" in seam, "the seam no longer blends into the wall's ground"
     assert "rgba(184,106,220" in seam, "the seam lost the site's purple"
     assert "pointer-events:none" in seam, "the seam can swallow clicks"
     cov = re.search(r"\n  \.cover\{([^}]*)\}", HTML).group(1)

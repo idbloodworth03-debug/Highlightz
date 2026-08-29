@@ -232,10 +232,11 @@ def test_the_tutorial_nav_collapses_before_it_overflows():
     tut_bp = int(m.group(1))
     assert tut_bp >= 820, f"the nav collapses at {tut_bp}px but needs 818px of room"
 
-    land = re.search(r"@media\(max-width:(\d+)px\)\{\s*\.nav-links\{display:none\}",
-                     LANDING_HTML)
-    assert land and int(land.group(1)) == tut_bp, \
-        "the shared header's two copies disagree about when to collapse"
+    # The landing page's copy of this nav was removed outright, so the
+    # cross-check against it is gone with it — the tutorial's own breakpoint
+    # above is the whole guarantee now.
+    assert '<nav class="nav">' not in LANDING_HTML, \
+        "the landing nav is back; restore the two-copy breakpoint comparison"
 
 
 @pytest.mark.parametrize("selector", [r"\.faq-a", r"\.tut-steps li"])

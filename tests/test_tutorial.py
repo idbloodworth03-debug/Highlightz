@@ -77,7 +77,8 @@ def test_robots_does_not_disallow_it(client):
 
 
 @pytest.mark.parametrize("snippet, where", [
-    ('<a href="/tutorial" class="nav-link">Tutorial</a>', "landing nav"),
+    # The landing nav carried a Tutorial link; the nav was removed, so the
+    # footer and the CTA are the two paths that remain — and both must stay.
     ('href="/tutorial" class="btn btn-quiet btn-lg"', "landing CTA"),
     ('<a href="/tutorial">Tutorial</a>', "landing footer"),
 ])

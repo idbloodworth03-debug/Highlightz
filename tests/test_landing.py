@@ -101,7 +101,6 @@ def test_landing_has_examples_section():
     html = api.LANDING_HTML
     assert 'id="examples"' in html and 'id="ex-grid"' in html
     assert "/landing/showcase" in html
-    assert 'id="nav-examples"' in html          # nav tab, revealed when data exists
 
 
 def test_showcase_entry_carries_embed_url_for_inline_playback():
@@ -383,7 +382,9 @@ def test_lobster_is_titles_only_and_never_uppercased():
     # second pricing stylesheet (the rendered page uses .ptier classes), so the
     # LIVE price was quietly in the text face while this test checked a rule
     # that styled nothing.
-    for sel in (".nav-logo span", ".stat .n", ".ptier-fig", ".tile-score"):
+    # .cover-word replaced .nav-logo span when the nav was removed — it is the
+    # same wordmark, carried by the cover now.
+    for sel in (".cover-word", ".stat .n", ".ptier-fig", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
@@ -470,35 +471,17 @@ def test_the_body_is_not_a_scroll_container():
         "nothing suppresses sideways scroll now that body no longer does")
 
 
-def test_the_nav_collapses_before_it_can_push_the_cta_off_screen():
-    """The section links used to collapse at 720px, but the full nav needs
-    ~925px (logo 205 + links 349 + right group 293 + padding 44). Every width
-    from 721 to ~925 pushed Sign in and Get started past the right edge, and
-    body{overflow-x:hidden} clipped them away silently — so on tablets and
-    small laptops the primary CTA was simply absent. Nobody would report that;
-    it just looks like a nav without a button."""
+def test_the_nav_stayed_deleted():
+    """A breakpoint test lived here, guarding the nav's Get started button
+    against being pushed off a tablet's right edge. The nav was removed on the
+    owner's call, taking the page's top Sign in / Get started with it — the
+    remaining paths to /login are the pricing tiers and the closing CTA, so
+    both are pinned as links that must exist."""
     html = api.LANDING_HTML
-    m = re.search(r"@media\(max-width:(\d+)px\)\{\s*\.nav-links\{display:none\}", html)
-    assert m, "no breakpoint collapses .nav-links"
-    assert int(m.group(1)) >= 925, (
-        f".nav-links collapse at {m.group(1)}px, but the full nav needs ~925px — "
-        f"between the two the Get started button is pushed off the edge")
-
-
-# ── the showcase clips load at the best quality available ────────────────────
-
-def test_the_showcase_asks_twitch_for_the_large_thumbnail():
-    """Twitch stores the showcase thumbnail at ~480x272, but these cards render
-    about 380x146 CSS px — 760x292 of real pixels on a 2x display. The stored
-    URL was being upscaled by the browser and looked soft on every modern
-    screen. Swapping the size segment asks the CDN for the 1280x720 master."""
-    html = api.LANDING_HTML
-    assert "-preview-1280x720." in html, "the showcase no longer requests the large variant"
-    # The RESULT has to be used, not merely computed. Asserting that
-    # hiResThumb(...) appears anywhere passes happily against `var hi = ...`
-    # followed by `img.src = c.thumbnail_url`, which is the bug.
-    assert "var hi=hiResThumb(c.thumbnail_url);" in html
-    assert "img.src=hi;" in html, "the upgraded URL is computed but not used"
+    live = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    assert '<nav class="nav">' not in live, "the nav came back without its tests"
+    assert live.count('href="/login"') >= 4, \
+        "fewer than four /login paths remain — signup depends on these"
 
 
 def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():

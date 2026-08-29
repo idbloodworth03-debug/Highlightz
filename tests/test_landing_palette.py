@@ -154,18 +154,16 @@ def test_the_warm_counterpoint_is_actually_warm_and_actually_used():
     h, s, _ = _hsl(_tokens()["ember"])
     assert 20 <= h <= 50, f"--ember is at hue {h:.0f} — not a warm lamp"
     assert s >= 70, "--ember is too grey to read as a light"
-    # 8, down from 12: the old count was inflated by dead stylesheets (the
-    # removed clip stage, the cut who-for rows, the numbered step rail) whose
-    # ember styled nothing. The live uses are the instruments — the nav trig,
-    # the tile dots/scores/flags, the Pro price, the cover stat.
-    assert CSS.count("var(--ember)") >= 8, "the counterpoint is barely used"
-    # It is the resting state of the two live score readouts.
-    # .tile-score is four readouts, not one — the whole wall rests at the lamp
-    # colour and only the channel that crosses goes to the monitor colour.
-    for sel in (".trig-v", ".tile-score"):
+    # 7, down from 8: the nav's trig sparkline left with the nav. What remains
+    # is every instrument — the tile dots, scores and flags, the Pro price,
+    # the cover's counter and stat-big.
+    assert CSS.count("var(--ember)") >= 7, "the counterpoint is barely used"
+    # It is the resting state of the wall's four score readouts — the whole
+    # wall rests at the lamp colour and only a crossing goes hot.
+    for sel in (".tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--ember)" in block, f"{sel} should rest at the lamp colour"
-    for sel in (".trig.hot .trig-v", ".tile.fire .tile-score"):
+    for sel in (".tile.fire .tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--flare)" in block, f"{sel} should snap to the hot accent"
 
@@ -209,8 +207,11 @@ def test_the_signature_is_wired_to_one_number():
     responding — which is the entire idea.
     """
     assert "--lit:0" in CSS.replace(" ", ""), "--lit is not declared"
+    # Three, down from four: the nav's reactive hairline and its trig sparkline
+    # left with the nav. The wall's frame and the through-line remain — the
+    # two surfaces a reader is actually looking at.
     consumers = CSS.count("var(--lit)")
-    assert consumers >= 4, f"only {consumers} things react to the trigger score"
+    assert consumers >= 3, f"only {consumers} things react to the trigger score"
     # .nav::after, not .nav — the reactive hairline moved to the pseudo element
     # when the bar itself became bone glass. .thread-fill is the through-line,
     # the newest and most visible consumer of the same number.
@@ -223,7 +224,7 @@ def test_the_signature_is_wired_to_one_number():
     # for the cover's hairline language, the consumer moved to the wall's top
     # hairline -- the frame of the whole instrument brightens with the score,
     # mirroring the nav's hairline, instead of four card borders doing it.
-    for sel in (".nav::after{", ".wall{", ".trig{", ".thread-fill{"):
+    for sel in (".wall{", ".thread-fill{"):
         block = CSS[CSS.index(sel):CSS.index("}", CSS.index(sel))]
         assert "var(--lit)" in block, f"{sel[:-1]} no longer reacts to the score"
     # And it is written from the loop, throttled to changes rather than frames.

@@ -6115,13 +6115,7 @@ LANDING_HTML = """<!DOCTYPE html>
        landed on a device pixel. */
     --t-caption:12px; --t-small:14px; --t-body:16px; --t-h3:17px;
     --t-h2:24px; --t-h1:30px;
-    /* The sticky nav's height, which anchor targets subtract so they do not
-       land underneath it. This is only the FALLBACK: between about 940 and
-       1140px the nav links wrap and it grows to 83 and then 102px, so a
-       hardcoded number is wrong across a 200px band. The real value is
-       measured and written here at runtime — see the nav-height block near
-       the end of the body. */
-    --nav-h:71px;
+
     /* Measure. Text sections hold this; product sections deliberately do not. */
     /* 52ch, NOT the 68 the plan called for. `ch` is the width of the digit
        zero, which in Sora is 9.17px at 14px while the average character is
@@ -6157,7 +6151,7 @@ LANDING_HTML = """<!DOCTYPE html>
      scroll-margin-top is exactly the mechanism for this and the page never had
      it. Applied to the elements that are actually linked to, so a section
      added later inherits the fix instead of quietly repeating the bug. */
-  section[id],header[id],article[id]{scroll-margin-top:calc(var(--nav-h) + 12px)}
+  section[id],header[id],article[id]{scroll-margin-top:12px}
   /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
      which makes <body> a scroll container — and position:sticky then resolves
      against BODY's scrollport instead of the viewport. Body's scrollport does
@@ -6255,7 +6249,7 @@ LANDING_HTML = """<!DOCTYPE html>
      the wall as the only child, so it landed in the AUTO row and collapsed to
      its own minimum — 281px of tiles sitting in an 878px hero with 500px of
      black under them. With one child there is one row, and it stretches. */
-  .hero.hero-band{min-height:calc(100svh - 72px);display:grid;
+  .hero.hero-band{min-height:100svh;display:grid;
     grid-template-rows:minmax(0,1fr);align-content:stretch;
     margin-bottom:var(--s-10);
     /* The cover's ground, carried through. Near-black at the top where slide
@@ -6463,11 +6457,15 @@ LANDING_HTML = """<!DOCTYPE html>
      --bone #17131C) blending in, and the same purple every seam wash on the
      page uses, rising from below the fold. The cover becomes the same room
      with the lights off, and the cue's line points down into the glow. */
+  /* The linear layer's target is the HERO's top tone (#09070C), because that
+     is what now sits under the fold — it used to be the nav's plum, and with
+     the nav gone that left a one-frame tone step mid-slide. Cover bottom and
+     wall top are the same colour now, so the slide reads as one surface. */
   .cover::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:0;
     height:clamp(200px,32vh,340px);pointer-events:none;
     background:
       radial-gradient(110% 100% at 50% 100%,rgba(184,106,220,.14),transparent 64%),
-      linear-gradient(180deg,rgba(23,19,28,0),rgba(23,19,28,.72))}
+      linear-gradient(180deg,rgba(9,7,12,0),rgba(9,7,12,.9))}
   /* Content and cue above the leak -- the light is behind them, not on them. */
   .cover-in{position:relative;z-index:1;
     display:flex;flex-direction:column;align-items:center;
@@ -6497,49 +6495,9 @@ LANDING_HTML = """<!DOCTYPE html>
     .cover-in{gap:clamp(28px,5vh,44px)}
   }
 
-  /* ── Nav. Sits IN the room: same black, one hairline that is brighter on the
-     side the light comes from. No blur, no glass. ── */
-  .nav{position:sticky;top:0;z-index:60;
-    background:rgba(23,19,28,.78);
-    -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);
-    border-bottom:1px solid var(--hair);
-    display:flex;align-items:center;gap:16px;padding:12px 24px}
-  /* The hairline under the nav is the through-line's first appearance: it
-     brightens as the score climbs, so the mechanic is visible before you have
-     scrolled anywhere. Transform/opacity only — this is a colour on a 1px box,
-     not a layout property. */
-  .nav::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
-    background:linear-gradient(90deg,transparent,rgba(184,106,220,calc(.28 + var(--lit)*.72)) 50%,transparent);
-    opacity:calc(.35 + var(--lit)*.65);transition:opacity var(--t-move) var(--ease)}
-  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
-  /* No border-radius any more: that existed only to round the corners of the
-     plate the old JPEG carried. The mark is transparent now, so there is no
-     rectangle to soften. */
-  .nav-logo img{height:22px}
-  .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
-    text-transform:uppercase;color:var(--ink)}
-  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
-  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 12px;border-radius:3px;transition:color var(--dur-fast),background var(--dur-fast)}
-  .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
-  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-
-  /* ── SIGNATURE, persistent form. The trigger score never leaves the screen:
-     a live readout welded into the nav, fed by the same loop as the hero demo.
-     Below threshold it burns amber (the lamp); above, it snaps violet. ── */
-  .trig{display:flex;align-items:center;gap:8px;padding:4px 12px 4px 12px;border-radius:3px;
-    border:1px solid transparent;
-    background:linear-gradient(var(--wall),var(--wall)) padding-box,
-      linear-gradient(215deg,rgba(247,167,69,calc(.30 + var(--lit)*.6)),rgba(242,234,247,.05)) border-box;
-    margin-right:4px}
-  .trig-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .trig-v{font-family:var(--mono);font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;
-    color:var(--ember);min-width:2.2ch;text-align:right;transition:color var(--dur-slow)}
-  .trig.hot .trig-v{color:var(--flare)}
-  .trig svg{display:block;overflow:visible}
-  .trig-line{fill:none;stroke:var(--ember);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;transition:stroke var(--dur-slow)}
-  .trig.hot .trig-line{stroke:var(--flare)}
+  /* The sticky nav's stylesheet lived here (.nav, .nav-logo, .nav-links,
+     .trig sparkline). The nav was removed from the page on the owner's call,
+     so all of it styled nothing. */
 
   /* ══ HERO. The lede sits on top; the wall takes every pixel underneath it.
      The wall is four live channels being scored right now — the same loop the
@@ -6674,10 +6632,16 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Deliberately quieter than it was: this is the below-threshold half, and
      it has to sit back so the clipped bright copy above the line reads as an
      event rather than as more of the same. */
+  /* Rested further than before: the wall is slide 2 in its entirety now, and
+     four full-brightness traces filling the screen read as the loud half of
+     the page when the cover just set a near-silent register. Opacity, not a
+     new colour — the hue stays the accent, it just sits back until something
+     happens. Firing returns to full strength: the payoff is unchanged. */
   .tile-line{fill:none;stroke:var(--glow);stroke-width:1.5;stroke-linejoin:round;
-    stroke-linecap:round;vector-effect:non-scaling-stroke;
-    transition:stroke var(--t-move) var(--ease)}
-  .tile.fire .tile-line{stroke:var(--flare)}
+    stroke-linecap:round;vector-effect:non-scaling-stroke;stroke-opacity:.55;
+    transition:stroke var(--t-move) var(--ease),stroke-opacity var(--t-move) var(--ease)}
+  .tile.hot  .tile-line{stroke-opacity:.8}
+  .tile.fire .tile-line{stroke:var(--flare);stroke-opacity:1}
   /* THE DATUM. This was rgba(242,234,247,.18) in a 3/6 dash — the faintest
      mark in the tile. It is the line the entire product is about: the whole
      claim is that a channel is measured against ITS OWN number and you can
@@ -6685,7 +6649,7 @@ LANDING_HTML = """<!DOCTYPE html>
      crossing had to be inferred from the numeral rather than seen. Now it is
      the strongest hairline in the tile, and it is the accent colour rather
      than ink because it belongs to the formula, not to the grid. */
-  .tile-thline{stroke:rgba(196,137,228,.55);stroke-width:1;stroke-dasharray:none;
+  .tile-thline{stroke:rgba(196,137,228,.45);stroke-width:1;stroke-dasharray:none;
     vector-effect:non-scaling-stroke;transition:stroke var(--dur-slow) var(--ease)}
   .tile.hot  .tile-thline{stroke:rgba(196,137,228,.8)}
   .tile.fire .tile-thline{stroke:var(--flare)}
@@ -6694,7 +6658,7 @@ LANDING_HTML = """<!DOCTYPE html>
      number and the line it names were two unrelated pieces of furniture. */
   .tile-thmark{position:absolute;right:0;transform:translateY(-50%);
     font-family:var(--mono);font-size:12px;letter-spacing:.1em;
-    color:var(--glow-ink);opacity:.75;pointer-events:none;
+    color:var(--glow-ink);opacity:.6;pointer-events:none;
     background:linear-gradient(90deg,transparent,var(--bone) 40%);padding-left:8px;
     transition:opacity var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
   .tile.fire .tile-thmark{color:var(--flare);opacity:1}
@@ -6726,7 +6690,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .sg-b{display:block;height:2px;margin-top:4px;background:var(--hair);border-radius:2px;
     overflow:hidden}
   /* scaleX, never width — this updates every 250ms on twenty bars at once. */
-  .sg-b i{display:block;height:100%;background:var(--glow);transform-origin:left center;
+  .sg-b i{display:block;height:100%;background:rgba(184,106,220,.55);transform-origin:left center;
     transform:scaleX(var(--v,0));transition:transform var(--t-move) linear}
   .tile.fire .sg-b i{background:var(--flare)}
 
@@ -7128,37 +7092,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .stat{padding:16px 0;border-left:none;border-top:1px solid var(--hair)}
     .stat:first-child{border-top:none}
     .stat .k{max-width:none}
-    .nav{padding:12px 16px;gap:8px}
-    /* Measured: the nav is 67px here, not 71. */
-    :root{--nav-h:67px}
-    .nav-links{display:none}
-    .nav-logo span{display:none}
-    .trig{padding:4px 8px;margin-right:4px}
-    .trig-k{display:none}
     .final{padding-top:48px;padding-bottom:64px}
-  }
-  /* The section links collapse at 900, not 720. Measured at 768: logo 205 +
-     links 349 + right group 293 + padding 44 = 891, so everything from 721 to
-     ~900 pushed the right-hand group off the edge — Sign in and Get started
-     included. It was invisible rather than fixed: body{overflow-x:hidden} was
-     clipping it, so on every tablet and small laptop the primary CTA simply
-     was not there. The links are convenience anchors on a single-scroll page;
-     the button is the conversion.
-     940, not 900: at 901 the group still overflowed by 22px, so the real
-     requirement is ~925 and this leaves headroom for a wider CTA label. */
-  @media(max-width:940px){
-    .nav-links{display:none}
-  }
-  @media(max-width:560px){
-    /* The live trigger sparkline is the nav's signature, but it is decorative
-       and it is 90px wide. Below ~560 the nav is logo(94) + trig(90) +
-       Sign in(52) + Get started(124) + padding(36) = 396 > a 390px phone, and
-       the overflow lands on the RIGHT — which is the Get started button. That
-       used to be invisible because body{overflow-x:hidden} clipped it away;
-       with the sticky-nav fix the clipping is honest, so the CTA has to
-       actually fit. Dropping the sparkline gets it to 324 with room spare, and
-       keeps both links. */
-    .nav-right .trig{display:none}
   }
   @media(max-width:520px){
     .ex-card{flex-basis:100%}
@@ -7193,9 +7127,9 @@ LANDING_HTML = """<!DOCTYPE html>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
-<!-- THE COVER. Above the nav on purpose: the nav is position:sticky, so with
-     the cover ahead of it the nav is simply below the fold at rest and sticks
-     the moment it scrolls up. Nothing hides it, and it works with JS off.
+<!-- THE COVER, and now the first and only thing before the wall. The nav
+     that used to sit between the two slides was removed on the owner's call —
+     the cover already carries the lockup, so slide 2 is the wall alone.
      width/height are the file's NATURAL 374x501 — the browser takes the ratio
      from them and combines it with the CSS height, so the reserved box is the
      right SHAPE; a square would be a layout shift dressed up as a fix. -->
@@ -7251,32 +7185,6 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="cover-cue-l"></span><span>scroll</span>
   </div>
 </div>
-<nav class="nav">
-  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
-  <div class="nav-links">
-    <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. The clips section sits above
-         How it works in the document, so it comes first here too. A nav that
-         lists sections in a different sequence to the one you scroll through
-         makes the page feel like it jumps around. Held by a test. -->
-    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
-    <a href="#how" class="nav-link">How it works</a>
-    <a href="#features" class="nav-link">Features</a>
-    <a href="#pricing" class="nav-link">Pricing</a>
-    <a href="#faq" class="nav-link">FAQ</a>
-    <a href="/tutorial" class="nav-link">Tutorial</a>
-    <a href="/compare" class="nav-link">Compare</a>
-  </div>
-  <div class="nav-right">
-    <!-- The signature, in its persistent form: the live trigger score never
-         leaves the screen. Same loop as the hero demo, same threshold. -->
-    <div class="trig" id="trig" aria-hidden="true">
-      <svg width="42" height="14" viewBox="0 0 42 14"><path class="trig-line" id="trig-line" d="M0,10 L42,10"/></svg>
-      <span class="trig-v" id="trig-v">92</span>
-    </div>
-    <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
-  </div>
-</nav>
 
 <!-- Hero -->
 <!-- ── THE THROUGH-LINE ──────────────────────────────────────────────────────
@@ -7555,7 +7463,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 /* ── Example clips showcase ── */
 (function(){
-  var sec=document.getElementById('examples'), grid=document.getElementById('ex-grid'), nav=document.getElementById('nav-examples');
+  var sec=document.getElementById('examples'), grid=document.getElementById('ex-grid');
   if(!sec||!grid) return;
   // Built with RegExp(), not a literal. This string is a Python triple-quoted
   // block, and Python resolves escapes before the browser ever sees them — a
@@ -7647,7 +7555,6 @@ LANDING_HTML = """<!DOCTYPE html>
       grid.appendChild(a);
     });
     sec.style.display='';
-    if(nav) nav.style.display='';
   }).catch(function(){});
   function closeLb(){
     var lb=document.getElementById('exl');
@@ -7690,8 +7597,6 @@ LANDING_HTML = """<!DOCTYPE html>
   if(!wall) return;
   var capRate=document.getElementById('wall-rate'),
       capState=document.getElementById('wall-state');
-  var trig=document.getElementById('trig'), trigV=document.getElementById('trig-v'),
-      trigLine=document.getElementById('trig-line');
   var thread=document.getElementById('thread'),
       thScore=document.getElementById('thread-score');
   var root=document.documentElement;
@@ -7986,12 +7891,11 @@ LANDING_HTML = """<!DOCTYPE html>
   var started=false;
   var elapsed=0, cycleStart=0, cycleLen=CYCLE, firedScore=0;
   var last=null, raf=0, lastStep=-1, lastLit=-1, vis=visibleCount();
-  var spark=[];
 
   function reseed(){
     cycIdx++;
     cyc=buildCycle(cycIdx); cycFireI=cyc.fireI;
-    fired=false; staged=false; lastStep=-1; spark=[];
+    fired=false; staged=false; lastStep=-1;
     cycleLen=CYCLE; firedScore=0;
     dress(cyc);
     if(capRate) capRate.textContent=String(vis);
@@ -8072,18 +7976,6 @@ LANDING_HTML = """<!DOCTYPE html>
     // a custom property on <html> invalidates style for the entire document.
     var lit=clamp((best-58)/34,0,1), q=Math.round(lit*20)/20;
     if(q!==lastLit){ lastLit=q; root.style.setProperty('--lit',String(q)); }
-    if(trigV) trigV.textContent=String(Math.round(best));
-    if(trig) trig.classList.toggle('hot',lit>0);
-    if(trigLine){
-      spark.push(best); if(spark.length>14) spark.shift();
-      if(spark.length>1){
-        var td='',j;
-        for(j=0;j<spark.length;j++)
-          td+=(j===0?'M':' L')+((j/(spark.length-1))*42).toFixed(1)+','+
-              (13-(spark[j]/100)*12).toFixed(1);
-        trigLine.setAttribute('d',td);
-      }
-    }
   }
 
   function tick(now){
@@ -8254,31 +8146,6 @@ LANDING_HTML = """<!DOCTYPE html>
 })();
 </script>
 
-<script>
-/* ── NAV HEIGHT ────────────────────────────────────────────────────────────
-   Anchor targets clear the nav by subtracting --nav-h. The nav is not one
-   height: its links wrap between roughly 940 and 1140px and it goes 71 -> 83
-   -> 102px, so the CSS fallback is wrong across that whole band and every
-   in-page link there lands its heading behind the bar again.
-
-   So it is measured. A ResizeObserver rather than a resize listener, because
-   the nav also changes height when its own contents change — the sparkline
-   readout is dropped under 720px, and the Example clips link appears only once
-   the showcase has loaded, which happens after a fetch and not on any resize.
-   Written only when it actually changes: this is a custom property on <html>
-   and each write invalidates style for the whole document. ───────────────── */
-(function(){
-  var nav=document.querySelector('.nav'), root=document.documentElement, last=0;
-  if(!nav) return;
-  function measure(){
-    var h=Math.round(nav.getBoundingClientRect().height);
-    if(h && h!==last){ last=h; root.style.setProperty('--nav-h', h+'px'); }
-  }
-  measure();
-  if('ResizeObserver' in window) new ResizeObserver(measure).observe(nav);
-  else window.addEventListener('resize', measure, {passive:true});
-})();
-</script>
 
 <script>
 /* ── THE THROUGH-LINE + COUNT-UP ───────────────────────────────────────────
