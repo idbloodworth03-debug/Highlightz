@@ -1579,6 +1579,32 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   );
 }
 
+/* THE AUDIENCE BADGE'S WORDING. One label said "Audience spike" on every card,
+   which is accurate and completely flat down a queue of twenty. These say the
+   same thing in the voice a streamer would use.
+
+   TWO TIERS, because the word has to stay TRUE. clipper_count is the number of
+   distinct viewers who clipped that moment, and the badge already only renders
+   above 1 — but "Huge clip" on a moment two people caught is a claim the data
+   does not support. Five or more gets the loud half; below that, and the VOD
+   scanner (which carries no count at all, only viewer_clipped), gets the calm
+   half. The tooltip states the measurement precisely either way.
+
+   DETERMINISTIC, not random. Math.random() here would deal a new word on every
+   re-render — and this grid re-renders on every websocket message, so badges
+   would visibly reshuffle while you read them. Hashing the clip's own id means
+   a given clip keeps its word for as long as it exists, and the queue still
+   reads varied because ids differ. */
+const SPIKE_CALM = ['Trending','Chat noticed','Crowd pick','Getting clipped','Worth a look'];
+const SPIKE_LOUD = ['Blowing up','Huge clip','Chat went off','Everyone clipped this','Big moment'];
+function spikeLabel(clip){
+  const pool = (clip.clipper_count||0) >= 5 ? SPIKE_LOUD : SPIKE_CALM;
+  const key = String(clip.id || clip.slug || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return pool[Math.abs(h) % pool.length];
+}
+
 function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
@@ -1637,11 +1663,11 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             and it is still on the record either way. */}
         {sug && clip.clipper_count>1 && <span className="rd-clippedbadge" style={{top:10}}
           title="Highlightz measured unusually high audience interest at this moment">
-          <Icon name="trending" size={11}/>Audience spike
+          <Icon name="trending" size={11}/>{spikeLabel(clip)}
         </span>}
         {clip.viewer_clipped && <span className="rd-clippedbadge"
           title="Highlightz measured unusually high audience interest at this moment">
-          <Icon name="trending" size={11}/>Audience spike
+          <Icon name="trending" size={11}/>{spikeLabel(clip)}
         </span>}
         {/* Visible BEFORE the card is opened, because that is when it changes
             what you do: a gated clip cannot be reviewed inline, and on a plan

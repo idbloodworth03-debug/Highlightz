@@ -724,7 +724,7 @@ def test_the_queue_describes_what_highlightz_found_not_who_clipped_it():
     assert "clip.suggested_by" not in body, "the card names the clipper again"
     assert "viewers clipped it" not in body, \
         "the card credits the audience with the find again"
-    assert "Audience spike" in body, "the card lost its audience-signal badge"
+    assert "spikeLabel(clip)" in body, "the card lost its audience-signal badge"
 
 
 def test_the_clippers_name_is_not_recorded_at_all():
@@ -762,7 +762,7 @@ def test_the_vod_scanner_uses_the_same_words():
     body = _code(_fn("RdClip"))
     assert "clip.viewer_clipped" in body, "the VOD badge was dropped entirely"
     vod = body.split("clip.viewer_clipped")[1][:300]
-    assert "Audience spike" in vod, "the VOD badge still credits the clippers"
+    assert "spikeLabel(clip)" in vod, "the VOD badge still credits the clippers"
     assert "clipped it" not in vod
 
     from src.vod import analyzer
@@ -1000,3 +1000,69 @@ def test_there_is_nowhere_to_put_a_clippers_name():
     # creator_id stays: clustering needs it to exclude our own clips and to
     # count DISTINCT clippers. It is never persisted.
     assert "creator_id" in src
+
+
+# ── the audience badge's wording ─────────────────────────────────────────────
+
+def _spike_src() -> str:
+    """The label picker, straight out of the shipped file."""
+    i = JS.index("const SPIKE_CALM")
+    return JS[i:JS.index("function RdClip(", i)]
+
+
+def test_a_loud_word_never_lands_on_a_weak_signal():
+    """The badge renders above clipper_count 1, so a moment two people caught
+    is enough to show it — but not enough to call it "Huge clip". Five or more
+    distinct clippers gets the loud half; below that, and the VOD scanner
+    (which carries no count at all, only viewer_clipped), gets the calm half.
+
+    Executed rather than grepped: the tiering is arithmetic, and asserting the
+    threshold appears in the source would pass on `>= 5` written backwards."""
+    import subprocess, json, textwrap
+    prog = _spike_src() + textwrap.dedent("""
+        const out = {leaks: 0, calmSeen: new Set(), loudSeen: new Set()};
+        for (let i = 0; i < 3000; i++) {
+          const n = 1 + (i % 12);
+          const l = spikeLabel({id: 'c' + i, clipper_count: n});
+          if (n >= 5) { out.loudSeen.add(l); if (SPIKE_CALM.includes(l)) out.leaks++; }
+          else { out.calmSeen.add(l); if (SPIKE_LOUD.includes(l)) out.leaks++; }
+        }
+        // the VOD path: no count at all
+        for (let i = 0; i < 300; i++) {
+          const l = spikeLabel({id: 'v' + i});
+          if (SPIKE_LOUD.includes(l)) out.leaks++;
+        }
+        console.log(JSON.stringify({leaks: out.leaks,
+          calm: out.calmSeen.size, loud: out.loudSeen.size,
+          nCalm: SPIKE_CALM.length, nLoud: SPIKE_LOUD.length}));
+    """)
+    r = subprocess.run(["node", "-e", prog], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(r.stdout)
+    assert d["leaks"] == 0, "a label crossed its tier — the word can now overclaim"
+    assert d["calm"] == d["nCalm"] and d["loud"] == d["nLoud"], \
+        "some labels are unreachable"
+    assert d["nCalm"] + d["nLoud"] == 10, "the pool is no longer ten labels"
+
+
+def test_the_label_does_not_reshuffle_while_you_read_it():
+    """Math.random() here would deal a new word on every re-render, and this
+    grid re-renders on every websocket message — badges would visibly change
+    under the cursor. The pick is hashed from the clip's own id instead."""
+    assert "Math.random" not in _spike_src(), \
+        "the label is random — it will reshuffle on every re-render"
+    import subprocess, json, textwrap
+    prog = _spike_src() + textwrap.dedent("""
+        const c = {id: 'clip_abc123', clipper_count: 2};
+        const seen = new Set();
+        for (let i = 0; i < 50; i++) seen.add(spikeLabel(c));
+        // and a clip with no id at all must still return a real label
+        const degenerate = ['', null, undefined].map(
+          id => typeof spikeLabel({id: id}) === 'string' && !!spikeLabel({id: id}));
+        console.log(JSON.stringify({stable: seen.size, safe: degenerate}));
+    """)
+    r = subprocess.run(["node", "-e", prog], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(r.stdout)
+    assert d["stable"] == 1, "the same clip got different labels across renders"
+    assert all(d["safe"]), "a clip with no id crashed or rendered an empty badge"
