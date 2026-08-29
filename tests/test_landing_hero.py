@@ -721,6 +721,12 @@ def test_slide_two_is_a_spread_not_a_wall_alone():
     assert 'class="hero-side"' in header, "the voice column is gone"
     assert header.index('class="hero-side"') < header.index('id="wall"'), \
         "the voice does not precede the wall"
+    # The primary CTA lives on this screen too: the case is made here, so the
+    # button is here — /login is the paywall's front door for a new visitor.
+    side = header[header.index('class="hero-side"'):header.index('id="wall"')]
+    assert 'href="/login" class="btn btn-key' in side, \
+        "slide 2 lost its Start clipping now button"
+    assert "Start clipping now" in side
     band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
     cols = re.search(r"grid-template-columns:([^;]+)", band)
     assert cols and "fr" in cols.group(1) and "," not in cols.group(1).split(")")[-1], ""

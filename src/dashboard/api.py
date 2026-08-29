@@ -6280,6 +6280,9 @@ LANDING_HTML = """<!DOCTYPE html>
   /* THE DOORS. Two quiet, clickable prompts — a hairline chip that lights up
      the same way everything else on this page lights up. Real links, real
      focus rings. */
+  /* flex-start, or the column's default stretch turns the button into a
+     full-width slab and the doors below read as its shadow. */
+  .side-cta{align-self:flex-start;margin-top:var(--s-2)}
   .peeks{display:flex;flex-direction:column;gap:8px;margin-top:var(--s-2)}
   .peek{display:flex;align-items:baseline;gap:12px;padding:12px 16px;
     border:1px solid var(--hair);text-decoration:none;min-width:0;
@@ -7291,6 +7294,10 @@ LANDING_HTML = """<!DOCTYPE html>
     <p class="side-p">Each tile is a channel being watched the way the product
       watches yours &mdash; scored every second against its own threshold.
       The moment a trace crosses its line, that moment becomes a clip.</p>
+    <!-- The primary action, on the screen where the product just made its
+         case. /login is the paywall's front door: a new visitor authorises
+         Twitch and lands on the plans, same path as every other CTA. -->
+    <a href="/login" class="btn btn-key btn-lg side-cta">Start clipping now</a>
     <div class="peeks">
       <a class="peek" href="/tutorial">
         <span class="peek-k">New here?</span>
