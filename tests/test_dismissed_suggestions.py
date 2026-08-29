@@ -302,3 +302,64 @@ def test_removing_a_TRIGGERED_clip_records_nothing(api_client, ds):
         "platform": "twitch", "trigger_signals": [], "trigger_score": 71.0}
     api_client.post("/clips/clear-pending")
     assert ds.count_for("punter") == 0
+
+
+# ── the batch must survive one bad row ───────────────────────────────────────
+
+def test_one_unreadable_row_does_not_lose_the_whole_batch(ds):
+    """THE FAILURE MODE THAT MATCHES THE REPORT EXACTLY.
+
+    clear-pending deletes every pending row and saves, THEN calls dismiss()
+    once with all of them. _key() used to do a bare float(created_at), so a
+    single clip carrying anything non-numeric raised straight out of dismiss()
+    — after the clips were already gone. Every tombstone in that batch was
+    lost and every one of those moments was free to come back, which is
+    "I cleared the queue and they came back" precisely.
+
+    The bad row now costs only its own moment-match; it still gets its
+    exact-slug tombstone, and its siblings are untouched.
+    """
+    uid = "u"
+    ds.dismiss(uid, [sug(slug="A", moment=1_700_000_000.0),
+                     sug(slug="B", moment="2026-08-29T12:00:00Z"),
+                     sug(slug="C", moment=1_700_000_100.0)])
+    for slug, moment in (("A", 1_700_000_000.0), ("C", 1_700_000_100.0)):
+        assert ds.is_dismissed(uid, "Chan", slug, moment), \
+            f"{slug} lost its tombstone because a sibling was malformed"
+    assert ds.is_dismissed(uid, "Chan", "B", 0.0), \
+        "the malformed row lost even its exact-slug tombstone"
+
+
+@pytest.mark.parametrize("moment", [None, "", "not-a-date", float("nan"),
+                                    float("inf"), [], {}, True])
+def test_no_clip_shape_can_break_a_removal(ds, moment):
+    """Whatever ends up on a clip row, removing it must not raise: the caller
+    has already deleted it and cannot put it back."""
+    uid = "u"
+    assert ds.dismiss(uid, [sug(slug="X", moment=moment)]) >= 0
+    assert ds.is_dismissed(uid, "Chan", "X", 0.0), \
+        "the slug tombstone was not recorded"
+
+
+def test_a_hand_edited_tombstone_file_does_not_break_the_check(ds):
+    """The file survives restarts, so it can hold anything by the time it is
+    read back. is_dismissed runs inside the worker's landing loop — raising
+    there would stop suggestions for that user entirely."""
+    import json
+    ds._FILE.write_text(json.dumps({"u": [
+        {"slug": "A", "channel": "chan", "moment": "oops", "at": "yesterday"},
+        "not-a-row",
+        {"slug": "B", "channel": "chan", "moment": 1_700_000_000.0, "at": 0},
+    ]}), encoding="utf-8")
+    assert ds.is_dismissed("u", "chan", "A", 1_700_000_000.0), \
+        "an unreadable row dropped a tombstone that was validly recorded"
+    assert not ds.is_dismissed("u", "chan", "ZZZ", 1.0)
+
+
+def test_forget_survives_the_same_junk(ds):
+    """Undo calls this on the same rows; it must not raise either."""
+    uid = "u"
+    ds.dismiss(uid, [sug(slug="A", moment=1_700_000_000.0)])
+    ds.forget(uid, [sug(slug="A", moment="not-a-date"), "not-a-clip", None])
+    assert not ds.is_dismissed(uid, "Chan", "A", 1_700_000_000.0), \
+        "undo did not lift the tombstone"

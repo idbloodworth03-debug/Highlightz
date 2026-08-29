@@ -89,8 +89,58 @@ def _save(data: dict) -> None:
         log.warning("dismissed_suggestions_save_failed", error=str(exc))
 
 
+def _num(value, default: float = 0.0) -> float:
+    """A number out of a JSON file that may contain anything.
+
+    Every float() in this module reads a value that survived a restart in a
+    file on disk, so none of them may assume a shape. A row hand-edited, half
+    written or left by an older format must cost that row, never the call.
+    """
+    if isinstance(value, bool) or value is None:
+        return default
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return default
+    return n if n == n and abs(n) != float("inf") else default
+
+
 def _prune(rows: list[dict], now: float) -> list[dict]:
-    return [r for r in rows if now - float(r.get("at", 0)) < RETENTION_SECS]
+    """Drop expired rows — and anything that is not a usable row at all."""
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        # A row with an unreadable timestamp reads as age 0 rather than being
+        # discarded: losing a tombstone lets a moment come back, which is the
+        # bug this module exists to prevent.
+        if now - _num(r.get("at"), now) < RETENTION_SECS:
+            out.append(r)
+    return out
+
+
+def _moment(clip: dict) -> float:
+    """The clip's timestamp as an epoch, or 0.0 if it is not a number.
+
+    NEVER RAISES, and that is the whole point. This used to be a bare
+    float(clip["created_at"]) — and clear-pending deletes every row and THEN
+    calls dismiss() once with all of them, so a single clip carrying anything
+    non-numeric (an ISO string from an older record) raised straight out of
+    dismiss() after the clips were already gone. Every tombstone in that batch
+    was lost, which is precisely the reported symptom: cleared the queue, the
+    same moments came back.
+
+    0.0 degrades correctly rather than silently: is_dismissed's moment match is
+    guarded on `moment` being truthy, so a row like this keeps its exact-slug
+    tombstone — the primary guard — and only gives up matching the same moment
+    under a neighbour's slug.
+    """
+    raw = clip.get("created_at")
+    moment = _num(raw)
+    if not moment and raw not in (None, "", 0, 0.0):
+        log.warning("dismissed_suggestion_bad_timestamp",
+                    slug=str(clip.get("twitch_clip_id") or ""), value=repr(raw))
+    return moment
 
 
 def _key(clip: dict) -> tuple[str, str, float] | None:
@@ -100,17 +150,35 @@ def _key(clip: dict) -> tuple[str, str, float] | None:
     it is excluded by creator id — so a tombstone for one would be dead weight
     that says nothing. `suggested` is the flag that distinguishes them.
     """
-    if not clip.get("suggested"):
+    if not isinstance(clip, dict) or not clip.get("suggested"):
         return None
     slug = str(clip.get("twitch_clip_id") or "")
     if not slug:
         return None
-    return (str(clip.get("channel") or "").lower(), slug,
-            float(clip.get("created_at") or 0.0))
+    return (str(clip.get("channel") or "").lower(), slug, _moment(clip))
 
 
 def dismiss(user_id: str, clips: list[dict]) -> int:
-    """Remember that `user_id` removed these suggestions. Returns how many."""
+    """Remember that `user_id` removed these suggestions. Returns how many.
+
+    NEVER RAISES INTO ITS CALLER. Every caller has ALREADY deleted the rows and
+    saved by the time it gets here — clear-pending deletes the whole queue and
+    then calls this once with all of it. An exception escaping this function
+    therefore loses every tombstone in the batch AND 500s the request, leaving
+    the user with an empty queue and every one of those moments free to come
+    back. That is the exact bug this module exists to prevent, so the failure
+    mode has to be "this one dismissal was not recorded", never "the removal
+    blew up".
+    """
+    try:
+        return _dismiss(user_id, clips)
+    except Exception as exc:                       # pragma: no cover - defensive
+        log.warning("dismissed_suggestions_dismiss_failed", error=str(exc),
+                    user_id=user_id, clips=len(clips or []))
+        return 0
+
+
+def _dismiss(user_id: str, clips: list[dict]) -> int:
     if not user_id:
         return 0
     keys = [k for k in (_key(c) for c in clips or []) if k]
@@ -169,8 +237,9 @@ def is_dismissed(user_id: str, channel: str, slug: str,
         # two streams can genuinely have a moment at the same instant, and
         # suppressing across channels would drop a suggestion the user never
         # saw, which is a worse failure than showing one twice.
-        if r.get("channel") == chan and moment and r.get("moment") and \
-                abs(moment - float(r["moment"])) <= CLUSTER_SECS:
+        other = _num(r.get("moment"))
+        if r.get("channel") == chan and moment and other and \
+                abs(_num(moment) - other) <= CLUSTER_SECS:
             return True
     return False
 
