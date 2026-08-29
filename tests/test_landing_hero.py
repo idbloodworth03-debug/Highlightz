@@ -288,20 +288,26 @@ def test_the_reduced_motion_frame_still_shows_the_wall():
 # ── phones ───────────────────────────────────────────────────────────────────
 
 def test_the_wall_drops_to_two_channels_on_a_phone():
-    assert "@media(max-width:1180px){" in HTML
-    assert ".wall .tile:nth-child(n+3){display:none}" in HTML
+    """The 2x2 shows all four everywhere except a phone, where four stacked
+    charts would be a scroll, not a wall — a single column of two instead."""
+    m = re.search(r"@media\(max-width:(\d+)px\)\{\s*"
+                  r"\.wall\{grid-template-columns:minmax\(0,1fr\)[^}]*\}\s*"
+                  r"\.wall \.tile:nth-child\(n\+3\)\{display:none\}", HTML)
+    assert m, "the phone wall no longer collapses to a column of two"
 
 
 def test_the_simulation_agrees_with_the_stylesheet_about_what_is_visible():
-    """If this says four while the CSS is showing two, the cycle can pick a
-    hidden tile to fire and the payoff of the entire hero happens off screen."""
+    """If visibleCount() says four while the CSS is hiding two, the cycle can
+    pick a hidden tile to fire and the payoff happens off screen. The two
+    breakpoints are read from both sides and must be the same number."""
     css_bp = re.search(r"@media\(max-width:(\d+)px\)\{\s*\.wall\{grid-template-columns:"
-                       r"repeat\(2", HTML)
+                       r"minmax\(0,1fr\)[^}]*\}\s*\.wall \.tile:nth-child\(n\+3\)"
+                       r"\{display:none\}", HTML)
     js_bp = re.search(r"matchMedia\('\(max-width:(\d+)px\)'\)\.matches\?2:4", JS)
     assert css_bp and js_bp, "could not read both breakpoints"
     assert css_bp.group(1) == js_bp.group(1), (
-        f"CSS drops to two tiles at {css_bp.group(1)}px but the simulation "
-        f"switches at {js_bp.group(1)}px")
+        f"CSS hides tiles under {css_bp.group(1)}px but the loop simulates "
+        f"under {js_bp.group(1)}px — a hidden tile can fire")
 
 
 def test_the_wall_never_shows_the_same_channel_twice():
@@ -701,3 +707,63 @@ def test_the_page_still_has_exactly_one_h1():
     live = re.sub(r"<!--.*?-->", "", HTML, flags=re.S)
     assert live.count("<h1") == 1, "the page has zero or several h1 elements"
     assert '<h1 class="cover-word">Highlightz</h1>' in live
+
+
+# ── slide 2 is a spread ──────────────────────────────────────────────────────
+
+def test_slide_two_is_a_spread_not_a_wall_alone():
+    """The wall was the entire second screen; the owner asked for it smaller
+    and beside other things. Slide 2 is a two-column spread now: the voice on
+    the left (kicker, heading, one paragraph, two door chips) and the wall as
+    a 2x2 exhibit on the right."""
+    header = HTML[HTML.index('<header class="wrap hero'):]
+    header = header[:header.index("</header>")]
+    assert 'class="hero-side"' in header, "the voice column is gone"
+    assert header.index('class="hero-side"') < header.index('id="wall"'), \
+        "the voice does not precede the wall"
+    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
+    cols = re.search(r"grid-template-columns:([^;]+)", band)
+    assert cols and "fr" in cols.group(1) and "," not in cols.group(1).split(")")[-1], ""
+    assert len(re.findall(r"minmax\(", cols.group(1))) == 2, \
+        "slide 2 is not a two-column spread"
+    wall = re.search(r"\n  \.wall\{([^}]*)\}", HTML).group(1)
+    assert "repeat(2,minmax(0,1fr))" in wall, "the wall is not a 2x2"
+
+
+def test_the_door_chips_exist_and_go_where_they_claim():
+    """The owner asked for little prompts to the tutorial and compare pages.
+    Four chips: the pair on slide 2, one under pricing (compare — where the
+    shopper is deciding), one under the FAQ (tutorial — where the reader has
+    questions). All real links with a focus style, and each names its page."""
+    chips = re.findall(r'<a class="peek[^"]*" href="([^"]+)">', HTML)
+    assert chips.count("/tutorial") == 2, f"tutorial chips: {chips}"
+    assert chips.count("/compare") == 2, f"compare chips: {chips}"
+    assert ".peek:hover" in HTML and ".peek:focus-visible" in HTML, \
+        "the chips have no hover or focus treatment"
+    # placement: one compare chip inside pricing, one tutorial chip after the
+    # FAQ's walkthrough line
+    pricing = HTML[HTML.index('id="pricing"'):HTML.index('id="faq"')]
+    assert 'href="/compare"' in pricing, "pricing lost its compare door"
+    faq = HTML[HTML.index('id="faq"'):]
+    assert 'class="peek peek-inline" href="/tutorial"' in faq, \
+        "the FAQ lost its tutorial door"
+
+
+def test_the_how_section_staggers_instead_of_listing():
+    """Three equal columns read as a numbered list. The stagger is the
+    personality: the formula (step two) owns the tall right column and steps
+    one and three hang at different heights on the left."""
+    b = re.search(r"\.flow-b\{([^}]*)\}", HTML).group(1)
+    assert "span 2" in b, "step two no longer spans the right column"
+    a = re.search(r"\.flow-a\{([^}]*)\}", HTML).group(1)
+    c = re.search(r"\.flow-c\{([^}]*)\}", HTML).group(1)
+    assert "margin-top" in a and "margin-top" in c and a != c, \
+        "the left steps hang at the same height — the stagger is gone"
+
+
+def test_the_feature_groups_alternate_sides():
+    """Four identical label-then-list bands is the list the owner asked to
+    lose. Every other group swaps its label to the far side."""
+    even = re.search(r"\.feat-group:nth-of-type\(even\)>\.feat-label\{([^}]*)\}", HTML)
+    assert even and "grid-column:2" in even.group(1), \
+        "even feature groups no longer swap sides"

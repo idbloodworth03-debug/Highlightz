@@ -6249,7 +6249,12 @@ LANDING_HTML = """<!DOCTYPE html>
      the wall as the only child, so it landed in the AUTO row and collapsed to
      its own minimum — 281px of tiles sitting in an 878px hero with 500px of
      black under them. With one child there is one row, and it stretches. */
+  /* TWO COLUMNS now, one row that stretches: the voice on the left, the wall
+     as a 2x2 exhibit on the right. The auto-row collapse trap still applies —
+     rows stay a single minmax(0,1fr) so the wall always stretches. */
   .hero.hero-band{min-height:100svh;display:grid;
+    grid-template-columns:minmax(0,.38fr) minmax(0,.62fr);
+    column-gap:clamp(32px,4vw,64px);
     grid-template-rows:minmax(0,1fr);align-content:stretch;
     margin-bottom:var(--s-10);
     /* The cover's ground, carried through. Near-black at the top where slide
@@ -6263,6 +6268,42 @@ LANDING_HTML = """<!DOCTYPE html>
   @media(min-width:1600px){
     .hero.hero-band{padding-left:5vw;padding-right:5vw}
   }
+  /* ── THE VOICE BESIDE THE WALL. Vertically centred against the exhibit,
+     capped to a reading measure, and it carries the page's two doors. ── */
+  .hero-side{display:flex;flex-direction:column;justify-content:center;
+    gap:var(--s-5);max-width:46ch;min-width:0;padding:var(--s-6) 0}
+  .side-k{font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+  .side-h{font-family:var(--sans);font-weight:700;color:var(--ink);margin:0;
+    font-size:clamp(26px,2.6vw,38px);line-height:1.14;letter-spacing:-.02em}
+  .side-p{margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);max-width:40ch}
+  /* THE DOORS. Two quiet, clickable prompts — a hairline chip that lights up
+     the same way everything else on this page lights up. Real links, real
+     focus rings. */
+  .peeks{display:flex;flex-direction:column;gap:8px;margin-top:var(--s-2)}
+  .peek{display:flex;align-items:baseline;gap:12px;padding:12px 16px;
+    border:1px solid var(--hair);text-decoration:none;min-width:0;
+    transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
+  .peek-k{font-family:var(--mono);font-weight:600;font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
+  .peek-t{flex:1;font-size:14px;color:var(--ink-2);min-width:0}
+  .peek-a{font-family:var(--mono);color:var(--ink-3);
+    transition:transform var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+  .peek:hover{border-color:rgba(184,106,220,.45);background:rgba(184,106,220,.05)}
+  .peek:hover .peek-a{transform:translateX(4px);color:var(--glow-ink)}
+  .peek:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
+  /* An inline variant for the ones placed under a section's content. */
+  .peek-inline{max-width:var(--measure);margin-top:var(--s-6)}
+  /* The spread stacks: voice first (auto), wall takes the rest. This is the
+     two-row shape that collapsed the wall once before — safe here because
+     BOTH rows have owners. */
+  @media(max-width:1000px){
+    .hero.hero-band{grid-template-columns:minmax(0,1fr);
+      grid-template-rows:auto minmax(0,1fr);column-gap:0}
+    .hero-side{max-width:none;padding:var(--s-6) 0 var(--s-5);gap:var(--s-4)}
+    .side-h br{display:none}
+  }
+
   /* The wall takes the height that is left; the caption takes what it needs.
      min-height:0 on both, or the grid row refuses to shrink below content. */
   /* THE ONE RHYTHM BREAK ON THE PAGE. Every other section boundary is --s-9;
@@ -6534,23 +6575,28 @@ LANDING_HTML = """<!DOCTYPE html>
      CONSUMER of --lit -- the tiles' gradient border used to be one, and a
      room that stops responding to the score has lost the page's entire
      mechanic, however clean it looks. */
+  /* A 2x2 EXHIBIT, not a four-across instrument row. The wall shrank when
+     the spread arrived: beside a text column, four tiles in one row gave each
+     chart a letterbox, and the whole slide read as machinery. Two by two the
+     charts keep real height and the wall reads as one object. */
   .wall{position:relative;display:grid;gap:0;min-height:0;
     border-top:1px solid rgba(184,106,220,calc(.12 + var(--lit)*.30));
     border-bottom:1px solid var(--hair);
     transition:border-color var(--t-move) var(--ease);
-    grid-template-columns:repeat(4,minmax(0,1fr))}
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr))}
   /* Under 1180 the wall drops to TWO channels, not to a 2x2. Four tiles in two
      rows needs about 900px of height, the lede takes the rest, and the second
      row ended up below the fold — a wall you have to scroll to see is not a
      wall. Two tiles stay one row deep and stay in view. The fire moment still
      happens, and the near-miss moves onto the other visible tile so the
      threshold still gets to mean something. */
-  @media(max-width:1180px){
-    .wall{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .wall .tile:nth-child(n+3){display:none}
-  }
+  /* A phone gets a single column of two: four stacked charts is a scroll,
+     not a wall. visibleCount() in the loop matches this breakpoint — the two
+     hidden tiles are not simulated. */
   @media(max-width:700px){
     .wall{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr))}
+    .wall .tile:nth-child(n+3){display:none}
   }
 
   /* A cell, not a card: transparent on the dark ground, a hairline on the
@@ -6562,7 +6608,10 @@ LANDING_HTML = """<!DOCTYPE html>
     border-left:1px solid var(--hair);background:transparent;
     transition:box-shadow var(--t-move) var(--ease),opacity var(--t-move) var(--ease),
       background var(--t-move) var(--ease),transform var(--t-move) var(--ease)}
-  .tile:first-child{border-left:none;padding-left:0}
+  /* 2x2 dividers: odd children (1,3) start a row, so no left hairline and no
+     left padding; the second row (3,4) gets the horizontal divider. */
+  .tile:nth-child(odd){border-left:none;padding-left:0}
+  .tile:nth-child(n+3){border-top:1px solid var(--hair)}
   /* Stacked rows on a phone, so the dividers turn horizontal -- same as the
      stats band when it stacks. AFTER the base rule on purpose: these are the
      same specificity, so putting them before it (inside the wall's own media
@@ -6626,7 +6675,10 @@ LANDING_HTML = """<!DOCTYPE html>
      the gap SMALLER but did not close it; making the tile taller reopened it.
      Letting the chart take the slack means the trace grows with the tile and
      the readout stays where it belongs, directly above its own chart. */
-  .tile-chart{position:relative;flex:1 1 auto;min-height:112px;margin-top:12px;
+  /* 84, down from 112: half-width tiles in the 2x2 do not need the floor the
+     four-across letterboxes did, and the exhibit shares a viewport with the
+     voice column now. flex:1 still hands the chart all the slack. */
+  .tile-chart{position:relative;flex:1 1 auto;min-height:84px;margin-top:12px;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   .tile-chart svg{display:block;width:100%;height:100%}
   /* Deliberately quieter than it was: this is the below-threshold half, and
@@ -6898,13 +6950,19 @@ LANDING_HTML = """<!DOCTYPE html>
      NOT thirds: step two carries the equation and gets the room, which is the
      point of not using a symmetric grid. The step marker is small type rather
      than an oversized numeral. */
-  .flow{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.36fr) minmax(0,.82fr);
-    gap:0;margin-top:32px;align-items:start}
-  .flow-step{padding:4px 32px 8px;border-left:1px solid var(--hair)}
-  .flow-step:first-child{padding-left:0;border-left:0}
-  .flow-step:last-child{padding-right:0}
-  /* The middle step is the argument, so it sits slightly proud of the others. */
-  .flow-b{padding-top:0;padding-bottom:24px}
+  /* A STAGGER, not a row. Three equal columns read as a numbered list; this
+     is two columns with the argument (step two, the formula) owning the tall
+     right side and steps one and three hung at different heights on the left.
+     The offsets are the personality — the eye moves diagonally through the
+     section instead of ticking across it. */
+  .flow{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.4fr);
+    column-gap:clamp(32px,4vw,64px);margin-top:32px;align-items:start}
+  .flow-step{padding:0;border-left:0;min-width:0}
+  .flow-a{grid-column:1;grid-row:1;margin-top:var(--s-6)}
+  .flow-b{grid-column:2;grid-row:1 / span 2;
+    border-left:1px solid var(--hair);padding-left:clamp(24px,3vw,48px);
+    padding-bottom:24px}
+  .flow-c{grid-column:1;grid-row:2;margin-top:var(--s-8)}
   .flow-mark{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
   .flow-step h3{font-family:var(--sans);font-weight:700;font-size:17px;letter-spacing:-.015em;
@@ -6922,8 +6980,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .flow .formula-eq{font-size:12px}
   @media (max-width:1000px){
     .flow{grid-template-columns:minmax(0,1fr);gap:32px}
+    .flow-a,.flow-b,.flow-c{grid-column:1;grid-row:auto;margin-top:0}
     .flow-step{padding:0 0 0 16px;border-left:2px solid var(--hair)}
-    .flow-step:first-child{padding-left:16px;border-left:2px solid var(--hair)}
     .flow-b{padding-bottom:0}
   }
   /* The numbered step-rail stylesheet lived here; the live #how section is
@@ -6971,7 +7029,28 @@ LANDING_HTML = """<!DOCTYPE html>
      the banned shape: the thing stopping it being a grid of equal cards is the
      labelled structure, not a count of items. */
   #features .sec-title{margin-bottom:4px}
-  .feat-group{margin-top:32px;padding-top:24px;border-top:1px solid var(--hair)}
+  /* ALTERNATING SPREADS. Each group is a label column and a content column,
+     and every other group swaps sides — the page zig-zags instead of stacking
+     four identical label-then-list bands. The labels get room to behave like
+     margin notes rather than headings in a list. */
+  .feat-group{margin-top:32px;padding-top:24px;border-top:1px solid var(--hair);
+    display:grid;grid-template-columns:minmax(0,.55fr) minmax(0,1.45fr);
+    column-gap:clamp(32px,5vw,96px);align-items:start}
+  .feat-group>.feat-label{grid-column:1;grid-row:1;margin:0;
+    position:sticky;top:var(--s-5)}
+  .feat-group>.feat,.feat-group>.feat-grid{grid-column:2;grid-row:1}
+  .feat-group:nth-of-type(even){grid-template-columns:minmax(0,1.45fr) minmax(0,.55fr)}
+  .feat-group:nth-of-type(even)>.feat-label{grid-column:2;justify-self:end;text-align:right}
+  .feat-group:nth-of-type(even)>.feat,.feat-group:nth-of-type(even)>.feat-grid{grid-column:1}
+  @media(max-width:900px){
+    .feat-group,.feat-group:nth-of-type(even){grid-template-columns:minmax(0,1fr)}
+    .feat-group>.feat-label,.feat-group:nth-of-type(even)>.feat-label{
+      grid-column:1;grid-row:auto;position:static;justify-self:start;
+      text-align:left;margin-bottom:16px}
+    .feat-group>.feat,.feat-group>.feat-grid,
+    .feat-group:nth-of-type(even)>.feat,.feat-group:nth-of-type(even)>.feat-grid{
+      grid-column:1;grid-row:auto}
+  }
   .feat-group:first-of-type{margin-top:24px}
   /* The mono label is the whole fix: it tells you what the next two or three
      items have in common before you read them. */
@@ -7201,9 +7280,30 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="thread-lab">score</span></div>
 </div>
 <header class="wrap hero hero-band">
-  <!-- THE WALL. Four channels being scored. Tiles, the stage and every readout
-       are written by JS; the no-JS markup below is the composed static frame,
-       which is also exactly what prefers-reduced-motion gets. -->
+  <!-- SLIDE 2 IS A SPREAD, not a wall alone. Left: a voice — what you are
+       looking at, and two doors (tutorial, compare). Right: the wall, shrunk
+       to a 2x2 so it reads as one exhibit beside the words rather than an
+       instrument filling the room. Tiles and readouts are still written by
+       JS; the empty #wall below is the no-JS/reduced-motion frame. -->
+  <div class="hero-side">
+    <span class="side-k">Live &middot; scored every second</span>
+    <h2 class="side-h">Four channels. <br>One formula. <br>No pause button.</h2>
+    <p class="side-p">Each tile is a channel being watched the way the product
+      watches yours &mdash; scored every second against its own threshold.
+      The moment a trace crosses its line, that moment becomes a clip.</p>
+    <div class="peeks">
+      <a class="peek" href="/tutorial">
+        <span class="peek-k">New here?</span>
+        <span class="peek-t">Walk through every screen</span>
+        <span class="peek-a">&rarr;</span>
+      </a>
+      <a class="peek" href="/compare">
+        <span class="peek-k">Shopping around?</span>
+        <span class="peek-t">See how it stacks up</span>
+        <span class="peek-a">&rarr;</span>
+      </a>
+    </div>
+  </div>
   <div class="hero-stack">
     <div class="wall" id="wall">
       <!-- The clip stage lived here: when a channel crossed its threshold the
@@ -7390,6 +7490,11 @@ LANDING_HTML = """<!DOCTYPE html>
     </div>
   </div>
   <p class="faq-more">More detail, including how long clips run and which platforms are supported, is in the <a href="/tutorial">walkthrough</a>.</p>
+  <a class="peek peek-inline" href="/tutorial">
+    <span class="peek-k">Prefer pictures?</span>
+    <span class="peek-t">The walkthrough shows every screen, step by step</span>
+    <span class="peek-a">&rarr;</span>
+  </a>
 </section>
 
 <!-- Final CTA -->
@@ -7758,7 +7863,9 @@ LANDING_HTML = """<!DOCTYPE html>
   // showing two, the cycle can pick a hidden tile to fire and the payoff of
   // the whole hero happens off screen.
   function visibleCount(){
-    return window.matchMedia('(max-width:1180px)').matches?2:4;
+    /* Mirrors the CSS: the 2x2 shows all four everywhere except a phone,
+       where the wall is a single column of two. */
+    return window.matchMedia('(max-width:700px)').matches?2:4;
   }
 
   /* ── DOM ───────────────────────────────────────────────────────────────── */
@@ -8586,7 +8693,11 @@ def _pricing() -> str:
                "ptier-c", fig_suffix="/month", cta="Get Pro", cta_cls="btn-key")
         + "</div>"
         + '<p class="price-tiny">Move between them whenever you like. Cancel from '
-          "the Account tab. No contracts.</p>")
+          "the Account tab. No contracts.</p>"
+        + '<a class="peek peek-inline" href="/compare">'
+          '<span class="peek-k">Still deciding?</span>'
+          '<span class="peek-t">See it next to the other clipping tools</span>'
+          '<span class="peek-a">&rarr;</span></a>')
 
 
 # The billing FAQ answer, generated for the same reason the pricing block is:
