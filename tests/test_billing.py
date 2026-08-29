@@ -415,7 +415,7 @@ def test_billing_success_grants_access_when_the_webhook_never_fires(tmp_path, mo
     c, u, user_store, api = _success_client(tmp_path, monkeypatch)
     ends = int(_t.time()) + 7 * 86400
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         assert sid == "cs_test_123"
         return "cus_new", "trialing", ends
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
@@ -436,7 +436,7 @@ def test_the_self_heal_burns_the_free_week_too(tmp_path, monkeypatch):
     from src.auth import trial_ledger
     c, u, user_store, api = _success_client(tmp_path, monkeypatch)
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         return "cus_new", "trialing", int(_t.time()) + 7 * 86400
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
                         _lookup)
@@ -457,7 +457,7 @@ def test_the_self_heal_says_nothing_when_the_webhook_already_won(tmp_path, monke
         said.append(msg)
     monkeypatch.setattr(api, "broadcast", _bcast)
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         return "cus_new", "trialing", int(_t.time()) + 7 * 86400
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
                         _lookup)
@@ -470,7 +470,7 @@ def test_the_self_heal_grants_nothing_on_an_unpaid_session(tmp_path, monkeypatch
     session id."""
     c, u, user_store, api = _success_client(tmp_path, monkeypatch)
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         return "cus_new", "incomplete", 0
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
                         _lookup)
@@ -481,7 +481,7 @@ def test_the_self_heal_grants_nothing_on_an_unpaid_session(tmp_path, monkeypatch
 def test_the_self_heal_grants_nothing_when_stripe_cannot_be_reached(tmp_path, monkeypatch):
     c, u, user_store, api = _success_client(tmp_path, monkeypatch)
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         return None, None, 0
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
                         _lookup)
@@ -494,7 +494,7 @@ def test_a_paid_subscription_with_no_trial_clears_the_trial_date(tmp_path, monke
     import time as _t
     c, u, user_store, api = _success_client(tmp_path, monkeypatch)
 
-    async def _lookup(sid):
+    async def _lookup(sid, uid):
         return "cus_new", "active", 0
     monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
                         _lookup)
@@ -502,6 +502,100 @@ def test_a_paid_subscription_with_no_trial_clears_the_trial_date(tmp_path, monke
     after = user_store.get_by_id(u["id"])
     assert after["subscription_status"] == "active"
     assert after["trial_ends_at"] == 0
+
+
+# ── the checkout session must belong to the person redeeming it ──────────────
+# A security audit found /billing/success took session_id straight off the
+# query string and wrote whatever Stripe reported onto whoever was signed in.
+# Two ways that pays: any live cs_... id bought a stranger access, and a link
+# to /billing/success?session_id=<mine> rewrote a signed-in victim's
+# stripe_customer_id to MINE — pointing their "Manage billing" at my Stripe
+# portal, and letting update_subscription_by_customer land my webhooks on
+# their account. It is a GET, so SameSite=lax does not stop the second.
+#
+# These drive the REAL lookup against a fake Stripe client, because the route
+# tests above stub the lookup out entirely — the check lives inside it, so a
+# stubbed test cannot see it break.
+
+def _fake_stripe(monkeypatch, session_meta, sub_meta=None, status="active"):
+    """A Stripe whose one checkout session carries `session_meta`."""
+    sub = {"status": status, "trial_end": 0, "metadata": sub_meta or {}}
+    sess = {"subscription": sub, "customer": "cus_OWNER",
+            "metadata": session_meta}
+
+    class _Sessions:
+        def retrieve(self, sid, params=None):
+            return sess
+
+    class _Client:
+        checkout = type("C", (), {"sessions": _Sessions()})()
+        subscriptions = _Sessions()
+
+    from src.billing import stripe_billing as sb
+    monkeypatch.setattr(sb.settings, "stripe_secret_key", "sk_test_x")
+    monkeypatch.setattr(sb, "_client", lambda: _Client())
+    return sb
+
+
+def test_a_checkout_session_belonging_to_someone_else_grants_nothing(monkeypatch):
+    """THE BUG. victim paid; attacker redeems victim's session id."""
+    import asyncio
+    sb = _fake_stripe(monkeypatch, {"user_id": "victim"})
+    got = asyncio.run(sb.subscription_from_checkout_session("cs_live_1", "attacker"))
+    assert got == (None, None, 0), (
+        "a session Stripe says belongs to 'victim' granted "
+        f"{got} to 'attacker' — this is the reported hole")
+
+
+def test_the_rightful_owner_still_gets_their_access(monkeypatch):
+    """The fix must not break the thing this endpoint exists to do."""
+    import asyncio
+    sb = _fake_stripe(monkeypatch, {"user_id": "victim"})
+    cust, status, _ = asyncio.run(
+        sb.subscription_from_checkout_session("cs_live_1", "victim"))
+    assert (cust, status) == ("cus_OWNER", "active")
+
+
+def test_the_owner_is_read_from_the_subscription_when_the_session_lacks_it(monkeypatch):
+    """create_checkout_url stamps user_id in both places; either one answers."""
+    import asyncio
+    sb = _fake_stripe(monkeypatch, {}, sub_meta={"user_id": "victim"})
+    cust, status, _ = asyncio.run(
+        sb.subscription_from_checkout_session("cs_live_1", "victim"))
+    assert (cust, status) == ("cus_OWNER", "active")
+
+
+def test_a_session_carrying_no_user_id_at_all_fails_closed(monkeypatch):
+    """Every session we create is stamped, and they expire inside 24h — so an
+    unstamped one is not ours. Failing open here is the original hole."""
+    import asyncio
+    sb = _fake_stripe(monkeypatch, {})
+    assert asyncio.run(
+        sb.subscription_from_checkout_session("cs_live_1", "anyone")) == (None, None, 0)
+
+
+def test_an_unpaid_session_of_your_own_still_grants_nothing(monkeypatch):
+    """Ownership is not payment: the status gate stays in front of the write."""
+    import asyncio
+    sb = _fake_stripe(monkeypatch, {"user_id": "victim"}, status="incomplete")
+    _, status, _ = asyncio.run(
+        sb.subscription_from_checkout_session("cs_live_1", "victim"))
+    assert status not in ("active", "trialing")
+
+
+def test_the_route_names_the_signed_in_user_when_it_asks_stripe(tmp_path, monkeypatch):
+    """The check is only worth having if the route actually passes the uid."""
+    c, u, user_store, api = _success_client(tmp_path, monkeypatch)
+    seen = []
+
+    async def _lookup(sid, uid):
+        seen.append((sid, uid))
+        return None, None, 0
+    monkeypatch.setattr("src.billing.stripe_billing.subscription_from_checkout_session",
+                        _lookup)
+    c.get("/billing/success?session_id=cs_9", follow_redirects=False)
+    assert seen == [("cs_9", u["id"])], \
+        f"route asked Stripe without naming the signed-in account: {seen}"
 
 
 # ── the webhook, end to end ──────────────────────────────────────────────────

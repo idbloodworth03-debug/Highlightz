@@ -2209,7 +2209,12 @@ async def billing_success(request: Request, session_id: str = ""):
     uid  = request.session.get("user_id", "")
     user = user_store.get_by_id(uid) if uid else None
     if user and session_id:
-        cust, status, trial_end = await subscription_from_checkout_session(session_id)
+        # `uid` is passed so Stripe's own metadata.user_id can be checked
+        # against the signed-in account: session_id comes out of a query
+        # string, so without that check any live session id granted its
+        # billing state to whoever opened the link.
+        cust, status, trial_end = await subscription_from_checkout_session(
+            session_id, uid)
         if cust and status in ("active", "trialing"):
             stored = user.get("subscription_status")
             user_store.update_subscription(

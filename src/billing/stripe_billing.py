@@ -361,8 +361,30 @@ async def live_subscription_status(customer_id: str) -> str | None:
         return None
 
 
-async def subscription_from_checkout_session(session_id: str):
-    """(customer_id, status, trial_end) for a just-completed Checkout session.
+def _checkout_session_owner(sess, sub, get) -> str:
+    """Which of OUR accounts Stripe says this Checkout session was created for.
+
+    create_checkout_url stamps metadata.user_id on both the session and the
+    subscription, so Stripe holds the answer and we never have to take the
+    caller's word for it. Returns "" when Stripe carries no user_id at all,
+    which the caller must treat as "not this user" — see the docstring below.
+    """
+    for holder in (sess, sub):
+        if holder is None or isinstance(holder, str):
+            continue
+        meta = get(holder, "metadata")
+        if meta is None:
+            continue
+        uid = (meta.get("user_id") if hasattr(meta, "get")
+               else getattr(meta, "user_id", None))
+        if uid:
+            return str(uid)
+    return ""
+
+
+async def subscription_from_checkout_session(session_id: str, expect_user_id: str):
+    """(customer_id, status, trial_end) for `expect_user_id`'s just-completed
+    Checkout session — or (None, None, 0) if the session is somebody else's.
 
     THE FAILURE THIS EXISTS FOR. Access used to come from the app: a new signup
     was granted a trial locally, so a webhook that never arrived cost us the
@@ -376,10 +398,25 @@ async def subscription_from_checkout_session(session_id: str):
     which is a fact we hold and the webhook does not require. Asking Stripe
     directly at that moment closes the hole without waiting for anything.
 
+    WHY THE CALLER MUST NAME THE USER. The session id arrives in a query
+    string, so it is attacker-supplied by construction. Without this check the
+    route wrote whatever customer and status Stripe reported onto whoever
+    happened to be signed in — so any live `cs_...` id granted its access to a
+    different account, and a link to /billing/success?session_id=<mine> handed
+    a signed-in stranger MY customer id (their "Manage billing" would then open
+    my Stripe portal). The binding already existed and was simply never read:
+    the webhook has always keyed off metadata.user_id. This is a REQUIRED
+    argument rather than an optional one so the check cannot be forgotten at a
+    future call site — leaving it off is a TypeError, not a silent hole.
+
+    FAILS CLOSED ON A SESSION WITH NO user_id. Every session we create carries
+    the metadata, and Checkout sessions expire within 24h, so a session missing
+    it is not one of ours. Granting on it would reopen exactly this hole.
+
     Returns (None, None, 0) on any error. This is a belt-and-braces path, not
     the primary one: if it cannot reach Stripe, the webhook is still coming.
     """
-    if not (settings.stripe_secret_key and session_id):
+    if not (settings.stripe_secret_key and session_id and expect_user_id):
         return None, None, 0
     try:
         client = _client()
@@ -388,6 +425,14 @@ async def subscription_from_checkout_session(session_id: str):
         get = (lambda o, k: o.get(k) if isinstance(o, dict) else getattr(o, k, None))
         sub = get(sess, "subscription")
         cust = get(sess, "customer")
+        # BEFORE any return that could grant something: this is the ownership
+        # gate, and every exit below it hands back real billing state.
+        owner = _checkout_session_owner(sess, sub, get)
+        if owner != str(expect_user_id):
+            log.warning("stripe_checkout_session_owner_mismatch",
+                        session=session_id, signed_in=str(expect_user_id),
+                        session_belongs_to=owner or "<no metadata>")
+            return None, None, 0
         if isinstance(cust, dict):
             cust = cust.get("id")
         elif cust is not None and not isinstance(cust, str):
