@@ -6175,7 +6175,11 @@ LANDING_HTML = """<!DOCTYPE html>
      ink tokens; everything inside then resolves correctly with no rule
      changes. Add a dark panel by putting it on this list, not by rewriting
      its colours. ── */
-  .band-sand{background:var(--sand)}
+  /* Flattened: the alternating lighter panel is gone. The cover set the rule
+     -- one continuous dark room, chapters marked by hairlines (.sec-head) and
+     by the --lit washes, not by stepping the ground lighter every other
+     section. --sand stays declared for anything else that reads it. */
+  .band-sand{background:transparent}
   /* A band that also carries .wrap is max-width-constrained, so the colour
      would only paint the centred column. This paints it edge to edge behind
      the content without changing the nesting. 100vw is safe because
@@ -6185,7 +6189,10 @@ LANDING_HTML = """<!DOCTYPE html>
   .band-sand.wrap::before,.band-dark.wrap::before{
     content:'';position:absolute;inset:0 auto;top:0;bottom:0;left:50%;width:100vw;
     transform:translateX(-50%);z-index:-1}
-  .band-sand.wrap::before{background:var(--sand)}
+  /* Transparent for the same reason .band-sand is: one room, no lighter
+     panels. The pseudo-element stays so the seam wash still has a full-bleed
+     layer to light. */
+  .band-sand.wrap::before{background:transparent}
   .band-dark.wrap::before{background:var(--void)}
 
   /* ── THE THROUGH-LINE. Hairline weight, small mono readout, no chrome. It
@@ -6583,7 +6590,6 @@ LANDING_HTML = """<!DOCTYPE html>
      between the purple button and the gold scores below. */
   .hero-note b{color:var(--ink);font-weight:600}
   /* Tags on a rule, not pills with dots. */
-  .tags{display:flex;gap:0;flex-wrap:wrap;margin-top:32px;border-top:1px solid var(--hair);padding-top:16px}
   /* ── NO AI badge — the hero's first claim ──────────────────────────────
      Sits ABOVE the slogan because it is the one thing that separates this
      from every other clipping tool, and burying it in the tag row (where it
@@ -6620,11 +6626,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .no-ai-x::after{margin-left:8px}
     .no-ai-t{font-size:12px}
   }
-  .tag.tag-key{color:var(--ember);border-right-color:rgba(247,167,69,.3)}
 
-  .tag{font-family:var(--mono);font-size:12px;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--ink-3);padding-right:16px;margin-right:16px;border-right:1px solid var(--hair);line-height:1.4}
-  .tag:last-child{border-right:none;margin-right:0;padding-right:0}
 
   /* ══ THE WALL ══════════════════════════════════════════════════════════
      Four channels, scored live. This is not a screenshot and not a drawing of
@@ -6799,119 +6801,11 @@ LANDING_HTML = """<!DOCTYPE html>
     transform:scaleX(var(--v,0));transition:transform var(--t-move) linear}
   .tile.fire .sg-b i{background:var(--flare)}
 
-  /* ── THE FIRE. The tile does not grow: a stage that is already the size of
-     the whole wall is revealed FROM the tile's rectangle, so the clip is at
-     full resolution from the first frame and nothing is ever scaled off its
-     aspect ratio. JS writes the starting inset() from the tile's real rect. ── */
-  /* TWO ROWS, NOT AN OVERLAY. The bar used to be absolutely positioned across
-     the bottom of the stage — which is exactly where Twitch draws the clip
-     player's own controls, mute button included. elementFromPoint at the
-     centre of that control strip returned .stage-bar, so the one control that
-     can actually unmute a clip was sitting under 44px of our chrome and could
-     not be clicked at all. Our chrome gets its own row underneath instead. */
-  .stage{position:absolute;inset:0;z-index:3;border-radius:4px;overflow:hidden;
-    display:grid;grid-template-rows:minmax(0,1fr) auto;
-    background:var(--void);opacity:0;visibility:hidden;
-    clip-path:inset(50% 50% 50% 50% round 4px);
-    transition:clip-path var(--t-slow) var(--ease),opacity var(--t-move) var(--ease),
-      visibility 0s linear var(--t-slow)}
-  .stage.on{opacity:1;visibility:visible;transition:clip-path var(--t-slow) var(--ease),
-    opacity var(--t-move) var(--ease),visibility 0s}
-  /* Closing is quicker than opening. Opening is the payoff and gets 800ms;
-     getting out of the way is 600ms, and the visibility flip has to wait for
-     the clip-path to finish or the stage vanishes mid-collapse. */
-  .stage.out{transition:clip-path var(--t-enter) var(--ease),
-    opacity var(--t-move) var(--ease) var(--t-move),
-    visibility 0s linear var(--t-enter)}
-  /* The wall is about 3:1. A clip is 16:9. Handing the player a 3:1 box gets
-     you a small letterboxed video with black bars down both sides, which is
-     the opposite of showing the footage off, so the media sits in a real 16:9
-     frame centred in the stage. Container query units are what make that
-     possible in one declaration: cqh is the stage's own height, so the frame
-     is as wide as 16:9 allows OR the full width, whichever is smaller. If a
-     browser does not understand cqh the whole declaration is dropped and the
-     preceding width:100% stands. */
-  /* overflow:hidden because .stage-wash below is scale(1.1) — a deliberate
-     bleed so the blurred fill reaches the edges of the letterbox bands. The
-     parent never clipped it, so the extra 10% simply escaped; at 375px that
-     put 1.2px of it past the viewport and gave the page a horizontal scroll.
-     A bleed that is not clipped is not a bleed, it is an overflow. */
-  .stage-media{position:relative;min-height:0;background:#08060B;overflow:hidden;
-    container-type:size;display:grid;place-items:center}
-  /* The wall is wide on a desktop and tall on a phone; a 16:9 clip leaves
-     bands either way, and on a phone they are over half the stage. The same
-     frame, cropped to fill and pushed right down, fills them — so the bands
-     read as the clip's own spill instead of two black slabs. Same URL as the
-     poster, so it is the same cached image and not a second request. */
-  .stage-wash{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    opacity:.22;transform:scale(1.1)}
-  .stage-box{position:relative;aspect-ratio:16/9;overflow:hidden;
-    width:100%;
-    width:min(100%,calc(100cqh * 16 / 9))}
-  .stage-box img,.stage-box iframe{position:absolute;inset:0;width:100%;height:100%;
-    border:0;object-fit:cover;display:block}
-  /* The poster is what makes the moment instant. It is up before the player
-     has asked Twitch for a single byte, and it stays up underneath it. */
-  .stage-poster{transform:scale(1.05);transition:transform 6s linear}
-  .stage.on .stage-poster{transform:scale(1)}
-  .stage-frame{position:absolute;inset:0;opacity:0;transition:opacity var(--t-move) var(--ease)}
-  /* Once the stage is up, the tile underneath stops being the light source —
-     the clip is. Left on, the firing tile's 1px ring drew a bright rectangle
-     around the stage's own edges. */
-  .wall.staged .tile{box-shadow:none}
-  .stage-frame.ready{opacity:1}
-
-  /* Its own row now, so it is a solid strip rather than a scrim fading over
-     the picture. A hairline separates it from the player instead. */
-  .stage-bar{position:relative;z-index:2;
-    display:flex;align-items:center;gap:12px;padding:12px 12px;
-    background:var(--void);border-top:1px solid var(--hair)}
-  .stage-fired{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.2em;
-    color:var(--flare);white-space:nowrap}
-  .stage-score{font-family:var(--mono);font-weight:600;font-size:17px;color:var(--flare);
-    font-variant-numeric:tabular-nums;line-height:1}
-  .stage-meta{min-width:0;font-family:var(--mono);font-size:12px;color:var(--ink-3);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .stage-meta b{color:var(--ink-2);font-weight:600}
-  /* A HINT, NOT A BUTTON, and the distinction is the whole point. A Twitch
-     clip embed cannot be unmuted from outside: `muted=false` in the embed URL
-     is a documented no-op, and the clips embed has no JS API to call (the
-     Twitch player SDK covers channels, videos and collections, not clips).
-     The only control that can unmute the clip is the player's own, inside the
-     iframe. So this points at it instead of pretending to be it — a button
-     wired to something that cannot work is worse than no button.
-
-     pointer-events:none so it never intercepts the click it is asking for. */
-  .stage-hint{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:8px;
-    pointer-events:none;
-    font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--ink-3);
-    transition:opacity var(--t-move) var(--ease)}
-  .stage-hint svg{display:block;flex:none;color:var(--ember)}
-  /* Once they have clicked into the player they know where the control is. */
-  .stage.engaged .stage-hint{opacity:0}
-  /* The one interactive element on the landing page with no keyboard ring —
-     it is a real link out to Twitch and a real tab stop. */
-  .stage-out:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
-  .stage-out{flex:none;font-family:var(--mono);font-size:12px;
-    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
-    border-bottom:1px solid var(--hair-2);padding-bottom:4px;
-    transition:color var(--t-micro) var(--ease),border-color var(--t-micro) var(--ease);outline-offset:2px}
-  .stage-out:hover{color:var(--ink);border-color:var(--flare)}
-  @media(max-width:640px){
-    .stage-meta{display:none}
-    .stage-bar{gap:8px;padding:8px 12px}
-  }
-  /* The reduced-motion frame sits the stage in one tile's cell, so the bar has
-     a quarter of the width the media query above is reasoning about. */
-  .stage.compact .stage-meta{display:none}
-  .stage.compact .stage-bar{gap:8px;padding:8px 12px}
-  .stage.compact .stage-out{font-size:12px}
-  .stage.compact .stage-hint .lab{display:none}
-  @media(max-width:640px){
-    .stage-hint{letter-spacing:.1em}
-    .stage-hint .lab{display:none}
-  }
+  /* The clip stage's stylesheet lived here (~100 lines). The stage itself
+     was removed from the wall -- a monitor that stops monitoring to play a
+     video is not showing the thing it claims to do -- and dead CSS is not
+     harmless: a dead FAQ stylesheet once overrode the live one's measure.
+     .wall.staged is still toggled by the loop's JS, but styles nothing. */
 
   .wall-cap{display:flex;align-items:center;gap:8px;margin-top:8px;
     font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
@@ -7015,18 +6909,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .ex-meta b{color:var(--glow-ink);font-weight:400}
   .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* ══ WHO IT'S FOR — BREAK 1. Not three cards in a row: hairline-ruled rows
-     with a mono label in a fixed left gutter and the prose in a wide right
-     column. Different shape, different density, no icon-in-a-tinted-square. ══ */
-  .who-list{margin-top:32px;border-top:1px solid var(--hair)}
-  .who-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:24px;
-    padding:24px 0;border-bottom:1px solid var(--hair);align-items:start;transition:background var(--dur-slow)}
-  .who-row:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 62%)}
-  .who-l{display:flex;align-items:flex-start;justify-content:center;color:var(--ember);padding-top:4px}
-  .who-l span{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .who-row h3{font-size:17px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
-  .who-row p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:60ch}
+  /* The "Who it's for" stylesheet lived here; the section itself was cut
+     long ago and its rules styled nothing. */
 
   /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
      amber down the left until step 4, where the clip actually fires and it
@@ -7078,40 +6962,36 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:var(--measure);
     margin:0 0 32px}
   .price-lead b{color:var(--ink)}
-  /* A LADDER, not three equal cards. The row grows left to right — width,
-     padding, corner radius and price size all step up — because the plans are
-     not equal and the layout should not pretend they are. Free is the first
-     rung rather than a footnote above the row: it is the same axis (how many
-     channels get watched at once), starting at one. */
+  /* A LADDER, not three equal cards — and now not cards at all. The stats
+     band's construction, the same as the wall: one hairline above and below
+     the row, plans divided by vertical hairlines, no fills, no radii. The
+     ladder survives in what is left: the columns still widen left to right,
+     the price still steps 30 -> 30 -> 44, and Pro is marked the way a firing
+     tile is — a wash of the page's light and a brighter top edge — rather
+     than by being a different kind of object. Bottom padding stays equal on
+     all three so the buttons share a baseline. */
   .ptiers{display:grid;
     grid-template-columns:minmax(0,.72fr) minmax(0,.86fr) minmax(0,1fr);
-    gap:16px;align-items:stretch}
+    gap:0;align-items:stretch;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   .ptier{display:flex;flex-direction:column;gap:12px;
-    border:1px solid var(--hair);background:rgba(255,255,255,.018)}
-  /* THE LADDER STAYS. Width, radius, price size, border and glow all still
-     step up left to right, because the plans genuinely are not equal.
-     What changes is the BOTTOM padding, which is now the same on all three.
-     It was the one rung of the ladder the eye reads as a mistake rather than
-     as a choice: three buttons in a row that miss a shared baseline by 8px do
-     not look deliberate at that distance, they look misaligned. Every other
-     cue carries the hierarchy without costing the row its bottom edge. */
-  .ptier-a{border-radius:3px;padding:24px 24px var(--s-6)}
-  .ptier-b{border-radius:4px;padding:24px 24px var(--s-6)}
-  .ptier-c{border-radius:7px;padding:32px 32px var(--s-6);
-    border-color:rgba(184,106,220,.34);background:rgba(184,106,220,.055);
-    box-shadow:0 20px 50px -30px rgba(184,106,220,.5)}
-  /* The free card's $0 is the number most visitors are looking for, so it is
-     not allowed to be the quietest thing in the row. */
-  .ptier-a .ptier-fig{color:var(--ink)}
-  .ptier-a .ptier-fig i{color:#7ddba4}
+    border-left:1px solid var(--hair);padding:var(--s-6) var(--s-5)}
+  .ptier:first-child{border-left:none;padding-left:0}
+  .ptier-c{background:rgba(184,106,220,.055);
+    box-shadow:inset 0 1px 0 rgba(210,106,251,.55);padding:var(--s-6)}
   .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
     flex-wrap:wrap}
   .ptier-name{font-family:var(--sans);font-weight:700;font-size:14px;
     letter-spacing:.01em;color:var(--ink)}
-  .ptier-fig{font-family:var(--sans);font-weight:700;letter-spacing:-.02em;
-    font-size:30px;color:var(--ink)}
+  /* The instrument face, like every other number that matters — the scores,
+     the cover's counter, the nav readout. Prices were the one big figure on
+     the page still set in the text face. And the Pro price is the section's
+     ember: the same one-gold-number rule as the cover. (The free tier's
+     "no card" suffix was mint green here — the only green on the page.) */
+  .ptier-fig{font-family:var(--mono);font-weight:600;letter-spacing:-.02em;
+    font-size:30px;color:var(--ink);font-variant-numeric:tabular-nums}
   .ptier-a .ptier-fig{font-size:30px}
-  .ptier-c .ptier-fig{font-size:44px;color:var(--glow)}
+  .ptier-c .ptier-fig{font-size:44px;color:var(--ember)}
   .ptier-fig i{font-style:normal;font-size:12px;font-weight:600;color:var(--ink-3);
     margin-left:4px}
   .ptier-chan{margin:0;font-size:14px;color:var(--ink-2);line-height:1.5}
@@ -7121,14 +7001,20 @@ LANDING_HTML = """<!DOCTYPE html>
   .price-tiny{margin:16px 0 0;font-size:12px;color:var(--ink-3);max-width:var(--measure)}
   /* Three columns need to break earlier than two did: at 760 the middle card
      was 210px wide and its price wrapped under its own name. */
+  /* Free spans the first row alone, Starter and Pro share the second — so the
+     dividers change direction with the layout: a hairline between the rows,
+     and only the second column of row two keeps a vertical one. */
   @media (max-width:980px){
-    .ptiers{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+    .ptiers{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
     .ptier-a{grid-column:1 / -1}
+    .ptier{border-left:none;border-top:1px solid var(--hair);padding-left:0}
+    .ptier:first-child{border-top:none}
+    .ptier-c{border-left:1px solid var(--hair);padding-left:var(--s-5)}
   }
   @media (max-width:700px){
-    .ptiers{grid-template-columns:minmax(0,1fr);gap:16px}
+    .ptiers{grid-template-columns:minmax(0,1fr)}
     .ptier-a{grid-column:auto}
-    .ptier-c{padding:24px 24px 24px}
+    .ptier-c{border-left:none;padding:var(--s-5) var(--s-4)}
     .ptier-c .ptier-fig{font-size:30px}
   }
 
@@ -7154,7 +7040,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .flow-note b{color:var(--ink);font-weight:700}
   /* The equation drops to one column inside the narrower step. */
   .flow .formula{grid-template-columns:minmax(0,1fr);gap:24px;margin:16px 0 12px;
-    padding:24px 24px 16px;border-radius:4px}
+    padding:16px 0 12px}
   .flow .signal{grid-template-columns:104px minmax(0,1fr);gap:12px;padding:8px 0}
   .flow .sk{font-size:12px}
   .flow .eq.num{font-size:44px}
@@ -7165,26 +7051,8 @@ LANDING_HTML = """<!DOCTYPE html>
     .flow-step:first-child{padding-left:16px;border-left:2px solid var(--hair)}
     .flow-b{padding-bottom:0}
   }
-  .steps{margin-top:32px;position:relative}
-  .step{display:grid;grid-template-columns:76px minmax(0,1fr);gap:24px;padding:0 0 32px}
-  .step:last-child{padding-bottom:0}
-  .rail{position:relative;display:flex;justify-content:center}
-  .rail::before{content:'';position:absolute;top:0;bottom:-34px;left:50%;width:1px;
-    background:var(--rail,rgba(247,167,69,.3))}
-  .step:last-child .rail::before{bottom:auto;height:26px}
-  .rail-node{position:relative;z-index:1;margin-top:4px;width:26px;height:26px;border-radius:50%;
-    background:var(--void);border:1px solid var(--node,rgba(247,167,69,.45));
-    display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:12px;
-    color:var(--node-ink,var(--ember))}
-  .step-2 .rail::before,.step-3 .rail::before{--rail:linear-gradient(180deg,rgba(247,167,69,.3),rgba(184,106,220,.4))}
-  .step-3 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
-  .step-4 .rail::before,.step-5 .rail::before{--rail:rgba(184,106,220,.45)}
-  .step-4 .rail-node{--node:var(--flare);--node-ink:var(--flare);
-    box-shadow:0 0 22px -4px rgba(210,106,251,.75)}
-  .step-5 .rail-node{--node:rgba(184,106,220,.5);--node-ink:var(--glow-ink)}
-  .step-body{padding:4px 0 0}
-  .step h3{font-size:17px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
-  .step p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:64ch}
+  /* The numbered step-rail stylesheet lived here; the live #how section is
+     the .flow columns, and these rules styled nothing. */
   /* Step 4 is where the threshold is crossed, so it is the panel nearest the
      light — the only one in this section with a surface at all. */
   .step-4 .step-body{padding:16px 24px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
@@ -7193,10 +7061,12 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ FORMULA — BREAK 3. Not a centred card of pills: an actual equation.
      Five measured signals stacked on the left, one score on the right. ══ */
+  /* Frameless, like the wall's cells: the meters and the score ARE the
+     content, and the gradient card they sat in was the last card in #how.
+     Hairline above and below, same as .tile-chart and the stats band. */
   .formula{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;
-    align-items:center;margin-top:32px;padding:32px 32px;border-radius:3px;border:1px solid transparent;
-    background:linear-gradient(172deg,#1C1424,#140F1A) padding-box,
-      linear-gradient(215deg,rgba(184,106,220,.34),rgba(242,234,247,.05) 44%,rgba(242,234,247,.018)) border-box}
+    align-items:center;margin-top:32px;padding:24px 0;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
   .signal-row{display:flex;flex-direction:column;gap:0}
   .signal{display:grid;grid-template-columns:152px minmax(0,1fr);gap:16px;align-items:center;
     padding:12px 0;border-bottom:1px solid var(--hair)}
@@ -7230,8 +7100,11 @@ LANDING_HTML = """<!DOCTYPE html>
   .feat-group:first-of-type{margin-top:24px}
   /* The mono label is the whole fix: it tells you what the next two or three
      items have in common before you read them. */
+  /* Quiet, like the hero's kicker and the cover's captions: the group labels
+     are wayfinding, not instruments, so they do not get the instrument
+     colour. */
   .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:12px;
-    letter-spacing:.18em;text-transform:uppercase;color:var(--ember);margin-bottom:16px}
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin-bottom:16px}
   .feat-grid{display:grid;gap:clamp(22px,2.6vw,44px);align-items:start}
   /* Unequal on purpose, and the two shapes share a first column so the groups
      line up down the page instead of each starting somewhere new. */
@@ -7262,36 +7135,10 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ PRICING. Depth from value, not shadow: Pro stands nearest the monitor
      and is a lit surface; the other two recede into the wall. ══ */
-  .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px;margin:48px auto 0}
-  .price-card{position:relative;border-radius:3px;border:1px solid transparent;
-    background:linear-gradient(var(--wall),var(--wall)) padding-box,
-      linear-gradient(215deg,rgba(242,234,247,.16),rgba(242,234,247,.04) 50%,rgba(242,234,247,.015)) border-box}
-  .price-card.pro{background:linear-gradient(168deg,#2A1B35,#1B1221 70%) padding-box,
-      linear-gradient(215deg,var(--flare),rgba(184,106,220,.28) 34%,rgba(242,234,247,.06) 70%,rgba(242,234,247,.02)) border-box}
-  .price-in{padding:32px 32px 32px;height:100%;display:flex;flex-direction:column}
-  .price-pop{position:absolute;top:0;right:0;font-family:var(--mono);font-weight:600;font-size:12px;
-    letter-spacing:.16em;text-transform:uppercase;color:var(--flare);padding:8px 12px}
-  .price-badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:16px}
-  .price-card.pro .price-badge{color:var(--glow-ink)}
-  .price-amt{display:flex;align-items:baseline;gap:4px}
-  .price-amt .cur{font-family:var(--mono);font-size:24px;color:var(--ink-3);align-self:flex-start;margin-top:8px}
-  .price-amt .num{font-family:var(--mono);font-weight:600;font-size:44px;letter-spacing:-.05em;
-    line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
-  .price-card.pro .price-amt .num{color:var(--ember)}
-  .price-amt .per{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-left:4px}
-  .price-sub{font-size:14px;color:var(--ink-2);margin:12px 0 24px;line-height:1.5}
-  .price-list{flex:1;display:flex;flex-direction:column;gap:12px;margin-bottom:24px;
-    border-top:1px solid var(--hair);padding-top:16px}
-  /* NOT flex on the row. With display:flex every inline <b> becomes its own
-     flex item, so "Monitor up to <b>3 streams</b> at once" laid out as three
-     columns and broke mid-phrase. Absolute-positioning the tick keeps the text
-     one normal inline flow that wraps like a sentence. */
-  .price-list .li{position:relative;padding-left:24px;font-size:14px;color:var(--ink-2);line-height:1.5}
-  .price-list .ck{position:absolute;left:0;top:0;font-family:var(--sans);font-size:12px;color:var(--ember)}
-  .price-list .li b{color:var(--ink);font-weight:600}
-  .price-promo{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--ink-3);margin-top:16px}
-  .price-promo b{color:var(--ember);font-weight:400}
+  /* A second, dead pricing stylesheet lived here (.price-grid/.price-card/
+     .price-amt/.price-list/...): the rendered pricing is generated with
+     .ptier classes, so none of it styled anything -- and it was convincing
+     enough that a restyle pass landed on it instead of the live rules. */
 
   /* ══ FAQ. Hairline rows, no card. ══ */
   /* REMOVED: a second, complete FAQ stylesheet for markup that does not exist.
@@ -7359,9 +7206,8 @@ LANDING_HTML = """<!DOCTYPE html>
   @media(max-width:1000px){
     .hero{grid-template-columns:minmax(0,1fr);gap:48px;padding-top:48px}
     .ex-card{flex-basis:calc(33.333% - 9.34px)}
-    .formula{grid-template-columns:minmax(0,1fr);gap:32px;padding:32px 24px}
+    .formula{grid-template-columns:minmax(0,1fr);gap:32px;padding:24px 0}
     .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:24px}
-      .who-row{grid-template-columns:74px minmax(0,1fr);gap:16px}
   }
   @media(max-width:720px){
     section{padding-top:32px;padding-bottom:32px}
@@ -7378,14 +7224,6 @@ LANDING_HTML = """<!DOCTYPE html>
     .nav-logo span{display:none}
     .trig{padding:4px 8px;margin-right:4px}
     .trig-k{display:none}
-    .who-row{grid-template-columns:minmax(0,1fr);gap:8px;padding:24px 0}
-    .who-l{justify-content:flex-start}
-    .step{grid-template-columns:44px minmax(0,1fr);gap:16px}
-    .rail-node{width:22px;height:22px;font-size:12px}
-    .step-4 .step-body{padding:16px 16px;margin-top:-12px}
-    .demo-cap{text-align:left}
-    .price-in{padding:24px 24px}
-    .price-amt .num{font-size:44px}
     .final{padding-top:48px;padding-bottom:64px}
   }
   /* The section links collapse at 900, not 720. Measured at 768: logo 205 +
@@ -7418,17 +7256,12 @@ LANDING_HTML = """<!DOCTYPE html>
        phone block, so they were quietly overriding it: the lead came back up
        to 17.5px and the two buttons re-stacked, costing about 90px of the
        viewport the wall needed. The wall block owns hero sizing now. */
-    /* Vertical rules only work while the row does not wrap. On a phone it
-       always wraps, so the separators become orphans hanging off line ends. */
-    .tags{flex-direction:column;gap:4px}
-    .tag{border-right:none;padding-right:0;margin-right:0}
   }
 
   /* ══ MOTION. One orchestrated moment — the trigger firing — and a room that
      breathes. Nothing else moves. ══ */
   @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
-    .demo-live i,.dc-spin{animation:none}
     .breathe{animation:none}
     /* The cue still reads as a cue standing still — it is a line pointing down
        under the word "scroll". */

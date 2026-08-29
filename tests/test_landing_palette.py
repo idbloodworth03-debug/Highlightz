@@ -154,7 +154,11 @@ def test_the_warm_counterpoint_is_actually_warm_and_actually_used():
     h, s, _ = _hsl(_tokens()["ember"])
     assert 20 <= h <= 50, f"--ember is at hue {h:.0f} — not a warm lamp"
     assert s >= 70, "--ember is too grey to read as a light"
-    assert CSS.count("var(--ember)") >= 12, "the counterpoint is barely used"
+    # 8, down from 12: the old count was inflated by dead stylesheets (the
+    # removed clip stage, the cut who-for rows, the numbered step rail) whose
+    # ember styled nothing. The live uses are the instruments — the nav trig,
+    # the tile dots/scores/flags, the Pro price, the cover stat.
+    assert CSS.count("var(--ember)") >= 8, "the counterpoint is barely used"
     # It is the resting state of the two live score readouts.
     # .tile-score is four readouts, not one — the whole wall rests at the lamp
     # colour and only the channel that crosses goes to the monitor colour.

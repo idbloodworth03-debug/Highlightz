@@ -133,16 +133,19 @@ def test_pricing_bullets_are_not_laid_out_as_flex_columns():
     stacked columns and "VOD Scanner" broke away from its own sentence. It only
     became visible when the cards narrowed to fit three across.
 
-    The geometry is verified in the browser (scratchpad/drive_price.js); this
-    just stops the declaration coming back.
+    That rule turned out to belong to a dead second pricing stylesheet (the
+    rendered page is generated with .ptier classes), which has since been
+    removed entirely. The trap it guarded is still real, so the guard moved to
+    the LIVE plan lines: .ptier-chan holds inline <b> inside a sentence and
+    must never become a flex container.
     """
     from src.dashboard.api import LANDING_HTML
-    i = LANDING_HTML.index(".price-list .li{")
+    assert ".price-list .li{" not in LANDING_HTML, \
+        "the dead pricing stylesheet is back"
+    i = LANDING_HTML.index(".ptier-chan{")
     rule = LANDING_HTML[i:LANDING_HTML.index("}", i)]
     assert "display:flex" not in rule, \
-        "pricing bullets are flex again — inline <b> will break the sentence"
-    assert "position:relative" in rule and "padding-left" in rule, \
-        "the tick needs absolute positioning for the text to be one inline flow"
+        "plan lines are flex — inline <b> will break the sentence into columns"
 
 
 def test_the_vod_scanner_is_named_consistently():

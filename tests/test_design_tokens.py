@@ -348,13 +348,18 @@ def test_the_chart_takes_the_tiles_slack():
     assert "margin-top:auto" not in rule, "the chart is pinned to the bottom again"
 
 
-def test_the_stage_wash_is_clipped():
-    """.stage-wash is scale(1.1) — a deliberate bleed so the blur reaches the
-    letterbox edges. Its parent never clipped it, so at 375px 1.2px of it sat
-    past the viewport and gave the page a horizontal scrollbar."""
+def test_the_dead_stage_stylesheet_stayed_dead():
+    """This used to pin overflow:hidden on .stage-media (the scale(1.1) wash
+    bled 1.2px past a 375 viewport). The stage was then removed from the wall
+    entirely, and its ~100 lines of orphaned CSS were removed with it — dead
+    rules are not harmless here: a dead FAQ stylesheet once silently overrode
+    the live one's measure. So the guard inverted: no .stage- rule may exist
+    without stage markup to style."""
     c = css("landing")
-    media = re.search(r"\.stage-media\{([^}]*)\}", c).group(1)
-    assert "overflow:hidden" in media, "the bleed is unclipped again"
+    if ".stage-" in c:
+        from src.dashboard.api import LANDING_HTML
+        assert 'class="stage' in LANDING_HTML, \
+            "stage CSS exists but no stage markup does — the dead block is back"
 
 
 def test_the_ambient_hot_glow_is_gone():
@@ -411,23 +416,34 @@ def test_the_measure_is_calibrated_to_real_characters_not_to_ch():
 
 
 def test_the_pricing_ladder_survived_but_the_buttons_share_a_baseline():
-    """Width, radius, price size, border and glow all still step up — the plans
-    are not equal. Only the bottom padding is shared, because three buttons
-    that miss a common baseline by 8px read as misaligned, not as deliberate."""
+    """The ladder used to step width, radius, price size, border and glow. The
+    tiers are hairline cells now — same construction as the wall and the stats
+    band — so radius and border are gone BY DESIGN, and the ladder lives in
+    what is left: unequal column widths and the price stepping 30 -> 44, with
+    Pro carrying the wash and the bright top edge. The buttons still share a
+    baseline because every tier keeps the same bottom padding."""
     c = css("landing")
-    bots = []
-    for t in ("a", "b", "c"):
-        rule = re.search(r"\.ptier-" + t + r"\{([^}]*)\}", c).group(1)
-        # The LAST token of the shorthand is the bottom edge. A non-greedy match
-        # from the start of `padding:` returns the TOP one, which is exactly the
-        # value that is still allowed to differ — so that version of this test
-        # passed and failed for reasons unrelated to what it is checking.
-        shorthand = re.search(r"padding:([^;}]+)", rule).group(1).strip()
-        bots.append(shorthand.split()[-1])
-    assert len(set(bots)) == 1, f"the CTA baseline is broken again: {bots}"
-    radii = [re.search(r"border-radius:(\d+px)", re.search(r"\.ptier-" + t + r"\{([^}]*)\}", c).group(1)).group(1)
-             for t in ("a", "b", "c")]
-    assert len(set(radii)) == 3, "the ladder was flattened; the plans are not equal"
+    tiers = re.search(r"\.ptiers\{([^}]*)\}", c).group(1)
+    cols = re.search(r"grid-template-columns:([^;]+)", tiers).group(1)
+    fracs = re.findall(r"minmax\(0,([\d.]+)fr\)", cols)
+    assert len(set(fracs)) == 3, f"the ladder was flattened to equal columns: {fracs}"
+    base = re.search(r"\n  \.ptier\{([^}]*)\}", c).group(1)
+    assert "border-radius" not in base, "the cells grew corners again"
+    assert "border-left:1px solid var(--hair)" in base, "the dividers are gone"
+    pro = re.search(r"\.ptier-c\{([^}]*)\}", c).group(1)
+    assert "rgba(184,106,220" in pro, "Pro lost its wash"
+    # shared button baseline: the base rule sets the padding once, and Pro's
+    # own shorthand must end on the same bottom value
+    base_bottom = re.search(r"padding:([^;}]+)", base).group(1).split()[0]
+    pro_pad = re.search(r"padding:([^;}]+)", pro)
+    if pro_pad:
+        toks = pro_pad.group(1).split()
+        bottom = toks[2] if len(toks) >= 3 else toks[0]
+        assert bottom == base_bottom, f"the CTA baseline is broken: {bottom} vs {base_bottom}"
+    fig = re.search(r"\n  \.ptier-fig\{([^}]*)\}", c).group(1)
+    pro_fig = re.search(r"\.ptier-c \.ptier-fig\{([^}]*)\}", c).group(1)
+    assert "font-size:30px" in fig and "font-size:44px" in pro_fig, \
+        "the price no longer steps up the ladder"
 
 
 def test_the_dead_faq_stylesheet_is_gone():

@@ -636,3 +636,21 @@ def test_the_wall_speaks_the_covers_language():
     i_base = HTML.index("\n  .tile{")
     i_phone = HTML.index("border-top:1px solid var(--hair);padding-left:0;padding-right:0")
     assert i_phone > i_base, "the phone divider override is before the base rule again"
+
+
+def test_the_page_below_the_fold_is_one_dark_room():
+    """The cover's rule, applied to the rest: no section steps the ground
+    lighter (the sand panels are flat now — chapters are hairlines and light,
+    not surface changes), the formula demo lost the last gradient card in
+    #how, and the pricing tiers are hairline cells like the wall and the
+    stats band."""
+    sand = re.search(r"\n  \.band-sand\{([^}]*)\}", HTML).group(1)
+    assert "background:transparent" in sand, "the lighter band panels are back"
+    formula = re.search(r"\n  \.formula\{([^}]*)\}", HTML).group(1)
+    assert "border-box" not in formula and "border-radius" not in formula, \
+        "the formula demo is a gradient card again"
+    assert "border-top:1px solid var(--hair)" in formula, \
+        "the formula lost its hairline frame"
+    tiers = re.search(r"\n  \.ptiers\{([^}]*)\}", HTML).group(1)
+    assert "border-top:1px solid var(--hair)" in tiers and "gap:0" in tiers, \
+        "the pricing row is not the hairline band construction"

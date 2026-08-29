@@ -383,7 +383,11 @@ def test_lobster_is_titles_only_and_never_uppercased():
     for sel in ("h2.sec-title",):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "var(--sans)" in block, f"{sel} should be the body face"
-    for sel in (".nav-logo span", ".stat .n", ".price-amt .num", ".tile-score"):
+    # .ptier-fig replaced .price-amt .num: that selector belonged to a dead
+    # second pricing stylesheet (the rendered page uses .ptier classes), so the
+    # LIVE price was quietly in the text face while this test checked a rule
+    # that styled nothing.
+    for sel in (".nav-logo span", ".stat .n", ".ptier-fig", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
