@@ -26,10 +26,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   --glow: 0 0 0 1px rgba(196,137,228,.35),0 8px 30px -6px rgba(184,106,220,.45);
   --live: #2ee08a; --live-soft: rgba(46,224,138,.14);
   --pending: #ffc25c; --pending-soft: rgba(255,194,92,.14);
-  /* Gold, and NOT a shade of --pending. This is the crowd-suggestion
-     identity: it was chosen to be visibly unlike the viral badge next to
-     it, and folding it into the warn colour erased that. */
-  --sug: #ffd45e; --sug-deep: #ff9d00;
+  /* The highlight identity — the crowd-suggested cards. Purple by the
+     owner's call (it was gold), and still its OWN name rather than a reuse
+     of --acc: the constraint that survives the recolour is that this badge
+     must be visibly unlike the viral badge (orange-to-pink) and the crowd
+     -clipped badge (green-to-teal) sitting next to it. */
+  --sug: #c489e4; --sug-deep: #b86adc;
   --danger: #ff5a78; --danger-soft: rgba(255,90,120,.14);
   --r-sm:10px; --r-md:14px; --r-lg:18px; --r-xl:24px; --r-pill:999px;
   --font:'Inter',system-ui,-apple-system,sans-serif;
@@ -501,9 +503,10 @@ button{font-family:inherit;cursor:pointer}
    every other card is the detector saying "I found this", and this one is the
    detector saying "I did not, they did".
 
-   Gold, and nothing else here is gold. The viral badge runs orange-to-pink and
-   the crowd-clipped badge is green-to-teal, so this reads as its own thing at a
-   glance rather than as a variant of either.
+   Its own purple, --sug (it was gold; recoloured on the owner's call). The
+   viral badge runs orange-to-pink and the crowd-clipped badge is green-to-
+   teal, so this still reads as its own thing at a glance rather than as a
+   variant of either.
 
    NO backdrop-filter, deliberately — see the note above the badge rules. These
    sit over a playing clip and a blur layer there costs a re-blur of that patch
@@ -531,28 +534,28 @@ button{font-family:inherit;cursor:pointer}
    30, and the pulse moved to the BADGE — one small element per card rather
    than the whole card's area, which is cheap enough to be free:
        static glow + badge pulse         60.0 fps   p95 16.8ms    0% dropped
-   The card still reads as gold, glowing and alive; it just stopped repainting
+   The card still reads as glowing and alive; it just stopped repainting
    a 310x323 region twenty times over on every frame to do it. */
-.rd-clip.suggested{position:relative;border-color:rgba(255,197,61,.7);
-  box-shadow:0 0 0 1px rgba(255,197,61,.3),0 4px 14px -6px rgba(247,167,69,.45)}
-.rd-clip.suggested:hover{border-color:rgba(255,197,61,.95);
-  box-shadow:0 0 0 1px rgba(255,197,61,.45),0 8px 22px -8px rgba(247,167,69,.6)}
+.rd-clip.suggested{position:relative;border-color:rgba(196,137,228,.7);
+  box-shadow:0 0 0 1px rgba(196,137,228,.3),0 4px 14px -6px rgba(184,106,220,.45)}
+.rd-clip.suggested:hover{border-color:rgba(196,137,228,.95);
+  box-shadow:0 0 0 1px rgba(196,137,228,.45),0 8px 22px -8px rgba(184,106,220,.6)}
 .rd-sugbadge{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
   font-size:12px;font-weight:800;letter-spacing:.02em;padding:4px 8px;border-radius:var(--r-pill);
-  color:#2a1a00;background:linear-gradient(135deg,#ffd45e,#ff9d00);
+  color:#221129;background:linear-gradient(135deg,var(--sug),var(--sug-deep));
   animation:sugpulse 2.6s ease-in-out infinite}
 /* The pulse, on the badge and nothing else. ~90x26px of repaint per card
    instead of the whole card, which is the entire difference between 23% of
    frames dropped and none. */
 @keyframes sugpulse{
-  0%,100%{box-shadow:0 3px 10px -3px rgba(247,167,69,.5)}
-  50%{box-shadow:0 3px 20px -2px rgba(247,167,69,.95)}
+  0%,100%{box-shadow:0 3px 10px -3px rgba(184,106,220,.5)}
+  50%{box-shadow:0 3px 20px -2px rgba(184,106,220,.95)}
 }
 /* A player is open: stop animating. Same reasoning as the blur rules below —
    anything repainting on a timer competes with video decode. */
-body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,167,69,.7)}
+body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,106,220,.7)}
 @media(prefers-reduced-motion:reduce){
-  .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(247,167,69,.7)}
+  .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,106,220,.7)}
 }
 /* .rd-sugby (a chip naming the viewer whose clip this is) was removed. The
    queue now describes what HIGHLIGHTZ did — it detected the moment from a
@@ -1617,7 +1620,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             needs no such guard: it is already conditional on > 0. */}
         {sug
           ? <span className="rd-sugbadge" title="Highlightz flagged this from a spike in audience interest, outside the usual scoring.">
-              <Icon name="trending" size={12}/>Suggested
+              <Icon name="trending" size={12}/>Highlight
             </span>
           : <span className="rd-scorebadge" title="Trigger score — what the detector measured at that moment">
               <span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
@@ -1634,11 +1637,11 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             and it is still on the record either way. */}
         {sug && clip.clipper_count>1 && <span className="rd-clippedbadge" style={{top:10}}
           title="Highlightz measured unusually high audience interest at this moment">
-          <Icon name="trending" size={11}/>High interest
+          <Icon name="trending" size={11}/>Audience spike
         </span>}
         {clip.viewer_clipped && <span className="rd-clippedbadge"
           title="Highlightz measured unusually high audience interest at this moment">
-          <Icon name="trending" size={11}/>High interest
+          <Icon name="trending" size={11}/>Audience spike
         </span>}
         {/* Visible BEFORE the card is opened, because that is when it changes
             what you do: a gated clip cannot be reviewed inline, and on a plan
@@ -1815,7 +1818,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           {sug
-            ? <span className="rd-sugbadge" style={{top:14,right:60}}><Icon name="trending" size={12}/>Suggested</span>
+            ? <span className="rd-sugbadge" style={{top:14,right:60}}><Icon name="trending" size={12}/>Highlight</span>
             : <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
         </div>
 
@@ -3172,7 +3175,7 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
         <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>
           {/* Same suppression as the review card: a crowd suggestion has no
               trigger score, and "0% trigger" here would read as a rating. */}
-          {c.channel}{c.game?' · '+c.game:''} · {c.suggested?'suggested':Math.round(c.score||c.trigger_score||0)+'% trigger'}</div>
+          {c.channel}{c.game?' · '+c.game:''} · {c.suggested?'highlight':Math.round(c.score||c.trigger_score||0)+'% trigger'}</div>
       </div>
       <div style={{display:'flex',gap:4,flexShrink:0}}>{right}</div>
     </div>
@@ -5843,7 +5846,7 @@ function RdApp() {
         // gets, so it says which of the two just happened.
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));
           flash(msg.clip.suggested
-            ? 'Suggested clip from '+msg.clip.channel
+            ? 'Highlight from '+msg.clip.channel
             : 'New clip from '+msg.clip.channel);}
         else if(msg.event==='clip_updated'){
           setClips(p=>({...p,[msg.clip.id]:msg.clip}));

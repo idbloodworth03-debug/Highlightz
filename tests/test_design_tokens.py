@@ -98,15 +98,18 @@ def test_the_purples_were_mapped_by_role_not_by_brightness():
     assert "--acc: #c489e4" in c or "--acc:#c489e4" in c
 
 
-def test_gold_survived_the_orange_collapse():
-    """THE SECOND MISTAKE THIS CAUGHT. Nine oranges were collapsed to two on
-    the reading that they all did one job. They did not: the crowd-suggestion
-    badge is gold (#ffd45e/#ff9d00) and was deliberately made unlike the viral
-    badge beside it. The collapse merged them — dE 10.9 and 18.8 apart, which
-    the eye reads. Gold is an identity, not a warning, so it kept its own name."""
+def test_the_suggestion_identity_kept_its_own_name():
+    """THE SECOND MISTAKE THIS CAUGHT, updated. Nine oranges were collapsed to
+    two on the reading that they all did one job; the crowd-suggestion badge
+    was deliberately unlike the viral badge beside it and the collapse merged
+    them. The badge has since been recoloured purple ("Highlight") on the
+    owner's call — the invariant that survives is the NAME: the identity lives
+    in its own --sug token, never folded into --pending/--warn or borrowed
+    from --acc, so the next palette collapse cannot merge it either."""
     c = css("dashboard").lower()
-    assert "#ffd45e" in c and "#ff9d00" in c, "the gold badge was merged into warn"
-    assert "--sug:" in c, "gold has no name of its own"
+    assert "--sug:" in c and "--sug-deep:" in c, "the identity has no name of its own"
+    assert "#ffd45e" not in c and "#ff9d00" not in c, \
+        "the retired gold is still in the sheet somewhere"
 
 
 # ── fonts ────────────────────────────────────────────────────────────────────

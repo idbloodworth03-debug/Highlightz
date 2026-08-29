@@ -724,7 +724,7 @@ def test_the_queue_describes_what_highlightz_found_not_who_clipped_it():
     assert "clip.suggested_by" not in body, "the card names the clipper again"
     assert "viewers clipped it" not in body, \
         "the card credits the audience with the find again"
-    assert "High interest" in body, "the card lost its audience-signal badge"
+    assert "Audience spike" in body, "the card lost its audience-signal badge"
 
 
 def test_the_clippers_name_is_not_recorded_at_all():
@@ -762,7 +762,7 @@ def test_the_vod_scanner_uses_the_same_words():
     body = _code(_fn("RdClip"))
     assert "clip.viewer_clipped" in body, "the VOD badge was dropped entirely"
     vod = body.split("clip.viewer_clipped")[1][:300]
-    assert "High interest" in vod, "the VOD badge still credits the clippers"
+    assert "Audience spike" in vod, "the VOD badge still credits the clippers"
     assert "clipped it" not in vod
 
     from src.vod import analyzer
@@ -772,10 +772,12 @@ def test_the_vod_scanner_uses_the_same_words():
         "the VOD fallback clip title still credits the audience"
 
 
-def test_the_glow_exists_and_is_gold():
-    """Asked for: bright, glowing, and obviously different. Gold because
-    nothing else in the grid is — the viral badge is orange-to-pink and the
-    crowd-clipped badge is green-to-teal."""
+def test_the_glow_exists_and_is_the_highlight_purple():
+    """Asked for: bright, glowing, and obviously different. It was gold; the
+    owner recoloured it to the --sug purple and renamed the badge "Highlight".
+    The constraint that survives the recolour: it must stay visibly unlike the
+    viral badge (orange-to-pink) and the crowd-clipped badge (green-to-teal)
+    beside it."""
     # Assert on the DECLARATIONS, not on the selector appearing somewhere.
     # Mutation testing caught this: renaming the glow rule's selector left this
     # test green, because a second `.rd-clip.suggested{position:relative}` rule
@@ -785,9 +787,15 @@ def test_the_glow_exists_and_is_gold():
     rule = CSS.split(".rd-clip.suggested{")[1].split("}")[0]
     assert "box-shadow" in rule and "border-color" in rule, \
         "the suggested card lost its glow"
-    assert "255,168,0" in rule or "255,197,61" in rule, "the glow is no longer gold"
+    assert "196,137,228" in rule or "184,106,220" in rule, \
+        "the glow lost the highlight purple"
     badge = CSS.split(".rd-sugbadge{")[1].split("}")[0]
-    assert "ffd45e" in badge or "ff9d00" in badge, "the badge is no longer gold"
+    assert "var(--sug)" in badge, "the badge no longer wears its own identity"
+    root = _re.search(r":root\s*\{([^}]*)\}", CSS).group(1).lower()
+    assert "--sug: #c489e4" in root and "--sug-deep: #b86adc" in root, \
+        "the --sug identity is not the purples the owner chose"
+    # unlike its neighbours, still
+    assert "f7a745" in CSS, "the viral badge lost its orange, the contrast case"
     assert "@keyframes sugpulse" in CSS
 
 
