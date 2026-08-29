@@ -98,51 +98,37 @@ def test_every_public_page_states_the_offer_in_one_wording():
         assert _ESCAPE in low, f"{name} does not say it has no time limit"
 
 
-def test_the_hero_states_it_above_the_fold():
-    """The one place it has to be. Burying the terms below the fold is how a
-    signup becomes a surprise — which was true when the surprise was a card
-    form and is true now that the good news is there isn't one."""
+def test_the_offer_is_stated_before_a_visitor_is_asked_to_pay():
+    """It used to be in the hero, above the fold. The hero's lede was removed
+    on the owner's instruction, and the offer went with it — so the terms now
+    first appear in the pricing section.
+
+    KNOWN TRADE-OFF, recorded rather than quietly accepted: a visitor no
+    longer meets "free to start, no card" until they scroll to pricing. What
+    this still guarantees is the part that actually protects them — the terms
+    are stated BEFORE the plans, not in a footnote after them, so nobody
+    reaches a price without having read that there is a free way in."""
     from src.dashboard.api import LANDING_HTML
-    hero = LANDING_HTML[LANDING_HTML.index('<header class="wrap hero'):]
-    hero = hero[:hero.index("</header>")]
-    low = hero.lower()
-    assert "free to start" in low, "the offer is no longer in the hero"
-    assert _OFFER in low, "the hero does not mention the card"
-    assert _ESCAPE in low, "the hero does not say it is not a trial"
+    low = LANDING_HTML.lower()
+    pricing = low.index('id="pricing"')
+    section = low[pricing:low.index('id="faq"')]
+    assert _OFFER in section, "pricing does not mention the card"
+    assert _ESCAPE in section, "pricing does not say it is not a trial"
+    # and the free plan is the first tier a reader meets, not an afterthought
+    assert section.index("free") < section.index("$25"), \
+        "the paid tiers are introduced before the free one"
 
 
 def test_the_offer_is_not_set_in_the_faintest_ink_on_the_page():
-    """It is the strongest true thing about the offer. It was 12px of --ink-3,
-    the dimmest step in the palette, which is where you put a footnote."""
+    """It was 12px of --ink-3, the dimmest step in the palette, which is where
+    you put a footnote. The .hero-note this used to read is gone with the hero;
+    the offer now lives in the pricing lead, so that is what gets checked."""
     from src.dashboard.api import LANDING_HTML
-    # There are three .hero-note rules: a width override inside a media query,
-    # the real one, and a phone size. Pick the one that actually sets the type,
-    # or this reads the first match and asserts nothing.
-    rules = [m.group(1) for m in re.finditer(r"\.hero-note\{([^}]*)\}", LANDING_HTML)
-             if "font-family" in m.group(1)]
-    assert len(rules) == 1, f"expected one type rule for .hero-note, found {len(rules)}"
-    base = rules[0]
-    assert "var(--ink-3)" not in base, "the offer is back in the muted ink"
-    size = re.search(r"font-size:([\d.]+)px", base)
-    assert size and float(size.group(1)) >= 13, \
+    rule = re.search(r"\.price-lead\{([^}]*)\}", LANDING_HTML).group(1)
+    assert "var(--ink-3)" not in rule, "the offer is set in the muted ink"
+    size = re.search(r"font-size:(\d+)px", rule)
+    assert size and int(size.group(1)) >= 13, \
         f"the offer is set at {size.group(1) if size else '?'}px"
-
-    phone = re.search(r"@media\(max-width:700px\)\{.*?\.hero-note\{font-size:([\d.]+)px\}",
-                      LANDING_HTML, re.S)
-    if phone:
-        assert float(phone.group(1)) >= 12, \
-            f"the offer drops to {phone.group(1)}px on a phone"
-
-
-# ── what the pages say has to match the code ─────────────────────────────────
-
-def test_the_channel_numbers_quoted_match_the_plans():
-    """Free 1, Starter 3 and Pro 10 are stated in prose. If the plan table
-    changes and the copy does not, the page starts overselling."""
-    from src.dashboard.api import LANDING_HTML
-    assert f"{PLAN_LIMITS['free']['max_streams']} on Free" in LANDING_HTML
-    assert f"{PLAN_LIMITS['starter']['max_streams']} on Starter" in LANDING_HTML
-    assert f"{PLAN_LIMITS['pro']['max_streams']} on Pro" in LANDING_HTML
 
 
 def test_the_queue_numbers_quoted_match_the_plans():

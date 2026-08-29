@@ -6250,8 +6250,13 @@ LANDING_HTML = """<!DOCTYPE html>
      added outside the box. (It used to hang off .stats as a margin-top; the
      stats band moved to the cover, so the break moved to the thing it was
      always actually about.) */
+  /* ONE ROW, not two. This was `auto minmax(0,1fr)`: the lede took the auto
+     row and the wall took the 1fr row that stretched. Removing the lede left
+     the wall as the only child, so it landed in the AUTO row and collapsed to
+     its own minimum — 281px of tiles sitting in an 878px hero with 500px of
+     black under them. With one child there is one row, and it stretches. */
   .hero.hero-band{min-height:calc(100svh - 72px);display:grid;
-    grid-template-rows:auto minmax(0,1fr);align-content:stretch;
+    grid-template-rows:minmax(0,1fr);align-content:stretch;
     margin-bottom:var(--s-10);
     /* The cover's ground, carried through. Near-black at the top where slide
        2 arrives, easing back to the page base at the bottom so the section
@@ -6333,13 +6338,9 @@ LANDING_HTML = """<!DOCTYPE html>
       linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
 
   /* ── Type scale ── */
-  /* Quiet, like the small mono labels on the cover (the SCROLL cue, the stat
-     captions). Ember belongs to the instruments — the tile scores, the big
-     stat — and a gold label over a gold badge over four gold scores was the
-     "too much going on". The hairline is the page's own, not a gold fade. */
-  .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ink-3);display:flex;align-items:center;gap:12px}
-  .kicker::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--hair-2),transparent);max-width:190px}
+  /* .kicker lived here. It was the hero's "AUTOMATIC TWITCH CLIPPING" label
+     and nothing else on this page used it. The tutorial and comparison pages
+     have their own .kicker in BASE_CSS, which is a separate stylesheet. */
   h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
     line-height:1.1;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
   .sec-head.kicked h2.sec-title{margin-top:16px}
@@ -6545,14 +6546,10 @@ LANDING_HTML = """<!DOCTYPE html>
      product runs, at the same 1s cadence, against the same threshold. ══ */
   .hero{position:relative;padding-top:24px;padding-bottom:16px}
   .room-light{display:none}
-  .hero-lede{display:grid;gap:0 clamp(28px,4vw,64px);align-items:end;
-    padding:4px 0 16px}
-  @media(min-width:980px){
-    .hero-lede{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
-  }
-  .hero-copy h1{font-family:var(--display);font-weight:400;
-    font-size:clamp(40px,6.2vw,80px);line-height:1;letter-spacing:-.005em;
-    color:var(--ink);margin:8px 0 0}
+  /* The hero's lede stylesheet lived here: .hero-lede, .hero-copy, the h1 and
+     its .lead, .hero-act/.hero-ctas/.hero-note, and the NO AI badge. The whole
+     block was removed from the page, so all of it styled nothing. Only .accent
+     survives, because the closing section's h2 still uses it. */
   /* The accent word is LIT, not painted: a solid fill plus the spill it would
      throw onto the dark around it. No gradient, no stroke. */
   .accent{color:#B86ADC;-webkit-text-stroke:0;
@@ -6560,74 +6557,6 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The page is dark throughout now, so there is no second surface for the
      accent to switch on — one value, and the halo can stay. */
   .band-dark .accent{color:#B86ADC}
-  .hero-copy p.lead{font-size:17px;line-height:1.5;color:var(--ink-2);max-width:46ch;margin:12px 0 0}
-  /* The right half of the lede: actions, not more prose. Bottom-aligned so the
-     CTA row and the slogan's baseline sit on the same line. */
-  .hero-act{display:flex;flex-direction:column;align-items:flex-start;gap:12px;
-    padding-top:24px}
-  @media(min-width:980px){ .hero-act{align-items:flex-end;padding-top:0} }
-  /* Stacked, the lede was costing 500px of a 1024px viewport and pushing the
-     wall off the bottom. Same content, laid across instead of down. */
-  @media(max-width:979px){
-    .hero-lede{padding-bottom:16px}
-    .hero-copy p.lead{font-size:16px;margin-top:12px}
-    .hero-act{flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px 16px;
-      padding-top:16px}
-    .hero-act .no-ai{margin-bottom:0}
-    .hero-note{width:100%}
-  }
-  .hero-ctas{display:flex;gap:12px;flex-wrap:wrap}
-  /* The offer, and it was set in the dimmest ink on the page at 12px. It is
-     the strongest true thing here, so it gets read: one step up in size, body
-     ink rather than the muted step, and the two claims that matter carry the
-     weight while "then from $10/mo" stays quiet. */
-  .hero-note{font-family:var(--mono);font-size:14px;color:var(--ink-2);letter-spacing:.02em}
-  /* Each clause wraps as one unit. Without this the line broke inside
-     "then from $10/mo" and left a lone "then" hanging off the end. */
-  .hero-note span{white-space:nowrap}
-  /* Weight in the ink, not in a third colour: white bold against the muted
-     line carries "free to start / no card" without adding another gold moment
-     between the purple button and the gold scores below. */
-  .hero-note b{color:var(--ink);font-weight:600}
-  /* Tags on a rule, not pills with dots. */
-  /* ── NO AI badge — the hero's first claim ──────────────────────────────
-     Sits ABOVE the slogan because it is the one thing that separates this
-     from every other clipping tool, and burying it in the tag row (where it
-     lived) meant nobody read it. Links to #formula: the claim is only worth
-     making if the reader can immediately go and check it. */
-  /* SIMPLIFIED. It was carrying two typefaces, two sizes, two weights, two
-     text colours and a left-to-right gradient inside a forty-pixel pill — six
-     variables to say one thing, which is why it read as busy rather than as a
-     claim. What is left is the structure: a mono label, a hairline, and the
-     sentence. The label stays mono because every other instrument label on
-     this page is mono and it is doing the same job; everything after the rule
-     is one size, one weight, one colour.
-
-     Flat tint, not a gradient. A gradient across 40px is a direction the eye
-     follows for no reason — there is nothing at the end of it. */
-  /* Purple, not gold: the badge is part of the page's light now — the same
-     rgba(184,106,220) as the seam glow, the traces and the accent word right
-     under it — so the hero reads as one lit room instead of a gold layer
-     stacked on a purple one. */
-  .no-ai{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px;
-    padding:8px 16px;border-radius:99px;text-decoration:none;
-    border:1px solid rgba(184,106,220,.28);background:rgba(184,106,220,.06);
-    transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
-  .no-ai:hover{border-color:rgba(184,106,220,.5);background:rgba(184,106,220,.10)}
-  .no-ai-x{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
-    color:var(--glow-ink);white-space:nowrap}
-  /* The separator does the work the second colour and the bold used to do. */
-  .no-ai-x::after{content:'';display:inline-block;width:1px;height:12px;
-    margin-left:12px;vertical-align:-2px;background:rgba(184,106,220,.30)}
-  .no-ai-t{font-size:14px;line-height:1.4;color:var(--ink-2);font-weight:400}
-  .no-ai-t b{color:inherit;font-weight:inherit}
-  @media (max-width:560px){
-    .no-ai{gap:8px;padding:8px 12px}
-    .no-ai-x::after{margin-left:8px}
-    .no-ai-t{font-size:12px}
-  }
-
-
   /* ══ THE WALL ══════════════════════════════════════════════════════════
      Four channels, scored live. This is not a screenshot and not a drawing of
      the dashboard — it is the same loop the product runs: a score per channel
@@ -6817,25 +6746,12 @@ LANDING_HTML = """<!DOCTYPE html>
   .wall-cap{white-space:nowrap}
   @media(max-width:900px){ .cap-why{display:none} }
 
-  /* ── PHONE. The lede was costing 650 of an 844px viewport and the wall
-     started below the fold, which defeats the entire hero: the thing that is
-     supposed to be running is the thing you cannot see. Everything here buys
-     vertical space back so at least one whole tile is above the fold. ── */
+  /* ── PHONE. This block existed because the lede cost 650 of an 844px
+     viewport and pushed the wall below the fold. The lede is gone, so the
+     rules that shrank it went with it; what stays is the wall's own sizing,
+     which still has to fit a whole tile on a short screen. ── */
   @media(max-width:700px){
     .hero.hero-band{padding-top:8px}
-    .hero-lede{padding:0 0 12px}
-    .kicker{margin-bottom:4px}
-    .hero-copy h1{font-size:clamp(33px,9.4vw,46px);margin-top:8px}
-    .hero-copy p.lead{font-size:16px;line-height:1.4;margin-top:12px}
-    .hero-act{padding-top:12px;gap:8px 12px}
-    .hero-ctas{width:100%;flex-wrap:nowrap;gap:8px}
-    .hero-ctas .btn-lg{flex:1 1 0;min-width:0;padding:12px 8px;font-size:14px;
-      text-align:center;justify-content:center}
-    .hero-note{font-size:12px}
-    /* The wall below IS the demonstration that this is not a picture, so on a
-       phone the sentence saying so is 45px of viewport spent repeating what
-       the reader can already see. */
-    .lead-tail{display:none}
     .wall{gap:8px}
     .tile{padding:8px 12px 8px}
     .tile-chart{height:118px;max-height:118px;min-height:64px}
@@ -6848,11 +6764,6 @@ LANDING_HTML = """<!DOCTYPE html>
      needs another ~35px to keep the whole first tile above the fold, and this
      is where it comes from. */
   @media(max-width:420px){
-    .hero-copy h1{font-size:clamp(30px,8.6vw,40px)}
-    .hero-copy p.lead{font-size:14px;line-height:1.4;margin-top:8px}
-    .hero-act{padding-top:12px;gap:8px 8px}
-    .hero-ctas .btn-lg{padding:12px 8px;font-size:14px}
-    .kicker{font-size:12px}
     .tile-chart{height:106px;max-height:106px}
   }
 
@@ -7293,7 +7204,17 @@ LANDING_HTML = """<!DOCTYPE html>
     <div class="cover-mark">
       <img src="/static/logo-mark.png" alt="" width="374" height="501"
            decoding="sync" fetchpriority="high">
-      <span class="cover-word">Highlightz</span>
+      <!-- THE PAGE'S h1, and it has to live here now. It used to be "Never
+           miss a highlight again." in the hero, which was removed with the
+           rest of that block; a landing page with no h1 at all is a real SEO
+           regression, not a cosmetic one. An <h1> renders identically to the
+           <span> it replaces -- .cover-word sets font, size and line-height,
+           and the reset already zeroes heading margins -- so this changes the
+           document outline and nothing on screen. No hidden keyword text: the
+           phrase a search engine needs is carried by <title>, the meta
+           description and the SoftwareApplication schema, which is where it
+           belongs. -->
+      <h1 class="cover-word">Highlightz</h1>
     </div>
     <!-- Stats band, moved here from below the hero. The id and style
          attributes are matched by string replacement in _landing_html to
@@ -7372,25 +7293,6 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="thread-lab">score</span></div>
 </div>
 <header class="wrap hero hero-band">
-  <div class="hero-lede">
-    <div class="hero-copy">
-      <div class="kicker">Automatic Twitch clipping</div>
-      <a href="#how" class="no-ai">
-        <span class="no-ai-x">NO AI</span>
-        <span class="no-ai-t"><b>A formula you can read.</b> Watch it move.</span>
-      </a>
-      <h1>Never miss a <span class="accent">highlight</span> again.</h1>
-      <p class="lead">Ten streams are live. You can watch one. Highlightz scores every second of all ten and clips the moment one of them pops. <b>Up to 10 channels at the same time on Pro.</b> <span class="lead-tail">The wall below is the real thing, running.</span></p>
-    </div>
-    <div class="hero-act">
-      <div class="hero-ctas">
-        <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
-        <a href="#pricing" class="btn btn-quiet btn-lg">See the plans</a>
-      </div>
-      <p class="hero-note"><span><b>Free to start</b></span> &middot; <span><b>no card</b></span> &middot; <span>no time limit</span> &middot; <span>paid plans from $10/mo</span></p>
-    </div>
-  </div>
-
   <!-- THE WALL. Four channels being scored. Tiles, the stage and every readout
        are written by JS; the no-JS markup below is the composed static frame,
        which is also exactly what prefers-reduced-motion gets. -->

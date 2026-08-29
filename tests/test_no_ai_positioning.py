@@ -1,85 +1,48 @@
-"""NO AI is the hero's first claim, and the slogan stays.
+"""The NO AI position, after the hero that carried it was removed.
 
-The differentiator was already stated all over the page — in the meta
-description, in how-it-works, in the formula section — but in the HERO it was
-the third item in a row of small uppercase tags, which is where copy goes to be
-skipped. It is now a badge above the slogan.
+WHAT CHANGED. This file used to pin a badge sitting directly above the
+slogan — "NO AI | A formula you can read" — plus the slogan itself, the
+lead, and the order of the two. The owner removed the hero's entire lede
+(kicker, badge, slogan, lead, both CTAs), so all of that markup is gone and
+the assertions that described it were deleted rather than loosened: a test
+kept alive by weakening it until it passes is worse than no test.
 
-Two things are pinned here because they are the two easiest to lose:
-the SLOGAN, which the owner has restored once already after it was replaced,
-and the ORDER, because a claim below the fold is a claim nobody read.
+WHAT STILL HAS TO HOLD, and is pinned below:
+
+  1. The page never claims to use AI. This is the assertion that was always
+     doing the real work, and nothing about the hero affects it.
+  2. The claim is still MADE, in the section that carries the argument
+     (#how), not only in the FAQ. That is the part the badge used to
+     guarantee by being above the fold.
+
+KNOWN LOSS, recorded on purpose. The differentiator is no longer visible
+before a scroll. The badge was the only thing stating it above the fold, and
+removing the hero removed it. That was the owner's call; this note exists so
+the next person reads it as a decision rather than an accident.
 """
 
 import pytest
 
 
-@pytest.fixture
-def hero():
-    """Just the hero block — claims elsewhere on the page must not satisfy
-    these assertions, which is the entire point of the change."""
+def test_the_claim_is_made_in_the_argument_not_only_the_faq():
+    """The badge used to put this above the fold. With it gone, the floor is
+    that the page still says it where it makes its case — a differentiator
+    that appears only in an FAQ answer is one most visitors never meet."""
+    from src.dashboard.api import LANDING_HTML as h
+    how = h[h.index('id="how"'):h.index('id="features"')]
+    low = how.lower()
+    assert "no black box" in low or "not ai" in low or "formula" in low, \
+        "the how-it-works section no longer states what the detector is"
+    # and the FAQ still answers it directly for anyone who looks
+    faq = h[h.index('id="faq"'):]
+    assert "is this ai?" in faq.lower(), "the FAQ dropped the AI question"
+
+
+def test_the_formula_section_the_claim_points_at_exists():
+    """#how is where the claim is cashed: it shows the signals and the score.
+    If that anchor ever disappears the claim has nothing standing behind it."""
     from src.dashboard.api import LANDING_HTML
-    start = LANDING_HTML.index('<header class="wrap hero')
-    return LANDING_HTML[start:LANDING_HTML.index("</header>", start)]
-
-
-def test_the_slogan_is_still_the_headline(hero):
-    """Restored once already after being replaced. It is the brand line."""
-    assert "Never miss a" in hero and "again." in hero
-    assert '<h1>' in hero and 'highlight' in hero
-
-
-def test_no_ai_appears_before_the_slogan(hero):
-    """Above the fold is not enough — above the HEADLINE is the ask. If this
-    slips below the h1 it becomes supporting copy instead of the claim."""
-    assert hero.index("NO AI") < hero.index("<h1>"), \
-        "the NO AI badge fell below the slogan"
-
-
-def test_the_no_ai_claim_is_a_badge_not_a_buried_tag(hero):
-    """It lived in the tag row before, in 11px uppercase mono between two other
-    tags. A test that only checked the words were present would have passed
-    then too."""
-    assert 'class="no-ai"' in hero, "the badge element is gone"
-    i = hero.index('class="no-ai"')
-    assert "NO AI" in hero[i:i + 400]
-
-
-def test_the_claim_links_to_the_evidence(hero):
-    """Saying "no AI" is worth nothing if the reader cannot immediately check
-    it. The badge points at the section that shows the actual formula."""
-    i = hero.index('class="no-ai"')
-    tag = hero[hero.rindex("<a", 0, i):hero.index(">", i)]
-    assert 'href="#how"' in tag, "the badge does not link to the formula"
-
-
-def test_the_formula_section_the_badge_points_at_exists():
-    from src.dashboard.api import LANDING_HTML
-    # The formula explainer was merged INTO How it works step two, since the
-    # standalone section restated it. The badge follows it rather than pointing
-    # at a deleted id, which is a dead anchor that scrolls nowhere.
-    assert 'id="how"' in LANDING_HTML, "the badge links to a section that is gone"
-    assert 'href="#how" class="no-ai"' in LANDING_HTML, "the badge anchor drifted"
-
-
-def test_the_lead_leads_with_it_too(hero):
-    """The badge is the headline of the claim; the lead has to carry it or the
-    paragraph underneath quietly contradicts the pill above it."""
-    lead = hero[hero.index('class="lead"'):]
-    lead = lead[:lead.index("</p>")]
-    # The lead no longer opens on "No AI" and that is deliberate: the same
-    # construction appeared six times across the page. It now appears ONCE, as
-    # the NO AI badge sitting directly above the headline, which is a louder
-    # placement than a clause in the third sentence. The badge is asserted
-    # separately in test_the_badge_is_above_the_fold.
-    assert "NO AI" in hero, "the NO AI badge is gone from the hero"
-
-
-def test_the_multi_channel_pitch_survived(hero):
-    """The other half of the positioning. Making room for NO AI must not have
-    cost the thing that actually differentiates this for clippers."""
-    assert "10 channels" in hero
-    assert ("clip for" in hero or "every channel" in hero
-            or "watches all ten" in hero), "the multi-channel pitch left the hero"
+    assert 'id="how"' in LANDING_HTML
 
 
 def test_the_page_does_not_claim_to_use_ai_anywhere():

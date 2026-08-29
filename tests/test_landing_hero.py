@@ -597,25 +597,28 @@ def test_the_cover_and_the_site_share_their_light():
 
 
 def test_ember_belongs_to_the_instruments_not_the_prose():
-    """The hero had a gold kicker over a gold badge over a gold offer over
-    four gold scores. Ember is the instrument colour — the tile scores, the
-    cover's big stat — and the prose layer above the wall lives in the same
-    purple light as the cover: kicker quiet, badge in the seam's own
-    rgba(184,106,220), offer weighted with ink instead of a third colour."""
-    kicker = re.search(r"\n  \.kicker\{([^}]*)\}", HTML).group(1)
-    assert "var(--ink-3)" in kicker and "ember" not in kicker
-    kline = re.search(r"\.kicker::after\{([^}]*)\}", HTML).group(1)
-    assert "247,167,69" not in kline, "the kicker's line is still a gold fade"
-    badge = re.search(r"\n  \.no-ai\{([^}]*)\}", HTML).group(1)
-    assert "rgba(184,106,220" in badge and "247,167,69" not in badge
-    x = re.search(r"\.no-ai-x\{([^}]*)\}", HTML).group(1)
-    assert "var(--glow-ink)" in x and "ember" not in x
-    note_b = re.search(r"\.hero-note b\{([^}]*)\}", HTML).group(1)
-    assert "var(--ink)" in note_b and "ember" not in note_b
+    """The hero once stacked a gold kicker over a gold NO AI badge over a gold
+    offer over four gold scores. Those first three went with the hero lede;
+    what the rule protects now is the rest of the page — ember is the
+    instrument colour, so prose and wayfinding labels must not wear it, and
+    the instruments must not lose it."""
+    prose = {
+        ".feat-label": r"\.feat-label\{([^}]*)\}",       # section group labels
+        ".price-lead b": r"\.price-lead b\{([^}]*)\}",   # the pricing lead-in
+        ".price-tiny": r"\.price-tiny\{([^}]*)\}",       # the plan footnote
+        ".wall-cap": r"\.wall-cap\{([^}]*)\}",           # the wall's caption
+        ".ptier-fig": r"\.ptier-fig\{([^}]*)\}",         # every price but Pro's
+    }
+    for name, pat in prose.items():
+        m = re.search(pat, HTML)
+        assert m, f"{name} is gone — re-point this test rather than deleting it"
+        assert "ember" not in m.group(1), f"{name} is wearing the instrument colour"
     # and the instruments KEEP it — this is a reassignment, not a purge
-    tile = re.search(r"\.tile-score\{([^}]*)\}", HTML)
-    assert tile and ("ember" in tile.group(1) or "247,167,69" in tile.group(1)), \
-        "the tile scores lost their ember — the instrument colour is gone too"
+    for name, pat in ((".tile-score", r"\.tile-score\{([^}]*)\}"),
+                      (".ptier-c .ptier-fig", r"\.ptier-c \.ptier-fig\{([^}]*)\}")):
+        m = re.search(pat, HTML)
+        assert m and "ember" in m.group(1), \
+            f"{name} lost its ember — the instrument colour is gone too"
 
 
 def test_the_wall_speaks_the_covers_language():
@@ -654,3 +657,46 @@ def test_the_page_below_the_fold_is_one_dark_room():
     tiers = re.search(r"\n  \.ptiers\{([^}]*)\}", HTML).group(1)
     assert "border-top:1px solid var(--hair)" in tiers and "gap:0" in tiers, \
         "the pricing row is not the hairline band construction"
+
+
+def test_the_wall_fills_slide_two_now_that_it_is_alone_there():
+    """THE BUG THE REMOVAL CAUSED, and the reason this is pinned.
+
+    The hero was `grid-template-rows:auto minmax(0,1fr)` — the lede took the
+    auto row, the wall took the 1fr row that stretched. Deleting the lede left
+    the wall as the only child, so it landed in the AUTO row and collapsed to
+    its own minimum: 281px of tiles in an 878px hero with 500px of black
+    underneath. One child, one row, and it has to stretch.
+    """
+    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
+    rows = re.search(r"grid-template-rows:([^;]+)", band).group(1).strip()
+    assert rows == "minmax(0,1fr)", \
+        f"the hero has {rows!r} rows again — a spare auto row collapses the wall"
+    # and the hero still has exactly one child to put in it
+    header = HTML[HTML.index('<header class="wrap hero'):]
+    header = header[:header.index("</header>")]
+    assert header.count('<div class="hero-stack">') == 1
+    assert 'class="hero-lede"' not in header, "the lede came back"
+
+
+def test_the_removed_hero_left_no_dead_stylesheet():
+    """The lede's CSS was ~4KB shipped to every visitor. Dead rules are not
+    harmless here — a dead FAQ stylesheet once overrode the live one's measure,
+    and a dead pricing stylesheet absorbed a whole restyle pass."""
+    # Comments stripped first: the block those rules occupied now holds a note
+    # explaining what was removed, and it names every one of them. Matching
+    # against the raw page would fail on the explanation rather than the CSS.
+    live = re.sub(r"/\*.*?\*/", "", HTML, flags=re.S)
+    live = re.sub(r"<!--.*?-->", "", live, flags=re.S)
+    for gone in ("hero-lede{", "hero-copy", "hero-act{", "hero-ctas{",
+                 "hero-note{", ".no-ai{", ".kicker{"):
+        assert gone not in live, f"{gone} still ships but styles nothing"
+
+
+def test_the_page_still_has_exactly_one_h1():
+    """The h1 was "Never miss a highlight again." in the hero. That block is
+    gone, so the cover's wordmark carries it — a landing page with no h1 is a
+    real SEO regression, and two is as wrong as none."""
+    live = re.sub(r"<!--.*?-->", "", HTML, flags=re.S)
+    assert live.count("<h1") == 1, "the page has zero or several h1 elements"
+    assert '<h1 class="cover-word">Highlightz</h1>' in live

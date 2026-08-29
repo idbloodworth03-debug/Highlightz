@@ -138,8 +138,10 @@ def test_accent_word_is_solid_not_outlined():
         assert twitch not in css, f"Twitch's own purple {twitch} is back in the palette"
     # The old class name described the opposite behaviour and is fully gone.
     assert ".hollow" not in css and 'class="hollow"' not in css
-    # Both accented words still exist in the markup.
-    assert css.count('class="accent"') == 2
+    # ONE accented phrase now, not two: the hero's "Never miss a highlight
+    # again." went with the rest of that block, leaving the closing section's
+    # "You can only watch one." as the page's single accent.
+    assert css.count('class="accent"') == 1
 
 
 def test_landing_has_inline_clip_lightbox():
@@ -189,15 +191,10 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     starter = PLAN_LIMITS["starter"]["max_streams"]
     pro     = PLAN_LIMITS["pro"]["max_streams"]
 
-    # Above the fold, in the three places a visitor cannot miss. The h1 is the
-    # brand slogan and deliberately carries no number — so the hero has to say
-    # it in the lead, or the page's main claim lives only in the pricing table.
-    assert "Never miss a <span class=\"accent\">highlight</span> again." in html
-    assert f"Up to {pro} channels at the same time on Pro." in html   # hero lead
-    # The hero used to repeat the number in a tag row underneath the lead. Two
-    # statements of the same figure three lines apart is the padding this page
-    # is meant to be free of, so the second one is the stats band instead —
-    # still above the fold, and it carries the Starter figure too.
+    # Above the fold. The hero's lede — slogan, lead and CTAs — was removed on
+    # the owner's instruction, so the claim no longer has a sentence there to
+    # live in. The stats band on the cover is now the first place a visitor
+    # meets the number, and it carries both figures at once.
     assert f"channels watched at once on Pro, {starter} on Starter" in html
 
     # Pricing, where the paid tiers have to be unambiguous. The three cards with
@@ -367,16 +364,15 @@ def test_lobster_is_titles_only_and_never_uppercased():
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    # .hero-copy h1 asks for the family through var(--display) rather than
-    # naming it, so it does not appear in this scan. The token is checked below
-    # instead — what matters is that Lobster is reachable from exactly two
-    # places, not which of the two spells it out.
+    # ONCE now, not twice. The other user was the hero's slogan, which asked
+    # for the family through var(--display); the whole hero lede was removed on
+    # the owner's instruction, so the closing line is the only place the script
+    # face appears. --display is kept as a named token so a future display
+    # heading reaches for the same face rather than picking a new one.
     assert users == {".final h2"}, f"Lobster scope drifted: {sorted(users)}"
     assert "--display:'Lobster'" in css
-    assert re.search(r"\.hero-copy h1\{font-family:var\(--display\)", css), \
-        "the slogan stopped using the display face"
-    assert css.count("font-family:var(--display)") == 1, \
-        "the display face spread past the slogan"
+    assert css.count("font-family:var(--display)") == 0, \
+        "something started using the display face again without being reviewed"
 
     # Headings are the text face; data is the instrument face. Neither is the
     # script face, and neither is Inter.
