@@ -1596,7 +1596,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
    a given clip keeps its word for as long as it exists, and the queue still
    reads varied because ids differ. */
 const SPIKE_CALM = ['Trending','Chat noticed','Crowd pick','Getting clipped','Worth a look'];
-const SPIKE_LOUD = ['Blowing up','Huge clip','Chat went off','Everyone clipped this','Big moment'];
+const SPIKE_LOUD = ['Blowing up','Huge clip','Everyone clipped this','Big moment'];
 function spikeLabel(clip){
   const pool = (clip.clipper_count||0) >= 5 ? SPIKE_LOUD : SPIKE_CALM;
   const key = String(clip.id || clip.slug || '');

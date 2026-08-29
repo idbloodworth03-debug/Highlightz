@@ -1042,7 +1042,11 @@ def test_a_loud_word_never_lands_on_a_weak_signal():
     assert d["leaks"] == 0, "a label crossed its tier — the word can now overclaim"
     assert d["calm"] == d["nCalm"] and d["loud"] == d["nLoud"], \
         "some labels are unreachable"
-    assert d["nCalm"] + d["nLoud"] == 10, "the pool is no longer ten labels"
+    # Not an exact total: the owner adds and drops words, and a test that has
+    # to be edited for each one stops being read. The invariant is that both
+    # tiers keep enough options for a queue not to read repetitive.
+    assert d["nCalm"] >= 4 and d["nLoud"] >= 4, \
+        f"a tier is down to {min(d['nCalm'], d['nLoud'])} labels — the queue will repeat"
 
 
 def test_the_label_does_not_reshuffle_while_you_read_it():
