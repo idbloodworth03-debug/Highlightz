@@ -476,3 +476,119 @@ def test_clicking_an_already_focused_input_can_reopen_the_list():
 # selectors, and freezing that list is precisely why the bug came back on every
 # screen the list had not thought of. The replacement asserts a SET: every
 # selector that turns a blur on must be one the player rule turns off.
+
+
+# ── the Clip Editor must export SOUND ────────────────────────────────────────
+#
+# Reported bug: edit a clip, download it, and the file is silent. The cause was
+# structural rather than a slip — canvas.captureStream() carries picture only,
+# so the recorded stream had a video track and nothing else, and runExport then
+# set v.muted = true, which would have silenced the audio even if a track had
+# been present. Reproduced in Chromium: the shipped path wrote a file with NO
+# audio stream at all; with the clip's audio routed in, the same recording
+# carried Opus at -21.4 dB.
+#
+# These pin the shape of the fix, because the export itself cannot run in
+# pytest — there is no browser, no MediaRecorder and no WebAudio here.
+
+def _export_recorder() -> str:
+    m = re.search(r"const exportRecorder = async \(\) => \{(.*?)\n  \};", SRC, re.S)
+    assert m, "exportRecorder not found"
+    return m.group(1)
+
+
+def _run_export() -> str:
+    m = re.search(r"const runExport = async \(\) => \{(.*?)\n  \};", SRC, re.S)
+    assert m, "runExport not found"
+    return m.group(1)
+
+
+def test_the_recorded_stream_is_given_an_audio_track():
+    """captureStream() on a canvas has no sound. If nothing adds the clip's
+    audio to that stream, every exported file is silent — the reported bug.
+
+    Pins the SHAPE, not just the presence of the call: an earlier version of
+    this test only looked for `stream.addTrack(` anywhere in the body, and so
+    passed happily against `if (false) stream.addTrack(at)` — the exact bug it
+    exists to catch.
+    """
+    body = _export_recorder()
+    assert "c.captureStream(30)" in body, "export no longer records the canvas"
+    assert re.search(
+        r"const g = audioGraph\(v, clip\.url\);\s*\n"
+        r"\s*if \(g\) \{[\s\S]{0,400}?"
+        r"const at = g\.dest\.stream\.getAudioTracks\(\)\[0\];\s*\n"
+        r"\s*if \(at\) stream\.addTrack\(at\);", body), \
+        "the clip's audio is not added to the recorded stream — exports are silent"
+
+
+def test_the_audio_track_is_added_before_the_recorder_is_constructed():
+    """MediaRecorder latches its track set at construction; a track added
+    afterwards is not recorded."""
+    body = _export_recorder()
+    assert body.index("stream.addTrack(") < body.index("new MediaRecorder("), \
+        "audio track added after the recorder was built — it will not be recorded"
+
+
+def test_export_does_not_mute_the_element_when_it_can_route_the_audio():
+    """v.muted silences the CAPTURED track too, so muting to keep the export
+    quiet in the room is what would re-break it. The monitor gain is the knob
+    that separates the two; v.muted stays only as the no-graph fallback."""
+    body = _run_export()
+    assert "monitor.gain.value = 0" in body, "no monitor gain — export has no way to be quiet"
+    assert re.search(r"if \(g\) g\.monitor\.gain\.value = 0;\s*\n\s*else v\.muted = true;", body), \
+        "v.muted is not confined to the branch where no audio graph exists"
+
+
+def test_whatever_export_changed_it_puts_back():
+    """Leaving the monitor at zero would silence PREVIEW playback from then on
+    — the user would report the editor going deaf after one export."""
+    body = _run_export()
+    assert "g.monitor.gain.value = wasGain" in body and "v.muted = wasMuted" in body, \
+        "export does not restore what it changed"
+
+
+def test_a_source_we_cannot_read_falls_back_instead_of_going_silent():
+    """createMediaElementSource does not throw on a tainted cross-origin
+    source, it yields silence — and the routing it installs is permanent, so
+    it would take the PREVIEW's audio with it, which is worse than the bug."""
+    m = re.search(r"function canReadAudio\(url\) \{(.*?)\n\}", SRC, re.S)
+    assert m, "canReadAudio not found"
+    body = m.group(1)
+    assert "location.origin" in body and "blob:" in body, \
+        "no same-origin guard in front of createMediaElementSource"
+    assert "canReadAudio(url)" in re.search(
+        r"function audioGraph\(v, url\) \{(.*?)\n\}", SRC, re.S).group(1), \
+        "audioGraph does not consult the guard"
+
+
+def test_the_graph_is_built_once_per_element():
+    """createMediaElementSource throws if it is called twice for the same
+    element, so a second export would blow up without the cache — and the
+    cache must store the null result too, or a failed build retries forever."""
+    m = re.search(r"function audioGraph\(v, url\) \{(.*?)\n\}", SRC, re.S)
+    body = m.group(1)
+    assert "AUDIO_GRAPHS.get(v)" in body and "AUDIO_GRAPHS.set(v," in body
+    assert "g !== undefined" in body, \
+        "a cached null would be treated as a miss and rebuilt on every export"
+
+
+def test_every_recorder_type_naming_a_video_codec_also_names_an_audio_one():
+    """A type string listing video alone asks some builds for a video-only
+    container, which drops the audio track we just went to the trouble of
+    adding. Bare container strings are fine — the browser picks both."""
+    m = re.search(r"const REC_TYPES = \[(.*?)\];", SRC, re.S)
+    assert m, "REC_TYPES not found"
+    types = re.findall(r"'([^']+)'", m.group(1))
+    assert types, "no recorder types"
+    audio = ("mp4a", "opus", "aac", "vorbis")
+    for t in types:
+        if "codecs=" not in t:
+            continue                      # 'video/mp4' — browser chooses both
+        assert any(a in t for a in audio), \
+            f"{t!r} names a video codec but no audio codec"
+
+
+def test_the_recorder_is_told_an_audio_bitrate():
+    body = _export_recorder()
+    assert "audioBitsPerSecond" in body, "no audio bitrate set on the recorder"

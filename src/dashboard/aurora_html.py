@@ -3829,18 +3829,77 @@ const HAS_WEBCODECS = typeof window !== 'undefined'
 // Preferred MediaRecorder types, best first. H.264 in an MP4 is what TikTok and
 // Instagram accept; WebM is the last resort and needs a server-side convert
 // before it can be published anywhere.
+//
+// EVERY ENTRY THAT NAMES A VIDEO CODEC ALSO NAMES AN AUDIO ONE. A type string
+// listing video alone is a request for a video-only container on some builds,
+// which silently drops the audio track we hand the recorder.
+// The video-only variants ('...codecs=avc1.42E01E' on its own) are gone: the
+// bare container below each one matches every browser they did and lets the
+// browser choose an audio codec too, which is the whole point.
 const REC_TYPES = [
   'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-  'video/mp4;codecs=avc1.42E01E',
   'video/mp4',
-  'video/webm;codecs=h264',
-  'video/webm;codecs=vp9',
+  'video/webm;codecs=h264,opus',
+  'video/webm;codecs=vp9,opus',
   'video/webm',
 ];
 
 function pickRecorderType() {
   if (typeof MediaRecorder === 'undefined') return '';
   return REC_TYPES.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || '';
+}
+
+/* ── Export audio ────────────────────────────────────────────────────────────
+   WHY THIS EXISTS. The export records canvas.captureStream(), and a canvas has
+   no sound — so the recorded stream carried a video track and nothing else,
+   and every exported clip came out silent. Reproduced in Chromium: the shipped
+   path wrote a file with no audio stream at all.
+
+   The fix is to hand the recorder the video element's audio as a second track.
+   WebAudio rather than v.captureStream() because it also solves the problem
+   that made the old code mute the element: createMediaElementSource REROUTES
+   the element's sound into the graph, so what the user hears is whatever we
+   connect to ctx.destination. Turning the monitor gain down makes the export
+   silent in the room while the recorded track stays hot. Setting v.muted for
+   that — which is what the code used to do — mutes the captured track too, so
+   it would defeat the fix.
+
+   ONE GRAPH PER ELEMENT, FOREVER: createMediaElementSource throws if it is
+   called twice for the same element, and the routing it installs is permanent.
+   Hence the WeakMap. */
+const AUDIO_GRAPHS = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+// A media element whose audio WebAudio is allowed to read. A cross-origin
+// source without CORS is not: createMediaElementSource does not throw on one,
+// it silently yields silence — and because the routing is permanent, that
+// would take the PREVIEW's sound with it. Same-origin and blob: only, so the
+// worst case is the silent-export behaviour we already had.
+function canReadAudio(url) {
+  if (!url) return false;
+  if (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) return true;
+  try { return new URL(url, location.href).origin === location.origin; }
+  catch (e) { return false; }
+}
+
+function audioGraph(v, url) {
+  if (!AUDIO_GRAPHS || !v || !canReadAudio(url)) return null;
+  var g = AUDIO_GRAPHS.get(v);
+  if (g !== undefined) return g;            // null is cached too: do not retry
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) { AUDIO_GRAPHS.set(v, null); return null; }
+  try {
+    var ctx = new AC();
+    var src = ctx.createMediaElementSource(v);
+    var monitor = ctx.createGain();                  // what the room hears
+    var dest = ctx.createMediaStreamDestination();   // what gets recorded
+    src.connect(monitor); monitor.connect(ctx.destination);
+    src.connect(dest);
+    g = { ctx: ctx, monitor: monitor, dest: dest };
+  } catch (e) {
+    g = null;                     // no audio track, or the browser said no
+  }
+  AUDIO_GRAPHS.set(v, g);
+  return g;
 }
 
 const RATIOS = [
@@ -4248,8 +4307,17 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const type = pickRecorderType();
     if (!type) throw new Error('This browser cannot export video. Try Chrome.');
     const stream = c.captureStream(30);
+    // The canvas gives picture only. Add the clip's own audio, or the export
+    // is silent — which is exactly what it used to be.
+    const g = audioGraph(v, clip.url);
+    if (g) {
+      try { await g.ctx.resume(); } catch (e) {}
+      const at = g.dest.stream.getAudioTracks()[0];
+      if (at) stream.addTrack(at);
+    }
     const chunks = [];
-    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6e6 });
+    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6e6,
+                                            audioBitsPerSecond: 128e3 });
     rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     const finished = new Promise(res => { rec.onstop = res; });
 
@@ -4352,8 +4420,16 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const runExport = async () => {
     setErr(''); setDone(''); setBusy(true); setPct(0); cancelRef.current = false;
     const v = videoRef.current;
+    // Exporting should not blast the clip across the room — but it MUST still
+    // record the sound. With the WebAudio graph in place those are different
+    // knobs: turn the monitor down and the recorded track is untouched.
+    // v.muted is the fallback for a source we cannot route (see canReadAudio),
+    // where the export stays silent exactly as it was before.
+    const g = audioGraph(v, clip.url);
     const wasMuted = v.muted;
-    v.muted = true;                       // exporting should not blast audio
+    const wasGain = g ? g.monitor.gain.value : 0;
+    if (g) g.monitor.gain.value = 0;
+    else v.muted = true;
     try {
       // MediaRecorder produces a real, playable container on every browser.
       // The WebCodecs fast path is deliberately NOT wired in yet: it yields a
@@ -4394,7 +4470,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     } catch (e) {
       setErr(e && e.message ? e.message : 'Export failed.');
     } finally {
-      v.muted = wasMuted;
+      if (g) g.monitor.gain.value = wasGain;
+      else v.muted = wasMuted;
       setBusy(false); setPlay(false);
     }
   };
