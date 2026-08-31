@@ -316,3 +316,54 @@ def test_the_faq_schema_matches_the_visible_questions():
         HTML, re.S)
     assert len(shown) >= 5, "the visible FAQ could not be read at all"
     assert len(faq["mainEntity"]) == len(shown)
+
+
+def test_the_feature_titles_are_not_the_same_colour_as_their_own_body_text():
+    """WHY THIS SECTION LOOKED FLAT. `.feat h3` set no colour at all, so it
+    INHERITED — and what it inherited was the same value `.feat p` sets
+    explicitly. Measured in Chromium: title and body both rgb(185,174,196).
+    Eight headings and eight paragraphs in one ink, separated by two pixels of
+    size and one weight, so nothing announced what each block was about.
+
+    A heading with no colour of its own is the failure mode, so this asserts
+    the colour is STATED, not merely different today: the next change to a
+    parent would silently take it back down to the body value."""
+    m = re.search(r"\.feat h3\{([^}]*)\}", CSS)
+    assert m, ".feat h3 has no rule of its own"
+    head = m.group(1)
+    assert "color:" in head, \
+        "the feature titles inherit their colour — one parent change and they " \
+        "are the same ink as their own body text again"
+    body = re.search(r"\.feat p\{([^}]*)\}", CSS).group(1)
+    head_col = re.search(r"color:([^;]+)", head).group(1).strip()
+    body_col = re.search(r"color:([^;]+)", body).group(1).strip()
+    assert head_col != body_col, (
+        f"feature titles and body text are both {head_col}")
+    assert head_col == "var(--ink)", (
+        f"the titles are {head_col}; --ink is the brightest ink on the page and "
+        f"what makes them read as headings")
+
+
+def test_the_feature_titles_stay_smaller_than_the_lead_claim():
+    """The lead is the one item carrying the argument. Raising the item titles
+    to make them stand out must not flatten that back out."""
+    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
+    lead = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS).group(1)
+    def ceiling(rule):
+        c = re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", rule)
+        assert c, f"no clamped font-size in {rule!r}"
+        return float(c.group(1))
+    assert ceiling(item) < ceiling(lead), (
+        f"item titles cap at {ceiling(item)}px and the lead at {ceiling(lead)}px "
+        f"— the lead is no longer the largest thing in the section")
+
+
+def test_the_feature_titles_do_not_grow_enough_to_wrap():
+    """MEASURED, not guessed. At a 20px cap "One queue for all of them" and
+    "Streams that already ended" wrap onto a second line at 1440px, leaving the
+    three-column row ragged and pushing those paragraphs below their
+    neighbours. 19 is the largest that keeps them on one line."""
+    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
+    cap = float(re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", item).group(1))
+    assert cap <= 19, (
+        f"item titles cap at {cap}px; above 19 they wrap in the three-column row")

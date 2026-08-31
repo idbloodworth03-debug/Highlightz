@@ -7103,9 +7103,12 @@ LANDING_HTML = """<!DOCTYPE html>
      items have in common before you read them. */
   /* Quiet, like the hero's kicker and the cover's captions: the group labels
      are wayfinding, not instruments, so they do not get the instrument
-     colour. */
+     colour. Lifted from --ink-3 to --ink-2 though — at 12px, tracked to .18em
+     and uppercased, the dimmest ink on the page was a label you had to go
+     looking for. It still reads under the item titles, which is the order it
+     should read in. */
   .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:12px;
-    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin-bottom:16px}
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2);margin-bottom:16px}
   .feat-grid{display:grid;gap:clamp(22px,2.6vw,44px);align-items:start}
   /* Unequal on purpose, and the two shapes share a first column so the groups
      line up down the page instead of each starting somewhere new. */
@@ -7121,7 +7124,26 @@ LANDING_HTML = """<!DOCTYPE html>
      a section whose right edge moves three times is not. */
   .feat-cols-2{grid-template-columns:minmax(0,1.08fr) minmax(0,1.42fr)}
   .feat{min-width:0}
-  .feat h3{font-size:16px;font-weight:700;letter-spacing:-.015em;margin-bottom:8px}
+  /* THE TITLES HAVE TO CARRY THE SECTION. At 16px/700 over 14px body the step
+     was two pixels and one weight, so each item read as a paragraph with a
+     bold first line rather than a heading with text under it — you had to read
+     the block to find out what it was about. Three things fix that and none of
+     them is colour: a real size step, the brightest ink in the palette stated
+     explicitly rather than inherited, and space that belongs to the pairing —
+     more above the title than below it, so the title sits WITH its own
+     paragraph instead of floating between two.
+
+     Still under .feat-wide's clamp(20,2.1vw,26), which is what keeps the lead
+     claim the largest thing in the section.
+
+     THE CEILING IS 19, AND IT IS NOT ARBITRARY. Tried at 1.35vw/20px first:
+     at 1440 that renders 19.4 and wraps "One queue for all of them" and
+     "Streams that already ended" onto a second line, which leaves the row
+     ragged and drops those two paragraphs below their neighbours. A heading
+     that wraps in a three-column grid costs more than the extra pixel and a
+     half buys. */
+  .feat h3{font-size:clamp(17px,1.2vw,19px);font-weight:700;letter-spacing:-.015em;
+    line-height:1.25;color:var(--ink);margin:0 0 var(--s-3)}
   .feat p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:var(--measure)}
   /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
      dead gap. The measure is capped so a full-width paragraph does not run to
