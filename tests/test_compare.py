@@ -194,3 +194,39 @@ def test_the_page_renders_without_a_bundler(page):
     fetches beyond the fonts already self-hosted."""
     assert "<script src=" not in page, "pulled in an external script"
     assert page.count("<style>") == 1
+
+
+def test_the_big_titles_are_the_script_face_like_the_rest_of_the_site():
+    """The landing page's big titles were moved to Lobster on the owner's
+    instruction. A comparison page still setting its headings in the body face
+    is the same site in two typographic voices, which is what "all the big bold
+    titles" was asked to end.
+
+    The two rules that travel with a script face are checked here rather than
+    assumed: it ships one weight, so anything asking for bold gets synthesised
+    and smeared, and its letters are drawn to connect, so uppercase snaps them
+    apart."""
+    import re
+    from src.dashboard import compare_html
+    css = compare_html._CSS
+    for sel in (r"\.cmp-hero h1", r"\.math h2", r"\.fair h2", r"\.closer h2"):
+        m = re.search(sel + r"\{([^}]*)\}", css)
+        assert m, f"{sel} rule not found"
+        body = m.group(1)
+        assert "'Lobster'" in body, f"{sel} is not the script face"
+        assert "font-weight:400" in body, f"{sel} would synthesise bold"
+        assert "text-transform:uppercase" not in body, f"{sel} uppercases a script face"
+        ls = re.search(r"letter-spacing:(-?[\d.]+)em", body)
+        if ls:
+            assert float(ls.group(1)) >= -0.01, \
+                f"{sel} tracks a script face in at {ls.group(1)}em"
+
+
+def test_the_script_face_is_preloaded_where_it_carries_the_titles():
+    """Without the preload the headings paint in the fallback serif and reflow
+    when Lobster lands, and /compare's first heading is above the fold so that
+    reflow is visible. Measured: CLS 0.0065 before these headings changed."""
+    from src.dashboard import compare_html
+    html = compare_html.render()
+    assert 'rel="preload" href="/static/fonts/lobster-400.woff2"' in html, \
+        "the script face is used above the fold but not preloaded"

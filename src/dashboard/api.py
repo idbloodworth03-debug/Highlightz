@@ -6050,11 +6050,21 @@ LANDING_HTML = """<!DOCTYPE html>
      ══════════════════════════════════════════════════════════════════════ */
 
   /* Self-hosted, subsetted — no third-party font dependency. */
-  /* TITLES ONLY, and now only two of them. Lobster is a SCRIPT face: its
-     letters are drawn to connect in lowercase, so text-transform:uppercase
-     mangles it — every rule below deliberately drops uppercase, and a test
-     asserts none creeps back. It ships ONE weight (400); asking for bold makes
-     the browser smear the glyphs. */
+  /* TITLES ONLY, and now every big one of them — the section headings, the
+     hero's headline and the closing line. The scope was deliberately narrow
+     before (a display face on four headings stops being an accent) and was
+     widened on the owner's instruction; the trade is that the script IS the
+     page's title voice now rather than a flourish at the end.
+
+     Lobster is a SCRIPT face: its letters are drawn to connect in lowercase,
+     so text-transform:uppercase mangles it — every rule below deliberately
+     drops uppercase, and a test asserts none creeps back. It ships ONE weight
+     (400); asking for bold makes the browser smear the glyphs. Both hold
+     wherever it is used, which is why the test checks the rules rather than a
+     list of selectors.
+
+     NOT the cover wordmark. That is the mono, matching the nav's lockup,
+     settled separately and deliberately. */
   @font-face{font-family:'Lobster';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/lobster-400.woff2) format('woff2')}
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
   /* METRIC-MATCHED FALLBACK. Sora is the only one of the three faces that
@@ -6318,8 +6328,10 @@ LANDING_HTML = """<!DOCTYPE html>
     gap:var(--s-5);max-width:46ch;min-width:0;padding:var(--s-6) 0}
   .side-k{font-family:var(--mono);font-weight:600;font-size:12px;
     letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
-  .side-h{font-family:var(--sans);font-weight:700;color:var(--ink);margin:0;
-    font-size:clamp(26px,2.6vw,38px);line-height:1.14;letter-spacing:-.02em}
+  /* Same treatment as the section titles: this is the first big title on the
+     site after the cover, so it sets the voice the rest follow. */
+  .side-h{font-family:'Lobster',Georgia,serif;font-weight:400;color:var(--ink);margin:0;
+    font-size:clamp(30px,3.2vw,44px);line-height:1.14;letter-spacing:-.005em}
   .side-p{margin:0;font-size:15px;line-height:1.65;color:var(--ink-2);max-width:40ch}
   /* THE DOORS. Two quiet, clickable prompts — a hairline chip that lights up
      the same way everything else on this page lights up. Real links, real
@@ -6423,8 +6435,24 @@ LANDING_HTML = """<!DOCTYPE html>
   /* .kicker lived here. It was the hero's "AUTOMATIC TWITCH CLIPPING" label
      and nothing else on this page used it. The tutorial and comparison pages
      have their own .kicker in BASE_CSS, which is a separate stylesheet. */
-  h2.sec-title{font-family:var(--sans);font-weight:700;font-size:clamp(27px,3.4vw,36px);
-    line-height:1.1;letter-spacing:-.025em;color:var(--ink);margin:0 0 12px}
+  /* THE SCRIPT FACE, on every big title. Asked for directly, and it is a
+     reversal of the earlier "twice on the page" scope — a display face on one
+     heading is an accent, on all of them it is the page's voice. That is now
+     the intent.
+
+     Three things travel with Lobster wherever it goes and none of them is
+     optional: weight 400 (it ships one weight, and asking for bold makes the
+     browser smear the glyphs), no uppercase (the letters are drawn to connect
+     in lowercase and text-transform snaps them apart), and tracking near zero
+     rather than the -.025em a grotesque wants — a script face is already
+     tightly fitted and negative tracking collides the joins.
+
+     Sized up, because it has to be. Lobster's lowercase sits small in its em
+     next to Sora at the same px, so keeping 36 would have made the titles
+     quieter than the ones they replaced rather than louder. */
+  h2.sec-title{font-family:'Lobster',Georgia,serif;font-weight:400;
+    font-size:clamp(32px,4vw,44px);
+    line-height:1.1;letter-spacing:-.005em;color:var(--ink);margin:0 0 12px}
   .sec-head.kicked h2.sec-title{margin-top:16px}
   /* THE MEASURE. Fourteen prose blocks on this page ran past 75 characters,
      the worst at 177 and 139 — a line that long makes the eye lose its place

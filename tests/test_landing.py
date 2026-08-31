@@ -344,10 +344,14 @@ def test_lobster_is_titles_only_and_never_uppercased():
        it by smearing glyphs, the same artefact that made the previous two
        display faces look wrong.
 
-    Scope narrowed in the late-night-room redesign: a characterful display face
-    used on four headings stops being characterful and starts being the page's
-    default voice, so it now appears exactly TWICE — the h1 and the closing
-    line. Section headings are Sora; every number and label is the mono.
+    SCOPE WIDENED ON THE OWNER'S INSTRUCTION, and this test flipped with it.
+    It used to pin Lobster to exactly one selector, on the reasoning that a
+    display face on four headings stops being an accent and becomes the page's
+    voice. That is now the intent: every big title on the site is the script
+    face. So the test no longer guards a list of selectors, which would have to
+    be edited every time a heading is added. It guards the two rules that make
+    the face render correctly WHEREVER it is used, and the one place it must
+    never reach.
     """
     import re
     css = api.LANDING_HTML
@@ -359,26 +363,24 @@ def test_lobster_is_titles_only_and_never_uppercased():
         weight = re.search(r"font-weight:(\d+)", body)
         assert weight and weight.group(1) == "400", f"{sel} would synthesise bold"
 
-    # Used twice, and only twice. The @font-face block declares the family
-    # rather than using it, so it is not a usage site.
+    # A THIRD RULE, and it is why the titles were resized rather than just
+    # restyled: Lobster is tightly fitted already, so the -.02em a grotesque
+    # wants collides its joins. Nothing carrying it may track in hard.
+    for m in re.finditer(r"([^{};]+)\{([^}]*font-family:'Lobster'[^}]*)\}", css):
+        sel, body = m.group(1).strip(), m.group(2)
+        ls = re.search(r"letter-spacing:(-?[\d.]+)em", body)
+        if ls:
+            assert float(ls.group(1)) >= -0.01, \
+                f"{sel} tracks Lobster in at {ls.group(1)}em and collides the joins"
+
+    # Every big title wears it. Named individually so a heading silently
+    # dropping back to the body face is a failure rather than a shrug.
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    # ONCE now, not twice. The other user was the hero's slogan, which asked
-    # for the family through var(--display); the whole hero lede was removed on
-    # the owner's instruction, so the closing line is the only place the script
-    # face appears. --display is kept as a named token so a future display
-    # heading reaches for the same face rather than picking a new one.
-    assert users == {".final h2"}, f"Lobster scope drifted: {sorted(users)}"
+    assert {"h2.sec-title", ".side-h", ".final h2"} <= users, (
+        f"a big title stopped being the script face: {sorted(users)}")
     assert "--display:'Lobster'" in css
-    assert css.count("font-family:var(--display)") == 0, \
-        "something started using the display face again without being reviewed"
-
-    # Headings are the text face; data is the instrument face. Neither is the
-    # script face, and neither is Inter.
-    for sel in ("h2.sec-title",):
-        block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
-        assert "var(--sans)" in block, f"{sel} should be the body face"
     # .ptier-fig replaced .price-amt .num: that selector belonged to a dead
     # second pricing stylesheet (the rendered page uses .ptier classes), so the
     # LIVE price was quietly in the text face while this test checked a rule

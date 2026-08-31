@@ -284,8 +284,12 @@ _CSS = """
 
   .tut-sec{padding:32px 0;border-top:1px solid var(--hair)}
   .tut-sec:first-of-type{border-top:none}
-  .tut-h{font-family:var(--sans);font-weight:700;font-size:clamp(22px,3vw,29px);
-    line-height:1.2;letter-spacing:-.022em;margin-bottom:12px;display:flex;
+  /* The script face, same as the landing page's section titles: the site's
+     big titles are all Lobster now. Weight 400 and tracking near zero travel
+     with it — it ships one weight, and negative tracking collides the joins on
+     a face whose letters are drawn to connect. */
+  .tut-h{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(26px,3.4vw,35px);
+    line-height:1.2;letter-spacing:-.005em;margin-bottom:12px;display:flex;
     align-items:center;gap:12px;flex-wrap:wrap;scroll-margin-top:96px}
   .tut-plan{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ember);border:1px solid rgba(247,167,69,.4);
@@ -599,6 +603,10 @@ def render() -> str:
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/tutorial">
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Lobster carries every big title on this page now, so it is render-blocking
+     in practice: without this preload the headings paint in Georgia and reflow
+     when it arrives. Measured on /compare: CLS 0.0065 -> 0.0241 without it. -->
+<link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Highlightz">

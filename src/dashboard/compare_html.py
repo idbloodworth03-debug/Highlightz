@@ -31,7 +31,9 @@ _DESC = ("Honest comparison of Highlightz, Opus Clip and Eklipse for stream "
 _CSS = BASE_CSS + """
   /* ── comparison-specific ─────────────────────────────────────────────── */
   .cmp-hero{padding:96px 0 48px;text-align:center}
-  .cmp-hero h1{font-size:clamp(34px,5.2vw,60px);line-height:1;letter-spacing:-.025em;
+  /* Script face, like every other big title on the site. Weight 400 and
+     tracking near zero travel with Lobster wherever it goes. */
+  .cmp-hero h1{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(34px,5.2vw,60px);line-height:1;letter-spacing:-.005em;
     margin:16px auto 16px;max-width:15ch}
   .cmp-hero .lead{color:var(--ink-2);font-size:clamp(16px,1.7vw,19.5px);line-height:1.6;
     max-width:60ch;margin:0 auto}
@@ -60,7 +62,7 @@ _CSS = BASE_CSS + """
 
   .math{margin:64px 0;padding:32px 32px;border:1px solid var(--hair);border-radius:18px;
     background:var(--wall)}
-  .math h2{font-size:clamp(23px,2.7vw,32px);letter-spacing:-.02em;margin:12px 0 16px;max-width:22ch}
+  .math h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(27px,3.1vw,38px);letter-spacing:-.005em;margin:12px 0 16px;max-width:22ch}
   .math p{color:var(--ink-2);font-size:16px;line-height:1.7;max-width:66ch}
   .math p + p{margin-top:12px}
 
@@ -80,13 +82,13 @@ _CSS = BASE_CSS + """
   .mwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
   .fair{margin:64px 0;padding:32px 32px;border:1px solid var(--hair);border-radius:18px}
-  .fair h2{font-size:clamp(23px,2.7vw,30px);letter-spacing:-.02em;margin:12px 0 24px}
+  .fair h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(27px,3.1vw,36px);letter-spacing:-.005em;margin:12px 0 24px}
   .fair .pt{padding:16px 0;border-top:1px solid var(--hair)}
   .fair .pt b{display:block;font-size:16px;margin-bottom:4px}
   .fair .pt span{color:var(--ink-2);font-size:14px;line-height:1.6}
 
   .closer{text-align:center;padding:64px 0 32px}
-  .closer h2{font-size:clamp(26px,3.2vw,38px);letter-spacing:-.022em;margin-bottom:16px}
+  .closer h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(30px,3.7vw,44px);letter-spacing:-.005em;margin-bottom:16px}
   .closer p{color:var(--ink-2);font-size:16px;line-height:1.7;max-width:62ch;margin:0 auto 24px}
   .closer .note{font-size:12px;color:var(--ink-3);margin-top:12px}
 
@@ -242,6 +244,10 @@ def render() -> str:
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/compare">
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Lobster carries every big title on this page now, so it is render-blocking
+     in practice: without this preload the headings paint in Georgia and reflow
+     when it arrives. Measured on /compare: CLS 0.0065 -> 0.0241 without it. -->
+<link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Highlightz">
