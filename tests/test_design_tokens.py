@@ -458,7 +458,13 @@ def test_the_dead_faq_stylesheet_is_gone():
     assert ".faq-list{" not in c, "the dead FAQ block is back"
     assert c.count(".faq-a{") == 1, "there are two .faq-a rules again"
     from src.dashboard.api import LANDING_HTML
-    assert 'class="faq-cols"' in LANDING_HTML, "the live FAQ markup changed"
+    # The canary that the live markup still exists for these rules to style.
+    # It was class="faq-cols" while the FAQ was two columns; the section is a
+    # single-column list now and the container is .faq-rows. The name .faq-list
+    # is deliberately NOT reused: it is the dead sheet's name, and a live
+    # element wearing it would make this test read as passing for the wrong
+    # reason forever after.
+    assert 'class="faq-rows"' in LANDING_HTML, "the live FAQ markup changed"
 
 
 # ── phase 4: the post-login states ───────────────────────────────────────────

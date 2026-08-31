@@ -304,3 +304,50 @@ def test_every_public_page_still_carries_its_schema():
                                         "WebSite", "FAQPage"}
     assert "HowTo" in types(tutorial_html.render())
     assert "ItemList" in types(compare_html.render())
+
+
+def test_no_faq_answer_reaches_the_schema_empty():
+    """A PRE-EXISTING BUG, found while the FAQ was being expanded and fixed
+    there. The FAQPage was built from LANDING_HTML at a point in the module
+    where one answer was still a <!--FREEPLAN--> placeholder. _faq_schema
+    strips tags, an HTML comment is stripped like any other, and the page
+    published "How does billing work?" with the empty string as its answer.
+
+    That is invisible in a browser and it is the precise failure _faq_schema's
+    own docstring says it exists to prevent, so it gets a test rather than a
+    comment. The schema is built after every placeholder is filled now; a new
+    placeholder inside a .faq-a would reintroduce it."""
+    import json
+    import re as _re
+    from src.dashboard.api import LANDING_HTML
+
+    blobs = _re.findall(r'<script type="application/ld\+json">(.*?)</script>',
+                        LANDING_HTML, _re.S)
+    faq = [json.loads(b) for b in blobs if '"FAQPage"' in b]
+    assert faq, "the page publishes no FAQPage at all"
+    questions = faq[0]["mainEntity"]
+    assert questions, "the FAQPage has no questions in it"
+
+    empty = [q["name"] for q in questions
+             if not q["acceptedAnswer"]["text"].strip()]
+    assert not empty, f"these answers reach Google empty: {empty}"
+
+    # And every one is real prose, not a stray fragment left by tag-stripping.
+    thin = [q["name"] for q in questions
+            if len(q["acceptedAnswer"]["text"].strip()) < 40]
+    assert not thin, f"these answers are suspiciously short in the schema: {thin}"
+
+
+def test_the_schema_covers_every_question_the_page_shows():
+    """The two must not drift: a question visible on the page and missing from
+    the schema is the same silent-emptying failure by degrees."""
+    import json
+    import re as _re
+    from src.dashboard.api import LANDING_HTML
+
+    visible = LANDING_HTML.count('class="faq-item"')
+    blobs = _re.findall(r'<script type="application/ld\+json">(.*?)</script>',
+                        LANDING_HTML, _re.S)
+    faq = [json.loads(b) for b in blobs if '"FAQPage"' in b][0]["mainEntity"]
+    assert len(faq) == visible, (
+        f"{visible} questions on the page, {len(faq)} in the schema")

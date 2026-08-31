@@ -6889,20 +6889,25 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
      amber down the left until step 4, where the clip actually fires and it
      crosses to violet; that step is the one surface standing in the light. ══ */
-  /* ── FAQ: disclosure widgets, grouped ─────────────────────────────────────
-     Back to dropdowns by request. Kept from the open version: seven questions
-     instead of twelve, and the two groups, so the list is still short enough to
-     scan before anything is opened. */
+  /* ── FAQ: disclosure widgets, grouped, ONE COLUMN ─────────────────────────
+     Dropdowns stay: they were asked for explicitly after a pass that had
+     opened them out, and that has not changed.
+
+     The layout has. It was two columns, which reads left-right-left-right and
+     is the one arrangement that stops a set of questions being a list — your
+     eye has to jump the gutter to find the next one, and the group's last row
+     leaves a hole. One column top to bottom, asked for directly, and it is
+     what lets the set grow: at fifteen questions a two-column grid is a wall,
+     a single column is still just a list you scroll. */
   .faq-group{margin-top:32px}
   .faq-group + .faq-group{margin-top:32px}
   .faq-h{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.14em;
     text-transform:uppercase;color:var(--ink-3);margin:0 0 12px}
-  .faq-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-    gap:0 32px;align-content:start}
+  .faq-rows{display:grid;grid-template-columns:minmax(0,1fr);align-content:start}
   .faq-item{border-top:1px solid var(--hair)}
   .faq-item:last-child{border-bottom:1px solid var(--hair)}
   .faq-q{list-style:none;cursor:pointer;margin:0;padding:16px 32px 16px 0;
-    position:relative;font-size:14px;font-weight:600;color:var(--ink);
+    position:relative;font-size:15px;font-weight:600;color:var(--ink);
     line-height:1.4;transition:color var(--dur-fast) ease}
   .faq-q::-webkit-details-marker{display:none}
   .faq-q:hover{color:var(--glow)}
@@ -6924,9 +6929,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .faq-more{max-width:var(--measure)}
   .faq-a{margin:0;padding:0 32px 16px 0;font-size:14px;line-height:1.7;max-width:var(--measure);
     color:var(--ink-2)}
-  @media (max-width:760px){
-    .faq-cols{grid-template-columns:minmax(0,1fr)}
-  }
+  /* No breakpoint any more: it is one column at every width, so a narrow
+     screen has nothing left to collapse. */
 
   /* ── Pricing: two tiers, deliberately unequal ─────────────────────────────
      Not three cards of the same size with tick lists and a badge. The plans
@@ -7171,7 +7175,7 @@ LANDING_HTML = """<!DOCTYPE html>
   /* REMOVED: a second, complete FAQ stylesheet for markup that does not exist.
      It styled a `.faq-list` single-column accordion — zero occurrences in the
      rendered page — but three of its ten rules used selectors the LIVE
-     two-column FAQ also uses (.faq-item, .faq-q, .faq-a), and being later in
+     FAQ also uses (.faq-item, .faq-q, .faq-a), and being later in
      the sheet they won. So dead CSS was overriding live CSS: the reason
      .faq-a kept resolving to max-width:70ch and ignoring --measure no matter
      what the real rule said. The live block above is complete on its own and
@@ -7560,31 +7564,72 @@ LANDING_HTML = """<!DOCTYPE html>
   <h2 class="sec-title">Questions</h2>
   <div class="faq-group">
     <h3 class="faq-h">Using it</h3>
-    <div class="faq-cols">
+    <div class="faq-rows">
       <details class="faq-item">
         <summary class="faq-q">Can I clip channels I don't own?</summary>
         <p class="faq-a">Yes. That is what most people use it for. Add any live Twitch channel and the clip is created through Twitch's official Clips API with your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. Twitch hosts it and it is attributed to you, same as a manual clip.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Do I have to leave anything running?</summary>
+        <p class="faq-a">No. The watching happens on our servers, not in your browser. Add a channel, close the tab, shut the laptop. It keeps being scored the whole time it is live, and whatever it catches is waiting in your queue when you come back.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How many channels can it watch at once?</summary>
+        <p class="faq-a">One on Free, three on Starter, ten on Pro. At the same time, not in rotation, and each one carries its own profile so a busy channel and a quiet one do not interfere with each other.</p>
       </details>
       <details class="faq-item">
         <summary class="faq-q">Does it work for small channels?</summary>
         <p class="faq-a">Yes, and this is the whole point of per-channel calibration. A five-viewer chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns what is normal for each channel and reacts to relative spikes rather than raw numbers.</p>
       </details>
       <details class="faq-item">
-        <summary class="faq-q">Is this AI?</summary>
-        <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
+        <summary class="faq-q">What happens when my review queue fills up?</summary>
+        <p class="faq-a">Twenty clips can sit waiting on Free, fifty on Starter, two hundred on Pro. When the queue is full the incoming clip is dropped, and nothing you have already caught is ever deleted to make room for it. The dashboard tells you how many moments were missed that way in the last day, so a full queue is something you find out about rather than something that happens silently.</p>
       </details>
       <details class="faq-item">
         <summary class="faq-q">What if I don't like the clips it takes?</summary>
         <p class="faq-a">Every clip lands in your review queue first. Approve the keepers, reject the misses. The formula learns from each decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes toward your taste.</p>
       </details>
+      <details class="faq-item">
+        <summary class="faq-q">What are highlight clips?</summary>
+        <p class="faq-a">Moments the bot rates as your strongest shot at travelling. They arrive in the review queue marked Highlight, in purple, and they are the ones to look at first if you only have a minute. Clearing one tells it not to offer that moment again.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Can it look at a stream that already ended?</summary>
+        <p class="faq-a">On Pro, yes. The VOD Scanner runs the same scoring over a finished broadcast, so a back catalogue nobody was watching live is still worth mining. Every hit links to its own timestamp in the VOD.</p>
+      </details>
+    </div>
+  </div>
+  <div class="faq-group">
+    <h3 class="faq-h">How it decides</h3>
+    <div class="faq-rows">
+      <details class="faq-item">
+        <summary class="faq-q">Is this AI?</summary>
+        <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How does it know what counts as big on my channel?</summary>
+        <p class="faq-a">Every channel is measured against itself. The formula builds a picture of that channel's ordinary chat rate, audio level and viewer movement, then watches for departures from it. A threshold that would never be crossed on a quiet stream is crossed constantly on a loud one, which is why a single fixed number would only ever suit one kind of channel. It also gets sharper the longer a channel runs.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What are the presets for?</summary>
+        <p class="faq-a">Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. A preset only decides where a channel starts, because a chess stream and an FPS stream do not react the same way. It keeps learning from there, so picking the closest match is good enough and there is nothing to tune by hand.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Can I make it more or less sensitive?</summary>
+        <p class="faq-a">Yes, per channel. There is a sensitivity dial for when a stream is running hotter or quieter than usual, and it sits on top of what the channel has already learned. Most people never touch it, because approving and rejecting moves the same needle.</p>
+      </details>
     </div>
   </div>
   <div class="faq-group">
     <h3 class="faq-h">The fine print</h3>
-    <div class="faq-cols">
+    <div class="faq-rows">
       <details class="faq-item">
         <summary class="faq-q">Is this allowed on Twitch?</summary>
-        <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Streamers who would rather their channel was not clipped through Highlightz can opt out at any time on our opt-out page.</p>
+        <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or scrapes a page, and there is no second copy of anyone's video anywhere.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What if a streamer does not want to be clipped?</summary>
+        <p class="faq-a">They can opt out at any time on our opt-out page, and it takes effect immediately across every account. No email to us, no waiting on a reply. A channel that has opted out cannot be added by anyone.</p>
       </details>
       <details class="faq-item">
         <summary class="faq-q">Do you record or store my stream?</summary>
@@ -8758,8 +8803,12 @@ def _org_schema() -> str:
     return '<script type="application/ld+json">' + blob + "</script>"
 
 
-LANDING_HTML = LANDING_HTML.replace(
-    "<!--FAQ_SCHEMA-->", _org_schema() + _faq_schema(LANDING_HTML), 1)
+# The FAQ schema is NOT built here. It reads the FAQ's own markup, and one of
+# those answers is still a <!--FREEPLAN--> placeholder at this point in the
+# file — so building it here published "How does billing work?" with an empty
+# answer, which is the exact failure _faq_schema exists to prevent and is
+# invisible in a browser. It is built after every placeholder is filled; see
+# the bottom of this module.
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
@@ -8905,6 +8954,16 @@ def _tos_plans() -> str:
 
 LANDING_HTML = LANDING_HTML.replace("<!--FREEPLAN-->", _free_plan_answer(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
+
+# LAST, and that is the whole point. _faq_schema derives the FAQPage from the
+# FAQ's own markup so the two cannot disagree — but it can only read what is
+# already there. Built before the line above, the billing answer was still the
+# <!--FREEPLAN--> placeholder, tags got stripped, and the page published a
+# FAQPage whose "How does billing work?" answer was the empty string. Nothing
+# in a browser shows that. Any future placeholder that lands inside a .faq-a
+# has to be filled before this line for the same reason.
+LANDING_HTML = LANDING_HTML.replace(
+    "<!--FAQ_SCHEMA-->", _org_schema() + _faq_schema(LANDING_HTML), 1)
 
 # The price note under the Twitch button used to read "Signing in is free. Paid
 # plans are optional and start at $10/month" — two lines below a badge saying a

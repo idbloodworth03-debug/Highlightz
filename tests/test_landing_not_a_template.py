@@ -104,17 +104,40 @@ def test_pricing_is_not_three_cards_with_tick_lists():
         "tick lists are back"
 
 
-def test_the_faq_is_a_short_grouped_accordion():
+def test_the_faq_is_a_grouped_single_column_accordion():
     """Dropdowns, by explicit request, after a pass that had opened them out.
 
-    The accordion itself was never the real tell; twelve questions in a stack
-    was. So the disclosure widgets are back and the reductions stay: seven
-    questions rather than twelve, split under two headers, with the rest moved
-    to the walkthrough. Short enough to read the whole list before opening one.
+    THE TELL WAS NEVER THE ACCORDION. It was twelve questions in an
+    undifferentiated stack. So the list is allowed to be long again — depth was
+    asked for directly — provided the two things that stop length reading as
+    padding are in place: every question is a closed dropdown, so the whole set
+    is scannable before anything is opened, and they are grouped under headers
+    rather than poured into one run.
+
+    GROUPS SCALE WITH THE LIST. Two headers over sixteen questions is the
+    undifferentiated stack again wearing a hat, so the minimum rises with the
+    count: roughly one group per six questions.
     """
-    assert HTML.count('class="faq-item"') == 7, "the FAQ grew back past seven"
-    assert HTML.count("<details") >= 7, "the questions are no longer dropdowns"
-    assert HTML.count('class="faq-h"') == 2, "the two groupings are gone"
+    items = HTML.count('class="faq-item"')
+    assert HTML.count("<details") >= items, "the questions are no longer dropdowns"
+    groups = HTML.count('class="faq-h"')
+    assert groups >= 2, "the groupings are gone"
+    assert groups >= items / 6, (
+        f"{items} questions under {groups} headers — the groups have not kept "
+        f"up with the list and it reads as one long stack again")
+
+
+def test_the_faq_is_one_column():
+    """Two columns is the one arrangement that stops a set of questions being a
+    list: the eye reads left-right-left-right, has to cross the gutter to find
+    the next question, and the last row of a group leaves a hole. Asked for
+    directly as a list, and it is also what lets the set be sixteen long."""
+    m = re.search(r"\.faq-rows\{([^}]*)\}", CSS)
+    assert m, ".faq-rows rule not found"
+    assert "grid-template-columns:minmax(0,1fr)" in m.group(1), \
+        "the FAQ is back to more than one column"
+    assert not re.search(r"\.faq-rows\{[^}]*grid-template-columns:[^}]*1fr\)\s+minmax", CSS), \
+        "the FAQ is back to more than one column"
 
 
 def test_the_faq_dropdowns_start_closed():

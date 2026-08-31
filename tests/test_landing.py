@@ -156,14 +156,15 @@ def test_landing_has_inline_clip_lightbox():
 def test_landing_faq_answers_what_clippers_ask_first():
     html = api.LANDING_HTML
     assert 'id="faq"' in html
-    # CUT FROM 12 TO 7, and opened up. Thirteen accordions is the shape of a
-    # generated page; the five that went are the ones that restate the steps or
-    # answer a question nobody asks before signing up (clip length, other
-    # platforms, how the scoring works). They live in the walkthrough now, which
-    # the section links to.
-    assert html.count('class="faq-item"') == 7
+    # DEPTH, on the owner's call. It went 12 -> 7 when the section was opened
+    # out and long lists read as generated; it is 16 now that it is a
+    # single-column accordion again, which is a shape that carries a long list
+    # without becoming a wall. The ceiling is what stops that reasoning being
+    # used to justify anything: past ~20 it is a reference page, not a FAQ, and
+    # the walkthrough is where that belongs.
+    n = html.count('class="faq-item"')
+    assert 12 <= n <= 20, f"{n} questions; the FAQ is meant to be 12-20 deep"
     # Dropdowns are deliberate — see test_the_faq_is_a_short_grouped_accordion.
-    # What this test guards is the COUNT and which questions survived the cut.
     # A few key answers exist and stay honest
     assert "Is this AI?" in html and "transparent mathematical formula" in html
     assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
