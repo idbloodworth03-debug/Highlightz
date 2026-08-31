@@ -243,21 +243,62 @@ def test_the_anchors_in_the_page_all_resolve():
         assert href in ids, f'href="#{href}" points at a section that does not exist'
 
 
-def test_anchor_targets_still_reserve_breathing_room():
-    """Four tests about the sticky nav lived here: anchors clearing it, its
-    height being measured with a ResizeObserver, its links matching scroll
-    order, and every link having a target. The nav was removed on the owner's
-    call, so all four described hardware that no longer exists and were
-    deleted rather than kept alive against a ghost.
-
-    What survives is the part that is still true without a nav: sections keep
-    a small scroll-margin so an external link like /#pricing does not land the
-    heading flush against the viewport edge — and it must NOT reference
-    --nav-h, which no longer exists and would resolve the margin to nothing."""
+def test_anchor_targets_clear_the_sticky_nav():
+    """The bar is sticky, so a jump to #pricing lands the heading UNDERNEATH it
+    unless the anchor subtracts its height. This was briefly a flat 12px while
+    the nav was removed; the bar is back, so the margin has to clear it again."""
     m = re.search(r"section\[id\][^{]*\{scroll-margin-top:([^}]+)\}", CSS)
     assert m, "anchor targets lost their scroll-margin"
-    assert "--nav-h" not in m.group(1), \
-        "scroll-margin references --nav-h, which no longer exists"
+    assert "--nav-h" in m.group(1), \
+        "scroll-margin no longer clears the sticky nav — anchors land under it"
+
+
+def test_the_navs_real_height_is_measured_not_assumed():
+    """--nav-h has a CSS fallback, but the bar is not one fixed height: its
+    links wrap in a band around 940px and it grows. A hardcoded number is wrong
+    across a couple of hundred pixels of width, and both the anchor margin and
+    slide 2's height are computed from it.
+
+    ResizeObserver specifically, not just a resize listener: the Example clips
+    link is revealed from JS once the showcase loads, and that can be what
+    makes the links wrap — a width-only listener never fires for it."""
+    assert "--nav-h" in HTML and "ResizeObserver" in HTML, \
+        "the nav's height is assumed rather than measured"
+    m = re.search(r"var nav = document\.querySelector\('\.nav'\).*?\}\)\(\);", HTML, re.S)
+    assert m, "the nav-height measuring block is gone"
+    assert "setProperty('--nav-h'" in m.group(0), \
+        "the measured height is never written back"
+
+
+def test_the_nav_has_no_lines_on_it():
+    """Brought back on the owner's call, explicitly without lines: the bar wears
+    the hero band's own top tone and ends in a fade rather than a rule, so it
+    reads as part of the room instead of a strip laid over it.
+
+    The old bar had three: a border under it, a second glowing hairline
+    (.nav::after), and a bordered sparkline pill. None may come back."""
+    m = re.search(r"\n  \.nav\{([^}]*)\}", CSS)
+    assert m, ".nav rule not found"
+    rule = m.group(1)
+    assert "border" not in rule, f"the nav grew a border again: {rule}"
+    assert ".nav::after" not in CSS, "the glowing hairline under the nav is back"
+    assert ".trig{" not in CSS, "the bordered sparkline pill is back in the nav"
+    assert "backdrop-filter" not in rule, \
+        "the nav went back to a glass plate instead of blending"
+
+
+def test_the_nav_wears_the_surface_it_arrives_on():
+    """Blending is the whole point: the hero band's top tone is #09070C, so the
+    bar is that colour and there is no edge where one becomes the other. If the
+    band's top tone is ever changed, this fails and both must move together."""
+    m = re.search(r"\.hero\.hero-band\{[^}]*background:linear-gradient\(180deg,(#[0-9A-Fa-f]{6})",
+                  CSS)
+    assert m, "could not read the hero band's top tone"
+    top = m.group(1)
+    nav = re.search(r"\n  \.nav\{([^}]*)\}", CSS).group(1)
+    assert top in nav, (
+        f"the nav is not the same tone as the surface under it "
+        f"(band starts {top}) — there will be a visible edge")
 
 
 def test_the_faq_schema_matches_the_visible_questions():

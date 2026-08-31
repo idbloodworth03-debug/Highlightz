@@ -6135,6 +6135,14 @@ LANDING_HTML = """<!DOCTYPE html>
        through-line's section wash. It is the product's own mechanic driving
        the page's lighting, which is the point. */
     --lit:0;
+    /* The sticky bar's height, which anchor targets subtract so a jump to
+       #pricing does not land the heading underneath it, and which slide 2
+       subtracts so nav + hero come to exactly one screen. This is only the
+       FALLBACK: the links wrap in a band around 940px and the bar grows, so a
+       hardcoded number is wrong across a 200px stretch. The real value is
+       measured and written here at runtime — see the nav-height block near the
+       end of the body. */
+    --nav-h:71px;
   }
   @media(prefers-reduced-motion:reduce){
     /* Not "less motion" — none. One place, no exceptions, so no animation
@@ -6156,7 +6164,7 @@ LANDING_HTML = """<!DOCTYPE html>
      scroll-margin-top is exactly the mechanism for this and the page never had
      it. Applied to the elements that are actually linked to, so a section
      added later inherits the fix instead of quietly repeating the bug. */
-  section[id],header[id],article[id]{scroll-margin-top:12px}
+  section[id],header[id],article[id]{scroll-margin-top:calc(var(--nav-h) + 12px)}
   /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
      which makes <body> a scroll container — and position:sticky then resolves
      against BODY's scrollport instead of the viewport. Body's scrollport does
@@ -6257,7 +6265,38 @@ LANDING_HTML = """<!DOCTYPE html>
   /* TWO COLUMNS now, one row that stretches: the voice on the left, the wall
      as a 2x2 exhibit on the right. The auto-row collapse trap still applies —
      rows stay a single minmax(0,1fr) so the wall always stretches. */
-  .hero.hero-band{min-height:100svh;display:grid;
+  /* ── Nav. It sits IN the room rather than on top of it: no border under it,
+     no second glowing hairline, no glass plate or blur — the three things that
+     used to announce it as a separate strip. The background is the hero band's
+     own top tone (#09070C, the literal below), so where the bar arrives it and
+     the wall are one continuous surface with no edge between them.
+
+     The bottom 30% fades to nothing instead of ending on a line. That is what
+     replaces the hairline: scrolled down over the lighter sections the bar
+     dissolves into what is under it rather than stopping on a hard edge. ── */
+  .nav{position:sticky;top:0;z-index:60;
+    background:linear-gradient(180deg,#09070C 0%,#09070C 70%,rgba(9,7,12,0) 100%);
+    display:flex;align-items:center;gap:16px;padding:12px 24px 16px}
+  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .nav-logo img{height:22px}
+  .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink)}
+  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
+  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
+    color:var(--ink-3);padding:8px 12px;border-radius:3px;
+    transition:color var(--dur-fast),background var(--dur-fast)}
+  .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  /* 940, not 700: measured, the bar needs 818px with its links shown, so
+     anything from ~820 to 940 pushed Get started off a tablet's right edge.
+     The tutorial page's copy of this bar uses the same number on purpose. */
+  @media(max-width:940px){ .nav-links{display:none} }
+  @media(max-width:700px){
+    .nav{padding:12px 16px 16px;gap:8px}
+    .nav-logo span{display:none}
+  }
+
+  .hero.hero-band{min-height:calc(100svh - var(--nav-h));display:grid;
     grid-template-columns:minmax(0,.38fr) minmax(0,.62fr);
     column-gap:clamp(32px,4vw,64px);
     grid-template-rows:minmax(0,1fr);align-content:stretch;
@@ -7273,6 +7312,36 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- ── NAV. After the cover, not over it. ───────────────────────────────────
+     Placed here in the document so slide 1 is the mark and the numbers on
+     black with nothing laid across them; the bar arrives with slide 2 and
+     then sticks. slideTo() lands on coverEl.offsetHeight, which is exactly
+     this element's top, so the bar is the first thing at the top of slide 2.
+
+     NO LINES ON IT. The old bar carried a hairline border and a second glowing
+     one under it (.nav::after), plus a bordered sparkline pill. All three are
+     gone: the bar has no border of its own, and it wears the hero band's own
+     top tone so the nav and the wall below it are one unbroken surface. -->
+<nav class="nav">
+  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
+  <div class="nav-links">
+    <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. A nav that lists sections in
+         a different sequence to the one you scroll through makes the page feel
+         like it jumps around. Held by a test. -->
+    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
+    <a href="#how" class="nav-link">How it works</a>
+    <a href="#features" class="nav-link">Features</a>
+    <a href="#pricing" class="nav-link">Pricing</a>
+    <a href="#faq" class="nav-link">FAQ</a>
+    <a href="/tutorial" class="nav-link">Tutorial</a>
+    <a href="/compare" class="nav-link">Compare</a>
+  </div>
+  <div class="nav-right">
+    <a href="/login" class="nav-link">Sign in</a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
+  </div>
+</nav>
+
 <!-- Hero -->
 <!-- ── THE THROUGH-LINE ──────────────────────────────────────────────────────
      One fixed hairline carrying a live trigger score down the page edge. This
@@ -7672,6 +7741,11 @@ LANDING_HTML = """<!DOCTYPE html>
       grid.appendChild(a);
     });
     sec.style.display='';
+    // The nav's link to this section is hidden in the markup and revealed
+    // here, for the same reason the section is: an admin who has curated no
+    // example clips must not get a nav link to an empty anchor.
+    var navEx=document.getElementById('nav-examples');
+    if(navEx) navEx.style.display='';
   }).catch(function(){});
   function closeLb(){
     var lb=document.getElementById('exl');
@@ -8547,6 +8621,29 @@ LANDING_HTML = """<!DOCTYPE html>
        There the page just scrolls, and the cover is one tall black block. */
     bindSlides();
   } else if (thread){ thread.style.display = 'none'; }
+})();
+
+/* ── The nav's real height ────────────────────────────────────────────────
+   Anchor targets clear the bar by subtracting --nav-h, and slide 2 subtracts
+   it so nav + hero come to exactly one screen. The bar is not one fixed
+   height: its links wrap in a band around 940px and it grows, so the CSS
+   fallback is wrong across a couple of hundred pixels of width. Measure it
+   and write the real number back.
+
+   ResizeObserver rather than a resize listener alone, because the bar also
+   changes height when its own contents change — the Example clips link is
+   revealed from JS once the showcase loads, and that can be the thing that
+   makes the links wrap. */
+(function(){
+  var nav = document.querySelector('.nav'), root = document.documentElement, last = 0;
+  if (!nav) return;
+  function measure(){
+    var h = Math.round(nav.getBoundingClientRect().height);
+    if (h && h !== last){ last = h; root.style.setProperty('--nav-h', h + 'px'); }
+  }
+  measure();
+  window.addEventListener('resize', measure, { passive: true });
+  if ('ResizeObserver' in window) new ResizeObserver(measure).observe(nav);
 })();
 </script>
 </body>

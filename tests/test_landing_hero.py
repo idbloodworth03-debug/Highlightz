@@ -97,9 +97,11 @@ def test_the_wall_fills_the_viewport_and_is_not_boxed_into_the_text_column():
     assert ".hero.hero-band{" in HTML
     m = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML)
     assert m and "max-width:none" in m.group(1)
-    # 100svh flat, not calc(100svh - 72px): the 72 was the nav's height, and
-    # the nav is gone.
-    assert "min-height:100svh" in m.group(1)
+    # The nav sits directly above this and is sticky, so the hero takes the
+    # screen MINUS the bar: nav + hero come to exactly one viewport, which is
+    # what makes slide 2 one slide. A flat 100svh here overflows slide 2 by the
+    # bar's height and the two-slide reading breaks.
+    assert "min-height:calc(100svh - var(--nav-h))" in m.group(1)
 
 
 def test_the_score_is_still_the_one_number_that_lights_the_page():
@@ -350,16 +352,17 @@ def _cover() -> str:
 
 
 def test_the_site_opens_on_the_cover_and_nothing_else():
-    """First screen: the mark, the name, the numbers. The cover is the FIRST
-    thing in the body — and the nav that used to sit under it is gone
-    entirely, so slide 2 is the wall with nothing above it."""
+    """First screen: the mark, the name, the numbers, on black with nothing
+    laid across them. The cover is the FIRST thing in the body, and the nav
+    comes AFTER it — put back there on the owner's call, so it arrives with
+    slide 2 rather than sitting over the opening screen."""
     body = HTML.index("<body>")
     between = HTML[body + len("<body>"):HTML.index('<div class="cover" id="cover">')]
     assert "<div" not in between and "<section" not in between, \
         "something else renders before the cover"
-    live = re.sub(r"/\*.*?\*/", "", HTML, flags=re.S)
-    live = re.sub(r"<!--.*?-->", "", live, flags=re.S)
-    assert "<nav" not in live, "a nav came back"
+    assert "<nav" not in between, "the nav is back above the cover, not after it"
+    assert HTML.index('<div class="cover" id="cover">') < HTML.index('<nav class="nav">'), \
+        "the nav must come after the cover in the document"
     cover = _cover()
     assert "/static/logo-mark.png" in cover, "the cover lost the logo"
     assert 'class="cover-word">Highlightz<' in cover, "the cover lost the name"

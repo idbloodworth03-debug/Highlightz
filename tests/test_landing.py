@@ -471,17 +471,36 @@ def test_the_body_is_not_a_scroll_container():
         "nothing suppresses sideways scroll now that body no longer does")
 
 
-def test_the_nav_stayed_deleted():
-    """A breakpoint test lived here, guarding the nav's Get started button
-    against being pushed off a tablet's right edge. The nav was removed on the
-    owner's call, taking the page's top Sign in / Get started with it — the
-    remaining paths to /login are the pricing tiers and the closing CTA, so
-    both are pinned as links that must exist."""
+def test_the_top_of_the_page_reaches_signup_again():
+    """The nav was removed and then brought back on the owner's call. While it
+    was gone the top of the page had NO path to /login at all — a recorded loss
+    at the time, and the reason this test exists in both directions now: the
+    bar carries Sign in and Get started, and the pricing tiers and closing CTA
+    still carry the rest."""
     html = api.LANDING_HTML
     live = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
-    assert '<nav class="nav">' not in live, "the nav came back without its tests"
+    nav = re.search(r"<nav class=\"nav\">.*?</nav>", live, re.S)
+    assert nav, "the nav is gone again — the top of the page cannot reach signup"
+    assert nav.group(0).count('href="/login"') >= 2, \
+        "the nav lost Sign in / Get started"
     assert live.count('href="/login"') >= 4, \
         "fewer than four /login paths remain — signup depends on these"
+
+
+def test_the_navs_links_are_in_the_pages_own_order():
+    """A bar that lists sections in a different sequence to the one you scroll
+    through makes the page feel like it jumps around."""
+    html = api.LANDING_HTML
+    nav = re.search(r"<nav class=\"nav\">.*?</nav>", html, re.S).group(0)
+    anchors = [m for m in re.findall(r'href="#([\w-]+)"', nav)]
+    assert anchors, "the nav has no section links"
+    positions = []
+    for a in anchors:
+        i = html.find(f'id="{a}"', html.index("</nav>"))
+        assert i > 0, f"the nav links to #{a}, which is not a section on the page"
+        positions.append(i)
+    assert positions == sorted(positions), (
+        f"the nav lists sections out of scroll order: {anchors}")
 
 
 def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():
