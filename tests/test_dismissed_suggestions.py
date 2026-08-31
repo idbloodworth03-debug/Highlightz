@@ -363,3 +363,111 @@ def test_forget_survives_the_same_junk(ds):
     ds.forget(uid, [sug(slug="A", moment="not-a-date"), "not-a-clip", None])
     assert not ds.is_dismissed(uid, "Chan", "A", 1_700_000_000.0), \
         "undo did not lift the tombstone"
+
+
+# ── the last hop, driven rather than read ────────────────────────────────────
+#
+# test_the_worker_checks_before_landing_a_suggestion above reads the worker's
+# SOURCE. That is worth having, but it cannot see the failure that would
+# actually let a moment come back: the worker passing a different user id,
+# channel or slug than the one the dismissal was filed under. A source scan
+# stays green through every one of those. This runs the real
+# _land_suggestions against a real store and watches what it does.
+
+class _Ripe:
+    """One ripe suggestion, shaped as SuggestionBuffer.ready() returns them."""
+
+    def __init__(self, slug, channel="aceu", moment=1_000_000.0):
+        self.slug, self.channel, self.created_at = slug, channel, moment
+        self.url = f"https://clips.twitch.tv/{slug}"
+        self.embed_url = self.url + "/embed"
+        self.thumbnail_url = self.url + "/thumb"
+        self.title, self.view_count = "a moment", 10
+        self.clipper_count, self.duration = 3, 30.0
+
+
+class _Buf:
+    def __init__(self, *ripe):
+        self._ripe = list(ripe)
+
+    def ready(self):
+        return self._ripe
+
+
+async def _land(worker, buf, landed):
+    """Run the real _land_suggestions, capturing what it would create."""
+    from src.dashboard import api as dashboard_api
+    import src.ingestion.stream_worker as sw
+
+    async def _capture(row):
+        landed.append(row)
+
+    orig_notify = dashboard_api.notify_clip_ready
+    orig_room = dashboard_api.suggestion_room
+    dashboard_api.notify_clip_ready = _capture
+    dashboard_api.suggestion_room = lambda uid: (0, 5)   # plenty of budget
+    try:
+        await sw.StreamWorker._land_suggestions(worker, buf)
+    finally:
+        dashboard_api.notify_clip_ready = orig_notify
+        dashboard_api.suggestion_room = orig_room
+
+
+class _Worker:
+    """The bare attributes _land_suggestions touches on self."""
+
+    def __init__(self, uid):
+        self._config = type("C", (), {"user_id": uid, "platform_name": "twitch"})()
+        self._stream_info = None
+
+
+def test_the_worker_really_drops_a_moment_the_user_cleared(ds):
+    """THE WHOLE POINT, end to end and behavioural: file the dismissal exactly
+    as clear-pending does, then let the real worker try to land it again."""
+    import asyncio
+    ds.dismiss("punter", [sug(slug="slug1", channel="aceu", moment=1_000_000.0)])
+
+    landed = []
+    asyncio.run(_land(_Worker("punter"),
+                      _Buf(_Ripe("slug1", "aceu", 1_000_000.0)), landed))
+    assert landed == [], \
+        "a moment the user cleared was landed in their queue again"
+
+
+def test_the_same_worker_still_lands_something_they_never_saw(ds):
+    """The other half. Without this the test above passes just as well if
+    _land_suggestions has quietly stopped landing anything at all."""
+    import asyncio
+    ds.dismiss("punter", [sug(slug="slug1", channel="aceu", moment=1_000_000.0)])
+
+    landed = []
+    asyncio.run(_land(_Worker("punter"),
+                      _Buf(_Ripe("fresh", "aceu", 2_000_000.0)), landed))
+    assert len(landed) == 1, "a brand new moment was not landed"
+    assert landed[0]["twitch_clip_id"] == "fresh"
+
+
+def test_a_neighbours_clip_of_the_cleared_moment_is_dropped_too(ds):
+    """Several viewers clip the same seconds and each gets its own slug.
+    Suppressing only the exact slug would let the same moment back in under a
+    different one, which to the user is the bug they reported."""
+    import asyncio
+    ds.dismiss("punter", [sug(slug="slug1", channel="aceu", moment=1_000_000.0)])
+
+    landed = []
+    asyncio.run(_land(_Worker("punter"),
+                      _Buf(_Ripe("neighbour", "aceu", 1_000_002.0)), landed))
+    assert landed == [], "the same moment came back under another viewer's slug"
+
+
+def test_another_users_clear_does_not_suppress_this_users_suggestion(ds):
+    """The buffer is shared per channel; the dismissal is per user. One person
+    clearing their queue must not silently cost everyone else the moment."""
+    import asyncio
+    ds.dismiss("punter", [sug(slug="slug1", channel="aceu", moment=1_000_000.0)])
+
+    landed = []
+    asyncio.run(_land(_Worker("someone_else"),
+                      _Buf(_Ripe("slug1", "aceu", 1_000_000.0)), landed))
+    assert len(landed) == 1, \
+        "one user's clear suppressed a suggestion another user never saw"
