@@ -7127,11 +7127,15 @@ LANDING_HTML = """<!DOCTYPE html>
   /* THE TITLES HAVE TO CARRY THE SECTION. At 16px/700 over 14px body the step
      was two pixels and one weight, so each item read as a paragraph with a
      bold first line rather than a heading with text under it — you had to read
-     the block to find out what it was about. Three things fix that and none of
-     them is colour: a real size step, the brightest ink in the palette stated
-     explicitly rather than inherited, and space that belongs to the pairing —
-     more above the title than below it, so the title sits WITH its own
-     paragraph instead of floating between two.
+     the block to find out what it was about. A real size step, space that
+     belongs to the pairing, and colour.
+
+     GOLD, ON THE OWNER'S CALL. Ember is otherwise the instrument colour on
+     this page — the wall's live scores and the cover's counter — so these
+     headings now share it with the live numbers. That is a deliberate trade:
+     the section is what tells a visitor what the product does, and it was
+     being skipped. Ember was already the loudest thing in the palette against
+     this ground, which is exactly why it works here.
 
      Still under .feat-wide's clamp(20,2.1vw,26), which is what keeps the lead
      claim the largest thing in the section.
@@ -7143,7 +7147,7 @@ LANDING_HTML = """<!DOCTYPE html>
      that wraps in a three-column grid costs more than the extra pixel and a
      half buys. */
   .feat h3{font-size:clamp(17px,1.2vw,19px);font-weight:700;letter-spacing:-.015em;
-    line-height:1.25;color:var(--ink);margin:0 0 var(--s-3)}
+    line-height:1.25;color:var(--ember);margin:0 0 var(--s-3)}
   .feat p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:var(--measure)}
   /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
      dead gap. The measure is capped so a full-width paragraph does not run to

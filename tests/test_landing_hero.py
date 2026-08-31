@@ -611,7 +611,14 @@ def test_ember_belongs_to_the_instruments_not_the_prose():
     offer over four gold scores. Those first three went with the hero lede;
     what the rule protects now is the rest of the page — ember is the
     instrument colour, so prose and wayfinding labels must not wear it, and
-    the instruments must not lose it."""
+    the instruments must not lose it.
+
+    ONE DELIBERATE EXCEPTION, added on the owner's call: the feature section's
+    item titles (.feat h3) are gold, because that section is what tells a
+    visitor what the product does and it was being read straight past. It is
+    not in the list below, and .feat-label — the group labels right beside
+    those titles — still is, so the exception stays one selector wide rather
+    than becoming "the features section may use ember"."""
     prose = {
         ".feat-label": r"\.feat-label\{([^}]*)\}",       # section group labels
         ".price-lead b": r"\.price-lead b\{([^}]*)\}",   # the pricing lead-in

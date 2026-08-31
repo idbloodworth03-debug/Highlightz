@@ -339,9 +339,11 @@ def test_the_feature_titles_are_not_the_same_colour_as_their_own_body_text():
     body_col = re.search(r"color:([^;]+)", body).group(1).strip()
     assert head_col != body_col, (
         f"feature titles and body text are both {head_col}")
-    assert head_col == "var(--ink)", (
-        f"the titles are {head_col}; --ink is the brightest ink on the page and "
-        f"what makes them read as headings")
+    assert head_col == "var(--ember)", (
+        f"the titles are {head_col}. Gold on the owner's call: this section is "
+        f"what tells a visitor what the product does and it was being skipped. "
+        f"See test_ember_belongs_to_the_instruments_not_the_prose — these "
+        f"headings are the one deliberate exception to that rule")
 
 
 def test_the_feature_titles_stay_smaller_than_the_lead_claim():
