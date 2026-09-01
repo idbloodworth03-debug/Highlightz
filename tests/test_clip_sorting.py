@@ -401,14 +401,20 @@ def test_every_class_the_controls_use_is_actually_styled():
     css = SRC.split('<script type="text/babel">')[0]
     styled = set(re.findall(r"\.(rd-[a-z-]+)", css))
     used = set()
-    for span in (_rdmenu(), _screen("ClipControls"), _screen("LibraryScreen"),
+    # SortPicker and ClipSection are in this list because the sort control was
+    # extracted out of ClipControls when the queue gained two independently
+    # sorted sections — scanning only ClipControls would now miss every class
+    # the picker uses, which is the half most likely to be typo'd.
+    for span in (_rdmenu(), _screen("ClipControls"), _screen("SortPicker"),
+                 _screen("ClipSection"), _screen("LibraryScreen"),
                  re.search(r'<div className="rd-toolbar">.*?\n        </div>', JS, re.S).group(0)):
         used |= set(re.findall(r"'(rd-[a-z-]+)'", span))
         used |= set(re.findall(r'className="(rd-[a-z-]+)"', span))
     assert used, "no class names found — the extraction broke, not the CSS"
     missing = sorted(used - styled)
     assert not missing, "used but never styled: " + str(missing)
-    for cls in ("rd-controls", "rd-sortwrap", "rd-dir", "rd-menu", "rd-cliphead"):
+    for cls in ("rd-controls", "rd-sortwrap", "rd-dir", "rd-menu", "rd-cliphead",
+                "rd-sect-h", "rd-sect-g"):
         assert cls in used, f"{cls} is no longer used"
 
 
@@ -799,3 +805,121 @@ def test_no_direction_label_is_left_speaking_in_generic_numbers():
     assert generic <= {"trigger", "virality"}, (
         f"these sorts still describe themselves as plain numbers: "
         f"{sorted(generic - {'trigger', 'virality'})}")
+
+
+# ── the two halves, sorted independently ─────────────────────────────────────
+#
+# "Highlights first" groups them, but ONE key still governed both halves — so
+# there was no way to order highlights by how strong the signal was while
+# ordering the rest by score. Split mode gives each half its own control.
+
+def test_split_mode_is_offered_as_a_third_way_to_order_the_queue():
+    groups = _menu_labels("CLIP_GROUPS")
+    assert len(groups) == 3, f"the order menu has {len(groups)} options: {groups}"
+    m = re.search(r"const CLIP_GROUPS = \[(.*?)\];", JS, re.S)
+    assert "'split'" in m.group(1), "there is no split mode"
+
+
+def test_each_half_is_sorted_by_its_own_key():
+    """The load-bearing behaviour: the two halves are sorted by SEPARATE calls,
+    so a key chosen for one cannot reach the other."""
+    hi = _run([c for c in MIXED if c["suggested"]], "audience", "desc",
+              group="strict")["ids"]
+    rest = _run([c for c in MIXED if not c["suggested"]], "trigger", "desc",
+                group="strict")["ids"]
+    assert hi == ["h1", "h2"], f"highlights not ordered by audience signal: {hi}"
+    assert rest == ["d1", "d3", "d2"], f"the rest not ordered by trigger: {rest}"
+    # And the combined list is one half then the other, never interleaved.
+    assert hi + rest == ["h1", "h2", "d1", "d3", "d2"]
+
+
+def test_the_screen_sorts_the_two_halves_with_two_different_states():
+    """A single sort state driving both sections would put a control on each
+    heading that moved the other one too."""
+    review = _screen("ReviewScreen")
+    assert "const [restBy, setRestBy]" in review and "const [restDir, setRestDir]" in review, \
+        "the non-highlight half has no sort state of its own"
+    assert re.search(r"hiClips = split \? sortClips\(filtered\.filter\(c=>c\.suggested\),\s*\n?\s*sortBy, sortDir", review), \
+        "the highlights half is not sorted by the primary sort"
+    assert re.search(r"restClips = split \? sortClips\(filtered\.filter\(c=>!c\.suggested\),\s*\n?\s*restBy, restDir", review), \
+        "the other half does not use its own sort"
+
+
+def test_split_needs_both_halves_to_exist():
+    """Filtered to one kind, or with no highlights in the queue at all, there is
+    no second section — the mode would draw one list under a heading that
+    implies there is another."""
+    review = _screen("ReviewScreen")
+    assert "group === 'split' && hasHighlights && effKind === 'all'" in review, \
+        "split renders even when there is nothing to split"
+
+
+def test_a_split_section_with_nothing_in_it_draws_nothing():
+    """With a streamer filter on, one half is routinely empty, and a heading
+    over no clips reads as a bug."""
+    sect = _screen("ClipSection")
+    assert "if(!clips.length) return null;" in sect, \
+        "an empty section still renders its heading"
+
+
+def test_the_toolbar_sort_stands_down_when_the_sections_carry_it():
+    """Two controls for one job, and the toolbar one would silently drive only
+    the Highlights half."""
+    assert "hideSort={split}" in JS, "the toolbar keeps its sort in split mode"
+    controls = _screen("ClipControls")
+    assert "{!hideSort && <SortPicker" in controls, \
+        "ClipControls ignores hideSort"
+
+
+def test_the_split_sections_scroll_as_one_list():
+    """.rd-grid IS the scrolling box (flex:1 + overflow-y:auto). Stacking two of
+    them gives the screen two scrollbars and pins each half inside its own
+    little viewport, which is why the sections use a plain grid inside one
+    scrolling wrapper."""
+    css = SRC.split('<script type="text/babel">')[0]
+    grid = re.search(r"\n\.rd-grid\{([^}]*)\}", css).group(1)
+    assert "overflow-y:auto" in grid, "the plain grid stopped being the scroller"
+    sect_g = re.search(r"\n\.rd-sect-g\{([^}]*)\}", css).group(1)
+    assert "overflow" not in sect_g, \
+        "a split section scrolls on its own, so the queue has two scrollbars"
+    assert "flex:1" not in sect_g, "a split section fights the wrapper for height"
+    wrap = re.search(r"\n\.rd-sects\{([^}]*)\}", css).group(1)
+    assert "overflow-y:auto" in wrap, "the split wrapper does not scroll"
+    # Same column rule as the single-list grid, or the cards change size when
+    # you switch modes.
+    assert "minmax(310px,1fr)" in sect_g and "minmax(310px,1fr)" in grid
+
+
+def test_the_sort_control_is_not_written_twice():
+    """It is on the toolbar and on both section headings now. Three copies of a
+    menu is how one of them ends up offering a sort the others do not."""
+    assert JS.count("<RdMenu label={compact ? '' : 'Sort'}") == 1, \
+        "the sort menu markup exists more than once"
+    assert JS.count("<SortPicker") >= 2, "SortPicker is not actually reused"
+
+
+def test_the_split_view_is_not_nested_inside_the_card_grid():
+    """THE BUG THE RENDER CAUGHT AND THE TESTS DID NOT.
+
+    .rd-grid is `display:grid` with `repeat(auto-fill,minmax(310px,1fr))`
+    columns AND its own `overflow-y:auto`. The split view was first written
+    INSIDE it, which made the entire two-section layout a single grid item: both
+    sections were crushed into one 310px column, the section sort control was
+    clipped mid-word, four fifths of the screen was empty, and there were two
+    nested scrollbars.
+
+    Every test passed, because they checked the CSS rules in isolation and the
+    JSX for the right class names — neither of which can see one element being
+    inside another. Only the screenshot showed it.
+
+    So this checks the STRUCTURE: the split view and the grid must be
+    alternatives, never one inside the other."""
+    review = _screen("ReviewScreen")
+    assert 'className="rd-sects"' in review and 'className="rd-grid"' in review
+    sects = review.index('className="rd-sects"')
+    grid = review.index('className="rd-grid"')
+    assert sects < grid, (
+        "the split view is rendered inside .rd-grid, which is a multi-column "
+        "grid and a scroller — it will be crushed into one column")
+    assert "{split && shown.length > 0" in review, \
+        "the split view and the grid are not the two arms of one choice"

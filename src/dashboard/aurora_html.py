@@ -455,6 +455,25 @@ button{font-family:inherit;cursor:pointer}
    status chips — Review is pending-only now, so All/Pending/Approved was one
    live chip and two that selected nothing. The chip styles above stay: the
    Training mode toggle and the admin sort still use them, without counts. */
+/* SPLIT QUEUE. Two independently sorted sections, inside ONE scroller.
+   .rd-grid is itself the scrolling box (flex:1 + overflow-y:auto), so stacking
+   two of them gives the screen two scrollbars and pins each half inside its own
+   little viewport. The scroll moves out to the wrapper and the sections are
+   plain grids with the same columns. */
+.rd-sects{flex:1;overflow-y:auto;padding-right:4px;min-height:0;
+  display:flex;flex-direction:column;gap:24px}
+.rd-sect-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));
+  gap:16px;align-items:stretch}
+.rd-sect-h{display:flex;align-items:center;gap:8px;margin-bottom:12px;
+  padding-bottom:8px;border-bottom:1px solid var(--hair)}
+.rd-sect-t{font-size:12px;font-weight:700;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg-3)}
+/* Same pill as .rd-count, down to the padding: it is the same idea (a count
+   beside a label) and two near-identical pills read as a mistake. */
+.rd-sect-n{font-size:12px;font-weight:600;color:var(--fg-2);
+  background:rgba(255,255,255,.05);padding:4px 8px;border-radius:var(--r-pill)}
+/* In a section header the picker sits right; in the toolbar it already does. */
+.rd-sortwrap.compact{margin-left:auto}
 .rd-grid{flex:1;overflow-y:auto;padding-right:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;align-content:start;align-items:stretch;min-height:0}
 /* min-height, not height. The thumbnail is 16:9 of the COLUMN width, so a card in
    a wide column is taller than one in a narrow column — a fixed 360px fits at the
@@ -1352,6 +1371,11 @@ const CLIP_KINDS = [
 const CLIP_GROUPS = [
   {v:'highlights', l:'Highlights first'},
   {v:'strict',     l:'Straight down the list'},
+  // Two lists, each with its own sort. 'Highlights first' groups them but ONE
+  // key still governs both, so there was no way to order highlights by how
+  // strong the signal was while ordering the rest by score. This splits the
+  // queue in two and gives each half its own control.
+  {v:'split',      l:'Sorted separately'},
 ];
 
 // Both screens narrow the same way, so neither owns a private copy of it.
@@ -2381,10 +2405,36 @@ function RdMenu({ label, value, options, onChange, icon, align }) {
 // Shared for the same reason the comparator is: these two screens show one set
 // of cards, and every time only one of them was updated the product grew a
 // second way of doing the same thing.
+// One half of a split queue: a heading, its own sort, its own grid.
+//
+// Renders NOTHING when it holds nothing. With a streamer filter on, one of the
+// two halves is routinely empty, and a heading over no clips reads as a bug —
+// the count on the toolbar already says how much is on screen.
+function ClipSection({ title, clips, sorts, sortBy, setSortBy, sortDir, setSortDir,
+                       onApprove, onReject, onOpen }) {
+  if(!clips.length) return null;
+  return (
+    /* No class on the wrapper: it groups, it does not style, and the gap
+       between sections comes from .rd-sects. A class name with no rule behind
+       it reads as meaningful and is not. */
+    <div>
+      <div className="rd-sect-h">
+        <span className="rd-sect-t">{title}</span>
+        <span className="rd-sect-n">{clips.length}</span>
+        <SortPicker compact sorts={sorts} sortBy={sortBy} setSortBy={setSortBy}
+          sortDir={sortDir} setSortDir={setSortDir}/>
+      </div>
+      <div className="rd-sect-g">
+        {clips.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove}
+          onReject={onReject} onOpen={onOpen}/>)}
+      </div>
+    </div>
+  );
+}
+
 function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
                         channels, chan, setChan, kind, setKind,
-                        hasHighlights, group, setGroup, children }) {
-  const dir = dirLabelFor(sortBy, sortDir);
+                        hasHighlights, group, setGroup, hideSort, children }) {
   return (
     <div className="rd-controls">
       {children}
@@ -2404,15 +2454,28 @@ function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
       {setGroup && hasHighlights && <RdMenu
         label="Order" icon="grid" value={group} onChange={setGroup}
         options={CLIP_GROUPS}/>}
-      <div className="rd-sortwrap">
-        <RdMenu label="Sort" icon="sliders" value={sortBy} onChange={setSortBy}
-          options={sorts.map(v=>({v, l:CLIP_SORTS[v].l}))}/>
-        <button className="rd-dir" onClick={()=>setSortDir(d=>d==='desc'?'asc':'desc')}
-          title={'Currently ' + dir.toLowerCase() + ' — click to reverse'}>
-          <Icon name={sortDir==='desc'?'arrowdown':'arrowup'} size={13}/>
-          <span>{dir}</span>
-        </button>
-      </div>
+      {!hideSort && <SortPicker sorts={sorts} sortBy={sortBy} setSortBy={setSortBy}
+        sortDir={sortDir} setSortDir={setSortDir}/>}
+    </div>
+  );
+}
+
+// The sort menu and its direction button, on their own, because the queue can
+// now show two independently sorted sections and each needs one. Extracted
+// rather than copied: two copies of this is how one list ends up sortable by
+// something the other is not, which is the exact drift the shared comparator
+// was pulled out to end.
+function SortPicker({ sorts, sortBy, setSortBy, sortDir, setSortDir, compact }) {
+  const dir = dirLabelFor(sortBy, sortDir);
+  return (
+    <div className={'rd-sortwrap' + (compact ? ' compact' : '')}>
+      <RdMenu label={compact ? '' : 'Sort'} icon="sliders" value={sortBy} onChange={setSortBy}
+        options={sorts.map(v=>({v, l:CLIP_SORTS[v].l}))}/>
+      <button className="rd-dir" onClick={()=>setSortDir(d=>d==='desc'?'asc':'desc')}
+        title={'Currently ' + dir.toLowerCase() + ' — click to reverse'}>
+        <Icon name={sortDir==='desc'?'arrowdown':'arrowup'} size={13}/>
+        <span>{dir}</span>
+      </button>
     </div>
   );
 }
@@ -2430,6 +2493,11 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   const [chanFilter, setChanFilter] = useState('all');
   const [kind, setKind] = useState('all');
   const [group, setGroup] = useState('highlights');
+  // The second sort, for the non-highlight half when the queue is split. It
+  // starts where the primary one starts, so switching into split mode changes
+  // the LAYOUT and nothing about the order until you actually pick something.
+  const [restBy, setRestBy] = useState('newest');
+  const [restDir, setRestDir] = useState('desc');
   const clipsArr = Object.values(clips).filter(c=>c.status==='pending');
   const pending = clipsArr.length;
   // Only to tell "you are caught up" apart from "you have never had a clip" in
@@ -2452,7 +2520,18 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   const effKind = (kind!=='all' && !hasHighlights) ? 'all' : kind;
   const filtered = filterClips(clipsArr, effChan, effKind);
 
-  const shown = sortClips(filtered, sortBy, sortDir, group);
+  // Split needs both kinds actually present to mean anything: filtered to one
+  // of them, or with no highlights in the queue at all, there is no second
+  // section and the mode would render one list under a redundant heading.
+  const split = group === 'split' && hasHighlights && effKind === 'all';
+  const hiClips = split ? sortClips(filtered.filter(c=>c.suggested),
+                                    sortBy, sortDir, 'strict') : [];
+  const restClips = split ? sortClips(filtered.filter(c=>!c.suggested),
+                                      restBy, restDir, 'strict') : [];
+  // One `shown` either way, so the count and all three empty states keep
+  // working off a single list rather than growing a split-mode branch each.
+  const shown = split ? hiClips.concat(restClips)
+                      : sortClips(filtered, sortBy, sortDir, group);
   const SORTS = ['newest', 'trigger', 'virality', 'audience', 'length',
                  'channel'];
   // The cap now REFUSES the new moment rather than deleting an old clip, so
@@ -2572,8 +2651,31 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
           sortDir={sortDir} setSortDir={setSortDir}
           channels={channels} chan={effChan} setChan={setChanFilter}
           kind={effKind} setKind={setKind} hasHighlights={hasHighlights}
-          group={group} setGroup={setGroup}/>
-        <div className="rd-grid">
+          group={group} setGroup={setGroup}
+          /* Split mode moves the sort into the section headings. Leaving it
+             here too would put two controls on screen for one job, and the
+             toolbar one would silently drive only the Highlights half. */
+          hideSort={split}/>
+        {/* THE SPLIT VIEW IS NOT INSIDE .rd-grid, and that is load-bearing.
+            .rd-grid is `display:grid` with `repeat(auto-fill,minmax(310px,1fr))`
+            columns AND its own `overflow-y:auto`. Nesting the sections in it
+            made them ONE grid item: the whole two-section view was crushed
+            into a single 310px column with the sort control clipped mid-word
+            and four fifths of the screen empty, inside a second scrollbar.
+            Every test still passed; the render is what caught it. The branches
+            are siblings now, so split mode never enters the grid at all. */}
+        {split && shown.length > 0
+          ? <div className="rd-sects">
+              <ClipSection title="Highlights" clips={hiClips} sorts={SORTS}
+                sortBy={sortBy} setSortBy={setSortBy}
+                sortDir={sortDir} setSortDir={setSortDir}
+                onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>
+              <ClipSection title="Everything else" clips={restClips} sorts={SORTS}
+                sortBy={restBy} setSortBy={setRestBy}
+                sortDir={restDir} setSortDir={setRestDir}
+                onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>
+            </div>
+          : <div className="rd-grid">
           {/* EMPTY MEANS TWO DIFFERENT THINGS NOW, and they need different
               words. Before this screen dropped approved clips, an empty grid
               could only mean "you have never had a clip". It can now also mean
@@ -2602,7 +2704,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
                       is not this screen. */}
                   <button className="rd-emptylink" onClick={()=>onGoTutorial()}>Read the walkthrough →</button></div>)
             : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
-        </div>
+            </div>}
       </section>
     </div>
   );
