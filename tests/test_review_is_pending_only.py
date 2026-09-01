@@ -72,11 +72,20 @@ def test_the_streamer_filter_and_sort_survive():
     assert "sortClips(" in body
 
 
-def test_suggestions_still_lead_the_queue():
-    """queueMode's status grouping is a no-op here now, but it is also what
-    lifts crowd suggestions to the top — so it must stay true."""
-    assert re.search(r"sortClips\(filtered,\s*sortBy,\s*sortDir,\s*true\)", JS), \
-        "Clip Review stopped sorting as a queue, so suggestions no longer lead"
+def test_suggestions_still_lead_the_queue_by_default():
+    """The grouping that lifts highlights to the top must survive, and it must
+    be what a user gets without asking.
+
+    The fourth argument was the boolean `true` and is a mode string now: the
+    grouping became a CHOICE, because applying it before the sort key meant
+    "date added" silently meant "highlights, then everything else by date" and
+    there was no way to see one true sequence. Default unchanged; the option to
+    turn it off is the new part. tests/test_clip_sorting.py executes both
+    orderings against fixture clips."""
+    assert re.search(r"sortClips\(filtered,\s*sortBy,\s*sortDir,\s*group\)", JS), \
+        "Clip Review stopped sorting as a queue, so highlights no longer lead"
+    assert re.search(r"useState\('highlights'\)", JS), \
+        "the queue no longer DEFAULTS to putting highlights first"
 
 
 def test_the_empty_grid_tells_the_three_cases_apart():

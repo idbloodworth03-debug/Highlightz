@@ -71,8 +71,16 @@ CLIPS = [
 ]
 
 
-def _run(clips=None, sort_by="newest", sort_dir="desc", pending_first=True):
-    """Sort `clips` with the shipped comparator. Returns ids and the dir label."""
+def _run(clips=None, sort_by="newest", sort_dir="desc", pending_first=True,
+         group=None):
+    """Sort `clips` with the shipped comparator. Returns ids and the dir label.
+
+    The comparator's fourth argument was the boolean `pending_first` and is a
+    MODE now — the queue grouping became a choice, because it was applied
+    before the sort key and so silently overrode it. `pending_first` is kept as
+    the way these tests say "grouped / not grouped" so forty existing cases did
+    not have to be rewritten to say the same thing in new words; `group` is
+    there for the tests that care which mode by name."""
     harness = textwrap.dedent("""
     %s
     const clips = %s;
@@ -87,7 +95,8 @@ def _run(clips=None, sort_by="newest", sort_dir="desc", pending_first=True):
         _sort_block(),
         json.dumps(CLIPS if clips is None else clips),
         json.dumps(sort_by), json.dumps(sort_dir),
-        "true" if pending_first else "false",
+        json.dumps(group if group is not None
+                   else ("highlights" if pending_first else "strict")),
         json.dumps(sort_by), json.dumps(sort_dir),
     )
     out = subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
@@ -253,20 +262,37 @@ def test_the_direction_label_uses_the_words_that_fit_the_field(field, direction,
 
 
 def test_every_sort_is_named_for_a_human():
-    assert _run()["labels"] == [
-        "newest|Date added", "approved|Date approved",
-        "trigger|Trigger score", "virality|Virality"]
+    """Not an exact list any more. The set grew when highlights became their own
+    kind of clip and "make it super sortable" was asked for, and a test that has
+    to be edited for every new key stops being read. What matters is that every
+    key HAS a human label and none of them is a field name leaking through."""
+    labels = dict(p.split("|", 1) for p in _run()["labels"])
+    assert set(labels) >= {"newest", "approved", "trigger", "virality"}, \
+        "one of the original sorts disappeared"
+    for key, label in labels.items():
+        assert label and label[0].isupper(), f"{key} has no human label: {label!r}"
+        assert "_" not in label, f"{key} is showing a field name: {label!r}"
+    assert len(set(labels.values())) == len(labels), \
+        f"two sorts share a label, so one of them is unpickable: {labels}"
 
 
-@pytest.mark.parametrize("screen,expected", [
-    ("review",  ["newest", "trigger", "virality"]),
-    ("library", ["approved", "newest", "trigger", "virality"]),
+@pytest.mark.parametrize("screen,leads,must_offer", [
+    ("review",  "newest",   {"newest", "trigger", "virality"}),
+    ("library", "approved", {"approved", "newest", "trigger", "virality"}),
 ])
-def test_each_screen_offers_the_sorts_that_make_sense_for_it(screen, expected):
+def test_each_screen_leads_with_the_sort_that_makes_sense_for_it(
+        screen, leads, must_offer):
     """Shared machinery, screen-specific menu. The library leads with the date
     it was approved and Review leads with the date it arrived, because one is an
-    archive and the other is a queue."""
-    assert _screen_sorts(screen) == expected
+    archive and the other is a queue.
+
+    The FIRST entry is the load-bearing part and stays pinned; the rest is a
+    subset check so adding a sort does not mean editing this list."""
+    offered = _screen_sorts(screen)
+    assert offered[0] == leads, \
+        f"{screen} leads with {offered[0]!r}, not {leads!r}"
+    assert must_offer <= set(offered), \
+        f"{screen} dropped a sort: {sorted(must_offer - set(offered))}"
 
 
 @pytest.mark.parametrize("screen", ["review", "library"])
@@ -508,10 +534,156 @@ def test_each_screen_passes_the_queue_flag_it_should():
     Library's call to `true` left every behavioural test above green, because
     they hand the flag to the comparator directly and never read the call site.
     Review is the queue; the Library is a record."""
+    # The flag became a MODE when the grouping was made a user choice: it was
+    # applied before the sort key, so it silently overrode it and there was no
+    # way to see the queue in one true order. Review passes its state variable
+    # (defaulting to grouped); the Library is a record and passes the literal.
     review = re.search(r"sortClips\(filtered,\s*sortBy,\s*sortDir,\s*(\w+)\)", JS)
-    assert review and review.group(1) == "true", \
+    assert review and review.group(1) == "group", \
         "Clip Review no longer sorts as a queue"
-    lib = re.search(r"sortClips\(\s*\n?\s*approved\.filter.*?sortBy,\s*sortDir,\s*(\w+)\)",
+    assert re.search(r"const \[group, setGroup\] = useState\('highlights'\)", JS), \
+        "Review no longer DEFAULTS to putting highlights first"
+    lib = re.search(r"sortClips\(\s*\n?\s*filterClips\(approved.*?sortBy,\s*sortDir,\s*'(\w+)'\)",
                     JS, re.S)
-    assert lib and lib.group(1) == "false", \
-        "the Library now pins suggestions to the top of what you have kept"
+    assert lib and lib.group(1) == "strict", \
+        "the Library now pins highlights to the top of what you have kept"
+
+
+# ── the two things the highlight kind made possible ──────────────────────────
+#
+# Highlights became their own kind of clip and the controls did not keep up.
+# Two things were asked for and neither was reachable:
+#
+#   * one true chronological order. The queue lifts highlights above everything
+#     else BEFORE the sort key is applied, so "date added" silently meant "every
+#     highlight, then the rest by date". Correct as a default, but there was no
+#     way off it.
+#   * strictly highlights. There was no filter for what a clip IS at all, only
+#     for which streamer it came from.
+
+# Interleaved deliberately: a highlight is NOT the newest here, so an ordering
+# that only looks right because the fixture was already in order cannot pass.
+MIXED = [
+    {"id": "d1", "status": "pending", "channel": "zeta", "created_at": 100,
+     "trigger_score": 91, "duration_seconds": 12, "suggested": False},
+    {"id": "h1", "status": "pending", "channel": "aceu", "created_at": 200,
+     "suggested": True, "clipper_count": 9, "suggested_views": 400},
+    {"id": "d2", "status": "pending", "channel": "mid", "created_at": 300,
+     "trigger_score": 55, "duration_seconds": 58, "suggested": False},
+    {"id": "h2", "status": "pending", "channel": "beta", "created_at": 400,
+     "suggested": True, "clipper_count": 2, "suggested_views": 900},
+    {"id": "d3", "status": "pending", "channel": "aceu", "created_at": 500,
+     "trigger_score": 73, "duration_seconds": 41, "suggested": False},
+]
+
+
+def _filter(clips, chan="all", kind="all"):
+    harness = textwrap.dedent("""
+    %s
+    console.log(JSON.stringify(filterClips(%s, %s, %s).map(c => c.id)));
+    """) % (_sort_block(), json.dumps(clips), json.dumps(chan), json.dumps(kind))
+    out = subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_strict_order_gives_one_unbroken_chronological_sequence():
+    """THE ASK. Grouped, the highlights lead whatever the sort says; strict puts
+    every clip where its own timestamp belongs."""
+    grouped = _run(MIXED, "newest", "desc", group="highlights")["ids"]
+    strict = _run(MIXED, "newest", "desc", group="strict")["ids"]
+    assert strict == ["d3", "h2", "d2", "h1", "d1"], f"not chronological: {strict}"
+    assert grouped == ["h2", "h1", "d3", "d2", "d1"], \
+        f"the default stopped leading with highlights: {grouped}"
+    assert grouped != strict, "the two modes are identical, so the control does nothing"
+
+
+def test_strict_order_reverses_cleanly():
+    assert _run(MIXED, "newest", "asc", group="strict")["ids"] == \
+        ["d1", "h1", "d2", "h2", "d3"]
+
+
+def test_highlights_can_be_looked_at_on_their_own():
+    """THE OTHER ASK, its inverse, and combined with the streamer filter."""
+    assert _filter(MIXED, kind="highlight") == ["h1", "h2"]
+    assert _filter(MIXED, kind="detected") == ["d1", "d2", "d3"]
+    assert _filter(MIXED, kind="all") == ["d1", "h1", "d2", "h2", "d3"], \
+        "the unfiltered view drops clips"
+    assert _filter(MIXED, chan="aceu", kind="detected") == ["d3"], \
+        "the streamer and kind filters do not combine"
+
+
+@pytest.mark.parametrize("sort_by", ["clippers", "views"])
+def test_a_measure_that_cannot_describe_a_clip_sinks_it_both_ways(sort_by):
+    """A detected clip has no clipper count and no Twitch view count — not zero
+    of them, NONE. Ranking it worst repeats the mistake the old "0% trigger"
+    badge made, and asking for the FEWEST clippers must not answer with clips
+    that were never crowd-clipped at all."""
+    for direction in ("desc", "asc"):
+        ids = _run(MIXED, sort_by, direction, group="strict")["ids"]
+        assert ids[:2] == ["h1", "h2"] or ids[:2] == ["h2", "h1"], \
+            f"{sort_by} {direction}: a clip the measure cannot describe led: {ids}"
+        assert set(ids[2:]) == {"d1", "d2", "d3"}
+
+
+def test_sorting_by_a_text_field_does_not_silently_sort_nothing():
+    """The comparator subtracts, and subtracting two strings is NaN. A
+    comparator returning NaN leaves the array untouched, which reads as a dead
+    control rather than as a bug."""
+    az = _run(MIXED, "channel", "asc", group="strict")["ids"]
+    za = _run(MIXED, "channel", "desc", group="strict")["ids"]
+    # h1 and d3 are both 'aceu' and tie on the key, so the documented tiebreak
+    # applies: newest first inside a tie puts d3 (500) above h1 (200).
+    assert az == ["d3", "h1", "h2", "d2", "d1"], f"A to Z is wrong: {az}"
+    assert za == ["d1", "d2", "h2", "d3", "h1"], f"Z to A is wrong: {za}"
+    assert az != [c["id"] for c in MIXED], "the text sort left the list as it found it"
+
+
+def test_the_text_sorts_direction_reads_as_letters_not_numbers():
+    assert _run(MIXED, "channel", "asc")["dirLabel"] == "A to Z"
+    assert _run(MIXED, "channel", "desc")["dirLabel"] == "Z to A"
+
+
+def test_every_offered_sort_actually_reorders_something():
+    """A key that coalesces every clip to one value is a menu entry that does
+    nothing when you pick it."""
+    orders = {}
+    for key in _run(MIXED)["known"]:
+        orders[key] = tuple(_run(MIXED, key, "desc", group="strict")["ids"])
+        assert sorted(orders[key]) == sorted(c["id"] for c in MIXED), \
+            f"{key} lost or duplicated a clip: {orders[key]}"
+    assert len(set(orders.values())) >= 5, \
+        f"{len(orders)} sorts produce only {len(set(orders.values()))} orderings"
+
+
+# ── the controls are wired to all of it ──────────────────────────────────────
+
+def test_both_screens_offer_the_kind_filter():
+    """A comparator supporting a sort is worth nothing if no menu offers it, and
+    the same goes for the filter."""
+    assert JS.count("kind={effKind} setKind={setKind}") == 2, \
+        "only one of the two clip screens can filter by kind"
+
+
+def test_the_order_toggle_belongs_to_the_queue_alone():
+    """The Library never groups, so the toggle would have one meaningful
+    setting there."""
+    assert JS.count("setGroup={setGroup}") == 1, \
+        "the order control leaked onto the screen that does not group"
+    lib = _screen("LibraryScreen")
+    assert "setGroup" not in lib, "the Library offers a grouping toggle"
+
+
+def test_a_filter_whose_options_all_select_the_same_thing_is_hidden():
+    """With no highlights on screen the three options mean empty, everything and
+    everything. Same rule the streamer menu already follows."""
+    assert "hasHighlights && <RdMenu" in JS, \
+        "the kind filter renders even when every clip is the same kind"
+
+
+def test_losing_the_last_highlight_does_not_strand_the_screen_empty():
+    """Approve the only highlight while "Highlights only" is selected and the
+    control disappears with it, leaving the view pinned to an empty set with no
+    visible way back. Both screens fall back to showing everything."""
+    assert JS.count("(kind!=='all' && !hasHighlights) ? 'all' : kind") == 2, \
+        "a screen can be left filtered to a kind it can no longer show"

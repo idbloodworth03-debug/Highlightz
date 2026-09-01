@@ -1293,14 +1293,60 @@ const CLIP_SORTS = {
   // return NaN — which sorts nothing at all, silently.
   trigger:  {l:'Trigger score', date:false, k: c => c.trigger_score || 0},
   virality: {l:'Virality',      date:false, k: c => c.virality_score || 0},
+  length:   {l:'Clip length',   date:false, k: c => c.duration_seconds || 0},
+  // TEXT, not a number. The comparator subtracts, and subtracting two strings
+  // is NaN — which sorts nothing and looks like the control is broken rather
+  // than like a bug. `text` is what routes it to localeCompare.
+  channel:  {l:'Streamer name', date:false, text:true,
+             k: c => (c.channel || '').toLowerCase()},
+  // MEASURES THAT ONLY EXIST ON A HIGHLIGHT. A detected clip has no clipper
+  // count and no Twitch view count — not zero of them, NONE — so `only` sinks
+  // the clips the metric cannot describe instead of ranking them worst on it.
+  // Exactly the reasoning the suggestion grouping below already applies to
+  // trigger_score, and the same mistake the old "0% trigger" badge made.
+  clippers: {l:'Clippers',      date:false, only:true, k: c => c.clipper_count || 0},
+  views:    {l:'Views on Twitch', date:false, only:true, k: c => c.suggested_views || 0},
 };
+
+// WHAT a clip is, as a filter. Asked for directly: highlights became their own
+// kind of thing and there was no way to look at just them, or just the ones the
+// formula caught.
+const CLIP_KINDS = [
+  {v:'all',       l:'All clips'},
+  {v:'highlight', l:'Highlights only'},
+  {v:'detected',  l:'Detected only'},
+];
+
+// HOW the queue is ordered, and the reason this control exists at all.
+//
+// The queue lifts highlights above everything else on every sort. That is the
+// right default — they are the ones worth looking at first — but it is applied
+// BEFORE the sort key, so it silently overrides it: asking for date order and
+// getting every highlight first is not date order. There was no way to see the
+// queue in one true sequence. "Strict order" turns the grouping off and sorts
+// by exactly what was asked for, nothing else.
+const CLIP_GROUPS = [
+  {v:'highlights', l:'Highlights first'},
+  {v:'strict',     l:'Strict order'},
+];
+
+// Both screens narrow the same way, so neither owns a private copy of it.
+function filterClips(list, chan, kind) {
+  return list.filter(c =>
+    (chan === 'all' || c.channel === chan) &&
+    (kind === 'all' || (kind === 'highlight') === !!c.suggested));
+}
 
 // `queueMode` means "this screen is the review queue, so group it" — Review
 // passes true, the Library false. It was called `pendingFirst` when status was
 // the only grouping; crowd suggestions added a second one, and a name promising
 // exactly one of them would have been the misleading half of the truth.
-function sortClips(list, sortBy, sortDir, queueMode) {
+function sortClips(list, sortBy, sortDir, group) {
   const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
+  // `group` replaced a queueMode boolean. The Library passed false and Review
+  // passed true, which left no way to express the third state the user asked
+  // for: this IS the queue, and I still want one unbroken order.
+  const queueMode = group === 'highlights';
   return [...list].sort((a,b)=>{
     // Pending first, but ONLY on a date sort, and only where the caller asked
     // for it. That grouping is what makes Review a queue rather than a gallery;
@@ -1330,7 +1376,15 @@ function sortClips(list, sortBy, sortDir, queueMode) {
       const sg = c => c.suggested ? 0 : 1;
       if(sg(a)!==sg(b)) return sg(a)-sg(b);
     }
-    const d = s.k(a) - s.k(b);
+    // A measure that does not apply to this clip sinks it, in BOTH directions:
+    // "fewest clippers first" must not answer with a wall of clips that were
+    // never crowd-clipped at all.
+    if(s.only){
+      const ap = c => c.suggested ? 0 : 1;
+      if(ap(a)!==ap(b)) return ap(a)-ap(b);
+    }
+    const d = s.text ? String(s.k(a)).localeCompare(String(s.k(b)))
+                     : s.k(a) - s.k(b);
     if(d) return sortDir === 'asc' ? d : -d;
     // Ties are common — virality is banded and a quiet stream produces runs of
     // identical trigger scores. Newest inside a tie keeps the order stable.
@@ -1342,6 +1396,7 @@ function sortClips(list, sortBy, sortDir, queueMode) {
 // "Ascending" on a date column is a small riddle; "Oldest first" is not.
 function dirLabelFor(sortBy, sortDir) {
   const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
+  if(s.text) return sortDir === 'desc' ? 'Z to A' : 'A to Z';
   return s.date ? (sortDir === 'desc' ? 'Newest first' : 'Oldest first')
                 : (sortDir === 'desc' ? 'High to low'  : 'Low to high');
 }
@@ -2299,7 +2354,8 @@ function RdMenu({ label, value, options, onChange, icon, align }) {
 // of cards, and every time only one of them was updated the product grew a
 // second way of doing the same thing.
 function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
-                        channels, chan, setChan, children }) {
+                        channels, chan, setChan, kind, setKind,
+                        hasHighlights, group, setGroup, children }) {
   const dir = dirLabelFor(sortBy, sortDir);
   return (
     <div className="rd-controls">
@@ -2309,6 +2365,17 @@ function ClipControls({ sorts, sortBy, setSortBy, sortDir, setSortDir,
       {channels.length>1 && <RdMenu
         label="Streamer" icon="radio" value={chan} onChange={setChan}
         options={[{v:'all', l:'All streamers'}].concat(channels.map(c=>({v:c, l:c})))}/>}
+      {/* Same rule as the streamer menu: with nothing but detected clips on
+          screen, "Highlights only" selects an empty set and "Detected only"
+          selects everything, so the control is three ways of saying the same
+          thing. It appears the moment a highlight lands over the WS. */}
+      {hasHighlights && <RdMenu
+        label="Show" icon="sparkles" value={kind} onChange={setKind}
+        options={CLIP_KINDS}/>}
+      {/* Queue only. The Library has no grouping to turn off. */}
+      {setGroup && hasHighlights && <RdMenu
+        label="Order" icon="grid" value={group} onChange={setGroup}
+        options={CLIP_GROUPS}/>}
       <div className="rd-sortwrap">
         <RdMenu label="Sort" icon="sliders" value={sortBy} onChange={setSortBy}
           options={sorts.map(v=>({v, l:CLIP_SORTS[v].l}))}/>
@@ -2333,6 +2400,8 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
   const [chanFilter, setChanFilter] = useState('all');
+  const [kind, setKind] = useState('all');
+  const [group, setGroup] = useState('highlights');
   const clipsArr = Object.values(clips).filter(c=>c.status==='pending');
   const pending = clipsArr.length;
   // Only to tell "you are caught up" apart from "you have never had a clip" in
@@ -2347,13 +2416,17 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   // to 'all' rather than pinning the grid to an empty, invisible filter.
   const channels = [...new Set(clipsArr.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
-  const filtered = clipsArr.filter(c=>effChan==='all'||c.channel===effChan);
+  const hasHighlights = clipsArr.some(c=>c.suggested);
+  // If the last highlight leaves the queue while "Highlights only" is selected,
+  // fall back to all rather than pinning the screen to an empty view whose
+  // control has just been hidden — the same self-correction the streamer
+  // filter makes, and the reason both are computed rather than trusted.
+  const effKind = (kind!=='all' && !hasHighlights) ? 'all' : kind;
+  const filtered = filterClips(clipsArr, effChan, effKind);
 
-  // queueMode stays true. The status grouping inside it is now a no-op — every
-  // clip here is pending — but it is also what lifts crowd suggestions to the
-  // top, and that is the whole reason this screen orders itself at all.
-  const shown = sortClips(filtered, sortBy, sortDir, true);
-  const SORTS = ['newest', 'trigger', 'virality'];
+  const shown = sortClips(filtered, sortBy, sortDir, group);
+  const SORTS = ['newest', 'trigger', 'virality', 'length', 'channel',
+                 'clippers', 'views'];
   // The cap now REFUSES the new moment rather than deleting an old clip, so
   // "we did not clip this" is finally the accurate wording. The clip is never
   // created on Twitch either — the processor checks before spending the Helix
@@ -2469,7 +2542,9 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
             streamer filter and the sort stay: those still narrow a real set. */}
         <ClipControls sorts={SORTS} sortBy={sortBy} setSortBy={setSortBy}
           sortDir={sortDir} setSortDir={setSortDir}
-          channels={channels} chan={effChan} setChan={setChanFilter}/>
+          channels={channels} chan={effChan} setChan={setChanFilter}
+          kind={effKind} setKind={setKind} hasHighlights={hasHighlights}
+          group={group} setGroup={setGroup}/>
         <div className="rd-grid">
           {/* EMPTY MEANS TWO DIFFERENT THINGS NOW, and they need different
               words. Before this screen dropped approved clips, an empty grid
@@ -2675,17 +2750,20 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
   // one screen and not on the other.
   const [sortBy, setSortBy] = useState('approved');
   const [sortDir, setSortDir] = useState('desc');
+  const [kind, setKind] = useState('all');
   const all = Object.values(clips);
   const approved = all.filter(c=>c.status==='approved');
   // Filterable streamers derive from the clips themselves — a newly-approved
   // streamer is selectable the moment their first clip lands over the WS.
   const channels = [...new Set(approved.map(c=>c.channel).filter(Boolean))].sort();
   const effChan = channels.includes(chanFilter) ? chanFilter : 'all';
+  const hasHighlights = approved.some(c=>c.suggested);
+  const effKind = (kind!=='all' && !hasHighlights) ? 'all' : kind;
   const clipsArr = sortClips(
-    approved.filter(c=>effChan==='all'||c.channel===effChan),
-    // Not a queue: nothing pending is listed here, and an approved suggestion
+    filterClips(approved, effChan, effKind),
+    // Never grouped: nothing pending is listed here, and an approved highlight
     // should not outrank the rest of the library forever just for being one.
-    sortBy, sortDir, false);
+    sortBy, sortDir, 'strict');
   // Pending clips are not listed here, but their existence is worth surfacing —
   // otherwise hiding them reads as "my clips vanished" rather than "they are one
   // tab over waiting on you".
@@ -2712,9 +2790,11 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
         </div>
       </div>
       {approved.length>0 && <ClipControls
-        sorts={['approved','newest','trigger','virality']}
+        sorts={['approved','newest','trigger','virality','length','channel',
+                'clippers','views']}
         sortBy={sortBy} setSortBy={setSortBy} sortDir={sortDir} setSortDir={setSortDir}
-        channels={channels} chan={effChan} setChan={setChanFilter}/>}
+        channels={channels} chan={effChan} setChan={setChanFilter}
+        kind={effKind} setKind={setKind} hasHighlights={hasHighlights}/>}
       </div>
       {clipsArr.length===0
         ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
