@@ -613,12 +613,15 @@ def test_highlights_can_be_looked_at_on_their_own():
         "the streamer and kind filters do not combine"
 
 
-@pytest.mark.parametrize("sort_by", ["clippers", "views"])
-def test_a_measure_that_cannot_describe_a_clip_sinks_it_both_ways(sort_by):
-    """A detected clip has no clipper count and no Twitch view count — not zero
-    of them, NONE. Ranking it worst repeats the mistake the old "0% trigger"
-    badge made, and asking for the FEWEST clippers must not answer with clips
-    that were never crowd-clipped at all."""
+def test_a_measure_that_cannot_describe_a_clip_sinks_it_both_ways(
+        sort_by="audience"):
+    """An ordinary clip carries no audience signal — not a zero, NONE. Ranking
+    it worst repeats the mistake the old "0% trigger" badge made, and asking
+    for the WEAKEST signal first must not answer with a wall of clips the
+    measure was never taken on.
+
+    One sort now, not two: a second key ordered by a number shown nowhere in
+    the UI, so nobody could tell what it was doing."""
     for direction in ("desc", "asc"):
         ids = _run(MIXED, sort_by, direction, group="strict")["ids"]
         assert ids[:2] == ["h1", "h2"] or ids[:2] == ["h2", "h1"], \
@@ -687,3 +690,112 @@ def test_losing_the_last_highlight_does_not_strand_the_screen_empty():
     visible way back. Both screens fall back to showing everything."""
     assert JS.count("(kind!=='all' && !hasHighlights) ? 'all' : kind") == 2, \
         "a screen can be left filtered to a kind it can no longer show"
+
+
+# ── the menus have to be readable by someone who has never seen the backend ──
+#
+# The first version of these controls shipped labels named after the data:
+# "Clippers" (clipper_count), "Views on Twitch" (suggested_views), "Detected
+# only" (not suggested), "Strict order" (the comparator's mode). Every one of
+# them names a thing in the code, and three of them quietly tell the reader
+# that a highlight came from somebody else clipping the moment — which the card
+# and the detail panel had already, deliberately, stopped saying.
+
+def _menu_labels(const: str) -> list:
+    m = re.search(r"const " + const + r" = \[(.*?)\];", JS, re.S)
+    assert m, const + " not found"
+    return re.findall(r"l:'([^']+)'", m.group(1))
+
+
+def _all_menu_labels() -> dict:
+    labels = dict(p.split("|", 1) for p in _run()["labels"])
+    for i, l in enumerate(_menu_labels("CLIP_KINDS")):
+        labels["kind" + str(i)] = l
+    for i, l in enumerate(_menu_labels("CLIP_GROUPS")):
+        labels["group" + str(i)] = l
+    return labels
+
+
+@pytest.mark.parametrize("word", [
+    "clipper",     # names other people's actions, and the UI stopped saying it
+    "suggest",     # our internal name for a highlight
+    "viewer",      # ditto: "2 viewers clipped it" is what this replaced
+    "api",
+    "queue_",
+    "_count",
+    "_score",
+    "boolean",
+    "strict",      # describes the comparator, not what the reader gets
+    # "Detected" is a real word in this UI — it is the weakest rung of the
+    # Audience signal scale in the detail panel — but never as the NAME of a
+    # set. "Detected only" was our word for "not a highlight" and is printed on
+    # nothing the reader can point at. Added after a mutation put it back and
+    # every other guard here stayed green.
+    "detect",
+])
+def test_no_menu_label_is_named_after_the_implementation(word):
+    """Held as a word list rather than an exact set of labels: the wording will
+    keep being edited, and the thing that must not come back is the VOCABULARY,
+    not one particular phrasing."""
+    for key, label in _all_menu_labels().items():
+        assert word not in label.lower(), \
+            f"the {key} option reads {label!r}, which names the implementation"
+
+
+def test_no_menu_label_leaks_a_field_name():
+    for key, label in _all_menu_labels().items():
+        assert "_" not in label, f"{key} shows a field name: {label!r}"
+        assert label == label.strip() and label[0].isupper(), \
+            f"{key} is not written as a label: {label!r}"
+
+
+def test_the_audience_sort_uses_the_same_words_as_the_clip_card():
+    """A menu entry the reader cannot connect to anything on screen is one they
+    have to guess at. This sorts by clipper_count, and the detail panel has
+    always shown that field as "Audience signal" — so the menu says the same
+    thing, and this fails if either side is renamed alone."""
+    labels = dict(p.split("|", 1) for p in _run()["labels"])
+    assert labels.get("audience") == "Audience signal", \
+        f"the audience sort is labelled {labels.get('audience')!r}"
+    assert '<span className="mk">Audience signal</span>' in JS, \
+        "the detail panel no longer calls it Audience signal, so the menu and " \
+        "the card now disagree about what this number is"
+
+
+def test_the_kind_filter_is_named_for_the_badge_on_the_card():
+    """"Highlight" is printed on the card. It is the only handle the reader has
+    on what makes these clips different, so the filter uses that word."""
+    kinds = _menu_labels("CLIP_KINDS")
+    assert any("Highlight" in k for k in kinds), \
+        f"the kind filter never says Highlight: {kinds}"
+    assert ">Highlight" in JS, "the card stopped printing the Highlight badge"
+
+
+@pytest.mark.parametrize("field,desc,asc", [
+    ("length",   "Longest first",   "Shortest first"),
+    ("audience", "Strongest first", "Weakest first"),
+])
+def test_a_number_sort_says_what_it_does_to_that_number(field, desc, asc):
+    """"High to low" is true of every numeric field and tells the reader
+    nothing about this one. A length sorted high-to-low is longest first, and
+    an audience signal graded Detected / Strong / Very strong is strongest
+    first — those are the words somebody can act on.
+
+    Same principle the date columns already followed: "Ascending" on a date is
+    a small riddle, "Oldest first" is not."""
+    assert _run(MIXED, field, "desc")["dirLabel"] == desc
+    assert _run(MIXED, field, "asc")["dirLabel"] == asc
+
+
+def test_no_direction_label_is_left_speaking_in_generic_numbers():
+    """Every sort whose field has a natural word for its ends should use it.
+    Trigger score and Virality are percentages the card prints as "N% trigger"
+    and "N% viral", so high/low IS their language and they are exempt."""
+    generic = set()
+    for key in _run(MIXED)["known"]:
+        label = _run(MIXED, key, "desc")["dirLabel"]
+        if label in ("High to low", "Low to high"):
+            generic.add(key)
+    assert generic <= {"trigger", "virality"}, (
+        f"these sorts still describe themselves as plain numbers: "
+        f"{sorted(generic - {'trigger', 'virality'})}")

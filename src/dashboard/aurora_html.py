@@ -1293,28 +1293,49 @@ const CLIP_SORTS = {
   // return NaN — which sorts nothing at all, silently.
   trigger:  {l:'Trigger score', date:false, k: c => c.trigger_score || 0},
   virality: {l:'Virality',      date:false, k: c => c.virality_score || 0},
-  length:   {l:'Clip length',   date:false, k: c => c.duration_seconds || 0},
+  length:   {l:'Clip length',   date:false, dir:['Longest first','Shortest first'],
+             k: c => c.duration_seconds || 0},
   // TEXT, not a number. The comparator subtracts, and subtracting two strings
   // is NaN — which sorts nothing and looks like the control is broken rather
   // than like a bug. `text` is what routes it to localeCompare.
   channel:  {l:'Streamer name', date:false, text:true,
              k: c => (c.channel || '').toLowerCase()},
-  // MEASURES THAT ONLY EXIST ON A HIGHLIGHT. A detected clip has no clipper
-  // count and no Twitch view count — not zero of them, NONE — so `only` sinks
-  // the clips the metric cannot describe instead of ranking them worst on it.
-  // Exactly the reasoning the suggestion grouping below already applies to
-  // trigger_score, and the same mistake the old "0% trigger" badge made.
-  clippers: {l:'Clippers',      date:false, only:true, k: c => c.clipper_count || 0},
-  views:    {l:'Views on Twitch', date:false, only:true, k: c => c.suggested_views || 0},
+  // 'AUDIENCE SIGNAL', NOT 'CLIPPERS'. This is clipper_count, and the card and
+  // the detail panel have deliberately called it Audience signal (Detected /
+  // Strong / Very strong) since it shipped — because the raw number names
+  // OTHER PEOPLE'S actions, and a reviewer who has never read an API doc has
+  // no idea what one of them is. Putting the raw word in this menu walked back
+  // into exactly that, and told the reader something about where the moment
+  // came from that the rest of the UI had settled on not saying. The menu uses
+  // the words already printed on the card.
+  //
+  // ONLY EXISTS ON A HIGHLIGHT. An ordinary clip carries no audience signal —
+  // not a zero, NONE — so `only` sinks the clips the measure cannot describe
+  // rather than ranking them worst on it. Same reasoning the grouping below
+  // applies to trigger_score, and the same mistake the old "0% trigger" badge
+  // made.
+  //
+  // A VIEW-COUNT SORT WAS OFFERED HERE AND IS GONE. Nothing on the card or in
+  // the detail panel shows that number, so it ordered by something the reader
+  // cannot see — and naming it after Twitch said the clip already existed
+  // there before they kept it.
+  audience: {l:'Audience signal', date:false, only:true,
+             // The detail panel grades this Detected / Strong / Very strong,
+             // so the direction says strongest, not "high".
+             dir:['Strongest first','Weakest first'],
+             k: c => c.clipper_count || 0},
 };
 
 // WHAT a clip is, as a filter. Asked for directly: highlights became their own
 // kind of thing and there was no way to look at just them, or just the ones the
 // formula caught.
+// Named for the badge on the card, which is the only thing the reader has to
+// go on. A clip is either marked "Highlight" or it is not; "Detected only" was
+// our word for the other half and appears nowhere they can see it.
 const CLIP_KINDS = [
   {v:'all',       l:'All clips'},
   {v:'highlight', l:'Highlights only'},
-  {v:'detected',  l:'Detected only'},
+  {v:'detected',  l:'Everything else'},
 ];
 
 // HOW the queue is ordered, and the reason this control exists at all.
@@ -1325,9 +1346,12 @@ const CLIP_KINDS = [
 // getting every highlight first is not date order. There was no way to see the
 // queue in one true sequence. "Strict order" turns the grouping off and sorts
 // by exactly what was asked for, nothing else.
+// "Strict order" describes the comparator, not what the reader gets. What they
+// get is a list running straight down in whatever they sorted by, with the
+// highlights left wherever they fall.
 const CLIP_GROUPS = [
   {v:'highlights', l:'Highlights first'},
-  {v:'strict',     l:'Strict order'},
+  {v:'strict',     l:'Straight down the list'},
 ];
 
 // Both screens narrow the same way, so neither owns a private copy of it.
@@ -1396,6 +1420,10 @@ function sortClips(list, sortBy, sortDir, group) {
 // "Ascending" on a date column is a small riddle; "Oldest first" is not.
 function dirLabelFor(sortBy, sortDir) {
   const s = CLIP_SORTS[sortBy] || CLIP_SORTS.newest;
+  // An explicit pair wins. "High to low" is true of every number and tells the
+  // reader nothing about THIS one: a length sorted high-to-low is longest
+  // first, and the words they can act on are the ones that say so.
+  if(s.dir) return sortDir === 'desc' ? s.dir[0] : s.dir[1];
   if(s.text) return sortDir === 'desc' ? 'Z to A' : 'A to Z';
   return s.date ? (sortDir === 'desc' ? 'Newest first' : 'Oldest first')
                 : (sortDir === 'desc' ? 'High to low'  : 'Low to high');
@@ -2425,8 +2453,8 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
   const filtered = filterClips(clipsArr, effChan, effKind);
 
   const shown = sortClips(filtered, sortBy, sortDir, group);
-  const SORTS = ['newest', 'trigger', 'virality', 'length', 'channel',
-                 'clippers', 'views'];
+  const SORTS = ['newest', 'trigger', 'virality', 'audience', 'length',
+                 'channel'];
   // The cap now REFUSES the new moment rather than deleting an old clip, so
   // "we did not clip this" is finally the accurate wording. The clip is never
   // created on Twitch either — the processor checks before spending the Helix
@@ -2790,8 +2818,8 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
         </div>
       </div>
       {approved.length>0 && <ClipControls
-        sorts={['approved','newest','trigger','virality','length','channel',
-                'clippers','views']}
+        sorts={['approved','newest','trigger','virality','audience','length',
+                'channel']}
         sortBy={sortBy} setSortBy={setSortBy} sortDir={sortDir} setSortDir={setSortDir}
         channels={channels} chan={effChan} setChan={setChanFilter}
         kind={effKind} setKind={setKind} hasHighlights={hasHighlights}/>}
