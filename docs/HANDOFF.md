@@ -480,6 +480,18 @@ normal Clip Review screen, which still shows scores.
   up to 90 days" line has no rotation config in the repo; if uploads or the
   backup job point at S3/GCS in prod, the provider needs naming under
   sharing and backups need a retention line.
+- **Shelf carousel: loops with any number of clips (2026-09-02, late).**
+  Owner: "the carousel of clips does not work on the landing page". Cause:
+  `sizeLoop()` only engaged the loop when one set was WIDER than the shelf,
+  so a three-clip showcase on a 1440 screen stood still — the exact
+  complaint the carousel was built to fix. Now the real set is cloned as
+  many times as the shelf needs (`copies = max(2, 2*ceil(shelf/set))`, even
+  so `translate(-50%)` lands on a seam), rebuilt from the real set on every
+  rail filter, and the loop runs whenever more than one card is visible.
+  `--shelf-t` is the half-track width at ~55px/s. Under reduced motion it
+  is still a plain scroll row (`prefers-reduced-motion` block) — an iPhone
+  with Reduce Motion on shows a static row by design. Verified in Chromium
+  with a 3-clip and a 6-clip showcase (`scratchpad/v4/loopcheck.js`).
 - **Legal pages restyled + the LLM/SEO pass (2026-09-02, late).** /tos,
   /privacy, /cookies share `_LEGAL_STYLE` / `_LEGAL_NAV` / `_LEGAL_FOOT`
   (defined just above `TOS_HTML`): the landing's fixed bar, paper ground,

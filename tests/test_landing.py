@@ -625,6 +625,17 @@ def test_the_shelf_is_a_carousel_that_wraps_without_a_seam():
     assert "copy.setAttribute('aria-hidden','true')" in js
     assert "el.setAttribute('tabindex','-1')" in js
     assert "if(first&&live>1){" in js, "a single card must not loop alone"
+    # THE BUG THE OWNER SAW (2026-09-02, "the carousel of clips does not
+    # work"): the loop only engaged when one set was wider than the shelf,
+    # so a showcase of three clips stood still on a 1440px screen. The set
+    # is now cloned as many times as the shelf needs — an even count, so
+    # -50% lands on a seam — and moves with any number of clips above one.
+    assert "var copies=Math.max(2,need*2);" in js, \
+        "a set narrower than the shelf must be cloned until it wraps, not left still"
+    assert "var loop=visible>1&&w>0;" in js, "the loop must not depend on the set's width"
+    # Clones are rebuilt from the real set on every filter, so the rail's
+    # own card list must be the real set's cards, never the clones'.
+    assert "querySelector('.shelf-set').querySelectorAll('.card')" in js
 
 
 def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans():

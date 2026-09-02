@@ -8479,30 +8479,45 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ── the rail filters the shelf ── */
   var rail=document.getElementById('rail'), shelf=document.getElementById('shelf');
   var track=document.getElementById('shelf-track');
-  /* THE LOOP. One clone of the set, marked decorative and out of the tab
-     order, and a duration read from the set's real width so the speed is
-     the same however many clips are curated (about 55px a second). Only
-     when there is something to loop: one card gliding alone is a bug. */
+  /* THE LOOP. The set is cloned as many times as the shelf needs — an even
+     number, so sliding the track by exactly half of it lands on a seam
+     between two identical sets and the wrap is invisible — and the
+     duration is read from the set's real width so the speed is the same
+     however many clips are curated (about 55px a second). A set narrower
+     than the shelf is not a reason to stand still: with three clips the
+     track is simply built from more copies. Only when there is something
+     to loop: one card gliding alone is a bug. Every clone is decorative and
+     out of the tab order. */
   var looped=false;
+  function cloneSet(first){
+    var copy=first.cloneNode(true);
+    copy.setAttribute('aria-hidden','true');
+    Array.prototype.forEach.call(copy.querySelectorAll('a,button'),function(el){ el.setAttribute('tabindex','-1'); });
+    return copy;
+  }
   function sizeLoop(){
     if(!track||!looped) return;
-    var set=track.querySelector('.shelf-set');
-    var w=set?set.getBoundingClientRect().width:0;
-    // A set narrower than the shelf has nothing to wrap: a filter that
-    // leaves one card must show one card, not the same card twice with a
-    // gap. Then the shelf is a plain row again until the filter widens.
-    var loop=w>shelf.clientWidth+8;
+    var first=track.querySelector('.shelf-set');
+    if(!first) return;
+    // Rebuild from the one real set every time: a filter changes which
+    // cards are visible, so the clones are remade from the filtered set.
+    Array.prototype.slice.call(track.querySelectorAll('.shelf-set')).slice(1).forEach(function(el){ track.removeChild(el); });
+    var visible=Array.prototype.filter.call(first.querySelectorAll('.card'),function(c){ return !c.hidden; }).length;
+    var w=first.getBoundingClientRect().width;
+    var loop=visible>1&&w>0;
     shelf.classList.toggle('is-loop',loop);
-    if(loop) shelf.style.setProperty('--shelf-t',Math.max(24,Math.round(w/55))+'s');
+    if(!loop) return;
+    // Enough copies to cover the shelf twice over, rounded up to an even
+    // count so -50% is a whole number of sets.
+    var need=Math.ceil((shelf.clientWidth+8)/w);
+    var copies=Math.max(2,need*2);
+    for(var i=1;i<copies;i++) track.appendChild(cloneSet(first));
+    shelf.style.setProperty('--shelf-t',Math.max(24,Math.round((w*copies/2)/55))+'s');
   }
   if(track){
     var first=track.querySelector('.shelf-set');
     var live=first?first.querySelectorAll('.card').length:0;
     if(first&&live>1){
-      var copy=first.cloneNode(true);
-      copy.setAttribute('aria-hidden','true');
-      Array.prototype.forEach.call(copy.querySelectorAll('a,button'),function(el){ el.setAttribute('tabindex','-1'); });
-      track.appendChild(copy);
       looped=true;
       sizeLoop();
       window.addEventListener('resize',sizeLoop,{passive:true});
@@ -8515,7 +8530,7 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   if(rail&&shelf){
     var tabs=Array.prototype.slice.call(rail.querySelectorAll('.rail-t'));
-    var cards=Array.prototype.slice.call(shelf.querySelectorAll('.card'));
+    var cards=Array.prototype.slice.call((track||shelf).querySelector('.shelf-set').querySelectorAll('.card'));
     function pick(cat){
       var shown=0;
       tabs.forEach(function(t){
