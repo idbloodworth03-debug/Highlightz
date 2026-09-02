@@ -42,10 +42,39 @@ JS = JS[:JS.index("── THE THROUGH-LINE")]
     "pshot",
 ])
 def test_the_product_screenshots_stay_gone(gone):
-    """They were removed deliberately: the hero shows the product working, so a
-    static crop of the dashboard three sections down argued the same thing with
-    worse evidence."""
-    assert gone not in HTML, f"a product screenshot came back: {gone}"
+    """The FIRST product-shot mechanism — the dashboard's DOM and 56KB of its
+    stylesheet lifted into the landing page — was removed deliberately and
+    stays gone. The product IS shown again since 2026-09-02, on the owner's
+    call, but as the tour below: six real screen captures served as ~30KB
+    WebP files, never as lifted markup. test_the_tour_shows_the_real_screens
+    holds that shape."""
+    assert gone not in HTML, f"the lifted product DOM came back: {gone}"
+
+
+def test_the_tour_shows_the_real_screens_as_images_not_lifted_dom():
+    """The tour is pictures of the real dashboard, cropped from the same
+    captures the walkthrough uses. Three things keep it honest and cheap:
+    every card names a file that ships; every image reserves its box
+    (width/height) so the row cannot shift as they load; and they load lazily,
+    so the cover and the wall are not waiting on six screenshots."""
+    from pathlib import Path
+    # The tour sits between the (hidden) example clips and How it works.
+    tour = HTML[HTML.index('id="tour"'):HTML.index('id="how"')]
+    imgs = re.findall(r"<img ([^>]*)>", tour)
+    assert len(imgs) >= 5, "the tour has too few screens to be a tour"
+    for attrs in imgs:
+        src = re.search(r'src="/static/(landing/tour-[\w-]+\.webp)"', attrs)
+        assert src, f"a tour card does not point at a shipped WebP: {attrs[:80]}"
+        f = Path(api._STATIC_DIR) / src.group(1)
+        assert f.exists() and f.stat().st_size < 120_000, f"{f.name} missing or heavy"
+        assert 'width="' in attrs and 'height="' in attrs, "a tour image has no reserved box"
+        assert 'loading="lazy"' in attrs, "a tour image is not lazy"
+        assert re.search(r'alt="[^"]{20,}"', attrs), "a tour image has no real alt text"
+    # Tabs and cards are one control: every tab names a card that exists.
+    tabs = re.findall(r'class="tour-tab[^"]*" data-tour="(\w+)"', tour)
+    cards = re.findall(r'class="tour-card[^"]*" data-tour="(\w+)"', tour)
+    assert tabs and tabs == cards, f"tabs {tabs} do not match cards {cards}"
+    assert "getElementById('tour-row')" in HTML, "the tab/row link script is gone"
 
 
 def test_the_landing_page_did_not_regrow_the_dashboard_stylesheet():
@@ -97,11 +126,13 @@ def test_the_wall_fills_the_viewport_and_is_not_boxed_into_the_text_column():
     assert ".hero.hero-band{" in HTML
     m = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML)
     assert m and "max-width:none" in m.group(1)
-    # The nav sits directly above this and is sticky, so the hero takes the
-    # screen MINUS the bar: nav + hero come to exactly one viewport, which is
-    # what makes slide 2 one slide. A flat 100svh here overflows slide 2 by the
-    # bar's height and the two-slide reading breaks.
-    assert "min-height:calc(100svh - var(--nav-h))" in m.group(1)
+    # The nav is FIXED over the top of the page now (owner's call), so it is
+    # out of flow: the hero takes the whole screen and clears the bar with its
+    # own top padding. Both halves matter — a flat 100svh with no padding puts
+    # the wall's top under the bar; padding without 100svh leaves slide 2 short.
+    assert "min-height:100svh" in m.group(1)
+    assert re.search(r"padding-top:calc\(var\(--nav-h\)", m.group(1)), \
+        "the hero no longer clears the fixed bar"
 
 
 def test_the_score_is_still_the_one_number_that_lights_the_page():
@@ -351,18 +382,23 @@ def _cover() -> str:
     return HTML[start:HTML.index('THE THROUGH-LINE', start)]
 
 
-def test_the_site_opens_on_the_cover_and_nothing_else():
-    """First screen: the mark, the name, the numbers, on black with nothing
-    laid across them. The cover is the FIRST thing in the body, and the nav
-    comes AFTER it — put back there on the owner's call, so it arrives with
-    slide 2 rather than sitting over the opening screen."""
+def test_the_site_opens_on_the_cover_with_only_the_bar_over_it():
+    """First screen: the mark, the name, the numbers, on black. The nav is
+    the one thing allowed in front of the cover — moved there on the owner's
+    call (2026-09-02), fixed over the top of the page the way a bar sits on a
+    hero image — and it is the only thing: nothing else may render before the
+    cover, and the bar itself must be out of flow so it does not push the
+    cover down."""
     body = HTML.index("<body>")
     between = HTML[body + len("<body>"):HTML.index('<div class="cover" id="cover">')]
-    assert "<div" not in between and "<section" not in between, \
+    live = re.sub(r"<!--.*?-->", "", between, flags=re.S)
+    assert "<section" not in live and "<header" not in live, \
         "something else renders before the cover"
-    assert "<nav" not in between, "the nav is back above the cover, not after it"
-    assert HTML.index('<div class="cover" id="cover">') < HTML.index('<nav class="nav">'), \
-        "the nav must come after the cover in the document"
+    assert live.count("<nav") == 1 and "<div" not in live.split("<nav")[0], \
+        "the nav is not the only thing before the cover"
+    nav = re.search(r"\n  \.nav\{([^}]*)\}", HTML).group(1)
+    assert "position:fixed" in nav and "top:0" in nav, \
+        "the bar is in flow again and pushes the cover down"
     cover = _cover()
     assert "/static/logo-mark.png" in cover, "the cover lost the logo"
     assert 'class="cover-word">Highlightz<' in cover, "the cover lost the name"

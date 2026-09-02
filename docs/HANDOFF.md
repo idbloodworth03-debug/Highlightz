@@ -450,6 +450,33 @@ normal Clip Review screen, which still shows scores.
   - **OPEN: og-card.png is still rendered in Anton**, so the share card matches
     no current face. Regenerate it in Lobster. `Anton-Regular.ttf` is that
     card's source font — **keep it** until the card is redone.
+- **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
+  mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
+  **rejected by the owner within the hour** ("you made it worse … poor and
+  rushed"; reference shown: Squarespace's landing — big product imagery,
+  personality). It was reverted wholesale (`716f411`) rather than patched.
+  What the owner asked for instead, and what is live now:
+  - **The nav is FIXED over the top of the page**, over the cover, with no
+    lines (`.nav{position:fixed;top:0}`; still the hero band's #09070C tone,
+    no border/backdrop). It is the first element in `<body>`. The hero is
+    `min-height:100svh` with `padding-top:calc(var(--nav-h) + var(--s-3))`
+    to clear it; `slideTo(coverEl.offsetHeight)` still lands slide 2 exactly.
+  - **The tour** (`#tour`, right after the hero): Lobster title, a row of
+    mono tabs, and a Squarespace-style row of six big cards that run off the
+    right edge — each a REAL dashboard screen. Images are
+    `static/landing/tour-*.webp` (23–40KB each), cropped from the tutorial
+    captures with the sidebar removed (`crop (104,0,1440,835)` → 1200×750,
+    q82; regenerate with PIL if the captures change). Cards carry the page's
+    215deg rim light and the product's 14px radius; the active card gets the
+    flare rim. Tabs ↔ row are linked by IntersectionObserver (root = the row)
+    and `scrollTo` on click; a native scroll container, so it works with JS
+    off. `test_the_tour_shows_the_real_screens_as_images_not_lifted_dom`
+    pins: shipped WebP, width/height, lazy, real alt, tabs == cards.
+  - Everything else below the hero is the page as the owner had shaped it
+    over the previous sessions (stagger How-it-works + formula, grouped
+    features with gold titles, pricing ladder, 16-question FAQ list, Lobster
+    titles). **Do not "redesign" those again without a screenshot-level
+    brief from the owner.**
 - CSS traps: `.wrap` (class) beats `section` (type) on the padding
   shorthand — sections use longhand padding. Grid `1fr` means
   minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.

@@ -6284,7 +6284,13 @@ LANDING_HTML = """<!DOCTYPE html>
      The bottom 30% fades to nothing instead of ending on a line. That is what
      replaces the hairline: scrolled down over the lighter sections the bar
      dissolves into what is under it rather than stopping on a hard edge. ── */
-  .nav{position:sticky;top:0;z-index:60;
+  /* FIXED, over the top of the page, on the owner's call: the bar sits on
+     the cover the way a nav sits on a hero image, and stays there. It is
+     out of flow, so the hero pads its own top by --nav-h to keep slide 2
+     one screen (see .hero.hero-band). Over the cover's #000 the bar's
+     near-black is invisible; over the site it is the hero band's own top
+     tone, so there is never an edge under it. */
+  .nav{position:fixed;top:0;left:0;right:0;z-index:60;
     background:linear-gradient(180deg,#09070C 0%,#09070C 70%,rgba(9,7,12,0) 100%);
     display:flex;align-items:center;gap:16px;padding:12px 24px 16px}
   .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
@@ -6306,7 +6312,11 @@ LANDING_HTML = """<!DOCTYPE html>
     .nav-logo span{display:none}
   }
 
-  .hero.hero-band{min-height:calc(100svh - var(--nav-h));display:grid;
+  /* 100svh with the bar's height as top padding: the bar is fixed and out
+     of flow now, so the hero takes the whole screen and clears the bar
+     itself. This padding comes out of the wall's row, and it has to — the
+     alternative is the wall's top hiding under the bar. */
+  .hero.hero-band{min-height:100svh;padding-top:calc(var(--nav-h) + var(--s-3));display:grid;
     grid-template-columns:minmax(0,.38fr) minmax(0,.62fr);
     column-gap:clamp(32px,4vw,64px);
     grid-template-rows:minmax(0,1fr);align-content:stretch;
@@ -6842,7 +6852,7 @@ LANDING_HTML = """<!DOCTYPE html>
      rules that shrank it went with it; what stays is the wall's own sizing,
      which still has to fit a whole tile on a short screen. ── */
   @media(max-width:700px){
-    .hero.hero-band{padding-top:8px}
+    .hero.hero-band{padding-top:calc(var(--nav-h) + 8px)}
     .wall{gap:8px}
     .tile{padding:8px 12px 8px}
     .tile-chart{height:118px;max-height:118px;min-height:64px}
@@ -7232,6 +7242,77 @@ LANDING_HTML = """<!DOCTYPE html>
   .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
   .footer .fl{margin-bottom:4px}
 
+  /* ══ THE TOUR. The product, shown. ═══════════════════════════════════════
+     A centred title, a row of tabs, and a row of big cards that run off the
+     right edge of the page — each card is a real screen of the dashboard,
+     cropped to its own header and first row of content, with the screen's
+     name and one sentence laid over the bottom. The cards wear the same rim
+     light as every lit surface on this page (source above-right, 215deg) and
+     the product's own corner radius, so the screenshots read as the product
+     sitting on the page rather than as pictures pasted onto it.
+
+     The tabs and the row are one control: a tab scrolls its card into view,
+     and scrolling the row moves the tab. Real buttons, real focus rings; the
+     row is a native scroll container so it works with no JS at all. ══ */
+  .tour{position:relative}
+  .tour-head{text-align:center;max-width:var(--measure);margin:0 auto var(--s-6)}
+  .tour-head .sec-title{margin-bottom:var(--s-3)}
+  .tour-head .sec-sub{margin:0 auto}
+  .tour-tabs{display:flex;justify-content:center;flex-wrap:wrap;gap:var(--s-1) var(--s-2);
+    margin:0 0 var(--s-6);padding:0}
+  .tour-tab{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-3);background:none;cursor:pointer;
+    border:1px solid transparent;border-radius:3px;padding:var(--s-2) var(--s-3);
+    transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .tour-tab:hover{color:var(--ink)}
+  .tour-tab.is-on{color:var(--ink);background:rgba(184,106,220,.12);
+    border-color:rgba(184,106,220,.45)}
+  .tour-tab:focus-visible{outline:2px solid var(--flare);outline-offset:2px}
+  /* The row bleeds to the right edge of the viewport, Squarespace-style: a
+     card half in view is the invitation to scroll. The negative margin
+     mirrors the wrap's own gutter so the first card still lines up with the
+     title. Overflow is the row's own; html{overflow-x:clip} keeps the page
+     from ever scrolling sideways. */
+  .tour-row{position:relative;display:flex;gap:var(--s-4);overflow-x:auto;
+    scroll-snap-type:x mandatory;padding:var(--s-1) 0 var(--s-4);scrollbar-width:none;
+    margin-right:calc(-1 * clamp(20px,4.5vw,72px));padding-right:clamp(20px,4.5vw,72px)}
+  .tour-row::-webkit-scrollbar{display:none}
+  .tour-card{position:relative;flex:0 0 auto;width:clamp(280px,44vw,600px);aspect-ratio:8/5;
+    scroll-snap-align:start;border-radius:14px;overflow:hidden;
+    border:1px solid transparent;
+    background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.55),rgba(184,106,220,.12) 34%,rgba(242,234,247,.06) 64%,rgba(242,234,247,.02)) border-box;
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.85);
+    transition:background var(--dur-slow) var(--ease)}
+  .tour-card.is-on{background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(215deg,var(--flare),rgba(184,106,220,.25) 36%,rgba(242,234,247,.07) 66%,rgba(242,234,247,.02)) border-box}
+  /* Anchored top-left: the crop already dropped the sidebar, so the top-left
+     of every image is the screen's title and its first content. Cropping the
+     bottom instead of squashing keeps the product's own proportions. */
+  .tour-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    object-position:0 0;display:block}
+  .tour-card::after{content:'';position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(8,5,11,0) 36%,rgba(8,5,11,.58) 60%,rgba(8,5,11,.96))}
+  .tour-body{position:absolute;left:0;right:0;bottom:0;z-index:1;padding:var(--s-5)}
+  .tour-k{display:block;font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--glow-ink);margin-bottom:var(--s-2)}
+  .tour-body h3{font-family:var(--sans);font-weight:700;font-size:clamp(20px,2vw,26px);
+    letter-spacing:-.02em;line-height:1.15;color:var(--ink);margin:0 0 var(--s-2)}
+  .tour-body p{margin:0;font-size:14px;line-height:1.55;color:var(--ink-2);max-width:44ch}
+  .tour-more{display:flex;justify-content:center;margin-top:var(--s-2)}
+  @media(max-width:700px){
+    .tour-tabs{justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;
+      margin-right:-16px;padding-right:16px}
+    .tour-tabs::-webkit-scrollbar{display:none}
+    .tour-tab{white-space:nowrap}
+    .tour-card{width:min(84vw,420px);aspect-ratio:4/3}
+    /* The caption takes more of a phone-sized card, so the dark starts
+       higher — otherwise the title sits over the screenshot's own cards. */
+    .tour-card::after{background:linear-gradient(180deg,rgba(8,5,11,0) 18%,rgba(8,5,11,.7) 48%,rgba(8,5,11,.97))}
+    .tour-body{padding:var(--s-4)}
+    .tour-row{margin-right:-16px;padding-right:16px}
+  }
+
   /* ══ Example-clip lightbox ══ */
   .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px}
   .exl-bg{position:absolute;inset:0;background:rgba(8,5,11,.9)}
@@ -7311,7 +7392,38 @@ LANDING_HTML = """<!DOCTYPE html>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
-<!-- THE COVER, and now the first and only thing before the wall. The nav
+<!-- ── NAV. Over the top of the page, on the owner's call: the bar sits
+     on the cover the way a nav sits on a hero image, and stays fixed. It
+     is the first thing in the document because it is the first thing on
+     the screen. slideTo() lands on coverEl.offsetHeight; the hero pads its
+     own top by the bar's height so nothing lands under it.
+
+     NO LINES ON IT. The old bar carried a hairline border and a second glowing
+     one under it (.nav::after), plus a bordered sparkline pill. All three are
+     gone: the bar has no border of its own, and it wears the hero band's own
+     top tone so the nav and the wall below it are one unbroken surface. -->
+<nav class="nav">
+  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
+  <div class="nav-links">
+    <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. A nav that lists sections in
+         a different sequence to the one you scroll through makes the page feel
+         like it jumps around. Held by a test. -->
+    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
+    <a href="#tour" class="nav-link">Tour</a>
+    <a href="#how" class="nav-link">How it works</a>
+    <a href="#features" class="nav-link">Features</a>
+    <a href="#pricing" class="nav-link">Pricing</a>
+    <a href="#faq" class="nav-link">FAQ</a>
+    <a href="/tutorial" class="nav-link">Tutorial</a>
+    <a href="/compare" class="nav-link">Compare</a>
+  </div>
+  <div class="nav-right">
+    <a href="/login" class="nav-link">Sign in</a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
+  </div>
+</nav>
+
+<!-- THE COVER, the first thing under the bar. The nav
      that used to sit between the two slides was removed on the owner's call —
      the cover already carries the lockup, so slide 2 is the wall alone.
      width/height are the file's NATURAL 374x501 — the browser takes the ratio
@@ -7369,36 +7481,6 @@ LANDING_HTML = """<!DOCTYPE html>
     <span class="cover-cue-l"></span><span>scroll</span>
   </div>
 </div>
-
-<!-- ── NAV. After the cover, not over it. ───────────────────────────────────
-     Placed here in the document so slide 1 is the mark and the numbers on
-     black with nothing laid across them; the bar arrives with slide 2 and
-     then sticks. slideTo() lands on coverEl.offsetHeight, which is exactly
-     this element's top, so the bar is the first thing at the top of slide 2.
-
-     NO LINES ON IT. The old bar carried a hairline border and a second glowing
-     one under it (.nav::after), plus a bordered sparkline pill. All three are
-     gone: the bar has no border of its own, and it wears the hero band's own
-     top tone so the nav and the wall below it are one unbroken surface. -->
-<nav class="nav">
-  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
-  <div class="nav-links">
-    <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. A nav that lists sections in
-         a different sequence to the one you scroll through makes the page feel
-         like it jumps around. Held by a test. -->
-    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
-    <a href="#how" class="nav-link">How it works</a>
-    <a href="#features" class="nav-link">Features</a>
-    <a href="#pricing" class="nav-link">Pricing</a>
-    <a href="#faq" class="nav-link">FAQ</a>
-    <a href="/tutorial" class="nav-link">Tutorial</a>
-    <a href="/compare" class="nav-link">Compare</a>
-  </div>
-  <div class="nav-right">
-    <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
-  </div>
-</nav>
 
 <!-- Hero -->
 <!-- ── THE THROUGH-LINE ──────────────────────────────────────────────────────
@@ -7472,7 +7554,90 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="ex-grid" id="ex-grid"></div>
 </section>
 
-<!-- Who it's for -->
+<!-- ── THE TOUR ──────────────────────────────────────────────────────────────
+     The product, shown: six real screens of the dashboard, cropped from the
+     same captures the walkthrough uses (static/landing/tour-*.webp, ~30KB
+     each, width/height set so the row reserves its box before they load).
+     Tabs and the row are one control — see the tour script near the end of
+     the body. -->
+<section class="wrap wide tour" id="tour">
+  <div class="tour-head">
+    <h2 class="sec-title">Everything a clip needs, in one place</h2>
+    <p class="sec-sub">Every screen below is the real dashboard. Pick a tab, or scroll the row.</p>
+  </div>
+  <div class="tour-tabs" id="tour-tabs">
+    <button type="button" class="tour-tab is-on" data-tour="live" aria-current="true">Live streams</button>
+    <button type="button" class="tour-tab" data-tour="review">Clip review</button>
+    <button type="button" class="tour-tab" data-tour="library">Clip library</button>
+    <button type="button" class="tour-tab" data-tour="vod">VOD Scanner</button>
+    <button type="button" class="tour-tab" data-tour="presets">Presets</button>
+    <button type="button" class="tour-tab" data-tour="add">Adding a channel</button>
+  </div>
+  <div class="tour-row" id="tour-row">
+    <article class="tour-card is-on" data-tour="live">
+      <img src="/static/landing/tour-live.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="The Live Streams screen: a channel's trigger score climbing toward its threshold, with the signal weights it has learned">
+      <div class="tour-body">
+        <span class="tour-k">Live streams</span>
+        <h3>Watch the score move</h3>
+        <p>Every channel you add gets a live trigger score, its own threshold, and the signal weights it has learned from your decisions.</p>
+      </div>
+    </article>
+    <article class="tour-card" data-tour="review">
+      <img src="/static/landing/tour-review.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="The Clip Review screen: pending clips with their virality scores and Approve and Reject buttons">
+      <div class="tour-body">
+        <span class="tour-k">Clip review</span>
+        <h3>Approve the keepers</h3>
+        <p>Every clip lands here first with its score and the signals that fired. Sort by Top Virality on a busy day. Nothing leaves without you.</p>
+      </div>
+    </article>
+    <article class="tour-card" data-tour="library">
+      <img src="/static/landing/tour-library.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="The Clip Library screen: approved clips with Open on Twitch buttons">
+      <div class="tour-body">
+        <span class="tour-k">Clip library</span>
+        <h3>Everything you kept</h3>
+        <p>Approved clips, hosted by Twitch under your own account. One tap to open, share or take into the editor.</p>
+      </div>
+    </article>
+    <article class="tour-card" data-tour="vod">
+      <img src="/static/landing/tour-vod.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="The VOD Scanner screen: a Twitch VOD link pasted in, ready to scan">
+      <div class="tour-body">
+        <span class="tour-k">VOD Scanner</span>
+        <h3>Streams that already ended</h3>
+        <p>Paste a VOD link and the same formula scans the finished broadcast. Every hit links to its own timestamp. On Pro.</p>
+      </div>
+    </article>
+    <article class="tour-card" data-tour="presets">
+      <img src="/static/landing/tour-presets.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="The Settings screen: nine content presets from Default to Sports">
+      <div class="tour-body">
+        <span class="tour-k">Presets</span>
+        <h3>Pick the closest, then forget it</h3>
+        <p>Nine starting points, from Small streamer to Sports. A preset only decides where a channel starts; it keeps learning from there.</p>
+      </div>
+    </article>
+    <article class="tour-card" data-tour="add">
+      <img src="/static/landing/tour-add.webp" width="1200" height="750" loading="lazy" decoding="async"
+           alt="Adding a channel: typing a streamer's name and picking it from the list">
+      <div class="tour-body">
+        <span class="tour-k">Adding a channel</span>
+        <h3>Type a name. That is the setup.</h3>
+        <p>Pick the streamer, pick a preset, and it starts watching. Add them before they go live and it waits for them.</p>
+      </div>
+    </article>
+  </div>
+  <div class="tour-more">
+    <a class="peek peek-inline" href="/tutorial" style="margin-top:0">
+      <span class="peek-k">Want the whole tour?</span>
+      <span class="peek-t">The walkthrough goes screen by screen</span>
+      <span class="peek-a">&rarr;</span>
+    </a>
+  </div>
+</section>
+
 
 <!-- How it works -->
 <section class="wrap band-sand seam" id="how">
@@ -8721,7 +8886,56 @@ LANDING_HTML = """<!DOCTYPE html>
     bindSlides();
   } else if (thread){ thread.style.display = 'none'; }
 })();
+</script>
+<script>
+/* ── The tour: tabs and a snap row, kept in step both ways ─────────────────
+   A tab scrolls its card to the front of the row; scrolling the row by hand
+   moves the tab. The row is a native scroll container, so with no JS the
+   cards still scroll — this only adds the two-way link. No backslashes: this
+   file is a Python triple-quoted string. */
+(function(){
+  var row=document.getElementById('tour-row');
+  if(!row) return;
+  var tabs=Array.prototype.slice.call(document.querySelectorAll('.tour-tab'));
+  var cards=Array.prototype.slice.call(row.querySelectorAll('.tour-card'));
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var lock=0;
+  function mark(key){
+    tabs.forEach(function(t){
+      var on=t.getAttribute('data-tour')===key;
+      t.classList.toggle('is-on',on);
+      if(on) t.setAttribute('aria-current','true'); else t.removeAttribute('aria-current');
+    });
+    cards.forEach(function(c){ c.classList.toggle('is-on',c.getAttribute('data-tour')===key); });
+  }
+  tabs.forEach(function(t){
+    t.addEventListener('click',function(){
+      var key=t.getAttribute('data-tour');
+      var card=null;
+      cards.forEach(function(c){ if(c.getAttribute('data-tour')===key) card=c; });
+      if(!card) return;
+      mark(key);
+      // The observer below would re-mark every card the smooth scroll passes
+      // over; hold it off for the length of the scroll.
+      lock=Date.now()+900;
+      row.scrollTo({left:card.offsetLeft,behavior:reduce?'auto':'smooth'});
+    });
+  });
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      if(Date.now()<lock) return;
+      var best=null;
+      es.forEach(function(e){
+        if(e.isIntersecting&&(!best||e.intersectionRatio>best.intersectionRatio)) best=e;
+      });
+      if(best) mark(best.target.getAttribute('data-tour'));
+    },{root:row,threshold:[.6,.9]});
+    cards.forEach(function(c){ io.observe(c); });
+  }
+})();
+</script>
 
+<script>
 /* ── The nav's real height ────────────────────────────────────────────────
    Anchor targets clear the bar by subtracting --nav-h, and slide 2 subtracts
    it so nav + hero come to exactly one screen. The bar is not one fixed
