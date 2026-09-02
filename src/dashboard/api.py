@@ -7365,9 +7365,21 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
   /* ── the clips ─────────────────────────────────────────────────────────── */
-  var clips=[], names=['novafps','tessplays','kettlebrook','arcadeghost',
-                       'lowlatency','mothcandle','pixelbrook','quietfrog',
-                       'nightmarket','saltroad','copperbell','deadpixel'];
+  /* REAL CHANNELS, all of them (owner's call). The curated showcase fills
+     the first tiles with the streamers whose clips it holds; the rest are
+     backfilled from this list of well-known Twitch channels and the category
+     each is best known for. Invented names read as a mockup; the wall is
+     meant to read as ten real channels being scored. The category is only a
+     label — nothing here claims a channel is live or a customer. */
+  var clips=[], names=[
+    {n:'kaicenat',g:'Just Chatting'},{n:'xqc',g:'Just Chatting'},
+    {n:'caseoh_',g:'Minecraft'},{n:'plaqueboymax',g:'Just Chatting'},
+    {n:'lacy',g:'Just Chatting'},{n:'tarik',g:'VALORANT'},
+    {n:'shroud',g:'Counter-Strike'},{n:'summit1g',g:'Grand Theft Auto V'},
+    {n:'ibai',g:'Just Chatting'},{n:'clix',g:'Fortnite'},
+    {n:'nickmercs',g:'Call of Duty: Warzone'},{n:'pokimane',g:'Just Chatting'},
+    {n:'timthetatman',g:'Call of Duty: Warzone'},{n:'jynxzi',g:'Rainbow Six Siege'},
+    {n:'stableronaldo',g:'Just Chatting'},{n:'duxxion',g:'Rocket League'}];
   function embedFor(c){
     if(c.embed_url) return c.embed_url;
     var m=c.twitch_url?SLUG.exec(c.twitch_url):null;
@@ -7391,16 +7403,19 @@ LANDING_HTML = """<!DOCTYPE html>
       var chosen=null;
       while(ci<clips.length){
         var c=clips[(idx*N+ci)%clips.length]; ci++;
-        var k=(c.channel||'').toLowerCase();
+        // Trailing underscores are dropped from the KEY only, so a curated
+        // "caseoh" and the list's "caseoh_" count as the same channel.
+        var k=(c.channel||'').toLowerCase().replace(/_+$/,'');
         if(k && !used[k]){ used[k]=1; chosen={clip:c,name:c.channel}; break; }
       }
       if(!chosen){
         while(ni<names.length*2){
           var nm=names[(idx*N+ni)%names.length]; ni++;
-          if(!used[nm.toLowerCase()]){ used[nm.toLowerCase()]=1; chosen={clip:null,name:nm}; break; }
+          var nk=nm.n.toLowerCase().replace(/_+$/,'');
+          if(!used[nk]){ used[nk]=1; chosen={clip:null,name:nm.n,game:nm.g}; break; }
         }
       }
-      pick.push(chosen||{clip:null,name:names[j%names.length]});
+      pick.push(chosen||{clip:null,name:names[j%names.length].n,game:names[j%names.length].g});
     }
     var out=[],i;
     for(i=0;i<N;i++){
@@ -7431,7 +7446,8 @@ LANDING_HTML = """<!DOCTYPE html>
         w:[.9+rnd()*.1,.8+rnd()*.2,.7+rnd()*.3,.75+rnd()*.25,.85+rnd()*.15],
         fires:(i===fireI), misses:(i===missI),
         clip:pick[i].clip,
-        name:pick[i].name
+        name:pick[i].name,
+        game:pick[i].game||''
       });
     }
     out.fireI=fireI; out.missI=missI;
@@ -7554,7 +7570,7 @@ LANDING_HTML = """<!DOCTYPE html>
       var tl=cyc[i], e=els[i];
       var nm=(tl.clip&&tl.clip.channel)?tl.clip.channel:tl.name;
       e.chT.nodeValue=nm;
-      e.game.textContent=(tl.clip&&tl.clip.game)?tl.clip.game:'';
+      e.game.textContent=(tl.clip&&tl.clip.game)?tl.clip.game:(tl.game||'');
       e.th.textContent='thr '+tl.thresh;
       var y=yFor(tl.thresh).toFixed(1);
       e.thl.setAttribute('y1',y); e.thl.setAttribute('y2',y);

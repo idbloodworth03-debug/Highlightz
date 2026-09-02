@@ -505,6 +505,13 @@ normal Clip Review screen, which still shows scores.
     Reaction", …), read from `src/trigger/engine.py` at import; a showcase
     entry now records `signal` (the SignalType that led the clip) so a card
     files under the right tab; older entries are spread across tabs.
+  - **Every wall tile is a real channel** (owner's call): the backfill
+    `names` list in the wall script is sixteen well-known Twitch channels
+    with the category each is known for (`{n,g}`), used after the showcase's
+    own channels; dedup keys drop trailing underscores so `caseoh`/`caseoh_`
+    are one channel. Nothing on the wall claims a channel is live or a
+    customer — the tiles are the demo of the scoring, labelled with real
+    names.
   - **The wall is `#watch` now, ten tiles (`var N=10`)**: `visibleCount()`
     returns 10 / 6 (≤1000px) / 4 (≤700px) and the CSS hides the same tiles
     (`.watch .wall .tile:nth-child(n+7)` / `(n+5)`). It fires in the ORANGE

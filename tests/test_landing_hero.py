@@ -307,16 +307,31 @@ def test_the_wall_never_shows_the_same_channel_twice():
     sel = JS[JS.index("var pick=[], used={}"):]
     sel = sel[:sel.index("var out=[],i;")]
     assert "if(k && !used[k])" in sel, "a cycle can pick the same channel twice"
-    assert "if(!used[nm.toLowerCase()])" in sel, \
-        "the invented names can collide with a real channel or with each other"
+    assert "if(!used[nk])" in sel and "var nk=nm.n.toLowerCase().replace(/_+$/,'')" in sel, \
+        "the backfill names can collide with a real channel or with each other"
+    # The KEY drops trailing underscores on both sides, so a curated "caseoh"
+    # and the list's "caseoh_" are one channel, not two tiles.
+    assert "var k=(c.channel||'').toLowerCase().replace(/_+$/,'')" in sel
 
 
 def test_the_wall_still_works_with_no_curated_clips_at_all():
     """The pool is empty until /landing/showcase returns, and may stay empty.
     Every tile must still get a name."""
-    assert "pick.push(chosen||{clip:null,name:names[j%names.length]})" in JS, \
+    assert "pick.push(chosen||{clip:null,name:names[j%names.length].n,game:names[j%names.length].g})" in JS, \
         "a tile can end up with no name when the pool is empty"
     assert "var clips=[], names=[" in JS, "the fallback names are gone"
+    # REAL CHANNELS, on the owner's call: the backfill is well-known Twitch
+    # channels with the category each is known for, not invented names, and
+    # there are at least ten so a wall with nothing curated is still ten
+    # distinct real streamers.
+    block = JS[JS.index("var clips=[], names=["):JS.index("];", JS.index("var clips=[], names=["))]
+    entries = re.findall(r"\{n:'([^']+)',g:'([^']+)'\}", block)
+    assert len(entries) >= 10, "fewer than ten backfill channels — a tile would repeat"
+    assert len({n for n, _ in entries}) == len(entries), "a backfill channel is listed twice"
+    for invented in ("novafps", "tessplays", "kettlebrook", "mothcandle"):
+        assert invented not in block, f"an invented name is back: {invented}"
+    # and the category reaches the tile when the name is a backfill
+    assert "e.game.textContent=(tl.clip&&tl.clip.game)?tl.clip.game:(tl.game||'');" in JS
 
 
 # ── the cover ───────────────────────────────────────────────────────────────
