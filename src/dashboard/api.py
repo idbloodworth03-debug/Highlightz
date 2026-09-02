@@ -8976,24 +8976,27 @@ def _faq() -> str:
          "you find out about rather than something that happens silently."),
     ]
     highlights = [
+        # HOW they are found is deliberately not said anywhere on the public
+        # site (owner: "this is our secret sauce"). Quality and the labels
+        # only. Do not add mechanism here, in the tutorial, or in a card title.
         ("What are Highlight clips?",
-         "Clips that came from the audience, not from the formula. While a channel is being watched, Highlightz also "
-         "watches the clips viewers create on Twitch. When several viewers clip the same moment, or "
-         "one of those clips starts pulling views, that is the audience telling you something the "
-         "score may have missed. After a short settling period the strongest clip of that moment is "
-         "placed in your review queue marked <b>Highlight</b>, in purple. It is already a real "
-         "Twitch clip, hosted by Twitch, so there is nothing to wait for."),
+         "The clips to look at first. Alongside the score, Highlightz has a second way of finding "
+         "moments, and the clips it finds arrive in your review queue marked <b>Highlight</b>, in "
+         "purple. They are usually the higher-quality clips: the ones most likely to travel. When "
+         "a Highlight clip also carries a <b>green label</b>, it stood out even more, and those are "
+         "the best clips you will get. Each one is already a real Twitch clip, hosted by Twitch."),
         ("How are Highlight clips different from the clips the formula makes?",
-         "The formula's clips are made by Highlightz when the score crosses the line. A Highlight "
-         "clip was framed by a viewer, so it carries no trigger score and its card explains why it "
-         "is there instead. Rejecting one does not move the channel's threshold, because the "
-         "formula never claimed it. And they can never take more than half of the review queue, so "
-         "a Highlight clip is never the reason a clip the formula caught did not land."),
+         "The formula's clips are made by Highlightz when the score crosses the channel's line, and "
+         "the card shows which signals fired. A Highlight clip is found a different way, one we keep "
+         "to ourselves, so it carries no trigger score and its card says why it is there instead. "
+         "Rejecting one does not move the channel's threshold, because the formula never claimed it. "
+         "And they can never take more than half of the review queue, so a Highlight clip is never "
+         "the reason a clip the formula caught did not land."),
         ("How many Highlight clips do I get?",
          f"They have their own budget on top of the review queue: <b>{free['max_suggested']}</b> on "
-         f"Free, <b>{st['max_suggested']}</b> on Starter, <b>{pro['max_suggested']}</b> on Pro, and "
-         "at most six an hour per channel so a big stream cannot flood you. Approve one and it is "
-         "kept like any other clip; the Clip Library files them under their own Highlights row."),
+         f"Free, <b>{st['max_suggested']}</b> on Starter, <b>{pro['max_suggested']}</b> on Pro. "
+         "Approve one and it is kept like any other clip; the Clip Library files them under their "
+         "own Highlights row."),
     ]
     fine = [
         ("What does “clips kept per week” mean?",

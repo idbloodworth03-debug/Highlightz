@@ -568,6 +568,14 @@ normal Clip Review screen, which still shows scores.
     (no "no X, no Y" sentences — only the score section's "no black box"
     survives) and the clipper-credit ban ("viewers made" is a banned phrase).
     Kick stays out of the FAQ on purpose (scrubbed from marketing).
+    **The Highlight answers do not say how Highlight clips are found** —
+    owner: "this is our secret sauce that makes our clips better than the
+    rest". Public copy says only that they are usually the higher-quality
+    clips, that a green label (the `rd-clippedbadge`) marks the ones that
+    stood out even more, that they carry no trigger score, and that they
+    never take more than half the queue. The test bans the tells (viewer,
+    audience, crowd, clipped, views, settle, cluster…) in that group. Keep
+    it that way on the tutorial and in card titles too.
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and

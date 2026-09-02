@@ -644,9 +644,16 @@ def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans()
     assert '<h3 class="faq-h">Highlight clips</h3>' in faq
     assert 'class="faq-q">What are Highlight clips?</summary>' in faq
     hi = faq[faq.index("What are Highlight clips?"):faq.index("Plans and the fine print")]
-    for phrase in ("marked <b>Highlight</b>", "no trigger score",
+    for phrase in ("marked <b>Highlight</b>", "higher-quality clips", "<b>green label</b>",
+                   "stood out even more", "no trigger score",
                    "does not move the channel's threshold", "more than half of the review queue"):
         assert phrase in hi, f"the Highlight clips answers lost: {phrase!r}"
+    # HOW they are found is the owner's secret sauce and stays off the public
+    # site: the answers say what they are worth, never where they come from.
+    low = hi.lower()
+    for tell in ("viewer", "audience", "crowd", "clipped", "settl", "views", "cluster",
+                 "popular", "shar", "twitch's clips api", "helix"):
+        assert tell not in low, f"the Highlight answers give the mechanism away: {tell!r}"
     f, s, p = (PLAN_LIMITS[k]["max_suggested"] for k in ("free", "starter", "pro"))
     assert f"<b>{f}</b> on Free, <b>{s}</b> on Starter, <b>{p}</b> on Pro" in hi
     # The rest of the important facts, each one a question a visitor asks.
