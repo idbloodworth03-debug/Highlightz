@@ -196,37 +196,36 @@ def test_the_page_renders_without_a_bundler(page):
     assert page.count("<style>") == 1
 
 
-def test_the_big_titles_are_the_script_face_like_the_rest_of_the_site():
-    """The landing page's big titles were moved to Lobster on the owner's
-    instruction. A comparison page still setting its headings in the body face
-    is the same site in two typographic voices, which is what "all the big bold
-    titles" was asked to end.
-
-    The two rules that travel with a script face are checked here rather than
-    assumed: it ships one weight, so anything asking for bold gets synthesised
-    and smeared, and its letters are drawn to connect, so uppercase snaps them
-    apart."""
+def test_the_big_titles_are_the_display_voice_like_the_rest_of_the_site():
+    """The landing v4 rebuild made the display voice the sans at its heaviest
+    weight, and the walkthrough and this page followed (owner: "do the compare
+    page too so it matches"). A comparison page still setting its headings in
+    the script face is the same site in two typographic voices."""
     import re
     from src.dashboard import compare_html
-    css = compare_html._CSS
-    for sel in (r"\.cmp-hero h1", r"\.math h2", r"\.fair h2", r"\.closer h2"):
-        m = re.search(sel + r"\{([^}]*)\}", css)
-        assert m, f"{sel} rule not found"
-        body = m.group(1)
-        assert "'Lobster'" in body, f"{sel} is not the script face"
-        assert "font-weight:400" in body, f"{sel} would synthesise bold"
-        assert "text-transform:uppercase" not in body, f"{sel} uppercases a script face"
-        ls = re.search(r"letter-spacing:(-?[\d.]+)em", body)
-        if ls:
-            assert float(ls.group(1)) >= -0.01, \
-                f"{sel} tracks a script face in at {ls.group(1)}em"
-
-
-def test_the_script_face_is_preloaded_where_it_carries_the_titles():
-    """Without the preload the headings paint in the fallback serif and reflow
-    when Lobster lands, and /compare's first heading is above the fold so that
-    reflow is visible. Measured: CLS 0.0065 before these headings changed."""
-    from src.dashboard import compare_html
     html = compare_html.render()
-    assert 'rel="preload" href="/static/fonts/lobster-400.woff2"' in html, \
-        "the script face is used above the fold but not preloaded"
+    css = compare_html._CSS
+    assert "Lobster" not in html, "the script face is back on /compare"
+    assert re.search(r"\.disp\{font-family:var\(--sans\);font-weight:800", css), \
+        "the display voice is not defined on this page"
+    for tag in ('<h1 class="disp">', '<h2 class="disp">'):
+        assert tag in html, f"a big title is not in the display voice: {tag}"
+    assert html.count('<h2 class="disp">') == html.count("<h2 "), \
+        "an h2 is set outside the display voice"
+
+
+def test_the_page_shares_the_landing_page_s_bar_and_footer():
+    """One header, one footer, across the site: the bar carries the landing
+    page's links in the landing page's order with this page marked current,
+    and the footer is the landing page's one-row footer."""
+    from src.dashboard import compare_html
+    from src.dashboard.api import LANDING_HTML
+    html = compare_html.render()
+    for href in ("/#catches", "/#score", "/#watch", "/#pricing", "/#faq", "/tutorial"):
+        assert 'href="' + href + '" class="nav-link"' in html, f"the bar lost {href}"
+    assert '<a href="/compare" class="nav-link on" aria-current="page">Compare</a>' in html
+    assert '<a href="/login" class="btn btn-go">Get started</a>' in html
+    assert '<span class="fl">&copy; 2026 ANTI Technology LLC</span>' in html
+    assert '<span class="fl">&copy; 2026 ANTI Technology LLC</span>' in LANDING_HTML
+    assert 'rel="preload" href="/static/fonts/sora-var.woff2"' in html, \
+        "the display face is used above the fold but not preloaded"

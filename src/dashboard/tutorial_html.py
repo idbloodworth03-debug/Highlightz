@@ -24,9 +24,7 @@ buttons on paper and the orange button on black — and the landing's own
 one-row footer. No script face, no purple below the bar: the violet stays in
 the logo. It should read as another room in the same building.
 
-BASE_CSS is the OLD stylesheet, kept because /compare imports it and lays its
-own rules on top; that page was not part of this pass. When /compare is
-redone it should take _CSS instead and BASE_CSS can go.
+/compare imports the same sheet as BASE_CSS and lays its own rules on top.
 """
 
 from __future__ import annotations
@@ -465,104 +463,6 @@ _CSS = """
 """
 
 
-# ── the stylesheet /compare still imports (the pre-v4 system) ────────────────
-
-_LEGACY_CSS = """
-  @font-face{font-family:'Lobster';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/lobster-400.woff2) format('woff2')}
-  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
-  @font-face{font-family:'Sora Fallback';font-style:normal;font-weight:100 900;
-    src:local('Arial'),local('Helvetica'),local('Liberation Sans');
-    size-adjust:114.4%;ascent-override:84.8%;descent-override:25.3%;line-gap-override:0%}
-  @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
-  @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
-
-  :root{
-    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
-    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
-    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
-    --hair:rgba(242,234,247,.085);
-    --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
-    --sans:'Sora','Sora Fallback',system-ui,sans-serif;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth;overflow-x:clip;scroll-padding-top:96px}
-  body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
-    font-size:16px;line-height:1.7;
-    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
-  a{text-decoration:none;color:inherit}
-  ::selection{background:rgba(210,106,251,.3);color:#fff}
-  :focus-visible{outline:2px solid var(--flare);outline-offset:3px;border-radius:4px}
-
-  .grain{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.032;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size:180px 180px}
-
-  .wrap{max-width:1140px;margin:0 auto;padding-left:24px;padding-right:24px}
-
-  .nav{position:sticky;top:0;z-index:60;background:var(--void);
-    border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:16px;padding:12px 24px}
-  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
-  .nav-logo img{height:22px}
-  .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
-    text-transform:uppercase;color:var(--ink)}
-  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
-  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 12px;border-radius:3px}
-  .nav-link:hover{color:var(--ink)}
-  .nav-link.on{color:var(--glow-ink)}
-  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
-    font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-.005em;
-    padding:12px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
-    transition:background var(--dur-fast),color var(--dur-fast);white-space:nowrap}
-  .btn-key{background:linear-gradient(166deg,var(--bruise),#25172E) padding-box,
-    linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 40%,rgba(242,234,247,.05)) border-box}
-  .btn-key:hover{background:linear-gradient(166deg,#3D2749,#2A1A33) padding-box,
-    linear-gradient(215deg,rgba(210,106,251,.9),rgba(184,106,220,.3) 40%,rgba(242,234,247,.07)) border-box}
-  .btn-quiet{background:linear-gradient(var(--wall),var(--wall)) padding-box,
-    linear-gradient(215deg,rgba(184,106,220,.32),rgba(242,234,247,.05) 50%,rgba(242,234,247,.02)) border-box}
-  .btn-lg{padding:16px 32px;font-size:16px}
-
-  .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ember);display:flex;align-items:center;gap:12px}
-  .kicker::after{content:'';flex:1;height:1px;max-width:190px;
-    background:linear-gradient(90deg,rgba(247,167,69,.35),transparent)}
-
-  .faq-list{max-width:780px;margin:24px 0 0;border-top:1px solid var(--hair)}
-  .faq-item{border-bottom:1px solid var(--hair)}
-  .faq-item summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:16px;
-    padding:16px 4px;font-size:16px;font-weight:600;letter-spacing:-.01em;
-    -webkit-tap-highlight-color:transparent;transition:color var(--dur-fast)}
-  .faq-item summary::-webkit-details-marker{display:none}
-  .faq-item summary:hover{color:var(--glow-ink)}
-  .faq-q{flex:1;min-width:0}
-  .faq-c{flex-shrink:0;font-family:var(--mono);font-size:14px;color:var(--ink-3);transition:transform var(--dur-slow),color var(--dur-slow)}
-  .faq-item[open] .faq-c{transform:rotate(45deg);color:var(--flare)}
-  .faq-a{padding:0 4px 16px;font-size:14px;color:var(--ink-2);line-height:1.7;
-    max-width:70ch;overflow-wrap:anywhere}
-  .faq-a b{color:var(--ink);font-weight:600}
-  .faq-a a{color:var(--glow-ink);border-bottom:1px solid rgba(184,106,220,.4)}
-
-  .footer{border-top:1px solid var(--hair);padding:32px 24px;text-align:center;
-    font-size:12px;color:var(--ink-3);line-height:1.8}
-  .footer a{color:var(--ink-3);border-bottom:1px solid transparent}
-  .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
-  .footer .fl{margin-bottom:4px}
-
-  @media(max-width:940px){
-    .nav-links{display:none}
-  }
-  @media(max-width:700px){
-    .nav-logo span{display:none}
-  }
-  @media(prefers-reduced-motion:reduce){
-    html{scroll-behavior:auto}
-    *{animation-duration:.01ms !important;transition-duration:.01ms !important}
-  }
-"""
-
-
 # ── JS (plain string: braces and no backslashes) ─────────────────────────────
 
 _JS = """
@@ -664,9 +564,10 @@ _JS = """
 
 # ── page ─────────────────────────────────────────────────────────────────────
 
-# The pre-v4 design system, exported because /compare lays out on it. That
-# page was not part of the v4 pass; when it is redone it should take _CSS.
-BASE_CSS = _LEGACY_CSS
+# The design system, exported so /compare lays out in the same building
+# rather than inventing a second look. One definition, one place to change a
+# token. /compare adds its own rules on top of this.
+BASE_CSS = _CSS
 
 
 _TITLE = "How to use Highlightz — full walkthrough & setup guide"

@@ -89,7 +89,7 @@ def _our_plans() -> tuple[Plan, ...]:
     return (
         Plan("Free", f"${free['price']}",
              f"{chans(free)}, {free['max_pending']}-clip queue, "
-             f"{free['max_suggested']} crowd suggestions, {keeps(free)}. "
+             f"{free['max_suggested']} Highlight clips, {keeps(free)}. "
              "No card, no time limit."),
         Plan("Starter", f"${st['price']}/mo",
              f"{chans(st)}, {st['max_pending']}-clip queue, {keeps(st)}."),
@@ -136,6 +136,15 @@ EKLIPSE = Product(
 )
 
 PRODUCTS = (HIGHLIGHTZ, OPUS, EKLIPSE)
+
+
+def _free_limit(key: str) -> int:
+    from src.billing.plans import PLAN_LIMITS
+    return PLAN_LIMITS["free"][key]
+
+
+_FREE_STREAMS = "One" if _free_limit("max_streams") == 1 else str(_free_limit("max_streams"))
+_FREE_QUEUE = _free_limit("max_pending")
 
 
 # ── the argument ─────────────────────────────────────────────────────────────
@@ -259,8 +268,10 @@ CLOSER = {
         "live and trying to catch the moment before it scrolls past — one "
         "channel or ten — that is the entire thing this was built to do, and "
         "nothing above is metered."),
-    "cta": "Start free",
-    "cta_note": "One channel and a 20-clip queue, free with no card and no time limit.",
+    "cta": "Start clipping free",
+    # Derived: this said "20-clip queue" as a literal.
+    "cta_note": (f"{_FREE_STREAMS} channel and a {_FREE_QUEUE}-clip queue, "
+                 "free with no card and no time limit."),
 }
 
 FAQ = (

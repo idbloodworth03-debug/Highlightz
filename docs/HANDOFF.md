@@ -584,10 +584,17 @@ normal Clip Review screen, which still shows scores.
     bottom edge, the paper ground for the reading (sticky mono rail, `01`
     step numerals in the orange, hairline rows, orange-rule tips, the
     landing's FAQ rows and buttons), a black close and the landing's one-row
-    footer. No Lobster, no purple below the bar. **`BASE_CSS` is now the OLD
-    stylesheet (`_LEGACY_CSS`)** because /compare imports it and lays Lobster
-    rules on top — /compare was not restyled; when it is, point it at `_CSS`
-    and delete the legacy block. Content updates in `tutorial_content.py`:
+    footer. No Lobster, no purple below the bar. `BASE_CSS` is that same
+    sheet, and **/compare was restyled on it in the next commit** (owner: "do
+    the compare page too"): black hero, the three products as the pricing
+    page's columns (ours told apart by an orange top rule only), the
+    price-argument as a black band, the matrix on hairline rows with the
+    mono for answers (stacks to labelled cards under 900px, unchanged), the
+    landing's FAQ rows, a black close, the one-row footer. Lobster is gone
+    from the site entirely; `test_compare` pins the display voice and the
+    shared bar/footer instead. `compare_content` now says "Highlight clips"
+    (was "crowd suggestions" — a mechanism tell) and derives the closer's
+    free-plan note from PLAN_LIMITS. Content updates in `tutorial_content.py`:
     Highlight clips say quality + green label only (no mechanism), the two
     "your trial includes it" leftovers are gone, the Account body and the
     stream-limit answer derive their numbers from PLAN_LIMITS, the Kick
