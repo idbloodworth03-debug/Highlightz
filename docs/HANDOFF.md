@@ -576,6 +576,24 @@ normal Clip Review screen, which still shows scores.
     never take more than half the queue. The test bans the tells (viewer,
     audience, crowd, clipped, views, settle, cluster…) in that group. Keep
     it that way on the tutorial and in card titles too.
+  - **The walkthrough (/tutorial) wears the landing's system now** (owner:
+    "match the vibe and theme going on with the landing page"). `tutorial_html._CSS`
+    was rewritten: the fixed bar with the landing's links (What it catches /
+    How it scores / Channels / Pricing / FAQ / Tutorial / Compare), a black
+    hero with the display sans and the overview screen hanging off its
+    bottom edge, the paper ground for the reading (sticky mono rail, `01`
+    step numerals in the orange, hairline rows, orange-rule tips, the
+    landing's FAQ rows and buttons), a black close and the landing's one-row
+    footer. No Lobster, no purple below the bar. **`BASE_CSS` is now the OLD
+    stylesheet (`_LEGACY_CSS`)** because /compare imports it and lays Lobster
+    rules on top — /compare was not restyled; when it is, point it at `_CSS`
+    and delete the legacy block. Content updates in `tutorial_content.py`:
+    Highlight clips say quality + green label only (no mechanism), the two
+    "your trial includes it" leftovers are gone, the Account body and the
+    stream-limit answer derive their numbers from PLAN_LIMITS, the Kick
+    question is gone (scrubbed from marketing), and three questions were
+    added (green label, clips kept per week, cancelling). The design-token
+    tests run on the tutorial too: spacing on the scale, integer font sizes.
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and

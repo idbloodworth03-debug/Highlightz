@@ -76,9 +76,9 @@ class Section:
 
 HERO_TITLE = "How to use Highlightz"
 HERO_LEAD = (
-    "Highlightz watches a live Twitch stream and clips the good parts by itself. "
-    "This page walks through every screen — from connecting your account to "
-    "approving your first clip — using the exact buttons you will see."
+    "Highlightz watches a live Twitch stream, scores every second, and clips the "
+    "good parts by itself. This page walks through every screen, from connecting "
+    "your account to approving your first clip, using the exact buttons you will see."
 )
 # STILLS, NOT VIDEO. Screen recordings of this dashboard came out soft and
 # juddery: Chrome's screencast only emits a frame when the page repaints, so a
@@ -282,21 +282,23 @@ FEATURES: tuple[Section, ...] = (
         nav="Highlight clips",
         title="Highlight clips",
         body=(
-            "Some clips arrive wearing a purple **Highlight** badge. These are the "
-            "ones Highlightz rates as your strongest material — moments it has "
-            "good reason to think will travel further than the rest of the queue. "
-            "They are worth watching first."
+            "Some clips arrive wearing a purple **Highlight** badge. Alongside the "
+            "score, Highlightz has a second way of finding moments, and these are "
+            "what it finds: usually the higher-quality clips, the ones most likely "
+            "to travel. They are worth watching first."
         ),
         steps=(
             "Look for the purple **Highlight** badge in the corner of a clip.",
-            "Beside it, a second badge — **Trending**, **Huge clip**, **Blowing "
-            "up** and so on — says how strong the signal was.",
+            "Some of them carry a green label as well, reading **Trending**, "
+            "**Huge clip**, **Blowing up** and so on. A green label means the clip "
+            "stood out even more: those are the best clips you will get.",
             "Watch it and **Approve** or **Reject** it like any other clip.",
         ),
         tip=(
-            "If you only have time for a handful, start with these. They are the "
-            "clips most likely to be worth posting, which makes them the fastest "
-            "way to get value out of a long queue."
+            "If you only have time for a handful, start with the green labels, "
+            "then the rest of the Highlights. They are the clips most likely to be "
+            "worth posting, which makes them the fastest way to get value out of "
+            "a long queue."
         ),
         # NO MECHANISM, on the owner's instruction: the tutorial says what these
         # are worth, not how they are found. Two things still constrain the
@@ -309,8 +311,9 @@ FEATURES: tuple[Section, ...] = (
         # value without either.
         note=(
             "Every plan gets these, and they have their own allowance — see the "
-            "plan table below. They never take a slot from a clip the detector "
-            "caught on its own."
+            "plan table below. They carry no trigger score, rejecting one does not "
+            "move the channel's threshold, and they never take a slot from a clip "
+            "the detector caught on its own."
         ),
     ),
     Section(
@@ -365,8 +368,8 @@ FEATURES: tuple[Section, ...] = (
             "switch tabs. Start it, go do something else, come back to the results."
         ),
         note=(
-            "The VOD Scanner is on **Pro**, and your trial includes it. On Starter "
-            "the tab explains the upgrade rather than failing silently."
+            "The VOD Scanner is on **Pro**. On the free plan and on Starter the "
+            "tab explains the upgrade rather than failing silently."
         ),
     ),
     Section(
@@ -398,10 +401,14 @@ FEATURES: tuple[Section, ...] = (
         nav="Account & plans",
         title="Account and plans",
         body=(
+            # Derived, not typed: the queue size and the channel counts read the
+            # plan so this cannot advertise a cap the product does not enforce.
             "Your plan, your billing and your connected accounts. Every account "
-            "starts on the free plan — one channel, a 20-clip queue, no card and no "
-            "time limit. When one channel stops being enough, Starter watches 3 and "
-            "Pro watches 10 and adds the VOD Scanner."
+            f"starts on the free plan — {PLAN_LIMITS['free']['max_streams']} channel, "
+            f"a {PLAN_LIMITS['free']['max_pending']}-clip queue, no card and no "
+            "time limit. When one channel stops being enough, Starter watches "
+            f"{PLAN_LIMITS['starter']['max_streams']} and Pro watches "
+            f"{PLAN_LIMITS['pro']['max_streams']} and adds the VOD Scanner."
         ),
         steps=(
             "Open the **Account** tab to see **Plan status** and **Membership**.",
@@ -481,9 +488,21 @@ FAQ: tuple[tuple[str, str], ...] = (
      "normal for a channel before it decides what counts as a spike."),
 
     ("It says the stream limit is reached.",
-     "You are monitoring as many channels as your plan allows — <b>3</b> on "
-     "Starter, <b>10</b> on Pro. Remove a channel to free a slot, or upgrade "
-     "from the Account tab."),
+     "You are monitoring as many channels as your plan allows — "
+     f"<b>{PLAN_LIMITS['free']['max_streams']}</b> on the free plan, "
+     f"<b>{PLAN_LIMITS['starter']['max_streams']}</b> on Starter, "
+     f"<b>{PLAN_LIMITS['pro']['max_streams']}</b> on Pro. Remove a channel to "
+     "free a slot, or upgrade from the Account tab."),
+
+    ("What is the green label on a Highlight clip?",
+     "A Highlight clip is usually a higher-quality clip already. A green label "
+     "beside the purple badge marks the ones that stood out even more, so those "
+     "are the best clips you will get and the first ones to look at."),
+
+    ("What does “clips kept per week” mean?",
+     "How many clips you can approve into your library in a week. Reaching the "
+     "number pauses new approvals until the week rolls over. Nothing already in "
+     "your library is ever removed because of it."),
 
     ("It says that streamer has opted out.",
      "Streamers can ask not to be clipped through Highlightz, and that request is "
@@ -495,9 +514,9 @@ FAQ: tuple[tuple[str, str], ...] = (
      "Live Streams tab — you do not need to add it twice."),
 
     ("Why does the VOD Scanner say it is a Pro feature?",
-     "Because it is. The VOD Scanner is included on <b>Pro</b> and on your "
-     "trial, which is the full Pro product. Live monitoring, review and your "
-     "library work on every paid plan."),
+     "Because it is. The VOD Scanner is included on <b>Pro</b>. Live monitoring, "
+     "review, Highlight clips and your library work on every plan, the free one "
+     "included."),
 
     ("The VOD link was not accepted.",
      "It needs a full Twitch VOD URL in the form "
@@ -518,9 +537,9 @@ FAQ: tuple[tuple[str, str], ...] = (
      "Yes, as long as that streamer has not opted out. A lot of people run Highlightz "
      "on channels they clip for rather than their own."),
 
-    ("Is Kick supported?",
-     "Not yet. Kick appears in the app but automated Kick clipping is still being "
-     "built, so those tabs are closed off rather than half-working."),
+    ("Does cancelling delete my clips?",
+     "No. Cancelling puts you back on the free plan. Monitoring drops to one "
+     "channel and every clip you already approved stays in your library."),
 )
 
 
@@ -532,7 +551,7 @@ CTA_BODY = (
     "stream; that is the fastest way to see whether the detector works on your "
     "content."
 )
-CTA_BUTTON = "Start clipping now"
+CTA_BUTTON = "Start clipping free"
 
 SUPPORT_TITLE = "Still stuck?"
 SUPPORT_BODY = (
