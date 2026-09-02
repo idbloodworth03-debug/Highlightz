@@ -6291,7 +6291,23 @@ LANDING_HTML = """<!DOCTYPE html>
   /* Flat and mono-600-uppercase-.12em: the nav's lockup at the size a first
      screen needs, and nothing else. Only font-size differs. One logo painted
      two ways, or a name set two ways, reads as two of them. */
-  .cover-mark img{height:clamp(76px,12vh,140px);width:auto;display:block}
+  /* The big blurred mark. A real blur on the real file, not a painted
+     gradient standing in for one: filter:blur on a static image is composited
+     once and never re-rendered, so it costs nothing after first paint. It is
+     taller than the viewport on purpose — the edges of the blur must leave
+     the screen, or it reads as a soft sticker rather than as light. Sized on
+     the short side so a phone gets the same fill. The floor glow (::after,
+     later in the DOM) paints over it, so the two lights meet at the bottom. */
+  .cover-bg{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+    display:flex;align-items:center;justify-content:center}
+  .cover-bg img{height:clamp(440px,104vh,1040px);width:auto;display:block;
+    filter:blur(clamp(14px,1.5vw,22px));opacity:.5;transform:translateY(-3%);
+    -webkit-user-select:none;user-select:none}
+  /* Blur is in screen pixels: a phone's mark is a third the size, so the
+     same radius would dissolve it. Enough to soften, not enough to lose the H. */
+  @media(max-width:700px){
+    .cover-bg img{height:clamp(400px,96vh,720px);filter:blur(12px);opacity:.45}
+  }
   .cover-word{font-family:var(--mono);font-weight:600;
     font-size:clamp(24px,4.6vw,54px);letter-spacing:.12em;text-transform:uppercase;
     color:var(--ink);line-height:1}
@@ -7063,10 +7079,17 @@ LANDING_HTML = """<!DOCTYPE html>
      from them and combines it with the CSS height, so the reserved box is the
      right SHAPE; a square would be a layout shift dressed up as a fix. -->
 <div class="cover" id="cover">
+  <!-- THE MARK, as the room's light. Owner's call: the logo is not a small
+       sharp object above the name any more; it is huge, blurred, and behind
+       everything — the brand's colour filling the cover the way a sign
+       glows through fog. Decorative, so aria-hidden and an empty alt; the
+       name is carried by the h1. -->
+  <div class="cover-bg" aria-hidden="true">
+    <img src="/static/logo-mark.png" alt="" width="374" height="501"
+         decoding="async" fetchpriority="high">
+  </div>
   <div class="cover-in" id="cover-in">
     <div class="cover-mark">
-      <img src="/static/logo-mark.png" alt="" width="374" height="501"
-           decoding="sync" fetchpriority="high">
       <!-- THE PAGE'S h1, and it has to live here now. It used to be "Never
            miss a highlight again." in the hero, which was removed with the
            rest of that block; a landing page with no h1 at all is a real SEO

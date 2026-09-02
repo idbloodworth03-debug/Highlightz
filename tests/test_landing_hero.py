@@ -403,11 +403,28 @@ def test_the_cover_word_keeps_the_wordmark_treatment():
         assert needle in cov, f"the wordmark lost {needle}"
 
 
-def test_the_cover_mark_is_painted_flat():
-    """No filter, no glow on the logo: the mark is flat, and everything lit on
-    this page is lit by the room, not by decoration stuck to the brand."""
-    cov = re.search(r"\.cover-mark img\{([^}]*)\}", HTML).group(1)
-    assert "filter" not in cov, "the cover mark is decorated again"
+def test_the_cover_mark_is_the_room_s_light_not_an_object_in_it():
+    """Owner's call (2026-09-02): the logo is not a small sharp object above
+    the name any more. It is huge, blurred, and BEHIND everything — a real
+    blur of the real file, taller than the viewport so the blur's edges leave
+    the screen, under the lockup and the band, decorative to a reader. The
+    lockup itself carries no image: one mark on the cover, not two."""
+    cover = _cover()
+    bg = re.search(r'<div class="cover-bg" aria-hidden="true">\s*<img src="/static/logo-mark.png" alt=""', cover)
+    assert bg, "the blurred mark is not a decorative layer behind the cover"
+    assert cover.index('class="cover-bg"') < cover.index('class="cover-in"'), \
+        "the mark must be painted before (under) the lockup"
+    mark = cover[cover.index('<div class="cover-mark">'):cover.index('class="stats"')]
+    assert "<img" not in mark, "the lockup carries a second, sharp mark"
+    css = re.search(r"\n  \.cover-bg img\{([^}]*)\}", HTML).group(1)
+    assert "filter:blur(" in css, "the background mark is not blurred"
+    h = re.search(r"height:clamp\(\d+px,(\d+)vh,\d+px\)", css)
+    assert h and int(h.group(1)) >= 100, "the mark must be at least the viewport's height"
+    b = re.search(r"filter:blur\(clamp\((\d+)px,[^,]+,(\d+)px\)\)", css)
+    assert b and int(b.group(2)) <= 24, \
+        "past ~24px the H dissolves into a plain glow and stops being the logo"
+    layer = re.search(r"\n  \.cover-bg\{([^}]*)\}", HTML).group(1)
+    assert "z-index:0" in layer and "pointer-events:none" in layer
 
 
 def test_the_logo_reserves_its_real_shape():

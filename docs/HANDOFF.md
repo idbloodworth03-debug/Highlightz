@@ -546,6 +546,15 @@ normal Clip Review screen, which still shows scores.
     to its own line and labels size to their text. Harness:
     `scratchpad/v4/mobile.js` (note its `/landing/` stub must not swallow
     `/static/landing/*.webp` — that bug hid the fan for a while).
+  - **The cover's mark is the room's light now** (owner: "a nice big blurred
+    logo in the background on the hero"). The small sharp mark above the
+    wordmark is gone; `.cover-bg` (absolute, z-index 0, under `.cover-in`)
+    holds the same `logo-mark.png` at 104vh, `filter:blur(14–22px)`,
+    opacity .5 (phone: 96vh, 12px, .45). The blur radius is deliberately
+    modest — at 64px the H dissolved into a plain purple glow and stopped
+    being the logo; the test pins ≤24px. The floor glow (`.cover::after`)
+    still paints over it. `test_the_cover_mark_is_the_room_s_light_not_an_object_in_it`
+    replaced `test_the_cover_mark_is_painted_flat`.
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and
