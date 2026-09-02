@@ -7463,7 +7463,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <div class="watch-head">
       <h2 class="disp l-h" id="watch-h">Ten streams are live right now.</h2>
-      <p class="l-sub">Pro watches ten channels at once, Starter three, each against its own threshold. The one that crosses gets a real Twitch clip made through the official Twitch API, waiting in your review queue. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
+      <p class="l-sub">Pro watches ten channels at once, Starter three, and the free plan one, with no card and no time limit. Each is scored against its own threshold. The one that crosses gets a real Twitch clip made through the official Twitch API, waiting in your review queue. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
     </div>
     <div class="wall" id="wall"></div>
     <div class="wall-cap">
