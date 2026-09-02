@@ -6691,18 +6691,27 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
   /* ══ 3. NUMBERS. Black. One line, then the figures, huge, in the mono. ══ */
-  .numbers{background:#000;color:var(--ink-2);padding-top:var(--s-9);padding-bottom:var(--s-9)}
-  .num-lead{margin:0 0 var(--s-8);font-size:clamp(18px,1.7vw,22px);line-height:1.4;
+  /* Centred, and the three figures kept apart: each sits in the middle of
+     its own third with a real gutter between them, and the size is capped so
+     a six-digit count (or a seven-digit one, later) stays inside its third
+     instead of running into the next figure — which is what 8vw did at
+     1440 with 39,581. */
+  .numbers{background:#000;color:var(--ink-2);padding-top:var(--s-9);padding-bottom:var(--s-9);
+    text-align:center}
+  .num-lead{margin:0 auto var(--s-8);font-size:clamp(18px,1.7vw,22px);line-height:1.4;
     color:var(--white);max-width:var(--measure)}
-  .bignums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-6) var(--s-8)}
-  .bign-n{font-family:var(--mono);font-weight:600;font-size:clamp(56px,8vw,128px);line-height:.95;
+  .bignums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-7) var(--s-8);
+    justify-items:center;align-items:start}
+  .bign{min-width:0;text-align:center}
+  .bign-n{font-family:var(--mono);font-weight:600;font-size:clamp(44px,5.6vw,92px);line-height:.95;
     letter-spacing:-.05em;color:var(--ember);font-variant-numeric:tabular-nums;white-space:nowrap}
   .bign-n i{font-style:normal;font-size:.45em;letter-spacing:-.02em}
   .bign-k{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
     color:var(--ink-3);margin-top:var(--s-3)}
   @media(max-width:700px){
     .numbers{padding-top:var(--s-8);padding-bottom:var(--s-8)}
-    .bignums{grid-template-columns:minmax(0,1fr)}
+    .bignums{grid-template-columns:minmax(0,1fr);gap:var(--s-7)}
+    .bign-n{font-size:clamp(48px,15vw,72px)}
   }
 
   /* ══ 4. CATCHES. Hard cut to paper: the rail and the shelf. ══ */
