@@ -8528,21 +8528,46 @@ def _top_signal(clip: dict) -> str:
     return best
 
 
+# The preview sizes to ask Twitch for, sharpest first. Twitch stores a clip's
+# thumbnail under a size suffix, and the sizes it keeps vary by clip and by
+# age; none of the large ones is guaranteed. So every frame carries the whole
+# ladder and steps down ONE rung per miss (onerror), ending on the stored URL,
+# which is the one size known to exist. A URL without the suffix (the newer
+# /thumb/ layout) has no ladder and is used as stored.
+_PREVIEW_SIZES = ("1920x1080", "1280x720")
+
+
 def _hi(url: str) -> str:
-    """Twitch's 1280x720 preview for a clip whose stored thumbnail is smaller.
-    The large variant is not guaranteed, so every tag carries the stored URL
-    as a fallback (data-lo + onerror)."""
-    return _RE_PREVIEW.sub("-preview-1280x720.", url or "")
+    """The sharpest preview to try first: 1920x1080 when the URL carries a
+    size suffix, the URL itself otherwise."""
+    return _RE_PREVIEW.sub("-preview-" + _PREVIEW_SIZES[0] + ".", url or "")
+
+
+def _preview_ladder(url: str) -> list[str]:
+    """Every candidate for a clip's frame, sharpest first, stored URL last."""
+    if not url:
+        return []
+    if not _RE_PREVIEW.search(url):
+        return [url]
+    out = [_RE_PREVIEW.sub("-preview-" + size + ".", url) for size in _PREVIEW_SIZES]
+    if url not in out:
+        out.append(url)
+    return out
 
 
 def _frame_tag(entry: dict, cls: str, alt: str, eager: bool = False) -> str:
-    lo = entry.get("thumbnail_url") or ""
-    hi = _hi(lo)
+    ladder = _preview_ladder(entry.get("thumbnail_url") or "")
+    first, rest = (ladder[0] if ladder else ""), ladder[1:]
     load = 'fetchpriority="high"' if eager else 'loading="lazy"'
-    return ('<img class="' + cls + '" src="' + html_escape(hi, quote=True)
-            + '" data-lo="' + html_escape(lo, quote=True)
-            + '" onerror="if(this.dataset.lo&&this.src!==this.dataset.lo){this.src=this.dataset.lo}else{this.onerror=null}"'
-            + ' alt="' + html_escape(alt, quote=True) + '" width="1280" height="720" decoding="async" '
+    # The step-down is one statement of inline JS with single quotes only —
+    # no backslashes, because this string never passes through the landing
+    # page's triple-quoted block, but the rule is kept the same everywhere.
+    step = ("var n=(this.dataset.next||'').split('|').filter(Boolean);"
+            "if(n.length){this.src=n.shift();this.dataset.next=n.join('|')}else{this.onerror=null}")
+    return ('<img class="' + cls + '" src="' + html_escape(first, quote=True)
+            + '" data-next="' + html_escape("|".join(rest), quote=True)
+            + '" onerror="' + step + '"'
+            + ' alt="' + html_escape(alt, quote=True) + '" width="1920" height="1080" decoding="async" '
             + load + ">")
 
 

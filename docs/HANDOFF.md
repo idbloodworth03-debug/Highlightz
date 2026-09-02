@@ -478,6 +478,15 @@ normal Clip Review screen, which still shows scores.
     `--shelf-t`). Pauses on hover / focus-within / off screen; reduced
     motion and no-JS get a still, scrollable single set. The rail filter
     hides cards in both copies and restarts the animation.
+  - **Frames ask for the 1080p preview first** (owner: "the thumbnails
+    need to be the 1080p version as well"). `_preview_ladder` builds
+    `-preview-1920x1080` → `-preview-1280x720` → the stored URL, and
+    `_frame_tag` puts the rest in `data-next`; the inline `onerror` steps
+    down one rung per miss and stops (no loop). Twitch keeps different sizes
+    for different clips and the big ones are not guaranteed, which is why
+    it is a ladder and not a swap. A URL in the newer `/thumb/` layout has
+    no size suffix and is used as stored. Verify a size exists on prod with
+    `curl -sI <url> | head -1` rather than assuming.
   - **The clip player is the whole screen and goes full screen on click**
     (owner: "all of them played in 1080p"). Twitch's clip embed picks its
     rendition from the player's size when it boots and has no quality

@@ -442,16 +442,27 @@ def test_the_navs_links_are_in_the_pages_own_order():
 
 
 def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():
-    """The 1280 variant is NOT guaranteed: a freshly-created clip 404s until
-    Twitch finishes generating its previews, and some older clips never got
-    the size at all. Every frame the page bakes in carries the stored URL and
-    steps down to it, once, instead of losing the picture."""
+    """Every frame asks Twitch for the sharpest preview first (1920x1080, the
+    owner wants the thumbnails at 1080p too), and no large variant is
+    guaranteed: a fresh clip 404s until Twitch finishes its previews, older
+    clips never got the big sizes, and the newer /thumb/ layout has no size
+    suffix at all. So a frame carries the whole ladder and steps down one
+    rung per miss, ending on the stored URL, which is the one size known to
+    exist — never a broken picture, never a loop."""
     tag = api._frame_tag({"thumbnail_url": "https://x/AT-preview-480x272.jpg",
                           "channel": "n"}, "", "alt text here")
-    assert 'src="https://x/AT-preview-1280x720.jpg"' in tag
-    assert 'data-lo="https://x/AT-preview-480x272.jpg"' in tag
-    assert "this.src=this.dataset.lo" in tag and "this.onerror=null" in tag, \
+    assert 'src="https://x/AT-preview-1920x1080.jpg"' in tag
+    assert 'data-next="https://x/AT-preview-1280x720.jpg|https://x/AT-preview-480x272.jpg"' in tag
+    assert "this.src=n.shift()" in tag and "this.onerror=null" in tag, \
         "no step-down, or a step-down that can loop"
+    assert 'width="1920" height="1080"' in tag, "the reserved box is not the 1080p shape"
+    # A stored URL that is already a ladder size is not repeated.
+    assert api._preview_ladder("https://x/AT-preview-1280x720.jpg") == [
+        "https://x/AT-preview-1920x1080.jpg", "https://x/AT-preview-1280x720.jpg"]
+    # The newer layout has no suffix to swap: used as stored, no fishing.
+    new = "https://static-cdn.jtvnw.net/twitch-video-assets/a/landscape/thumb/thumb-1.jpg"
+    assert api._preview_ladder(new) == [new]
+    assert api._preview_ladder("") == []
 
 
 def test_the_regex_is_built_not_written_as_a_literal():
