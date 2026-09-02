@@ -44,8 +44,8 @@ def test_only_the_intended_pages_answer_a_signed_out_visitor(anon):
     expected = {
         "/", "/login", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
         "/opt-out", "/opt-out/success", "/landing/stats", "/landing/showcase",
-        "/robots.txt", "/sitemap.xml", "/llms.txt", "/tutorial", "/compare",
-        "/billing/paywall",
+        "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/tutorial",
+        "/compare", "/billing/paywall",
     }
     got = set()
     for r in api.app.routes:

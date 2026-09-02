@@ -479,8 +479,33 @@ normal Clip Review screen, which still shows scores.
   **Left for the owner** (prod facts the dev box cannot see): the "logs kept
   up to 90 days" line has no rotation config in the repo; if uploads or the
   backup job point at S3/GCS in prod, the provider needs naming under
-  sharing and backups need a retention line. The legal pages still wear the
-  pre-v4 purple theme and "Back to Highlightz" goes to /login.
+  sharing and backups need a retention line.
+- **Legal pages restyled + the LLM/SEO pass (2026-09-02, late).** /tos,
+  /privacy, /cookies share `_LEGAL_STYLE` / `_LEGAL_NAV` / `_LEGAL_FOOT`
+  (defined just above `TOS_HTML`): the landing's fixed bar, paper ground,
+  display h1, mono meta, hairline-ruled h2s, the one-row footer; the "Back to
+  Highlightz → /login" link is gone (the logo goes home). The opt-out pages'
+  `_OPTOUT_BASE_STYLE` is the same system on black (Twitch button keeps
+  Twitch purple; confirm is the orange). For machines: `/llms.txt` was
+  reworded — it used to say Highlight clips come from "unusual spikes in
+  audience clipping activity", the plainest mechanism leak on the site; it
+  now says quality + green label only (test bans the tells), names the seven
+  signals from `_SIGNAL_TITLES`, the 30s recheck / 8h idle stop, per-plan
+  Highlight budgets, the Clip Editor, the immediate opt-out, the credits
+  point. New **`/llms-full.txt`** (llmstxt.org's full file, in `_OPEN_PATHS`,
+  linked from llms.txt and robots.txt): the whole public copy as markdown,
+  generated from `LANDING_HTML`'s FAQ markup, `tutorial_content` and
+  `compare_content` (plans table, FAQ, walkthrough, comparison, credits,
+  legal links) — so a model fetching one file gets everything the pages say
+  and nothing they do not. Tests: `test_the_legal_pages_wear_the_site_s_bar_and_footer`,
+  `test_the_llm_brief_does_not_describe_the_highlight_mechanism`,
+  `test_the_full_brief_is_public_and_carries_the_faq_and_the_comparison`.
+  Already in place and verified this pass: robots allows every AI crawler,
+  sitemap lists all seven public pages with real lastmods, every public page
+  has canonical + description + OG card + rel=alternate → llms.txt,
+  structured data on all three marketing pages (SoftwareApplication +
+  Organization/WebSite + FAQPage, HowTo, ItemList), and the landing's
+  crawlable-text floor.
 - **Landing v4 — the cinematic page (2026-09-02, later the same day).** The
   owner's second full brief: delete every section below the cover and rebuild
   imagery-first (a Squarespace/Apple register: full-bleed frame, huge plain

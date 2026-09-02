@@ -243,6 +243,63 @@ def test_all_landing_json_ld_parses():
 
 # ── the page a crawler reads, not the page a browser draws ───────────────────
 
+def test_the_legal_pages_wear_the_site_s_bar_and_footer():
+    """Owner (2026-09-02): the legal pages were the last three in the pre-v4
+    purple, with a Back link that went to /login. They share one stylesheet,
+    the landing page's bar and its one-row footer now, and the logo goes home."""
+    from src.dashboard.api import COOKIES_HTML, PRIVACY_HTML, TOS_HTML, _LEGAL_STYLE
+    for name, html in (("tos", TOS_HTML), ("privacy", PRIVACY_HTML), ("cookies", COOKIES_HTML)):
+        assert '<nav class="nav">' in html and '<a href="/" class="nav-logo">' in html, name
+        assert '<span class="fl">&copy; 2026 ANTI Technology LLC</span>' in html, name
+        assert '<main class="legal">' in html, name
+        assert 'class="back"' not in html and 'href="/login" class="back"' not in html, name
+        assert "#0e0b11" not in html.split("</head>")[0].lower() or _LEGAL_STYLE in html, name
+        assert "Lobster" not in html and "Inter,system-ui" not in html, name
+    assert "--paper:#F4F4F2" in _LEGAL_STYLE and "--ember:#F7A745" in _LEGAL_STYLE
+
+
+def test_the_llm_brief_does_not_describe_the_highlight_mechanism():
+    """The owner keeps how Highlight clips are found private. The brief used
+    to say "unusual spikes in audience clipping activity" — the plainest
+    statement of the mechanism anywhere on the site, on the one file written
+    for machines to quote."""
+    from fastapi.testclient import TestClient
+    from src.dashboard.api import app
+    body = TestClient(app).get("/llms.txt").text.lower()
+    assert "highlight clip" in body, "the brief no longer explains Highlight clips at all"
+    for tell in ("audience clipping", "viewers clip", "spike", "crowd"):
+        assert tell not in body, f"llms.txt gives the mechanism away: {tell!r}"
+
+
+def test_the_full_brief_is_public_and_carries_the_faq_and_the_comparison():
+    """/llms-full.txt (llmstxt.org): the whole of the public copy as markdown,
+    generated from the same content modules the pages render, so a model that
+    fetches one file gets the FAQ answers, the walkthrough, the plans and the
+    comparison rows without parsing HTML."""
+    from fastapi.testclient import TestClient
+    from src.dashboard import api, compare_content as CC, tutorial_content as TC
+    from src.billing.plans import PLAN_LIMITS
+    r = TestClient(api.app).get("/llms-full.txt", follow_redirects=False)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    body = r.text
+    assert body.lstrip().startswith("# Highlightz")
+    assert "What are Highlight clips?" in body and "green label" in body
+    for q in ("Is this allowed on Twitch?", "Do you record or store my stream?", "How does billing work?"):
+        assert q in body, f"landing FAQ question missing from the full brief: {q}"
+    for sec in TC.FEATURES:
+        assert sec.title in body, f"walkthrough section missing: {sec.title}"
+    for feat, *_ in CC.FEATURES:
+        assert feat in body, f"comparison row missing: {feat}"
+    for label, *_ in CC.CREDITS["rows"]:
+        assert label in body, f"credit row missing: {label}"
+    assert f"${PLAN_LIMITS['pro']['price']}" in body and str(PLAN_LIMITS["free"]["max_pending"]) in body
+    assert "/llms-full.txt" in TestClient(api.app).get("/llms.txt").text
+    assert "/llms-full.txt" in api._OPEN_PATHS
+    low = body.lower()
+    for tell in ("audience clipping", "viewers clip", "spike in audience", "crowd"):
+        assert tell not in low, f"llms-full.txt gives the mechanism away: {tell!r}"
+
+
 def test_the_core_claims_survive_with_no_javascript_and_no_css():
     """THE REGRESSION THIS GUARDS. One session removed the hero's copy, then
     the nav, then rebuilt everything below the cover — each step deleted

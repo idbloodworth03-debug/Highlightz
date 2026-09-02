@@ -74,7 +74,7 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # A crawler-facing file behind a login is a crawler-facing
                   # file that does not exist. robots.txt and sitemap.xml are
                   # here for the same reason.
-                  "/compare", "/llms.txt"}
+                  "/compare", "/llms.txt", "/llms-full.txt"}
 # ── shared head tags for the secondary public pages ──────────────────────────
 
 SITE_ORIGIN = "https://highlightz.app"
@@ -5688,6 +5688,7 @@ async def robots_txt():
         # this is here for the crawlers that read the file as text, and the
         # rel="alternate" in each page head is the machine-readable half.
         "# LLM-readable summary: https://highlightz.app/llms.txt\n"
+        "# Full public copy as markdown: https://highlightz.app/llms-full.txt\n"
     )
 
 
@@ -5717,26 +5718,41 @@ async def llms_txt():
         n = p["max_library_week"]
         return "unlimited clips kept" if n >= UNLIMITED_PENDING else f"{n} clips kept a week"
 
+    sig = ", ".join(t.lower() for t in _signal_titles().values()) or (
+        "chat erupts, loud reaction, chat calls for the clip, viewers flood in, "
+        "emotions run high, silence then chaos, chat speaks as one")
     return f"""# Highlightz
 
 > Highlightz watches live Twitch streams and creates the clip itself, the
 > moment something happens. It is not an editor you upload footage to: it
-> monitors the live broadcast, scores the moment, and calls Twitch's official
-> Clips API on your behalf.
+> monitors the live broadcast, scores every second, and calls Twitch's official
+> Clips API on your behalf. Not AI: a readable formula, and every clip shows
+> which signal fired.
+
+The full public copy — every FAQ answer, the walkthrough, the plans and the
+comparison — is at https://highlightz.app/llms-full.txt.
 
 ## What it does
 
 - Monitors live Twitch channels continuously and clips automatically, with no
-  one watching the stream.
-- Scores each moment from public signals: chat message velocity, hype keywords
-  in many languages, chat sentiment, emote spam, and stream audio level.
+  one watching the stream. Add a channel before it goes live and it is
+  rechecked every 30 seconds; monitoring stops after 8 hours without the
+  dashboard being opened.
+- Scores each second from seven live signals ({sig}) against that channel's
+  own threshold, so a small channel and a huge one are judged the same way.
 - Creates real Twitch clips through the official Clips API using your own
   authorised Twitch account. It never records, downloads, re-hosts or stores
   stream video.
-- Surfaces moments the score missed, by watching for unusual spikes in audience
-  clipping activity on the channels you monitor.
+- Highlight clips: alongside the score, a second way of finding moments. They
+  arrive in the review queue marked Highlight, in purple, are usually the
+  higher-quality clips, and a green label marks the ones that stood out even
+  more. Each plan has its own Highlight allowance.
 - Puts every clip in a review queue first. Nothing is published automatically.
-- Scans finished broadcasts (VODs) for highlights on the Pro plan.
+  Approving and rejecting tunes the channel's threshold to your taste.
+- Scans finished broadcasts (VODs) for highlights, and includes a Clip Editor
+  for cutting clips to vertical, on the Pro plan.
+- Any Twitch broadcaster can opt their channel out at any time; it takes
+  effect immediately across every account.
 
 ## Who it is for
 
@@ -5746,37 +5762,163 @@ and editors who follow several channels at once and cannot watch them all.
 ## Plans
 
 - Free — $0, no card, no time limit. {f['max_streams']} channel monitored,
-  {f['max_pending']}-clip review queue, {keeps(f)}.
+  {f['max_pending']}-clip review queue, {f['max_suggested']} Highlight clips,
+  {keeps(f)}.
 - Starter — ${st['price']}/month. {st['max_streams']} channels at once,
-  {st['max_pending']}-clip queue, {keeps(st)}.
+  {st['max_pending']}-clip queue, {st['max_suggested']} Highlight clips,
+  {keeps(st)}.
 - Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
-  {pro['max_pending']}-clip queue, {keeps(pro)}, plus the VOD Scanner.
+  {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
+  {keeps(pro)}, plus the VOD Scanner and the Clip Editor.
+
+Nothing is metered by the minute: a plan buys channels, and a channel is
+watched for every second it is live. Cancelling returns the account to Free
+and keeps every approved clip.
 
 ## How it differs from upload-based clippers
 
 Tools like Opus Clip and Eklipse take a finished video and cut it up
-afterwards. Highlightz watches the stream live and clips as it happens, so a
-moment is captured while it is still on air. Because clips are made through
-Twitch's own API, they live on Twitch under the streamer's account rather than
-being re-hosted elsewhere.
+afterwards, and both sell a subscription and then meter it in credits or
+minutes that run out and have to be bought again. Highlightz watches the
+stream live and clips as it happens, so a moment is captured while it is
+still on air. Because clips are made through Twitch's own API, they live on
+Twitch under the streamer's account rather than being re-hosted elsewhere.
 
 ## Pages
 
-- [Home](https://highlightz.app/): what it does, pricing, FAQ.
+- [Home](https://highlightz.app/): what it catches, how it scores, pricing, FAQ.
 - [Tutorial](https://highlightz.app/tutorial): step-by-step setup and how each
   screen works.
 - [Comparison](https://highlightz.app/compare): Highlightz vs Opus Clip vs
-  Eklipse on price and features.
+  Eklipse on price, credits and features.
 - [Terms of Service](https://highlightz.app/tos)
 - [Privacy Policy](https://highlightz.app/privacy)
+- [Cookie Policy](https://highlightz.app/cookies)
 - [Broadcaster opt-out](https://highlightz.app/opt-out): any Twitch streamer
   can remove their channel from the service here.
 
 ## Notes
 
 - Kick support is not live yet.
-- Highlightz is operated by ANTI Technology LLC.
+- Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
+
+
+def _md_text(html: str) -> str:
+    """Rendered copy as one line of plain text: tags out, entities decoded."""
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", html))).strip()
+
+
+def _landing_faq_pairs() -> list[tuple[str, str]]:
+    """The landing FAQ's questions and answers, from the same markup the page
+    renders and the FAQPage schema is built from."""
+    return [(_md_text(q), _md_text(a)) for q, a in re.findall(
+        r'<summary class="faq-q">(.*?)</summary>\s*<p class="faq-a">(.*?)</p>',
+        LANDING_HTML, re.S)]
+
+
+@app.get("/llms-full.txt", response_class=PlainTextResponse)
+async def llms_full_txt():
+    """The whole public site as one markdown file (the llms-full.txt half of
+    the llmstxt.org convention). Generated from the content modules the pages
+    render from, so it cannot say something the pages do not. Nothing
+    non-public: it is the same copy, minus the HTML."""
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    from src.dashboard import compare_content as CC, tutorial_content as TC
+    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def week(p: dict) -> str:
+        n = p["max_library_week"]
+        return "unlimited" if n >= UNLIMITED_PENDING else str(n)
+
+    out = []
+    w = out.append
+    w("# Highlightz — the full public copy\n")
+    w("> Automatic Twitch clipping. Highlightz watches a live channel, scores every "
+      "second from seven live signals against that channel's own threshold, and when "
+      "the score crosses it creates a real Twitch clip through the official Clips API. "
+      "Every clip lands in a review queue first. Nothing is recorded or re-hosted. "
+      "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
+
+    w("## The seven signals\n")
+    for t in _signal_titles().values():
+        w(f"- {t}")
+    w("")
+
+    w("## Plans (from the pricing page)\n")
+    w("| | Free | Starter | Pro |")
+    w("|---|---|---|---|")
+    w(f"| Price | $0, no card, no time limit | ${st['price']}/month | ${pro['price']}/month |")
+    w(f"| Channels at once | {f['max_streams']} | {st['max_streams']} | {pro['max_streams']} |")
+    w(f"| Clips held for review | {f['max_pending']} | {st['max_pending']} | {pro['max_pending']} |")
+    w(f"| Highlight clips | {f['max_suggested']} | {st['max_suggested']} | {pro['max_suggested']} |")
+    w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
+    w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
+    w(f"| Clip Editor and uploads | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
+    w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
+      "returns the account to Free and keeps every approved clip. Streamers can opt out "
+      "at any time and it applies everywhere at once.\n")
+
+    w("## FAQ (from the home page)\n")
+    for q, a in _landing_faq_pairs():
+        w(f"### {q}\n\n{a}\n")
+
+    w("## Walkthrough (from /tutorial)\n")
+    w(TC.HERO_LEAD + "\n")
+    w(f"### {TC.QUICKSTART_TITLE}\n\n{TC.QUICKSTART_LEAD}\n")
+    for sec in TC.QUICKSTART + TC.FEATURES:
+        w(f"### {sec.title}" + (f" ({sec.plan})" if sec.plan else "") + "\n")
+        if sec.body:
+            w(sec.body.replace("**", "") + "\n")
+        for i, step in enumerate(sec.steps, 1):
+            w(f"{i}. {step.replace('**', '')}")
+        if sec.steps:
+            w("")
+        if sec.note:
+            w("Note: " + sec.note.replace("**", "").replace("*", "") + "\n")
+        if sec.tip:
+            w("Tip: " + sec.tip.replace("**", "") + "\n")
+    w(f"### {TC.FAQ_TITLE}\n")
+    for q, a in TC.FAQ:
+        w(f"#### {q}\n\n{_md_text(a)}\n")
+
+    w("## Comparison (from /compare)\n")
+    w(CC.HERO_LEAD + "\n")
+    for prod in CC.PRODUCTS:
+        src = "our own pricing" if prod.is_us else f"as published at {prod.source_url}, checked {prod.checked_on}"
+        w(f"### {prod.name}\n\n{prod.tagline} ({src})\n")
+        for pl in prod.plans:
+            w(f"- {pl.name}: {pl.price}. {pl.note}")
+        w("")
+    w(f"### {CC.THE_MATH['title']}\n\n" + CC.THE_MATH["body"].replace("\n\n", "\n\n") + "\n")
+    w(f"### {CC.CREDITS['title']}\n\n{CC.CREDITS['lead']}\n")
+    w("| | Highlightz | Opus Clip | Eklipse |")
+    w("|---|---|---|---|")
+    for label, ours, opus, ekl in CC.CREDITS["rows"]:
+        w(f"| {label} | {ours} | {opus} | {ekl} |")
+    w(f"\nSources, read on {CC.CREDITS_CHECKED_ON}: " + "; ".join(f"{t} ({u})" for t, u in CC.CREDITS["sources"]) + "\n")
+    w("### Feature by feature\n")
+
+    def cell(v):
+        return "Yes" if v is True else ("No" if v is False else str(v))
+    w("| Feature | Highlightz | Opus Clip | Eklipse | Why |")
+    w("|---|---|---|---|---|")
+    for feat, ours, opus, ekl, why in CC.FEATURES:
+        w(f"| {feat} | {cell(ours)} | {cell(opus)} | {cell(ekl)} | {why} |")
+    w(f"\n### {CC.THEY_DO_BETTER['title']}\n")
+    for t, d in CC.THEY_DO_BETTER["points"]:
+        w(f"- {t} {d}")
+    w("\n### Before you decide\n")
+    for q, a in CC.FAQ:
+        w(f"#### {q}\n\n{a}\n")
+    w(f"### {CC.CLOSER['title']}\n\n{CC.CLOSER['body']}\n")
+
+    w("## Legal\n")
+    w("- Terms of Service: https://highlightz.app/tos")
+    w("- Privacy Policy: https://highlightz.app/privacy")
+    w("- Cookie Policy: https://highlightz.app/cookies")
+    w("- Broadcaster opt-out: https://highlightz.app/opt-out")
+    return "\n".join(out) + "\n"
 
 
 # Which source file actually renders each public page. This is what makes
@@ -9289,6 +9431,108 @@ def _paywall_plans() -> str:
 PAYWALL_HTML = PAYWALL_HTML.replace("<!--PAYWALLPLANS-->", _paywall_plans(), 1)
 
 
+
+# ── The legal pages' system (2026-09-02): the landing page's bar and footer,
+#    the paper ground, the display voice for titles, hairline rules between
+#    sections. One stylesheet, one bar, one footer, shared by /tos, /privacy
+#    and /cookies so the three documents cannot drift apart visually either.
+_LEGAL_STYLE = """
+  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
+  @font-face{font-family:'Sora Fallback';font-style:normal;font-weight:100 900;
+    src:local('Arial'),local('Helvetica'),local('Liberation Sans');
+    size-adjust:114.4%;ascent-override:84.8%;descent-override:25.3%;line-gap-override:0%}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
+  :root{
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6; --hair:rgba(242,234,247,.085);
+    --paper:#F4F4F2; --paper-ink:#0A0A0C; --paper-ink-2:#4B4A50; --paper-ink-3:#77767C;
+    --paper-hair:rgba(10,10,12,.14); --white:#FFFFFF; --ember:#F7A745;
+    --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Sora','Sora Fallback',system-ui,sans-serif;
+    --dur-fast:150ms;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px; --s-9:96px;
+    --nav-h:71px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;overflow-x:clip;scroll-padding-top:96px}
+  body{background:var(--paper);color:var(--paper-ink-2);font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:rgba(247,167,69,.35);color:#fff}
+  :focus-visible{outline:2px solid var(--ember);outline-offset:3px;border-radius:2px}
+  .nav{position:fixed;top:0;left:0;right:0;z-index:60;
+    background:linear-gradient(180deg,#09070C 0%,#09070C 70%,rgba(9,7,12,0) 100%);
+    display:flex;align-items:center;gap:16px;padding:12px 24px 16px}
+  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .nav-logo img{height:22px}
+  .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
+  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;color:var(--ink-3);padding:8px 12px;border-radius:3px;
+    transition:color var(--dur-fast),background var(--dur-fast)}
+  .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:var(--sans);font-weight:700;
+    font-size:14px;padding:8px 16px;border-radius:3px;border:1px solid transparent;white-space:nowrap}
+  .btn-go{background:var(--ember);border-color:var(--ember);color:#0A0A0C}
+  .btn-go:hover{background:#FFB65A;border-color:#FFB65A}
+  .legal{max-width:760px;margin:0 auto;padding:calc(var(--nav-h) + var(--s-8)) clamp(20px,4.5vw,72px) var(--s-9)}
+  .legal .k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ember)}
+  .legal h1{font-family:var(--sans);font-weight:800;letter-spacing:-.04em;line-height:.98;font-size:clamp(36px,5.2vw,64px);
+    color:var(--paper-ink);margin:var(--s-3) 0 var(--s-4)}
+  .legal .meta{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--paper-ink-3);
+    padding-bottom:var(--s-6);border-bottom:1px solid var(--paper-hair);margin-bottom:var(--s-6)}
+  .legal h2{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;line-height:1.1;font-size:22px;color:var(--paper-ink);
+    margin:var(--s-7) 0 var(--s-3);padding-top:var(--s-5);border-top:1px solid var(--paper-hair)}
+  .legal p,.legal li{font-size:16px;line-height:1.6;color:var(--paper-ink-2);margin-bottom:var(--s-3)}
+  .legal ul{padding-left:var(--s-5);margin-bottom:var(--s-3)}
+  .legal li{margin-bottom:var(--s-2)}
+  .legal strong{color:var(--paper-ink);font-weight:700}
+  .legal em{color:var(--paper-ink)}
+  .legal code{font-family:var(--mono);font-size:14px;color:var(--paper-ink);background:rgba(10,10,12,.06);padding:0 4px;border-radius:3px}
+  .legal a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  .legal a:hover{border-bottom-color:var(--paper-ink)}
+  .legal table{width:100%;border-collapse:collapse;margin-bottom:var(--s-4);font-size:14px}
+  .legal th{text-align:left;font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--paper-ink-3);padding:var(--s-2) var(--s-3) var(--s-2) 0;border-bottom:2px solid var(--paper-ink)}
+  .legal td{padding:var(--s-3) var(--s-3) var(--s-3) 0;border-bottom:1px solid var(--paper-hair);vertical-align:top;color:var(--paper-ink-2)}
+  .legal td code{white-space:nowrap}
+  /* The cookie table is four columns with a long Purpose cell; narrower than
+     that it scrolls inside itself rather than pushing the page sideways. */
+  @media(max-width:560px){ table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch} }
+  .footer{background:#000;border-top:1px solid var(--hair);padding:var(--s-5) clamp(20px,4.5vw,72px);display:flex;align-items:center;
+    gap:var(--s-5);flex-wrap:wrap;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--ink-3)}
+  .footer img{height:20px;width:auto;display:block}
+  .footer nav{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-4)}
+  .footer a:hover{color:var(--ink)}
+  .footer .fl{margin-left:auto;white-space:nowrap}
+  @media(max-width:940px){ .nav-links{display:none} }
+  @media(max-width:700px){ .nav-logo span{display:none} .footer .fl{margin-left:0} }
+  @media(prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
+"""
+
+_LEGAL_NAV = """<nav class="nav">
+  <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
+  <div class="nav-links">
+    <a href="/#catches" class="nav-link">What it catches</a>
+    <a href="/#score" class="nav-link">How it scores</a>
+    <a href="/#watch" class="nav-link">Channels</a>
+    <a href="/#pricing" class="nav-link">Pricing</a>
+    <a href="/#faq" class="nav-link">FAQ</a>
+    <a href="/tutorial" class="nav-link">Tutorial</a>
+    <a href="/compare" class="nav-link">Compare</a>
+  </div>
+  <div class="nav-right">
+    <a href="/login" class="nav-link">Sign in</a>
+    <a href="/login" class="btn btn-go">Get started</a>
+  </div>
+</nav>"""
+
+_LEGAL_FOOT = """<footer class="footer">
+  <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <span class="fl">&copy; 2026 ANTI Technology LLC</span>
+</footer>"""
+
 TOS_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9298,35 +9542,12 @@ TOS_HTML = """<!DOCTYPE html>
 <meta name="description" content="The terms that govern your use of Highlightz, including plans, your responsibilities for clips you create, and how broadcasters can opt out.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <!--SOCIAL_TOS-->
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
-  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:var(--dur-fast)}
-  .back:hover{color:#c489e4}
-  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
-  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
-  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
-  ul{padding-left:16px;margin-bottom:12px}
-  li{font-size:14px;color:#b9aec4;margin-bottom:4px}
-  a{color:#c489e4;text-decoration:none}
-  a:hover{text-decoration:underline}
-  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
-</style>
+<style>""" + _LEGAL_STYLE + """</style>
 </head>
 <body>
-<div class="wrap">
-  <a href="/login" class="back">&#8592; Back to Highlightz</a>
-  <div class="logo">
-    <img src="/static/logo-mark.png" alt="Highlightz">
-    <span>Highlightz</span>
-  </div>
+""" + _LEGAL_NAV + """
+<main class="legal">
+  <div class="k">Legal</div>
   <h1>Terms of Service</h1>
   <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
@@ -9413,9 +9634,8 @@ TOS_HTML = """<!DOCTYPE html>
   <strong>ANTI Technology LLC</strong><br>
   Email: <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
 
-  <div class="divider"></div>
-  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved.</div>
-</div>
+</main>
+""" + _LEGAL_FOOT + """
 </body>
 </html>"""
 
@@ -9432,35 +9652,12 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <meta name="description" content="What Highlightz collects, why, who it is shared with, how long it is kept, and how to have it deleted.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <!--SOCIAL_PRIVACY-->
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
-  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:var(--dur-fast)}
-  .back:hover{color:#c489e4}
-  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
-  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
-  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
-  ul{padding-left:16px;margin-bottom:12px}
-  li{font-size:14px;color:#b9aec4;margin-bottom:4px}
-  a{color:#c489e4;text-decoration:none}
-  a:hover{text-decoration:underline}
-  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
-</style>
+<style>""" + _LEGAL_STYLE + """</style>
 </head>
 <body>
-<div class="wrap">
-  <a href="/login" class="back">&#8592; Back to Highlightz</a>
-  <div class="logo">
-    <img src="/static/logo-mark.png" alt="Highlightz">
-    <span>Highlightz</span>
-  </div>
+""" + _LEGAL_NAV + """
+<main class="legal">
+  <div class="k">Legal</div>
   <h1>Privacy Policy</h1>
   <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
@@ -9527,9 +9724,8 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <strong>ANTI Technology LLC</strong><br>
   Email: <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
 
-  <div class="divider"></div>
-  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#9c90a6">Terms of Service</a> &middot; <a href="/cookies" style="color:#9c90a6">Cookie Policy</a></div>
-</div>
+</main>
+""" + _LEGAL_FOOT + """
 </body>
 </html>"""
 
@@ -9549,45 +9745,12 @@ COOKIES_HTML = """<!DOCTYPE html>
 <meta name="description" content="The one cookie Highlightz sets, the two browser preferences it stores, and the third-party cookies it does not control.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <!--SOCIAL_COOKIES-->
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;line-height:1.7;padding:0 0 64px}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.15),transparent 60%)}
-  .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
-  .back{display:inline-flex;align-items:center;gap:8px;color:#9c90a6;font-size:12px;text-decoration:none;margin-bottom:32px;transition:var(--dur-fast)}
-  .back:hover{color:#c489e4}
-  .logo{display:flex;align-items:center;gap:12px;margin-bottom:32px}
-  .logo img{height:30px;filter:drop-shadow(0 0 10px rgba(196,137,228,.4))}
-  .logo span{font-size:24px;font-weight:800;color:#c489e4;letter-spacing:-.02em}
-  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
-  .meta{font-size:12px;color:#9c90a6;margin-bottom:48px}
-  h2{font-size:17px;font-weight:700;color:#c489e4;margin:32px 0 12px;letter-spacing:-.01em}
-  p{font-size:14px;color:#b9aec4;margin-bottom:12px}
-  table{width:100%;border-collapse:collapse;margin-bottom:12px;font-size:12px}
-  /* The cookie table is four columns with a long Purpose cell and needs
-     376px; below that it pushed the whole page sideways, because there is
-     no wrapper element in the markup to scroll it. Making the table itself
-     the scroll box fixes it without touching the shared legal markup, so
-     /tos and /privacy are unaffected. Narrow widths only: as a block the
-     table no longer fills its column, which is wrong everywhere else. */
-  @media(max-width:560px){
-    table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
-  }
-  th{text-align:left;color:#9c90a6;font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
-  td{padding:8px 12px;color:#b9aec4;border-bottom:1px solid rgba(255,255,255,.04)}
-  a{color:#c489e4;text-decoration:none}
-  a:hover{text-decoration:underline}
-  .divider{height:1px;background:rgba(255,255,255,.07);margin:48px 0 0}
-  .footer{margin-top:24px;font-size:12px;color:#9c90a6;text-align:center}
-</style>
+<style>""" + _LEGAL_STYLE + """</style>
 </head>
 <body>
-<div class="wrap">
-  <a href="/login" class="back">&#8592; Back to Highlightz</a>
-  <div class="logo">
-    <img src="/static/logo-mark.png" alt="Highlightz">
-    <span>Highlightz</span>
-  </div>
+""" + _LEGAL_NAV + """
+<main class="legal">
+  <div class="k">Legal</div>
   <h1>Cookie Policy</h1>
   <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
@@ -9624,9 +9787,8 @@ COOKIES_HTML = """<!DOCTYPE html>
   <h2>Contact</h2>
   <p>Questions? Contact us at <a href="mailto:support@highlightz.app">support@highlightz.app</a></p>
 
-  <div class="divider"></div>
-  <div class="footer">&copy; 2026 ANTI Technology LLC &mdash; All rights reserved. &middot; <a href="/tos" style="color:#9c90a6">Terms of Service</a> &middot; <a href="/privacy" style="color:#9c90a6">Privacy Policy</a></div>
-</div>
+</main>
+""" + _LEGAL_FOOT + """
 </body>
 </html>"""
 
@@ -11112,30 +11274,37 @@ NOT_FOUND_HTML = """<!DOCTYPE html>
 # ── Opt-out HTML ───────────────────────────────────────────────────────────────
 
 _OPTOUT_BASE_STYLE = """
+@font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
+@font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 500px at 50% 20%,rgba(184,106,220,.15),transparent 60%)}
-.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:32px 32px;max-width:480px;width:100%;text-align:center}
-.logo{font-size:24px;font-weight:800;background:linear-gradient(135deg,#f943ff,#b86adc,#7c6bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:24px}
-h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
-p{font-size:14px;color:#b9aec4;line-height:1.6;margin-bottom:16px}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;transition:var(--dur-fast)}
-.btn-twitch{background:#9146ff;color:#fff}
-.btn-twitch:hover{background:#7c39d4}
-.btn-confirm{background:linear-gradient(135deg,#f943ff,#b86adc);color:#fff;width:100%;justify-content:center;font-size:14px;padding:12px}
-.btn-confirm:hover{opacity:.9}
-.btn-back{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#b9aec4;font-size:12px}
-.btn-back:hover{background:rgba(255,255,255,.1);color:#f2eaf7}
-.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 16px;display:block;border:2px solid rgba(184,106,220,.4)}
-.avatar-placeholder{width:72px;height:72px;border-radius:50%;background:rgba(184,106,220,.2);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:30px}
-.name{font-size:17px;font-weight:700;margin-bottom:4px}
-.handle{font-size:12px;color:#b9aec4;margin-bottom:24px}
-.warning{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:12px 16px;font-size:12px;color:#fca5a5;margin-bottom:24px;text-align:left}
+body{background:#000;color:#F2EAF7;font-family:'Sora',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  -webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid #F7A745;outline-offset:3px;border-radius:2px}
+.card{background:#0A0A0C;border:1px solid rgba(242,234,247,.15);border-radius:8px;padding:32px;max-width:480px;width:100%;text-align:center}
+.logo{font-family:'Plex',ui-monospace,Menlo,monospace;font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:#F2EAF7;margin-bottom:24px}
+h1{font-weight:800;font-size:28px;letter-spacing:-.04em;line-height:1;margin-bottom:12px;color:#fff}
+p{font-size:15px;color:#B9AEC4;line-height:1.55;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 24px;border-radius:3px;font-family:inherit;font-size:15px;font-weight:700;
+  cursor:pointer;border:1px solid transparent;text-decoration:none;transition:background 150ms,border-color 150ms,color 150ms}
+.btn-twitch{background:#9146ff;border-color:#9146ff;color:#fff}
+.btn-twitch:hover{background:#7c39d4;border-color:#7c39d4}
+.btn-confirm{background:#F7A745;border-color:#F7A745;color:#0A0A0C;width:100%}
+.btn-confirm:hover{background:#FFB65A;border-color:#FFB65A}
+.btn-back{background:transparent;border-color:rgba(255,255,255,.35);color:#F2EAF7;font-size:14px}
+.btn-back:hover{border-color:#fff}
+.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;margin:0 auto 16px;display:block;border:1px solid rgba(242,234,247,.15)}
+.avatar-placeholder{width:72px;height:72px;border-radius:50%;background:rgba(242,234,247,.08);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:30px}
+.name{font-size:18px;font-weight:700;margin-bottom:4px;color:#fff}
+.handle{font-family:'Plex',ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.06em;color:#9C90A6;margin-bottom:24px}
+.warning{border-left:2px solid #F7A745;padding:8px 0 8px 16px;font-size:14px;color:#B9AEC4;margin-bottom:24px;text-align:left;line-height:1.5}
+.warning strong{color:#fff}
 .success-icon{font-size:44px;margin-bottom:16px}
-.steps{text-align:left;margin-bottom:24px}
-.steps li{font-size:12px;color:#b9aec4;padding:4px 0;padding-left:16px;position:relative;line-height:1.5}
-.steps li::before{content:'✓';position:absolute;left:0;color:#b86adc}
-.divider{height:1px;background:rgba(255,255,255,.07);margin:16px 0}
+.steps{text-align:left;margin-bottom:24px;list-style:none}
+.steps li{font-size:14px;color:#B9AEC4;padding:8px 0 8px 24px;position:relative;line-height:1.5;border-top:1px solid rgba(242,234,247,.085)}
+.steps li:last-child{border-bottom:1px solid rgba(242,234,247,.085)}
+.steps li::before{content:'';position:absolute;left:0;top:16px;width:12px;height:2px;background:#F7A745}
+.divider{height:1px;background:rgba(242,234,247,.085);margin:16px 0}
 """
 
 _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
