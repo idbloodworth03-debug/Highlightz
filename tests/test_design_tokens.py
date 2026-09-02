@@ -403,7 +403,9 @@ def test_no_prose_runs_past_the_readable_band():
     a width problem — not a word of copy changed."""
     c = css("landing")
     assert "--measure:52ch" in c.replace(" ", ""), "the measure token moved"
-    for sel in (".faq-a", ".faq-more", ".price-tiny", ".price-lead", ".feat p", ".feat-wide p"):
+    # .cell p and .end-p replaced .feat p / .feat-wide p when the feature
+    # groups became the spec sheet's cells and the closing paragraph.
+    for sel in (".faq-a", ".faq-more", ".price-tiny", ".price-lead", ".cell p", ".end-p"):
         rule = re.search(re.escape(sel) + r"\{([^}]*)\}", c)
         assert rule and "var(--measure)" in rule.group(1), f"{sel} lost its measure"
 
@@ -418,35 +420,30 @@ def test_the_measure_is_calibrated_to_real_characters_not_to_ch():
     assert 46 <= val <= 58, f"--measure is {val}ch; outside the calibrated range"
 
 
-def test_the_pricing_ladder_survived_but_the_buttons_share_a_baseline():
-    """The ladder used to step width, radius, price size, border and glow. The
-    tiers are hairline cells now — same construction as the wall and the stats
-    band — so radius and border are gone BY DESIGN, and the ladder lives in
-    what is left: unequal column widths and the price stepping 30 -> 44, with
-    Pro carrying the wash and the bright top edge. The buttons still share a
-    baseline because every tier keeps the same bottom padding."""
+def test_the_pricing_table_is_hairline_rows_with_no_highlighted_column():
+    """The tiers were a ladder of three cells with Pro washed purple and its
+    price set larger. The redesign made pricing a SPEC TABLE: plans across,
+    facts down, every row a hairline, no column lit or widened or badged —
+    the three plans differ on the rows shown and nowhere else. The price is
+    the one number in the table set in the instrument colour, because it is
+    the number a visitor acts on."""
     c = css("landing")
-    tiers = re.search(r"\.ptiers\{([^}]*)\}", c).group(1)
-    cols = re.search(r"grid-template-columns:([^;]+)", tiers).group(1)
-    fracs = re.findall(r"minmax\(0,([\d.]+)fr\)", cols)
-    assert len(set(fracs)) == 3, f"the ladder was flattened to equal columns: {fracs}"
-    base = re.search(r"\n  \.ptier\{([^}]*)\}", c).group(1)
-    assert "border-radius" not in base, "the cells grew corners again"
-    assert "border-left:1px solid var(--hair)" in base, "the dividers are gone"
-    pro = re.search(r"\.ptier-c\{([^}]*)\}", c).group(1)
-    assert "rgba(184,106,220" in pro, "Pro lost its wash"
-    # shared button baseline: the base rule sets the padding once, and Pro's
-    # own shorthand must end on the same bottom value
-    base_bottom = re.search(r"padding:([^;}]+)", base).group(1).split()[0]
-    pro_pad = re.search(r"padding:([^;}]+)", pro)
-    if pro_pad:
-        toks = pro_pad.group(1).split()
-        bottom = toks[2] if len(toks) >= 3 else toks[0]
-        assert bottom == base_bottom, f"the CTA baseline is broken: {bottom} vs {base_bottom}"
-    fig = re.search(r"\n  \.ptier-fig\{([^}]*)\}", c).group(1)
-    pro_fig = re.search(r"\.ptier-c \.ptier-fig\{([^}]*)\}", c).group(1)
-    assert "font-size:30px" in fig and "font-size:44px" in pro_fig, \
-        "the price no longer steps up the ladder"
+    table = re.search(r"\n  \.plans\{([^}]*)\}", c).group(1)
+    assert "border-collapse:collapse" in table, "the table rows are not hairlines"
+    cells = re.search(r"\.plans th,\.plans td\{([^}]*)\}", c).group(1)
+    assert "border-top:1px solid var(--hair)" in cells, "the rows lost their hairline"
+    rules = re.findall(r"\n  (\.plans[^{]*)\{([^}]*)\}", c)
+    assert rules, "the pricing table has no stylesheet"
+    for sel, body in rules:
+        assert "border-radius" not in body, f"{sel} grew corners"
+        assert "background" not in body, f"{sel} paints a column — no highlighted plan"
+        assert "rgba(184,106,220" not in body, f"{sel} wears the purple again"
+    price = re.search(r"\.plans \.price \.n\{([^}]*)\}", c).group(1)
+    assert "var(--ember)" in price, "the price is no longer the instrument colour"
+    # Anchored on the line start: ".plans th,.plans td{" also contains this
+    # selector and carries no font of its own.
+    assert "var(--mono)" in re.search(r"\n  \.plans td\{([^}]*)\}", c).group(1), \
+        "the table's numbers are not in the instrument face"
 
 
 def test_the_dead_faq_stylesheet_is_gone():

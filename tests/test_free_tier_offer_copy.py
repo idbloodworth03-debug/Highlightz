@@ -198,91 +198,91 @@ def test_the_free_plan_is_not_quietly_given_the_paid_features():
 
 # ── the free tier is advertised, not merely mentioned ────────────────────────
 
-def test_free_is_a_card_in_the_pricing_row_not_a_line_of_prose():
+def _plan_row(label: str) -> list[str]:
+    """The three cells of one row of the pricing table, Free / Starter / Pro."""
+    from src.dashboard.api import _pricing
+    row = re.search(r'<tr[^>]*><th scope="row">' + re.escape(label) + r"</th>(.*?)</tr>",
+                    _pricing(), re.S)
+    assert row, f"the pricing table has no {label!r} row"
+    return re.findall(r"<td>(.*?)</td>", row.group(1), re.S)
+
+
+def test_free_is_a_column_in_the_pricing_table_not_a_line_of_prose():
     """THE ASK. Free existed and the page said so, but only in the paragraph
-    above the row — so a visitor scanning the pricing block for "what does this
-    cost to try" saw two priced cards reading $10 and $25 and nothing else.
-    A tier nobody can see is a tier nobody signs up for."""
+    above the plans — so a visitor scanning the pricing block for "what does
+    this cost to try" saw two priced tiers reading $10 and $25 and nothing
+    else. A tier nobody can see is a tier nobody signs up for. The plans are
+    a spec table now, and Free is its first column."""
     from src.dashboard.api import _pricing
     html = _pricing()
-    assert html.count('<div class="ptier ') == 3, \
-        "the pricing row is not three cards"
-    assert re.search(r'<span class="ptier-name">Free</span>', html), \
-        "Free is not one of the pricing cards"
+    heads = re.findall(r'<th scope="col">([^<]+)</th>', html)
+    assert "Free" in heads, "Free is not one of the pricing columns"
 
 
-def test_the_free_card_leads_the_row():
+def test_the_free_column_leads_the_table():
     """It is the first rung of the same ladder — one channel, then three, then
     ten — so it reads left to right as an escalation rather than as an
     afterthought bolted on the end."""
     from src.dashboard.api import _pricing
-    names = re.findall(r'<span class="ptier-name">([^<]+)</span>', _pricing())
-    assert names == ["Free", "Starter", "Pro"], names
+    heads = re.findall(r'<th scope="col">([^<]+)</th>', _pricing())
+    assert heads == ["Free", "Starter", "Pro"], heads
 
 
-def test_the_free_card_shows_zero_and_says_why_it_is_zero():
-    """"$0/month" invites the question "and then what?". The suffix answers it
-    in the one place a visitor is definitely looking."""
-    from src.dashboard.api import _pricing
-    card = _pricing().split('<div class="ptier ptier-a">')[1] \
-                     .split('<div class="ptier ptier-b">')[0]
-    assert "$0" in card
-    assert "no card" in card.lower(), \
-        "the free card's price does not say a card is not needed"
+def test_the_free_price_shows_zero_and_says_why_it_is_zero():
+    """"$0/month" invites the question "and then what?". The line under the
+    figure answers it in the one place a visitor is definitely looking."""
+    free_price = _plan_row("Price")[0]
+    assert "$0" in free_price
+    assert "no card" in free_price.lower(), \
+        "the free price does not say a card is not needed"
 
 
-def test_the_free_card_quotes_its_real_limits():
-    from src.dashboard.api import _pricing
-    free_card = _pricing().split('<div class="ptier ptier-a">')[1] \
-                          .split('<div class="ptier ptier-b">')[0]
+def test_the_free_column_quotes_its_real_limits():
     free = PLAN_LIMITS["free"]
-    assert str(free["max_streams"]) in free_card
-    assert str(free["max_pending"]) in free_card
-    assert str(free["max_suggested"]) in free_card
+    assert _plan_row("Channels at once")[0] == str(free["max_streams"])
+    assert _plan_row("Clips held for review")[0] == str(free["max_pending"])
+    assert _plan_row("Highlight clips")[0] == str(free["max_suggested"])
 
 
-def test_the_paid_cards_no_longer_say_start_free():
+def test_the_paid_columns_no_longer_say_start_free():
     """They said "Start free" when every signup was a trial of the full
     product. With a real free tier next to them that reads as if Starter and
-    Pro are themselves free, which is the one misreading this row cannot
+    Pro are themselves free, which is the one misreading this table cannot
     afford."""
     from src.dashboard.api import _pricing
-    paid = _pricing().split('<div class="ptier ptier-b">')[1]
-    assert "Start free" not in paid, "a paid card still offers to start free"
-    assert "Get Starter" in paid and "Get Pro" in paid
+    foot = re.search(r"<tfoot>(.*?)</tfoot>", _pricing(), re.S).group(1)
+    cells = re.findall(r"<td>(.*?)</td>", foot, re.S)
+    assert len(cells) == 4, "the action row is not one cell per column"
+    assert "Start free" in cells[1] and "Start free" not in cells[2] + cells[3], \
+        "a paid column still offers to start free"
+    assert "Get Starter" in cells[2] and "Get Pro" in cells[3]
 
 
 def test_one_channel_is_not_described_in_the_plural():
-    """The card builder writes "N channels watched at the same time", which
-    reads as "1 channels" on the only plan where N is 1 — on the card most new
-    visitors read first."""
-    from src.dashboard.api import _pricing
-    assert "1 channels" not in _pricing()
-    assert "1 channel</b>" in _pricing()
+    """The channels cell is written "N channels watched at the same time",
+    which reads as "1 channels" on the only plan where N is 1 — in the one
+    sentence on the page that quotes all three."""
+    from src.dashboard.api import _channels_fact, LANDING_HTML
+    _, sentence = _channels_fact()
+    assert "1 channels" not in sentence
+    assert "1 channel</b>" in sentence
+    assert "1 channels" not in LANDING_HTML
 
 
-def test_the_row_still_collapses_on_a_phone():
-    """Three columns need to break earlier than two did. Measured before this:
-    at 760px the middle card was 210px wide and its price wrapped under its own
-    name."""
+def test_the_table_stays_a_table_on_a_phone():
+    """The three cards used to stack; a spec table must NOT — a plan per
+    screen is the thing a comparison table exists to avoid. So the layout is
+    fixed (four columns share the width whatever their content) and the label
+    column widens on a phone so the row names still read."""
     from src.dashboard.api import LANDING_HTML
-
-    def columns_at(width):
-        """The column count the row resolves to at a breakpoint.
-
-        COUNTED, not pattern-matched. The first version of this asserted the
-        980 rule matched "minmax(0,1fr) minmax(0,1fr)" — which is a PREFIX of
-        the three-column value, so a mutation putting three columns back at 980
-        sailed through it. Counting is the only version that cannot be
-        satisfied by a wider rule that happens to start the same way."""
-        m = re.search(r"@media \(max-width:" + str(width)
-                      + r"px\)\{\s*\.ptiers\{grid-template-columns:([^;}]*)",
-                      LANDING_HTML)
-        assert m, f"no .ptiers rule at max-width:{width}px"
-        return m.group(1).count("minmax(")
-
-    assert columns_at(980) == 2, "the three-column row has no two-column step"
-    assert columns_at(700) == 1, "the pricing row does not go single-column on a phone"
+    table = re.search(r"\n  \.plans\{([^}]*)\}", LANDING_HTML).group(1)
+    assert "table-layout:fixed" in table, "the columns can be squeezed by their content"
+    assert "width:100%" in table
+    m = re.search(r"@media\(max-width:600px\)\{[^@]*\.plans col\.c-lab\{width:(\d+)%\}",
+                  LANDING_HTML)
+    assert m, "no phone rule for the label column"
+    desk = int(re.search(r"\.plans col\.c-lab\{width:(\d+)%\}", LANDING_HTML).group(1))
+    assert int(m.group(1)) > desk, "the label column does not widen on a phone"
 
 
 # ── the numbers cannot be typed out any more ─────────────────────────────────

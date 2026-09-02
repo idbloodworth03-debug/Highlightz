@@ -613,18 +613,19 @@ def test_ember_belongs_to_the_instruments_not_the_prose():
     instrument colour, so prose and wayfinding labels must not wear it, and
     the instruments must not lose it.
 
-    ONE DELIBERATE EXCEPTION, added on the owner's call: the feature section's
-    item titles (.feat h3) are gold, because that section is what tells a
-    visitor what the product does and it was being read straight past. It is
-    not in the list below, and .feat-label — the group labels right beside
-    those titles — still is, so the exception stays one selector wide rather
-    than becoming "the features section may use ember"."""
+    THE REDESIGN MADE THIS THE PAGE'S HARDEST RULE: under the hero the orange
+    sits on real numbers and on the one primary button, and nowhere else. The
+    gold feature titles that were the one exception went with the feature
+    groups; the cell titles are ink."""
     prose = {
-        ".feat-label": r"\.feat-label\{([^}]*)\}",       # section group labels
+        ".cell-k": r"\.cell-k\{([^}]*)\}",               # spec cell labels
+        ".cell-h": r"\.cell-h\{([^}]*)\}",               # spec cell titles
+        ".sig-n": r"\.sig-n\{([^}]*)\}",                 # signal names
+        "h2.sec-title": r"h2\.sec-title\{([^}]*)\}",     # section labels
         ".price-lead b": r"\.price-lead b\{([^}]*)\}",   # the pricing lead-in
         ".price-tiny": r"\.price-tiny\{([^}]*)\}",       # the plan footnote
         ".wall-cap": r"\.wall-cap\{([^}]*)\}",           # the wall's caption
-        ".ptier-fig": r"\.ptier-fig\{([^}]*)\}",         # every price but Pro's
+        ".plans td": r"\n  \.plans td\{([^}]*)\}",       # every table cell but the price
     }
     for name, pat in prose.items():
         m = re.search(pat, HTML)
@@ -632,10 +633,17 @@ def test_ember_belongs_to_the_instruments_not_the_prose():
         assert "ember" not in m.group(1), f"{name} is wearing the instrument colour"
     # and the instruments KEEP it — this is a reassignment, not a purge
     for name, pat in ((".tile-score", r"\.tile-score\{([^}]*)\}"),
-                      (".ptier-c .ptier-fig", r"\.ptier-c \.ptier-fig\{([^}]*)\}")):
+                      (".plans .price .n", r"\.plans \.price \.n\{([^}]*)\}"),
+                      (".cell-n", r"\n  \.cell-n\{([^}]*)\}"),
+                      (".tape-s", r"\.tape-s\{([^}]*)\}"),
+                      (".btn-go", r"\n  \.btn-go\{([^}]*)\}")):
         m = re.search(pat, HTML)
         assert m and "ember" in m.group(1), \
             f"{name} lost its ember — the instrument colour is gone too"
+    # A cell whose headline value is a WORD does not get the number's colour.
+    word = re.search(r"\.cell-n\.cell-w\{([^}]*)\}", HTML).group(1)
+    assert "color:var(--ink)" in word and "ember" not in word, \
+        "a word in the big slot is wearing the number colour"
 
 
 def test_the_wall_speaks_the_covers_language():
@@ -671,9 +679,15 @@ def test_the_page_below_the_fold_is_one_dark_room():
         "the formula demo is a gradient card again"
     assert "border-top:1px solid var(--hair)" in formula, \
         "the formula lost its hairline frame"
-    tiers = re.search(r"\n  \.ptiers\{([^}]*)\}", HTML).group(1)
-    assert "border-top:1px solid var(--hair)" in tiers and "gap:0" in tiers, \
-        "the pricing row is not the hairline band construction"
+    grid = re.search(r"\n  \.grid\{([^}]*)\}", HTML).group(1)
+    assert "border-top:1px solid var(--hair)" in grid and "gap:0" in grid, \
+        "the spec grid is not the hairline band construction"
+    cell = re.search(r"\n  \.cell\{([^}]*)\}", HTML).group(1)
+    assert "border-radius" not in cell and "border-box" not in cell, \
+        "the spec cells are cards again"
+    cells = re.search(r"\.plans th,\.plans td\{([^}]*)\}", HTML).group(1)
+    assert "border-top:1px solid var(--hair)" in cells, \
+        "the pricing table is not hairline rows"
 
 
 def test_the_wall_fills_slide_two_now_that_it_is_alone_there():
@@ -765,21 +779,30 @@ def test_the_door_chips_exist_and_go_where_they_claim():
         "the FAQ lost its tutorial door"
 
 
-def test_the_how_section_staggers_instead_of_listing():
-    """Three equal columns read as a numbered list. The stagger is the
-    personality: the formula (step two) owns the tall right column and steps
-    one and three hang at different heights on the left."""
-    b = re.search(r"\.flow-b\{([^}]*)\}", HTML).group(1)
-    assert "span 2" in b, "step two no longer spans the right column"
-    a = re.search(r"\.flow-a\{([^}]*)\}", HTML).group(1)
-    c = re.search(r"\.flow-c\{([^}]*)\}", HTML).group(1)
-    assert "margin-top" in a and "margin-top" in c and a != c, \
-        "the left steps hang at the same height — the stagger is gone"
+def test_the_how_section_columns_are_unequal():
+    """Three equal columns read as a numbered list. The three steps are cells
+    in one hairline row, and the row is asymmetric on purpose: the middle cell
+    carries the formula and is the wide one."""
+    g = re.search(r"\.grid-3\{([^}]*)\}", HTML).group(1)
+    fracs = [float(f) for f in re.findall(r"minmax\(0,([\d.]+)fr\)", g)]
+    assert len(fracs) == 3, f"How it works is not three cells across: {g}"
+    assert len(set(fracs)) >= 2, "the three steps are equal columns again"
+    assert fracs[1] == max(fracs), "the formula's cell is no longer the wide one"
+    sec = HTML[HTML.index('id="how"'):HTML.index('id="features"')]
+    assert 'class="formula"' in sec, "the formula left How it works"
 
 
-def test_the_feature_groups_alternate_sides():
-    """Four identical label-then-list bands is the list the owner asked to
-    lose. Every other group swaps its label to the far side."""
-    even = re.search(r"\.feat-group:nth-of-type\(even\)>\.feat-label\{([^}]*)\}", HTML)
-    assert even and "grid-column:2" in even.group(1), \
-        "even feature groups no longer swap sides"
+def test_the_signals_are_a_spec_sheet_of_the_real_ones():
+    """The feature groups became an index of the product's actual signal
+    types: one row per SignalType, in the spec-sheet shape (index, name, what
+    it measures, its unit). Every real signal is listed by its user-facing
+    label, so a signal added to the product without a row here fails."""
+    from src.trigger.signals import SIGNAL_LABELS
+    sec = HTML[HTML.index('id="features"'):HTML.index('id="pricing"')]
+    names = re.findall(r'<span class="sig-n">([^<]+)</span>', sec)
+    assert len(names) == len(SIGNAL_LABELS), f"{len(names)} rows for {len(SIGNAL_LABELS)} signals"
+    assert set(names) == set(SIGNAL_LABELS.values()), set(names) ^ set(SIGNAL_LABELS.values())
+    assert sec.count('class="sig-u"') == len(names), "a row has no unit"
+    sig = re.search(r"\n  \.sig\{([^}]*)\}", HTML).group(1)
+    assert sig.count("minmax(") == 2 and "grid-template-columns" in sig, \
+        "the signal rows are not the four-column spec layout"

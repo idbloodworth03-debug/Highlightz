@@ -142,10 +142,15 @@ def test_pricing_bullets_are_not_laid_out_as_flex_columns():
     from src.dashboard.api import LANDING_HTML
     assert ".price-list .li{" not in LANDING_HTML, \
         "the dead pricing stylesheet is back"
-    i = LANDING_HTML.index(".ptier-chan{")
+    # The plan lines became the spec cells' sentences when pricing turned
+    # into a table: the channels cell reads "<b>10 channels</b> watched at
+    # the same time on Pro, ..." — the same inline <b> inside a sentence.
+    i = LANDING_HTML.index(".cell p{")
     rule = LANDING_HTML[i:LANDING_HTML.index("}", i)]
     assert "display:flex" not in rule, \
         "plan lines are flex — inline <b> will break the sentence into columns"
+    assert "<b>" in LANDING_HTML[LANDING_HTML.index('class="cell-k">Channels at once'):][:800], \
+        "the channels sentence lost its inline emphasis — this guard is idle"
 
 
 def test_the_vod_scanner_is_named_consistently():

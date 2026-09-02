@@ -111,36 +111,24 @@ def test_showcase_entry_carries_embed_url_for_inline_playback():
     assert entry["embed_url"] == "https://clips.twitch.tv/embed?clip=Slug"
 
 
-def test_accent_word_is_solid_not_outlined():
-    """The highlighted word in a title is a SOLID purple fill.
-
-    It used to be transparent with a -webkit-text-stroke outline. Two things
-    have to stay true or it silently reverts to that look: the fill must not be
-    transparent, and no stroke width may come back.
-
-    The hex is the redesign's --glow (#B86ADC, H281 S62), deliberately off
-    Twitch's own #9146FF/#A970FF (H264 S100) — pinned here because "our purple,
-    not Twitch's" is the one colour decision a later edit is most likely to undo
-    by reaching for a familiar value.
+def test_the_purple_stays_above_the_fold():
+    """The closing line used to carry one purple accent word. The redesign's
+    rule is that the magenta-to-violet only lives in the logo and on slide 2's
+    wall; everything under the hero is black, white, grey and the one orange.
+    So the accent class is gone entirely, and — the decision this test has
+    always protected — Twitch's own purple never enters the palette.
     """
     css = api.LANDING_HTML
-    block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
-    # #B86ADC — 5.35:1 on the charcoal page base. The page briefly went light,
-    # which forced a darker plum (#6A2E8A) because the glow only managed 3.15
-    # against bone; on charcoal the glow is both readable and the right look,
-    # so it is back. What has not changed across either theme is the decision
-    # this test exists to protect: ours, not Twitch's.
-    assert "color:#B86ADC" in block, "accent must be filled with our purple"
-    assert "color:transparent" not in block
-    assert "-webkit-text-stroke:0" in block
     for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):
         assert twitch not in css, f"Twitch's own purple {twitch} is back in the palette"
-    # The old class name described the opposite behaviour and is fully gone.
     assert ".hollow" not in css and 'class="hollow"' not in css
-    # ONE accented phrase now, not two: the hero's "Never miss a highlight
-    # again." went with the rest of that block, leaving the closing section's
-    # "You can only watch one." as the page's single accent.
-    assert css.count('class="accent"') == 1
+    assert ".accent{" not in css and css.count('class="accent"') == 0, \
+        "the accent word is back under the hero"
+    # The sheet's own stylesheet (everything from the tape down) never
+    # reaches for the purple tokens: the orange is the only colour there.
+    sheet = css[css.index("/* ══ BELOW THE HERO: THE SPEC SHEET"):css.index("/* ══ Example-clip lightbox")]
+    for tok in ("var(--glow", "var(--flare)", "var(--plum)", "var(--iris)", "rgba(184,106,220", "rgba(210,106,251"):
+        assert tok not in sheet, f"the sheet borrows the purple: {tok}"
 
 
 def test_landing_has_inline_clip_lightbox():
@@ -373,13 +361,20 @@ def test_lobster_is_titles_only_and_never_uppercased():
             assert float(ls.group(1)) >= -0.01, \
                 f"{sel} tracks Lobster in at {ls.group(1)}em and collides the joins"
 
-    # Every big title wears it. Named individually so a heading silently
-    # dropping back to the body face is a failure rather than a shrug.
+    # SCOPE NARROWED AGAIN by the redesign brief for everything under the
+    # hero: two type voices only, the mono for numbers and labels and the sans
+    # for sentences. Slide 2 was kept intact, so its title (.side-h) is the one
+    # place on this page the script face still renders; the section labels
+    # and the closing line are the sans and the mono. The tutorial and
+    # comparison pages keep their Lobster titles — test_compare.py holds that.
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    assert {"h2.sec-title", ".side-h", ".final h2"} <= users, (
-        f"a big title stopped being the script face: {sorted(users)}")
+    assert users == {".side-h"}, (
+        f"the script face is used somewhere under the hero: {sorted(users)}")
+    for sel in ("h2.sec-title{", ".end-line{", ".say{"):
+        block = css[css.index(sel):css.index("}", css.index(sel))]
+        assert "Lobster" not in block, f"{sel[:-1]} is the script face again"
     assert "--display:'Lobster'" in css
     # .ptier-fig replaced .price-amt .num: that selector belonged to a dead
     # second pricing stylesheet (the rendered page uses .ptier classes), so the
@@ -387,7 +382,8 @@ def test_lobster_is_titles_only_and_never_uppercased():
     # that styled nothing.
     # .cover-word replaced .nav-logo span when the nav was removed — it is the
     # same wordmark, carried by the cover now.
-    for sel in (".cover-word", ".stat .n", ".ptier-fig", ".tile-score"):
+    # .plans .price .n replaced .ptier-fig when pricing became a table.
+    for sel in (".cover-word", ".stat .n", ".plans .price .n", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
