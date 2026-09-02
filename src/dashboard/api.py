@@ -8495,7 +8495,13 @@ _CATCH_LINES = {
     "EMOTE_HOMOGENEITY": "The wall of one emote.",
 }
 
-_RE_PREVIEW = re.compile(r"-preview-\d+x\d+\.")
+# The size suffix Twitch puts on a clip thumbnail, in BOTH of its layouts:
+# the old `…-preview-480x272.jpg` and the newer
+# `…/landscape/thumb/thumb-0000000000-480x272.jpg`. Only the trailing
+# WIDTHxHEIGHT before the extension is swapped; nothing else in the path is
+# touched. Probed on prod 2026-09-02: the newer layout serves 1920x1080,
+# 1280x720, 1080x608, 960x540 and 640x360 for the same clip.
+_RE_PREVIEW = re.compile(r"-\d+x\d+(?=\.[A-Za-z]+$)")
 
 
 def _signal_titles() -> dict[str, str]:
@@ -8532,15 +8538,15 @@ def _top_signal(clip: dict) -> str:
 # thumbnail under a size suffix, and the sizes it keeps vary by clip and by
 # age; none of the large ones is guaranteed. So every frame carries the whole
 # ladder and steps down ONE rung per miss (onerror), ending on the stored URL,
-# which is the one size known to exist. A URL without the suffix (the newer
-# /thumb/ layout) has no ladder and is used as stored.
+# which is the one size known to exist. A URL with no size suffix at all has
+# no ladder and is used as stored.
 _PREVIEW_SIZES = ("1920x1080", "1280x720")
 
 
 def _hi(url: str) -> str:
     """The sharpest preview to try first: 1920x1080 when the URL carries a
     size suffix, the URL itself otherwise."""
-    return _RE_PREVIEW.sub("-preview-" + _PREVIEW_SIZES[0] + ".", url or "")
+    return _RE_PREVIEW.sub("-" + _PREVIEW_SIZES[0], url or "")
 
 
 def _preview_ladder(url: str) -> list[str]:
@@ -8549,7 +8555,7 @@ def _preview_ladder(url: str) -> list[str]:
         return []
     if not _RE_PREVIEW.search(url):
         return [url]
-    out = [_RE_PREVIEW.sub("-preview-" + size + ".", url) for size in _PREVIEW_SIZES]
+    out = [_RE_PREVIEW.sub("-" + size, url) for size in _PREVIEW_SIZES]
     if url not in out:
         out.append(url)
     return out

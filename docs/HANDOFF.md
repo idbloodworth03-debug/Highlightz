@@ -484,9 +484,13 @@ normal Clip Review screen, which still shows scores.
     `_frame_tag` puts the rest in `data-next`; the inline `onerror` steps
     down one rung per miss and stops (no loop). Twitch keeps different sizes
     for different clips and the big ones are not guaranteed, which is why
-    it is a ladder and not a swap. A URL in the newer `/thumb/` layout has
-    no size suffix and is used as stored. Verify a size exists on prod with
-    `curl -sI <url> | head -1` rather than assuming.
+    it is a ladder and not a swap. **Prod's clips are in Twitch's newer
+    layout** (`static-cdn.jtvnw.net/twitch-video-assets/…/landscape/thumb/
+    thumb-0000000000-480x272.jpg`); probed 2026-09-02, it serves 1920x1080,
+    1280x720, 1080x608, 960x540 and 640x360 for the same clip, so
+    `_RE_PREVIEW` swaps the trailing `-WxH` in either layout. A URL with no
+    size suffix is used as stored. Verify with a real URL from
+    `_load_showcase()` on prod rather than assuming.
   - **The clip player is the whole screen and goes full screen on click**
     (owner: "all of them played in 1080p"). Twitch's clip embed picks its
     rendition from the player's size when it boots and has no quality

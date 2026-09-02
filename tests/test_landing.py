@@ -459,9 +459,18 @@ def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():
     # A stored URL that is already a ladder size is not repeated.
     assert api._preview_ladder("https://x/AT-preview-1280x720.jpg") == [
         "https://x/AT-preview-1920x1080.jpg", "https://x/AT-preview-1280x720.jpg"]
-    # The newer layout has no suffix to swap: used as stored, no fishing.
-    new = "https://static-cdn.jtvnw.net/twitch-video-assets/a/landscape/thumb/thumb-1.jpg"
-    assert api._preview_ladder(new) == [new]
+    # The newer layout, which is what production has: the same size suffix on
+    # a different path. Probed on prod 2026-09-02 — 1920x1080 and 1280x720
+    # both serve — so it climbs the same ladder.
+    new = ("https://static-cdn.jtvnw.net/twitch-video-assets/x/"
+           "landscape/thumb/thumb-0000000000-480x272.jpg")
+    assert api._preview_ladder(new) == [
+        new.replace("-480x272", "-1920x1080"), new.replace("-480x272", "-1280x720"), new]
+    # Nothing else in the path is touched, whatever digits it contains.
+    assert api._preview_ladder(new)[0].count("thumb-0000000000-") == 1
+    # A URL with no size suffix at all is used as stored: no fishing.
+    bare = "https://static-cdn.jtvnw.net/twitch-video-assets/a/landscape/thumb/thumb-1.jpg"
+    assert api._preview_ladder(bare) == [bare]
     assert api._preview_ladder("") == []
 
 
