@@ -243,7 +243,7 @@ def _plan_limit(plan, key, value):
 def test_the_pricing_columns_state_the_weekly_allowance():
     from src.dashboard.api import _pricing
     html = _pricing()
-    assert f"{FREE_CAP} kept a week" in html
+    assert f"<span>Clips kept per week</span><b>{FREE_CAP}</b>" in html
     assert (f"<span>Clips kept per week</span><b>{PLAN_LIMITS['starter']['max_library_week']}</b>"
             in html)
     # The sentinel is a real number in JSON and would print in full.
@@ -257,7 +257,8 @@ def test_the_pricing_columns_derive_the_number():
     """`str(30) in html` passes whether the 30 was read or typed."""
     from src.dashboard.api import _pricing
     with _plan_limit("free", "max_library_week", 4242):
-        assert "4242 kept a week" in _pricing(), "the pricing lead types the weekly allowance"
+        assert "<span>Clips kept per week</span><b>4242</b>" in _pricing(), \
+            "the free column types the weekly allowance"
     with _plan_limit("starter", "max_library_week", 5151):
         assert "<span>Clips kept per week</span><b>5151</b>" in _pricing()
 
@@ -270,7 +271,7 @@ def test_the_pricing_columns_show_the_weekly_cap_as_a_row():
     from src.dashboard.api import _pricing
     html = _pricing()
     assert "answer one question" not in html
-    assert html.count("<span>Clips kept per week</span>") == 2
+    assert html.count("<span>Clips kept per week</span>") == 3
 
 
 @pytest.mark.parametrize("surface", ["terms", "tutorial"])

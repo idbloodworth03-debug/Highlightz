@@ -131,15 +131,13 @@ def test_the_offer_is_not_set_in_the_faintest_ink_on_the_page():
         f"the offer is set at {size.group(1) if size else '?'}px"
 
 
+
 def test_the_queue_numbers_quoted_match_the_plans():
-    """Free's queue is in the pricing lead; Starter's and Pro's are rows of
-    their columns. All three read PLAN_LIMITS."""
+    """All three columns read PLAN_LIMITS."""
     from src.dashboard.api import LANDING_HTML
-    assert f"{PLAN_LIMITS['free']['max_pending']} clips held for review" in LANDING_HTML
-    assert (f"<span>Clips held for review</span><b>{PLAN_LIMITS['starter']['max_pending']}</b>"
-            in LANDING_HTML)
-    assert (f"<span>Clips held for review</span><b>{PLAN_LIMITS['pro']['max_pending']}</b>"
-            in LANDING_HTML)
+    for key in ("free", "starter", "pro"):
+        assert (f"<span>Clips held for review</span><b>{PLAN_LIMITS[key]['max_pending']}</b>"
+                in LANDING_HTML), f"the {key} column's queue size is not the plan's"
 
 
 def test_the_pricing_block_quotes_the_free_plan_from_the_code():
@@ -299,21 +297,30 @@ def _plan_fact(html: str, plan: str, label: str) -> str:
     return m.group(1)
 
 
-def test_free_is_stated_above_the_paid_columns():
+
+def test_free_is_the_first_column_and_says_why_it_is_zero():
     """A visitor scanning for "what does this cost to try" meets Free FIRST,
-    with its real limits, before either priced column."""
+    as a column like the other two (owner's call: displayed, not described),
+    with its real limits, and a price that answers "$0 and then what?"."""
     from src.dashboard.api import _pricing
     html = _pricing()
     lead = html[:html.index('<div class="plans">')]
+    assert "no card" in lead.lower() and "no time limit" in lead.lower()
     free = PLAN_LIMITS["free"]
-    assert "Start free" in lead and "no card" in lead.lower()
-    assert str(free["max_pending"]) in lead and str(free["max_library_week"]) in lead
+    assert _plan_fact(html, "Free", "Clips held for review") == str(free["max_pending"])
+    assert _plan_fact(html, "Free", "Clips kept per week") == str(free["max_library_week"])
+    assert _plan_fact(html, "Free", "Highlight clips") == str(free["max_suggested"])
+    col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Starter</h3>')]
+    assert "$0" in col and "no card" in col.lower(), "the free price does not say a card is not needed"
+    assert "Start free" in col
 
 
-def test_the_paid_columns_are_starter_then_pro():
+
+def test_the_columns_are_free_then_starter_then_pro():
+    """The first rung of the ladder first: one channel, then three, then ten."""
     from src.dashboard.api import _pricing
     names = re.findall(r'<h3 class="plan-name">([^<]+)</h3>', _pricing())
-    assert names == ["Starter", "Pro"], names
+    assert names == ["Free", "Starter", "Pro"], names
 
 
 def test_each_column_quotes_its_real_limits():
@@ -327,29 +334,34 @@ def test_each_column_quotes_its_real_limits():
         assert f"${lim['price']}" in html
 
 
+
 def test_the_pricing_columns_derive_their_numbers():
     """`str(50) in html` passes whether the 50 was read or typed."""
     from src.dashboard.api import _pricing
     with _plan_limit("starter", "max_pending", 4242):
         assert _plan_fact(_pricing(), "Starter", "Clips held for review") == "4242"
     with _plan_limit("free", "max_pending", 3737):
-        assert "3737 clips held for review" in _pricing()
+        assert _plan_fact(_pricing(), "Free", "Clips held for review") == "3737"
 
 
-def test_the_paid_columns_no_longer_say_start_free():
-    """With a real free tier stated above them, a "Start free" button on a
-    paid column would read as if Starter and Pro were themselves free."""
+
+def test_only_the_free_column_says_start_free():
+    """With a real free column beside them, a "Start free" button on a paid
+    column would read as if Starter and Pro were themselves free."""
     from src.dashboard.api import _pricing
     html = _pricing()
-    cols = html[html.index('<div class="plans">'):]
-    assert "Start free" not in cols
-    assert "Get Starter" in cols and "Get Pro" in cols
+    free_col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Starter</h3>')]
+    paid = html[html.index('<h3 class="plan-name">Starter</h3>'):]
+    assert "Start free" in free_col
+    assert "Start free" not in paid
+    assert "Get Starter" in paid and "Get Pro" in paid
+
 
 
 def test_one_channel_is_not_described_in_the_plural():
     from src.dashboard.api import _pricing, LANDING_HTML
     assert "1 channels" not in _pricing() and "1 channels" not in LANDING_HTML
-    assert "1 channel," in _pricing()
+    assert _plan_fact(_pricing(), "Free", "Channels at once") == "1 channel"
 
 
 def test_the_columns_stack_on_a_phone():

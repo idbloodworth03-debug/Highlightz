@@ -6886,7 +6886,7 @@ LANDING_HTML = """<!DOCTYPE html>
     color:var(--paper-ink-2);max-width:var(--measure)}
   .price-lead b{color:var(--paper-ink);font-weight:700}
   .price-lead a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
-  .plans{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(24px,4vw,64px);
+  .plans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(24px,3vw,48px);
     margin-top:var(--s-8);align-items:start}
   .plan{display:flex;flex-direction:column;min-width:0;border-top:2px solid var(--paper-ink);
     padding-top:var(--s-5)}
@@ -6905,6 +6905,9 @@ LANDING_HTML = """<!DOCTYPE html>
     font-variant-numeric:tabular-nums;white-space:nowrap}
   .plan .btn{margin-top:var(--s-6);align-self:flex-start}
   .price-tiny{margin:var(--s-6) 0 0;font-size:13px;color:var(--paper-ink-3);max-width:var(--measure)}
+  @media(max-width:900px){
+    .plan-price{font-size:clamp(40px,7vw,56px)}
+  }
   @media(max-width:700px){
     .plans{grid-template-columns:minmax(0,1fr);gap:var(--s-7)}
   }
@@ -8706,7 +8709,7 @@ def _pricing() -> str:
     def chans(n: int) -> str:
         return str(n) + (" channel" if n == 1 else " channels")
 
-    def plan(limits: dict, cta: str) -> str:
+    def plan(limits: dict, cta: str, suffix: str = "per month") -> str:
         facts = [
             ("Channels at once", chans(limits["max_streams"])),
             ("Clips held for review", str(limits["max_pending"])),
@@ -8716,18 +8719,21 @@ def _pricing() -> str:
             ("Clip Editor and uploads", "Yes" if limits.get("uploads") else "No"),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
-                + '<p class="plan-price">$' + str(limits["price"]) + "<i>per month</i></p>"
+                + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
                 + '<ul class="plan-facts">'
                 + "".join("<li><span>" + k + "</span><b>" + v + "</b></li>" for k, v in facts)
                 + "</ul>"
                 + '<a href="/login" class="btn btn-dark btn-lg">' + cta + "</a></div>")
 
+    # THREE COLUMNS, Free first (owner's call: the free tier is displayed, not
+    # described). Same construction for all three; the plans differ on the
+    # rows and nowhere else, and Free's price says why it is zero.
     return (
-        '<p class="price-lead"><b>Start free and stay free.</b> ' + chans(free["max_streams"]).capitalize()
-        + ", " + str(free["max_pending"]) + " clips held for review, " + str(free["max_library_week"])
-        + " kept a week. There is no card to enter and no time limit on it. "
-        '<a href="/login">Start free</a>. When you want more:</p>'
-        '<div class="plans">' + plan(st, "Get Starter") + plan(pro, "Get Pro") + "</div>"
+        '<p class="price-lead"><b>Start free and stay free.</b> There is no card to '
+        "enter and no time limit on it. Upgrade when you want. The plans differ on "
+        "the rows below and nowhere else.</p>"
+        '<div class="plans">' + plan(free, "Start free", "no card") + plan(st, "Get Starter")
+        + plan(pro, "Get Pro") + "</div>"
         '<p class="price-tiny">Move between them whenever you like. Cancel from the Account tab. '
         "No contracts. Streamers can opt out at any time, and it applies everywhere at once.</p>")
 
