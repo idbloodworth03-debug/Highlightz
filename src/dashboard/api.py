@@ -6971,6 +6971,43 @@ LANDING_HTML = """<!DOCTYPE html>
     .plans{grid-template-columns:minmax(0,1fr);gap:var(--s-7)}
   }
 
+  /* ══ 7b. FAQ. Paper, after the plans, cut from them by one hairline. The
+     heading sits in a narrow left column and stays put while the questions
+     scroll; each question is a native <details>, so it works with no script,
+     and the only thing that moves is the sign turning. ══ */
+  .faq{padding-top:0;padding-bottom:var(--s-9)}
+  .faq-grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr);
+    column-gap:clamp(32px,5vw,96px);border-top:1px solid var(--paper-hair);
+    padding-top:var(--s-8);align-items:start}
+  .faq-lead{position:sticky;top:calc(var(--nav-h) + var(--s-6))}
+  .faq-lead .l-sub a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  .faq-lead .l-sub a:hover{border-bottom-color:var(--paper-ink)}
+  .faq-h{margin:0 0 var(--s-3);font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--paper-ink-3)}
+  .faq-group + .faq-group{margin-top:var(--s-8)}
+  .faq-item{border-top:1px solid var(--paper-hair)}
+  .faq-group .faq-item:last-child{border-bottom:1px solid var(--paper-hair)}
+  .faq-q{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s-5);
+    padding:var(--s-4) 0;cursor:pointer;list-style:none;
+    font-family:var(--sans);font-weight:700;font-size:clamp(17px,1.4vw,20px);
+    letter-spacing:-.015em;line-height:1.3;color:var(--paper-ink)}
+  .faq-q::-webkit-details-marker{display:none}
+  .faq-q::after{content:'+';flex:none;font-family:var(--mono);font-weight:400;font-size:22px;
+    line-height:1;color:var(--paper-ink-3);transition:transform var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease)}
+  .faq-item[open] .faq-q::after{transform:rotate(45deg);color:var(--paper-ink)}
+  .faq-q:hover::after{color:var(--paper-ink)}
+  .faq-q:focus-visible{outline:2px solid var(--ember);outline-offset:4px}
+  .faq-a{margin:0;padding:0 var(--s-8) var(--s-5) 0;font-size:16px;line-height:1.55;
+    color:var(--paper-ink-2);max-width:var(--measure)}
+  .faq-a b{color:var(--paper-ink);font-weight:700}
+  .faq-a a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  @media(max-width:900px){
+    .faq-grid{grid-template-columns:minmax(0,1fr);row-gap:var(--s-6)}
+    .faq-lead{position:static}
+    .faq-a{padding-right:0}
+  }
+
   /* ══ 8. END. The closing frame, darker and quieter, and the footer. ══ */
   .end{position:relative;min-height:80svh;background:#000;overflow:hidden;
     display:flex;align-items:center;padding:var(--s-9) 0;color:var(--white)}
@@ -7063,6 +7100,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#score" class="nav-link">How it scores</a>
     <a href="#watch" class="nav-link">Channels</a>
     <a href="#pricing" class="nav-link">Pricing</a>
+    <a href="#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
   </div>
@@ -7258,6 +7296,23 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <h2 class="disp l-h" id="pricing-h">Pricing</h2>
     <!--PRICING-->
+  </div>
+</section>
+
+<!-- ══ 7b. FAQ ════════════════════════════════════════════════════════════════
+     Paper, under the plans, a hairline between them. Owner's call: everything
+     important, in questions, and Highlight clips explained because nobody
+     arriving knows what they are. Built by _faq() so every number is read
+     from PLAN_LIMITS, and _faq_schema derives the FAQPage from this markup. -->
+<section class="light faq" id="faq" aria-labelledby="faq-h">
+  <div class="wrap faq-grid">
+    <div class="faq-lead">
+      <h2 class="disp l-h" id="faq-h">Questions</h2>
+      <p class="l-sub">The short answers. The <a href="/tutorial">walkthrough</a> has the long ones, screen by screen.</p>
+    </div>
+    <div class="faq-cols">
+      <!--FAQ-->
+    </div>
   </div>
 </section>
 
@@ -8854,7 +8909,128 @@ def _tos_plans() -> str:
         "Clips already in your library are never removed because of it.</p>")
 
 
+def _faq() -> str:
+    """The FAQ, with every number read from PLAN_LIMITS so the answers cannot
+    drift from the plans. Highlight clips get their own group: they are the
+    one thing on the page a visitor has no way of knowing about, and the
+    pricing column names them without saying what they are."""
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+
+    def week(limits: dict) -> str:
+        w = limits.get("max_library_week", 0)
+        return "unlimited" if w >= UNLIMITED_PENDING else str(w)
+
+    def item(q: str, a: str) -> str:
+        return ('      <details class="faq-item">\n'
+                '        <summary class="faq-q">' + q + '</summary>\n'
+                '        <p class="faq-a">' + a + '</p>\n'
+                '      </details>\n')
+
+    def group(title: str, items: list[tuple[str, str]]) -> str:
+        return ('    <div class="faq-group">\n'
+                '      <h3 class="faq-h">' + title + '</h3>\n'
+                + "".join(item(q, a) for q, a in items)
+                + '    </div>\n')
+
+    using = [
+        ("What does Highlightz actually do?",
+         "It watches a live Twitch channel for you. Every second it blends seven live signals "
+         "&mdash; chat speed, keywords, emotes, sentiment, audio, viewer movement and silence "
+         "&mdash; into one score and checks it against that channel's own threshold. When the "
+         "score crosses, it asks Twitch to make a real Twitch clip of that moment through the "
+         "official Clips API, and the clip lands in your review queue. Nothing is recorded, "
+         "downloaded or re-hosted."),
+        ("Can I clip channels I don't own?",
+         "Yes. That is what most people use it for. Add any live Twitch channel and the clip is "
+         "created with your authorized account, exactly as if you had pressed Twitch's own Clip "
+         "button while watching. Twitch hosts it and it is attributed to you, same as a manual clip."),
+        ("Do I have to leave anything running?",
+         "No. The watching happens on our servers, not in your browser. Add a channel, close the "
+         "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
+         "until it is. Monitoring stops after 8 hours without you opening the dashboard, so a "
+         "forgotten tab does not run forever."),
+        ("How many channels can it watch at once?",
+         f"<b>{free['max_streams']}</b> on Free, <b>{st['max_streams']}</b> on Starter, "
+         f"<b>{pro['max_streams']}</b> on Pro. At the same time, not in rotation, and each one "
+         "carries its own profile so a busy channel and a quiet one do not interfere with each other."),
+        ("Does it work for small channels?",
+         "Yes, and this is the whole point of scoring each channel against itself. A five-viewer "
+         "chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns "
+         "what is normal for each channel and reacts to relative spikes rather than raw numbers."),
+        ("Is this AI?",
+         "No. It runs on a transparent mathematical formula you can read. Watch the score move in "
+         "real time on the Live Streams screen, then open any clip to see which signals fired and "
+         "how strongly."),
+        ("What if I don't like the clips it takes?",
+         "Every clip lands in your review queue first. Approve the keepers, reject the misses. The "
+         "formula learns from each decision: rejections raise that channel's bar, approvals lower "
+         "it, so it steadily tunes toward your taste. There is also a preset per channel (FPS, MOBA, "
+         "Just Chatting, IRL, Chess and more) that decides where it starts, and a sensitivity dial "
+         "for a stream running hotter or quieter than usual."),
+        ("What happens when my review queue fills up?",
+         f"<b>{free['max_pending']}</b> clips can sit waiting on Free, <b>{st['max_pending']}</b> on "
+         f"Starter, <b>{pro['max_pending']}</b> on Pro. When the queue is full the newest arrival is "
+         "dropped, and nothing you have already caught is ever deleted to make room for it. The "
+         "dashboard tells you how many moments were missed that way, so a full queue is something "
+         "you find out about rather than something that happens silently."),
+    ]
+    highlights = [
+        ("What are Highlight clips?",
+         "Clips that came from the audience, not from the formula. While a channel is being watched, Highlightz also "
+         "watches the clips viewers create on Twitch. When several viewers clip the same moment, or "
+         "one of those clips starts pulling views, that is the audience telling you something the "
+         "score may have missed. After a short settling period the strongest clip of that moment is "
+         "placed in your review queue marked <b>Highlight</b>, in purple. It is already a real "
+         "Twitch clip, hosted by Twitch, so there is nothing to wait for."),
+        ("How are Highlight clips different from the clips the formula makes?",
+         "The formula's clips are made by Highlightz when the score crosses the line. A Highlight "
+         "clip was framed by a viewer, so it carries no trigger score and its card explains why it "
+         "is there instead. Rejecting one does not move the channel's threshold, because the "
+         "formula never claimed it. And they can never take more than half of the review queue, so "
+         "a Highlight clip is never the reason a clip the formula caught did not land."),
+        ("How many Highlight clips do I get?",
+         f"They have their own budget on top of the review queue: <b>{free['max_suggested']}</b> on "
+         f"Free, <b>{st['max_suggested']}</b> on Starter, <b>{pro['max_suggested']}</b> on Pro, and "
+         "at most six an hour per channel so a big stream cannot flood you. Approve one and it is "
+         "kept like any other clip; the Clip Library files them under their own Highlights row."),
+    ]
+    fine = [
+        ("What does “clips kept per week” mean?",
+         f"How many clips you can approve into your library in a week: <b>{week(free)}</b> on Free, "
+         f"<b>{week(st)}</b> on Starter, <b>{week(pro)}</b> on Pro. Reaching the number pauses new "
+         "approvals until the week rolls over. Nothing already in your library is ever removed "
+         "because of it."),
+        ("What are the VOD Scanner and the Clip Editor?",
+         "Both are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
+         "so a back catalogue nobody was watching live is still worth mining, and every hit links to "
+         "its own timestamp in the VOD. The Clip Editor lets you bring clips in and cut them for "
+         "vertical, ready to post."),
+        ("Is this allowed on Twitch?",
+         "Yes. Clips are created through Twitch's official Clips API with your authorized account, "
+         "the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or "
+         "scrapes a page, and there is no second copy of anyone's video anywhere."),
+        ("What if a streamer does not want to be clipped?",
+         "They can opt out at any time on our <a href=\"/opt-out\">opt-out page</a>, and it takes "
+         "effect immediately across every account, with nothing to email and nobody to wait on. A "
+         "channel that has opted out cannot be added by anyone."),
+        ("Do you record or store my stream?",
+         "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the "
+         "official API. Twitch hosts it and it is attributed to your account. We keep the clip's "
+         "title, score and link, and nothing else."),
+        ("How does billing work?",
+         f"Free is free: it asks for no card and it never expires. Starter is <b>${st['price']}</b> a month and Pro is "
+         f"<b>${pro['price']}</b> a month. Move between them whenever you like and cancel from the "
+         "Account tab. Cancelling puts you back on Free, and every clip you approved stays in your "
+         "library."),
+    ]
+    return (group("Using it", using)
+            + group("Highlight clips", highlights)
+            + group("Plans and the fine print", fine))
+
+
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
+LANDING_HTML = LANDING_HTML.replace("<!--FAQ-->", _faq(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--RAIL-->", _rail_html(), 1)
 
 # LAST, and that is the whole point. _faq_schema derives the FAQPage from the

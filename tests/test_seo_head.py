@@ -315,12 +315,21 @@ def test_every_public_page_still_carries_its_schema():
 def test_no_faq_page_is_published_without_questions():
     """A PRE-EXISTING BUG, once: the FAQPage was built while one answer was
     still a placeholder and the page published a question with the empty
-    string as its answer. The FAQ has since left the landing page (v4), and
-    the rule that survives is the same one: never publish a FAQPage that is
-    not backed by visible questions. With none on the page, none ships."""
-    import re as _re
+    string as its answer. The rule: never publish a FAQPage that is not
+    backed by visible questions, and never one with an empty answer. The FAQ
+    is back on the landing page (owner's ask, after v4), so the published
+    FAQPage must carry every visible question and every answer must be
+    real prose."""
+    import json as _json, re as _re
     from src.dashboard.api import LANDING_HTML, _faq_schema
     blobs = _re.findall(r'<script type="application/ld\+json">(.*?)</script>',
                         LANDING_HTML, _re.S)
-    assert not [b for b in blobs if '"FAQPage"' in b], "an empty FAQPage is published"
+    faq = [_json.loads(b) for b in blobs if '"FAQPage"' in b]
+    assert len(faq) == 1, "exactly one FAQPage ships with the FAQ"
+    items = faq[0]["mainEntity"]
+    visible = LANDING_HTML.count('class="faq-q"')
+    assert visible >= 12 and len(items) == visible, (len(items), visible)
+    for it in items:
+        assert it["name"].strip() and len(it["acceptedAnswer"]["text"]) > 40, it
+        assert "<" not in it["acceptedAnswer"]["text"], "markup leaked into the schema"
     assert _faq_schema("<p>no questions here</p>") == ""

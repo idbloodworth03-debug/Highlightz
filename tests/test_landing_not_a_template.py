@@ -108,16 +108,18 @@ def test_pricing_is_not_three_cards_with_tick_lists():
 # ── craft rules ──────────────────────────────────────────────────────────────
 
 
-def test_the_tonal_rhythm_is_dark_dark_light_light_dark_light_dark():
+def test_the_tonal_rhythm_is_dark_dark_light_light_dark_light_light_dark():
     """The v4 brief made the rhythm mandatory and the cuts hard: proof and
     numbers on black, catches and score on paper, watch on black, pricing on
-    paper, the close on black. A section on the wrong ground breaks the
-    sequence the whole page is built on."""
+    paper, the close on black. The FAQ (owner's ask, after v4) sits on the
+    paper with the plans, cut from them by a hairline rather than a ground
+    change, so the close still lands on black. A section on the wrong ground
+    breaks the sequence the whole page is built on."""
     secs = re.findall(r'<section class="([^"]*)" id="([^"]+)"', HTML)
     ids = [i for _, i in secs]
-    assert ids == ["proof", "numbers", "catches", "score", "watch", "pricing", "start"], ids
+    assert ids == ["proof", "numbers", "catches", "score", "watch", "pricing", "faq", "start"], ids
     light = ["light" in c.split() for c, _ in secs]
-    assert light == [False, False, True, True, False, True, False], light
+    assert light == [False, False, True, True, False, True, True, False], light
     # And the light ground is the one token, painted flat.
     assert re.search(r"\.light\{background:var\(--paper\)", CSS)
 

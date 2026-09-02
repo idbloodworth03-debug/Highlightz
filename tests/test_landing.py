@@ -211,9 +211,9 @@ def test_seo_layer():
         # cross-reference dangling.
         for node in data.get("@graph", [data]):
             types.add(node.get("@type"))
-    # No FAQPage: the FAQ left the landing page with the v4 rebuild, and an
-    # empty FAQPage is worse than none, so none is published.
-    assert types == {"SoftwareApplication", "Organization", "WebSite"}
+    # The FAQPage is back with the FAQ (owner's ask, after v4); it is derived
+    # from the visible questions, never hand-written.
+    assert types == {"SoftwareApplication", "Organization", "WebSite", "FAQPage"}
     # Crawler surface
     assert "/robots.txt" in api._OPEN_PATHS and "/sitemap.xml" in api._OPEN_PATHS
 
@@ -625,6 +625,42 @@ def test_the_shelf_is_a_carousel_that_wraps_without_a_seam():
     assert "copy.setAttribute('aria-hidden','true')" in js
     assert "el.setAttribute('tabindex','-1')" in js
     assert "if(first&&live>1){" in js, "a single card must not loop alone"
+
+
+def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans():
+    """Owner: "I need a FAQ tab also and I want it to mention everything
+    important also talk about Highlight clips and what they are because
+    people wont know about those." The FAQ is a section with a nav link,
+    on the paper after the plans and before the close; Highlight clips get
+    their own group that says what they are (the audience's own clips,
+    surfaced), how they differ (no trigger score, rejecting one does not
+    move the threshold, never more than half the queue) and how many each
+    plan gets — every number read from PLAN_LIMITS, never typed."""
+    from src.billing.plans import PLAN_LIMITS
+    html = api.LANDING_HTML
+    assert '<a href="#faq" class="nav-link">FAQ</a>' in html, "no FAQ tab in the nav"
+    assert html.index('id="pricing"') < html.index('id="faq"') < html.index('id="start"')
+    faq = html[html.index('<section class="light faq" id="faq"'):html.index('id="start"')]
+    assert '<h3 class="faq-h">Highlight clips</h3>' in faq
+    assert 'class="faq-q">What are Highlight clips?</summary>' in faq
+    hi = faq[faq.index("What are Highlight clips?"):faq.index("Plans and the fine print")]
+    for phrase in ("marked <b>Highlight</b>", "no trigger score",
+                   "does not move the channel's threshold", "more than half of the review queue"):
+        assert phrase in hi, f"the Highlight clips answers lost: {phrase!r}"
+    f, s, p = (PLAN_LIMITS[k]["max_suggested"] for k in ("free", "starter", "pro"))
+    assert f"<b>{f}</b> on Free, <b>{s}</b> on Starter, <b>{p}</b> on Pro" in hi
+    # The rest of the important facts, each one a question a visitor asks.
+    for q in ("Can I clip channels I don't own?", "Do I have to leave anything running?",
+              "How many channels can it watch at once?", "Is this AI?",
+              "What happens when my review queue fills up?", "Is this allowed on Twitch?",
+              "What if a streamer does not want to be clipped?", "Do you record or store my stream?",
+              "How does billing work?", "What are the VOD Scanner and the Clip Editor?"):
+        assert f'class="faq-q">{q}</summary>' in faq, f"missing: {q}"
+    ch = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
+    assert "<b>%d</b> on Free, <b>%d</b> on Starter, <b>%d</b> on Pro" % tuple(ch) in faq
+    assert "every 30 seconds" in faq and "8 hours" in faq
+    # Native disclosure, no script: the answers open without JavaScript.
+    assert faq.count("<details class=\"faq-item\">") == faq.count('class="faq-q"') >= 12
 
 
 def _media_block(css: str, query: str, inside: str) -> str:

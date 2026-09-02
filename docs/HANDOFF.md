@@ -555,6 +555,19 @@ normal Clip Review screen, which still shows scores.
     being the logo; the test pins ≤24px. The floor glow (`.cover::after`)
     still paints over it. `test_the_cover_mark_is_the_room_s_light_not_an_object_in_it`
     replaced `test_the_cover_mark_is_painted_flat`.
+  - **The FAQ is back, as `#faq`** (owner: "I need a FAQ tab also … talk about
+    Highlight clips and what they are because people wont know about
+    those"). A nav tab after Pricing; a paper section between the plans and
+    the close (tonal rhythm is now D D L L D L L D — the FAQ shares the
+    paper with pricing, cut by a hairline). `_faq()` builds three groups
+    (Using it / Highlight clips / Plans and the fine print, 17 questions) as
+    native `<details>`, every number from PLAN_LIMITS; `_faq_schema` derives
+    the FAQPage from that markup again, so the landing publishes FAQPage
+    once more (`test_seo_layer`, `test_no_faq_page_is_published_without_questions`
+    repointed). Copy rules that bit: `test_the_no_x_construction_appears_at_most_once`
+    (no "no X, no Y" sentences — only the score section's "no black box"
+    survives) and the clipper-credit ban ("viewers made" is a banned phrase).
+    Kick stays out of the FAQ on purpose (scrubbed from marketing).
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and
