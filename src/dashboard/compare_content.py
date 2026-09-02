@@ -170,7 +170,9 @@ THE_MATH = {
         "Opus prices the other axis: Pro is 300 credits a month and one credit "
         "is one minute of source video. That is five hours — one long stream, "
         "and the month is spent. Someone going live four nights a week produces "
-        "closer to sixty. Nothing here is metered by the minute.\n\n"
+        "closer to sixty. When the credits run out you buy the plan again, and "
+        "what you did not use does not roll over. Nothing here is metered by "
+        "the minute.\n\n"
         "And the subscription is the price. Eklipse asks monthly and "
         "semi-annual subscribers for a separate VIP Pass per game to auto-clip "
         "premium titles, charges $18.99 an edit for human touch-ups, and costs "
@@ -242,6 +244,80 @@ FEATURES = (
      "is where a watermark can live and does."),
 )
 
+# ── after the subscription: the credits ──────────────────────────────────────
+# Owner (2026-09-02): "For Opus and Eklipse they also charge for credits as
+# well not just subscription — do research on that and involve that into the
+# compare page." Researched 2 September 2026 from the companies' own help
+# pages (linked below, shown on the page) and three 2026 pricing write-ups
+# that agree with them. The official pricing pages themselves could not be
+# fetched from the dev container, so these are the help-centre figures; the
+# date is shown next to them like every other competitor number here.
+#
+# Our column reads PLAN_LIMITS where a number appears, same rule as the rest.
+CREDITS_CHECKED_ON = "2 September 2026"
+
+
+def _credit_rows() -> tuple[tuple[str, str, str, str], ...]:
+    from src.billing.plans import PLAN_LIMITS
+    f, s, p = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
+    return (
+        ("What is metered",
+         "Nothing. You pay for channels, not minutes.",
+         "Credits. One credit is one minute of the video you upload.",
+         "Minutes of YouTube video (YT Credits). Live clipping has its own "
+         "per-stream and per-day caps on top."),
+        ("What the plan includes",
+         f"Every second of every channel you watch: {f} on Free, {s} on Starter, {p} on Pro.",
+         "60 credits a month on Free, 150 on Starter, 300 on Pro (3,600 a year "
+         "if paid annually).",
+         "30 minutes a month on Free, 600 a month on Premium (7,200 a year on "
+         "the annual plan)."),
+        ("When it runs out",
+         "It does not run out.",
+         "Credits cannot be bought on their own. You buy your plan again for "
+         "another allotment, or add a pack for good: each Pro pack is another "
+         "300 credits and two seats at the plan price. Free cannot buy any.",
+         "You buy another pack: $39.98 a month for 1,200 minutes, or $299.98 a "
+         "year for 14,400. Past that you arrange it with support. Free cannot "
+         "buy any."),
+        ("Unused allowance",
+         "There is nothing to lose.",
+         "Does not roll over. Monthly credits expire after 60 days, annual ones "
+         "after 12 months, and cancelling does not extend them.",
+         "Tied to the month or the year of the pack you bought."),
+        ("Paid extras",
+         "None. Highlight clips, review and the library are inside the plan.",
+         "Seats only come bundled with packs; there is no other meter.",
+         "Human Pro Edits: $18.99 each, three for $49.99, seven for $99.99. A "
+         "VIP Pass per game to auto-clip premium titles unless you pay "
+         "annually. $27.99 a month instead of $24.99 inside the mobile apps."),
+    )
+
+
+CREDITS = {
+    "kicker": "After the subscription",
+    "title": "What you pay when the credits run out",
+    "lead": (
+        "Both competitors sell a subscription and then meter it. The plan buys an "
+        "allowance of minutes; when the allowance is gone the tool stops until the "
+        "next cycle or the next purchase. This is the part of the price that only "
+        "shows up after you have signed up."),
+    "rows": _credit_rows(),
+    "sources": (
+        ("Opus Clip: How do credits work?",
+         "https://help.opus.pro/docs/article/how-are-credits-consumed"),
+        ("Eklipse: How do I purchase extra credit?",
+         "https://eklipse.gg/help/purchase-extra-credit/"),
+        ("Eklipse: What are YT Credits?",
+         "https://eklipse.gg/help/what-are-yt-irl-credits/"),
+        ("Eklipse: How does the pricing for Pro Edits work?",
+         "https://eklipse.gg/help/how-does-the-pricing-for-pro-edits-work/"),
+        ("Eklipse: VIP Pass FAQ",
+         "https://eklipse.gg/help/eklipse-loyalty-pass/"),
+    ),
+}
+
+
 # Stated plainly, in our own voice, because a reader comparing three products
 # already knows this and will trust the rest of the page more for it.
 THEY_DO_BETTER = {
@@ -281,6 +357,14 @@ FAQ = (
      "and Eklipse at $24.99 — so against Eklipse it is a wash on price, and "
      "the question becomes what you get for it: they clip your account, Pro "
      "watches ten channels that do not have to be yours."),
+    ("What happens when the credits run out on Opus Clip or Eklipse?",
+     "The tool stops until the next cycle or the next purchase. On Opus Clip "
+     "credits are not sold on their own: you buy your plan again for another "
+     "allotment, or add a pack of 300 credits and two seats at the plan price, "
+     "and whatever you did not use expires. On Eklipse the next 1,200 minutes "
+     "are $39.98, and the human Pro Edits are priced per edit on top. On "
+     "Highlightz there is no meter: the plan buys channels, and a channel is "
+     "watched for every second it is live."),
     ("Can I use Highlightz alongside them?",
      "Plenty of people should. We catch the moment live and hand you a Twitch "
      "clip; if you then want it reframed and captioned for TikTok, that is "

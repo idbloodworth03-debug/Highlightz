@@ -594,7 +594,23 @@ normal Clip Review screen, which still shows scores.
     from the site entirely; `test_compare` pins the display voice and the
     shared bar/footer instead. `compare_content` now says "Highlight clips"
     (was "crowd suggestions" — a mechanism tell) and derives the closer's
-    free-plan note from PLAN_LIMITS. Content updates in `tutorial_content.py`:
+    free-plan note from PLAN_LIMITS. **The credits section (`#credits`,
+    `CREDITS` in compare_content)** was the owner's next ask ("they also
+    charge for credits"): five rows (what is metered, what the plan
+    includes, when it runs out, unused allowance, paid extras) × three
+    columns, dated `CREDITS_CHECKED_ON` and linked to the companies' own
+    help pages. Researched 2026-09-02 via search — the official pricing
+    pages and help centres are egress-blocked from the dev container, so
+    the figures come from the help-page snippets and three 2026 write-ups
+    that agree; the owner should eyeball the linked pages once from a
+    normal browser. Facts recorded: Opus — 1 credit = 1 minute of upload,
+    60/150/300 a month, no standalone credit purchase (re-buy the plan or
+    add a 300-credit + 2-seat pack), no rollover, monthly credits expire
+    after 60 days / annual after 12 months, free cannot buy; Eklipse — YT
+    Credits in minutes (30 free, 600 on Premium), next pack $39.98/mo for
+    1,200 or $299.98/yr for 14,400, beyond that via support, free cannot
+    buy, Pro Edits $18.99 / 3 for $49.99 / 7 for $99.99, VIP Pass per game
+    unless annual, $27.99 in the mobile apps. Content updates in `tutorial_content.py`:
     Highlight clips say quality + green label only (no mechanism), the two
     "your trial includes it" leftovers are gone, the Account body and the
     stream-limit answer derive their numbers from PLAN_LIMITS, the Kick

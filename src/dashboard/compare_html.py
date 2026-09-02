@@ -97,6 +97,34 @@ _CSS = BASE_CSS + """
   .no{color:var(--paper-ink-3)}
   .part{color:var(--paper-ink-2);font-size:13px}
 
+  /* After the subscription: the credits, three columns of prose on the
+     same hairline rows. Ours first, and it says the same thing on every
+     row, which is the point. */
+  .cmp-credits .lead{margin:var(--s-4) 0 0;font-size:17px;line-height:1.55;color:var(--paper-ink-2);max-width:var(--measure)}
+  .cred{width:100%;border-collapse:collapse;margin-top:var(--s-6);font-size:15px}
+  .cred th,.cred td{padding:var(--s-4) var(--s-4) var(--s-4) 0;border-bottom:1px solid var(--paper-hair);
+    text-align:left;vertical-align:top;line-height:1.5}
+  .cred thead th{font-family:var(--sans);font-weight:800;font-size:18px;letter-spacing:-.02em;
+    color:var(--paper-ink);border-bottom:2px solid var(--paper-ink)}
+  .cred tbody th{font-weight:700;color:var(--paper-ink);width:18%}
+  .cred td{color:var(--paper-ink-2);width:27%}
+  .cred td.us{color:var(--paper-ink);font-weight:500}
+  .cred-src{margin-top:var(--s-5);font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    color:var(--paper-ink-3);line-height:1.6;max-width:var(--measure)}
+  .cred-src a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  @media (max-width:900px){
+    /* Stacked, like the matrix: the row's claim, then each product's
+       answer with the product named above it. */
+    .cred thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+    .cred,.cred tbody,.cred tr,.cred th,.cred td{display:block;width:100%}
+    .cred tr{padding:var(--s-4) 0;border-bottom:1px solid var(--paper-hair)}
+    .cred tbody th{width:100%;padding:0 0 var(--s-2);border:0;font-size:17px}
+    .cred td{width:100%}
+    .cred td{border:0;padding:var(--s-2) 0 0}
+    .cred td::before{content:attr(data-l);display:block;font-family:var(--mono);font-size:12px;
+      letter-spacing:.06em;text-transform:uppercase;color:var(--paper-ink-3);margin-bottom:var(--s-1)}
+  }
+
   /* Where they beat us: honest, so it gets the same hairline rows. */
   .fair .pt{padding:var(--s-4) 0;border-top:1px solid var(--paper-hair);max-width:var(--measure)}
   .fair .pt:first-of-type{margin-top:var(--s-6)}
@@ -186,6 +214,26 @@ def _matrix() -> str:
                     + _cell(ekl, "Eklipse") + "</tr>")
     return ('<div class="mwrap"><table class="matrix">' + head
             + "<tbody>" + "".join(rows) + "</tbody></table></div>")
+
+
+def _credits() -> str:
+    """The credit rules, three columns of prose on hairline rows, with the
+    help-centre sources and the date they were read shown underneath."""
+    head = ('<thead><tr><th>&nbsp;</th><th>Highlightz</th><th>Opus Clip</th>'
+            '<th>Eklipse</th></tr></thead>')
+    rows = []
+    for label, ours, opus, ekl in C.CREDITS["rows"]:
+        rows.append('<tr><th scope="row">' + escape(label) + "</th>"
+                    '<td class="us" data-l="Highlightz">' + escape(ours) + "</td>"
+                    '<td data-l="Opus Clip">' + escape(opus) + "</td>"
+                    '<td data-l="Eklipse">' + escape(ekl) + "</td></tr>")
+    src = ", ".join('<a href="' + escape(u) + '" target="_blank" rel="nofollow noopener">'
+                    + escape(t) + "</a>" for t, u in C.CREDITS["sources"])
+    return ('<table class="cred">' + head + "<tbody>" + "".join(rows) + "</tbody></table>"
+            '<p class="cred-src">Read on ' + escape(C.CREDITS_CHECKED_ON)
+            + " from each company&rsquo;s own help centre: " + src
+            + ". Credit rules change without notice; follow the links before "
+            "deciding anything on the strength of a number here.</p>")
 
 
 def _paras(body: str) -> str:
@@ -340,6 +388,15 @@ def render() -> str:
     <div class="k">""" + escape(C.THE_MATH["kicker"]) + """</div>
     <h2 class="disp">""" + escape(C.THE_MATH["title"]) + """</h2>
     """ + _paras(C.THE_MATH["body"]) + """
+  </div>
+</section>
+
+<section class="cmp-sec cmp-credits" id="credits">
+  <div class="wrap">
+    <div class="k">""" + escape(C.CREDITS["kicker"]) + """</div>
+    <h2 class="disp">""" + escape(C.CREDITS["title"]) + """</h2>
+    <p class="lead">""" + escape(C.CREDITS["lead"]) + """</p>
+    """ + _credits() + """
   </div>
 </section>
 

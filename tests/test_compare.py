@@ -145,6 +145,36 @@ def test_we_do_not_claim_a_feature_our_plans_do_not_have():
         assert PLAN_LIMITS["pro"]["vod"] is True
 
 
+# ── the credits: the price that only shows up after signing up ──────────────
+
+def test_the_credit_rules_are_on_the_page_with_their_sources_and_date(page):
+    """Owner: "they also charge for credits as well not just subscription".
+    The section states what each product meters, what the plan includes,
+    what happens when it runs out, whether unused allowance survives, and
+    the paid extras — and, like every other competitor claim here, every
+    figure is dated and linked to the company's own help page."""
+    from src.billing.plans import PLAN_LIMITS
+    assert 'id="credits"' in page
+    for label, *_ in C.CREDITS["rows"]:
+        assert label in page, f"credit row {label!r} is not on the page"
+    assert C.CREDITS_CHECKED_ON in page, "the credit figures carry no date"
+    for title, url in C.CREDITS["sources"]:
+        assert url.startswith("https://") and ("opus.pro" in url or "eklipse.gg" in url)
+        i = page.index(url)
+        tag = page[page.rindex("<a", 0, i):page.index(">", i)]
+        assert 'rel="nofollow noopener"' in tag and 'target="_blank"' in tag, title
+    # The competitor figures that were researched, verbatim.
+    for fact in ("One credit is one minute", "300 credits and two seats",
+                 "expire after 60 days", "$39.98 a month for 1,200 minutes",
+                 "$18.99 each, three for $49.99, seven for $99.99", "VIP Pass"):
+        assert fact in page, f"the credit section lost: {fact!r}"
+    # And our column says the same thing on every row: nothing is metered.
+    ours = [row[1] for row in C.CREDITS["rows"]]
+    assert ours[0].startswith("Nothing.") and "does not run out" in ours[2]
+    assert str(PLAN_LIMITS["pro"]["max_streams"]) in ours[1], \
+        "our channel count in the credit section is typed, not read"
+
+
 # ── honesty, which is what makes the rest credible ───────────────────────────
 
 def test_the_page_says_where_the_competition_is_better(page):
