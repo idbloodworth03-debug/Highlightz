@@ -191,6 +191,136 @@ def test_the_legal_pages_have_meta_descriptions():
             f"the {name} page has no meta description"
 
 
+# ── the 2026-09-02 audit: claims that were false, made true ──────────────────
+
+def test_the_learning_log_keeps_no_name_or_id_of_a_clipper(tmp_path, monkeypatch):
+    """The Privacy Policy says the only record held on non-users, apart from
+    the public clip records, is the opt-out list, and that those clip records
+    carry a one-way code in place of the clipper. The viewer-clip log used to
+    write the clipper's Twitch name AND id. Both halves are asserted: the
+    fields are gone, the code is stable (so distinct clippers still count)
+    and cannot be reversed."""
+    import json
+    from src.trigger import viewer_clips
+    monkeypatch.setattr(viewer_clips, "_LOG_FILE", tmp_path / "v.jsonl")
+    viewer_clips._record([{"clip_id": "a", "clipper": viewer_clips._pseudonym("999")}])
+    row = json.loads((tmp_path / "v.jsonl").read_text().splitlines()[0])
+    assert "creator" not in row and "creator_id" not in row
+    assert row["clipper"] == viewer_clips._pseudonym("999")
+    assert "999" not in row["clipper"] and len(row["clipper"]) == 16
+    assert viewer_clips._pseudonym("999") != viewer_clips._pseudonym("998")
+    assert viewer_clips._pseudonym("") == "" and viewer_clips._pseudonym(None) == ""
+    # And the writer itself no longer names the fields.
+    import inspect
+    src = inspect.getsource(viewer_clips.poll_and_record)
+    assert '"creator":' not in src and '"creator_id":' not in src
+    body = _text(PRIVACY_HTML).lower()
+    assert "public clip records" in body and "one-way code" in body
+
+
+def test_the_showcase_drops_a_broadcaster_who_opted_out(tmp_path, monkeypatch):
+    """The opt-out was checked only when a channel was added; a clip featured
+    on the homepage before the opt-out stayed there. Both the loader and the
+    admin feature endpoint now consult the list."""
+    import json
+    from src.auth import optout
+    from src.dashboard import api
+    monkeypatch.setattr(optout, "_OPTOUT_FILE", tmp_path / "optout.json")
+    monkeypatch.setattr(api, "_SHOWCASE_FILE", tmp_path / "showcase.json")
+    (tmp_path / "showcase.json").write_text(json.dumps([
+        {"id": "1", "channel": "keeps"}, {"id": "2", "channel": "LeavesNow"}]))
+    assert [e["id"] for e in api._load_showcase()] == ["1", "2"]
+    optout.opt_out("77", "leavesnow", "LeavesNow")
+    assert [e["id"] for e in api._load_showcase()] == ["1"], \
+        "an opted-out broadcaster's clip is still on the landing page"
+    import inspect
+    assert "is_opted_out" in inspect.getsource(api.admin_toggle_showcase), \
+        "featuring a clip does not check the opt-out list"
+
+
+def test_opting_out_stops_monitors_that_are_already_running(monkeypatch):
+    """The Terms say an opted-out channel 'will not' be clipped and the FAQ
+    says the opt-out 'takes effect immediately across every account'. Only
+    adding was blocked; a running monitor kept clipping to the end of the
+    stream. Every user's monitor on the channel is stopped, through the same
+    path the DELETE endpoint uses, so their tabs drop the row live."""
+    import asyncio
+    from src.dashboard import api
+    sent = []
+
+    async def fake_broadcast(msg, user_id=None):
+        sent.append((msg, user_id))
+
+    monkeypatch.setattr(api, "broadcast", fake_broadcast)
+    monkeypatch.setattr(api, "_publish_remove_stream", None)
+    monkeypatch.setattr(api, "_save_streams", lambda: None)
+    monkeypatch.setattr(api, "release_live_slot", lambda key: None)
+    monkeypatch.setattr(api, "_streams", {
+        "u1:leaves": {"channel": "leaves", "platform": "twitch"},
+        "u2:leaves": {"channel": "leaves", "platform": "twitch"},
+        "u2:stays":  {"channel": "stays",  "platform": "twitch"},
+    })
+    stopped = asyncio.run(api._stop_monitors_for_channel("Leaves"))
+    assert stopped == 2
+    assert set(api._streams) == {"u2:stays"}
+    assert sorted(uid for m, uid in sent if m["event"] == "stream_removed") == ["u1", "u2"]
+    import inspect
+    assert "_stop_monitors_for_channel" in inspect.getsource(api.optout_confirm_submit)
+    assert "already running is stopped" in _text(TOS_HTML)
+
+
+def test_the_terms_cover_clips_the_user_did_not_create():
+    """Highlight clips are other Twitch users' clips. Section 5 used to say
+    every clip is created with your account; now it says what a Highlight
+    clip is, whose it stays, and that approving keeps a link, not a copy —
+    without describing how they are found."""
+    body = _text(TOS_HTML)
+    assert "Highlight clips are someone else" in body
+    assert "created on Twitch by another Twitch user" in body
+    assert "keeps a link to it" in body
+    for tell in ("audience interest", "viewers clipped", "spike"):
+        assert tell not in body.lower(), f"the Terms describe the mechanism: {tell!r}"
+    assert "spike in audience interest" not in _text(PRIVACY_HTML).lower(), \
+        "the Privacy Policy describes the mechanism"
+
+
+def test_the_cookie_policy_describes_the_session_cookie_honestly():
+    """Starlette's session cookie is SIGNED, not encrypted, and it carries the
+    session's contents. The policy claimed an encrypted identifier with no
+    personal data in it. The keys the code writes are checked against the
+    description so the two cannot drift apart again."""
+    from pathlib import Path
+    src = Path("src/dashboard/api.py").read_text()
+    written = set(re.findall(r'request\.session\["([a-z_]+)"\]\s*=', src))
+    assert {"user_id", "username", "avatar_url", "subscription_status"} <= written
+    body = _text(COOKIES_HTML)
+    assert "encrypted session identifier" not in body
+    assert "signed so they cannot be altered" in body
+    for what in ("account id", "Twitch username", "avatar URL", "plan status"):
+        assert what in body, f"the session cookie's {what} is not disclosed"
+
+
+def test_the_privacy_policy_lists_the_account_fields_the_code_keeps():
+    from pathlib import Path
+    src = Path("src/auth/users.py").read_text()
+    for key in ("last_login_at", "checkout_started_at", '"ref"'):
+        assert key in src, f"{key} is no longer stored — drop it from the policy"
+    body = _text(PRIVACY_HTML).lower()
+    for phrase in ("when you last signed in", "referral code", "opened the payment page"):
+        assert phrase in body, f"the Privacy Policy does not disclose: {phrase!r}"
+
+
+def test_the_refund_and_notice_clauses_match_what_the_code_can_do():
+    """A refund path exists (duplicate-signup remediation) and email is
+    optional (the scope can be declined), so 'no refunds' and 'notice to your
+    email' were each half-true."""
+    from src.billing import stripe_billing
+    assert hasattr(stripe_billing, "refund_and_cancel_subscription")
+    body = _text(TOS_HTML)
+    assert "at our discretion" in body
+    assert "where we hold one" in body
+
+
 # ── the same drift, on every other public surface ────────────────────────────
 
 def _public_surfaces() -> dict:

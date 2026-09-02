@@ -673,7 +673,13 @@ def _load_showcase() -> list[dict]:
     for e in data:
         e.setdefault("hero", True)
         e.setdefault("gallery", True)
-    return data
+    # A broadcaster who opts out leaves the homepage too. The opt-out is
+    # checked when a channel is ADDED; a clip featured before the opt-out
+    # would otherwise stay on the marketing page indefinitely, which is the
+    # one place it would be most visible. Filtered at read time so an opt-out
+    # takes effect on the next render without anyone re-curating.
+    from src.auth.optout import is_opted_out
+    return [e for e in data if not is_opted_out(str(e.get("channel") or ""))]
 
 
 def _save_showcase(items: list[dict]) -> None:
@@ -1218,7 +1224,37 @@ async def optout_confirm_submit(request: Request):
     from src.auth.optout import opt_out
     opt_out(twitch_id, twitch_login, display_name or twitch_login)
     log.info("streamer_opted_out", twitch_id=twitch_id, login=twitch_login)
+    # The Terms promise the Service "will not create clips from" an opted-out
+    # channel, and the landing page says the opt-out "takes effect immediately
+    # across every account". Until now it only blocked ADDING the channel, so
+    # a monitor already running kept clipping until the stream ended. Stop
+    # every user's monitor on this channel now.
+    stopped = await _stop_monitors_for_channel(twitch_login)
+    if stopped:
+        log.info("streamer_opted_out_monitors_stopped", login=twitch_login, count=stopped)
     return RedirectResponse("/opt-out/success", status_code=302)
+
+
+async def _stop_monitors_for_channel(channel: str) -> int:
+    """Stop every user's monitor on one Twitch channel. Returns how many.
+
+    Each stop goes through stop_stream_internal, so every affected user's
+    open tabs drop the row live (the realtime contract) and each worker is
+    told to stop. Failures on one user must not leave another's running.
+    """
+    channel = _clean_channel(channel)
+    keys = [k for k, v in list(_streams.items())
+            if k.split(":", 1)[-1] == channel
+            and (v.get("platform") or "twitch") == "twitch"]
+    stopped = 0
+    for key in keys:
+        uid = key.split(":", 1)[0] if ":" in key else ""
+        try:
+            if await stop_stream_internal(channel, uid):
+                stopped += 1
+        except Exception as exc:
+            log.warning("optout_stop_failed", channel=channel, user_id=uid, error=str(exc))
+    return stopped
 
 
 @app.get("/opt-out/success", response_class=HTMLResponse)
@@ -5817,6 +5853,12 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
         raise HTTPException(status_code=400, detail="Only approved clips can be featured")
     if clip.get("platform") != "twitch" or not clip.get("twitch_url"):
         raise HTTPException(status_code=400, detail="Only Twitch clips can be featured")
+    from src.auth.optout import is_opted_out
+    if is_opted_out(str(clip.get("channel") or "")):
+        raise HTTPException(
+            status_code=400,
+            detail="This broadcaster has opted out of Highlightz, so their clips "
+                   "cannot be featured on the landing page.")
     # The landing hero plays featured clips in an iframe, and an age-gated clip
     # cannot play in one — Twitch has no way to confirm a viewer's age inside a
     # third-party frame. Featuring one puts a dead black player on the marketing
@@ -9286,12 +9328,13 @@ TOS_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
   <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Highlightz does not record, copy, download, or re-host stream video. To measure loudness we may read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
+  <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
   <p>Support for Kick is not yet available. Kick channels cannot currently be monitored and no Kick account is connected to or required by the Service. If Kick support ships, these Terms and our Privacy Policy will be updated before it does.</p>
   <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
 
@@ -9308,14 +9351,15 @@ TOS_HTML = """<!DOCTYPE html>
   <p>Paid subscriptions are billed on a recurring basis through our payment processor, Stripe. By subscribing you authorize us to charge the payment method on file for each billing period until you cancel.</p>
   <ul>
     <li>You may cancel your subscription at any time through the billing portal. Cancellation takes effect at the end of the current billing period.</li>
-    <li>We do not issue refunds for partial billing periods or unused time.</li>
-    <li>We reserve the right to change pricing with at least 14 days notice to your registered email address.</li>
+    <li>We do not issue refunds for partial billing periods or unused time, except where we choose to at our discretion (for example, to reverse a duplicate subscription).</li>
+    <li>We reserve the right to change pricing with at least 14 days notice, sent to your registered email address where we hold one and otherwise posted in the dashboard.</li>
     <li>Failed payments may result in suspension or termination of your account.</li>
   </ul>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
   <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct; it never records, stores, or re-hosts any stream video itself.</p>
-  <p><strong>Broadcasters may opt out.</strong> Any broadcaster can remove their channel from the Service at <a href="/opt-out">highlightz.app/opt-out</a>. Once a channel has opted out, no user can add it for monitoring and the Service will not create clips from it. If you are asked by a broadcaster to stop clipping their channel, stop; the opt-out page exists so that request can be enforced for everyone at once rather than relying on you.</p>
+  <p><strong>Highlight clips are someone else's clips.</strong> A Highlight clip was created on Twitch by another Twitch user, remains that user's clip under Twitch's terms, and is hosted by Twitch under their account. Approving one keeps a link to it in your library; Highlightz does not copy, re-host, or alter it, and cannot delete it. Everything in this Section about your responsibility for how you use, share, or distribute a clip applies equally to a Highlight clip.</p>
+  <p><strong>Broadcasters may opt out.</strong> Any broadcaster can remove their channel from the Service at <a href="/opt-out">highlightz.app/opt-out</a>. Once a channel has opted out, no user can add it for monitoring, any monitoring of it already running is stopped, and the Service will not create clips from it. If you are asked by a broadcaster to stop clipping their channel, stop; the opt-out page exists so that request can be enforced for everyone at once rather than relying on you.</p>
   <p>You acknowledge and agree that:</p>
   <ul>
     <li>Any clip you create may contain content owned by the broadcaster you clipped, by game publishers, by music rights holders, or by other third parties.</li>
@@ -9418,24 +9462,25 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
   <h2>1. Information We Collect</h2>
   <p>We collect only what is necessary to operate the Service:</p>
   <ul>
-    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2.</li>
+    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2; when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a clip surfaced by a spike in audience interest we also store how many viewers clipped that moment and its view count — a count, not an identity; we do not store who they were. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
-    <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. This is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
+    <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
   <p><strong>Kick.</strong> Kick support is not live. We do not monitor Kick channels, and no Kick account can be connected to the Service — no Kick credentials are requested or stored. This will be updated before that changes.</p>
 
@@ -9544,7 +9589,7 @@ COOKIES_HTML = """<!DOCTYPE html>
     <span>Highlightz</span>
   </div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: August 27, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
@@ -9555,7 +9600,7 @@ COOKIES_HTML = """<!DOCTYPE html>
   <p>Highlightz uses a minimal number of cookies — only what is strictly necessary to operate the Service:</p>
   <table>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
-    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. Contains an encrypted session identifier — no personal data is stored in the cookie itself.</td><td>7 days</td><td>Strictly necessary</td></tr>
+    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. It carries your session details — your account id, Twitch username and avatar URL, and your plan status — signed so they cannot be altered, and readable only by your browser and our server over HTTPS. Nothing in it is used to track you across other sites.</td><td>7 days</td><td>Strictly necessary</td></tr>
   </table>
   <p>The dashboard also uses your browser's local storage for two small preferences. These are not cookies and are never sent to our servers — they stay in your browser, and clearing your site data clears them.</p>
   <table>

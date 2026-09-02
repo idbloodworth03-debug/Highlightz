@@ -450,6 +450,37 @@ normal Clip Review screen, which still shows scores.
   - **OPEN: og-card.png is still rendered in Anton**, so the share card matches
     no current face. Regenerate it in Lobster. `Anton-Regular.ttf` is that
     card's source font — **keep it** until the card is redone.
+- **Legal audit, second pass (2026-09-02, evening).** Owner: "go through the
+  tos … and double check them", then "fix what is necessary". Seven findings
+  fixed, pinned in `test_legal_pages_match_the_code.py` under "the 2026-09-02
+  audit": (1) the viewer-clip learning log (`viewer_clips.jsonl`) wrote each
+  clipper's Twitch NAME and ID — non-users — while the Privacy Policy said the
+  opt-out list was the only non-user record; it now writes `clipper`, a
+  16-hex sha256 of the id (stable for distinct-clipper counts, not
+  reversible), and the policy discloses "Public clip records"; (2) the Terms
+  never covered Highlight clips — §1 and §5 now say they are other Twitch
+  users' clips, hosted by Twitch, approving keeps a link, no mechanism
+  described (test bans "audience interest"/"spike"/"viewers clipped" in the
+  Terms and the mechanism sentence in the Privacy Policy); (3) the Privacy
+  Policy's Highlight bullet no longer says how they are found — "the two
+  numbers used to rank it, an audience-interest count and a view count";
+  (4) the Cookie Policy claimed an "encrypted session identifier" — Starlette's
+  cookie is SIGNED and carries user_id/username/avatar/plan status, and now
+  says so; (5) opting out only blocked ADDING a channel while running
+  monitors kept clipping — `optout_confirm_submit` now calls
+  `_stop_monitors_for_channel(login)`, which runs `stop_stream_internal` for
+  every user (tabs drop the row live), and §5 says "any monitoring of it
+  already running is stopped"; (6) the public showcase ignored opt-outs —
+  `_load_showcase()` filters by `is_opted_out` at read time and
+  `admin_toggle_showcase` refuses to feature one; (7) the Privacy Policy now
+  lists `last_login_at`, `checkout_started_at` and the referral `ref`. Also:
+  refunds "except at our discretion", price-notice "where we hold an email,
+  otherwise in the dashboard", all three effective dates → September 2, 2026.
+  **Left for the owner** (prod facts the dev box cannot see): the "logs kept
+  up to 90 days" line has no rotation config in the repo; if uploads or the
+  backup job point at S3/GCS in prod, the provider needs naming under
+  sharing and backups need a retention line. The legal pages still wear the
+  pre-v4 purple theme and "Back to Highlightz" goes to /login.
 - **Landing v4 — the cinematic page (2026-09-02, later the same day).** The
   owner's second full brief: delete every section below the cover and rebuild
   imagery-first (a Squarespace/Apple register: full-bleed frame, huge plain

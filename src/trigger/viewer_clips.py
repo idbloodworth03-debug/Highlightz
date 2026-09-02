@@ -33,6 +33,7 @@ They are excluded by creator_id AND by stored slug — counting them would make
 the bot learn from itself, and (had this driven a trigger) loop forever.
 """
 
+import hashlib
 import json
 import time
 from datetime import datetime, timezone
@@ -79,6 +80,14 @@ def due(channel: str, now: float | None = None) -> bool:
     watching it, so cost scales with channels rather than with users."""
     now = time.time() if now is None else now
     return now - _last_poll.get(channel, 0.0) >= POLL_INTERVAL
+
+
+def _pseudonym(creator_id) -> str:
+    """A one-way code for a clipper's Twitch id: stable, so the same person
+    counts once across polls, and not reversible into the id or the name."""
+    if not creator_id:
+        return ""
+    return hashlib.sha256(("hz-clipper:" + str(creator_id)).encode()).hexdigest()[:16]
 
 
 def _record(rows: list[dict]) -> None:
@@ -173,8 +182,11 @@ async def poll_and_record(channel: str, broadcaster_id: str, engine,
             "lag":          round(now - ts, 1),
             "channel":      channel,
             "clip_id":      slug,
-            "creator":      c.get("creator_name") or "",
-            "creator_id":   str(c.get("creator_id") or ""),
+            # NOT the clipper's name or Twitch id. These are Twitch users who
+            # never signed up, and the Privacy Policy promises the only record
+            # we hold about non-users is the opt-out list. What the analysis
+            # needs is "distinct clippers", so a one-way code stands in.
+            "clipper":      _pseudonym(c.get("creator_id")),
             "title":        (c.get("title") or "")[:120],
             # The pairing that makes this a label: what WE thought at that
             # moment. None means the moment fell outside our score history
