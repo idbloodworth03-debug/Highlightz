@@ -238,7 +238,7 @@ def test_same_as_is_absent_rather_than_guessed():
 
 def test_all_landing_json_ld_parses():
     """One malformed block invalidates the lot as far as a crawler cares."""
-    assert len(_graph()) >= 4
+    assert len(_graph()) >= 3
 
 
 # ── the page a crawler reads, not the page a browser draws ───────────────────
@@ -278,7 +278,12 @@ def test_the_core_claims_survive_with_no_javascript_and_no_css():
         assert claim in txt, f"{claim!r} is no longer in the crawlable text"
     # and enough of it to summarise from — a page of chrome with 500 chars of
     # prose is not a source, whatever the probes say
-    assert len(txt) > 4000, f"only {len(txt)} chars of crawlable text remain"
+    # 2000, down from 4000 (landing v4, 2026-09-02). The brief made the page
+    # imagery first with three or four sentences a section; the claims above
+    # are what a crawler needs and every one is still in the text. The floor
+    # now guards against the text collapsing to nav and footer, not against
+    # a page that says less on purpose.
+    assert len(txt) > 2000, f"only {len(txt)} chars of crawlable text remain"
     # Twitch must appear in the FIRST screenful of text, not only in the FAQ:
     # a model skimming the opening should learn what this is without the head.
     assert "twitch" in txt[:1200], "the opening text no longer says Twitch"
@@ -301,53 +306,21 @@ def test_every_public_page_still_carries_its_schema():
         return out
 
     assert set(types(LANDING_HTML)) >= {"SoftwareApplication", "Organization",
-                                        "WebSite", "FAQPage"}
+                                        "WebSite"}
     assert "HowTo" in types(tutorial_html.render())
     assert "ItemList" in types(compare_html.render())
 
 
-def test_no_faq_answer_reaches_the_schema_empty():
-    """A PRE-EXISTING BUG, found while the FAQ was being expanded and fixed
-    there. The FAQPage was built from LANDING_HTML at a point in the module
-    where one answer was still a <!--FREEPLAN--> placeholder. _faq_schema
-    strips tags, an HTML comment is stripped like any other, and the page
-    published "How does billing work?" with the empty string as its answer.
 
-    That is invisible in a browser and it is the precise failure _faq_schema's
-    own docstring says it exists to prevent, so it gets a test rather than a
-    comment. The schema is built after every placeholder is filled now; a new
-    placeholder inside a .faq-a would reintroduce it."""
-    import json
+def test_no_faq_page_is_published_without_questions():
+    """A PRE-EXISTING BUG, once: the FAQPage was built while one answer was
+    still a placeholder and the page published a question with the empty
+    string as its answer. The FAQ has since left the landing page (v4), and
+    the rule that survives is the same one: never publish a FAQPage that is
+    not backed by visible questions. With none on the page, none ships."""
     import re as _re
-    from src.dashboard.api import LANDING_HTML
-
+    from src.dashboard.api import LANDING_HTML, _faq_schema
     blobs = _re.findall(r'<script type="application/ld\+json">(.*?)</script>',
                         LANDING_HTML, _re.S)
-    faq = [json.loads(b) for b in blobs if '"FAQPage"' in b]
-    assert faq, "the page publishes no FAQPage at all"
-    questions = faq[0]["mainEntity"]
-    assert questions, "the FAQPage has no questions in it"
-
-    empty = [q["name"] for q in questions
-             if not q["acceptedAnswer"]["text"].strip()]
-    assert not empty, f"these answers reach Google empty: {empty}"
-
-    # And every one is real prose, not a stray fragment left by tag-stripping.
-    thin = [q["name"] for q in questions
-            if len(q["acceptedAnswer"]["text"].strip()) < 40]
-    assert not thin, f"these answers are suspiciously short in the schema: {thin}"
-
-
-def test_the_schema_covers_every_question_the_page_shows():
-    """The two must not drift: a question visible on the page and missing from
-    the schema is the same silent-emptying failure by degrees."""
-    import json
-    import re as _re
-    from src.dashboard.api import LANDING_HTML
-
-    visible = LANDING_HTML.count('class="faq-item"')
-    blobs = _re.findall(r'<script type="application/ld\+json">(.*?)</script>',
-                        LANDING_HTML, _re.S)
-    faq = [json.loads(b) for b in blobs if '"FAQPage"' in b][0]["mainEntity"]
-    assert len(faq) == visible, (
-        f"{visible} questions on the page, {len(faq)} in the schema")
+    assert not [b for b in blobs if '"FAQPage"' in b], "an empty FAQPage is published"
+    assert _faq_schema("<p>no questions here</p>") == ""

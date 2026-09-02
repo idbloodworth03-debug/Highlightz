@@ -239,40 +239,43 @@ def _plan_limit(plan, key, value):
     return _cm()
 
 
-def test_the_pricing_cards_state_the_weekly_allowance():
+
+def test_the_pricing_columns_state_the_weekly_allowance():
     from src.dashboard.api import _pricing
     html = _pricing()
-    assert f"{FREE_CAP} clips</b> kept a week" in html
-    assert f"{PLAN_LIMITS['starter']['max_library_week']} clips</b> kept a week" in html
+    assert f"{FREE_CAP} kept a week" in html
+    assert (f"<span>Clips kept per week</span><b>{PLAN_LIMITS['starter']['max_library_week']}</b>"
+            in html)
     # The sentinel is a real number in JSON and would print in full.
     assert "1000000000" not in html, "the unlimited sentinel reached the page"
-    assert "Unlimited clips</b> kept" in html, "Pro does not advertise having no limit"
+    assert "<span>Clips kept per week</span><b>Unlimited</b>" in html, \
+        "Pro does not advertise having no limit"
 
 
-def test_the_pricing_cards_derive_the_number():
+
+def test_the_pricing_columns_derive_the_number():
     """`str(30) in html` passes whether the 30 was read or typed."""
     from src.dashboard.api import _pricing
     with _plan_limit("free", "max_library_week", 4242):
-        assert "4242 clips</b> kept a week" in _pricing(), \
-            "the pricing card types the weekly allowance"
+        assert "4242 kept a week" in _pricing(), "the pricing lead types the weekly allowance"
+    with _plan_limit("starter", "max_library_week", 5151):
+        assert "<span>Clips kept per week</span><b>5151</b>" in _pricing()
 
 
-def test_the_pricing_lead_no_longer_promises_a_single_axis():
-    """It said the paid plans answer ONE question, how many channels. There
-    are two now, and the second is the one that decides whether free is
-    enough — leaving the old sentence would undersell the change."""
+
+def test_the_pricing_columns_show_the_weekly_cap_as_a_row():
+    """It used to say the paid plans answer ONE question, how many channels.
+    The weekly allowance is the second axis and the one that decides whether
+    free is enough, so it is a row of its own in both columns."""
     from src.dashboard.api import _pricing
     html = _pricing()
     assert "answer one question" not in html
-    assert "two things" in html
+    assert html.count("<span>Clips kept per week</span>") == 2
 
 
-@pytest.mark.parametrize("surface", ["faq", "terms", "tutorial"])
+@pytest.mark.parametrize("surface", ["terms", "tutorial"])
 def test_every_plan_surface_mentions_the_weekly_cap(surface):
-    if surface == "faq":
-        from src.dashboard.api import _free_plan_answer as fn
-        text = fn()
-    elif surface == "terms":
+    if surface == "terms":
         from src.dashboard.api import _tos_plans as fn
         text = fn()
     else:

@@ -286,9 +286,11 @@ def test_the_threshold_is_the_strongest_hairline_not_the_faintest():
     inferred from the numeral because the thing being crossed was barely there."""
     c = css("landing")
     rule = re.search(r"\.tile-thline\{([^}]*)\}", c).group(1)
-    assert "rgba(196,137,228" in rule, "the datum is not drawn in the accent"
+    # White, not the violet: below the cover the page is black, white and the
+    # orange, and the orange is reserved for the crossing itself.
+    assert "rgba(242,234,247" in rule, "the datum is not drawn in the ink"
     assert "dasharray:none" in rule.replace(" ", ""), "the datum is dashed again"
-    alpha = float(re.search(r"rgba\(196,137,228,([\d.]+)\)", rule).group(1))
+    alpha = float(re.search(r"rgba\(242,234,247,([\d.]+)\)", rule).group(1))
     assert alpha >= 0.4, f"the datum is back to {alpha} opacity"
 
 
@@ -311,7 +313,7 @@ def test_the_crossing_is_drawn_not_inferred():
     ow = float(re.search(r"stroke-width:([\d.]+)", over).group(1))
     bw = float(re.search(r"stroke-width:([\d.]+)", base).group(1))
     assert ow > bw, "the above-threshold trace is not heavier than the quiet half"
-    assert "var(--flare)" in over and "var(--glow)" in base, "both halves are the same colour"
+    assert "var(--ember)" in over and "var(--ink)" in base, "both halves are the same colour"
 
 
 def test_the_bright_half_is_clipped_to_this_channels_own_threshold():
@@ -324,22 +326,6 @@ def test_the_bright_half_is_clipped_to_this_channels_own_threshold():
         "the clip is not tied to this tile's own threshold y"
     assert "e.lineOver.setAttribute('d',d)" in LANDING_HTML, \
         "the two halves have drifted onto different paths — a seam at the crossing"
-
-
-def test_the_wall_gets_the_only_rhythm_break_and_not_from_its_own_height():
-    """The first attempt put --s-10 as padding INSIDE .hero-stack. The hero is
-    min-height:100svh with the stack in a minmax(0,1fr) row, so the padding came
-    straight out of the wall: it lost 97px. Air below a fixed-height box has to
-    be added outside it."""
-    c = css("landing")
-    stack = re.search(r"\.hero-stack\{([^}]*)\}", c).group(1)
-    assert "--s-10" not in stack, "the break is inside the hero again, eating the wall"
-    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", c).group(1)
-    assert "margin-bottom:var(--s-10)" in band, "the wall lost its breathing room"
-    # A margin and not padding, for the same reason it was never padding: the
-    # hero is min-height:100svh, so padding is taken from the wall's own row.
-    assert not re.search(r"padding-(?:bottom|top):var\(--s-10\)", band), \
-        "the break is padding again, so it comes out of the wall"
 
 
 def test_the_chart_takes_the_tiles_slack():
@@ -387,23 +373,12 @@ def test_every_section_boundary_is_the_same():
     assert m.group(1) == m.group(2), "sections are asymmetric again"
 
 
-def test_section_emphasis_moved_inside_rather_than_disappearing():
-    """The prior design deliberately gave the argument and the decision more
-    room than the reference material, and that judgement is worth keeping. It
-    just cannot be paid for out of the boundaries."""
-    c = css("landing").replace("\n", "").replace("  ", "")
-    gaps = dict(re.findall(r"#(how|pricing|faq) \.sec-title\{margin-bottom:var\(--s-(\d+)\)", c))
-    assert set(gaps) == {"how", "pricing", "faq"}
-    assert int(gaps["how"]) > int(gaps["faq"]), \
-        "the argument no longer gets more room than the reference material"
-
-
 def test_no_prose_runs_past_the_readable_band():
     """Fourteen blocks ran over 75 characters, the worst at 144. Every one was
     a width problem — not a word of copy changed."""
     c = css("landing")
     assert "--measure:52ch" in c.replace(" ", ""), "the measure token moved"
-    for sel in (".faq-a", ".faq-more", ".price-tiny", ".price-lead", ".feat p", ".feat-wide p"):
+    for sel in (".l-sub", ".num-lead", ".price-lead", ".price-tiny", ".score-line"):
         rule = re.search(re.escape(sel) + r"\{([^}]*)\}", c)
         assert rule and "var(--measure)" in rule.group(1), f"{sel} lost its measure"
 
@@ -416,55 +391,6 @@ def test_the_measure_is_calibrated_to_real_characters_not_to_ch():
     c = css("landing").replace(" ", "")
     val = int(re.search(r"--measure:(\d+)ch", c).group(1))
     assert 46 <= val <= 58, f"--measure is {val}ch; outside the calibrated range"
-
-
-def test_the_pricing_ladder_survived_but_the_buttons_share_a_baseline():
-    """The ladder used to step width, radius, price size, border and glow. The
-    tiers are hairline cells now — same construction as the wall and the stats
-    band — so radius and border are gone BY DESIGN, and the ladder lives in
-    what is left: unequal column widths and the price stepping 30 -> 44, with
-    Pro carrying the wash and the bright top edge. The buttons still share a
-    baseline because every tier keeps the same bottom padding."""
-    c = css("landing")
-    tiers = re.search(r"\.ptiers\{([^}]*)\}", c).group(1)
-    cols = re.search(r"grid-template-columns:([^;]+)", tiers).group(1)
-    fracs = re.findall(r"minmax\(0,([\d.]+)fr\)", cols)
-    assert len(set(fracs)) == 3, f"the ladder was flattened to equal columns: {fracs}"
-    base = re.search(r"\n  \.ptier\{([^}]*)\}", c).group(1)
-    assert "border-radius" not in base, "the cells grew corners again"
-    assert "border-left:1px solid var(--hair)" in base, "the dividers are gone"
-    pro = re.search(r"\.ptier-c\{([^}]*)\}", c).group(1)
-    assert "rgba(184,106,220" in pro, "Pro lost its wash"
-    # shared button baseline: the base rule sets the padding once, and Pro's
-    # own shorthand must end on the same bottom value
-    base_bottom = re.search(r"padding:([^;}]+)", base).group(1).split()[0]
-    pro_pad = re.search(r"padding:([^;}]+)", pro)
-    if pro_pad:
-        toks = pro_pad.group(1).split()
-        bottom = toks[2] if len(toks) >= 3 else toks[0]
-        assert bottom == base_bottom, f"the CTA baseline is broken: {bottom} vs {base_bottom}"
-    fig = re.search(r"\n  \.ptier-fig\{([^}]*)\}", c).group(1)
-    pro_fig = re.search(r"\.ptier-c \.ptier-fig\{([^}]*)\}", c).group(1)
-    assert "font-size:30px" in fig and "font-size:44px" in pro_fig, \
-        "the price no longer steps up the ladder"
-
-
-def test_the_dead_faq_stylesheet_is_gone():
-    """A complete second FAQ stylesheet for markup that does not exist. Three of
-    its rules used selectors the LIVE FAQ also uses and, being later in the
-    sheet, won — so dead CSS was overriding live CSS and .faq-a ignored the
-    measure no matter what the real rule said."""
-    c = css("landing")
-    assert ".faq-list{" not in c, "the dead FAQ block is back"
-    assert c.count(".faq-a{") == 1, "there are two .faq-a rules again"
-    from src.dashboard.api import LANDING_HTML
-    # The canary that the live markup still exists for these rules to style.
-    # It was class="faq-cols" while the FAQ was two columns; the section is a
-    # single-column list now and the container is .faq-rows. The name .faq-list
-    # is deliberately NOT reused: it is the dead sheet's name, and a live
-    # element wearing it would make this test read as passing for the wrong
-    # reason forever after.
-    assert 'class="faq-rows"' in LANDING_HTML, "the live FAQ markup changed"
 
 
 # ── phase 4: the post-login states ───────────────────────────────────────────

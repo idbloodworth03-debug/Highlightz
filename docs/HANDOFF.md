@@ -450,6 +450,48 @@ normal Clip Review screen, which still shows scores.
   - **OPEN: og-card.png is still rendered in Anton**, so the share card matches
     no current face. Regenerate it in Lobster. `Anton-Regular.ttf` is that
     card's source font — **keep it** until the card is redone.
+- **Landing v4 — the cinematic page (2026-09-02, later the same day).** The
+  owner's second full brief: delete every section below the cover and rebuild
+  imagery-first (a Squarespace/Apple register: full-bleed frame, huge plain
+  headline, product screens fanned in the foreground, hard dark→light cuts).
+  **The cover (`#cover`: mark, wordmark, stat strip, glow, cue) is
+  byte-identical** to v3 — markup, `.cover*` CSS, `.stats` CSS, the live
+  counter script and the count-up/cover/slide script were diffed. Everything
+  after it is new. Order (and the mandatory tonal rhythm): `#proof` dark →
+  `#numbers` dark → `#catches` light → `#score` light → `#watch` dark →
+  `#pricing` light → `#start` dark → footer. `.light` re-declares the ink
+  tokens on the paper ground (`--paper:#F4F4F2`).
+  - **Frames are real clip previews from the curated showcase, baked in per
+    request** (`_frames("hero")` for the proof/close/scrub frames,
+    `_frames("gallery")` for the shelf; `render_landing` fills FRAME_HERO /
+    FRAME_END / SCRUB_FRAMES / SHELF / BIGNUMS). `_frame_tag` asks Twitch for
+    the 1280x720 preview and steps down once to the stored URL via
+    `onerror`. **With nothing curated, the product's own screens
+    (`static/landing/tour-*.webp`) stand in**, pushed back (`img.ui`). The dev
+    box cannot reach Twitch's CDN (proxy 403), so no clip frame could be baked
+    into the repo — curate the showcase on prod and the page fills itself.
+  - **The rail is the engine's own `_SIGNAL_TITLES`** ("Chat Erupts", "Loud
+    Reaction", …), read from `src/trigger/engine.py` at import; a showcase
+    entry now records `signal` (the SignalType that led the clip) so a card
+    files under the right tab; older entries are spread across tabs.
+  - **The wall is `#watch` now, ten tiles (`var N=10`)**: `visibleCount()`
+    returns 10 / 6 (≤1000px) / 4 (≤700px) and the CSS hides the same tiles
+    (`.watch .wall .tile:nth-child(n+7)` / `(n+5)`). It fires in the ORANGE
+    (every `--flare`/`--glow` in the tile rules became `--ember`/`--ink`) and
+    a `.tile-pull` chip ("clip saved") rises out of the firing tile. The
+    near-miss arithmetic and the 4-name backfill logic are unchanged.
+  - **`#score` is scroll-scrubbed**: a 260vh track with a sticky scene; the
+    score curve holds over the line from p≈.6 (`ramp`), the seven signals
+    light at their `data-at`, the frame swaps in thirds. Reduced motion: the
+    track collapses (`height:auto`) and `paint(1)` draws the finished frame.
+  - **No FAQ on the page any more**, so `_faq_schema` returns "" when it
+    finds no questions and the landing publishes no FAQPage.
+    `_free_plan_answer` went with it. Pricing is `_pricing()`: a free lead
+    line + two `.plan` columns (Starter, Pro) of `<span>fact</span><b>value</b>`
+    rows, all from PLAN_LIMITS.
+  - 77 tests that described the deleted sections were dropped or repointed
+    (`scratchpad/v4/retests.py` is the record); the crawlable-text floor in
+    test_seo_head went 4000 → 2000 because the brief cut prose on purpose.
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and

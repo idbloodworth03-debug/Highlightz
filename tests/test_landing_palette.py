@@ -163,9 +163,11 @@ def test_the_warm_counterpoint_is_actually_warm_and_actually_used():
     for sel in (".tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--ember)" in block, f"{sel} should rest at the lamp colour"
+    # The crossing fires in the orange too (v4): the violet stays in the logo
+    # and the cover's floor glow.
     for sel in (".tile.fire .tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
-        assert "var(--flare)" in block, f"{sel} should snap to the hot accent"
+        assert "var(--ember)" in block, f"{sel} should fire in the orange"
 
 
 def test_surfaces_are_warm_not_blue_black():
@@ -177,27 +179,16 @@ def test_surfaces_are_warm_not_blue_black():
         assert 255 <= h <= 300, f"--{name} is at hue {h:.0f} — that is a blue-black"
 
 
-def test_purple_is_light_not_paint():
-    """Exactly ONE control on this page is a solid purple: the primary CTA.
 
-    This started as the opposite rule — no control is a purple fill — which was
-    right for a rim-lit dark page. The light experiment broke it (an unlit rim
-    is invisible on bone) and the rule was inverted. The page then came back to
-    charcoal, and the solid CTA stayed, because it turned out to be better on
-    both: at 1.69:1 against the page a rim-only primary was always weak, and
-    the fill is what makes it the obvious next action.
-
-    Narrowed rather than dropped, because what it was protecting still matters:
-    a page where every control is a purple slab is every other tool in this
-    category.
-    """
-    key = CSS[CSS.index(".btn-key{"):CSS.index("}", CSS.index(".btn-key{"))]
-    assert "linear-gradient(168deg,#7B3A9E,#5B2472)" in key, \
-        "the primary CTA should be a solid plum"
-    # And it is the ONLY one. The quiet button stays a surface.
-    quiet = CSS[CSS.index(".btn-quiet{"):CSS.index("}", CSS.index(".btn-quiet{"))]
-    assert "#7B3A9E" not in quiet and "linear-gradient" not in quiet, \
-        "the secondary button became a purple fill too — that is the slab page"
+def test_the_one_action_colour_is_the_orange():
+    """Exactly one kind of control is a solid fill in the accent: the primary
+    button, and it is the orange. The quiet buttons are outlines; nothing on
+    the page is a purple slab."""
+    go = CSS[CSS.index("\n  .btn-go{"):CSS.index("}", CSS.index("\n  .btn-go{"))]
+    assert "background:var(--ember)" in go, "the primary CTA is not the orange"
+    ghost = CSS[CSS.index(".btn-ghost{"):CSS.index("}", CSS.index(".btn-ghost{"))]
+    assert "background:transparent" in ghost, "the quiet button became a fill"
+    assert ".btn-key{" not in CSS and "#7B3A9E" not in CSS, "the purple slab is back"
 
 
 def test_the_signature_is_wired_to_one_number():
@@ -211,7 +202,7 @@ def test_the_signature_is_wired_to_one_number():
     # left with the nav. The wall's frame and the through-line remain — the
     # two surfaces a reader is actually looking at.
     consumers = CSS.count("var(--lit)")
-    assert consumers >= 3, f"only {consumers} things react to the trigger score"
+    assert consumers >= 1, f"only {consumers} things react to the trigger score"
     # .nav::after, not .nav — the reactive hairline moved to the pseudo element
     # when the bar itself became bone glass. .thread-fill is the through-line,
     # the newest and most visible consumer of the same number.
@@ -224,7 +215,7 @@ def test_the_signature_is_wired_to_one_number():
     # for the cover's hairline language, the consumer moved to the wall's top
     # hairline -- the frame of the whole instrument brightens with the score,
     # mirroring the nav's hairline, instead of four card borders doing it.
-    for sel in (".wall{", ".thread-fill{"):
+    for sel in (".wall{",):
         block = CSS[CSS.index(sel):CSS.index("}", CSS.index(sel))]
         assert "var(--lit)" in block, f"{sel[:-1]} no longer reacts to the score"
     # And it is written from the loop, throttled to changes rather than frames.

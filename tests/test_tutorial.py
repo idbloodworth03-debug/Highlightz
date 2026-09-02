@@ -79,7 +79,7 @@ def test_robots_does_not_disallow_it(client):
 @pytest.mark.parametrize("snippet, where", [
     # The landing nav carried a Tutorial link; the nav was removed, so the
     # footer and the CTA are the two paths that remain — and both must stay.
-    ('href="/tutorial" class="btn btn-quiet btn-lg"', "landing CTA"),
+    ('href="/tutorial" class="btn btn-ghost btn-lg"', "landing CTA"),
     ('<a href="/tutorial">Tutorial</a>', "landing footer"),
 ])
 def test_the_landing_page_links_to_it(snippet, where):

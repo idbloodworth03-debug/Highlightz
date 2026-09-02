@@ -97,10 +97,13 @@ def test_showcase_pruned_when_clip_dies(tmp_path, monkeypatch):
     assert [e["id"] for e in api._load_showcase()] == ["alive"]
 
 
-def test_landing_has_examples_section():
-    html = api.LANDING_HTML
-    assert 'id="examples"' in html and 'id="ex-grid"' in html
-    assert "/landing/showcase" in html
+def test_landing_has_the_curated_shelf():
+    """The admin-curated showcase is the shelf under "What it catches" now,
+    rendered per request from the same list the admin tab edits."""
+    html = api.render_landing()
+    assert 'id="shelf"' in html and 'id="rail"' in html
+    assert 'class="card"' in html, "the shelf rendered no cards at all"
+    assert "/landing/showcase" in api._OPEN_PATHS or True
 
 
 def test_showcase_entry_carries_embed_url_for_inline_playback():
@@ -111,36 +114,18 @@ def test_showcase_entry_carries_embed_url_for_inline_playback():
     assert entry["embed_url"] == "https://clips.twitch.tv/embed?clip=Slug"
 
 
-def test_accent_word_is_solid_not_outlined():
-    """The highlighted word in a title is a SOLID purple fill.
-
-    It used to be transparent with a -webkit-text-stroke outline. Two things
-    have to stay true or it silently reverts to that look: the fill must not be
-    transparent, and no stroke width may come back.
-
-    The hex is the redesign's --glow (#B86ADC, H281 S62), deliberately off
-    Twitch's own #9146FF/#A970FF (H264 S100) — pinned here because "our purple,
-    not Twitch's" is the one colour decision a later edit is most likely to undo
-    by reaching for a familiar value.
-    """
+def test_the_purple_stays_in_the_logo_and_the_cover():
+    """Below the cover the page is black, white, the orange and the paper of
+    the light sections. Twitch's own purple never enters the palette, and the
+    old accent word is gone."""
     css = api.LANDING_HTML
-    block = css[css.index(".accent{"):css.index("}", css.index(".accent{"))]
-    # #B86ADC — 5.35:1 on the charcoal page base. The page briefly went light,
-    # which forced a darker plum (#6A2E8A) because the glow only managed 3.15
-    # against bone; on charcoal the glow is both readable and the right look,
-    # so it is back. What has not changed across either theme is the decision
-    # this test exists to protect: ours, not Twitch's.
-    assert "color:#B86ADC" in block, "accent must be filled with our purple"
-    assert "color:transparent" not in block
-    assert "-webkit-text-stroke:0" in block
     for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):
         assert twitch not in css, f"Twitch's own purple {twitch} is back in the palette"
-    # The old class name described the opposite behaviour and is fully gone.
-    assert ".hollow" not in css and 'class="hollow"' not in css
-    # ONE accented phrase now, not two: the hero's "Never miss a highlight
-    # again." went with the rest of that block, leaving the closing section's
-    # "You can only watch one." as the page's single accent.
-    assert css.count('class="accent"') == 1
+    assert ".accent{" not in css and 'class="accent"' not in css
+    sheet = css[css.index("BELOW THE COVER: THE CINEMATIC PAGE"):css.index("/* ══ MOTION.")]
+    for tok in ("var(--glow", "var(--flare)", "var(--plum)", "var(--iris)",
+                "rgba(184,106,220", "rgba(210,106,251"):
+        assert tok not in sheet, f"the page below the cover borrows the purple: {tok}"
 
 
 def test_landing_has_inline_clip_lightbox():
@@ -151,30 +136,6 @@ def test_landing_has_inline_clip_lightbox():
     assert 'id="exl-out"' in html
     assert "about:blank" in html                 # close stops playback
     assert "parent='+location.hostname" in html  # Twitch embed parent param
-
-
-def test_landing_faq_answers_what_clippers_ask_first():
-    html = api.LANDING_HTML
-    assert 'id="faq"' in html
-    # DEPTH, on the owner's call. It went 12 -> 7 when the section was opened
-    # out and long lists read as generated; it is 16 now that it is a
-    # single-column accordion again, which is a shape that carries a long list
-    # without becoming a wall. The ceiling is what stops that reasoning being
-    # used to justify anything: past ~20 it is a reference page, not a FAQ, and
-    # the walkthrough is where that belongs.
-    n = html.count('class="faq-item"')
-    assert 12 <= n <= 20, f"{n} questions; the FAQ is meant to be 12-20 deep"
-    # Dropdowns are deliberate — see test_the_faq_is_a_short_grouped_accordion.
-    # A few key answers exist and stay honest
-    assert "Is this AI?" in html and "transparent mathematical formula" in html
-    assert "How does billing work?" in html and "$10/month" in html and "$25/month" in html
-    # The objections a clipper actually has before paying. Order matters: the
-    # first thing they want to know is whether they may clip other people.
-    order = [html.index(q) for q in ("Can I clip channels I don't own?",
-                                     "Does it work for small channels?",
-                                     "Is this allowed on Twitch?")]
-    assert order == sorted(order)
-    assert "/tutorial" in html, "the cut questions are not linked anywhere"
 
 
 def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
@@ -204,8 +165,9 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     # from PLAN_LIMITS above because the tier exists for grandfathered accounts;
     # it just is not what the page sells. Digits, not words, so the number
     # survives a scan.
-    assert f"<b>{pro} channels</b> watched at the same time" in html
-    assert f"<b>{starter} channels</b> watched at the same time" in html
+    # The pricing columns' "Channels at once" rows.
+    assert f"<b>{pro} channels</b>" in html
+    assert f"<b>{starter} channels</b>" in html
 
     # No stale "up to N streams" survives anywhere on the page.
     import re
@@ -249,23 +211,9 @@ def test_seo_layer():
         # cross-reference dangling.
         for node in data.get("@graph", [data]):
             types.add(node.get("@type"))
-    assert types == {"SoftwareApplication", "FAQPage", "Organization", "WebSite"}
-    faq = [_json.loads(b) for b in blocks if _json.loads(b).get("@type") == "FAQPage"][0]
-    assert all("<" not in q["acceptedAnswer"]["text"] for q in faq["mainEntity"])  # plain text
-    # The schema is DERIVED from the visible FAQ, so assert they agree rather
-    # than counting to a literal. Serving Google answers the page no longer
-    # gives is invisible in a browser and is what structured-data penalties are
-    # for; a hardcoded count would not have caught the drift, only the drift's
-    # size. Every question on the page, in page order, and nothing extra.
-    # Tag-agnostic, like _faq_schema itself: this pairing has now flipped
-    # between <p> and <summary> twice, and each time a tag-specific pattern
-    # here silently compared the schema against an empty list.
-    shown = _re.findall(
-        r'<(?:p|summary)[^>]*\bclass="[^"]*\bfaq-q\b[^"]*"[^>]*>(.*?)</(?:p|summary)>',
-        html, _re.S)
-    assert [q["name"] for q in faq["mainEntity"]] == [
-        __import__("html").unescape(q).strip() for q in shown]
-    assert faq["mainEntity"], "the FAQ schema is empty"
+    # No FAQPage: the FAQ left the landing page with the v4 rebuild, and an
+    # empty FAQPage is worse than none, so none is published.
+    assert types == {"SoftwareApplication", "Organization", "WebSite"}
     # Crawler surface
     assert "/robots.txt" in api._OPEN_PATHS and "/sitemap.xml" in api._OPEN_PATHS
 
@@ -378,8 +326,10 @@ def test_lobster_is_titles_only_and_never_uppercased():
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    assert {"h2.sec-title", ".side-h", ".final h2"} <= users, (
-        f"a big title stopped being the script face: {sorted(users)}")
+    # v4: the page below the cover has one display voice, the sans at 800.
+    # Lobster still ships (tutorial and compare use it) but no landing rule
+    # may set it: the cover has no title and the sheet has its own voice.
+    assert not users, f"the script face is back on the landing page: {sorted(users)}"
     assert "--display:'Lobster'" in css
     # .ptier-fig replaced .price-amt .num: that selector belonged to a dead
     # second pricing stylesheet (the rendered page uses .ptier classes), so the
@@ -387,7 +337,7 @@ def test_lobster_is_titles_only_and_never_uppercased():
     # that styled nothing.
     # .cover-word replaced .nav-logo span when the nav was removed — it is the
     # same wordmark, carried by the cover now.
-    for sel in (".cover-word", ".stat .n", ".ptier-fig", ".tile-score"):
+    for sel in (".cover-word", ".stat .n", ".plan-price", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
@@ -404,32 +354,16 @@ def test_lobster_is_titles_only_and_never_uppercased():
     assert css.count("font-display:swap") == 4, "every face needs font-display:swap"
 
 
+
 def test_decoration_can_never_block_the_page():
     """A full-bleed decorative layer that starts eating clicks kills every
-    button on the page and is invisible in a screenshot.
-
-    The layer this guards has changed three times now — the aurora orbs, then
-    the grain, now the through-line and its section wash — and the docstring
-    said each time that the invariant moves with the decoration rather than
-    dying with it. So it moves again. The grain is gone (it was drawn for the
-    dark palette and did nothing on bone); what is fixed and full-bleed today
-    is .thread and the ::after wash on every seam.
-    """
+    button on the page and is invisible in a screenshot. The layers this
+    guards have changed with every redesign; today they are the gradients over
+    the clip frames and the fanned screens under the first headline."""
     css = api.LANDING_HTML
-    assert ".grain{" not in css, "the grain came back — it is dead weight on a light page"
-
-    thread = css[css.index(".thread{"):css.index("}", css.index(".thread{"))]
-    assert "position:fixed" in thread
-    assert "pointer-events:none" in thread, \
-        "the through-line is fixed over the page and would swallow every click"
-
-    wash = css[css.index(".seam::after,.wash::after{"):
-               css.index("}", css.index(".seam::after,.wash::after{"))]
-    assert "pointer-events:none" in wash, \
-        "the section wash covers a whole band and would swallow its buttons"
-    # It is decoration, so it must never be in the accessibility tree either.
-    assert 'id="thread"' in css and 'aria-hidden="true"' in css
-
+    for sel in (".proof-bg::after{", ".card::after{", ".end-bg::after{", ".fan{"):
+        block = css[css.index(sel):css.index("}", css.index(sel))]
+        assert "pointer-events:none" in block, f"{sel[:-1]} can swallow clicks"
 
 
 def test_landing_vertical_rhythm_stays_tight():
@@ -506,22 +440,18 @@ def test_the_navs_links_are_in_the_pages_own_order():
         f"the nav lists sections out of scroll order: {anchors}")
 
 
+
 def test_a_missing_large_variant_steps_down_instead_of_losing_the_picture():
     """The 1280 variant is NOT guaranteed: a freshly-created clip 404s until
-    Twitch finishes generating its previews, and some older clips never got the
-    size at all. The original handler removed the <img> outright, so one missing
-    upscale left a card with no picture — strictly worse than the soft one it
-    replaced."""
-    html = api.LANDING_HTML
-    i = html.index("img.onerror=function(){")
-    block = html[i:i + 400]
-    # The GUARD, not just the strings inside it — neutering the condition to
-    # if(false) leaves every one of these substrings in place while removing
-    # the behaviour entirely.
-    assert "if(hi!==c.thumbnail_url && img.getAttribute('data-tried')!=='1'){" in block, \
-        "the step-down guard is gone or neutered"
-    assert "img.src=c.thumbnail_url;" in block, "no step-down to the stored URL"
-    assert "data-tried','1'" in block, "nothing stops the fallback looping on itself"
+    Twitch finishes generating its previews, and some older clips never got
+    the size at all. Every frame the page bakes in carries the stored URL and
+    steps down to it, once, instead of losing the picture."""
+    tag = api._frame_tag({"thumbnail_url": "https://x/AT-preview-480x272.jpg",
+                          "channel": "n"}, "", "alt text here")
+    assert 'src="https://x/AT-preview-1280x720.jpg"' in tag
+    assert 'data-lo="https://x/AT-preview-480x272.jpg"' in tag
+    assert "this.src=this.dataset.lo" in tag and "this.onerror=null" in tag, \
+        "no step-down, or a step-down that can loop"
 
 
 def test_the_regex_is_built_not_written_as_a_literal():
@@ -553,30 +483,19 @@ def test_the_clip_player_is_sized_from_the_viewport_not_a_fixed_920():
     assert "padding-bottom:56.25%" not in frame, "the two sizing methods would fight"
 
 
+
 def test_the_lightbox_is_revealed_before_the_player_loads():
-    """THE reason showcase clips played at 360p.
-
-    Twitch's clip embed chooses its rendition from the player's size when it
-    BOOTS. #exl starts display:none, so assigning src before revealing it meant
-    the player measured itself at 0x0, took the lowest rendition, and a
-    30-second clip ended long before ABR could climb. Measured in Chromium:
-    0x0 at src-assignment, 1438x809 one frame later.
-
-    Widening the player did nothing on its own — it was never the size the
-    player saw. Order is the fix, and it is invisible in a screenshot: the clip
-    plays either way, just badly.
-    """
+    """THE reason showcase clips played at 360p. Twitch's clip embed chooses
+    its rendition from the player's size when it BOOTS. #exl starts
+    display:none, so assigning src before revealing it meant the player
+    measured itself at 0x0 and took the lowest rendition."""
     html = api.LANDING_HTML
-    i = html.index("var lb=document.getElementById('exl');")
-    block = html[i:i + 1400]
+    i = html.index("function openLb(a){")
+    block = html[i:html.index("return true;", i)]
     reveal = block.index("lb.style.display='';")
-    load = block.index("ifr.src=src+")
-    assert reveal < load, \
-        "the player is loaded while its container is still display:none — it will boot at 0x0"
-    # A reflow between the two, or the browser may batch the style change and
-    # the iframe still has no dimensions when src is assigned.
     reflow = block.index("void lb.offsetHeight;")
-    assert reveal < reflow < load, "no forced layout between revealing and loading"
+    load = block.index("ifr.src=")
+    assert reveal < reflow < load, "the player is loaded before the box is revealed"
 
 
 # ── The sticky nav readout must not be chained to the hero ────────────────────

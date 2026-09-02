@@ -73,7 +73,8 @@ def test_sentence_length_actually_varies():
     txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", VISIBLE))
     lens = [len(s.split()) for s in re.split(r"(?<=[.!?])\s+", txt)
             if 2 < len(s.split()) < 60]
-    assert len(lens) > 30, "not enough prose to measure"
+    # v4 is imagery first: a third of the prose the old page carried.
+    assert len(lens) > 12, "not enough prose to measure"
     assert statistics.pstdev(lens) > 6, (
         f"sentence lengths are too uniform (stdev {statistics.pstdev(lens):.1f})")
     assert sum(1 for x in lens if x < 6) >= 5, "no short sentences anywhere"
@@ -104,135 +105,21 @@ def test_pricing_is_not_three_cards_with_tick_lists():
         "tick lists are back"
 
 
-def test_the_faq_is_a_grouped_single_column_accordion():
-    """Dropdowns, by explicit request, after a pass that had opened them out.
-
-    THE TELL WAS NEVER THE ACCORDION. It was twelve questions in an
-    undifferentiated stack. So the list is allowed to be long again — depth was
-    asked for directly — provided the two things that stop length reading as
-    padding are in place: every question is a closed dropdown, so the whole set
-    is scannable before anything is opened, and they are grouped under headers
-    rather than poured into one run.
-
-    GROUPS SCALE WITH THE LIST. Two headers over sixteen questions is the
-    undifferentiated stack again wearing a hat, so the minimum rises with the
-    count: roughly one group per six questions.
-    """
-    items = HTML.count('class="faq-item"')
-    assert HTML.count("<details") >= items, "the questions are no longer dropdowns"
-    groups = HTML.count('class="faq-h"')
-    assert groups >= 2, "the groupings are gone"
-    assert groups >= items / 6, (
-        f"{items} questions under {groups} headers — the groups have not kept "
-        f"up with the list and it reads as one long stack again")
-
-
-def test_the_faq_is_one_column():
-    """Two columns is the one arrangement that stops a set of questions being a
-    list: the eye reads left-right-left-right, has to cross the gutter to find
-    the next question, and the last row of a group leaves a hole. Asked for
-    directly as a list, and it is also what lets the set be sixteen long."""
-    m = re.search(r"\.faq-rows\{([^}]*)\}", CSS)
-    assert m, ".faq-rows rule not found"
-    assert "grid-template-columns:minmax(0,1fr)" in m.group(1), \
-        "the FAQ is back to more than one column"
-    assert not re.search(r"\.faq-rows\{[^}]*grid-template-columns:[^}]*1fr\)\s+minmax", CSS), \
-        "the FAQ is back to more than one column"
-
-
-def test_the_faq_dropdowns_start_closed():
-    """An accordion rendered open is just a stack with extra markup, and it
-    would put the page back to the length this pass cut it down from."""
-    faq = re.search(r'<section[^>]*id="faq".*?</section>', HTML, re.S).group(0)
-    assert "<details open" not in faq and "<details  open" not in faq
-
-
-def test_how_it_works_has_no_oversized_numerals():
-    sec = re.search(r'<section[^>]*id="how".*?</section>', HTML, re.S).group(0)
-    assert "rail-node" not in sec, "the numbered rail is back"
-    assert sec.count("flow-step") == 3, "How it works is not three steps"
-
-
-def test_the_feature_grid_is_not_a_symmetric_grid_of_icon_chips():
-    """The banned shape is a run of identical cards with an icon in a tinted
-    rounded square.
-
-    This assertion has now been wrong twice, both times because it measured a
-    PROXY. First "exactly four items", which broke the moment the section
-    legitimately grew. Then a run-length rule over item sizes, which broke when
-    the fix for "jumbled together" was to GROUP the items — more structure, and
-    the run-length check read it as less.
-
-    So it measures the structure itself: the section is divided into labelled
-    groups, and no single group is big enough to read as a grid of equal cards.
-    """
-    sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
-    assert 'class="ic"' not in sec, "icons in tinted squares are back"
-
-    groups = re.findall(r'<div class="feat-group">(.*?)(?=<div class="feat-group">|$)',
-                        sec, re.S)
-    assert len(groups) >= 3, (
-        f"the section is {len(groups)} group(s) — it is back to one flat list")
-
-    for i, g in enumerate(groups):
-        assert 'class="feat-label"' in g, f"group {i} has no label saying what it is"
-        items = re.findall(r'class="feat(?:\s+[^"]*)?"', g)
-        assert 1 <= len(items) <= 3, (
-            f"group {i} holds {len(items)} items; past three it stops reading as "
-            f"a group and starts reading as a grid")
-
-
-def test_the_lead_claim_still_gets_its_own_weight():
-    """One item carries the argument and is set larger than the rest. Flatten
-    it and the section is eight things of equal importance again."""
-    sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
-    assert "feat-wide" in sec, "the lead claim lost its emphasis"
-    m = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS)
-    assert m, "the lead heading has no rule of its own"
-    assert "clamp(" in m.group(1), "the lead heading is no longer larger than the rest"
-
-
-def test_the_lead_claim_does_not_split_its_heading_away_from_its_text():
-    """WHAT "jumbled" WAS. The full-width item put its heading hard left and
-    started its body at 42% across — three hundred pixels of nothing in the
-    middle of the most prominent row on the page. Heading above its text now,
-    with a capped measure so it does not run to 1200px instead."""
-    m = re.search(r"\.feat-wide p\{([^}]*)\}", CSS)
-    assert m, "the lead body has no rule"
-    assert "max-width" in m.group(1), \
-        "the lead paragraph can run the full width of the page"
-    two_col = re.search(r"\.feat-wide\{[^}]*grid-template-columns[^}]*\}", CSS)
-    assert not two_col, \
-        "the lead item is back to a two-column split with a gap in the middle"
-
-
 # ── craft rules ──────────────────────────────────────────────────────────────
 
-def test_sections_are_not_all_weighted_the_same():
-    """Uniformity everywhere is the visual signature of generated design — and
-    that is still the rule. What changed is WHERE the variation lives.
 
-    This used to require three different section PADDING values, which bought
-    emphasis out of the boundaries between sections. That is the one budget
-    that has to stay even: the boundary is what the eye meters the scroll by,
-    and paying for emphasis from it produced a 112/112/96/80 sequence in which
-    the two 112s read as hesitations. Every boundary is now exactly --s-9.
-
-    The editorial judgement it was protecting is intact and still asserted
-    below: the argument (#how) and the decision (#pricing) get more room than
-    the reference material (#faq). It is now taken from the space between a
-    section's title and its body, where varying it reads as emphasis rather
-    than as an uneven scroll."""
-    css = CSS.replace("\n", "").replace("  ", "")
-    gaps = dict(re.findall(r"#(how|pricing|faq) \.sec-title\{margin-bottom:var\(--s-(\d+)\)", css))
-    assert set(gaps) == {"how", "pricing", "faq"}, f"section weighting is gone: {gaps}"
-    assert len(set(gaps.values())) >= 2, \
-        f"every section is weighted identically again: {gaps}"
-    assert int(gaps["how"]) > int(gaps["faq"]), \
-        "the argument no longer gets more room than the reference material"
-    # And the boundaries themselves must stay even.
-    m = re.search(r"section\{padding-top:var\(--s-(\d+)\);padding-bottom:var\(--s-(\d+)\)\}", css)
-    assert m and m.group(1) == m.group(2), "section boundaries are uneven again"
+def test_the_tonal_rhythm_is_dark_dark_light_light_dark_light_dark():
+    """The v4 brief made the rhythm mandatory and the cuts hard: proof and
+    numbers on black, catches and score on paper, watch on black, pricing on
+    paper, the close on black. A section on the wrong ground breaks the
+    sequence the whole page is built on."""
+    secs = re.findall(r'<section class="([^"]*)" id="([^"]+)"', HTML)
+    ids = [i for _, i in secs]
+    assert ids == ["proof", "numbers", "catches", "score", "watch", "pricing", "start"], ids
+    light = ["light" in c.split() for c, _ in secs]
+    assert light == [False, False, True, True, False, True, False], light
+    # And the light ground is the one token, painted flat.
+    assert re.search(r"\.light\{background:var\(--paper\)", CSS)
 
 
 def test_there_is_no_blurred_glow_blob():
@@ -251,7 +138,7 @@ def test_no_section_fades_up_on_scroll():
 
 
 def test_buttons_have_real_press_states():
-    for sel in (".btn-key:active", ".btn-quiet:active"):
+    for sel in (".btn-go:active", ".btn-ghost:active", ".btn-dark:active"):
         assert sel in CSS, f"{sel} has no pressed state"
     assert ":focus-visible" in CSS
 
@@ -310,85 +197,13 @@ def test_the_nav_has_no_lines_on_it():
         "the nav went back to a glass plate instead of blending"
 
 
+
 def test_the_nav_wears_the_surface_it_arrives_on():
-    """Blending is the whole point: the hero band's top tone is #09070C, so the
-    bar is that colour and there is no edge where one becomes the other. If the
-    band's top tone is ever changed, this fails and both must move together."""
-    m = re.search(r"\.hero\.hero-band\{[^}]*background:linear-gradient\(180deg,(#[0-9A-Fa-f]{6})",
-                  CSS)
-    assert m, "could not read the hero band's top tone"
-    top = m.group(1)
+    """The bar is fixed over the top of the page. It wears the black family
+    the cover and the proof section are painted in, so there is never an edge
+    under it on the first two screens; over the light sections it is a dark
+    bar by design (the brief's cuts are hard)."""
     nav = re.search(r"\n  \.nav\{([^}]*)\}", CSS).group(1)
-    assert top in nav, (
-        f"the nav is not the same tone as the surface under it "
-        f"(band starts {top}) — there will be a visible edge")
-
-
-def test_the_faq_schema_matches_the_visible_questions():
-    """The schema is derived from the markup, so a markup change must not empty
-    it. Publishing a FAQPage with no questions is worse than publishing none."""
-    import json
-    blobs = re.findall(r'<script type="application/ld\+json">(.*?)</script>', HTML, re.S)
-    faq = [json.loads(b) for b in blobs if json.loads(b).get("@type") == "FAQPage"][0]
-    # Tag-agnostic on purpose. This pairing has flipped between <p> and
-    # <summary> twice; both times a tag-specific pattern here made the test
-    # compare the schema against an empty list and pass for the wrong reason,
-    # which is precisely the drift it exists to catch.
-    shown = re.findall(
-        r'<(?:p|summary)[^>]*\bclass="[^"]*\bfaq-q\b[^"]*"[^>]*>(.*?)</(?:p|summary)>',
-        HTML, re.S)
-    assert len(shown) >= 5, "the visible FAQ could not be read at all"
-    assert len(faq["mainEntity"]) == len(shown)
-
-
-def test_the_feature_titles_are_not_the_same_colour_as_their_own_body_text():
-    """WHY THIS SECTION LOOKED FLAT. `.feat h3` set no colour at all, so it
-    INHERITED — and what it inherited was the same value `.feat p` sets
-    explicitly. Measured in Chromium: title and body both rgb(185,174,196).
-    Eight headings and eight paragraphs in one ink, separated by two pixels of
-    size and one weight, so nothing announced what each block was about.
-
-    A heading with no colour of its own is the failure mode, so this asserts
-    the colour is STATED, not merely different today: the next change to a
-    parent would silently take it back down to the body value."""
-    m = re.search(r"\.feat h3\{([^}]*)\}", CSS)
-    assert m, ".feat h3 has no rule of its own"
-    head = m.group(1)
-    assert "color:" in head, \
-        "the feature titles inherit their colour — one parent change and they " \
-        "are the same ink as their own body text again"
-    body = re.search(r"\.feat p\{([^}]*)\}", CSS).group(1)
-    head_col = re.search(r"color:([^;]+)", head).group(1).strip()
-    body_col = re.search(r"color:([^;]+)", body).group(1).strip()
-    assert head_col != body_col, (
-        f"feature titles and body text are both {head_col}")
-    assert head_col == "var(--ember)", (
-        f"the titles are {head_col}. Gold on the owner's call: this section is "
-        f"what tells a visitor what the product does and it was being skipped. "
-        f"See test_ember_belongs_to_the_instruments_not_the_prose — these "
-        f"headings are the one deliberate exception to that rule")
-
-
-def test_the_feature_titles_stay_smaller_than_the_lead_claim():
-    """The lead is the one item carrying the argument. Raising the item titles
-    to make them stand out must not flatten that back out."""
-    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
-    lead = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS).group(1)
-    def ceiling(rule):
-        c = re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", rule)
-        assert c, f"no clamped font-size in {rule!r}"
-        return float(c.group(1))
-    assert ceiling(item) < ceiling(lead), (
-        f"item titles cap at {ceiling(item)}px and the lead at {ceiling(lead)}px "
-        f"— the lead is no longer the largest thing in the section")
-
-
-def test_the_feature_titles_do_not_grow_enough_to_wrap():
-    """MEASURED, not guessed. At a 20px cap "One queue for all of them" and
-    "Streams that already ended" wrap onto a second line at 1440px, leaving the
-    three-column row ragged and pushing those paragraphs below their
-    neighbours. 19 is the largest that keeps them on one line."""
-    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
-    cap = float(re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", item).group(1))
-    assert cap <= 19, (
-        f"item titles cap at {cap}px; above 19 they wrap in the three-column row")
+    assert "#09070C" in nav, "the bar left the black family"
+    proof = re.search(r"\n  \.proof\{([^}]*)\}", CSS).group(1)
+    assert "background:#000" in proof, "the proof section is no longer on black"

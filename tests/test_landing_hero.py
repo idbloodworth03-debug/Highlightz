@@ -51,32 +51,6 @@ def test_the_product_screenshots_stay_gone(gone):
     assert gone not in HTML, f"the lifted product DOM came back: {gone}"
 
 
-def test_the_tour_shows_the_real_screens_as_images_not_lifted_dom():
-    """The tour is pictures of the real dashboard, cropped from the same
-    captures the walkthrough uses. Three things keep it honest and cheap:
-    every card names a file that ships; every image reserves its box
-    (width/height) so the row cannot shift as they load; and they load lazily,
-    so the cover and the wall are not waiting on six screenshots."""
-    from pathlib import Path
-    # The tour sits between the (hidden) example clips and How it works.
-    tour = HTML[HTML.index('id="tour"'):HTML.index('id="how"')]
-    imgs = re.findall(r"<img ([^>]*)>", tour)
-    assert len(imgs) >= 5, "the tour has too few screens to be a tour"
-    for attrs in imgs:
-        src = re.search(r'src="/static/(landing/tour-[\w-]+\.webp)"', attrs)
-        assert src, f"a tour card does not point at a shipped WebP: {attrs[:80]}"
-        f = Path(api._STATIC_DIR) / src.group(1)
-        assert f.exists() and f.stat().st_size < 120_000, f"{f.name} missing or heavy"
-        assert 'width="' in attrs and 'height="' in attrs, "a tour image has no reserved box"
-        assert 'loading="lazy"' in attrs, "a tour image is not lazy"
-        assert re.search(r'alt="[^"]{20,}"', attrs), "a tour image has no real alt text"
-    # Tabs and cards are one control: every tab names a card that exists.
-    tabs = re.findall(r'class="tour-tab[^"]*" data-tour="(\w+)"', tour)
-    cards = re.findall(r'class="tour-card[^"]*" data-tour="(\w+)"', tour)
-    assert tabs and tabs == cards, f"tabs {tabs} do not match cards {cards}"
-    assert "getElementById('tour-row')" in HTML, "the tab/row link script is gone"
-
-
 def test_the_landing_page_did_not_regrow_the_dashboard_stylesheet():
     """The captures shipped 56KB of the app's own CSS to every visitor. Nothing
     should quietly reintroduce that.
@@ -115,24 +89,8 @@ def test_the_hero_does_not_play_a_clip_at_you():
     for fn in ('openStage', 'closeStage', 'teardownFrame', 'holdFor'):
         assert fn not in code, f"stage machinery is back: {fn}"
     # And no iframe anywhere in the hero: the wall must never build a player.
-    hero = HTML[HTML.index('class="hero-stack"'):HTML.index('id="examples"')]
-    assert "<iframe" not in hero, "the hero builds a player again"
-
-
-def test_the_wall_fills_the_viewport_and_is_not_boxed_into_the_text_column():
-    """`.hero-band` alone loses to three later `.wrap` media queries, which is
-    how the wall ended up in a 1280 column with the bottom of the viewport
-    empty. Two class names is what makes it stick."""
-    assert ".hero.hero-band{" in HTML
-    m = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML)
-    assert m and "max-width:none" in m.group(1)
-    # The nav is FIXED over the top of the page now (owner's call), so it is
-    # out of flow: the hero takes the whole screen and clears the bar with its
-    # own top padding. Both halves matter — a flat 100svh with no padding puts
-    # the wall's top under the bar; padding without 100svh leaves slide 2 short.
-    assert "min-height:100svh" in m.group(1)
-    assert re.search(r"padding-top:calc\(var\(--nav-h\)", m.group(1)), \
-        "the hero no longer clears the fixed bar"
+    wall = HTML[HTML.index('id="wall"'):HTML.index('id="wall-state"')]
+    assert "<iframe" not in wall, "the wall builds a player again"
 
 
 def test_the_score_is_still_the_one_number_that_lights_the_page():
@@ -235,7 +193,6 @@ def test_the_showcase_endpoint_is_still_public():
     assert "/landing/showcase" in api._OPEN_PATHS
 
 
-
 # ── the quality floor ────────────────────────────────────────────────────────
 
 
@@ -266,9 +223,6 @@ def test_nothing_in_the_hero_animates_a_layout_property():
         assert prop not in HTML, f"the hero animates {prop.split(':')[1]}"
 
 
-
-
-
 # ── sound ───────────────────────────────────────────────────────────────────
 # REPORTED, TWICE. First "no audio", which was fair: the player was hardcoded
 # muted with no way to ask for sound. Then "still muted" after a Sound on/off
@@ -287,15 +241,6 @@ def test_nothing_in_the_hero_animates_a_layout_property():
 # So these assert the constraint rather than a feature: the clip stays muted,
 # the bar POINTS AT the player's own control instead of impersonating it, and
 # nothing re-adds a muted=false toggle.
-
-
-
-
-
-
-
-
-
 
 
 # ── reduced motion ───────────────────────────────────────────────────────────
@@ -329,18 +274,20 @@ def test_the_wall_drops_to_two_channels_on_a_phone():
     assert m, "the phone wall no longer collapses to a column of two"
 
 
+
 def test_the_simulation_agrees_with_the_stylesheet_about_what_is_visible():
-    """If visibleCount() says four while the CSS is hiding two, the cycle can
-    pick a hidden tile to fire and the payoff happens off screen. The two
-    breakpoints are read from both sides and must be the same number."""
-    css_bp = re.search(r"@media\(max-width:(\d+)px\)\{\s*\.wall\{grid-template-columns:"
-                       r"minmax\(0,1fr\)[^}]*\}\s*\.wall \.tile:nth-child\(n\+3\)"
-                       r"\{display:none\}", HTML)
-    js_bp = re.search(r"matchMedia\('\(max-width:(\d+)px\)'\)\.matches\?2:4", JS)
-    assert css_bp and js_bp, "could not read both breakpoints"
-    assert css_bp.group(1) == js_bp.group(1), (
-        f"CSS hides tiles under {css_bp.group(1)}px but the loop simulates "
-        f"under {js_bp.group(1)}px — a hidden tile can fire")
+    """If visibleCount() says ten while the CSS is hiding four, the cycle can
+    pick a hidden tile to fire and the payoff happens off screen. Both
+    breakpoints are read from both sides and must agree: the phone shows four
+    tiles, the tablet six, the desktop all ten."""
+    css_phone = re.search(r"@media\(max-width:(\d+)px\)\{[^@]*?\.watch \.wall \.tile:nth-child\(n\+5\)\{display:none\}", HTML)
+    css_tab = re.search(r"@media\(max-width:(\d+)px\)\{[^@]*?\.watch \.wall \.tile:nth-child\(n\+7\)\{display:none\}", HTML)
+    js_phone = re.search(r"matchMedia\('\(max-width:(\d+)px\)'\)\.matches\) return 4;", JS)
+    js_tab = re.search(r"matchMedia\('\(max-width:(\d+)px\)'\)\.matches\) return 6;", JS)
+    assert css_phone and css_tab and js_phone and js_tab, "could not read the breakpoints"
+    assert css_phone.group(1) == js_phone.group(1), "the phone breakpoint disagrees"
+    assert css_tab.group(1) == js_tab.group(1), "the tablet breakpoint disagrees"
+    assert "var N=10;" in JS and "<4;" not in JS, "a hard-coded four is back in the loop"
 
 
 def test_the_wall_never_shows_the_same_channel_twice():
@@ -526,19 +473,6 @@ def test_the_cover_is_readable_with_no_javascript():
     assert "transform" not in re.search(r"\n  \.cover-in\{([^}]*)\}", HTML).group(1)
 
 
-def test_the_score_rail_stays_off_the_cover():
-    """"Just the logo, the name and the numbers" — a floating score readout on
-    top of the black is exactly the "else". It is hidden by default so JS-off
-    and reduced-motion get the clean screen too, not just the animated path."""
-    thread = re.findall(r"\n  \.thread\{([^}]*)\}", HTML)
-    assert any("opacity:0" in t for t in thread), \
-        "the score rail is visible on the cover"
-    assert "body.past-cover .thread{opacity:1}" in HTML, \
-        "the score rail never comes back after the cover"
-    assert "classList.toggle('past-cover'" in HTML, \
-        "nothing ever adds the past-cover class"
-
-
 # ── two slides ───────────────────────────────────────────────────────────────
 
 def _slides() -> str:
@@ -642,36 +576,32 @@ def test_the_cover_and_the_site_share_their_light():
     assert "z-index:1" in re.search(r"\.cover-cue\{([^}]*)\}", HTML).group(1)
 
 
-def test_ember_belongs_to_the_instruments_not_the_prose():
-    """The hero once stacked a gold kicker over a gold NO AI badge over a gold
-    offer over four gold scores. Those first three went with the hero lede;
-    what the rule protects now is the rest of the page — ember is the
-    instrument colour, so prose and wayfinding labels must not wear it, and
-    the instruments must not lose it.
 
-    ONE DELIBERATE EXCEPTION, added on the owner's call: the feature section's
-    item titles (.feat h3) are gold, because that section is what tells a
-    visitor what the product does and it was being read straight past. It is
-    not in the list below, and .feat-label — the group labels right beside
-    those titles — still is, so the exception stays one selector wide rather
-    than becoming "the features section may use ember"."""
+def test_ember_belongs_to_the_instruments_not_the_prose():
+    """The orange is the page's one accent and it sits on measurements and
+    the action: the wall's scores, the big figures, the price, the crossing,
+    the category tag on a card, the button. Prose and wayfinding never wear
+    it."""
     prose = {
-        ".feat-label": r"\.feat-label\{([^}]*)\}",       # section group labels
-        ".price-lead b": r"\.price-lead b\{([^}]*)\}",   # the pricing lead-in
-        ".price-tiny": r"\.price-tiny\{([^}]*)\}",       # the plan footnote
-        ".wall-cap": r"\.wall-cap\{([^}]*)\}",           # the wall's caption
-        ".ptier-fig": r"\.ptier-fig\{([^}]*)\}",         # every price but Pro's
+        ".l-sub": r"\.l-sub\{([^}]*)\}",
+        ".proof-note": r"\.proof-note\{([^}]*)\}",
+        ".bign-k": r"\.bign-k\{([^}]*)\}",
+        ".card-t p": r"\.card-t p\{([^}]*)\}",
+        ".plan-facts li": r"\.plan-facts li\{([^}]*)\}",
+        ".price-lead": r"\n  \.price-lead\{([^}]*)\}",
+        ".wall-cap": r"\.wall-cap\{([^}]*)\}",
     }
     for name, pat in prose.items():
         m = re.search(pat, HTML)
         assert m, f"{name} is gone — re-point this test rather than deleting it"
         assert "ember" not in m.group(1), f"{name} is wearing the instrument colour"
-    # and the instruments KEEP it — this is a reassignment, not a purge
     for name, pat in ((".tile-score", r"\.tile-score\{([^}]*)\}"),
-                      (".ptier-c .ptier-fig", r"\.ptier-c \.ptier-fig\{([^}]*)\}")):
+                      (".bign-n", r"\n  \.bign-n\{([^}]*)\}"),
+                      (".btn-go", r"\n  \.btn-go\{([^}]*)\}"),
+                      (".card-k", r"\.card-k\{([^}]*)\}"),
+                      (".tile-pull", r"\.tile-pull\{([^}]*)\}")):
         m = re.search(pat, HTML)
-        assert m and "ember" in m.group(1), \
-            f"{name} lost its ember — the instrument colour is gone too"
+        assert m and "ember" in m.group(1), f"{name} lost its ember"
 
 
 def test_the_wall_speaks_the_covers_language():
@@ -684,52 +614,13 @@ def test_the_wall_speaks_the_covers_language():
     assert "border-radius" not in tile, "the tiles grew corners again"
     assert "border-box" not in tile, "the gradient border is back"
     assert "background:transparent" in tile, "the tiles have a card fill again"
-    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
-    assert "#09070C" in band and "var(--bone)" in band, \
-        "the hero ground no longer carries the cover's darkness"
+    watch = re.search(r"\n  \.watch\{([^}]*)\}", HTML).group(1)
+    assert "background:#000" in watch, "the wall no longer sits on the cover's black"
     # stacked rows on a phone divide horizontally, and the override must sit
     # AFTER the base .tile rule or the base border-left silently wins
     i_base = HTML.index("\n  .tile{")
     i_phone = HTML.index("border-top:1px solid var(--hair);padding-left:0;padding-right:0")
     assert i_phone > i_base, "the phone divider override is before the base rule again"
-
-
-def test_the_page_below_the_fold_is_one_dark_room():
-    """The cover's rule, applied to the rest: no section steps the ground
-    lighter (the sand panels are flat now — chapters are hairlines and light,
-    not surface changes), the formula demo lost the last gradient card in
-    #how, and the pricing tiers are hairline cells like the wall and the
-    stats band."""
-    sand = re.search(r"\n  \.band-sand\{([^}]*)\}", HTML).group(1)
-    assert "background:transparent" in sand, "the lighter band panels are back"
-    formula = re.search(r"\n  \.formula\{([^}]*)\}", HTML).group(1)
-    assert "border-box" not in formula and "border-radius" not in formula, \
-        "the formula demo is a gradient card again"
-    assert "border-top:1px solid var(--hair)" in formula, \
-        "the formula lost its hairline frame"
-    tiers = re.search(r"\n  \.ptiers\{([^}]*)\}", HTML).group(1)
-    assert "border-top:1px solid var(--hair)" in tiers and "gap:0" in tiers, \
-        "the pricing row is not the hairline band construction"
-
-
-def test_the_wall_fills_slide_two_now_that_it_is_alone_there():
-    """THE BUG THE REMOVAL CAUSED, and the reason this is pinned.
-
-    The hero was `grid-template-rows:auto minmax(0,1fr)` — the lede took the
-    auto row, the wall took the 1fr row that stretched. Deleting the lede left
-    the wall as the only child, so it landed in the AUTO row and collapsed to
-    its own minimum: 281px of tiles in an 878px hero with 500px of black
-    underneath. One child, one row, and it has to stretch.
-    """
-    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
-    rows = re.search(r"grid-template-rows:([^;]+)", band).group(1).strip()
-    assert rows == "minmax(0,1fr)", \
-        f"the hero has {rows!r} rows again — a spare auto row collapses the wall"
-    # and the hero still has exactly one child to put in it
-    header = HTML[HTML.index('<header class="wrap hero'):]
-    header = header[:header.index("</header>")]
-    assert header.count('<div class="hero-stack">') == 1
-    assert 'class="hero-lede"' not in header, "the lede came back"
 
 
 def test_the_removed_hero_left_no_dead_stylesheet():
@@ -757,65 +648,4 @@ def test_the_page_still_has_exactly_one_h1():
 
 # ── slide 2 is a spread ──────────────────────────────────────────────────────
 
-def test_slide_two_is_a_spread_not_a_wall_alone():
-    """The wall was the entire second screen; the owner asked for it smaller
-    and beside other things. Slide 2 is a two-column spread now: the voice on
-    the left (kicker, heading, one paragraph, two door chips) and the wall as
-    a 2x2 exhibit on the right."""
-    header = HTML[HTML.index('<header class="wrap hero'):]
-    header = header[:header.index("</header>")]
-    assert 'class="hero-side"' in header, "the voice column is gone"
-    assert header.index('class="hero-side"') < header.index('id="wall"'), \
-        "the voice does not precede the wall"
-    # The primary CTA lives on this screen too: the case is made here, so the
-    # button is here — /login is the paywall's front door for a new visitor.
-    side = header[header.index('class="hero-side"'):header.index('id="wall"')]
-    assert 'href="/login" class="btn btn-key' in side, \
-        "slide 2 lost its Start clipping now button"
-    assert "Start clipping now" in side
-    band = re.search(r"\.hero\.hero-band\{([^}]*)\}", HTML).group(1)
-    cols = re.search(r"grid-template-columns:([^;]+)", band)
-    assert cols and "fr" in cols.group(1) and "," not in cols.group(1).split(")")[-1], ""
-    assert len(re.findall(r"minmax\(", cols.group(1))) == 2, \
-        "slide 2 is not a two-column spread"
-    wall = re.search(r"\n  \.wall\{([^}]*)\}", HTML).group(1)
-    assert "repeat(2,minmax(0,1fr))" in wall, "the wall is not a 2x2"
 
-
-def test_the_door_chips_exist_and_go_where_they_claim():
-    """The owner asked for little prompts to the tutorial and compare pages.
-    Four chips: the pair on slide 2, one under pricing (compare — where the
-    shopper is deciding), one under the FAQ (tutorial — where the reader has
-    questions). All real links with a focus style, and each names its page."""
-    chips = re.findall(r'<a class="peek[^"]*" href="([^"]+)">', HTML)
-    assert chips.count("/tutorial") == 2, f"tutorial chips: {chips}"
-    assert chips.count("/compare") == 2, f"compare chips: {chips}"
-    assert ".peek:hover" in HTML and ".peek:focus-visible" in HTML, \
-        "the chips have no hover or focus treatment"
-    # placement: one compare chip inside pricing, one tutorial chip after the
-    # FAQ's walkthrough line
-    pricing = HTML[HTML.index('id="pricing"'):HTML.index('id="faq"')]
-    assert 'href="/compare"' in pricing, "pricing lost its compare door"
-    faq = HTML[HTML.index('id="faq"'):]
-    assert 'class="peek peek-inline" href="/tutorial"' in faq, \
-        "the FAQ lost its tutorial door"
-
-
-def test_the_how_section_staggers_instead_of_listing():
-    """Three equal columns read as a numbered list. The stagger is the
-    personality: the formula (step two) owns the tall right column and steps
-    one and three hang at different heights on the left."""
-    b = re.search(r"\.flow-b\{([^}]*)\}", HTML).group(1)
-    assert "span 2" in b, "step two no longer spans the right column"
-    a = re.search(r"\.flow-a\{([^}]*)\}", HTML).group(1)
-    c = re.search(r"\.flow-c\{([^}]*)\}", HTML).group(1)
-    assert "margin-top" in a and "margin-top" in c and a != c, \
-        "the left steps hang at the same height — the stagger is gone"
-
-
-def test_the_feature_groups_alternate_sides():
-    """Four identical label-then-list bands is the list the owner asked to
-    lose. Every other group swaps its label to the far side."""
-    even = re.search(r"\.feat-group:nth-of-type\(even\)>\.feat-label\{([^}]*)\}", HTML)
-    assert even and "grid-column:2" in even.group(1), \
-        "even feature groups no longer swap sides"

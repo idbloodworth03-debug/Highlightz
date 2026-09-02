@@ -24,25 +24,24 @@ the next person reads it as a decision rather than an accident.
 import pytest
 
 
-def test_the_claim_is_made_in_the_argument_not_only_the_faq():
-    """The badge used to put this above the fold. With it gone, the floor is
-    that the page still says it where it makes its case — a differentiator
-    that appears only in an FAQ answer is one most visitors never meet."""
+
+def test_the_claim_is_made_where_the_page_makes_its_case():
+    """The badge used to put this above the fold. The floor is that the page
+    still says it where it shows the score being made — a differentiator that
+    appears only in a footnote is one most visitors never meet."""
     from src.dashboard.api import LANDING_HTML as h
-    how = h[h.index('id="how"'):h.index('id="features"')]
-    low = how.lower()
+    score = h[h.index('id="score"'):h.index('id="watch"')]
+    low = score.lower()
     assert "no black box" in low or "not ai" in low or "formula" in low, \
-        "the how-it-works section no longer states what the detector is"
-    # and the FAQ still answers it directly for anyone who looks
-    faq = h[h.index('id="faq"'):]
-    assert "is this ai?" in faq.lower(), "the FAQ dropped the AI question"
+        "the score section no longer states what the detector is"
 
 
-def test_the_formula_section_the_claim_points_at_exists():
-    """#how is where the claim is cashed: it shows the signals and the score.
+
+def test_the_score_section_the_claim_points_at_exists():
+    """#score is where the claim is cashed: it shows the signals and the score.
     If that anchor ever disappears the claim has nothing standing behind it."""
     from src.dashboard.api import LANDING_HTML
-    assert 'id="how"' in LANDING_HTML
+    assert 'id="score"' in LANDING_HTML and 'id="sc-sigs"' in LANDING_HTML
 
 
 def test_the_page_does_not_claim_to_use_ai_anywhere():

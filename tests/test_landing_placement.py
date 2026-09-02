@@ -73,18 +73,26 @@ def test_the_hero_wall_takes_only_hero_clips():
         "the wall no longer filters by placement; it shows the gallery's clips too"
 
 
-def test_the_examples_grid_takes_only_gallery_clips():
-    assert "c.gallery !== false" in _landing_js(), \
-        "the grid no longer filters by placement"
+
+def test_the_shelf_takes_only_gallery_clips():
+    """The shelf is rendered on the server now (v4). It reads the gallery
+    placement; the frames behind the headlines read the hero placement."""
+    import inspect
+    src = inspect.getsource(api.render_landing)
+    assert '_shelf_html(_frames("gallery"))' in src, "the shelf no longer filters by placement"
+    assert "_frames()" in src or '_frames("hero")' in src, "the frames no longer read the hero placement"
+
 
 
 def test_both_filters_use_not_false_rather_than_truthy():
-    """`c.hero` alone would drop every entry saved before placement existed,
-    because the key is absent — the same blank-the-page failure as above, but
-    on the client."""
+    """`e.get("hero")` alone would drop every entry saved before placement
+    existed, because the key is absent — the same blank-the-page failure as
+    above. The wall's client-side filter has the same rule."""
+    import inspect
+    src = inspect.getsource(api._frames)
+    assert "is not False" in src, "the placement filter is a truthy check"
     js = _landing_js()
-    assert "c.hero !== false" in js and "c.gallery !== false" in js
-    assert "if(c.hero)" not in js and "if(c.gallery)" not in js
+    assert "c.hero !== false" in js and "if(c.hero)" not in js
 
 
 # ── the endpoint ─────────────────────────────────────────────────────────────

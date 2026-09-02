@@ -142,7 +142,8 @@ def test_pricing_bullets_are_not_laid_out_as_flex_columns():
     from src.dashboard.api import LANDING_HTML
     assert ".price-list .li{" not in LANDING_HTML, \
         "the dead pricing stylesheet is back"
-    i = LANDING_HTML.index(".ptier-chan{")
+    # v4: the sentence with inline <b> and <a> is the pricing lead.
+    i = LANDING_HTML.index("\n  .price-lead{") + 3
     rule = LANDING_HTML[i:LANDING_HTML.index("}", i)]
     assert "display:flex" not in rule, \
         "plan lines are flex — inline <b> will break the sentence into columns"

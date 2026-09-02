@@ -113,7 +113,10 @@ def test_the_public_showcase_publishes_only_whitelisted_fields():
     })
     assert set(entry) == {
         "hero", "gallery", "id", "clip_title", "channel", "game",
-        "twitch_url", "embed_url", "thumbnail_url", "score", "duration_seconds"}
+        "twitch_url", "embed_url", "thumbnail_url", "score", "duration_seconds",
+        # The signal that led the clip — a category, not a person. Added for
+        # the v4 shelf so a clip files under the right rail tab.
+        "signal"}
 
 
 def test_no_public_page_leaks_a_secret_or_an_internal_path(anon):
@@ -246,7 +249,6 @@ def test_llms_txt_says_what_the_product_actually_is():
 
 @pytest.mark.parametrize("path,expected_type", [
     ("/", "SoftwareApplication"),
-    ("/", "FAQPage"),
     ("/tutorial", "HowTo"),
     ("/compare", "ItemList"),
 ])
