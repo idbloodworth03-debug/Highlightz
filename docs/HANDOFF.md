@@ -530,6 +530,22 @@ normal Clip Review screen, which still shows scores.
   - 77 tests that described the deleted sections were dropped or repointed
     (`scratchpad/v4/retests.py` is the record); the crawlable-text floor in
     test_seo_head went 4000 → 2000 because the brief cut prose on purpose.
+  - **Phone pass** (owner: "the mobile ui … is bugged out on some pages").
+    Rendered at 390×844 and 360×740 in Chromium (`isMobile`, DPR 2), four
+    things were broken and are fixed + pinned in `test_landing.py`
+    (`test_the_phone_layout_of_the_pages_that_broke`): (1) the proof
+    section's outer two product screens were never hidden — `.fan img`
+    outranked `.fan-l{display:none}`, the rule is `.fan .fan-l` now; (2) the
+    stuck `#score` scene was taller than a phone viewport, headline under the
+    fixed bar and the signals clipped — the script moves `.score-head` into
+    `#score-lead` above the track under 900px (and back when wider) and the
+    scene pads its top by `--nav-h`; (3) the cover's five-column stat band
+    ran a five-digit count off the right edge — two columns under 700px, rows
+    divided by the hairline (desktop band untouched); (4) half-width watch
+    tiles cut the game and the signal labels to two letters — the game drops
+    to its own line and labels size to their text. Harness:
+    `scratchpad/v4/mobile.js` (note its `/landing/` stub must not swallow
+    `/static/landing/*.webp` — that bug hid the fan for a while).
 - **Landing v3 (2026-09-02).** A full "spec sheet" rebuild (hairline grids,
   mono labels, no Lobster, orange-only accent) shipped as `df56cbf` and was
   **rejected by the owner within the hour** ("you made it worse … poor and

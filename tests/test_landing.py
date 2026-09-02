@@ -625,3 +625,56 @@ def test_the_shelf_is_a_carousel_that_wraps_without_a_seam():
     assert "copy.setAttribute('aria-hidden','true')" in js
     assert "el.setAttribute('tabindex','-1')" in js
     assert "if(first&&live>1){" in js, "a single card must not loop alone"
+
+
+def _media_block(css: str, query: str, inside: str) -> str:
+    """The body of the `@media(query){...}` block that contains `inside`."""
+    i = css.index(inside)
+    start = css.rindex("@media(" + query + "){", 0, i)
+    return css[start:css.index("\n  }\n", i)]
+
+
+def test_the_phone_layout_of_the_pages_that_broke():
+    """Owner: "the mobile ui on the landing page is bugged out on some pages".
+    Rendered at 390x844 and 360x740, four things were wrong, and each is
+    pinned here so it cannot come back:
+
+    1. The proof section's outer two product screens kept rendering on a
+       phone. `.fan img` sets display:block at class+element specificity, so
+       a bare `.fan-l{display:none}` lost. The hiding rule must carry the
+       parent.
+    2. The score scene is stuck for the length of its track, and on a phone
+       its headline sat under the fixed bar with the signals cut off the
+       bottom. The head is moved above the track by the script under 900px,
+       into a landing that exists in the markup, and the scene pads its top
+       by the bar's real height.
+    3. The cover's five-column stat band cannot hold a five-digit count in
+       82px cells: two columns on a phone, rows divided by the hairline.
+    4. Half-width watch tiles truncated the channel's game and every signal
+       label to two letters: the game drops to its own line and the labels
+       size to their text."""
+    css = api.LANDING_HTML
+    fan = _media_block(css, "max-width:900px", ".fan .fan-l,.fan .fan-r{display:none}")
+    assert ".fan .fan-l,.fan .fan-r{display:none}" in fan
+    assert "\n    .fan-l,.fan-r{display:none}" not in css, \
+        "a bare class rule is beaten by `.fan img{display:block}`"
+
+    assert '<div class="wrap score-lead" id="score-lead"></div>\n  <div class="score-track"' in css, \
+        "the head's phone landing must precede the track"
+    score = _media_block(css, "max-width:900px", ".score-stick{box-sizing:border-box;padding-top:calc(var(--nav-h)")
+    assert ".score-lead{display:block;" in score
+    assert "var narrow=window.matchMedia?window.matchMedia('(max-width: 900px)'):null;" in css
+    assert "if(narrow&&narrow.matches){ if(headEl.parentNode!==lead) lead.appendChild(headEl); }" in css
+    assert "else if(headEl.parentNode!==grid){ grid.insertBefore(headEl,grid.firstChild); }" in css, \
+        "widening the window must put the head back into the scene"
+
+    cover = _media_block(css, "max-width:700px", ".cover .stats{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))")
+    assert ".cover .stat{border-left:none;border-top:1px solid var(--hair);" in cover
+    assert ".cover .stat:nth-child(-n+2){border-top:none}" in cover
+    # Desktop keeps the five-across band exactly as it was.
+    assert ".stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;" in css
+
+    watch = _media_block(css, "max-width:700px", ".watch .tile-sigs{grid-template-columns:repeat(5,auto)")
+    assert ".watch .tile-top{flex-wrap:wrap}" in watch
+    assert ".watch .tile-game{margin-left:0;flex-basis:100%;max-width:100%}" in watch
+    assert ".watch .sg-k{font-size:10px;letter-spacing:0}" in watch

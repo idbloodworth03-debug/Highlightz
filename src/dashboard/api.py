@@ -6562,6 +6562,20 @@ LANDING_HTML = """<!DOCTYPE html>
     font-size:30px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:12px}
   .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
   .stat .k{font-size:14px;color:var(--ink-2);margin-top:12px;max-width:30ch;line-height:1.5}
+  /* On a phone the band is two cells across, not five: five columns of a
+     328px band are 82px each, and a five-digit count in the big mono ran
+     out of its cell and off the right edge of the screen. Rows divide with
+     the band's own hairline; the vertical dividers go, because the first
+     cell of each row cannot be told from the second with the live cells
+     hidden and revealed by id. Desktop rules above are untouched. */
+  @media(max-width:700px){
+    .cover .stats{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));
+      column-gap:var(--s-4)}
+    .cover .stat{border-left:none;border-top:1px solid var(--hair);
+      padding:var(--s-4) 0 var(--s-4) 0}
+    .cover .stat:nth-child(-n+2){border-top:none}
+    .cover .stat.stat-big .n{font-size:36px}
+  }
 
   /* ══ BELOW THE COVER: THE CINEMATIC PAGE (v4, 2026-09-02) ═══════════════════
      Everything under the cover was deleted and rebuilt to one blueprint:
@@ -6686,7 +6700,10 @@ LANDING_HTML = """<!DOCTYPE html>
     box-shadow:0 30px 60px -20px rgba(0,0,0,.85)}
   @media(max-width:900px){
     .fan{height:clamp(180px,40vw,400px);margin-top:var(--s-7)}
-    .fan-l,.fan-r{display:none}
+    /* `.fan img` above sets display:block at a higher specificity than a bare
+       class, so `.fan-l{display:none}` lost and both outer screens kept
+       rendering on phones, bleeding off each edge under the headline. */
+    .fan .fan-l,.fan .fan-r{display:none}
     .fan-c{width:min(94vw,720px)}
   }
 
@@ -6823,12 +6840,30 @@ LANDING_HTML = """<!DOCTYPE html>
   .sc-sigs li.on{opacity:1;color:var(--paper-ink);border-color:var(--paper-ink)}
   .score-line{margin:0;font-size:15px;line-height:1.5;color:var(--paper-ink-2);max-width:var(--measure);min-height:3em}
   .score-line b{color:var(--paper-ink);font-weight:700}
+  /* The head's home on a phone. Empty and hidden on a desktop; the script
+     moves the head into it under 900px. */
+  .score-lead{display:none}
   @media(max-width:900px){
     .score-track{height:220vh}
-    .score-grid{grid-template-columns:minmax(0,1fr);row-gap:var(--s-5);align-content:center}
+    /* On a phone the head LEAVES the stuck scene. With the headline and its
+       copy inside, the scene was taller than a 740px viewport: the headline
+       sat under the fixed bar (sticky top:0 is the bar's own pixels) and the
+       signals ran off the bottom, unreachable, because the scene is stuck
+       for the length of the track. The head reads first in normal flow, and
+       the scene pads its top by the bar's real height. */
+    .score-lead{display:block;padding-top:var(--s-8);padding-bottom:var(--s-3)}
+    .score-stick{box-sizing:border-box;padding-top:calc(var(--nav-h) + var(--s-3));
+      align-items:flex-start}
+    .score-grid{grid-template-columns:minmax(0,1fr);row-gap:var(--s-5);align-content:start}
     .score-head .l-h{font-size:clamp(28px,7vw,40px)}
     .score-frame{aspect-ratio:16/9}
     .score-n{font-size:40px}
+  }
+  @media(max-width:700px){
+    .score-svg{aspect-ratio:600/160}
+    .score-grid{row-gap:var(--s-4)}
+    .score-ui{gap:var(--s-3)}
+    .score-line{min-height:0}
   }
   @media(prefers-reduced-motion:reduce){
     .score-track{height:auto}
@@ -6874,7 +6909,15 @@ LANDING_HTML = """<!DOCTYPE html>
     .watch .wall{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;gap:0}
     .watch .wall .tile:nth-child(n+3){display:flex}
     .watch .wall .tile:nth-child(n+5){display:none}
-    .watch .tile{padding:var(--s-3)}
+    .watch .tile{padding:var(--s-2)}
+    /* Half-width tiles: the game drops under the channel name instead of
+       fighting it for one line, and the five signal labels size to their
+       own text (chat, audio, keys, views, hype) rather than to a fifth of
+       a 160px tile, which cut every one of them to two letters. */
+    .watch .tile-top{flex-wrap:wrap}
+    .watch .tile-game{margin-left:0;flex-basis:100%;max-width:100%}
+    .watch .tile-sigs{grid-template-columns:repeat(5,auto);justify-content:space-between}
+    .watch .sg-k{font-size:10px;letter-spacing:0}
     .watch .tile-chart{height:auto;max-height:none;min-height:64px}
     .watch .wall-cap{white-space:normal;flex-wrap:wrap;row-gap:var(--s-1)}
     .watch .wall-cap .sep{display:none}
@@ -7126,6 +7169,7 @@ LANDING_HTML = """<!DOCTYPE html>
      signals light up as they contribute. Under reduced motion the section is
      the finished frame, not a shorter animation. -->
 <section class="light score" id="score" aria-labelledby="score-h">
+  <div class="wrap score-lead" id="score-lead"></div>
   <div class="score-track" id="score-track">
     <div class="score-stick">
       <div class="wrap score-grid">
@@ -8295,6 +8339,22 @@ LANDING_HTML = """<!DOCTYPE html>
   var sigs=track?Array.prototype.slice.call(track.querySelectorAll('#sc-sigs li')):[];
   var frames=track?Array.prototype.slice.call(track.querySelectorAll('#score-frame img')):[];
   var THR=71, VW=600, VH=220, SAMPLES=140;
+  /* On a phone the head lives above the stuck scene (see .score-lead in the
+     CSS): moved, not duplicated, and moved back if the viewport widens. */
+  var lead=document.getElementById('score-lead');
+  var grid=track?track.querySelector('.score-grid'):null;
+  var headEl=track?track.querySelector('.score-head'):null;
+  var narrow=window.matchMedia?window.matchMedia('(max-width: 900px)'):null;
+  function placeHead(){
+    if(!lead||!grid||!headEl) return;
+    if(narrow&&narrow.matches){ if(headEl.parentNode!==lead) lead.appendChild(headEl); }
+    else if(headEl.parentNode!==grid){ grid.insertBefore(headEl,grid.firstChild); }
+  }
+  placeHead();
+  if(narrow){
+    if(narrow.addEventListener) narrow.addEventListener('change',placeHead);
+    else if(narrow.addListener) narrow.addListener(placeHead);
+  }
   var LINES=['Baseline. Nothing to clip.',
              'Chat speeds up. The audio jumps. The signals stack.',
              'Over the line. Twitch makes the clip; it lands in your queue.'];
