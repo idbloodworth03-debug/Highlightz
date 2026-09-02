@@ -239,42 +239,32 @@ def _plan_limit(plan, key, value):
     return _cm()
 
 
-def _week_row(html: str) -> list[str]:
-    """The Free / Starter / Pro cells of the table's weekly-allowance row."""
-    import re
-    row = re.search(r'<th scope="row">Clips kept per week</th>(.*?)</tr>', html, re.S)
-    assert row, "the pricing table has no weekly-allowance row"
-    return re.findall(r"<td>(.*?)</td>", row.group(1))
-
-
-def test_the_pricing_table_states_the_weekly_allowance():
+def test_the_pricing_cards_state_the_weekly_allowance():
     from src.dashboard.api import _pricing
     html = _pricing()
-    assert _week_row(html)[0] == str(FREE_CAP)
-    assert _week_row(html)[1] == str(PLAN_LIMITS["starter"]["max_library_week"])
+    assert f"{FREE_CAP} clips</b> kept a week" in html
+    assert f"{PLAN_LIMITS['starter']['max_library_week']} clips</b> kept a week" in html
     # The sentinel is a real number in JSON and would print in full.
     assert "1000000000" not in html, "the unlimited sentinel reached the page"
-    assert _week_row(html)[2] == "Unlimited", "Pro does not advertise having no limit"
+    assert "Unlimited clips</b> kept" in html, "Pro does not advertise having no limit"
 
 
-def test_the_pricing_table_derives_the_number():
+def test_the_pricing_cards_derive_the_number():
     """`str(30) in html` passes whether the 30 was read or typed."""
     from src.dashboard.api import _pricing
     with _plan_limit("free", "max_library_week", 4242):
-        assert _week_row(_pricing())[0] == "4242", \
-            "the pricing table types the weekly allowance"
+        assert "4242 clips</b> kept a week" in _pricing(), \
+            "the pricing card types the weekly allowance"
 
 
 def test_the_pricing_lead_no_longer_promises_a_single_axis():
-    """It said the paid plans answer ONE question, how many channels. The
-    weekly allowance is the second axis and the one that decides whether free
-    is enough. The table shows it as a row of its own, and the lead must not
-    claim the plans differ on channels alone."""
+    """It said the paid plans answer ONE question, how many channels. There
+    are two now, and the second is the one that decides whether free is
+    enough — leaving the old sentence would undersell the change."""
     from src.dashboard.api import _pricing
     html = _pricing()
     assert "answer one question" not in html
-    assert "one axis" not in html and "only on how many channels" not in html
-    assert "Clips kept per week" in html
+    assert "two things" in html
 
 
 @pytest.mark.parametrize("surface", ["faq", "terms", "tutorial"])

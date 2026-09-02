@@ -150,49 +150,60 @@ def test_the_faq_dropdowns_start_closed():
 def test_how_it_works_has_no_oversized_numerals():
     sec = re.search(r'<section[^>]*id="how".*?</section>', HTML, re.S).group(0)
     assert "rail-node" not in sec, "the numbered rail is back"
-    assert sec.count('class="cell"') == 3, "How it works is not three steps"
-    # The step markers are small mono labels, not big circled digits.
-    k = re.search(r"\.cell-k\{([^}]*)\}", CSS).group(1)
-    assert "font-size:12px" in k and "border-radius" not in k
-    assert "how-step" not in sec and "step-circle" not in sec
+    assert sec.count("flow-step") == 3, "How it works is not three steps"
 
 
-def test_the_features_are_a_spec_sheet_not_a_grid_of_icon_chips():
+def test_the_feature_grid_is_not_a_symmetric_grid_of_icon_chips():
     """The banned shape is a run of identical cards with an icon in a tinted
     rounded square.
 
-    This assertion has been wrong three times, each time because it measured
-    a PROXY — a count of items, a run-length rule, then labelled groups. The
-    redesign replaced the feature groups with two spec structures, and this
-    measures those: an index of signal rows (one per real signal type), and a
-    grid of hairline cells each led by a mono label and a number. Neither has
-    an icon anywhere in it.
+    This assertion has now been wrong twice, both times because it measured a
+    PROXY. First "exactly four items", which broke the moment the section
+    legitimately grew. Then a run-length rule over item sizes, which broke when
+    the fix for "jumbled together" was to GROUP the items — more structure, and
+    the run-length check read it as less.
+
+    So it measures the structure itself: the section is divided into labelled
+    groups, and no single group is big enough to read as a grid of equal cards.
     """
     sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
     assert 'class="ic"' not in sec, "icons in tinted squares are back"
-    assert "<svg" not in sec and "<img" not in sec, "the spec sheet grew pictures"
-    rows = sec.count('class="sig"')
-    assert rows >= 6, f"the signals index is {rows} rows — it is a feature list again"
-    cells = re.findall(r'<div class="cell">(.*?)</div>\s*(?=<div class="cell">|</div>)',
-                       sec, re.S)
-    assert len(cells) >= 6, "the spec grid is gone"
-    for i, c in enumerate(cells):
-        assert 'class="cell-k"' in c, f"cell {i} has no label saying what it is"
-        assert 'class="cell-n' in c, f"cell {i} has no headline value"
+
+    groups = re.findall(r'<div class="feat-group">(.*?)(?=<div class="feat-group">|$)',
+                        sec, re.S)
+    assert len(groups) >= 3, (
+        f"the section is {len(groups)} group(s) — it is back to one flat list")
+
+    for i, g in enumerate(groups):
+        assert 'class="feat-label"' in g, f"group {i} has no label saying what it is"
+        items = re.findall(r'class="feat(?:\s+[^"]*)?"', g)
+        assert 1 <= len(items) <= 3, (
+            f"group {i} holds {len(items)} items; past three it stops reading as "
+            f"a group and starts reading as a grid")
 
 
-def test_each_chapter_opens_with_one_sentence():
-    """The heading -> restatement -> content shape was the structural tell.
-    What replaced it is one sentence, set large, above the structure it
-    introduces — and only where a sentence carries something the label does
-    not. How it works and Signals each get exactly one."""
-    for sid in ("how", "features"):
-        sec = re.search(r'<section[^>]*id="' + sid + r'".*?</section>', HTML, re.S).group(0)
-        assert sec.count('class="say"') == 1, f"#{sid} does not open with one sentence"
-    m = re.search(r"\n  \.say\{([^}]*)\}", CSS)
-    assert m and "clamp(" in m.group(1), "the statement is no longer set large"
-    assert "max-width" in m.group(1), "the statement can run the full page width"
-    assert "grid-template-columns" not in m.group(1)
+def test_the_lead_claim_still_gets_its_own_weight():
+    """One item carries the argument and is set larger than the rest. Flatten
+    it and the section is eight things of equal importance again."""
+    sec = re.search(r'<section[^>]*id="features".*?</section>', HTML, re.S).group(0)
+    assert "feat-wide" in sec, "the lead claim lost its emphasis"
+    m = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS)
+    assert m, "the lead heading has no rule of its own"
+    assert "clamp(" in m.group(1), "the lead heading is no longer larger than the rest"
+
+
+def test_the_lead_claim_does_not_split_its_heading_away_from_its_text():
+    """WHAT "jumbled" WAS. The full-width item put its heading hard left and
+    started its body at 42% across — three hundred pixels of nothing in the
+    middle of the most prominent row on the page. Heading above its text now,
+    with a capped measure so it does not run to 1200px instead."""
+    m = re.search(r"\.feat-wide p\{([^}]*)\}", CSS)
+    assert m, "the lead body has no rule"
+    assert "max-width" in m.group(1), \
+        "the lead paragraph can run the full width of the page"
+    two_col = re.search(r"\.feat-wide\{[^}]*grid-template-columns[^}]*\}", CSS)
+    assert not two_col, \
+        "the lead item is back to a two-column split with a gap in the middle"
 
 
 # ── craft rules ──────────────────────────────────────────────────────────────
@@ -330,46 +341,54 @@ def test_the_faq_schema_matches_the_visible_questions():
     assert len(faq["mainEntity"]) == len(shown)
 
 
-def test_the_cell_titles_are_not_the_same_colour_as_their_own_body_text():
-    """WHY THE OLD FEATURE SECTION LOOKED FLAT. Its titles set no colour at
-    all, so they INHERITED the body value: heading and paragraph in one ink,
-    separated by two pixels of size and one weight. The spec cells keep the
-    fix in its structural form — the title STATES its colour, and it is not
-    the paragraph's — without the gold the old titles borrowed, because under
-    the hero the orange belongs to numbers and the one button only."""
-    m = re.search(r"\.cell-h\{([^}]*)\}", CSS)
-    assert m, ".cell-h has no rule of its own"
+def test_the_feature_titles_are_not_the_same_colour_as_their_own_body_text():
+    """WHY THIS SECTION LOOKED FLAT. `.feat h3` set no colour at all, so it
+    INHERITED — and what it inherited was the same value `.feat p` sets
+    explicitly. Measured in Chromium: title and body both rgb(185,174,196).
+    Eight headings and eight paragraphs in one ink, separated by two pixels of
+    size and one weight, so nothing announced what each block was about.
+
+    A heading with no colour of its own is the failure mode, so this asserts
+    the colour is STATED, not merely different today: the next change to a
+    parent would silently take it back down to the body value."""
+    m = re.search(r"\.feat h3\{([^}]*)\}", CSS)
+    assert m, ".feat h3 has no rule of its own"
     head = m.group(1)
     assert "color:" in head, \
-        "the cell titles inherit their colour — one parent change and they " \
+        "the feature titles inherit their colour — one parent change and they " \
         "are the same ink as their own body text again"
-    body = re.search(r"\.cell p\{([^}]*)\}", CSS).group(1)
+    body = re.search(r"\.feat p\{([^}]*)\}", CSS).group(1)
     head_col = re.search(r"color:([^;]+)", head).group(1).strip()
     body_col = re.search(r"color:([^;]+)", body).group(1).strip()
-    assert head_col != body_col, f"cell titles and body text are both {head_col}"
-    assert "ember" not in head_col, "the titles took the number colour"
+    assert head_col != body_col, (
+        f"feature titles and body text are both {head_col}")
+    assert head_col == "var(--ember)", (
+        f"the titles are {head_col}. Gold on the owner's call: this section is "
+        f"what tells a visitor what the product does and it was being skipped. "
+        f"See test_ember_belongs_to_the_instruments_not_the_prose — these "
+        f"headings are the one deliberate exception to that rule")
 
 
-def test_the_cell_titles_stay_smaller_than_the_chapter_sentence():
-    """The one-sentence opener carries the argument. The cell titles must not
-    grow into a second set of headlines competing with it."""
-    item = re.search(r"\.cell-h\{([^}]*)\}", CSS).group(1)
-    lead = re.search(r"\n  \.say\{([^}]*)\}", CSS).group(1)
-    size = float(re.search(r"font-size:([\d.]+)px", item).group(1))
-    cap = float(re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", lead).group(1))
-    assert size < cap, (
-        f"cell titles are {size}px and the statement caps at {cap}px "
-        f"— the statement is no longer the largest thing in the chapter")
+def test_the_feature_titles_stay_smaller_than_the_lead_claim():
+    """The lead is the one item carrying the argument. Raising the item titles
+    to make them stand out must not flatten that back out."""
+    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
+    lead = re.search(r"\.feat-wide h3\{([^}]*)\}", CSS).group(1)
+    def ceiling(rule):
+        c = re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", rule)
+        assert c, f"no clamped font-size in {rule!r}"
+        return float(c.group(1))
+    assert ceiling(item) < ceiling(lead), (
+        f"item titles cap at {ceiling(item)}px and the lead at {ceiling(lead)}px "
+        f"— the lead is no longer the largest thing in the section")
 
 
-def test_the_headline_number_never_wraps_its_row():
-    """The big value in a cell is one line or it is nothing: a "1 / 3 / 10"
-    that folds onto two lines drops that cell's title and paragraph below its
-    neighbours' and leaves the row ragged. The rule truncates rather than
-    wraps, and only lets go of that on a phone where the cells are stacked
-    and there is no row to keep."""
-    n = re.search(r"\n  \.cell-n\{([^}]*)\}", CSS).group(1)
-    assert "white-space:nowrap" in n and "text-overflow:ellipsis" in n, \
-        "the headline number can wrap and break the row"
-    assert re.search(r"@media\(max-width:600px\)\{[^@]*\.cell-n\{white-space:normal\}", CSS), \
-        "the number is still forced onto one line on a phone"
+def test_the_feature_titles_do_not_grow_enough_to_wrap():
+    """MEASURED, not guessed. At a 20px cap "One queue for all of them" and
+    "Streams that already ended" wrap onto a second line at 1440px, leaving the
+    three-column row ragged and pushing those paragraphs below their
+    neighbours. 19 is the largest that keeps them on one line."""
+    item = re.search(r"\.feat h3\{([^}]*)\}", CSS).group(1)
+    cap = float(re.search(r"font-size:clamp\([^,]+,[^,]+,\s*([\d.]+)px\)", item).group(1))
+    assert cap <= 19, (
+        f"item titles cap at {cap}px; above 19 they wrap in the three-column row")

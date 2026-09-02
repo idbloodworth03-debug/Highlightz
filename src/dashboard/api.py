@@ -6093,11 +6093,8 @@ LANDING_HTML = """<!DOCTYPE html>
     /* SURFACES — three tones of the same warm plum-black, lightest to darkest.
        The page is dark again, but a step warmer and lighter than the old
        #0E0B11 so the panels can sit BELOW it and read as lit objects. */
-    /* The sheet's ground: black, a shade off pure so the hairlines and the
-       cover's #000 both still read against it. --sand is kept as a name for
-       the rules that reference it; the band it painted is transparent. */
-    --bone:#0A0A0C;
-    --sand:#111014;
+    --bone:#17131C;   /* page base — warm charcoal, plum-tinted */
+    --sand:#1E1826;   /* the alternating band, one step up */
     --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
     /* INKS — one set, light on dark, checked against ALL THREE surface tones:
          --ink   #F2EAF7  15.60 / 14.74 / 16.65
@@ -6205,24 +6202,22 @@ LANDING_HTML = """<!DOCTYPE html>
      the content without changing the nesting. 100vw is safe because
      html{overflow-x:clip} already suppresses sideways scroll. */
   .seam{position:relative;isolation:isolate}
-  .band-sand.wrap{background:transparent}
-  .band-sand.wrap::before{
+  .band-sand.wrap,.band-dark.wrap{background:transparent}
+  .band-sand.wrap::before,.band-dark.wrap::before{
     content:'';position:absolute;inset:0 auto;top:0;bottom:0;left:50%;width:100vw;
     transform:translateX(-50%);z-index:-1}
   /* Transparent for the same reason .band-sand is: one room, no lighter
      panels. The pseudo-element stays so the seam wash still has a full-bleed
      layer to light. */
   .band-sand.wrap::before{background:transparent}
+  .band-dark.wrap::before{background:var(--void)}
 
   /* ── THE THROUGH-LINE. Hairline weight, small mono readout, no chrome. It
      costs one fixed element and it is the thing people remember. ── */
   .thread{position:fixed;right:clamp(14px,2.2vw,34px);top:50%;transform:translateY(-50%);
     z-index:55;display:none;flex-direction:column;align-items:center;gap:12px;
     pointer-events:none}
-  /* 1100, up from 900: the sheet's unit column (RATE, SHARE) runs to the
-     wrap's right edge, and between 900 and 1100 the rail's readout sat on
-     top of it. Measured at 900: readout at x=857, units ending at 858. */
-  @media(min-width:1100px){ .thread{display:flex} }
+  @media(min-width:900px){ .thread{display:flex} }
   /* The cover is the mark, the name and the numbers, and nothing else — a
      floating score rail on top of it is exactly the "else". It fades in once
      the cover is most of the way gone. Opacity only: the element keeps its
@@ -6235,26 +6230,25 @@ LANDING_HTML = """<!DOCTYPE html>
     background:linear-gradient(180deg,transparent,var(--hair-2) 12%,var(--hair-2) 88%,transparent)}
   /* Fill is scaled, never resized: transform only, so it never triggers layout. */
   .thread-fill{position:absolute;left:-1px;bottom:0;width:3px;height:100%;
-    transform-origin:50% 100%;transform:scaleY(var(--lit));
-    background:var(--ember);
+    transform-origin:50% 100%;transform:scaleY(var(--lit));border-radius:2px;
+    background:linear-gradient(180deg,var(--flare),var(--plum));
+    box-shadow:0 0 10px rgba(184,106,220,calc(.25 + var(--lit)*.55));
     transition:transform var(--t-move) var(--ease)}
   /* The threshold: the line the score has to cross for a clip to fire. */
   .thread-thresh{position:absolute;left:-4px;right:-4px;bottom:62%;height:1px;
-    background:var(--ink);opacity:.4}
+    background:var(--ember-ink);opacity:.5}
   .thread-read{font-family:var(--mono);text-align:center;line-height:1}
   .thread-score{display:block;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
     color:var(--ink-2)}
-  .thread.fired .thread-score{color:var(--ember)}
+  .thread.fired .thread-score{color:var(--plum)}
   .thread-lab{display:block;margin-top:4px;font-size:12px;letter-spacing:.16em;
     text-transform:uppercase;color:var(--ink-3)}
-  /* The fire: the top hairline of the section being entered goes bright
-     for as long as the score is over the line. A line, not a wash — the
-     sheet has no glow anywhere and the crossing should not be the exception.
-     Opacity only. */
+  /* The fire: a wash of purple over the section being entered. Opacity only. */
   .seam::after,.wash::after{content:'';position:absolute;left:50%;transform:translateX(-50%);
-    width:100vw;top:0;height:1px;pointer-events:none;z-index:0;opacity:0;
-    background:var(--ink);transition:opacity 700ms var(--ease)}
-  .seam.lit::after,.wash.lit::after{opacity:.5}
+    width:100vw;top:0;height:100%;pointer-events:none;z-index:0;opacity:0;
+    background:radial-gradient(120% 60% at 50% 0%,rgba(184,106,220,.16),transparent 70%);
+    transition:opacity 700ms var(--ease)}
+  .seam.lit::after,.wash.lit::after{opacity:1}
   @media(prefers-reduced-motion:reduce){ .thread{display:none} }
 
   /* ── HERO. Fills the viewport and runs edge to edge. It is not a picture of
@@ -6288,32 +6282,27 @@ LANDING_HTML = """<!DOCTYPE html>
      the wall are one continuous surface with no edge between them.
 
      The bottom 30% fades to nothing instead of ending on a line. That is what
-     replaces the hairline: scrolled down over the sheet the bar dissolves into
-     what is under it rather than stopping on a hard edge. ── */
+     replaces the hairline: scrolled down over the lighter sections the bar
+     dissolves into what is under it rather than stopping on a hard edge. ── */
   .nav{position:sticky;top:0;z-index:60;
     background:linear-gradient(180deg,#09070C 0%,#09070C 70%,rgba(9,7,12,0) 100%);
-    display:flex;align-items:center;gap:var(--s-4);padding:var(--s-3) var(--s-5) var(--s-4)}
-  .nav-logo{display:flex;align-items:center;gap:var(--s-2);flex-shrink:0}
+    display:flex;align-items:center;gap:16px;padding:12px 24px 16px}
+  .nav-logo{display:flex;align-items:center;gap:8px;flex-shrink:0}
   .nav-logo img{height:22px}
   .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--ink)}
-  .nav-links{display:flex;align-items:center;gap:var(--s-1);margin-left:var(--s-3)}
-  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--ink-3);padding:var(--s-2) var(--s-3);
-    transition:color var(--dur-fast)}
-  .nav-link:hover{color:var(--ink)}
-  .nav-right{margin-left:auto;display:flex;align-items:center;gap:var(--s-2)}
-  /* The way in, from the top: a link in the page's ink rather than a second
-     button. One primary button per page, and it is at the end. */
-  .nav-go{color:var(--ink);font-weight:600}
-  .nav-go span{display:inline-block;transition:transform var(--dur-fast) var(--ease)}
-  .nav-go:hover span{transform:translateX(3px)}
+  .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
+  .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
+    color:var(--ink-3);padding:8px 12px;border-radius:3px;
+    transition:color var(--dur-fast),background var(--dur-fast)}
+  .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
   /* 940, not 700: measured, the bar needs 818px with its links shown, so
      anything from ~820 to 940 pushed Get started off a tablet's right edge.
      The tutorial page's copy of this bar uses the same number on purpose. */
   @media(max-width:940px){ .nav-links{display:none} }
   @media(max-width:700px){
-    .nav{padding:var(--s-3) var(--s-4) var(--s-4);gap:var(--s-2)}
+    .nav{padding:12px 16px 16px;gap:8px}
     .nav-logo span{display:none}
   }
 
@@ -6355,13 +6344,13 @@ LANDING_HTML = """<!DOCTYPE html>
     border:1px solid var(--hair);text-decoration:none;min-width:0;
     transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
   .peek-k{font-family:var(--mono);font-weight:600;font-size:11px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
+    letter-spacing:.14em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
   .peek-t{flex:1;font-size:14px;color:var(--ink-2);min-width:0}
   .peek-a{font-family:var(--mono);color:var(--ink-3);
     transition:transform var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
-  .peek:hover{border-color:var(--hair-2);background:rgba(242,234,247,.03)}
-  .peek:hover .peek-a{transform:translateX(4px);color:var(--ink)}
-  .peek:focus-visible{outline:2px solid var(--ember);outline-offset:2px}
+  .peek:hover{border-color:rgba(184,106,220,.45);background:rgba(184,106,220,.05)}
+  .peek:hover .peek-a{transform:translateX(4px);color:var(--glow-ink)}
+  .peek:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
   /* An inline variant for the ones placed under a section's content. */
   .peek-inline{max-width:var(--measure);margin-top:var(--s-6)}
   /* The spread stacks: voice first (auto), wall takes the rest. This is the
@@ -6385,9 +6374,32 @@ LANDING_HTML = """<!DOCTYPE html>
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
     --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
     color:var(--ink-2)}
+  .band-dark{background:var(--void)}
+  .band-dark h1,.band-dark h2,.band-dark h3,
+  .panel h1,.panel h2,.panel h3{color:var(--ink)}
+  /* The instrument panel itself: dark object on a light desk. The shadow is
+     what sells it as sitting ON the page rather than cut into it. */
+  .panel{background:var(--void);border:1px solid rgba(242,234,247,.10);border-radius:18px;
+    box-shadow:0 18px 44px -22px rgba(0,0,0,.75),
+               0 0 0 1px rgba(242,234,247,.04) inset,
+               0 1px 0 rgba(242,234,247,.06) inset}
+
+  /* ── Full-bleed. Sections that break the container use this rather than
+     negative margins, so they cannot reintroduce horizontal overflow. ── */
+  .bleed{width:100%;max-width:none;padding-left:0;padding-right:0}
+
+  /* ── Entrances. On grouped CHILDREN only — never a section container. The
+     same fade-up on every section is the thing that reads as a template.
+     Runs once: the observer unobserves after firing. ── */
+  .rise{opacity:0;transform:translateY(14px);
+    transition:opacity var(--t-enter) var(--ease),transform var(--t-enter) var(--ease)}
+  .rise.in{opacity:1;transform:none}
+
   /* ── Focus. Visible on both surfaces, and never removed. ── */
   a:focus-visible,button:focus-visible,summary:focus-visible,details:focus-visible{
-    outline:2px solid var(--ember);outline-offset:3px;border-radius:0}
+    outline:2px solid var(--plum);outline-offset:3px;border-radius:4px}
+  .band-dark a:focus-visible,.band-dark button:focus-visible,
+  .band-dark summary:focus-visible{outline-color:var(--iris)}
 
   /* GRAIN REMOVED. It was drawn for the dark palette — its own comment says
      the tile exists so panels "get tooth" on a near-black wall. On bone it is
@@ -6399,16 +6411,68 @@ LANDING_HTML = """<!DOCTYPE html>
 
   a{text-decoration:none;color:inherit}
   ::selection{background:rgba(210,106,251,.3);color:#fff}
-  /* One focus ring for the whole page, in the one colour that is not
-     black, white or grey, so a keyboard user can always find it. */
-  :focus-visible{outline:2px solid var(--ember);outline-offset:3px;border-radius:0}
+  /* Focus has to survive a very dark palette: a two-tone ring so it reads on
+     both the void and on a lit surface. */
+  :focus-visible{outline:2px solid var(--flare);outline-offset:3px;border-radius:4px}
+
+  /* ── Rim light. A panel catches the light on the edge FACING the source.
+     The source is above and to the right for the whole page — one position,
+     one falloff, no exceptions — so every rim runs 215deg. Two backgrounds
+     (padding-box fill + border-box gradient) instead of a pseudo-element:
+     no z-index games, no stacking-context surprises. ── */
+  .lit{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.40),rgba(184,106,220,.08) 34%,rgba(242,234,247,.05) 64%,rgba(242,234,247,.018)) border-box}
+  .lit-deep{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(var(--void),var(--void)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.26),rgba(242,234,247,.05) 40%,rgba(242,234,247,.015)) border-box}
+  /* The one surface standing nearest the monitor. */
+  .lit-near{border:1px solid transparent;border-radius:3px;
+    background:linear-gradient(168deg,var(--bruise),#291A33 60%,var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,.75),rgba(184,106,220,.22) 30%,rgba(242,234,247,.06) 66%,rgba(242,234,247,.02)) border-box}
+
+  /* ── Type scale ── */
+  /* .kicker lived here. It was the hero's "AUTOMATIC TWITCH CLIPPING" label
+     and nothing else on this page used it. The tutorial and comparison pages
+     have their own .kicker in BASE_CSS, which is a separate stylesheet. */
+  /* THE SCRIPT FACE, on every big title. Asked for directly, and it is a
+     reversal of the earlier "twice on the page" scope — a display face on one
+     heading is an accent, on all of them it is the page's voice. That is now
+     the intent.
+
+     Three things travel with Lobster wherever it goes and none of them is
+     optional: weight 400 (it ships one weight, and asking for bold makes the
+     browser smear the glyphs), no uppercase (the letters are drawn to connect
+     in lowercase and text-transform snaps them apart), and tracking near zero
+     rather than the -.025em a grotesque wants — a script face is already
+     tightly fitted and negative tracking collides the joins.
+
+     Sized up, because it has to be. Lobster's lowercase sits small in its em
+     next to Sora at the same px, so keeping 36 would have made the titles
+     quieter than the ones they replaced rather than louder. */
+  h2.sec-title{font-family:'Lobster',Georgia,serif;font-weight:400;
+    font-size:clamp(32px,4vw,44px);
+    line-height:1.1;letter-spacing:-.005em;color:var(--ink);margin:0 0 12px}
+  .sec-head.kicked h2.sec-title{margin-top:16px}
+  /* THE MEASURE. Fourteen prose blocks on this page ran past 75 characters,
+     the worst at 177 and 139 — a line that long makes the eye lose its place
+     on the return sweep, which reads as the page being hard work rather than
+     as the line being wrong. Every one of them was a WIDTH problem: not a
+     single word of copy needs to change. 68ch is inside the 65-75 band at
+     every size on the type scale. */
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:var(--measure);line-height:1.6}
+  .measured{max-width:var(--measure)}
+  .mono-l{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+    font-feature-settings:'tnum' 1,'zero' 1;letter-spacing:-.01em}
 
   /* ── Buttons. Not painted purple — LIT. The face is a surface in the room and
      the rim is where the monitor hits it; hover moves the light closer. Ink
      stays near-white because violet-on-bruise is 4.3:1 and would fail. ── */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
     font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-.005em;
-    padding:12px 24px;border-radius:0;border:1px solid transparent;color:var(--ink);
+    padding:12px 24px;border-radius:3px;border:1px solid transparent;color:var(--ink);
     transition:background var(--dur-fast),color var(--dur-fast);white-space:nowrap}
   .btn-key{background:linear-gradient(168deg,#7B3A9E,#5B2472);border-color:transparent;
     color:#FFF9FE;box-shadow:0 10px 26px -10px rgba(184,106,220,.55),
@@ -6418,19 +6482,15 @@ LANDING_HTML = """<!DOCTYPE html>
   /* A real press state — the button moves back down and the shadow collapses. */
   .btn-key:active{transform:translateY(1px) scale(.995);
     box-shadow:0 1px 2px rgba(23,18,25,.22),0 4px 10px -6px rgba(106,46,138,.5)}
-  /* The sheet's two buttons. One in the colour — the single primary action
-     on the page, at the close — and one hairline, for the walkthrough. Both
-     set in the mono like every other label in the sheet. */
-  .btn-go,.btn-quiet{font-family:var(--mono);font-weight:600;font-size:13px;
-    letter-spacing:.1em;text-transform:uppercase}
-  .btn-go{background:var(--ember);color:#0A0A0C;border-color:var(--ember)}
-  .btn-go:hover{background:#FFB65A;border-color:#FFB65A}
-  .btn-go:active{transform:translateY(1px)}
-  .btn-quiet{background:transparent;border:1px solid var(--hair-2);color:var(--ink)}
-  .btn-quiet:hover{border-color:var(--ink)}
-  .btn-quiet:active{transform:translateY(1px)}
-  .btn-go.btn-lg,.btn-quiet.btn-lg{font-size:14px}
+  .btn-quiet{background:rgba(242,234,247,.04);border:1px solid rgba(242,234,247,.20);color:var(--ink)}
+  .btn-quiet:hover{color:#FFF;border-color:rgba(184,106,220,.6);
+    background:rgba(184,106,220,.12);transform:translateY(-1px)}
+  .btn-quiet:active{transform:translateY(1px) scale(.995)}
+  /* On a dark band the quiet button inverts back. */
+  .band-dark .btn-quiet{background:transparent;border-color:rgba(242,234,247,.24);color:var(--ink)}
+  .band-dark .btn-quiet:hover{color:#FFF;border-color:var(--iris);background:rgba(184,106,220,.12)}
   .btn-lg{padding:16px 32px;font-size:16px}
+  .btn-wide{width:100%;padding:16px}
 
   /* ── Layout ── */
   /* ── WIDTHS. The old page ran one 1140px column from top to bottom, which is
@@ -6439,10 +6499,15 @@ LANDING_HTML = """<!DOCTYPE html>
    Text stays readable, product goes wide, three sections break out entirely. ── */
   .wrap{width:100%;max-width:1140px;margin:0 auto;
     padding-left:clamp(20px,4.5vw,72px);padding-right:clamp(20px,4.5vw,72px)}
+  .wrap.narrow{max-width:min(760px,100%)}          /* pricing, closing */
+  .wrap.reading{max-width:min(78ch,100%)}          /* FAQ, prose */
+  .wrap.wide{max-width:min(1560px,94vw)}           /* product, showcase */
+  .wrap.full{max-width:none;padding-left:0;padding-right:0}
   /* On a big screen, actually use it — wider gutters and a wider product
      measure, rather than a 1140 column marooned in 1920. */
   @media(min-width:1440px){
     .wrap{max-width:1280px}
+    .wrap.wide{max-width:min(1720px,94vw)}
   }
   @media(min-width:1800px){
     .wrap{max-width:1360px}
@@ -6480,6 +6545,11 @@ LANDING_HTML = """<!DOCTYPE html>
   /* The chapter rule. Two background layers: the void fills the padding box,
      the gradient shows only through the 1px transparent border — without the
      first layer the gradient paints the whole block instead of the edge. */
+  .sec-head{max-width:var(--measure);border-top:1px solid var(--hair);padding-top:24px}
+  .sec-head.kicked{border-top:none;background:none;padding-top:0}
+  .sec-head.center{max-width:var(--measure);margin:0 auto;text-align:center;
+    border-top:1px solid var(--hair)}
+  .sec-head.center .sec-sub{margin:0 auto}
 
   /* ── THE COVER. One screen: the mark, the name, the numbers. ──────────────
      #000 and not var(--void): the point is that it is emptier than the site
@@ -6549,10 +6619,18 @@ LANDING_HTML = """<!DOCTYPE html>
      The wall is four live channels being scored right now — the same loop the
      product runs, at the same 1s cadence, against the same threshold. ══ */
   .hero{position:relative;padding-top:24px;padding-bottom:16px}
-  /* The hero's lede stylesheet lived here (.hero-lede, .hero-copy, the h1,
-     .lead, .hero-act, the NO AI badge) and, later, the .accent word the
-     closing line used to carry. All of it styled nothing by the time the
-     sheet arrived. */
+  .room-light{display:none}
+  /* The hero's lede stylesheet lived here: .hero-lede, .hero-copy, the h1 and
+     its .lead, .hero-act/.hero-ctas/.hero-note, and the NO AI badge. The whole
+     block was removed from the page, so all of it styled nothing. Only .accent
+     survives, because the closing section's h2 still uses it. */
+  /* The accent word is LIT, not painted: a solid fill plus the spill it would
+     throw onto the dark around it. No gradient, no stroke. */
+  .accent{color:#B86ADC;-webkit-text-stroke:0;
+    text-shadow:0 0 34px rgba(184,106,220,.42),0 0 10px rgba(184,106,220,.28)}
+  /* The page is dark throughout now, so there is no second surface for the
+     accent to switch on — one value, and the halo can stay. */
+  .band-dark .accent{color:#B86ADC}
   /* ══ THE WALL ══════════════════════════════════════════════════════════
      Four channels, scored live. This is not a screenshot and not a drawing of
      the dashboard — it is the same loop the product runs: a score per channel
@@ -6806,280 +6884,353 @@ LANDING_HTML = """<!DOCTYPE html>
   .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
   .stat .k{font-size:14px;color:var(--ink-2);margin-top:12px;max-width:30ch;line-height:1.5}
 
-  /* ══ BELOW THE HERO: THE SPEC SHEET ═══════════════════════════════════════
-     Everything under slide 2 is one construction, repeated: a mono label in
-     the left column, the content in the right, hairlines for structure and
-     nothing else. No cards, no fills, no radii, no glass. Two type voices —
-     the mono for numbers, labels and the wordmark, the sans for sentences —
-     and one colour that is not black, white or grey: the orange, which only
-     ever sits on a real number or on the one button that starts the product.
-     The purple stays where the logo is and where the wall (slide 2) already
-     had it; nothing below this line borrows it. ══ */
+  /* ══ EXAMPLE CLIPS ══ */
+  .ex-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:32px}
+  .ex-card{display:block;border-radius:3px;overflow:hidden;min-width:0;flex:0 1 calc(25% - 10.5px);
+    border:1px solid transparent;
+    background:linear-gradient(var(--wall),var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(184,106,220,.28),rgba(242,234,247,.05) 45%,rgba(242,234,247,.02)) border-box;
+    transition:background var(--dur-slow)}
+  .ex-card:hover{background:linear-gradient(#231829,#231829) padding-box,
+      linear-gradient(215deg,var(--flare),rgba(184,106,220,.3) 40%,rgba(242,234,247,.05)) border-box}
+  .ex-media{position:relative;height:146px;background:linear-gradient(150deg,#2E1C3B,#1A1224);overflow:hidden}
+  .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
+  .ex-media::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(8,5,11,.72))}
+  .ex-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
+  .ex-play span{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;padding-left:4px;
+    background:rgba(14,11,17,.5);border:1px solid rgba(242,234,247,.6);color:var(--ink);transition:var(--dur-fast)}
+  .ex-card:hover .ex-play span{background:var(--flare);border-color:transparent;color:#170A1E}
+  .ex-badge{position:absolute;top:9px;right:9px;z-index:2;font-family:var(--mono);font-weight:600;
+    font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);
+    background:rgba(14,11,17,.72);padding:4px 8px;border-radius:2px}
+  .ex-badge i{display:none}
+  .ex-body{padding:12px 12px 12px}
+  .ex-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ex-meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;
+    display:flex;gap:4px;align-items:center;min-width:0;letter-spacing:.04em}
+  .ex-meta b{color:var(--glow-ink);font-weight:400}
+  .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* ── The sheet. Left column holds the section's label and stays put while
-     the right column scrolls, so a reader always knows which chapter they are
-     in without a heading having to be large. ── */
-  .sheet{display:grid;grid-template-columns:minmax(0,.24fr) minmax(0,.76fr);
-    column-gap:clamp(24px,4vw,64px);align-items:start}
-  .sheet>.sec-title{position:sticky;top:calc(var(--nav-h) + var(--s-4))}
-  .sheet-b{min-width:0}
-  @media(max-width:900px){
-    .sheet{grid-template-columns:minmax(0,1fr)}
-    .sheet>.sec-title{position:static;margin-bottom:var(--s-4)}
-  }
-  /* The section label: a mono index and a name, the size of every other
-     label on the page. The size of a heading is not what makes it findable;
-     its position is, and it is always in the same place. */
-  h2.sec-title{font-family:var(--mono);font-weight:600;font-size:12px;
-    letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
-    margin:0;line-height:1.6;display:flex;gap:var(--s-3)}
-  .sec-i{color:var(--ink-2)}
-  /* The one-sentence statement each chapter opens with. The sans, at the
-     largest size it appears on the page, held to a short measure. */
-  .say{margin:0 0 var(--s-7);font-family:var(--sans);font-weight:500;
-    font-size:clamp(24px,3vw,40px);line-height:1.15;letter-spacing:-.025em;
-    color:var(--ink);max-width:24ch}
-  .sub-k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ink-3);margin:var(--s-8) 0 var(--s-4)}
-  .num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-feature-settings:'tnum' 1,'zero' 1;letter-spacing:-.01em}
-  /* Screen-reader-only, for a table header that would be noise on screen. */
-  .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
-    white-space:nowrap}
+  /* The "Who it's for" stylesheet lived here; the section itself was cut
+     long ago and its rules styled nothing. */
 
-  /* ── The tape. One line of telemetry directly under the wall: each
-     channel's live score against its own threshold, and the last crossing.
-     Written by the same engine as the tiles (see tapePaint in the wall
-     script) and kept running after the wall has scrolled away, so the number
-     in the corner of the reader's eye is always a real one. ── */
-  .tape{display:flex;align-items:center;gap:var(--s-5);padding:var(--s-3) 0;
-    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-    font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--ink-3);white-space:nowrap;overflow:hidden}
-  .tape-k{color:var(--ink);display:flex;align-items:center;gap:var(--s-2);flex:none}
-  /* The live mark reads --lit like the wall's frame and the through-line: it
-     sits dim while every channel is under its line and comes up as one
-     climbs. The same number lights all three. */
-  .tape-k::before{content:'';width:6px;height:6px;background:var(--ember);
-    opacity:calc(.35 + var(--lit)*.65);transition:opacity var(--t-move) var(--ease)}
-  .tape-row{list-style:none;display:flex;gap:var(--s-5);margin:0;padding:0;
-    min-width:0;flex:1 1 auto;overflow:hidden}
-  .tape-c{display:flex;gap:var(--s-2);align-items:baseline}
-  .tape-c.off{display:none}
-  .tape-ch{color:var(--ink-2)}
-  /* Reserved width, so a score going from 9 to 10 does not shift the line. */
-  .tape-s{color:var(--ember);font-weight:600;font-variant-numeric:tabular-nums;
-    min-width:2ch;text-align:right;display:inline-block}
-  .tape-t{color:var(--ink-3)}
-  .tape-c.over .tape-t{color:var(--ink)}
-  .tape-ev{margin-left:auto;color:var(--ink-3);flex:none}
-  @media(max-width:700px){ .tape-ev{display:none} .tape{gap:var(--s-4)} }
+  /* ══ HOW IT WORKS — BREAK 2. The score, plotted vertically. The rail runs
+     amber down the left until step 4, where the clip actually fires and it
+     crosses to violet; that step is the one surface standing in the light. ══ */
+  /* ── FAQ: disclosure widgets, grouped, ONE COLUMN ─────────────────────────
+     Dropdowns stay: they were asked for explicitly after a pass that had
+     opened them out, and that has not changed.
 
-  /* ── The grid. The recurring skeleton: cells divided by hairlines, a mono
-     label, a number, a title, a sentence or two. The dividers are box-shadows
-     on the cells and the grid clips them at its own edge, which is what lets
-     the same markup be three, two or one column wide with no per-breakpoint
-     nth-child arithmetic. gap stays 0: a 1px gap is a spacing value off the
-     scale and a box-shadow is not a spacing value at all. ── */
-  .grid{display:grid;gap:0;overflow:hidden;
-    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  /* Unequal on purpose: the middle cell of the three carries the formula. */
-  .grid-3{grid-template-columns:minmax(0,.85fr) minmax(0,1.3fr) minmax(0,.85fr)}
-  .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .cell{min-width:0;padding:var(--s-5);background:var(--bone);
-    box-shadow:-1px 0 0 var(--hair),0 -1px 0 var(--hair)}
-  .cell-k{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ink-3)}
-  /* The number. Orange because it is a measurement; a cell whose headline
-     value is a word (.cell-w) stays in ink, because the rule is real numbers
-     and not "the big thing in the box". */
-  .cell-n{display:block;font-family:var(--mono);font-weight:600;
-    font-size:clamp(30px,3.2vw,44px);letter-spacing:-.03em;line-height:1;
-    color:var(--ember);font-variant-numeric:tabular-nums;margin-top:var(--s-3);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* Three plan values in one slot. Measured at 1440: a four-across cell has
-     159px of room and "20 / 50 / 200" at 44px is 343px, which the ellipsis
-     turned into "20 / …" — a number you cannot read is worse than a smaller
-     one. Slashes without spaces and a smaller step keep all three legible in
-     the narrowest four-across cell (9 characters at 28px is 151px). */
-  .cell-n.cell-3{font-size:clamp(22px,1.9vw,28px);letter-spacing:-.02em;padding-top:var(--s-2)}
-  /* A word in the slot wraps rather than truncates: "Top Virality" at 26px
-     is wider than a four-across cell, and "Top Viral…" is not a feature. */
-  .cell-n.cell-w{color:var(--ink);font-size:clamp(20px,1.8vw,24px);letter-spacing:-.01em;
-    padding-top:var(--s-2);white-space:normal;line-height:1.15}
-  /* The unit, on its own line under the number rather than beside it, so
-     the number is never made to share its width with a caption. */
-  .cell-n i{display:block;font-style:normal;font-family:var(--mono);font-size:12px;font-weight:400;
-    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-top:var(--s-2);
-    white-space:normal;line-height:1.5}
-  .cell-h{font-family:var(--sans);font-weight:600;font-size:17px;letter-spacing:-.01em;
-    line-height:1.3;color:var(--ink);margin:var(--s-4) 0 var(--s-2)}
-  .cell p{margin:0;font-size:14px;line-height:1.6;color:var(--ink-2);max-width:var(--measure)}
-  .cell p+p{margin-top:var(--s-2)}
-  .cell p b{color:var(--ink);font-weight:600}
-  @media(max-width:900px){
-    .grid-3,.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .grid-3 .cell:last-child{grid-column:1 / -1}
-  }
-  @media(max-width:600px){
-    .grid-3,.grid-4{grid-template-columns:minmax(0,1fr)}
-    .cell{padding:var(--s-4) 0}
-    .cell-n{white-space:normal}
-  }
-
-  /* ── The formula, inside step two. Five measured signals and their sum,
-     as rows on a hairline — the same drawing the tiles make of it, at rest. ── */
-  .formula{display:grid;grid-template-columns:minmax(0,1fr);gap:0;
-    margin:var(--s-4) 0;padding:var(--s-2) 0 0;
-    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .signal{display:grid;grid-template-columns:96px minmax(0,1fr) 32px;gap:var(--s-3);
-    align-items:center;padding:var(--s-2) 0;font-family:var(--mono);font-size:12px}
-  .signal .sk{letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .signal .sb{height:2px;background:var(--hair-2);overflow:hidden}
-  .signal .sb i{display:block;height:100%;background:var(--ink-2)}
-  .signal .sv{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
-  .formula-out{display:flex;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;
-    padding:var(--s-3) 0 var(--s-3);margin-top:var(--s-2);border-top:1px solid var(--hair)}
-  .formula-out .eq{font-size:36px;line-height:1;color:var(--ember);letter-spacing:-.03em}
-  .formula-eq{font-family:var(--mono);font-size:12px;letter-spacing:.1em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .cell-note{margin-top:var(--s-3)}
-
-  /* ── The signals index. Eight rows, one per real signal type, laid out
-     like a spec sheet: index, name, what it measures, what it is measured in. ── */
-  .sigs{list-style:none;margin:0;padding:0;border-top:1px solid var(--hair)}
-  .sig{display:grid;grid-template-columns:40px minmax(0,.85fr) minmax(0,1.7fr) 72px;
-    gap:var(--s-4);align-items:baseline;padding:var(--s-4) 0;
-    border-bottom:1px solid var(--hair)}
-  .sig-i{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-3);
-    font-variant-numeric:tabular-nums}
-  .sig-n{font-family:var(--sans);font-weight:600;font-size:15px;color:var(--ink);
-    letter-spacing:-.01em}
-  .sig-d{font-size:14px;line-height:1.55;color:var(--ink-2)}
-  .sig-u{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--ink-3);text-align:right}
-  @media(max-width:700px){
-    .sig{grid-template-columns:32px minmax(0,1fr) auto;row-gap:var(--s-1)}
-    .sig-d{grid-column:2 / -1}
-  }
-
-  /* ── Pricing, as the spec table it is. Plans across, facts down, the price
-     in the instrument face and the instrument colour because it is a number
-     a visitor acts on. No highlighted column, no ticks: the three plans
-     differ on the rows shown and nowhere else. ── */
-  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:var(--measure);
-    margin:0 0 var(--s-6)}
-  .price-lead b{color:var(--ink)}
-  .plans-wrap{min-width:0}
-  .plans{width:100%;border-collapse:collapse;table-layout:fixed;font-size:14px}
-  .plans col.c-lab{width:28%}
-  .plans th,.plans td{text-align:left;vertical-align:baseline;
-    padding:var(--s-4) var(--s-3) var(--s-4) 0;border-top:1px solid var(--hair)}
-  .plans thead th{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--ink);border-top:none;padding-top:0}
-  .plans tbody th{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.1em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .plans td{font-family:var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
-  .plans .price td{padding-top:var(--s-5);padding-bottom:var(--s-5)}
-  .plans .price .n{font-family:var(--mono);font-size:clamp(24px,2.6vw,34px);font-weight:600;
-    letter-spacing:-.02em;line-height:1;color:var(--ember)}
-  .plans .price i{display:block;font-style:normal;font-size:12px;font-weight:400;
-    letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-top:var(--s-2)}
-  .plans tfoot td{border-bottom:1px solid var(--hair)}
-  .plan-go{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;
-    text-transform:uppercase;color:var(--ink);white-space:nowrap;
-    border-bottom:1px solid var(--hair-2);padding-bottom:var(--s-1);
-    transition:border-color var(--dur-fast)}
-  .plan-go:hover{border-bottom-color:var(--ink)}
-  .price-tiny{margin:var(--s-4) 0 0;font-size:12px;color:var(--ink-3);max-width:var(--measure)}
-  /* On a phone the label column takes a little more and the action links
-     tighten so "Get Starter" stays on one line in an 84px column. */
-  @media(max-width:600px){
-    .plans col.c-lab{width:30%}
-    .plans th,.plans td{padding-right:var(--s-1)}
-    .plans .price i{letter-spacing:.04em}
-    .plan-go{font-size:11px;letter-spacing:.04em}
-  }
-
-  /* ── FAQ. The same disclosure rows, in the sheet's ink. ── */
-  .faq-group{margin-top:var(--s-6)}
-  .faq-group:first-of-type{margin-top:0}
+     The layout has. It was two columns, which reads left-right-left-right and
+     is the one arrangement that stops a set of questions being a list — your
+     eye has to jump the gutter to find the next one, and the group's last row
+     leaves a hole. One column top to bottom, asked for directly, and it is
+     what lets the set grow: at fifteen questions a two-column grid is a wall,
+     a single column is still just a list you scroll. */
+  .faq-group{margin-top:32px}
+  .faq-group + .faq-group{margin-top:32px}
   .faq-h{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--ink-3);margin:0 0 var(--s-3)}
+    text-transform:uppercase;color:var(--ink-3);margin:0 0 12px}
   .faq-rows{display:grid;grid-template-columns:minmax(0,1fr);align-content:start}
   .faq-item{border-top:1px solid var(--hair)}
   .faq-item:last-child{border-bottom:1px solid var(--hair)}
-  .faq-q{list-style:none;cursor:pointer;margin:0;padding:var(--s-4) var(--s-6) var(--s-4) 0;
-    position:relative;font-size:15px;font-weight:600;color:var(--ink-2);
+  .faq-q{list-style:none;cursor:pointer;margin:0;padding:16px 32px 16px 0;
+    position:relative;font-size:15px;font-weight:600;color:var(--ink);
     line-height:1.4;transition:color var(--dur-fast) ease}
   .faq-q::-webkit-details-marker{display:none}
-  .faq-q:hover{color:var(--ink)}
-  .faq-q:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
-  /* The marker is drawn: two strokes that cross, the vertical one collapsing
-     on open. */
+  .faq-q:hover{color:var(--glow)}
+  /* Visible keyboard focus: the summary is a real tab stop. */
+  .faq-q:focus-visible{outline:2px solid var(--glow);outline-offset:3px;border-radius:2px}
+  /* The marker is drawn, not an emoji or an entity: two strokes that cross,
+     with the vertical one collapsing on open. */
   .faq-q::before,.faq-q::after{content:"";position:absolute;right:6px;
-    top:50%;transform:translateY(-50%);background:var(--ink-3);
-    transition:transform var(--dur-slow) var(--ease),background var(--dur-fast) ease}
-  .faq-q::before{width:11px;height:1px}
-  .faq-q::after{width:1px;height:11px;right:11px}
-  .faq-item[open] .faq-q::after{transform:translateY(-50%) scaleY(0)}
-  .faq-item[open] .faq-q{color:var(--ink)}
-  .faq-q:hover::before,.faq-q:hover::after{background:var(--ink)}
-  .faq-more{max-width:var(--measure);margin-top:var(--s-6);font-size:14px;color:var(--ink-2)}
-  .faq-more a{color:var(--ink);border-bottom:1px solid var(--hair-2)}
-  .faq-a{margin:0;padding:0 var(--s-6) var(--s-4) 0;font-size:14px;line-height:1.7;
-    max-width:var(--measure);color:var(--ink-2)}
+    top:50%;background:var(--ink-3);transition:transform var(--dur-slow) var(--ease),
+    background .16s ease}
+  .faq-q::before{width:11px;height:1.5px;margin-top:-.75px}
+  .faq-q::after{width:1.5px;height:11px;margin-top:-4px;right:10.75px}
+  .faq-item[open] .faq-q::after{transform:scaleY(0)}
+  .faq-item[open] .faq-q{color:var(--glow)}
+  .faq-q:hover::before,.faq-q:hover::after{background:var(--glow)}
+  /* The one prose block on the page with no width rule of its own. At 1150px
+     it ran to 144 characters — nearly double the readable band, and by some
+     way the worst line on the site. */
+  .faq-more{max-width:var(--measure)}
+  .faq-a{margin:0;padding:0 32px 16px 0;font-size:14px;line-height:1.7;max-width:var(--measure);
+    color:var(--ink-2)}
+  /* No breakpoint any more: it is one column at every width, so a narrow
+     screen has nothing left to collapse. */
+
+  /* ── Pricing: two tiers, deliberately unequal ─────────────────────────────
+     Not three cards of the same size with tick lists and a badge. The plans
+     are not equal and the layout says so: Pro is wider and brighter because it
+     is the one most people want, Starter sits beside it as a real option
+     rather than a decoy. Different radii and padding on the two, on purpose. */
+  .price-lead{font-size:17px;line-height:1.6;color:var(--ink-2);max-width:var(--measure);
+    margin:0 0 32px}
+  .price-lead b{color:var(--ink)}
+  /* A LADDER, not three equal cards — and now not cards at all. The stats
+     band's construction, the same as the wall: one hairline above and below
+     the row, plans divided by vertical hairlines, no fills, no radii. The
+     ladder survives in what is left: the columns still widen left to right,
+     the price still steps 30 -> 30 -> 44, and Pro is marked the way a firing
+     tile is — a wash of the page's light and a brighter top edge — rather
+     than by being a different kind of object. Bottom padding stays equal on
+     all three so the buttons share a baseline. */
+  .ptiers{display:grid;
+    grid-template-columns:minmax(0,.72fr) minmax(0,.86fr) minmax(0,1fr);
+    gap:0;align-items:stretch;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .ptier{display:flex;flex-direction:column;gap:12px;
+    border-left:1px solid var(--hair);padding:var(--s-6) var(--s-5)}
+  .ptier:first-child{border-left:none;padding-left:0}
+  .ptier-c{background:rgba(184,106,220,.055);
+    box-shadow:inset 0 1px 0 rgba(210,106,251,.55);padding:var(--s-6)}
+  .ptier-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    flex-wrap:wrap}
+  .ptier-name{font-family:var(--sans);font-weight:700;font-size:14px;
+    letter-spacing:.01em;color:var(--ink)}
+  /* The instrument face, like every other number that matters — the scores,
+     the cover's counter, the nav readout. Prices were the one big figure on
+     the page still set in the text face. And the Pro price is the section's
+     ember: the same one-gold-number rule as the cover. (The free tier's
+     "no card" suffix was mint green here — the only green on the page.) */
+  .ptier-fig{font-family:var(--mono);font-weight:600;letter-spacing:-.02em;
+    font-size:30px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ptier-a .ptier-fig{font-size:30px}
+  .ptier-c .ptier-fig{font-size:44px;color:var(--ember)}
+  .ptier-fig i{font-style:normal;font-size:12px;font-weight:600;color:var(--ink-3);
+    margin-left:4px}
+  .ptier-chan{margin:0;font-size:14px;color:var(--ink-2);line-height:1.5}
+  .ptier-chan b{color:var(--ink)}
+  .ptier-what{margin:0;font-size:14px;line-height:1.6;color:var(--ink-3)}
+  .ptier .btn{margin-top:auto;align-self:flex-start}
+  .price-tiny{margin:16px 0 0;font-size:12px;color:var(--ink-3);max-width:var(--measure)}
+  /* Three columns need to break earlier than two did: at 760 the middle card
+     was 210px wide and its price wrapped under its own name. */
+  /* Free spans the first row alone, Starter and Pro share the second — so the
+     dividers change direction with the layout: a hairline between the rows,
+     and only the second column of row two keeps a vertical one. */
+  @media (max-width:980px){
+    .ptiers{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+    .ptier-a{grid-column:1 / -1}
+    .ptier{border-left:none;border-top:1px solid var(--hair);padding-left:0}
+    .ptier:first-child{border-top:none}
+    .ptier-c{border-left:1px solid var(--hair);padding-left:var(--s-5)}
+  }
+  @media (max-width:700px){
+    .ptiers{grid-template-columns:minmax(0,1fr)}
+    .ptier-a{grid-column:auto}
+    .ptier-c{border-left:none;padding:var(--s-5) var(--s-4)}
+    .ptier-c .ptier-fig{font-size:30px}
+  }
+
+  /* ── How it works: three steps, deliberately unequal ──────────────────────
+     Replaces five stacked cards with big 01/02/03 numerals. The columns are
+     NOT thirds: step two carries the equation and gets the room, which is the
+     point of not using a symmetric grid. The step marker is small type rather
+     than an oversized numeral. */
+  /* A STAGGER, not a row. Three equal columns read as a numbered list; this
+     is two columns with the argument (step two, the formula) owning the tall
+     right side and steps one and three hung at different heights on the left.
+     The offsets are the personality — the eye moves diagonally through the
+     section instead of ticking across it. */
+  .flow{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.4fr);
+    column-gap:clamp(32px,4vw,64px);margin-top:32px;align-items:start}
+  .flow-step{padding:0;border-left:0;min-width:0}
+  .flow-a{grid-column:1;grid-row:1;margin-top:var(--s-6)}
+  .flow-b{grid-column:2;grid-row:1 / span 2;
+    border-left:1px solid var(--hair);padding-left:clamp(24px,3vw,48px);
+    padding-bottom:24px}
+  .flow-c{grid-column:1;grid-row:2;margin-top:var(--s-8)}
+  .flow-mark{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
+  .flow-step h3{font-family:var(--sans);font-weight:700;font-size:17px;letter-spacing:-.015em;
+    line-height:1.25;color:var(--ink);margin:0 0 8px}
+  .flow-b h3{font-size:24px}
+  .flow-step p{font-size:14px;line-height:1.7;color:var(--ink-2);margin:0 0 12px}
+  .flow-note{font-size:14px;color:var(--ink-3);line-height:1.6}
+  .flow-note b{color:var(--ink);font-weight:700}
+  /* The equation drops to one column inside the narrower step. */
+  .flow .formula{grid-template-columns:minmax(0,1fr);gap:24px;margin:16px 0 12px;
+    padding:16px 0 12px}
+  .flow .signal{grid-template-columns:104px minmax(0,1fr);gap:12px;padding:8px 0}
+  .flow .sk{font-size:12px}
+  .flow .eq.num{font-size:44px}
+  .flow .formula-eq{font-size:12px}
+  @media (max-width:1000px){
+    .flow{grid-template-columns:minmax(0,1fr);gap:32px}
+    .flow-a,.flow-b,.flow-c{grid-column:1;grid-row:auto;margin-top:0}
+    .flow-step{padding:0 0 0 16px;border-left:2px solid var(--hair)}
+    .flow-b{padding-bottom:0}
+  }
+  /* The numbered step-rail stylesheet lived here; the live #how section is
+     the .flow columns, and these rules styled nothing. */
+  /* Step 4 is where the threshold is crossed, so it is the panel nearest the
+     light — the only one in this section with a surface at all. */
+  .step-4 .step-body{padding:16px 24px;margin-top:-16px;border-radius:3px;border:1px solid transparent;
+    background:linear-gradient(166deg,#26182F,var(--wall)) padding-box,
+      linear-gradient(215deg,rgba(210,106,251,.5),rgba(184,106,220,.12) 38%,rgba(242,234,247,.03)) border-box}
+
+  /* ══ FORMULA — BREAK 3. Not a centred card of pills: an actual equation.
+     Five measured signals stacked on the left, one score on the right. ══ */
+  /* Frameless, like the wall's cells: the meters and the score ARE the
+     content, and the gradient card they sat in was the last card in #how.
+     Hairline above and below, same as .tile-chart and the stats band. */
+  .formula{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:48px;
+    align-items:center;margin-top:32px;padding:24px 0;
+    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+  .signal-row{display:flex;flex-direction:column;gap:0}
+  .signal{display:grid;grid-template-columns:152px minmax(0,1fr);gap:16px;align-items:center;
+    padding:12px 0;border-bottom:1px solid var(--hair)}
+  .signal:last-of-type{border-bottom:none}
+  .signal .sk{font-family:var(--mono);font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
+  .signal .sb{height:3px;background:rgba(242,234,247,.08);overflow:hidden}
+  .signal .sb i{display:block;height:100%;background:var(--sc,var(--ember))}
+  .plus{display:none}
+  .formula-out{text-align:left;border-left:1px solid var(--hair);padding-left:32px}
+  .formula-out .eq{font-family:var(--mono);font-weight:600;font-size:clamp(46px,6vw,68px);
+    line-height:1;letter-spacing:-.04em;color:var(--flare);font-variant-numeric:tabular-nums;
+    text-shadow:0 0 40px rgba(210,106,251,.4)}
+  .formula-eq{font-size:14px;color:var(--ink-2);margin-top:16px;line-height:1.5;max-width:24ch}
+
+  /* ══ FEATURES. Two columns, hairlines instead of cards, mono index instead
+     of an icon in a tinted square. ══ */
+  /* ── What you get ────────────────────────────────────────────────────────
+     REPORTED: "kind of jumbled together". It was eight items of identical
+     weight separated by identical hairlines, in no order, and the two full
+     width ones split their heading hard left from their body at 42% across —
+     three hundred pixels of nothing in the middle of the widest, most
+     prominent rows on the page. Nothing said which of the eight was a headline
+     claim and which was a detail.
+
+     So they are GROUPED now, four labelled clusters instead of one flat list,
+     and each cluster answers one question. That is also what keeps this off
+     the banned shape: the thing stopping it being a grid of equal cards is the
+     labelled structure, not a count of items. */
+  #features .sec-title{margin-bottom:4px}
+  /* ALTERNATING SPREADS. Each group is a label column and a content column,
+     and every other group swaps sides — the page zig-zags instead of stacking
+     four identical label-then-list bands. The labels get room to behave like
+     margin notes rather than headings in a list. */
+  .feat-group{margin-top:32px;padding-top:24px;border-top:1px solid var(--hair);
+    display:grid;grid-template-columns:minmax(0,.55fr) minmax(0,1.45fr);
+    column-gap:clamp(32px,5vw,96px);align-items:start}
+  .feat-group>.feat-label{grid-column:1;grid-row:1;margin:0;
+    position:sticky;top:var(--s-5)}
+  .feat-group>.feat,.feat-group>.feat-grid{grid-column:2;grid-row:1}
+  .feat-group:nth-of-type(even){grid-template-columns:minmax(0,1.45fr) minmax(0,.55fr)}
+  .feat-group:nth-of-type(even)>.feat-label{grid-column:2;justify-self:end;text-align:right}
+  .feat-group:nth-of-type(even)>.feat,.feat-group:nth-of-type(even)>.feat-grid{grid-column:1}
+  @media(max-width:900px){
+    .feat-group,.feat-group:nth-of-type(even){grid-template-columns:minmax(0,1fr)}
+    .feat-group>.feat-label,.feat-group:nth-of-type(even)>.feat-label{
+      grid-column:1;grid-row:auto;position:static;justify-self:start;
+      text-align:left;margin-bottom:16px}
+    .feat-group>.feat,.feat-group>.feat-grid,
+    .feat-group:nth-of-type(even)>.feat,.feat-group:nth-of-type(even)>.feat-grid{
+      grid-column:1;grid-row:auto}
+  }
+  .feat-group:first-of-type{margin-top:24px}
+  /* The mono label is the whole fix: it tells you what the next two or three
+     items have in common before you read them. */
+  /* Quiet, like the hero's kicker and the cover's captions: the group labels
+     are wayfinding, not instruments, so they do not get the instrument
+     colour. Lifted from --ink-3 to --ink-2 though — at 12px, tracked to .18em
+     and uppercased, the dimmest ink on the page was a label you had to go
+     looking for. It still reads under the item titles, which is the order it
+     should read in. */
+  .feat-label{display:block;font-family:var(--mono);font-weight:600;font-size:12px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--ink-2);margin-bottom:16px}
+  .feat-grid{display:grid;gap:clamp(22px,2.6vw,44px);align-items:start}
+  /* Unequal on purpose, and the two shapes share a first column so the groups
+     line up down the page instead of each starting somewhere new. */
+  .feat-cols-3{grid-template-columns:minmax(0,1.08fr) minmax(0,.96fr) minmax(0,.96fr)}
+  /* Unequal, but not 1:2 — at that ratio the left item was squeezed to 427px
+     against 759 and looked like a mistake rather than a choice. */
+  /* TRIED AND REVERTED: capping these columns at the measure instead of the
+     paragraphs inside them. It fixed a 200px gutter inside each column and
+     bought a worse problem — the grid itself then stopped short, so the
+     section had three different right edges (the lead at one measure, the
+     three-column row at full width, this row at two measures). A paragraph
+     set to a readable measure inside a wider column is ordinary typesetting;
+     a section whose right edge moves three times is not. */
+  .feat-cols-2{grid-template-columns:minmax(0,1.08fr) minmax(0,1.42fr)}
+  .feat{min-width:0}
+  /* THE TITLES HAVE TO CARRY THE SECTION. At 16px/700 over 14px body the step
+     was two pixels and one weight, so each item read as a paragraph with a
+     bold first line rather than a heading with text under it — you had to read
+     the block to find out what it was about. A real size step, space that
+     belongs to the pairing, and colour.
+
+     GOLD, ON THE OWNER'S CALL. Ember is otherwise the instrument colour on
+     this page — the wall's live scores and the cover's counter — so these
+     headings now share it with the live numbers. That is a deliberate trade:
+     the section is what tells a visitor what the product does, and it was
+     being skipped. Ember was already the loudest thing in the palette against
+     this ground, which is exactly why it works here.
+
+     Still under .feat-wide's clamp(20,2.1vw,26), which is what keeps the lead
+     claim the largest thing in the section.
+
+     THE CEILING IS 19, AND IT IS NOT ARBITRARY. Tried at 1.35vw/20px first:
+     at 1440 that renders 19.4 and wraps "One queue for all of them" and
+     "Streams that already ended" onto a second line, which leaves the row
+     ragged and drops those two paragraphs below their neighbours. A heading
+     that wraps in a three-column grid costs more than the extra pixel and a
+     half buys. */
+  .feat h3{font-size:clamp(17px,1.2vw,19px);font-weight:700;letter-spacing:-.015em;
+    line-height:1.25;color:var(--ember);margin:0 0 var(--s-3)}
+  .feat p{font-size:14px;color:var(--ink-2);line-height:1.6;max-width:var(--measure)}
+  /* The lead claim. Heading ABOVE its text, not beside it: beside it was the
+     dead gap. The measure is capped so a full-width paragraph does not run to
+     1200px and become unreadable. */
+  .feat-wide h3{font-size:clamp(20px,2.1vw,26px);letter-spacing:-.022em;
+    line-height:1.2;margin-bottom:8px}
+  .feat-wide p{font-size:16px;max-width:var(--measure)}
+  @media (max-width:900px){
+    .feat-grid{grid-template-columns:minmax(0,1fr);gap:24px}
+    .feat-group{margin-top:24px;padding-top:24px}
+  }
+
+  /* ══ PRICING. Depth from value, not shadow: Pro stands nearest the monitor
+     and is a lit surface; the other two recede into the wall. ══ */
+  /* A second, dead pricing stylesheet lived here (.price-grid/.price-card/
+     .price-amt/.price-list/...): the rendered pricing is generated with
+     .ptier classes, so none of it styled anything -- and it was convincing
+     enough that a restyle pass landed on it instead of the live rules. */
+
+  /* ══ FAQ. Hairline rows, no card. ══ */
+  /* REMOVED: a second, complete FAQ stylesheet for markup that does not exist.
+     It styled a `.faq-list` single-column accordion — zero occurrences in the
+     rendered page — but three of its ten rules used selectors the LIVE
+     FAQ also uses (.faq-item, .faq-q, .faq-a), and being later in
+     the sheet they won. So dead CSS was overriding live CSS: the reason
+     .faq-a kept resolving to max-width:70ch and ignoring --measure no matter
+     what the real rule said. The live block above is complete on its own and
+     is unaffected by this deletion.
+
+     This is the specificity conflict the phase 0 audit found and could not
+     explain; it turned out to be dead code, not a specificity problem. */
   .faq-a b{color:var(--ink);font-weight:600}
 
-  /* ── Example clips. Hairline cells, a flat thumbnail, a square play mark. ── */
-  .ex-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;overflow:hidden;
-    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .ex-card{display:block;min-width:0;background:var(--bone);
-    box-shadow:-1px 0 0 var(--hair),0 -1px 0 var(--hair);
-    transition:background var(--dur-fast)}
-  .ex-card:hover{background:rgba(242,234,247,.03)}
-  .ex-media{position:relative;aspect-ratio:16/9;background:#000;overflow:hidden}
-  .ex-media img{width:100%;height:100%;object-fit:cover;display:block}
-  .ex-play{position:absolute;inset:0;display:grid;place-items:center;z-index:2}
-  .ex-play span{width:36px;height:36px;display:grid;place-items:center;padding-left:var(--s-1);
-    background:rgba(10,10,12,.6);border:1px solid rgba(242,234,247,.7);color:var(--ink);
-    transition:background var(--dur-fast),color var(--dur-fast)}
-  .ex-card:hover .ex-play span{background:var(--ink);border-color:transparent;color:#0A0A0C}
-  .ex-badge{position:absolute;top:8px;right:8px;z-index:2;font-family:var(--mono);font-weight:600;
-    font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ember);
-    background:rgba(10,10,12,.8);padding:var(--s-1) var(--s-2)}
-  .ex-badge i{display:none}
-  .ex-body{padding:var(--s-3) var(--s-4) var(--s-4)}
-  .ex-title{font-size:14px;font-weight:600;color:var(--ink);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ex-meta{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);
-    display:flex;gap:var(--s-1);align-items:center;min-width:0;letter-spacing:.04em}
-  .ex-meta b{color:var(--ink-2);font-weight:400}
-  .ex-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  @media(max-width:1000px){ .ex-grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
-  @media(max-width:700px){ .ex-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
-  @media(max-width:480px){ .ex-grid{grid-template-columns:minmax(0,1fr)} }
+  /* ══ FINAL CTA — the room at its brightest ══ */
+  .final{position:relative;text-align:center;padding-top:64px;padding-bottom:96px}
+  /* REMOVED: a 320px blurred purple bloom floated above this heading. It is
+     the one decoration on the page that was doing nothing except looking like
+     a landing page — a soft glowing shape behind the words, which is the
+     house style of every AI-generated hero on the internet and reads as such.
+     The band already changes surface tone at this boundary, so the section is
+     marked out without it, and the heading is stronger on a flat ground. */
+  .final h2{font-family:'Lobster',Georgia,serif;font-weight:400;font-size:clamp(34px,5.4vw,58px);
+    line-height:1.1;letter-spacing:-.005em;color:var(--ink);margin-bottom:16px}
+  .final p{font-size:17px;color:var(--ink-2);max-width:530px;margin:0 auto 32px;line-height:1.6}
 
-  /* ── The close. One line, one button. The button is the only orange on the
-     page that is not a number, and it is the only one of its kind. ── */
-  .end{padding-top:var(--s-9)}
-  .end-line{font-family:var(--sans);font-weight:500;font-size:clamp(32px,5vw,64px);
-    line-height:1.02;letter-spacing:-.035em;color:var(--ink);max-width:14ch;margin:0}
-  .end-p{margin:var(--s-5) 0 0;font-size:16px;line-height:1.6;color:var(--ink-2);
-    max-width:var(--measure)}
-  .end-act{display:flex;flex-wrap:wrap;gap:var(--s-4);align-items:center;margin-top:var(--s-6)}
-
-  /* ── Footer. One row, one hairline. ── */
-  .footer{border-top:1px solid var(--hair);margin-top:var(--s-7);
-    padding:var(--s-5) clamp(20px,4.5vw,72px);
-    display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-4);
-    flex-wrap:wrap;font-family:var(--mono);font-size:12px;letter-spacing:.06em;
-    color:var(--ink-3);line-height:1.8}
-  .footer .fl{white-space:nowrap}
-  .footer nav{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-4)}
-  .footer a{color:var(--ink-3);transition:color var(--dur-fast)}
-  .footer a:hover{color:var(--ink)}
+  /* ══ FOOTER ══ */
+  .footer{border-top:1px solid var(--hair);padding:32px 24px;text-align:center;
+    font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink-3);line-height:2.1}
+  .footer a{color:var(--ink-3);border-bottom:1px solid transparent}
+  .footer a:hover{color:var(--ink-2);border-bottom-color:rgba(242,234,247,.2)}
+  .footer .fl{margin-bottom:4px}
 
   /* ══ Example-clip lightbox ══ */
   .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px}
@@ -7091,9 +7242,11 @@ LANDING_HTML = """<!DOCTYPE html>
      room to spare. Sizing by the viewport lets it request the best the clip
      actually has. Bounded by HEIGHT as well as width so the 16:9 frame always
      fits on a short screen instead of running off the bottom. */
-  .exl-card{position:relative;z-index:1;overflow:hidden;
+  .exl-card{position:relative;z-index:1;border-radius:3px;overflow:hidden;
     width:min(1440px, calc((100vh - 150px) * 16 / 9), 100%);
-    background:var(--void);border:1px solid var(--hair-2)}
+    background:var(--void);border:1px solid transparent;
+    background-image:linear-gradient(var(--void),var(--void)),linear-gradient(215deg,rgba(210,106,251,.5),rgba(242,234,247,.06));
+    background-origin:padding-box,border-box;background-clip:padding-box,border-box}
   /* aspect-ratio rather than the padding-bottom trick: the card is now sized by
      height as well as width, and the two would fight — padding-bottom is a
      percentage of WIDTH and cannot honour a height cap. */
@@ -7101,37 +7254,50 @@ LANDING_HTML = """<!DOCTYPE html>
   .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
   .exl-meta{display:flex;align-items:center;gap:12px;padding:12px 16px}
   .exl-title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .exl-out{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
-  .exl-out:hover{color:var(--ink)}
-  .exl-close{position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;
+  .exl-out{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--glow-ink);white-space:nowrap}
+  .exl-out:hover{color:var(--flare)}
+  .exl-close{position:absolute;top:9px;right:9px;z-index:2;width:32px;height:32px;border-radius:2px;
     border:1px solid rgba(242,234,247,.15);cursor:pointer;background:rgba(14,11,17,.8);color:var(--ink);
     font-size:16px;line-height:1;display:grid;place-items:center}
-  .exl-close:hover{border-color:var(--ink)}
+  .exl-close:hover{border-color:var(--flare)}
 
   /* ══ Responsive ══ */
   @media(max-width:1000px){
     .hero{grid-template-columns:minmax(0,1fr);gap:48px;padding-top:48px}
+    .ex-card{flex-basis:calc(33.333% - 9.34px)}
+    .formula{grid-template-columns:minmax(0,1fr);gap:32px;padding:24px 0}
+    .formula-out{border-left:none;border-top:1px solid var(--hair);padding-left:0;padding-top:24px}
   }
   @media(max-width:720px){
     section{padding-top:32px;padding-bottom:32px}
     .wrap{padding-left:16px;padding-right:16px}
+    .ex-card{flex-basis:calc(50% - 7px)}
     .stats{grid-auto-flow:row;grid-auto-columns:auto}
     .stat{padding:16px 0;border-left:none;border-top:1px solid var(--hair)}
     .stat:first-child{border-top:none}
     .stat .k{max-width:none}
-    .end{padding-top:var(--s-8)}
-    .footer{padding-left:16px;padding-right:16px}
+    .final{padding-top:48px;padding-bottom:64px}
+  }
+  @media(max-width:520px){
+    .ex-card{flex-basis:100%}
+    /* The old hero's phone rules used to live here — a bigger lead and a
+       stacked CTA column. They sit LATER in the sheet than the wall's own
+       phone block, so they were quietly overriding it: the lead came back up
+       to 17.5px and the two buttons re-stacked, costing about 90px of the
+       viewport the wall needed. The wall block owns hero sizing now. */
   }
 
   /* ══ MOTION. One orchestrated moment — the trigger firing — and a room that
      breathes. Nothing else moves. ══ */
   @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
+    .breathe{animation:none}
     /* The cue still reads as a cue standing still — it is a line pointing down
        under the word "scroll". */
     .cover-cue-l{animation:none;opacity:.75}
   }
   @media(prefers-reduced-motion:no-preference){
+    @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
     /* A stroke drawn downward, twice as long a pause as it takes to draw. */
     @keyframes cue{
       0%{transform:scaleY(0);opacity:0}
@@ -7204,21 +7370,25 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
-<!-- ── THE NAV. Brought back on the owner's call, without lines: no border,
-     no second hairline, no glass. It wears the hero band's top tone
-     (#09070C) and fades out at its bottom edge so it dissolves into whatever
-     is under it. Mono throughout, like every label on the page. Get started
-     is a plain link here on purpose: the page has ONE button in the sheet's
-     colour and it is at the bottom, where the case has been made. -->
+<!-- ── NAV. After the cover, not over it. ───────────────────────────────────
+     Placed here in the document so slide 1 is the mark and the numbers on
+     black with nothing laid across them; the bar arrives with slide 2 and
+     then sticks. slideTo() lands on coverEl.offsetHeight, which is exactly
+     this element's top, so the bar is the first thing at the top of slide 2.
+
+     NO LINES ON IT. The old bar carried a hairline border and a second glowing
+     one under it (.nav::after), plus a bordered sparkline pill. All three are
+     gone: the bar has no border of its own, and it wears the hero band's own
+     top tone so the nav and the wall below it are one unbroken surface. -->
 <nav class="nav">
   <a href="/" class="nav-logo"><img src="/static/logo-mark.png" alt="Highlightz"><span>Highlightz</span></a>
   <div class="nav-links">
     <!-- ORDER MATTERS AND IT IS THE PAGE'S ORDER. A nav that lists sections in
          a different sequence to the one you scroll through makes the page feel
          like it jumps around. Held by a test. -->
-    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Clips</a>
+    <a href="#examples" class="nav-link" id="nav-examples" style="display:none">Example clips</a>
     <a href="#how" class="nav-link">How it works</a>
-    <a href="#features" class="nav-link">Signals</a>
+    <a href="#features" class="nav-link">Features</a>
     <a href="#pricing" class="nav-link">Pricing</a>
     <a href="#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
@@ -7226,7 +7396,7 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
-    <a href="/login" class="nav-link nav-go">Get started <span aria-hidden="true">&rarr;</span></a>
+    <a href="/login" class="btn btn-key" style="padding:8px 16px;font-size:13.5px">Get started</a>
   </div>
 </nav>
 
@@ -7293,259 +7463,227 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </header>
 
-<!-- ── THE TAPE ──────────────────────────────────────────────────────────────
-     One line of telemetry under the wall: every channel's live score against
-     its own threshold, and the last crossing. Cells are built and written by
-     the wall script (tapePaint), from the same cycle the tiles draw. It keeps
-     reading after the wall has scrolled away. -->
-<div class="wrap">
-  <div class="tape" id="tape" aria-hidden="true">
-    <span class="tape-k">Live</span>
-    <ol class="tape-row" id="tape-row"></ol>
-    <span class="tape-ev" id="tape-ev">watching</span>
-  </div>
-</div>
-
 <!-- Example clips (admin-curated; hidden until the showcase has entries) -->
-<section class="wrap seam" id="examples" style="display:none">
-  <div class="sheet">
-    <h2 class="sec-title"><span class="sec-i">00</span>Caught live</h2>
-    <div class="sheet-b">
-      <p class="say">Real clips the formula took on live streams, then approved in a review queue like any other.</p>
-      <div class="ex-grid" id="ex-grid"></div>
-    </div>
+<section class="wrap full band-sand seam" id="examples" style="display:none">
+  <div class="sec-head">
+    <h2 class="sec-title">Real clips, caught automatically</h2>
+    <p class="sec-sub">Clipped by the formula on live streams, then approved in the review queue like any other clip. Tap one to watch it on Twitch.</p>
   </div>
+  <div class="ex-grid" id="ex-grid"></div>
 </section>
+
+<!-- Who it's for -->
 
 <!-- How it works -->
 <section class="wrap band-sand seam" id="how">
-  <div class="sheet">
-    <h2 class="sec-title"><span class="sec-i">01</span>How it works</h2>
-    <div class="sheet-b">
-      <p class="say">Every second of every channel you add gets a score. Cross the threshold and Twitch makes the clip.</p>
-      <div class="grid grid-3">
-        <div class="cell">
-          <span class="cell-k">Step 01</span>
-          <span class="cell-n">30<i>seconds</i></span>
-          <h3 class="cell-h">Add the channel</h3>
-          <p>Paste a name. You do not have to be online or watching. An offline channel is rechecked every 30 seconds until it goes live, and then it is scored the whole time it is up.</p>
-          <p>Monitoring stops after 8 hours without the dashboard being opened, so a forgotten tab does not run forever.</p>
+  <h2 class="sec-title">How it works</h2>
+  <div class="flow">
+    <div class="flow-step flow-a">
+      <span class="flow-mark">Step one</span>
+      <h3>Add the channels</h3>
+      <p>Paste a name. It starts watching. Three channels at once on Starter, ten on Pro, all running at the same time in one dashboard.</p>
+      <p class="flow-note">You don't have to be watching. You don't have to be online. Add a channel before they go live and it checks every 30 seconds until they are. Monitoring pauses after 8 hours of you not opening the dashboard, so a forgotten tab does not run forever.</p>
+    </div>
+    <div class="flow-step flow-b">
+      <span class="flow-mark">Step two</span>
+      <h3>Every second gets a score</h3>
+      <p>Chat speed, audio spikes, keywords, viewer surges, hype. Five numbers, weighted and added, recalculated every second the stream is live.</p>
+      <div class="formula">
+        <div class="signal-row">
+          <div class="signal" style="--sc:#D26AFB"><span class="sk">Chat speed</span><span class="sb"><i style="width:82%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#B86ADC"><span class="sk">Audio spikes</span><span class="sb"><i style="width:64%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#9C7BD2"><span class="sk">Keywords</span><span class="sb"><i style="width:47%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#F7A745"><span class="sk">Viewer surges</span><span class="sb"><i style="width:58%"></i></span></div>
+          <div class="plus">+</div>
+          <div class="signal" style="--sc:#E08C3A"><span class="sk">Hype</span><span class="sb"><i style="width:71%"></i></span></div>
         </div>
-        <div class="cell">
-          <span class="cell-k">Step 02</span>
-          <span class="cell-n">1<i>score per second</i></span>
-          <h3 class="cell-h">Five signals, one number</h3>
-          <p>Chat speed, audio, keywords, viewer surges and hype, with three quieter signals behind them. Weighted, added, and compared to the channel's own threshold.</p>
-          <div class="formula">
-            <div class="signal"><span class="sk">Chat speed</span><span class="sb"><i style="width:82%"></i></span><span class="sv">.82</span></div>
-            <div class="signal"><span class="sk">Audio</span><span class="sb"><i style="width:64%"></i></span><span class="sv">.64</span></div>
-            <div class="signal"><span class="sk">Keywords</span><span class="sb"><i style="width:47%"></i></span><span class="sv">.47</span></div>
-            <div class="signal"><span class="sk">Viewers</span><span class="sb"><i style="width:58%"></i></span><span class="sv">.58</span></div>
-            <div class="signal"><span class="sk">Hype</span><span class="sb"><i style="width:71%"></i></span><span class="sv">.71</span></div>
-            <div class="formula-out">
-              <span class="eq num">84</span>
-              <span class="formula-eq">weighted sum &middot; threshold 71 &middot; clip</span>
-            </div>
-          </div>
-          <p class="cell-note"><b>No black box.</b> The formula is readable, you can watch it move, and every clip shows which signal fired.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Step 03</span>
-          <span class="cell-n">0<i>frames stored</i></span>
-          <h3 class="cell-h">Twitch makes the clip</h3>
-          <p>A real Twitch clip, created under your own account through the official Twitch API and hosted by Twitch. It lands in your review queue.</p>
-          <p>Approve the keepers. Reject the misses. Each decision moves that channel's threshold toward your taste, and every channel keeps its own.</p>
+        <div class="formula-out">
+          <div class="eq num">84</div>
+          <div class="formula-eq">one live score, calibrated to this streamer</div>
         </div>
       </div>
+      <p class="flow-note"><b>No black box.</b> You can read the formula, watch it move, and see which signal fired.</p>
+    </div>
+    <div class="flow-step flow-c">
+      <span class="flow-mark">Step three</span>
+      <h3>It clips. You decide.</h3>
+      <p>Cross the line and a real Twitch clip is made under your own account, hosted by Twitch. It lands in your queue. Approve the keepers, reject the misses, and the formula shifts toward your taste.</p>
+      <p class="flow-note">Every channel keeps its own profile, so a quiet chess stream and a loud FPS stream are judged on their own normal.</p>
     </div>
   </div>
 </section>
 
-<!-- Signals, and what comes with them -->
-<section class="wrap" id="features">
-  <div class="sheet">
-    <h2 class="sec-title"><span class="sec-i">02</span>Signals</h2>
-    <div class="sheet-b">
-      <p class="say">Eight measurements, each read against the channel's own normal, so a five-viewer chat and a fifty-thousand-viewer chat are judged the same way.</p>
-      <ol class="sigs">
-        <li class="sig"><span class="sig-i">01</span><span class="sig-n">Chat velocity</span><span class="sig-d">Messages per second against the channel's rolling average. The fastest signal, and the one that fires most.</span><span class="sig-u">rate</span></li>
-        <li class="sig"><span class="sig-i">02</span><span class="sig-n">Emote wall</span><span class="sig-d">The share of chat that is the same emote. When the words stop and the wall starts, something happened.</span><span class="sig-u">share</span></li>
-        <li class="sig"><span class="sig-i">03</span><span class="sig-n">Keyword hits</span><span class="sig-d">Words you chose, or the preset's, landing in chat.</span><span class="sig-u">count</span></li>
-        <li class="sig"><span class="sig-i">04</span><span class="sig-n">Sentiment</span><span class="sig-d">How chat's mood swings over the last few seconds. A lurch either way counts; a steady mood does not.</span><span class="sig-u">delta</span></li>
-        <li class="sig"><span class="sig-i">05</span><span class="sig-n">Audio spike</span><span class="sig-d">A jump in the stream's loudness against its recent level. Relative, so a quiet stream can still spike.</span><span class="sig-u">dB</span></li>
-        <li class="sig"><span class="sig-i">06</span><span class="sig-n">Silence burst</span><span class="sig-d">The quiet before something lands, held long enough to matter.</span><span class="sig-u">seconds</span></li>
-        <li class="sig"><span class="sig-i">07</span><span class="sig-n">Viewer spike</span><span class="sig-d">A surge in the number watching, against what is normal for that channel.</span><span class="sig-u">delta</span></li>
-        <li class="sig"><span class="sig-i">08</span><span class="sig-n">Manual</span><span class="sig-d">You pressed the button. It clips.</span><span class="sig-u">100</span></li>
-      </ol>
 
-      <h3 class="sub-k">What comes with it</h3>
-      <div class="grid grid-4">
-        <div class="cell">
-          <span class="cell-k">Channels at once</span>
-          <span class="cell-n cell-3"><!--CHAN_N--><i>Free &middot; Starter &middot; Pro</i></span>
-          <h3 class="cell-h">All at the same time</h3>
-          <p><!--CHAN_P--></p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Clips held for review</span>
-          <span class="cell-n cell-3"><!--QUEUE_N--><i>Free &middot; Starter &middot; Pro</i></span>
-          <h3 class="cell-h">One queue for all of them</h3>
-          <p><!--QUEUE_P--></p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Video we store</span>
-          <span class="cell-n">0<i>frames</i></span>
-          <h3 class="cell-h">Twitch hosts every clip</h3>
-          <p>Clips are made through the official Twitch API with your own token, exactly as if you had pressed the button yourself. We never record, download or re-host a stream, which is why nothing here puts your account at risk.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Presets</span>
-          <span class="cell-n">9<i>starting points</i></span>
-          <h3 class="cell-h">Pick the closest, then forget it</h3>
-          <p>Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. A preset only decides where a channel starts. It keeps learning after that.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">VOD Scanner</span>
-          <span class="cell-n cell-w">Pro</span>
-          <h3 class="cell-h">Streams that already ended</h3>
-          <p>The same scoring, run over a finished broadcast. A back catalogue nobody was watching is still worth mining, and every hit links to its own timestamp.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Queue sort</span>
-          <span class="cell-n cell-w">Top Virality</span>
-          <h3 class="cell-h">Work a busy day from the top</h3>
-          <p>The clips most likely to travel float up, so the best ones get seen even if you never reach the bottom. There is a sensitivity dial per channel for when a stream runs hot or quiet.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Streamer opt-out</span>
-          <span class="cell-n">0<i>wait</i></span>
-          <h3 class="cell-h">Immediate, everywhere</h3>
-          <p>Any streamer can opt out on our opt-out page. It takes effect at once across every account, and a channel that has opted out cannot be added by anyone.</p>
-        </div>
-        <div class="cell">
-          <span class="cell-k">Published without you</span>
-          <span class="cell-n">0<i>clips</i></span>
-          <h3 class="cell-h">The queue is the only door</h3>
-          <p>Highlightz makes the clip and stops. Nothing is posted or deleted until you rule on it, and the review queue is the only route into your library.</p>
-        </div>
+<!-- Not AI / formula -->
+
+<!-- Features -->
+<section class="wrap wide" id="features">
+  <h2 class="sec-title">What you get</h2>
+
+  <!-- Four groups, each answering one question, rather than eight items in a
+       row. The order is the order a buyer asks them in: is this safe, how much
+       does it watch, how does it judge, what do I control. -->
+  <div class="feat-group">
+    <span class="feat-label">First, the part most tools skip</span>
+    <div class="feat feat-wide">
+      <h3>Clips are made by Twitch, not by us</h3>
+      <p>We call the official Twitch API with your own token, and Twitch hosts the clip exactly as if you had hit the button yourself. We never record, download or re-host a single frame of anyone's stream. That is the part most tools quietly skip, and it is the reason nothing here puts your account at risk.</p>
+    </div>
+  </div>
+
+  <div class="feat-group">
+    <span class="feat-label">How much it watches</span>
+    <div class="feat-grid feat-cols-3">
+      <div class="feat">
+        <h3>Ten channels at once</h3>
+        <p>1 on Free, 3 on Starter, 10 on Pro. Watched at the same time, each with its own profile. Nothing queues behind anything else.</p>
+      </div>
+      <div class="feat">
+        <h3>One queue for all of them</h3>
+        <p>Every channel lands in the same place. 20 clips waiting on Free, 50 on Starter, 200 on Pro.</p>
+      </div>
+      <div class="feat">
+        <h3>Streams that already ended</h3>
+        <p>The VOD Scanner runs the same scoring over a finished broadcast, so a back catalogue you were never watching is still worth mining. Every hit links to its own timestamp. On Pro, included in your trial.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="feat-group">
+    <span class="feat-label">How it decides what is good</span>
+    <div class="feat-grid feat-cols-2">
+      <div class="feat">
+        <h3>Every channel gets its own normal</h3>
+        <p>A quiet chess stream and a screaming FPS stream do not share a threshold. Each channel is measured against itself, and gets sharper the longer it runs.</p>
+      </div>
+      <div class="feat">
+        <h3>A preset for the kind of stream</h3>
+        <p>Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. The preset only decides where a channel starts. It keeps learning after that, so the closest match is good enough.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="feat-group">
+    <span class="feat-label">What stays under your control</span>
+    <div class="feat-grid feat-cols-2">
+      <div class="feat">
+        <h3>Nothing leaves the queue without you</h3>
+        <p>Highlightz makes the clip and stops. Nothing is published, posted or deleted anywhere until you rule on it, and the review queue is the only route into your library.</p>
+      </div>
+      <div class="feat">
+        <h3>Work a busy day from the top</h3>
+        <p>Sort by Top Virality and the clips most likely to travel float up, so the best ones get seen even if you never reach the bottom. What you approve and reject feeds back into that channel's formula, and there is a sensitivity dial per channel for when a stream runs hot or quiet.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- Pricing -->
-<section class="wrap band-sand seam" id="pricing">
-  <div class="sheet">
-    <h2 class="sec-title"><span class="sec-i">03</span>Pricing</h2>
-    <div class="sheet-b">
-      <!--PRICING-->
-    </div>
-  </div>
-</section>
+<section class="band-sand seam" id="pricing"><div class="wrap">
+  <h2 class="sec-title">Pricing</h2>
+  <!--PRICING-->
+</div></section>
 
 <!-- FAQ -->
 <section class="wrap" id="faq">
-  <div class="sheet">
-    <h2 class="sec-title"><span class="sec-i">04</span>Questions</h2>
-    <div class="sheet-b">
-      <div class="faq-group">
-        <h3 class="faq-h">Using it</h3>
-        <div class="faq-rows">
-          <details class="faq-item">
-            <summary class="faq-q">Can I clip channels I don't own?</summary>
-            <p class="faq-a">Yes. That is what most people use it for. Add any live Twitch channel and the clip is created through Twitch's official Clips API with your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. Twitch hosts it and it is attributed to you, same as a manual clip.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">Do I have to leave anything running?</summary>
-            <p class="faq-a">No. The watching happens on our servers, not in your browser. Add a channel, close the tab, shut the laptop. It keeps being scored the whole time it is live, and whatever it catches is waiting in your queue when you come back.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">How many channels can it watch at once?</summary>
-            <p class="faq-a">One on Free, three on Starter, ten on Pro. At the same time, not in rotation, and each one carries its own profile so a busy channel and a quiet one do not interfere with each other.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">Does it work for small channels?</summary>
-            <p class="faq-a">Yes, and this is the whole point of per-channel calibration. A five-viewer chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns what is normal for each channel and reacts to relative spikes rather than raw numbers.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">What happens when my review queue fills up?</summary>
-            <p class="faq-a">Twenty clips can sit waiting on Free, fifty on Starter, two hundred on Pro. When the queue is full the incoming clip is dropped, and nothing you have already caught is ever deleted to make room for it. The dashboard tells you how many moments were missed that way in the last day, so a full queue is something you find out about rather than something that happens silently.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">What if I don't like the clips it takes?</summary>
-            <p class="faq-a">Every clip lands in your review queue first. Approve the keepers, reject the misses. The formula learns from each decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes toward your taste.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">What are highlight clips?</summary>
-            <p class="faq-a">Moments the bot rates as your strongest shot at travelling. They arrive in the review queue marked Highlight, in purple, and they are the ones to look at first if you only have a minute. Clearing one tells it not to offer that moment again.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">Can it look at a stream that already ended?</summary>
-            <p class="faq-a">On Pro, yes. The VOD Scanner runs the same scoring over a finished broadcast, so a back catalogue nobody was watching live is still worth mining. Every hit links to its own timestamp in the VOD.</p>
-          </details>
-        </div>
-      </div>
-      <div class="faq-group">
-        <h3 class="faq-h">How it decides</h3>
-        <div class="faq-rows">
-          <details class="faq-item">
-            <summary class="faq-q">Is this AI?</summary>
-            <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">How does it know what counts as big on my channel?</summary>
-            <p class="faq-a">Every channel is measured against itself. The formula builds a picture of that channel's ordinary chat rate, audio level and viewer movement, then watches for departures from it. A threshold that would never be crossed on a quiet stream is crossed constantly on a loud one, which is why a single fixed number would only ever suit one kind of channel. It also gets sharper the longer a channel runs.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">What are the presets for?</summary>
-            <p class="faq-a">Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. A preset only decides where a channel starts, because a chess stream and an FPS stream do not react the same way. It keeps learning from there, so picking the closest match is good enough and there is nothing to tune by hand.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">Can I make it more or less sensitive?</summary>
-            <p class="faq-a">Yes, per channel. There is a sensitivity dial for when a stream is running hotter or quieter than usual, and it sits on top of what the channel has already learned. Most people never touch it, because approving and rejecting moves the same needle.</p>
-          </details>
-        </div>
-      </div>
-      <div class="faq-group">
-        <h3 class="faq-h">The fine print</h3>
-        <div class="faq-rows">
-          <details class="faq-item">
-            <summary class="faq-q">Is this allowed on Twitch?</summary>
-            <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or scrapes a page, and there is no second copy of anyone's video anywhere.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">What if a streamer does not want to be clipped?</summary>
-            <p class="faq-a">They can opt out at any time on our opt-out page, and it takes effect immediately across every account. No email to us, no waiting on a reply. A channel that has opted out cannot be added by anyone.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">Do you record or store my stream?</summary>
-            <p class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API. Twitch hosts it and it is attributed to your account. We never record, download or re-host video.</p>
-          </details>
-          <details class="faq-item">
-            <summary class="faq-q">How does billing work?</summary>
-            <p class="faq-a"><!--FREEPLAN--></p>
-          </details>
-        </div>
-      </div>
-      <p class="faq-more">More detail, including how long clips run and which platforms are supported, is in the <a href="/tutorial">walkthrough</a>.</p>
-      <a class="peek peek-inline" href="/tutorial">
-        <span class="peek-k">Prefer pictures?</span>
-        <span class="peek-t">The walkthrough shows every screen, step by step</span>
-        <span class="peek-a">&rarr;</span>
-      </a>
+  <h2 class="sec-title">Questions</h2>
+  <div class="faq-group">
+    <h3 class="faq-h">Using it</h3>
+    <div class="faq-rows">
+      <details class="faq-item">
+        <summary class="faq-q">Can I clip channels I don't own?</summary>
+        <p class="faq-a">Yes. That is what most people use it for. Add any live Twitch channel and the clip is created through Twitch's official Clips API with your authorized account, exactly as if you had pressed Twitch's own Clip button while watching. Twitch hosts it and it is attributed to you, same as a manual clip.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Do I have to leave anything running?</summary>
+        <p class="faq-a">No. The watching happens on our servers, not in your browser. Add a channel, close the tab, shut the laptop. It keeps being scored the whole time it is live, and whatever it catches is waiting in your queue when you come back.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How many channels can it watch at once?</summary>
+        <p class="faq-a">One on Free, three on Starter, ten on Pro. At the same time, not in rotation, and each one carries its own profile so a busy channel and a quiet one do not interfere with each other.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Does it work for small channels?</summary>
+        <p class="faq-a">Yes, and this is the whole point of per-channel calibration. A five-viewer chat and a fifty-thousand-viewer chat are judged the same way, because the formula learns what is normal for each channel and reacts to relative spikes rather than raw numbers.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What happens when my review queue fills up?</summary>
+        <p class="faq-a">Twenty clips can sit waiting on Free, fifty on Starter, two hundred on Pro. When the queue is full the incoming clip is dropped, and nothing you have already caught is ever deleted to make room for it. The dashboard tells you how many moments were missed that way in the last day, so a full queue is something you find out about rather than something that happens silently.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What if I don't like the clips it takes?</summary>
+        <p class="faq-a">Every clip lands in your review queue first. Approve the keepers, reject the misses. The formula learns from each decision: rejections raise that channel's bar, approvals lower it, so it steadily tunes toward your taste.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What are highlight clips?</summary>
+        <p class="faq-a">Moments the bot rates as your strongest shot at travelling. They arrive in the review queue marked Highlight, in purple, and they are the ones to look at first if you only have a minute. Clearing one tells it not to offer that moment again.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Can it look at a stream that already ended?</summary>
+        <p class="faq-a">On Pro, yes. The VOD Scanner runs the same scoring over a finished broadcast, so a back catalogue nobody was watching live is still worth mining. Every hit links to its own timestamp in the VOD.</p>
+      </details>
     </div>
   </div>
+  <div class="faq-group">
+    <h3 class="faq-h">How it decides</h3>
+    <div class="faq-rows">
+      <details class="faq-item">
+        <summary class="faq-q">Is this AI?</summary>
+        <p class="faq-a">No. It runs on a transparent mathematical formula you can read. Watch the score move in real time, then open any clip to see which signals fired and how strongly.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How does it know what counts as big on my channel?</summary>
+        <p class="faq-a">Every channel is measured against itself. The formula builds a picture of that channel's ordinary chat rate, audio level and viewer movement, then watches for departures from it. A threshold that would never be crossed on a quiet stream is crossed constantly on a loud one, which is why a single fixed number would only ever suit one kind of channel. It also gets sharper the longer a channel runs.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What are the presets for?</summary>
+        <p class="faq-a">Default, Small streamer, FPS, MOBA, Chess and Strategy, Casino, IRL, Variety and Just Chatting, or Sports. A preset only decides where a channel starts, because a chess stream and an FPS stream do not react the same way. It keeps learning from there, so picking the closest match is good enough and there is nothing to tune by hand.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Can I make it more or less sensitive?</summary>
+        <p class="faq-a">Yes, per channel. There is a sensitivity dial for when a stream is running hotter or quieter than usual, and it sits on top of what the channel has already learned. Most people never touch it, because approving and rejecting moves the same needle.</p>
+      </details>
+    </div>
+  </div>
+  <div class="faq-group">
+    <h3 class="faq-h">The fine print</h3>
+    <div class="faq-rows">
+      <details class="faq-item">
+        <summary class="faq-q">Is this allowed on Twitch?</summary>
+        <p class="faq-a">Yes. Clips are created through Twitch's official Clips API with your authorized account, the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or scrapes a page, and there is no second copy of anyone's video anywhere.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">What if a streamer does not want to be clipped?</summary>
+        <p class="faq-a">They can opt out at any time on our opt-out page, and it takes effect immediately across every account. No email to us, no waiting on a reply. A channel that has opted out cannot be added by anyone.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Do you record or store my stream?</summary>
+        <p class="faq-a">Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the official API. Twitch hosts it and it is attributed to your account. We never record, download or re-host video.</p>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">How does billing work?</summary>
+        <p class="faq-a"><!--FREEPLAN--></p>
+      </details>
+    </div>
+  </div>
+  <p class="faq-more">More detail, including how long clips run and which platforms are supported, is in the <a href="/tutorial">walkthrough</a>.</p>
+  <a class="peek peek-inline" href="/tutorial">
+    <span class="peek-k">Prefer pictures?</span>
+    <span class="peek-t">The walkthrough shows every screen, step by step</span>
+    <span class="peek-a">&rarr;</span>
+  </a>
 </section>
 
-<!-- The close -->
-<section class="wrap end" id="start">
-  <h2 class="end-line">Ten streams are live right now. You can only watch one.</h2>
-  <p class="end-p">Connect Twitch, add a channel, and let it catch the highlights while you get on with something else. Free to start, with no card and nothing to cancel.</p>
-  <div class="end-act">
-    <a href="/login" class="btn btn-go btn-lg">Start clipping now</a>
-    <a href="/tutorial" class="btn btn-quiet btn-lg">Read the walkthrough</a>
-  </div>
-</section>
+<!-- Final CTA -->
+<section class="band-dark final-band seam"><div class="wrap narrow final">
+  <h2>Ten streams are live right now.<br><span class="accent">You can only watch one.</span></h2>
+  <p>Connect Twitch, add a channel, and let it catch the highlights while you get on with something else. Free to start, with no card and nothing to cancel.</p>
+  <a href="/login" class="btn btn-key btn-lg">Start clipping now</a>
+  <a href="/tutorial" class="btn btn-quiet btn-lg" style="margin-left:10px">Read the walkthrough</a>
+</div></section>
 
 <div class="exl" id="exl" style="display:none" role="dialog" aria-modal="true">
   <div class="exl-bg" id="exl-bg"></div>
@@ -7560,8 +7698,8 @@ LANDING_HTML = """<!DOCTYPE html>
 </div>
 
 <footer class="footer">
-  <span class="fl">&copy; 2026 ANTI Technology LLC</span>
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <div class="fl">&copy; 2026 ANTI Technology LLC. All rights reserved.</div>
+  <a href="/tutorial">Tutorial</a> &middot; <a href="/compare">Compare</a> &middot; <a href="/tos">Terms of Service</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/cookies">Cookie Policy</a> &middot; <a href="/opt-out">Streamer Opt-Out</a>
 </footer>
 <script>
 /* ── Live clips counter ── */
@@ -7990,53 +8128,6 @@ LANDING_HTML = """<!DOCTYPE html>
   }
   buildTiles();
 
-  /* ── THE TAPE ──────────────────────────────────────────────────────────────
-     One line of telemetry under the wall: each channel's live score against
-     its own threshold, and the last crossing. It reads the SAME cycle through
-     the SAME scoreAt() as the tiles, so it can never disagree with them, and
-     every node is written only when its value actually changes — four cells
-     repainted at 4Hz is cheap, four cells re-set at 60Hz is not.
-
-     It is painted from BOTH loops: render() while the wall is on screen, and
-     navTick() after the wall has scrolled away. That second path is the point
-     of having it — the line sits at the top of the spec sheet and keeps
-     showing real numbers while the reader is down among the plans. ── */
-  var tapeRow=document.getElementById('tape-row'),
-      tapeEv=document.getElementById('tape-ev'), tapeCells=[];
-  function buildTape(){
-    if(!tapeRow) return;
-    var i,frag=document.createDocumentFragment();
-    for(i=0;i<4;i++){
-      var li=document.createElement('li'); li.className='tape-c';
-      var ch=document.createElement('span'); ch.className='tape-ch';
-      var s=document.createElement('b'); s.className='tape-s'; s.textContent='0';
-      var th=document.createElement('span'); th.className='tape-t';
-      li.appendChild(ch); li.appendChild(s); li.appendChild(th);
-      frag.appendChild(li);
-      tapeCells.push({root:li,ch:ch,s:s,th:th,last:'',name:'',thr:''});
-    }
-    tapeRow.appendChild(frag);
-  }
-  buildTape();
-  var tapeAt=-1;
-  function tapePaint(t){
-    if(!tapeRow||!cyc) return;
-    var i;
-    for(i=0;i<4;i++){
-      var c=tapeCells[i], tl=cyc[i];
-      var nm=(tl.clip&&tl.clip.channel)?tl.clip.channel:tl.name;
-      if(c.name!==nm){ c.name=nm; c.ch.textContent=nm; }
-      var thr='/ '+tl.thresh;
-      if(c.thr!==thr){ c.thr=thr; c.th.textContent=thr; }
-      var s=scoreAt(tl,t), sr=String(Math.round(s));
-      if(c.last!==sr){ c.last=sr; c.s.textContent=sr; }
-      c.root.classList.toggle('over',s>=tl.thresh);
-      // The wall shows two tiles on a phone and the tape shows the same two:
-      // a line claiming four channels beside a wall showing two is a lie.
-      c.root.classList.toggle('off',i>=vis);
-    }
-  }
-
   function yFor(s){ return VH-6-s*(VH-12)/100; }
 
   function dress(cyc){
@@ -8150,7 +8241,6 @@ LANDING_HTML = """<!DOCTYPE html>
       if(over&&t>=FIRE_MIN&&i===cycFireI&&!fired){
         fired=true;
         if(capState) capState.textContent='trigger fired · clipping';
-        if(tapeEv) tapeEv.textContent='crossed · '+e.chT.nodeValue+' '+sr+' over '+tl.thresh;
       }
     }
 
@@ -8161,7 +8251,6 @@ LANDING_HTML = """<!DOCTYPE html>
     if(staged&&firedScore) best=firedScore;
 
     navPaint(best);
-    tapePaint(t);
     // The through-line down the page edge reads the wall while the wall is on
     // screen. Leaving it on the scroll wave meant the rail said 0 while four
     // tiles behind it were showing real numbers.
@@ -8238,9 +8327,6 @@ LANDING_HTML = """<!DOCTYPE html>
     var i,best=0;
     for(i=0;i<vis;i++){ var s=scoreAt(cyc[i],navT); if(s>best) best=s; }
     navPaint(best);
-    // Same cadence as the wall loop, so the tape does not tick faster the
-    // moment the wall leaves the screen.
-    if(navT<tapeAt||navT-tapeAt>=STEP){ tapeAt=navT; tapePaint(navT); }
     navRaf=requestAnimationFrame(navTick);
   }
   // Hidden tab and reduced motion are refusals to animate at all. A scroll
@@ -8758,88 +8844,72 @@ def _org_schema() -> str:
 # exist. Every number below is read from PLAN_LIMITS, so changing a plan changes
 # the page and a test catches any that drift.
 #
-# A SPEC TABLE, not three cards. The plans differ on a handful of rows and
-# nowhere else, so the honest layout is the one that shows exactly those rows
-# with the three plans across the top: no highlighted middle column, no tick
-# marks, no badge. Free is the first column because it is the first rung, and
-# the row order is the order a visitor asks in — what does it cost, how much
-# does it watch, how much does it hold, what do I get to keep.
+# A free tier and two paid ones, which is what is actually on sale since the
+# 7-day trial was retired. Deliberately NOT three equal cards with tick lists
+# and a "Most popular" badge: the plans differ on one axis, how many channels
+# get watched at once, so that is what the layout leads with. The cards are
+# different sizes because the plans are not equal.
 def _pricing() -> str:
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
     free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
-    plans = (free, st, pro)
 
-    def week(limits: dict) -> str:
-        # The unlimited sentinel is turned into a word — printing it raw would
-        # put "1000000000" on the pricing page.
-        w = limits.get("max_library_week", 0)
-        return "Unlimited" if w >= UNLIMITED_PENDING else str(w)
+    def tier(limits: dict, blurb: str, cls: str, *,
+             fig_suffix: str, cta: str, cta_cls: str) -> str:
+        chan = str(limits["max_streams"])
+        # The second number a visitor is buying, given its own line rather than
+        # buried in the blurb: how many clips the plan lets you KEEP each week.
+        # Derived, and the unlimited sentinel is turned into a word — printing
+        # it raw would put "1000000000 clips a week" on the pricing page.
+        week = limits.get("max_library_week", 0)
+        keep = ("<b>Unlimited clips</b> kept" if week >= UNLIMITED_PENDING
+                else "<b>" + str(week) + " clips</b> kept a week")
+        return (
+            '<div class="ptier ' + cls + '">'
+            + '<div class="ptier-head"><span class="ptier-name">' + limits["label"] + "</span>"
+            + '<span class="ptier-fig">$' + str(limits["price"])
+            + "<i>" + fig_suffix + "</i></span></div>"
+            + '<p class="ptier-chan"><b>' + chan
+            + (" channel</b> watched at a time" if chan == "1"
+               else " channels</b> watched at the same time") + "</p>"
+            + '<p class="ptier-chan">' + keep + "</p>"
+            + '<p class="ptier-what">' + blurb + "</p>"
+            + '<a href="/login" class="btn ' + cta_cls + ' btn-lg">' + cta + "</a></div>")
 
-    def row(label: str, cells, cls: str = "") -> str:
-        return ('<tr' + (' class="' + cls + '"' if cls else "") + '><th scope="row">'
-                + label + "</th>" + "".join("<td>" + c + "</td>" for c in cells) + "</tr>")
-
-    price = row("Price", [
-        '<span class="n">$' + str(free["price"]) + "</span><i>no card</i>",
-        '<span class="n">$' + str(st["price"]) + "</span><i>per month</i>",
-        '<span class="n">$' + str(pro["price"]) + "</span><i>per month</i>",
-    ], "price")
-    body = (
-        price
-        + row("Channels at once", [str(p["max_streams"]) for p in plans])
-        + row("Clips held for review", [str(p["max_pending"]) for p in plans])
-        + row("Highlight clips", [str(p["max_suggested"]) for p in plans])
-        + row("Clips kept per week", [week(p) for p in plans])
-        + row("VOD Scanner", ["Yes" if p["vod"] else "No" for p in plans])
-    )
-    foot = ('<tr><td></td>'
-            '<td><a href="/login" class="plan-go">Start free</a></td>'
-            '<td><a href="/login" class="plan-go">Get Starter</a></td>'
-            '<td><a href="/login" class="plan-go">Get Pro</a></td></tr>')
-    head = ('<tr><th scope="col"><span class="vh">Plan</span></th>'
-            + "".join('<th scope="col">' + p["label"] + "</th>" for p in plans) + "</tr>")
-
+    # THREE CARDS, SMALLEST FIRST, and the sizes are the argument. The row was
+    # two cards on the reasoning that "the plans differ on one axis, how many
+    # channels get watched at once, so the layout leads with that" — which is
+    # exactly why Free belongs IN the row rather than described in the
+    # paragraph above it. It is the first rung of that same ladder, and a
+    # visitor scanning for "what does this cost to try" was reading prose while
+    # two priced cards sat underneath saying $10 and $25.
     return (
         '<p class="price-lead"><b>Start on the free plan and stay there as long '
         "as you like.</b> There is no card to enter and no time limit on it. "
-        "The plans differ on the rows below and nowhere else.</p>"
-        '<div class="plans-wrap"><table class="plans">'
-        '<colgroup><col class="c-lab"><col><col><col></colgroup>'
-        "<thead>" + head + "</thead><tbody>" + body + "</tbody><tfoot>" + foot
-        + "</tfoot></table></div>"
-        '<p class="price-tiny">Move between them whenever you like. Cancel from '
-        "the Account tab. No contracts.</p>"
-        '<a class="peek peek-inline" href="/compare">'
-        '<span class="peek-k">Still deciding?</span>'
-        '<span class="peek-t">See it next to the other clipping tools</span>'
-        '<span class="peek-a">&rarr;</span></a>')
-
-
-# The two spec cells whose numbers are plan limits. Generated for the same
-# reason the pricing table and the billing answer are: a literal "1 / 3 / 10"
-# in the markup is correct until the day someone changes plans.py.
-def _channels_fact() -> tuple[str, str]:
-    from src.billing.plans import PLAN_LIMITS
-    f, st, pro = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
-
-    def chans(n: int) -> str:
-        return "<b>" + str(n) + (" channel</b>" if n == 1 else " channels</b>")
-
-    n = str(f) + "/" + str(st) + "/" + str(pro)
-    p = (chans(pro) + " watched at the same time on Pro, " + chans(st)
-         + " watched at the same time on Starter, " + chans(f) + " on Free. "
-         "Each carries its own profile. Nothing queues behind anything else.")
-    return n, p
-
-
-def _queue_fact() -> tuple[str, str]:
-    from src.billing.plans import PLAN_LIMITS
-    f, st, pro = (PLAN_LIMITS[k]["max_pending"] for k in ("free", "starter", "pro"))
-    n = str(f) + "/" + str(st) + "/" + str(pro)
-    p = (str(f) + " clips waiting on Free, " + str(st) + " on Starter, " + str(pro)
-         + " on Pro. When the queue is full the incoming clip is dropped, and "
-         "nothing you already caught is deleted to make room.")
-    return n, p
+        "The plans differ on two things: how many channels get watched at "
+        "once, and how many clips you can keep each week.</p>"
+        + '<div class="ptiers">'
+        + tier(free,
+               "A review queue that holds " + str(free["max_pending"])
+               + " clips, plus up to " + str(free["max_suggested"])
+               + " suggested from a spike in audience interest. The real "
+               "product, in its smallest size.",
+               "ptier-a", fig_suffix="no card", cta="Start free", cta_cls="btn-quiet")
+        + tier(st,
+               "A review queue that holds " + str(st["max_pending"]) + " clips. "
+               "Same detection, same formula, same everything else.",
+               "ptier-b", fig_suffix="/month", cta="Get Starter", cta_cls="btn-quiet")
+        + tier(pro,
+               "A review queue that holds " + str(pro["max_pending"]) + " clips, "
+               "no weekly limit on what you keep, plus the VOD Scanner for "
+               "pulling highlights out of streams that already happened.",
+               "ptier-c", fig_suffix="/month", cta="Get Pro", cta_cls="btn-key")
+        + "</div>"
+        + '<p class="price-tiny">Move between them whenever you like. Cancel from '
+          "the Account tab. No contracts.</p>"
+        + '<a class="peek peek-inline" href="/compare">'
+          '<span class="peek-k">Still deciding?</span>'
+          '<span class="peek-t">See it next to the other clipping tools</span>'
+          '<span class="peek-a">&rarr;</span></a>')
 
 
 # The billing FAQ answer, generated for the same reason the pricing block is:
@@ -8912,12 +8982,6 @@ def _tos_plans() -> str:
 
 LANDING_HTML = LANDING_HTML.replace("<!--FREEPLAN-->", _free_plan_answer(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
-_cn, _cp = _channels_fact()
-_qn, _qp = _queue_fact()
-LANDING_HTML = (LANDING_HTML.replace("<!--CHAN_N-->", _cn, 1)
-                .replace("<!--CHAN_P-->", _cp, 1)
-                .replace("<!--QUEUE_N-->", _qn, 1)
-                .replace("<!--QUEUE_P-->", _qp, 1))
 
 # LAST, and that is the whole point. _faq_schema derives the FAQPage from the
 # FAQ's own markup so the two cannot disagree — but it can only read what is

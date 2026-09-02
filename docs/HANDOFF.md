@@ -420,12 +420,10 @@ normal Clip Review screen, which still shows scores.
   welcome modal (button "Start clipping") before asserting on any screen.
 - Landing = LANDING_HTML string in `api.py` (plain string, no f-string
   braces; the string in api.py is canonical).
-- **Typography (settled 2026-07-30, narrowed 2026-09-02)**: Lobster (400)
-  was the title face on the landing page (`h2.sec-title`, `.final h2`) and
-  still is on /tutorial and /compare. **On the landing page it now survives
-  only on slide 2's `.side-h`** — the below-hero redesign (next bullet) allows
-  two voices, mono and Sora. Self-hosted woff2, preloaded, no Google Fonts
-  request.
+- **Typography (settled 2026-07-30)**: **Lobster (400) for TITLES ONLY**
+  (`.hero-copy h1`, `h2.sec-title`, `.formula h2`, `.final h2`); everything
+  else — wordmark, stat numbers, price, demo score, all body copy — is **Sora**.
+  Self-hosted woff2, preloaded, no Google Fonts request.
   - **Lobster is a SCRIPT.** Two hard rules, both locked by
     `test_lobster_is_titles_only_and_never_uppercased`:
     1. **Never `text-transform:uppercase`** — its letters are drawn to connect
@@ -452,51 +450,6 @@ normal Clip Review screen, which still shows scores.
   - **OPEN: og-card.png is still rendered in Anton**, so the share card matches
     no current face. Regenerate it in Lobster. `Anton-Regular.ttf` is that
     card's source font — **keep it** until the card is redone.
-- **Landing redesign below the hero (2026-09-02, owner's brief: "full
-  replacement, not a tweak").** The cover (slide 1) and the wall spread
-  (slide 2, `<header class="hero hero-band">`) were kept intact; everything
-  under them is one construction, the *spec sheet*: `.sheet` = sticky mono
-  label (`h2.sec-title`, e.g. `01 How it works`) in a narrow left column,
-  content on the right. Chapters in order: `.tape` (live telemetry line,
-  see below) → `#examples` (hidden until curated) → `#how` (one `.say`
-  sentence + `.grid.grid-3` of `.cell`s, the middle cell carrying
-  `.formula`) → `#features` (`.say` + `<ol class="sigs">`, one `.sig` row
-  per `SIGNAL_LABELS` entry, then `.grid.grid-4` of eight spec cells) →
-  `#pricing` (`_pricing()` now emits a `<table class="plans">`: plans across,
-  facts down, no highlighted column, price row in ember) → `#faq` (same 16
-  `<details>` in 3 groups) → `#start` (one line + the page's **single**
-  orange button `.btn-go`) → one-row `.footer`.
-  - **Rules the brief set, and tests now hold:** two type voices only under
-    the hero (mono = numbers/labels/wordmark, Sora = sentences) — **Lobster
-    is gone from the landing page except `.side-h` on slide 2**; tutorial
-    and compare keep it. Orange (`--ember`) only on real numbers
-    (`.cell-n`, `.tape-s`, `.plans .price .n`, `.tile-score`, thread) and on
-    `.btn-go`; `.cell-n.cell-w` (a word in the number slot) stays ink. No
-    purple token below the hero (`test_the_purple_stays_above_the_fold`).
-    Sharp corners everywhere (`.btn{border-radius:0}`), hairlines not cards,
-    no glow, no radial washes (`.seam::after` is a 1px top line now). Focus
-    rings are ember. `--bone` is `#0A0A0C`.
-  - **Hairline grids without nth-child arithmetic:** `.grid` cells carry
-    `box-shadow:-1px 0 0 var(--hair),0 -1px 0 var(--hair)` and the grid clips
-    them (`overflow:hidden`), so three/two/one columns need no divider rules.
-    `gap:1px` was NOT used — 1px is off the spacing scale and the token test
-    flags it.
-  - **The tape** (`#tape-row`, `#tape-ev`) is written by the wall engine's
-    `tapePaint(t)` from the same cycle/`scoreAt()` as the tiles, from
-    `render()` while the wall is on screen and from `navTick()` after it has
-    scrolled away (verified: still ticking with `data-hero=0`). It shows
-    `vis` cells (2 on ≤700px, like the wall). `.tape-k::before` reads `--lit`
-    (third consumer; palette test wants ≥3).
-  - **Generated numbers:** `<!--CHAN_N-->/<!--CHAN_P-->/<!--QUEUE_N-->/
-    <!--QUEUE_P-->` are filled from `_channels_fact()` / `_queue_fact()`
-    (PLAN_LIMITS), like `<!--PRICING-->` and `<!--FREEPLAN-->`; FAQ_SCHEMA is
-    still substituted last.
-  - **Measured on this build (headless Chromium, fonts served):** overflow 0
-    and CLS 0 at 1440/1100/900/390; one h1; six `<section>`s; reduced motion
-    composes the fired frame (tape reads "crossed · novafps 91 over 71").
-    Truncation trap found and fixed: a `.cell-n` with three plan values at
-    44px in a four-across cell ellipsised to "20 / …" — hence `.cell-3`
-    (28px cap, slashes without spaces).
 - CSS traps: `.wrap` (class) beats `section` (type) on the padding
   shorthand — sections use longhand padding. Grid `1fr` means
   minmax(auto,1fr): mobile relies on minmax(0,1fr) + min-width:0 chains.
