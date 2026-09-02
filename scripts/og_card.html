@@ -14,35 +14,24 @@
 
       node scripts/build_og_card.mjs
 
-  v5 (2026-09-02): the landing page moved to the v4 system — black, the big
-  blurred mark behind the cover, the sans at 800 for the title, the mono for
-  numbers, the orange as the one accent — and the owner's Reddit post was
-  still previewing the purple script-face card. This is that page, in one
-  frame: the cover's blurred mark, the proof section's headline, and the
-  score instrument firing in the orange.
-
-  DELIBERATELY NO PRICE ON THE CARD. Quoting a number here is exactly what went
-  wrong: prices change, and a cached OG image is the slowest thing on the
-  internet to correct — Facebook keys its cache on the URL, so a stale card can
-  outlive the offer by months. A test asserts no retired price creeps back in.
-
-  THE OFFER LINE IS THE ONE EXCEPTION, added knowingly. "Free to start" is the
-  single most useful thing a stranger can learn from a thumbnail, and it is what
-  the product actually sells. If that ever changes, this card MUST be
-  regenerated under a NEW filename (bump OUT in build_og_card.mjs) or every
-  previously shared link keeps advertising the old offer.
+  v6 (2026-09-02): THE LOGO, AND ONLY THE LOGO. Owner: "make it so that
+  preview just shows the logo". This is the cover of the landing page as a
+  card — the big blurred mark as the light in the room, the sharp mark and
+  the wordmark in the middle, the black around them. No copy, no numbers,
+  no offer: the words a shared link carries are the og:title and
+  og:description, which are text and cannot go stale inside a cached image.
+  That also closes the whole class of failure this file was written about —
+  a card with no claims on it has nothing to advertise wrongly.
 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <style>
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;src:url(/fonts/sora-var.woff2) format('woff2')}
-  @font-face{font-family:'Plex';font-style:normal;font-weight:400;src:url(/fonts/plexmono-400.woff2) format('woff2')}
   @font-face{font-family:'Plex';font-style:normal;font-weight:600;src:url(/fonts/plexmono-600.woff2) format('woff2')}
 
   /* The landing page's tokens. If these drift from api.py the card stops
-     matching the page it links to. The violet pair is the logo's own colour;
-     below the bar the page uses only black, white, paper and the orange. */
+     matching the page it links to. The violet pair is the logo's own colour. */
   :root{
     --void:#0E0B11; --bone:#0A0A0C;
     --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
@@ -56,127 +45,32 @@
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 
   /* The cover's mark: huge, blurred, behind everything — the brand's colour
-     as the light in the room, exactly as on the homepage. */
-  .mark{position:absolute;left:-40px;top:-140px;height:900px;width:auto;
-    filter:blur(22px);opacity:.42;pointer-events:none;z-index:0}
-  .fade{position:absolute;inset:0;z-index:1;pointer-events:none;
-    background:linear-gradient(90deg,rgba(0,0,0,.15) 0%,rgba(0,0,0,.55) 45%,#000 78%)}
+     as the light in the room, exactly as on the homepage. Centred, so the
+     light sits behind the lockup rather than beside it. */
+  .mark{position:absolute;left:50%;top:50%;height:760px;width:auto;
+    transform:translate(-50%,-52%);filter:blur(24px);opacity:.5;pointer-events:none;z-index:0}
+  /* The cover's floor glow, so the bottom edge is not a hard cut. */
+  .floor{position:absolute;left:0;right:0;bottom:0;height:220px;z-index:1;pointer-events:none;
+    background:radial-gradient(110% 100% at 50% 100%,rgba(184,106,220,.16),transparent 64%)}
 
-  .card{position:relative;z-index:2;height:100%;display:grid;
-    grid-template-columns:1fr 396px;gap:56px;padding:52px 60px 46px}
+  /* The lockup: the cover's, at card size. */
+  .lockup{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:28px}
+  .lockup img{height:190px;width:auto;display:block}
+  .word{font-family:var(--mono);font-weight:600;font-size:44px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink);line-height:1}
 
-  /* ── left: the copy ── */
-  .left{display:flex;flex-direction:column;justify-content:space-between}
-  .brand{display:flex;align-items:center;gap:12px}
-  .brand img{height:28px}
-  .brand span{font-family:var(--mono);font-weight:600;font-size:15px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
-
-  .kicker{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ember)}
-  /* The display voice: the sans at 800, tight, like every big title on the site. */
-  h1{font-family:var(--sans);font-weight:800;font-size:76px;line-height:.98;
-    letter-spacing:-.04em;margin:18px 0 22px;color:var(--white);max-width:11ch;
-    text-shadow:0 2px 40px rgba(0,0,0,.55)}
-  .lead{font-size:19px;line-height:1.45;color:rgba(255,255,255,.74);max-width:520px}
-
-  .tags{display:flex;padding-top:16px;border-top:1px solid rgba(255,255,255,.14)}
-  .tag{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
-    color:rgba(255,255,255,.62);padding-right:16px;margin-right:16px;border-right:1px solid rgba(255,255,255,.14);line-height:1.4}
-  .tag:last-child{border-right:none;margin-right:0;padding-right:0}
-  .tag b{color:var(--white);font-weight:600}
-
-  /* ── right: the score instrument, firing ── */
-  .panel{align-self:center;border:1px solid rgba(242,234,247,.15);border-radius:8px;padding:24px 24px 20px;
-    background:var(--bone);box-shadow:0 30px 60px -10px rgba(0,0,0,.9)}
-  .p-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
-  .p-lab{font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .live{font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.14em;
-    color:var(--ink-2);display:flex;align-items:center;gap:6px}
-  .live i{width:6px;height:6px;border-radius:50%;background:var(--ember);
-    box-shadow:0 0 9px rgba(247,167,69,.9);display:block}
-
-  .score{font-family:var(--mono);font-weight:600;font-size:88px;line-height:1;
-    font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1,'zero' 1;
-    letter-spacing:-.03em;color:var(--ember);
-    text-shadow:0 0 30px rgba(247,167,69,.45);margin:6px 0 2px}
-  .of{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
-
-  .chart{position:relative;height:112px;margin-bottom:14px;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .chart svg{width:100%;height:100%;display:block}
-  /* Top-LEFT, not top-right: the curve peaks at ~80% of the width. The chip
-     is the landing wall's "clip saved" chip. */
-  .fired{position:absolute;left:0;top:8px;font-family:var(--mono);font-weight:600;font-size:10px;
-    letter-spacing:.14em;text-transform:uppercase;color:#0A0A0C;background:var(--ember);padding:4px 8px;border-radius:3px}
-
-  .sigs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
-  .sig{font-family:var(--mono);font-weight:400;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--ink-3);border:1px solid var(--hair);border-radius:999px;padding:4px 8px}
-  .sig.on{color:var(--ink);border-color:rgba(242,234,247,.5)}
-
-  .made{display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid var(--hair);
-    font-family:var(--mono);font-size:11px;color:var(--ink-2);letter-spacing:.02em}
-
-  .url{position:absolute;right:60px;bottom:32px;z-index:3;font-family:var(--mono);
-    font-weight:600;font-size:12px;letter-spacing:.13em;color:var(--ink-3);text-transform:lowercase}
+  .url{position:absolute;left:0;right:0;bottom:34px;z-index:3;text-align:center;font-family:var(--mono);
+    font-weight:600;font-size:13px;letter-spacing:.22em;color:var(--ink-3);text-transform:lowercase}
 </style>
 </head>
 <body>
 <img class="mark" src="/logo-mark.png" alt="">
-<div class="fade"></div>
+<div class="floor"></div>
 
-<div class="card">
-  <div class="left">
-    <div class="brand"><img src="/logo-mark.png" alt=""><span>Highlightz</span></div>
-
-    <div class="copy">
-      <div class="kicker">Automatic clipping for Twitch</div>
-      <h1>Every big moment, already a clip.</h1>
-      <p class="lead">Highlightz watches the live stream, scores every second, and makes the
-        Twitch clip the moment something happens. On every channel you clip for, at once.</p>
-    </div>
-
-    <div class="tags">
-      <span class="tag"><b>10 channels</b> at once</span>
-      <span class="tag">A readable formula &mdash; not AI</span>
-      <span class="tag"><b>Free to start</b> &middot; no card</span>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="p-head">
-      <span class="p-lab">Trigger score &middot; live</span>
-      <span class="live"><i></i>LIVE</span>
-    </div>
-    <div class="score">84</div>
-    <!-- No number on the threshold. It is ADAPTIVE — a quiet chess stream and a
-         loud FPS stream are meant to trigger at the same fairness — so printing
-         a fixed figure here would contradict the thing the product is selling. -->
-    <div class="of">Threshold crossed</div>
-
-    <div class="chart">
-      <svg viewBox="0 0 520 150" preserveAspectRatio="none">
-        <line x1="0" y1="64.8" x2="520" y2="64.8" stroke="rgba(242,234,247,.28)" stroke-width="1.4"/>
-        <path d="M0,112 L20,109 L40,113 L60,108 L80,111 L100,106 L120,112 L140,107 L160,110 L180,104 L200,109 L220,105 L240,110 L260,103 L280,108 L300,101 L320,97 L340,80 L355,64" fill="none" stroke="#F2EAF7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" stroke-opacity=".8"/>
-        <path d="M355,64 L370,44 L385,28 L400,20 L415,17 L430,19 L445,26 L460,38 L475,52 L490,60 L505,63 L520,64" fill="none" stroke="#F7A745" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-        <circle cx="415" cy="17" r="4.5" fill="#F7A745"/>
-      </svg>
-      <span class="fired">clip saved</span>
-    </div>
-
-    <div class="sigs">
-      <span class="sig on">Chat erupts</span>
-      <span class="sig on">Loud reaction</span>
-      <span class="sig on">Viewers flood in</span>
-      <span class="sig">Chat calls for the clip</span>
-    </div>
-
-    <!-- Drawn, not typed: U+2713 is not in the Plex Mono subset we ship, so a
-         literal check silently falls back to a mismatched face. -->
-    <div class="made"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="#F7A745" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.2 5.2L20 6.8"/></svg> Clip created on Twitch</div>
-  </div>
+<div class="lockup">
+  <img src="/logo-mark.png" alt="">
+  <div class="word">Highlightz</div>
 </div>
 
 <div class="url">highlightz.app</div>

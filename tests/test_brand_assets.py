@@ -184,12 +184,28 @@ def test_the_card_never_quotes_a_retired_price():
 
 def test_the_card_quotes_no_price_at_all():
     """Any PRICE here will outlive the offer, because the cache is not ours to
-    clear — so the card sells the free plan instead."""
+    clear. Since v6 (owner: "just show the logo") the card carries NO copy at
+    all — the offer travels in og:description, which is text and cannot go
+    stale inside a cached image — so the check moved there."""
     body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
     assert not re.search(r"\$\s*\d", body), "a price crept onto the social card"
-    # It still has to say the thing that replaced the price.
-    assert "free to start" in body.lower()
-    assert "no card" in body.lower()
+    from src.dashboard.api import LANDING_HTML as html
+    desc = re.search(r'og:description"\s+content="([^"]+)"', html).group(1).lower()
+    assert "free to start" in desc and "no card" in desc, \
+        "the offer left the card, so the description has to carry it"
+
+
+def test_the_card_is_the_logo_and_nothing_else():
+    """Owner's call (2026-09-02): the preview is the cover's lockup — the mark
+    and the wordmark on black — with no claims on it. A card with no claims
+    has nothing to advertise wrongly, which closes the failure this whole
+    file exists for. The URL line is the one piece of text allowed."""
+    body = CARD_SRC.read_text(encoding="utf-8").split("-->", 1)[1]
+    text = re.sub(r"<style.*?</style>", "", body, flags=re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    words = set(re.sub(r"\s+", " ", text).strip().lower().split())
+    assert words <= {"highlightz", "highlightz.app"}, f"copy crept onto the logo card: {words}"
+    assert body.count('src="/logo-mark.png"') == 2, "the blurred mark and the sharp mark"
 
 
 def test_the_card_does_not_invent_a_fixed_trigger_threshold():

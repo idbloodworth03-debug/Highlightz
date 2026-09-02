@@ -78,7 +78,7 @@ def test_one_card_image_across_the_whole_site(path):
     """The drift this catches already happened once: the landing page moved to
     v4 and the two content pages stayed on v2."""
     imgs = set(re.findall(r'/static/(og-card[^"]*\.png)', head(path)))
-    assert imgs == {"og-card-v5.png"}, f"{path} uses {imgs}"
+    assert imgs == {"og-card-v6.png"}, f"{path} uses {imgs}"
 
 
 def test_the_retired_card_files_still_ship():
@@ -86,7 +86,7 @@ def test_the_retired_card_files_still_ship():
     filename, and a scraper re-fetching one gets a broken image if it is gone."""
     from src.dashboard.api import _STATIC_DIR
     from pathlib import Path
-    for old in ("og-card.png", "og-card-v2.png", "og-card-v3.png", "og-card-v4.png"):
+    for old in ("og-card.png", "og-card-v2.png", "og-card-v3.png", "og-card-v4.png", "og-card-v5.png"):
         assert (Path(_STATIC_DIR) / old).exists(), old
 
 

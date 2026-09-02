@@ -26,7 +26,7 @@ import { dirname, join, extname } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STATIC = join(HERE, '..', 'src', 'dashboard', 'static');
-const OUT = join(STATIC, 'og-card-v5.png');
+const OUT = join(STATIC, 'og-card-v6.png');
 // The retired paths are overwritten with the SAME artwork. They stay on disk
 // because links shared before each rename still point at them — deleting one
 // turns every one of those posts into a broken image. Rewriting them means that
@@ -34,7 +34,8 @@ const OUT = join(STATIC, 'og-card-v5.png');
 // instead of re-serving the "7 days free / $15 a month" one, or the v2 card
 // that sold the product to streamers rather than clippers.
 const LEGACY = [join(STATIC, 'og-card.png'), join(STATIC, 'og-card-v2.png'),
-                join(STATIC, 'og-card-v3.png'), join(STATIC, 'og-card-v4.png')];
+                join(STATIC, 'og-card-v3.png'), join(STATIC, 'og-card-v4.png'),
+                join(STATIC, 'og-card-v5.png')];
 
 const TYPES = { '.woff2': 'font/woff2', '.png': 'image/png',
                 '.html': 'text/html; charset=utf-8', '.jpg': 'image/jpeg' };
@@ -67,6 +68,10 @@ const page = await browser.newPage({
 });
 await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
 await page.evaluate(() => document.fonts.ready);
+// Load every face explicitly before checking. A face the page declares but
+// never draws with (v6 sets no text in the sans) is never fetched, so
+// fonts.check() would report it missing even though it ships.
+await page.evaluate(() => Promise.all(['Sora', 'Plex'].map(f => document.fonts.load(`16px "${f}"`))));
 
 // A card that renders in a fallback face is worse than no card, and it fails
 // silently — so prove every self-hosted family actually loaded before shooting.
