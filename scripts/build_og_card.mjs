@@ -26,7 +26,7 @@ import { dirname, join, extname } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STATIC = join(HERE, '..', 'src', 'dashboard', 'static');
-const OUT = join(STATIC, 'og-card-v4.png');
+const OUT = join(STATIC, 'og-card-v5.png');
 // The retired paths are overwritten with the SAME artwork. They stay on disk
 // because links shared before each rename still point at them — deleting one
 // turns every one of those posts into a broken image. Rewriting them means that
@@ -34,7 +34,7 @@ const OUT = join(STATIC, 'og-card-v4.png');
 // instead of re-serving the "7 days free / $15 a month" one, or the v2 card
 // that sold the product to streamers rather than clippers.
 const LEGACY = [join(STATIC, 'og-card.png'), join(STATIC, 'og-card-v2.png'),
-                join(STATIC, 'og-card-v3.png')];
+                join(STATIC, 'og-card-v3.png'), join(STATIC, 'og-card-v4.png')];
 
 const TYPES = { '.woff2': 'font/woff2', '.png': 'image/png',
                 '.html': 'text/html; charset=utf-8', '.jpg': 'image/jpeg' };
@@ -71,7 +71,7 @@ await page.evaluate(() => document.fonts.ready);
 // A card that renders in a fallback face is worse than no card, and it fails
 // silently — so prove every self-hosted family actually loaded before shooting.
 const missing = await page.evaluate(() =>
-  ['Lobster', 'Sora', 'Plex'].filter(f => !document.fonts.check(`16px "${f}"`)));
+  ['Sora', 'Plex'].filter(f => !document.fonts.check(`16px "${f}"`)));
 if (missing.length) throw new Error(`fonts did not load: ${missing.join(', ')}`);
 
 await page.screenshot({ path: OUT, scale: 'css' });

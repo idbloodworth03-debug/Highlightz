@@ -78,7 +78,7 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
 # ── shared head tags for the secondary public pages ──────────────────────────
 
 SITE_ORIGIN = "https://highlightz.app"
-OG_CARD = SITE_ORIGIN + "/static/og-card-v4.png"
+OG_CARD = SITE_ORIGIN + "/static/og-card-v5.png"
 
 # Official Highlightz profiles on other sites, for schema.org sameAs. Each entry
 # is a claim that this URL is the SAME organisation, so only put a profile here
@@ -6191,16 +6191,16 @@ LANDING_HTML = """<!DOCTYPE html>
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
-<meta property="og:image" content="https://highlightz.app/static/og-card-v4.png">
+<meta property="og:image" content="https://highlightz.app/static/og-card-v5.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Highlightz — never miss a highlight again, on every channel at once. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
+<meta property="og:image:alt" content="Highlightz — every big moment, already a clip. A live trigger score of 84 crossing its threshold and saving a clip on Twitch.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
 <meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
-<meta name="twitter:image" content="https://highlightz.app/static/og-card-v4.png">
-<meta name="twitter:image:alt" content="Highlightz — never miss a highlight again. A live trigger score of 92 crossing the threshold and creating a clip on Twitch.">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card-v5.png">
+<meta name="twitter:image:alt" content="Highlightz — every big moment, already a clip. A live trigger score of 84 crossing its threshold and saving a clip on Twitch.">
 <link rel="alternate" type="text/markdown" href="https://highlightz.app/llms.txt" title="Highlightz for language models">
 <style>
   /* ══════════════════════════════════════════════════════════════════════

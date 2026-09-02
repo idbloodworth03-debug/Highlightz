@@ -213,7 +213,10 @@ def test_the_card_is_built_from_the_same_tokens_as_the_landing_page():
 
 def test_the_card_uses_the_self_hosted_fonts_not_a_fallback():
     src = CARD_SRC.read_text(encoding="utf-8")
-    for font in ("lobster-400.woff2", "sora-var.woff2", "plexmono-600.woff2"):
+    # No Lobster: the site's display voice is the sans at 800 since v4, and the
+    # card must not be the one place the script face survives.
+    assert "lobster" not in src.lower(), "the card still loads the retired script face"
+    for font in ("sora-var.woff2", "plexmono-600.woff2"):
         assert font in src, f"the card does not load {font}"
         assert (STATIC / "fonts" / font).exists(), f"{font} is not shipped"
 

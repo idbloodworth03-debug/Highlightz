@@ -648,14 +648,14 @@ def render() -> str:
 <meta property="og:url" content="https://highlightz.app/tutorial">
 <meta property="og:title" content=\"""" + escape(_TITLE) + """\">
 <meta property="og:description" content=\"""" + escape(_DESC) + """\">
-<meta property="og:image" content="https://highlightz.app/static/og-card-v4.png">
+<meta property="og:image" content="https://highlightz.app/static/og-card-v5.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content=\"""" + escape(_TITLE) + """\">
 <meta name="twitter:description" content=\"""" + escape(_DESC) + """\">
-<meta name="twitter:image" content="https://highlightz.app/static/og-card-v4.png">
+<meta name="twitter:image" content="https://highlightz.app/static/og-card-v5.png">
 <link rel="alternate" type="text/markdown" href="https://highlightz.app/llms.txt" title="Highlightz for language models">
 """ + _howto_schema() + """
 <style>""" + _CSS + """</style>
