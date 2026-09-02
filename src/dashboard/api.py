@@ -6920,15 +6920,24 @@ LANDING_HTML = """<!DOCTYPE html>
   .footer .fl{margin-left:auto;white-space:nowrap}
   @media(max-width:700px){ .footer .fl{margin-left:0} }
 
-  /* ══ The clip player (opened from a shelf card). ══ */
-  .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:24px}
-  .exl-bg{position:absolute;inset:0;background:rgba(0,0,0,.92)}
-  .exl-card{position:relative;z-index:1;overflow:hidden;border-radius:6px;
-    width:min(1440px, calc((100vh - 150px) * 16 / 9), 100%);
-    background:var(--void);border:1px solid var(--hair-2)}
-  .exl-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000}
+  /* ══ The clip player (opened from a shelf card). ══
+     THE PLAYER IS THE WHOLE SCREEN. Twitch's clip embed picks its rendition
+     from the size of the player it boots in, and there is no URL parameter
+     that forces quality on a clip embed — so the only way to get the 1080p
+     rendition is to hand the player 1080 rows of pixels. The card fills the
+     viewport edge to edge, and on click the script asks for full screen on
+     top of that, so on a 1080p (or larger) display the embed boots at the
+     display's full size. The direct MP4 route is closed, and documented as
+     such in HANDOFF (probe_clip_media); do not go looking for it. */
+  .exl{position:fixed;inset:0;z-index:90;display:grid;place-items:stretch;padding:0;background:#000}
+  .exl-bg{position:absolute;inset:0;background:#000}
+  .exl-card{position:relative;z-index:1;overflow:hidden;width:100vw;height:100vh;height:100dvh;
+    display:flex;flex-direction:column;background:#000}
+  .exl-frame{position:relative;flex:1 1 auto;min-height:0;width:100%;background:#000}
   .exl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-  .exl-meta{display:flex;align-items:center;gap:12px;padding:12px 16px}
+  .exl-meta{display:flex;align-items:center;gap:12px;padding:12px 16px;flex:none}
+  /* In full screen the bar goes, so the embed is exactly the display. */
+  .exl:fullscreen .exl-meta{display:none}
   .exl-title{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .exl-out{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
@@ -8199,6 +8208,9 @@ LANDING_HTML = """<!DOCTYPE html>
   var lb=document.getElementById('exl'), ifr=document.getElementById('exl-iframe');
   function closeLb(){
     if(!lb||lb.style.display==='none') return;
+    if(document.fullscreenElement===lb&&document.exitFullscreen){
+      try{ document.exitFullscreen().catch(function(){}); }catch(e){}
+    }
     lb.style.display='none';
     if(ifr) ifr.src='about:blank';   // stop playback
     document.body.style.overflow='';
@@ -8213,10 +8225,21 @@ LANDING_HTML = """<!DOCTYPE html>
     // clip embed picks its rendition from the player's size when it boots.
     lb.style.display='';
     document.body.style.overflow='hidden';
+    // FULL SCREEN, from the click that opened it (a gesture is required).
+    // The embed reads its size when it boots, so this comes BEFORE src: on a
+    // 1080p display the player then measures 1920x1080 and takes the 1080p
+    // rendition. If full screen is refused the card is still the whole
+    // viewport, which is the next best thing.
+    try{ if(lb.requestFullscreen){ lb.requestFullscreen().catch(function(){}); } }catch(e){}
     void lb.offsetHeight;
     ifr.src=src+(src.indexOf('?')>=0?'&':'?')+'parent='+location.hostname+'&autoplay=true';
     return true;
   }
+  // Leaving full screen (Esc, or the browser's own control) closes the
+  // player too: one gesture to be done with it, not two.
+  document.addEventListener('fullscreenchange',function(){
+    if(!document.fullscreenElement) closeLb();
+  });
   if(shelf){
     shelf.addEventListener('click',function(ev){
       var a=ev.target.closest?ev.target.closest('a.card'):null;

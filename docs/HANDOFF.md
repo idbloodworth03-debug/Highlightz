@@ -478,6 +478,16 @@ normal Clip Review screen, which still shows scores.
     `--shelf-t`). Pauses on hover / focus-within / off screen; reduced
     motion and no-JS get a still, scrollable single set. The rail filter
     hides cards in both copies and restarts the animation.
+  - **The clip player is the whole screen and goes full screen on click**
+    (owner: "all of them played in 1080p"). Twitch's clip embed picks its
+    rendition from the player's size when it boots and has no quality
+    parameter; the direct MP4 route is closed (see "Why the file itself is
+    out of reach"). So `.exl-card` is 100vw×100vh, `openLb` calls
+    `lb.requestFullscreen()` from the click gesture BEFORE assigning
+    `ifr.src`, and `.exl:fullscreen .exl-meta` is hidden so the iframe is
+    exactly the display (measured in Chromium: the embed boots at 1920×1080
+    on a 1080p viewport). Leaving full screen closes the player. A clip can
+    only be as sharp as the stream it came from.
   - **The rail is the engine's own `_SIGNAL_TITLES`** ("Chat Erupts", "Loud
     Reaction", …), read from `src/trigger/engine.py` at import; a showcase
     entry now records `signal` (the SignalType that led the clip) so a card

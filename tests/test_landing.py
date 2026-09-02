@@ -463,25 +463,35 @@ def test_the_regex_is_built_not_written_as_a_literal():
     assert "-preview-[0-9]+x[0-9]+[.]" in html, "character classes, not escapes"
 
 
-def test_the_clip_player_is_sized_from_the_viewport_not_a_fixed_920():
-    """Twitch's clip embed picks its rendition by adaptive bitrate, and player
-    size is the main input — there is no URL parameter that forces quality on a
-    clip embed. A fixed 920px player on a 1920 screen asks Twitch for a low
-    rendition and then shows it in a box with room to spare."""
+def test_the_clip_player_is_the_whole_screen_and_goes_full_screen():
+    """Twitch's clip embed picks its rendition from the size of the player it
+    boots in, and there is no URL parameter that forces quality on a clip
+    embed. The owner wants every clip in 1080p, so the player is handed as
+    many pixels as the display has: the card fills the viewport edge to edge,
+    full screen is requested from the click that opened it, and both happen
+    BEFORE src is assigned — the embed measures itself once, when it boots.
+    The direct MP4 route is closed (HANDOFF: probe_clip_media), so size is
+    the only lever."""
     html = api.LANDING_HTML
     # The STANDALONE rule. ".exl-card{" also appears inside the dark-context
     # selector list (.band-dark,.panel,.tile,.stage,.exl-card{), which
     # index() finds first and which carries no sizing at all.
     i = html.index("\n  .exl-card{position:relative")
     card = html[i:html.index("}", i)]
-    assert "min(1440px" in card, "the player is capped small again"
-    assert "100vh" in card, "the player is not bounded by height — it will overflow a short screen"
-    # aspect-ratio, because padding-bottom is a percentage of WIDTH and cannot
-    # honour the height cap the card now carries.
+    assert "width:100vw" in card and "height:100vh" in card, "the player is boxed again"
+    assert "min(1440px" not in card, "the player is capped small again"
     frame = html[html.index(".exl-frame{"):html.index("}", html.index(".exl-frame{"))]
-    assert "aspect-ratio:16/9" in frame
-    assert "padding-bottom:56.25%" not in frame, "the two sizing methods would fight"
-
+    assert "flex:1 1 auto" in frame, "the frame does not take the whole card"
+    assert "padding-bottom:56.25%" not in frame
+    assert ".exl:fullscreen .exl-meta{display:none}" in html, \
+        "the bar steals rows from the embed in full screen"
+    block = html[html.index("function openLb(a){"):html.index("return true;", html.index("function openLb(a){"))]
+    reveal, fs_, load = (block.index("lb.style.display='';"), block.index("lb.requestFullscreen()"),
+                         block.index("ifr.src="))
+    assert reveal < fs_ < load, "full screen must be asked for before the embed boots"
+    # Leaving full screen closes the player, and closing exits full screen.
+    assert "if(!document.fullscreenElement) closeLb();" in html
+    assert "document.exitFullscreen()" in html
 
 
 def test_the_lightbox_is_revealed_before_the_player_loads():
