@@ -470,6 +470,14 @@ normal Clip Review screen, which still shows scores.
     (`static/landing/tour-*.webp`) stand in**, pushed back (`img.ui`). The dev
     box cannot reach Twitch's CDN (proxy 403), so no clip frame could be baked
     into the repo — curate the showcase on prod and the page fills itself.
+  - **The shelf is a looping carousel** (owner's follow-up: "moving in a
+    circle"). The script clones `.shelf-set` once (aria-hidden, tabindex -1),
+    marks the shelf `.is-loop`, and `@keyframes shelf-roll` slides the track
+    by -50%; each set carries the gap as its own right padding so the join
+    is seamless. Duration is derived from the set's width (~55px/s,
+    `--shelf-t`). Pauses on hover / focus-within / off screen; reduced
+    motion and no-JS get a still, scrollable single set. The rail filter
+    hides cards in both copies and restarts the animation.
   - **The rail is the engine's own `_SIGNAL_TITLES`** ("Chat Erupts", "Loud
     Reaction", …), read from `src/trigger/engine.py` at import; a showcase
     entry now records `signal` (the SignalType that led the clip) so a card

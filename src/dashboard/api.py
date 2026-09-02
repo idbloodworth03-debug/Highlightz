@@ -6719,21 +6719,32 @@ LANDING_HTML = """<!DOCTYPE html>
     flex:0 0 auto;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast)}
   .rail-t:hover{border-color:var(--paper-ink)}
   .rail-t.is-on{background:var(--paper-ink);border-color:var(--paper-ink);color:var(--white)}
-  /* THE SHELF. Cards taller than they are wide, the outer ones cut by the
-     viewport edge, scrolled sideways. The row is a native scroll container;
-     the rail above only filters it. */
-  .shelf{display:flex;gap:var(--s-4);margin-top:var(--s-6);overflow-x:auto;
-    scroll-snap-type:x mandatory;scrollbar-width:none;
-    padding:var(--s-1) clamp(20px,4.5vw,72px) var(--s-4);
-    scroll-padding-left:clamp(20px,4.5vw,72px)}
+  /* THE SHELF. Cards taller than they are wide, cut by the viewport edges,
+     and MOVING: a carousel that glides left and wraps without a seam. The
+     script clones the set once (.shelf-set x2) and marks the shelf .is-loop;
+     the track then slides by exactly one set's width, so the second set
+     takes over where the first left off. Each set carries the gap as its own
+     right padding, which is what makes -50% land exactly on the join.
+     Hovering (or focusing a card) pauses it so a clip can be clicked; off
+     screen it is paused too; under reduced motion it does not move at all
+     and is a plain sideways scroll, which is also what no-JS gets. */
+  .shelf{position:relative;margin-top:var(--s-6);overflow-x:auto;scrollbar-width:none;
+    padding:var(--s-1) clamp(20px,4.5vw,72px) var(--s-4)}
   .shelf::-webkit-scrollbar{display:none}
-  @media(min-width:1280px){
-    /* Line the first card up with the wrap's own left edge on a wide screen. */
-    .shelf{padding-left:max(clamp(20px,4.5vw,72px),calc((100vw - 1280px) / 2 + 72px));
-      scroll-padding-left:max(clamp(20px,4.5vw,72px),calc((100vw - 1280px) / 2 + 72px))}
+  .shelf.is-loop{overflow:hidden;padding-left:0;padding-right:0}
+  .shelf-track{display:flex;width:max-content}
+  .shelf-set{display:flex;gap:var(--s-4);padding-right:var(--s-4);flex:none}
+  .shelf.is-loop .shelf-track{animation:shelf-roll var(--shelf-t,60s) linear infinite}
+  .shelf.is-loop:hover .shelf-track,.shelf.is-loop:focus-within .shelf-track,
+  .shelf.is-loop.is-off .shelf-track{animation-play-state:paused}
+  @keyframes shelf-roll{to{transform:translate3d(-50%,0,0)}}
+  @media(prefers-reduced-motion:reduce){
+    .shelf.is-loop{overflow-x:auto;padding-left:clamp(20px,4.5vw,72px);padding-right:clamp(20px,4.5vw,72px)}
+    .shelf.is-loop .shelf-track{animation:none}
+    .shelf.is-loop .shelf-set + .shelf-set{display:none}
   }
   .card{position:relative;flex:0 0 auto;width:clamp(260px,26vw,400px);aspect-ratio:3/4;
-    scroll-snap-align:start;border-radius:6px;overflow:hidden;background:#0A0A0C;
+    border-radius:6px;overflow:hidden;background:#0A0A0C;
     color:var(--white);display:block}
   .card[hidden]{display:none}
   .card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
@@ -7082,7 +7093,10 @@ LANDING_HTML = """<!DOCTYPE html>
     <p class="l-sub">Seven signals, each named for the moment it finds. Every card is a real clip the formula made on a live stream. Pick a signal.</p>
     <div class="rail" id="rail" aria-label="Filter clips by signal"><!--RAIL--></div>
   </div>
-  <div class="shelf" id="shelf"><!--SHELF--><p class="shelf-empty">No featured clip for that signal yet.</p></div>
+  <div class="shelf" id="shelf">
+    <div class="shelf-track" id="shelf-track"><div class="shelf-set"><!--SHELF--></div></div>
+    <p class="shelf-empty">No featured clip for that signal yet.</p>
+  </div>
 </section>
 
 <!-- ══ 5. SCORE ═══════════════════════════════════════════════════════════════
@@ -8121,6 +8135,41 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ── the rail filters the shelf ── */
   var rail=document.getElementById('rail'), shelf=document.getElementById('shelf');
+  var track=document.getElementById('shelf-track');
+  /* THE LOOP. One clone of the set, marked decorative and out of the tab
+     order, and a duration read from the set's real width so the speed is
+     the same however many clips are curated (about 55px a second). Only
+     when there is something to loop: one card gliding alone is a bug. */
+  var looped=false;
+  function sizeLoop(){
+    if(!track||!looped) return;
+    var set=track.querySelector('.shelf-set');
+    var w=set?set.getBoundingClientRect().width:0;
+    // A set narrower than the shelf has nothing to wrap: a filter that
+    // leaves one card must show one card, not the same card twice with a
+    // gap. Then the shelf is a plain row again until the filter widens.
+    var loop=w>shelf.clientWidth+8;
+    shelf.classList.toggle('is-loop',loop);
+    if(loop) shelf.style.setProperty('--shelf-t',Math.max(24,Math.round(w/55))+'s');
+  }
+  if(track){
+    var first=track.querySelector('.shelf-set');
+    var live=first?first.querySelectorAll('.card').length:0;
+    if(first&&live>1){
+      var copy=first.cloneNode(true);
+      copy.setAttribute('aria-hidden','true');
+      Array.prototype.forEach.call(copy.querySelectorAll('a,button'),function(el){ el.setAttribute('tabindex','-1'); });
+      track.appendChild(copy);
+      looped=true;
+      sizeLoop();
+      window.addEventListener('resize',sizeLoop,{passive:true});
+      // Paused while nobody is looking: an animation off screen is work for nothing.
+      if('IntersectionObserver' in window){
+        new IntersectionObserver(function(es){ shelf.classList.toggle('is-off',!es[0].isIntersecting); },
+                                 {rootMargin:'120px'}).observe(shelf);
+      }
+    }
+  }
   if(rail&&shelf){
     var tabs=Array.prototype.slice.call(rail.querySelectorAll('.rail-t'));
     var cards=Array.prototype.slice.call(shelf.querySelectorAll('.card'));
@@ -8136,7 +8185,11 @@ LANDING_HTML = """<!DOCTYPE html>
         c.hidden=!show; if(show) shown++;
       });
       shelf.classList.toggle('is-empty',shown===0);
-      shelf.scrollTo({left:0,behavior:reduce?'auto':'smooth'});
+      // A filtered set is narrower, so the loop's duration follows it; and
+      // the track starts over so the visible cards are the first ones.
+      if(track){ track.style.animation='none'; void track.offsetWidth; track.style.animation=''; }
+      sizeLoop();
+      if(!shelf.classList.contains('is-loop')) shelf.scrollTo({left:0,behavior:reduce?'auto':'smooth'});
     }
     tabs.forEach(function(t){ t.addEventListener('click',function(){ pick(t.getAttribute('data-cat')); }); });
   }

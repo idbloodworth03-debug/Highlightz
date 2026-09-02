@@ -571,3 +571,27 @@ def test_the_two_hero_loops_never_run_at_the_same_time():
     # Wall parked -> wall rAF cancelled before the nav loop is started.
     assert body.index("cancelAnimationFrame(raf)") < body.index("navRunning()"), \
         "the nav loop starts before the wall loop is cancelled"
+
+
+def test_the_shelf_is_a_carousel_that_wraps_without_a_seam():
+    """Asked for directly: the clips move. The track is duplicated once by the
+    script and slid by exactly one set's width, each set carrying the gap as
+    its own right padding so the halfway point lands on the join. It pauses
+    for a hover or a focused card so a clip can be clicked, and under reduced
+    motion it does not move at all."""
+    css = api.LANDING_HTML
+    assert "@keyframes shelf-roll{to{transform:translate3d(-50%,0,0)}}" in css
+    loop = css[css.index(".shelf.is-loop .shelf-track{"):css.index("}", css.index(".shelf.is-loop .shelf-track{"))]
+    assert "shelf-roll" in loop and "infinite" in loop
+    assert ".shelf.is-loop:hover .shelf-track" in css and "animation-play-state:paused" in css
+    sset = css[css.index(".shelf-set{"):css.index("}", css.index(".shelf-set{"))]
+    assert "padding-right:var(--s-4)" in sset and "gap:var(--s-4)" in sset, \
+        "the set's right padding must equal the gap or the loop shows a seam"
+    rm = css[css.index("@media(prefers-reduced-motion:reduce){\n    .shelf.is-loop"):]
+    rm = rm[:rm.index("  }\n")]
+    assert "animation:none" in rm and ".shelf-set + .shelf-set{display:none}" in rm
+    # The clone is decorative: hidden from readers and out of the tab order.
+    js = api.LANDING_HTML
+    assert "copy.setAttribute('aria-hidden','true')" in js
+    assert "el.setAttribute('tabindex','-1')" in js
+    assert "if(first&&live>1){" in js, "a single card must not loop alone"
