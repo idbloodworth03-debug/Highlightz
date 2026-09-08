@@ -4019,6 +4019,7 @@ async def get_upload_file(request: Request, upload_id: str):
     """
     from src.uploads import library as upload_lib
     uid = _current_user_id(request)
+    _require_upload_access(uid)
     up = upload_lib.get(upload_id, uid)
     if not up:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -4421,7 +4422,8 @@ async def publish_platforms(request: Request):
     none of it waits on TikTok/Meta/Google app review.
     """
     from src.publish import platforms as plat
-    _current_user_id(request)
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
     return {"platforms": plat.public_specs()}
 
 
@@ -4435,6 +4437,7 @@ async def publish_platforms(request: Request):
 async def publish_schedule(request: Request):
     from src.publish import schedule as sched
     uid = _current_user_id(request)
+    _require_upload_access(uid)
     return {"items": [i.public() for i in sched.for_user(uid)]}
 
 
@@ -4477,6 +4480,7 @@ async def publish_schedule_add(request: Request):
 async def publish_schedule_update(request: Request, item_id: str):
     from src.publish import schedule as sched
     uid = _current_user_id(request)
+    _require_upload_access(uid)
     from src.publish import platforms as plat
     body = await request.json()
     try:
@@ -4502,6 +4506,7 @@ async def publish_schedule_update(request: Request, item_id: str):
 async def publish_schedule_delete(request: Request, item_id: str):
     from src.publish import schedule as sched
     uid = _current_user_id(request)
+    _require_upload_access(uid)
     if not sched.remove(item_id, uid):
         raise HTTPException(status_code=404, detail="Not found")
     await broadcast({"event": "schedule_removed", "item_id": item_id}, user_id=uid)
@@ -4533,6 +4538,7 @@ async def get_captions(request: Request, upload_id: str):
     from src.uploads import library as upload_lib
     from src.captions import transcribe as cap
     uid = _current_user_id(request)
+    _require_upload_access(uid)
     up = upload_lib.get(upload_id, uid)
     if not up:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -5749,8 +5755,7 @@ comparison — is at https://highlightz.app/llms-full.txt.
   more. Each plan has its own Highlight allowance.
 - Puts every clip in a review queue first. Nothing is published automatically.
   Approving and rejecting tunes the channel's threshold to your taste.
-- Scans finished broadcasts (VODs) for highlights, and includes a Clip Editor
-  for cutting clips to vertical, on the Pro plan.
+- Scans finished broadcasts (VODs) for highlights on the Pro plan.
 - Any Twitch broadcaster can opt their channel out at any time; it takes
   effect immediately across every account.
 
@@ -5769,7 +5774,7 @@ and editors who follow several channels at once and cannot watch them all.
   {keeps(st)}.
 - Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
-  {keeps(pro)}, plus the VOD Scanner and the Clip Editor.
+  {keeps(pro)}, plus the VOD Scanner.
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -5854,7 +5859,6 @@ async def llms_full_txt():
     w(f"| Highlight clips | {f['max_suggested']} | {st['max_suggested']} | {pro['max_suggested']} |")
     w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
     w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
-    w(f"| Clip Editor and uploads | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
     w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
@@ -9053,7 +9057,6 @@ def _pricing() -> str:
             ("Highlight clips", str(limits["max_suggested"])),
             ("Clips kept per week", week(limits)),
             ("VOD Scanner", "Yes" if limits["vod"] else "No"),
-            ("Clip Editor and uploads", "Yes" if limits.get("uploads") else "No"),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
@@ -9101,7 +9104,7 @@ def _tos_plans() -> str:
         + str(st["max_library_week"]) + " clips a week. Pro is $"
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
-        "keep, the VOD Scanner and the Clip Editor. Current plan details and "
+        "keep, and the VOD Scanner. Current plan details and "
         "prices are shown on our pricing page and in your Account tab.</p>"
         "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
@@ -9203,11 +9206,10 @@ def _faq() -> str:
          f"<b>{week(st)}</b> on Starter, <b>{week(pro)}</b> on Pro. Reaching the number pauses new "
          "approvals until the week rolls over. Nothing already in your library is ever removed "
          "because of it."),
-        ("What are the VOD Scanner and the Clip Editor?",
-         "Both are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
-         "so a back catalogue nobody was watching live is still worth mining, and every hit links to "
-         "its own timestamp in the VOD. The Clip Editor lets you bring clips in and cut them for "
-         "vertical, ready to post."),
+        ("What is the VOD Scanner?",
+         "A Pro feature. It runs the same scoring over a stream that has already ended, so a back "
+         "catalogue nobody was watching live is still worth mining, and every hit links to its own "
+         "timestamp in the VOD."),
         ("Is this allowed on Twitch?",
          "Yes. Clips are created through Twitch's official Clips API with your authorized account, "
          "the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or "

@@ -200,11 +200,14 @@ def test_a_new_user_sees_no_queue_full_notice(app):
 
 @pytest.mark.parametrize("path", [
     "/", "/me", "/clips", "/streams", "/stats", "/profiles",
-    "/streams/suggest", "/clips/undo", "/vod/jobs",
-    "/publish/platforms", "/publish/schedule", "/feedback/mine",
+    "/streams/suggest", "/clips/undo", "/vod/jobs", "/feedback/mine",
     # /auth/kick/status was here until the Kick OAuth flow was removed on
     # 2026-08-27. It is not "a screen a new user opens" any more — there is no
     # Kick account to have a status.
+    # /publish/platforms and /publish/schedule left on 2026-09-02: the
+    # Scheduler is unreleased (adminOnly in NAV, behind the release gate), so
+    # a new user never opens it, and the gate now refuses those routes with
+    # the same 503 as /uploads — see test_the_unreleased_endpoints_refuse_cleanly.
     "/feedback/unread-count",
 ])
 def test_every_screen_a_new_user_opens_answers(app, path):
@@ -322,7 +325,60 @@ def test_typing_the_route_does_not_strand_them(app):
     assert "adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review'" in DASHBOARD_HTML
 
 
-@pytest.mark.parametrize("path", ["/uploads", "/twitch/clips"])
+def test_the_unreleased_features_are_not_marketed_anywhere_public():
+    """Owner (2026-09-02): "we need to not market the clip editor yet …
+    remove the clip editor and auto post stuff on the landing page and make
+    sure it is gatekept". Every public surface — the landing page (pricing
+    rows, FAQ), the Terms' plan sentence, the tutorial, the comparison, both
+    LLM briefs — must stay silent about the Clip Editor, the Scheduler and
+    auto-posting until they ship. The legal pages' data disclosures are the
+    one exception, because an admin can still upload."""
+    import re
+    from fastapi.testclient import TestClient
+    from src.dashboard import api, compare_html, tutorial_html
+    c = TestClient(api.app)
+    surfaces = {
+        "landing": api.LANDING_HTML, "tutorial": tutorial_html.render(),
+        "compare": compare_html.render(), "llms.txt": c.get("/llms.txt").text,
+        "llms-full.txt": c.get("/llms-full.txt").text, "terms plans": api._tos_plans(),
+        "pricing": api._pricing(), "paywall": api.PAYWALL_HTML,
+    }
+    for name, html in surfaces.items():
+        text = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+        text = re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S).lower()
+        tells = ["clip editor", "cut them for vertical", "and uploads"]
+        # The comparison page names the COMPETITORS' schedulers, auto-posting
+        # and ready-to-post exports ("no scheduler, no B-roll"; "auto-posts to
+        # TikTok — theirs, not ours"; "hand you something ready to post") and
+        # says we do not do it, which is the opposite of marketing it.
+        if name != "compare":
+            tells += ["scheduler", "auto-post", "autopost", "ready to post"]
+        for tell in tells:
+            assert tell not in text, f"{name} still markets the unreleased feature: {tell!r}"
+    # And the in-app upgrade prompt, which a free user reads on the Account tab.
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    i = DASHBOARD_HTML.index("Want more?")
+    assert "Clip Editor" not in DASHBOARD_HTML[i:i + 600], "the upgrade prompt sells the Clip Editor"
+
+
+def test_every_editor_and_scheduler_endpoint_is_behind_the_release_gate():
+    """The gate is `_require_upload_access`: a 503 while UPLOADS_ENABLED is
+    off (admins excepted), a 403 below Pro. It has to sit on EVERY route
+    under /uploads and /publish, not only the ones the tab happens to call —
+    a direct request to an ungated route is how a held-back feature leaks."""
+    import inspect
+    from src.dashboard import api
+    routes = [r for r in api.app.routes
+              if getattr(r, "path", "").startswith(("/uploads", "/publish"))]
+    assert len(routes) >= 8, "the editor and scheduler routes are gone?"
+    for r in routes:
+        src = inspect.getsource(r.endpoint)
+        assert "_require_upload_access(" in src or "_require_admin(" in src, \
+            f"{list(r.methods)[0]} {r.path} is reachable without the release gate"
+
+
+@pytest.mark.parametrize("path", ["/uploads", "/twitch/clips", "/publish/schedule",
+                                  "/publish/platforms"])
 def test_the_unreleased_endpoints_refuse_cleanly(app, path):
     """Belt and braces behind the nav. A 503 with an honest message is right;
     a 500 or a silent empty success is not."""

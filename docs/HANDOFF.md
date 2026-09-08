@@ -480,6 +480,24 @@ normal Clip Review screen, which still shows scores.
   up to 90 days" line has no rotation config in the repo; if uploads or the
   backup job point at S3/GCS in prod, the provider needs naming under
   sharing and backups need a retention line.
+- **Clip Editor and Scheduler: unmarketed and gated (2026-09-02, late).**
+  Owner: "not ready to push that out yet — remove the clip editor and auto
+  post stuff on the landing page and make sure it is gatekept". Removed from
+  every public surface: the pricing "Clip Editor and uploads" row, the
+  landing FAQ (now "What is the VOD Scanner?"), the Terms' plan sentence,
+  both LLM briefs and the full file's plans table, and the in-app "Want
+  more?" upgrade prompt. The legal DISCLOSURES about uploaded video stay
+  (an admin can still upload). Gating already existed — NAV `adminOnly`,
+  `_require_upload_access` (503 while `UPLOADS_ENABLED` is off, 403 below
+  Pro) — but six routes lacked it: GET /uploads/{id}/file, GET
+  /publish/platforms, GET/PUT/DELETE /publish/schedule…, GET
+  /uploads/{id}/captions; all gated now, and
+  `test_every_editor_and_scheduler_endpoint_is_behind_the_release_gate`
+  walks every /uploads and /publish route. `test_the_unreleased_features_are_not_marketed_anywhere_public`
+  sweeps the public surfaces (the compare page may still name the
+  COMPETITORS' schedulers and auto-posting). PLAN_LIMITS `uploads` is
+  untouched, so flipping `UPLOADS_ENABLED` later releases it to Pro without
+  a plan change — re-add the pricing row and FAQ answer then.
 - **Shelf carousel: loops with any number of clips (2026-09-02, late).**
   Owner: "the carousel of clips does not work on the landing page". Cause:
   `sizeLoop()` only engaged the loop when one set was WIDER than the shelf,

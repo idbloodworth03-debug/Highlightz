@@ -672,7 +672,7 @@ def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans()
               "How many channels can it watch at once?", "Is this AI?",
               "What happens when my review queue fills up?", "Is this allowed on Twitch?",
               "What if a streamer does not want to be clipped?", "Do you record or store my stream?",
-              "How does billing work?", "What are the VOD Scanner and the Clip Editor?"):
+              "How does billing work?", "What is the VOD Scanner?"):
         assert f'class="faq-q">{q}</summary>' in faq, f"missing: {q}"
     ch = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
     assert "<b>%d</b> on Free, <b>%d</b> on Starter, <b>%d</b> on Pro" % tuple(ch) in faq

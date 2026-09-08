@@ -3597,8 +3597,7 @@ function AccountScreen({ me }) {
             <div><div className="fl">Want more?</div>
               <div className="fd">
                 Starter is $10/month for 3 streams and 50 pending clips.
-                Pro is $25 for 10 streams, 200 pending, the VOD scanner and the
-                Clip Editor.
+                Pro is $25 for 10 streams, 200 pending and the VOD scanner.
               </div></div>
             <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>See plans
