@@ -351,7 +351,8 @@ def test_the_unreleased_features_are_not_marketed_anywhere_public():
         # and ready-to-post exports ("no scheduler, no B-roll"; "auto-posts to
         # TikTok — theirs, not ours"; "hand you something ready to post") and
         # says we do not do it, which is the opposite of marketing it.
-        if name != "compare":
+        # llms-full.txt carries the comparison verbatim, so the same exemption.
+        if name not in ("compare", "llms-full.txt"):
             tells += ["scheduler", "auto-post", "autopost", "ready to post"]
         for tell in tells:
             assert tell not in text, f"{name} still markets the unreleased feature: {tell!r}"
