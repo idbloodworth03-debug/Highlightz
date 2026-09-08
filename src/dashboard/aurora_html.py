@@ -823,12 +823,16 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 /* The editor is a flex column so the side panel can scroll on its own while
    the stage, transport and timeline stay put — the old single scrolling box
    pushed the export button below the fold on every laptop. */
-.ed{width:min(1180px,100%);max-height:94vh;display:flex;flex-direction:column;border-radius:20px;
+/* A grid: header across the top, main | side in the middle, and the export
+   footer as its OWN row under the side column. It is never inside a
+   scroller, so it can never cover a control on a phone. */
+.ed{width:min(1180px,100%);max-height:94vh;display:grid;grid-template-columns:minmax(0,1fr) 300px;
+  grid-template-rows:auto minmax(0,1fr) auto;border-radius:20px;
   background:var(--rd-bg-2);border:1px solid var(--hair);outline:none;overflow:hidden}
 /* Solid, not glass: the late @supports .glass rule paints a near-transparent
    gradient, and through it the library page bled into the editor on a phone. */
 .ed.glass{background:var(--rd-bg-2)}
-.ed-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hair);flex-shrink:0}
+.ed-head{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hair);flex-shrink:0}
 .ed-ico{color:var(--acc);display:flex}
 .ed-title{flex:1;min-width:0}
 .ed-head h3{font-size:16px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -837,8 +841,8 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
   color:var(--fg-2);display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:background var(--dur-fast),color var(--dur-fast)}
 .ed-x:hover{background:rgba(255,255,255,.1);color:#fff}
 .ed-x:disabled{opacity:.4;cursor:default}
-.ed-body{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;flex:1}
-.ed-main{display:flex;flex-direction:column;gap:8px;padding:16px;min-width:0;min-height:0;overflow:auto}
+.ed-body{display:contents}
+.ed-main{grid-column:1;grid-row:2/4;display:flex;flex-direction:column;gap:8px;padding:16px;min-width:0;min-height:0;overflow:auto}
 /* The stage is the framing control: drag pans, wheel and pinch zoom.
    touch-action:none so a finger on the picture moves the picture, not the page. */
 .ed-stage{position:relative;background:#000;border-radius:14px;overflow:hidden;display:block;
@@ -897,14 +901,39 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tlinfo{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-2);font-variant-numeric:tabular-nums}
 .ed-tlinfo i{font-style:normal;color:var(--fg-3);margin-right:4px}
 .ed-tlinfo .mid{font-weight:700;color:#fff}
-.ed-side{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--hair)}
+.ed-side{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--hair)}
+.ed-tpls{padding:12px 12px 0;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.ed-tpl-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ed-tpl-h span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--fg-3);margin-left:4px}
+.ed-tpl-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.ed-tpl{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:var(--r-sm);
+  border:1px solid var(--hair);background:rgba(255,255,255,.04);color:var(--fg-2);cursor:pointer;min-width:0;
+  transition:background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast)}
+.ed-tpl:hover{background:rgba(255,255,255,.08);color:#fff}
+.ed-tpl.on{background:var(--grad-soft);border-color:rgba(196,137,228,.5);color:#fff}
+.ed-tpl:disabled{opacity:.5;cursor:default}
+.ed-tpl-n{font-size:12px;font-weight:700;line-height:1.2;text-align:center;max-width:100%;overflow-wrap:anywhere}
+/* Tiny 9:16 diagrams of each layout, drawn in CSS so they are the same
+   colours as the rest of the panel. i = the main picture, b = the accent. */
+.ed-tpl-ic{position:relative;width:22px;height:38px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
+.ed-tpl-ic i,.ed-tpl-ic b{position:absolute;display:block;border-radius:2px;background:rgba(255,255,255,.55)}
+.ed-tpl-ic.camgame i{left:0;right:0;top:0;height:40%;background:rgba(255,255,255,.55)}
+.ed-tpl-ic.camgame b{left:0;right:0;top:44%;height:32%;background:rgba(255,255,255,.3)}
+.ed-tpl-ic.full i{inset:0;border-radius:0}
+.ed-tpl-ic.full b{left:4px;right:4px;bottom:6px;height:4px;background:var(--acc)}
+.ed-tpl-ic.blur i{left:0;right:0;top:34%;height:32%}
+.ed-tpl-ic.blur b{inset:0;background:rgba(255,255,255,.14);border-radius:0}
+.ed-tpl-ic.punch i{left:-4px;right:-4px;top:2px;bottom:2px;border:2px solid rgba(255,255,255,.55);background:rgba(255,255,255,.2)}
+.ed-tpl-ic.punch b{left:4px;right:4px;bottom:6px;height:4px;background:var(--acc)}
+.ed-tpl-ic.hook i{inset:0;border-radius:0;background:rgba(255,255,255,.3)}
+.ed-tpl-ic.hook b{left:3px;right:3px;top:4px;height:6px;background:#fff}
 .ed-tabs{display:flex;padding:12px 12px 0;gap:4px;flex-shrink:0}
 .ed-tabs button{flex:1;padding:8px 4px;border-radius:var(--r-sm);border:1px solid transparent;background:none;color:var(--fg-3);
   font-size:12px;font-weight:700;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast)}
 .ed-tabs button:hover{color:#fff}
 .ed-tabs button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .ed-panel{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:16px;min-height:0}
-.ed-foot{padding:12px;border-top:1px solid var(--hair);display:flex;flex-direction:column;gap:8px;flex-shrink:0;background:rgba(14,11,17,.6)}
+.ed-foot{grid-column:2;grid-row:3;padding:12px;border-top:1px solid var(--hair);border-left:1px solid var(--hair);display:flex;flex-direction:column;gap:8px;flex-shrink:0;background:rgba(14,11,17,.6)}
 .ed-export{width:100%;padding:12px 16px;font-size:14px}
 .ed-grp{display:flex;flex-direction:column;gap:8px}
 .ed-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
@@ -930,15 +959,16 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
    never below a fold. */
 @media(max-width:860px){
   .ed-bg{padding:0}
-  .ed{width:100%;height:100%;max-height:none;border-radius:0;border:none}
-  .ed-body{grid-template-columns:1fr;overflow:auto;display:flex;flex-direction:column}
-  .ed-main{overflow:visible;padding:12px;flex-shrink:0}
+  .ed{width:100%;height:100%;max-height:none;border-radius:0;border:none;grid-template-columns:1fr}
+  .ed-body{grid-column:1;grid-row:2;overflow:auto;display:flex;flex-direction:column;min-height:0}
+  .ed-main{grid-column:auto;grid-row:auto;overflow:visible;padding:12px;flex-shrink:0}
   .ed-stage{height:min(42vh,420px)}
-  .ed-side{border-left:none;border-top:1px solid var(--hair);min-height:0;flex:1}
-  .ed-panel{overflow:visible}
-  .ed-foot{position:sticky;bottom:0;background:rgba(14,11,17,.96)}
+  .ed-side{grid-column:auto;grid-row:auto;border-left:none;border-top:1px solid var(--hair);min-height:0;flex:1 0 auto}
+  .ed-panel{overflow:visible;padding-bottom:32px}
+  .ed-foot{grid-column:1;grid-row:3;border-left:none;background:rgba(14,11,17,.96)}
   .ed-cut{margin-left:0;width:100%}
   .ed-cut .ed-mark{flex:1}
+  .ed-tpl-n{font-size:12px}
 }
 .pub-row{display:flex;align-items:center;gap:8px;margin-top:8px}
 .pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
@@ -4294,6 +4324,42 @@ function blurBackdrop(ctx, video, w, h, vw, vh, over) {
 const CAP_FONT = 'Inter, system-ui, -apple-system, sans-serif';
 const CAP_ACCENT = '#F7A745';
 
+/* ── Templates ───────────────────────────────────────────────────────────────
+   The five layouts streamer clips actually ship in, copied from what is on
+   TikTok, Shorts and Reels right now, each one a set of the editor's own
+   knobs. One click applies it; every knob stays adjustable afterwards, so a
+   template is a starting point rather than a lock. `tab` is where the panel
+   lands, on the control the template most wants a human to check. */
+const SPLIT_TOP = 0.4;   // facecam panel height as a fraction of the frame
+const TEMPLATES = [
+  { id: 'camgame', name: 'Cam + Game',
+    desc: 'Facecam on top, gameplay under it: the streamer-clip standard. Drag the preview to put the window on the camera.',
+    tab: 'frame',
+    set: { ratio: '9:16', layout: 'split', fill: 'blur', zoom: 2.4, offX: -0.3, offY: -0.2,
+           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.045 } },
+  { id: 'full', name: 'Full Frame',
+    desc: 'A centred vertical crop with clean outlined captions. IRL and just-chatting clips.',
+    tab: 'trim',
+    set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1, offX: 0, offY: 0,
+           capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055 } },
+  { id: 'blur', name: 'Blur Bars',
+    desc: 'The whole 16:9 frame kept, blurred fill above and below, boxed captions under it. Gameplay where the HUD matters.',
+    tab: 'captions',
+    set: { ratio: '9:16', layout: 'single', fill: 'blur', zoom: 1, offX: 0, offY: 0,
+           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.05 } },
+  { id: 'punch', name: 'Punch In',
+    desc: 'Zoomed on the reaction with big boxed captions. Reaction and rage clips.',
+    tab: 'frame',
+    set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1.35, offX: 0, offY: 0,
+           capPos: 'bottom', capHi: true, capUpper: true, capWord: true, capSize: 0.07 } },
+  { id: 'hook', name: 'Hook Title',
+    desc: 'A bold line at the top for the first three seconds of attention, captions below. Type the hook in the Text tab.',
+    tab: 'text',
+    set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1, offX: 0, offY: 0,
+           capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055,
+           textPos: 'top', textSize: 0.09 } },
+];
+
 function capWrap(ctx, words, maxW) {
   const lines = [];
   let cur = [];
@@ -4376,8 +4442,28 @@ function paintFrame(ctx, video, o) {
   ctx.fillRect(0, 0, w, h);
 
   const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+  const layout = o.layout || 'single';
 
-  if (fill === 'blur') {
+  if (layout === 'split') {
+    // Facecam on top, gameplay under it: the streamer-clip standard. The top
+    // panel is a window into the source, cut around the camera (zoom is the
+    // window's tightness, offX/offY where it sits); the bottom keeps the
+    // whole frame at full width. Blurred fill behind both so nothing is
+    // ever a hard black bar.
+    blurBackdrop(ctx, video, w, h, vw, vh, 1.12);
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    ctx.fillRect(0, 0, w, h);
+    const topH = Math.round(h * SPLIT_TOP);
+    let rw = vw / Math.max(1, zoom), rh = rw * topH / w;
+    if (rh > vh) { rh = vh; rw = rh * w / topH; }
+    const sx = Math.max(0, Math.min(vw - rw, (0.5 + offX) * vw - rw / 2));
+    const sy = Math.max(0, Math.min(vh - rh, (0.5 + offY) * vh - rh / 2));
+    ctx.drawImage(video, sx, sy, rw, rh, 0, 0, w, topH);
+    const bh = h - topH, gs = Math.min(w / vw, bh / vh), gw = vw * gs, gh = vh * gs;
+    ctx.drawImage(video, (w - gw) / 2, topH + (bh - gh) / 2, gw, gh);
+    ctx.fillStyle = 'rgba(0,0,0,.5)';
+    ctx.fillRect(0, topH - 2, w, 4);                 // the seam
+  } else if (fill === 'blur') {
     // Contain the video and put a blurred, over-scaled copy behind it. Nothing
     // is cropped off the sides, which is the point — a 16:9 clip forced into
     // 9:16 by cover loses most of the frame. The backdrop is a cover-scaled
@@ -4628,6 +4714,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [textSize, setTS]   = useState(0.075);
   const [textPos, setTP]    = useState('bottom');
   const [fill, setFill]     = useState('crop');
+  const [layout, setLayout] = useState('single');
+  const [tpl, setTpl]       = useState('');
   const [capSize, setCapSize] = useState(0.055);
   const [capPos, setCapPos]   = useState('bottom');
   const [capHi, setCapHi]     = useState(false);
@@ -4682,15 +4770,15 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const outW = out.w, outH = out.h;
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
-    fill, capSize, capPos, capHighlight: capHi, capUpper, capWord,
+    fill, layout, capSize, capPos, capHighlight: capHi, capUpper, capWord,
     t: videoRef.current ? videoRef.current.currentTime : 0,
     caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : null });
 
-  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH };
+  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH, layout, zoom };
   // Anything that changes the picture marks the frame dirty. Cheaper than
   // diffing: the loop paints once and clears it.
   useEffect(() => { dirtyRef.current = true; },
-    [outW, outH, zoom, offX, offY, text, textSize, textPos, fill, capSize, capPos, capHi, capUpper, capWord, capOn, caps, inPt, outPt]);
+    [outW, outH, zoom, offX, offY, text, textSize, textPos, fill, layout, capSize, capPos, capHi, capUpper, capWord, capOn, caps, inPt, outPt]);
 
   // The caption and title faces must be resident before the first paint and
   // before an export starts, or the first frames go out in the fallback font.
@@ -4907,6 +4995,24 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   useEffect(() => { if (rootRef.current) rootRef.current.focus(); }, []);
 
+  const textRef = useRef(null);
+  const wantText = useRef(false);
+  const SETTERS = { ratio: setRatio, layout: setLayout, fill: setFill, zoom: setZoom, offX: setOffX, offY: setOffY,
+                    capPos: setCapPos, capHi: setCapHi, capUpper: setCapUpper, capWord: setCapWord, capSize: setCapSize,
+                    textPos: setTP, textSize: setTS };
+  const applyTemplate = (t) => {
+    if (busy) return;
+    Object.keys(t.set).forEach(k => { if (SETTERS[k]) SETTERS[k](t.set[k]); });
+    setTpl(t.id);
+    setTab(t.tab);
+    setHint(true);
+    // The hook template is nothing without its line, so land in the box.
+    if (t.id === 'hook' && !text) wantText.current = true;
+  };
+  useEffect(() => {
+    if (tab === 'text' && wantText.current && textRef.current) { textRef.current.focus(); wantText.current = false; }
+  }, [tab]);
+
   // ── Framing by hand: drag the picture, wheel or pinch to zoom. ──
   const stageDown = (e) => {
     if (busy) return;
@@ -4931,7 +5037,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     if (p.pts.size >= 2) {
       const a = [...p.pts.values()];
       const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
-      setZoom(Math.max(1, Math.min(3, +(p.startZoom * d / p.dist0).toFixed(3))));
+      setZoom(Math.max(1, Math.min(4, +(p.startZoom * d / p.dist0).toFixed(3))));
       return;
     }
     // offX/offY are fractions of the OUTPUT frame, so a finger crossing a
@@ -4941,8 +5047,14 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const L = latest.current;
     const s = Math.min(r.width / L.outW, r.height / L.outH);
     const cw = Math.max(1, L.outW * s), ch = Math.max(1, L.outH * s);
-    setOffX(Math.max(-0.5, Math.min(0.5, p.startX + (e.clientX - p.ox) / cw)));
-    setOffY(Math.max(-0.5, Math.min(0.5, p.startY + (e.clientY - p.oy) / ch)));
+    // In the split layout the drag moves the camera WINDOW over the source,
+    // so the picture follows the finger the same way: dragging right shows
+    // what is further right, which means the window's centre moves left by
+    // the window's own share of the frame.
+    const split = L.layout === 'split';
+    const k = split ? -1 / Math.max(1, L.zoom) : 1;
+    setOffX(Math.max(-0.5, Math.min(0.5, p.startX + (e.clientX - p.ox) / cw * k)));
+    setOffY(Math.max(-0.5, Math.min(0.5, p.startY + (e.clientY - p.oy) / ch * k)));
   };
   const stageUp = (e) => {
     const p = pinch.current;
@@ -4960,7 +5072,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const onWheel = (e) => {
       if (latest.current.busy) return;
       e.preventDefault();
-      setZoom(z => Math.max(1, Math.min(3, +(z * (1 - Math.sign(e.deltaY) * 0.06)).toFixed(3))));
+      setZoom(z => Math.max(1, Math.min(4, +(z * (1 - Math.sign(e.deltaY) * 0.06)).toFixed(3))));
       setHint(false);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -5155,7 +5267,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               <canvas ref={canvRef} width={outW} height={outH}/>
               {!dur && <div className="ed-loading"><span/>Loading clip…</div>}
               {dur > 0 && hint && !busy &&
-                <div className="ed-hint">Drag to reposition · scroll or pinch to zoom</div>}
+                <div className="ed-hint">{layout === 'split' ? 'Drag to move the camera window · scroll or pinch to tighten it' : 'Drag to reposition · scroll or pinch to zoom'}</div>}
               {busy && <div className="ed-hint on">Rendering {Math.round(pct)}%</div>}
             </div>
 
@@ -5187,6 +5299,19 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           </div>
 
           <div className="ed-side">
+            <div className="ed-tpls">
+              <div className="ed-tpl-h">Templates <span>one click, then tweak anything</span></div>
+              <div className="ed-tpl-row">
+                {TEMPLATES.map(t => (
+                  <button key={t.id} className={'ed-tpl' + (tpl === t.id ? ' on' : '')} disabled={busy}
+                    onClick={() => applyTemplate(t)} title={t.desc}>
+                    <span className={'ed-tpl-ic ' + t.id} aria-hidden="true"><i/><b/></span>
+                    <span className="ed-tpl-n">{t.name}</span>
+                  </button>
+                ))}
+              </div>
+              {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
+            </div>
             <div className="ed-tabs" role="tablist">
               {TABS.map(([k,l])=>(
                 <button key={k} role="tab" aria-selected={tab===k} className={tab===k?'on':''} onClick={()=>setTab(k)}>{l}</button>
@@ -5220,6 +5345,19 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
               {tab==='frame' && <>
                 <div className="ed-grp">
+                  <label>Layout</label>
+                  <div className="ed-seg">
+                    <button className={layout==='single'?'on':''} disabled={busy}
+                      onClick={()=>setLayout('single')}>Single<br/><small>one picture</small></button>
+                    <button className={layout==='split'?'on':''} disabled={busy}
+                      onClick={()=>{setLayout('split'); if(zoom<1.5) setZoom(2.4);}}>Cam + game<br/><small>facecam over gameplay</small></button>
+                  </div>
+                  {layout==='split' && <div className="ed-note">
+                    The top window is cut from the source around the camera: drag the preview to
+                    put it on the streamer, zoom to tighten it. The gameplay keeps its full width below.
+                  </div>}
+                </div>
+                {layout==='single' && <div className="ed-grp">
                   <label>Fill</label>
                   <div className="ed-seg">
                     <button className={fill==='crop'?'on':''} disabled={busy}
@@ -5231,11 +5369,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                     Crop cuts the sides off to fill a vertical frame. Blur keeps the
                     whole picture and fills the gaps with a blurred copy.
                   </div>
-                </div>
+                </div>}
                 <div className="ed-grp">
-                  <label>Zoom</label>
+                  <label>{layout==='split' ? 'Camera window' : 'Zoom'}</label>
                   <div className="ed-row">
-                    <input type="range" min="1" max="3" step="0.01" value={zoom} disabled={busy}
+                    <input type="range" min="1" max="4" step="0.01" value={zoom} disabled={busy}
                       onChange={e=>setZoom(+e.target.value)}/>
                     <span className="ed-num">{zoom.toFixed(2)}×</span>
                   </div>
@@ -5260,8 +5398,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
               {tab==='text' && <div className="ed-grp">
                 <label>Title text</label>
-                <textarea className="ed-in" rows="2" value={text} disabled={busy}
-                  placeholder="Optional text on the clip" maxLength={120}
+                <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
+                  placeholder={tpl==='hook' ? 'Your hook, e.g. HE ACTUALLY DID IT' : 'Optional text on the clip'} maxLength={120}
                   onChange={e=>setText(e.target.value)}/>
                 <div className="ed-seg">
                   {['top','middle','bottom'].map(p=>(
@@ -5339,33 +5477,33 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               </div>}
             </div>
 
-            <div className="ed-foot">
-              {busy && <div className="ed-grp">
-                <div className="ed-prog"><i style={{transform:'scaleX(' + (pct/100) + ')'}}/></div>
-                <div className="ed-row">
-                  <span className="ed-note" style={{flex:1}}>Rendering {edTime(Math.min(clipSecs, clipSecs*pct/100))} of {edTime(clipSecs)}</span>
-                  <button className="rd-btn sm danger" onClick={()=>{cancelRef.current=true;}}>Cancel</button>
-                </div>
-              </div>}
-
-              {!busy && <button className="rd-btn grad ed-export" onClick={runExport} disabled={!canExport}>
-                <Icon name="download" size={14}/>&nbsp;Export {ratio} · {clipSecs.toFixed(1)}s
-              </button>}
-
-              {!canExport && dur > 0 &&
-                <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
-              {canExport && !busy && !done && !err &&
-                <div className="ed-note">Renders on your machine in about {eta}s as {fmtOut}. Keep this tab open.</div>}
-              {done && <div className="ed-note ok">{done}</div>}
-              {err && <div className="ed-warn">{err}</div>}
-              {outFile && !busy && <div className="ed-row">
-                <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>Download again</button>
-                {/* The render is in the Scheduler now — that is where posting
-                    lives, so the editor stays about editing. */}
-                <span className="ed-note">Caption it and post from the <b>Scheduler</b> tab.</span>
-              </div>}
-            </div>
           </div>
+        </div>
+        <div className="ed-foot">
+          {busy && <div className="ed-grp">
+            <div className="ed-prog"><i style={{transform:'scaleX(' + (pct/100) + ')'}}/></div>
+            <div className="ed-row">
+              <span className="ed-note" style={{flex:1}}>Rendering {edTime(Math.min(clipSecs, clipSecs*pct/100))} of {edTime(clipSecs)}</span>
+              <button className="rd-btn sm danger" onClick={()=>{cancelRef.current=true;}}>Cancel</button>
+            </div>
+          </div>}
+
+          {!busy && <button className="rd-btn grad ed-export" onClick={runExport} disabled={!canExport}>
+            <Icon name="download" size={14}/>&nbsp;Export {ratio} · {clipSecs.toFixed(1)}s
+          </button>}
+
+          {!canExport && dur > 0 &&
+            <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
+          {canExport && !busy && !done && !err &&
+            <div className="ed-note">Renders on your machine in about {eta}s as {fmtOut}. Keep this tab open.</div>}
+          {done && <div className="ed-note ok">{done}</div>}
+          {err && <div className="ed-warn">{err}</div>}
+          {outFile && !busy && <div className="ed-row">
+            <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>Download again</button>
+            {/* The render is in the Scheduler now — that is where posting
+                lives, so the editor stays about editing. */}
+            <span className="ed-note">Caption it and post from the <b>Scheduler</b> tab.</span>
+          </div>}
         </div>
       </div>
     </div>

@@ -1262,6 +1262,39 @@ What changed and why, in `ClipEditor` / `EdTimeline` / `buildThumbs` /
   of the file (`shots/*-file-frame-*.png`): backdrop, plate/outline and the
   lit word are all in the bytes, not just the preview.
 
+**Templates (2026-09-08, same day).** Five one-click starting points in a
+row above the side-panel tabs (`TEMPLATES` in `aurora_html.py`), copied from
+the formats streamer clips ship in on TikTok / Shorts / Reels (researched
+2026-09-08: facecam-top/gameplay-bottom at ~40/60 is the standard; full
+frame with word-level captions; blurred fill keeping the 16:9; punch-in
+reaction zooms; a hook line at the top). Each is a complete set of the
+editor's own knobs (shape, layout, fill, zoom, position, caption
+position/style/caps/word-pop/size, and for the hook the title position and
+size), applied through `applyTemplate` → `SETTERS`, landing on the tab that
+most wants a human look. Nothing is locked afterwards.
+
+| id | name | what it sets |
+|---|---|---|
+| `camgame` | Cam + Game | **new `layout:'split'`**: top 40% is a window cut from the source around the camera (`zoom` = tightness, `offX/offY` = where), bottom keeps the whole frame at full width, blurred fill behind both, boxed ALL-CAPS captions `low` (under the gameplay) |
+| `full` | Full Frame | 9:16 crop, zoom 1, outlined captions bottom, word pop |
+| `blur` | Blur Bars | blur fill, boxed ALL-CAPS captions `low` |
+| `punch` | Punch In | crop, zoom 1.35, big (0.07) boxed ALL-CAPS captions |
+| `hook` | Hook Title | crop, title at top at 0.09, focuses the text box |
+
+Layout note from the same pass: the export footer (`.ed-foot`) is no longer
+inside the side panel. `.ed` is a grid (header across the top; main | side;
+footer as its own row under the side column, `.ed-body{display:contents}`
+on desktop) so on a phone the footer is a row under the scroller rather
+than a sticky element inside it — sticky covered whatever control had
+been scrolled to the bottom edge, which the harness hit on every run.
+
+The split layout is also a manual control (Frame tab → Layout). In split
+mode a stage drag moves the camera window (sign inverted and scaled by
+1/zoom so the picture follows the finger) and zoom goes to 4. `SPLIT_TOP`
+is the one constant. Tests: `test_there_are_five_templates…`,
+`test_the_split_layout_draws_a_camera_window…`,
+`test_the_template_row_is_in_the_panel…`.
+
 Harness: `scratchpad/ed/` — `mkclip.js` records a 12s test clip in
 Chromium itself (no ffmpeg on the box), `harness.js` serves the real
 `DASHBOARD_HTML` with vendored React and stubbed `/me`, `/uploads`,

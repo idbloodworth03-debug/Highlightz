@@ -739,3 +739,46 @@ def test_captions_use_the_dashboard_font_and_light_the_spoken_word():
     for k in ("capUpper", "capWord", "t:"):
         assert k in ed[ed.index("const opts = () => ({"):ed.index("const opts = () => ({") + 400], \
             f"{k} never reaches paintFrame"
+
+
+# ── templates (2026-09-08) ────────────────────────────────────────────────────
+
+def test_there_are_five_templates_and_each_one_is_a_full_starting_point():
+    """One click has to land somewhere complete: shape, layout, fill, framing
+    and caption style all set, so nothing from the previous edit leaks
+    through. Every knob a template sets must be a knob the editor has."""
+    m = re.search(r"const TEMPLATES = \[(.*?)\n\];", SRC, re.S)
+    assert m, "TEMPLATES not found"
+    ids = re.findall(r"id: '(\w+)'", m.group(1))
+    assert ids == ["camgame", "full", "blur", "punch", "hook"], ids
+    sets = re.findall(r"set: \{(.*?)\} \}", m.group(1), re.S)
+    assert len(sets) == 5
+    for body in sets:
+        for k in ("ratio", "layout", "fill", "zoom", "offX", "offY", "capPos", "capHi", "capUpper", "capWord", "capSize"):
+            assert re.search(r"\b" + k + r":", body), f"a template does not set {k}"
+    ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+    setters = re.search(r"const SETTERS = \{(.*?)\};", ed, re.S).group(1)
+    for k in ("ratio", "layout", "fill", "zoom", "offX", "offY", "capPos", "capHi", "capUpper", "capWord", "capSize", "textPos", "textSize"):
+        assert re.search(r"\b" + k + r": set", setters), f"applyTemplate cannot set {k}"
+    assert "setTab(t.tab)" in ed, "a template does not open the tab it wants checked"
+
+
+def test_the_split_layout_draws_a_camera_window_over_the_whole_frame():
+    """Facecam on top (SPLIT_TOP of the height), gameplay at full width below,
+    blurred fill behind both — the streamer-clip standard."""
+    body = SRC[SRC.index("function paintFrame("):SRC.index("function ClipEditor(")]
+    split = body[body.index("if (layout === 'split') {"):body.index("} else if (fill === 'blur') {")]
+    assert "SPLIT_TOP" in split and "blurBackdrop(" in split
+    assert "ctx.drawImage(video, sx, sy, rw, rh, 0, 0, w, topH)" in split, "no camera window"
+    assert "Math.min(w / vw, bh / vh)" in split, "the gameplay panel is not contained at full width"
+    assert "if (rh > vh) { rh = vh; rw = rh * w / topH; }" in split, "a loose window can read outside the source"
+    o = SRC[SRC.index("const opts = () => ({"):]
+    assert "layout" in o[:o.index("});")], "layout never reaches paintFrame"
+
+
+def test_the_template_row_is_in_the_panel_and_the_layout_is_a_manual_control_too():
+    ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+    assert 'className="ed-tpl-row"' in ed and "TEMPLATES.map(" in ed
+    assert "onClick={()=>setLayout('single')}" in ed and "setLayout('split')" in ed, \
+        "the split layout can only be reached through a template"
+    assert "L.layout === 'split'" in ed, "a drag in the split layout does not move the camera window"
