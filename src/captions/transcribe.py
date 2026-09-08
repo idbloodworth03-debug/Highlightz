@@ -30,7 +30,7 @@ import asyncio
 import json
 import subprocess
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 import structlog
@@ -50,6 +50,11 @@ class Segment:
     start: float
     end: float
     text: str
+    # Per-word timings, [start, end, word], when Whisper produced them. The
+    # editor uses these to light up the word being spoken — the thing that
+    # separates a burned-in caption from a subtitle. Empty when the cue was
+    # kept whole because the segment had no word timings.
+    words: list = field(default_factory=list)
 
 
 # Cue shaping. Whisper returns SENTENCE-level segments — a 30s clip of someone
@@ -78,7 +83,8 @@ def _cues_from_words(segments) -> list[Segment]:
         if not cur:
             return
         cues.append(Segment(round(cur[0][0], 2), round(cur[-1][1], 2),
-                            " ".join(w for _, _, w in cur)))
+                            " ".join(w for _, _, w in cur),
+                            [[round(a, 2), round(b, 2), w] for a, b, w in cur]))
         cur.clear()
 
     for seg in segments:

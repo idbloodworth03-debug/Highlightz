@@ -1234,6 +1234,34 @@ What changed and why, in `ClipEditor` / `EdTimeline` / `buildThumbs` /
   transparent and the library page bled through on a phone; `.ed.glass` is
   solid `--rd-bg-2`.
 
+**Blur fill and captions, quality pass (2026-09-08, same day).**
+- *Blur backdrop* (`blurBackdrop`): two offscreen downscales (1/4 → 1/16 of
+  the output) and one smoothed upscale; the single `ctx.filter` pass runs on
+  the 1/16 canvas (a few thousand pixels) and only where filters exist. It no
+  longer needs `ctx.filter` at all — the old version fell back to a plain
+  crop without it (Safari < 18, some Firefox), and on browsers that had it
+  ran a full-frame 28px blur on every tick during playback AND export.
+  Measured in software-rendered Chromium: 22 fps → 50 fps in blur mode. A
+  soft shadow rect under the contained picture separates it from a backdrop
+  made of the same colours. The two offscreen canvases are module-level and
+  reused (`_BG`).
+- *Captions* (`drawCaption`): Inter (the dashboard's self-hosted face —
+  the old code asked for Sora, which the dashboard never loads, and drew
+  the fallback), preloaded with `document.fonts.load` before the first paint
+  so an export never starts in a fallback font. Styles: **Outline** (thick
+  dark stroke + soft shadow) or **Boxed** (rounded plate per line), optional
+  **ALL CAPS**, and **Word pop**: the word being spoken lit in `#F7A745`.
+  Word pop needs per-word timings, which cues now carry —
+  `transcribe.Segment.words = [[start, end, word], …]`, filled by
+  `_cues_from_words` (empty when a segment had no word timings, so nothing
+  is invented; the editor then draws the line unlit). Captions produced
+  before this change have no `words` and simply render without the pop;
+  regenerating adds it. Word-by-word layout is measured, so the line is
+  centred as a whole and wraps at 86% of the frame, max three lines.
+- Verified by exporting in blur mode with captions and decoding a frame out
+  of the file (`shots/*-file-frame-*.png`): backdrop, plate/outline and the
+  lit word are all in the bytes, not just the preview.
+
 Harness: `scratchpad/ed/` — `mkclip.js` records a 12s test clip in
 Chromium itself (no ffmpeg on the box), `harness.js` serves the real
 `DASHBOARD_HTML` with vendored React and stubbed `/me`, `/uploads`,

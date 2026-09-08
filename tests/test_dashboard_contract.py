@@ -380,17 +380,24 @@ def test_queue_times_cross_the_wire_as_epoch_seconds():
     assert "getHours()" in body, "not using local time to fill the input"
 
 
-def test_blur_fill_degrades_to_a_crop_when_the_canvas_cannot_blur():
-    """Without ctx.filter the background copy would draw UNBLURRED — a huge
-    duplicate of the video behind itself, which reads as broken rather than as
-    a missing nicety."""
-    assert "function ctxCanFilter(" in SRC
-    body = SRC[SRC.index("function paintFrame("):]
-    body = body[:body.index("function ClipEditor(")]
-    assert "fill === 'blur' && ctxCanFilter(ctx)" in body, \
-        "blur path taken without checking the canvas can actually blur"
+def test_blur_fill_never_draws_an_unblurred_duplicate():
+    """The first version needed ctx.filter and fell back to a plain crop
+    without it. The backdrop is now a two-pass downscale (1/4 then 1/16)
+    drawn back up, which is blurred by construction on every canvas — and
+    far cheaper than a filter over a full 720x1280 frame per tick. Where
+    ctx.filter exists it only smooths the upscale. Whatever happens, the
+    background is never the video drawn sharp behind itself."""
+    assert "function blurBackdrop(" in SRC
+    bg = SRC[SRC.index("function blurBackdrop("):SRC.index("function capWrap(")]
+    assert "Math.round(w / 4)" in bg and "Math.round(w / 16)" in bg, "no two-pass downscale"
+    assert "if (ctxCanFilter(ctx)) bc.filter" in bg, "filter is required rather than optional"
+    assert "ctx.filter =" not in bg, "a filter on the full-size draw is a full-frame blur per tick"
+    body = SRC[SRC.index("function paintFrame("):SRC.index("function ClipEditor(")]
+    blur = body[body.index("if (fill === 'blur'"):body.index("} else {")]
+    assert "blurBackdrop(ctx, video, w, h, vw, vh" in blur
+    assert "ctx.drawImage(video, cx, cy, cw, ch)" in blur, "the foreground is not the contained copy"
     assert "} else {" in body and "Math.max(w / vw, h / vh) * zoom" in body, \
-        "no cover fallback left for the unsupported case"
+        "no cover path left for the crop fill"
 
 
 def test_blur_fill_contains_the_video_rather_than_cropping_it():
@@ -404,7 +411,7 @@ def test_blur_fill_contains_the_video_rather_than_cropping_it():
 
 
 def test_caption_position_and_size_are_driven_by_the_editor_not_hardcoded():
-    body = SRC[SRC.index("function paintFrame("):]
+    body = SRC[SRC.index("function drawCaption("):]
     body = body[:body.index("function ClipEditor(")]
     assert "o.capSize" in body and "o.capPos" in body and "o.capHighlight" in body
     assert "const opts = () => ({" in SRC
@@ -713,3 +720,22 @@ def test_the_editor_side_panel_is_tabbed_and_the_export_is_pinned():
     assert 'className="ed-foot"' in ed and 'className="rd-btn grad ed-export"' in ed
     css = SRC[SRC.index(".ed-foot{"):SRC.index(".ed-foot{") + 300]
     assert "flex-shrink:0" in css
+
+
+def test_captions_use_the_dashboard_font_and_light_the_spoken_word():
+    """Captions asked for Sora, which the dashboard never loads, and drew the
+    fallback. Inter is self-hosted here and preloaded before the first paint.
+    With word timings (see transcribe.Segment.words) the spoken word is lit in
+    the brand orange; without them the line still renders, unlit."""
+    assert "const CAP_FONT = 'Inter," in SRC
+    assert "Sora" not in SRC[SRC.index("function drawCaption("):SRC.index("function ClipEditor(")]
+    draw = SRC[SRC.index("function drawCaption("):SRC.index("function paintFrame(")]
+    assert "cue.words" in draw and "CAP_ACCENT" in draw and "wd.on ? CAP_ACCENT : '#fff'" in draw
+    assert "t >= x[0] - 0.05" in draw, "the lit word does not follow the clock"
+    assert "o.capUpper" in draw and "toUpperCase()" in draw
+    assert "ctx.roundRect" in draw and "strokeText" in draw, "lost a caption style"
+    ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+    assert "document.fonts.load('800 40px Inter')" in ed, "caption font is not preloaded"
+    for k in ("capUpper", "capWord", "t:"):
+        assert k in ed[ed.index("const opts = () => ({"):ed.index("const opts = () => ({") + 400], \
+            f"{k} never reaches paintFrame"

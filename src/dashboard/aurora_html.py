@@ -4221,22 +4221,22 @@ function edTime(s) {
 const CAP_HOLD_S = 0.8;
 
 function activeCaption(segs, t) {
-  if (!segs || !segs.length) return '';
+  if (!segs || !segs.length) return null;
   // Linear scan: a clip is seconds long and has a handful of segments, so this
   // is cheaper than the bookkeeping a binary search would need per frame.
-  let held = '';
+  let held = null;
   for (const s of segs) {
-    if (t >= s.start && t <= s.end) return s.text || '';
+    if (t >= s.start && t <= s.end) return s;
     // Segments are in order, so the last one that qualifies here is the most
     // recent cue — that is the one worth holding through a short gap.
-    if (s.end < t && t - s.end <= CAP_HOLD_S) held = s.text || '';
+    if (s.end < t && t - s.end <= CAP_HOLD_S) held = s;
   }
   return held;
 }
 
-/* Canvas filter support, probed once. Blur fill silently becomes a plain crop
-   without it — drawing the background unblurred would put a huge duplicate of
-   the video behind itself, which looks broken rather than degraded. */
+/* Canvas filter support, probed once. The blur backdrop does not depend on it
+   any more (see blurBackdrop) — where it exists it only smooths the last of
+   the upscale, where it does not the picture is still blurred. */
 let _CTX_FILTER = null;
 function ctxCanFilter(ctx) {
   if (_CTX_FILTER === null) {
@@ -4244,6 +4244,129 @@ function ctxCanFilter(ctx) {
     catch { _CTX_FILTER = false; }
   }
   return _CTX_FILTER;
+}
+
+/* ── Blur backdrop ───────────────────────────────────────────────────────────
+   Two offscreen downscales (1/4, then 1/16 of the output) and one scaled-up
+   draw: the upscale's bilinear filtering IS the blur. It costs a fraction of
+   ctx.filter over a full 720x1280 frame every tick, which is what the first
+   version did during playback AND export, and it works on every canvas —
+   filter or not. Where ctx.filter exists a small radius on the tiny canvas
+   takes the blockiness out of the upscale. The two canvases are reused
+   across frames and resized only when the output shape changes. */
+const _BG = [null, null];
+function bgCanvas(i, w, h) {
+  let c = _BG[i];
+  if (!c) { c = document.createElement('canvas'); _BG[i] = c; }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
+function blurBackdrop(ctx, video, w, h, vw, vh, over) {
+  const a = bgCanvas(0, Math.max(4, Math.round(w / 4)), Math.max(4, Math.round(h / 4)));
+  const b = bgCanvas(1, Math.max(2, Math.round(w / 16)), Math.max(2, Math.round(h / 16)));
+  const ac = a.getContext('2d'), bc = b.getContext('2d');
+  // Cover the small canvas with an overscanned copy so the softened edges
+  // never fade to black inside the frame.
+  const s = Math.max(a.width / vw, a.height / vh) * over;
+  ac.drawImage(video, (a.width - vw * s) / 2, (a.height - vh * s) / 2, vw * s, vh * s);
+  // The one filter pass happens on the 1/16 canvas — a few thousand pixels,
+  // not a million. Putting it on the final upscaled draw instead costs a
+  // full-frame blur every tick, which is exactly the bill this avoids.
+  bc.save();
+  if (ctxCanFilter(ctx)) bc.filter = 'blur(1.5px)';
+  bc.drawImage(a, 0, 0, b.width, b.height);
+  bc.restore();
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  try { ctx.imageSmoothingQuality = 'high'; } catch (e) {}
+  const o = 1.08;   // draw past the edges so the softened border stays outside the frame
+  ctx.drawImage(b, -w * (o - 1) / 2, -h * (o - 1) / 2, w * o, h * o);
+  ctx.restore();
+}
+
+/* ── Captions ────────────────────────────────────────────────────────────────
+   Short-form style: a heavy sans, white, either a thick dark outline with a
+   soft shadow or a dark plate per line, wrapped to the frame, and the word
+   being spoken lit in the brand orange when the cue carries word timings.
+   Inter is the dashboard's own self-hosted face, so it is the one guaranteed
+   to be loaded when a frame is drawn — the first version asked for Sora,
+   which this page never loads, and silently drew the fallback. */
+const CAP_FONT = 'Inter, system-ui, -apple-system, sans-serif';
+const CAP_ACCENT = '#F7A745';
+
+function capWrap(ctx, words, maxW) {
+  const lines = [];
+  let cur = [];
+  const width = (arr) => ctx.measureText(arr.map(x => x.w).join(' ')).width;
+  for (const wd of words) {
+    if (cur.length && width(cur.concat([wd])) > maxW) { lines.push(cur); cur = [wd]; }
+    else cur.push(wd);
+  }
+  if (cur.length) lines.push(cur);
+  return lines.slice(-3);
+}
+
+function drawCaption(ctx, cue, o) {
+  const { w, h } = o;
+  const fs = Math.round(h * (o.capSize || 0.055));
+  const t = o.t || 0;
+  // Words with an on/off flag. A cue without timings is one line of words
+  // that are never "on"; the layout is the same either way.
+  let words;
+  if (cue.words && cue.words.length) {
+    let idx = -1;
+    cue.words.forEach((x, i) => { if (t >= x[0] - 0.05) idx = i; });
+    words = cue.words.map((x, i) => ({ w: x[2], on: o.capWord && i === idx }));
+  } else {
+    words = String(cue.text || '').split(' ').filter(Boolean).map(x => ({ w: x, on: false }));
+  }
+  if (!words.length) return;
+  if (o.capUpper) words = words.map(x => ({ w: x.w.toUpperCase(), on: x.on }));
+  ctx.font = `800 ${fs}px ${CAP_FONT}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const lines = capWrap(ctx, words, w * 0.86);
+  const capPos = o.capPos || 'bottom';
+  // 0.78 keeps captions clear of the platform's own bottom chrome; 'low'
+  // (0.88) is for people who want them under the action, and 'top' for when
+  // the interesting part of the frame is at the bottom.
+  const baseY = h * (capPos === 'top' ? 0.16 : capPos === 'middle' ? 0.5
+                   : capPos === 'low' ? 0.88 : 0.78);
+  const lh = fs * 1.22;
+  const space = ctx.measureText(' ').width;
+  lines.forEach((ln, i) => {
+    const ly = baseY + (i - (lines.length - 1) / 2) * lh;
+    const widths = ln.map(x => ctx.measureText(x.w).width);
+    const lineW = widths.reduce((a, b) => a + b, 0) + space * (ln.length - 1);
+    let x = (w - lineW) / 2;
+    if (o.capHighlight) {
+      // A solid plate behind the words. Reads on any background, where a
+      // stroke alone can still disappear into busy gameplay.
+      const padX = fs * 0.36, padY = fs * 0.2;
+      const rx = x - padX, ry = ly - fs * 0.6 - padY, rw = lineW + padX * 2, rh = fs * 1.2 + padY * 2;
+      ctx.fillStyle = 'rgba(0,0,0,.74)';
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, fs * 0.24); ctx.fill(); }
+      else ctx.fillRect(rx, ry, rw, rh);
+    }
+    ln.forEach((wd, j) => {
+      if (!o.capHighlight) {
+        // Outline plus a soft shadow: the outline holds the letterforms, the
+        // shadow lifts them off a bright frame where a stroke alone looks thin.
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,.55)';
+        ctx.shadowBlur = fs * 0.28;
+        ctx.shadowOffsetY = fs * 0.06;
+        ctx.lineWidth = Math.max(2, fs * 0.19);
+        ctx.strokeStyle = 'rgba(0,0,0,.92)';
+        ctx.lineJoin = 'round';
+        ctx.strokeText(wd.w, x, ly);
+        ctx.restore();
+      }
+      ctx.fillStyle = wd.on ? CAP_ACCENT : '#fff';
+      ctx.fillText(wd.w, x, ly);
+      x += widths[j] + space;
+    });
+  });
 }
 
 function paintFrame(ctx, video, o) {
@@ -4254,20 +4377,28 @@ function paintFrame(ctx, video, o) {
 
   const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
 
-  if (fill === 'blur' && ctxCanFilter(ctx)) {
+  if (fill === 'blur') {
     // Contain the video and put a blurred, over-scaled copy behind it. Nothing
     // is cropped off the sides, which is the point — a 16:9 clip forced into
-    // 9:16 by cover loses most of the frame.
-    ctx.save();
-    ctx.filter = 'blur(28px)';
-    const bs = Math.max(w / vw, h / vh) * 1.25;   // overscan so blurred edges
-    ctx.drawImage(video, (w - vw * bs) / 2, (h - vh * bs) / 2, vw * bs, vh * bs);
-    ctx.restore();
-    ctx.fillStyle = 'rgba(0,0,0,.3)';             // hold the foreground forward
+    // 9:16 by cover loses most of the frame. The backdrop is a cover-scaled
+    // copy (Math.max(w / vw, h / vh)) drawn through the downscale pipeline.
+    blurBackdrop(ctx, video, w, h, vw, vh, 1.12);
+    ctx.fillStyle = 'rgba(0,0,0,.28)';             // hold the foreground forward
     ctx.fillRect(0, 0, w, h);
     const cs = Math.min(w / vw, h / vh) * zoom;
     const cw = vw * cs, ch = vh * cs;
-    ctx.drawImage(video, (w - cw) / 2 + offX * w, (h - ch) / 2 + offY * h, cw, ch);
+    const cx = (w - cw) / 2 + offX * w, cy = (h - ch) / 2 + offY * h;
+    // A soft shadow under the picture separates it from a backdrop that is
+    // made of the same colours. Drawn as a rect, which is cheap; the video
+    // covers it.
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.6)';
+    ctx.shadowBlur = Math.round(w * 0.04);
+    ctx.shadowOffsetY = Math.round(w * 0.01);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx, cy, cw, ch);
+    ctx.restore();
+    ctx.drawImage(video, cx, cy, cw, ch);
   } else {
     // Cover: fill the frame, crop the overflow. Letterboxing a vertical export
     // would defeat the point of reframing for a phone screen.
@@ -4278,55 +4409,11 @@ function paintFrame(ctx, video, o) {
 
   // Auto-caption first, so a manual title drawn at the same spot sits on top
   // rather than being hidden behind it.
-  if (caption) {
-    const fs = Math.round(h * (o.capSize || 0.055));
-    ctx.font = `800 ${fs}px Sora, Inter, system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    // Wrap to the frame instead of running off the edge — a long line on a
-    // 9:16 export would otherwise lose both ends.
-    const words = String(caption).split(' ');
-    const lines = [];
-    let cur = '';
-    for (const wd of words) {
-      const test = cur ? cur + ' ' + wd : wd;
-      if (ctx.measureText(test).width > w * 0.86 && cur) { lines.push(cur); cur = wd; }
-      else cur = test;
-    }
-    if (cur) lines.push(cur);
-    const shown = lines.slice(-3);
-    const capPos = o.capPos || 'bottom';
-    // 0.78 keeps captions clear of the platform's own bottom chrome; 'low'
-    // (0.88) is for people who want them under the action, and 'top' for when
-    // the interesting part of the frame is at the bottom.
-    const baseY = h * (capPos === 'top' ? 0.16 : capPos === 'middle' ? 0.5
-                     : capPos === 'low' ? 0.88 : 0.78);
-    shown.forEach((ln, i) => {
-      const ly = baseY + (i - (shown.length - 1) / 2) * fs * 1.2;
-      if (o.capHighlight) {
-        // A solid plate behind the words. Reads on any background, where a
-        // stroke alone can still disappear into busy gameplay.
-        const tw = ctx.measureText(ln).width;
-        const padX = fs * 0.34, padY = fs * 0.24;
-        ctx.fillStyle = 'rgba(0,0,0,.72)';
-        const rx = (w - tw) / 2 - padX, ry = ly - fs * 0.62 - padY;
-        const rw = tw + padX * 2, rh = fs * 1.24 + padY * 2;
-        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, fs * 0.22); ctx.fill(); }
-        else ctx.fillRect(rx, ry, rw, rh);
-      } else {
-        ctx.lineWidth = Math.max(2, fs * 0.2);
-        ctx.strokeStyle = 'rgba(0,0,0,.9)';
-        ctx.lineJoin = 'round';
-        ctx.strokeText(ln, w / 2, ly);
-      }
-      ctx.fillStyle = '#fff';
-      ctx.fillText(ln, w / 2, ly);
-    });
-  }
+  if (caption) drawCaption(ctx, caption, o);
 
   if (text) {
     const fs = Math.round(h * textSize);
-    ctx.font = `900 ${fs}px Sora, Inter, system-ui, sans-serif`;
+    ctx.font = `900 ${fs}px ${CAP_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const y = textPos === 'top' ? h * 0.12 : textPos === 'middle' ? h * 0.5 : h * 0.88;
@@ -4337,10 +4424,14 @@ function paintFrame(ctx, video, o) {
     const lines = String(text).split(String.fromCharCode(10)).slice(0, 3);
     lines.forEach((ln, i) => {
       const ly = y + (i - (lines.length - 1) / 2) * fs * 1.15;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.5)';
+      ctx.shadowBlur = fs * 0.25;
       ctx.lineWidth = Math.max(2, fs * 0.16);
       ctx.strokeStyle = 'rgba(0,0,0,.85)';
       ctx.lineJoin = 'round';
       ctx.strokeText(ln, w / 2, ly);      // outline first, so text reads on any background
+      ctx.restore();
       ctx.fillStyle = '#fff';
       ctx.fillText(ln, w / 2, ly);
     });
@@ -4540,6 +4631,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [capSize, setCapSize] = useState(0.055);
   const [capPos, setCapPos]   = useState('bottom');
   const [capHi, setCapHi]     = useState(false);
+  const [capUpper, setCapUpper] = useState(false);
+  const [capWord, setCapWord]   = useState(true);
   const [playing, setPlay]  = useState(false);
   const [busy, setBusy]     = useState(false);
   const [pct, setPct]       = useState(0);
@@ -4589,14 +4682,23 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const outW = out.w, outH = out.h;
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
-    fill, capSize, capPos, capHighlight: capHi,
-    caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : '' });
+    fill, capSize, capPos, capHighlight: capHi, capUpper, capWord,
+    t: videoRef.current ? videoRef.current.currentTime : 0,
+    caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : null });
 
   latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH };
   // Anything that changes the picture marks the frame dirty. Cheaper than
   // diffing: the loop paints once and clears it.
   useEffect(() => { dirtyRef.current = true; },
-    [outW, outH, zoom, offX, offY, text, textSize, textPos, fill, capSize, capPos, capHi, capOn, caps, inPt, outPt]);
+    [outW, outH, zoom, offX, offY, text, textSize, textPos, fill, capSize, capPos, capHi, capUpper, capWord, capOn, caps, inPt, outPt]);
+
+  // The caption and title faces must be resident before the first paint and
+  // before an export starts, or the first frames go out in the fallback font.
+  useEffect(() => {
+    if (!(document.fonts && document.fonts.load)) return;
+    Promise.all([document.fonts.load('800 40px Inter'), document.fonts.load('900 40px Inter')])
+      .then(() => { dirtyRef.current = true; }).catch(() => {});
+  }, []);
 
   // Existing captions on open, plus live progress for a run started in another
   // tab — transcription happens on the server, so it is not tied to this one.
@@ -5210,15 +5312,27 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                     <input type="range" min="0.035" max="0.09" step="0.005" value={capSize}
                       disabled={busy} onChange={e=>setCapSize(+e.target.value)}/>
                   </div>
-                  <button className={'rd-btn sm'+(capHi?' grad':'')} disabled={busy}
-                    onClick={()=>setCapHi(!capHi)}>
-                    {capHi ? 'Highlight box on' : 'Highlight box off'}
-                  </button>
+                  <div className="ed-seg">
+                    <button className={!capHi?'on':''} disabled={busy} onClick={()=>setCapHi(false)}>Outline</button>
+                    <button className={capHi?'on':''} disabled={busy} onClick={()=>setCapHi(true)}>Boxed</button>
+                  </div>
+                  <div className="ed-row">
+                    <button className={'rd-btn sm'+(capUpper?' grad':'')} disabled={busy}
+                      onClick={()=>setCapUpper(v=>!v)} style={{flex:1}}>
+                      {capUpper ? 'ALL CAPS' : 'Sentence case'}
+                    </button>
+                    {caps.some(c=>c.words&&c.words.length) &&
+                      <button className={'rd-btn sm'+(capWord?' grad':'')} disabled={busy}
+                        onClick={()=>setCapWord(v=>!v)} style={{flex:1}}>
+                        {capWord ? 'Word pop on' : 'Word pop off'}
+                      </button>}
+                  </div>
                   <div className="ed-note">
-                    "Low" sits under the action — on TikTok and Reels the platform
-                    puts its own captions and buttons there, so it can end up
-                    covered. The highlight box reads on busy gameplay where an
-                    outline alone can disappear.
+                    Word pop lights each word in orange as it is spoken. Boxed puts
+                    a dark plate behind every line and reads on busy gameplay where
+                    an outline alone can disappear. "Low" sits under the action,
+                    where TikTok and Reels draw their own buttons, so it can end up
+                    covered.
                   </div>
                 </>}
                 {capErr && <div className="ed-warn">{capErr}</div>}

@@ -273,3 +273,19 @@ def test_the_vad_ab_tool_does_not_claim_cross_process_serialisation():
     # safety either; that is where someone would read it and believe it.
     src = inspect.getsource(caption_vad_test._run)
     assert "does NOT serialise against the running" in src
+
+
+def test_each_cue_keeps_its_word_timings_for_the_spoken_word_highlight():
+    """A cue is [start, end, text] plus the words inside it with their own
+    times. Without them the editor can only show a whole line at once; with
+    them it lights each word as it is spoken."""
+    words = [_W(0.0, 0.3, "no"), _W(0.3, 0.6, "way"), _W(0.6, 1.1, "that")]
+    cues = cap._cues_from_words([_WSeg(0.0, 1.1, "no way that", words)])
+    assert len(cues) == 1
+    assert cues[0].words == [[0.0, 0.3, "no"], [0.3, 0.6, "way"], [0.6, 1.1, "that"]]
+    # And it survives serialisation to the captions JSON the editor reads.
+    from dataclasses import asdict
+    assert asdict(cues[0])["words"][1] == [0.3, 0.6, "way"]
+    # A segment kept whole has no invented word times.
+    whole = cap._cues_from_words([_WSeg(1.0, 4.0, "kept whole", None)])
+    assert whole[0].words == []
