@@ -10125,7 +10125,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   @media(max-width:700px){
     .wrap{padding:var(--s-5) var(--s-4) var(--s-8)}
     .topbar{padding:var(--s-2) var(--s-4);flex-wrap:wrap;row-gap:var(--s-1);gap:var(--s-3)}
-    .topbar-right{margin-left:0;width:100%;gap:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .topbar-right{margin-left:0;width:100%;gap:0;flex-wrap:wrap}
     .tlink{padding:var(--s-1) var(--s-2) var(--s-1) 0}
     .tlink + .tlink{padding-left:var(--s-2)}
     .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -11510,6 +11510,114 @@ _OPTOUT_SUCCESS_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+# ── Admin sub-pages (feedback, opt-out registry) ─────────────────────────────
+# The same instrument as /admin: the site's black, the three inks, mono
+# labels, the ember as the one action colour, hairline panels. Shared here so
+# the three admin screens cannot drift apart again — they used to be three
+# hand-written sheets in three different fonts.
+_ADMIN_SUB_STYLE = """
+  @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
+  @font-face{font-family:'Sora Fallback';font-style:normal;font-weight:100 900;
+    src:local('Arial'),local('Helvetica'),local('Liberation Sans');
+    size-adjust:114.4%;ascent-override:84.8%;descent-override:25.3%;line-gap-override:0%}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
+  @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
+  :root{
+    --bone:#0A0A0C; --wall:#151119;
+    --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
+    --ember:#F7A745; --glow-ink:#C489E4; --good:#4ADE80; --bad:#FF7A8A;
+    --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Sora','Sora Fallback',system-ui,sans-serif;
+    --ease:cubic-bezier(.16,1,.3,1); --dur-fast:150ms; --dur-slow:400ms;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bone);color:var(--ink);font-family:var(--sans);font-weight:400;
+    font-size:14px;line-height:1.6;min-height:100vh;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+  a{text-decoration:none;color:inherit}
+  :focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:3px}
+  ::selection{background:rgba(247,167,69,.35)}
+  button,input,select,textarea{font:inherit;color:inherit}
+  .k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--s-4);
+    padding:var(--s-3) var(--s-5);background:#09070C;border-bottom:1px solid var(--hair)}
+  .logo{display:flex;align-items:center;gap:var(--s-2);flex-shrink:0}
+  .logo img{height:22px;display:block}
+  .logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+  .badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ember);padding-left:var(--s-3);border-left:1px solid var(--hair-2);line-height:1.2}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:var(--s-1);min-width:0}
+  .tlink{font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink-3);
+    padding:var(--s-2) var(--s-3);border-radius:3px;white-space:nowrap;
+    transition:color var(--dur-fast),background var(--dur-fast)}
+  .tlink:hover{color:var(--ink);background:rgba(242,234,247,.05)}
+  .tlink.on{color:var(--ink)}
+  .wrap{max-width:1240px;margin:0 auto;padding:var(--s-7) var(--s-5) var(--s-8)}
+  h1{font-family:var(--sans);font-weight:800;letter-spacing:-.04em;line-height:.98;
+    font-size:clamp(36px,5vw,56px);color:#fff;margin-top:var(--s-2)}
+  .meta{font-size:14px;color:var(--ink-2);margin-top:var(--s-3);max-width:60ch;line-height:1.5}
+  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:var(--s-1) var(--s-3);border-radius:3px;
+    cursor:pointer;border:1px solid var(--hair-2);background:transparent;color:var(--ink-2);
+    line-height:1.5;white-space:nowrap;
+    transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .btn:hover{color:#fff;border-color:rgba(242,234,247,.45)}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn-key{background:var(--ember);border-color:var(--ember);color:var(--bone)}
+  .btn-key:hover{background:#FFB65A;border-color:#FFB65A;color:var(--bone)}
+  .btn-bad{color:var(--bad);border-color:rgba(255,122,138,.3)}
+  .btn-bad:hover{color:var(--bad);border-color:var(--bad)}
+  .field{width:100%;background:var(--wall);border:1px solid var(--hair-2);color:var(--ink);border-radius:3px;
+    padding:var(--s-2) var(--s-3);font-size:14px;font-family:var(--sans);min-width:0;
+    transition:border-color var(--dur-fast)}
+  .field::placeholder{color:var(--ink-3)}
+  .field:focus{outline:none;border-color:var(--ember)}
+  .chips{display:flex;gap:var(--s-1);flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);background:none;border:1px solid var(--hair);border-radius:3px;
+    padding:var(--s-1) var(--s-3);cursor:pointer;
+    transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .chip:hover{color:var(--ink);border-color:var(--hair-2)}
+  .chip.on{color:var(--bone);background:var(--ember);border-color:var(--ember);font-weight:600}
+  .empty,.loading{padding:var(--s-6) 0;color:var(--ink-3);font-size:14px;font-family:var(--mono);letter-spacing:.02em}
+  .dim{color:var(--ink-3)}
+  .mono{font-family:var(--mono);font-size:12px;letter-spacing:.02em}
+  .toast{position:fixed;bottom:var(--s-5);right:var(--s-5);background:var(--wall);border:1px solid var(--hair-2);
+    border-radius:3px;padding:var(--s-3) var(--s-4);font-size:14px;font-weight:600;color:var(--ink);opacity:0;transform:translateY(6px);
+    max-width:min(420px,calc(100vw - 48px));overflow-wrap:anywhere;
+    transition:opacity var(--dur-slow) var(--ease),transform var(--dur-slow) var(--ease);pointer-events:none;z-index:999}
+  .toast.show{opacity:1;transform:none}
+  @media(max-width:700px){
+    .wrap{padding:var(--s-5) var(--s-4) var(--s-8)}
+    .topbar{padding:var(--s-2) var(--s-4);flex-wrap:wrap;row-gap:var(--s-1);gap:var(--s-3)}
+    .topbar-right{margin-left:0;width:100%;gap:0;flex-wrap:wrap}
+    .tlink{padding:var(--s-1) var(--s-2) var(--s-1) 0}
+    .tlink + .tlink{padding-left:var(--s-2)}
+    .toast{left:var(--s-4);right:var(--s-4);bottom:var(--s-4);max-width:none}
+  }
+"""
+
+
+def _admin_nav(current: str) -> str:
+    """The admin bar with the current screen marked. One source for the three
+    admin pages so a link added to one appears on all of them."""
+    links = [("optout", "/admin/optout", "Opt-out registry"),
+             ("feedback", "/admin/feedback-page", "Feedback"),
+             ("overview", "/admin", "Overview")]
+    out = []
+    for key, href, label in links:
+        on = ' on' if key == current else ''
+        out.append(f'    <a href="{href}" class="tlink{on}">{label}</a>')
+    out.append('    <a href="/" class="tlink">&#8592; Dashboard</a>')
+    return ('<div class="topbar">\n  <div class="logo">\n'
+            '    <img src="/static/logo-mark.png" alt="Highlightz">\n    <span>Highlightz</span>\n  </div>\n'
+            '  <span class="badge">Admin</span>\n  <div class="topbar-right">\n'
+            + "\n".join(out) + '\n  </div>\n</div>')
+
+
 _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11517,125 +11625,120 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Feedback — Highlightz Admin</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;padding:32px 24px;min-height:100vh}
-  body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 20% -10%,rgba(184,106,220,.18),transparent 60%)}
-  .topbar{display:flex;align-items:center;gap:16px;margin-bottom:24px}
-  .back{color:#b9aec4;text-decoration:none;font-size:12px;font-weight:600}
-  .back:hover{color:#f2eaf7}
-  h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
-  .badge{display:inline-flex;align-items:center;gap:4px;background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c489e4;font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px}
-  .empty{text-align:center;padding:64px 0;color:#9c90a6;font-size:14px}
-  .fb-list{display:flex;flex-direction:column;gap:12px;max-width:820px}
-  .fb-item{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 16px;transition:border-color var(--dur-fast)}
-  .fb-item.unread{border-color:rgba(145,70,255,.4);background:rgba(145,70,255,.06)}
-  .fb-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-  .fb-user{font-weight:700;font-size:14px;color:#f2eaf7}
-  .fb-cat{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:rgba(255,255,255,.07);color:#b9aec4;text-transform:capitalize}
-  .fb-time{font-size:12px;color:#9c90a6;margin-left:auto}
-  .fb-msg{font-size:14px;color:#d4d4e0;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-  .fb-actions{display:flex;gap:8px;margin-top:12px}
-  .btn{padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:var(--dur-fast)}
-  .btn-read{background:rgba(255,255,255,.07);color:#b9aec4}
-  .btn-read:hover{background:rgba(255,255,255,.12);color:#f2eaf7}
-  .btn-del{background:rgba(255,80,80,.12);color:#ff8080;border:1px solid rgba(255,80,80,.2)}
-  .btn-del:hover{background:rgba(255,80,80,.2)}
-  .new-dot{width:8px;height:8px;border-radius:50%;background:#b86adc;box-shadow:0 0 8px #b86adc;flex-shrink:0}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e1e2e;border:1px solid rgba(255,255,255,.12);color:#f2eaf7;padding:8px 16px;border-radius:12px;font-size:12px;font-weight:600;opacity:0;transition:opacity var(--dur-slow);pointer-events:none}
-  .toast.show{opacity:1}
+<style>""" + _ADMIN_SUB_STYLE + """
+  /* ── Compose: starting a thread with somebody who has not written in ── */
+  .compose{border:1px solid var(--hair-2);border-radius:3px;padding:var(--s-5);margin:var(--s-6) 0 var(--s-7);
+    max-width:820px}
+  .compose h2{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff;margin-bottom:var(--s-1)}
+  .compose .hint{font-size:14px;color:var(--ink-2);margin-bottom:var(--s-4);line-height:1.5;max-width:60ch}
+  .cmp-label{display:block;margin-bottom:var(--s-2)}
+  .cmp-chips{margin:var(--s-2) 0}
+  /* Scrolls rather than growing: the whole point is that this sits above the
+     feedback list, and a hundred users would push it off the screen. */
+  .cmp-people{max-height:240px;overflow-y:auto;border:1px solid var(--hair);border-radius:3px;
+    padding:var(--s-1);display:flex;flex-direction:column;gap:0}
+  .cmp-person{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-2);border-radius:3px;
+    cursor:pointer;font-size:14px;min-width:0;transition:background var(--dur-fast)}
+  .cmp-person:hover{background:rgba(242,234,247,.04)}
+  .cmp-person.on{background:rgba(247,167,69,.1)}
+  .cmp-person input{accent-color:var(--ember);cursor:pointer;flex-shrink:0}
+  .cmp-nm{font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .cmp-login{font-family:var(--mono);font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  /* Truncates with an ellipsis rather than being sliced mid-word by the row
+     edge: "Signed up, never opened ch" reads as a rendering fault. */
+  .cmp-meta{font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink-3);margin-left:auto;
+    text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
+  .cmp-none{padding:var(--s-4);color:var(--ink-3);font-family:var(--mono);font-size:12px}
+  .cmp-foot{display:flex;align-items:center;gap:var(--s-2);margin-top:var(--s-3);flex-wrap:wrap}
+  .cmp-count{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.02em;margin-left:var(--s-1)}
+  .cmp-count b{color:var(--ember)}
+  textarea.field{resize:vertical;line-height:1.5;display:block}
+
+  /* ── Threads ── */
+  .block-head{display:flex;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;margin-bottom:var(--s-4)}
+  .block-head h2{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff}
+  .fb-list{display:flex;flex-direction:column;gap:var(--s-3);max-width:820px}
+  .fb-item{border:1px solid var(--hair);border-left:2px solid var(--hair);border-radius:3px;padding:var(--s-4);
+    transition:border-color var(--dur-fast)}
+  .fb-item.unread{border-left-color:var(--ember);background:rgba(247,167,69,.04)}
+  .fb-meta{display:flex;align-items:center;gap:var(--s-2);margin-bottom:var(--s-2);flex-wrap:wrap}
+  .fb-user{font-weight:600;font-size:14px;color:#fff;overflow-wrap:anywhere}
+  .fb-cat,.fb-started{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-3);border:1px solid var(--hair);padding:0 var(--s-1);border-radius:2px;line-height:1.7}
+  .fb-started{color:var(--ember);border-color:rgba(247,167,69,.35)}
+  .fb-time{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-left:auto;letter-spacing:.02em}
+  .fb-msg{font-size:14px;color:var(--ink);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+  .fb-actions{display:flex;gap:var(--s-2);margin-top:var(--s-3);flex-wrap:wrap}
+  .new-dot{width:6px;height:6px;border-radius:50%;background:var(--ember);box-shadow:0 0 7px rgba(247,167,69,.6);flex-shrink:0}
+  /* Our replies carry the ember rule; a reply FROM the user reads as inbound
+     on a plain hairline. The same colour both ways makes a thread unreadable
+     at a glance. */
+  .fb-reply{margin:var(--s-2) 0 0;padding:var(--s-2) var(--s-3);border-left:2px solid var(--ember);
+    background:rgba(247,167,69,.05);font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+  .fb-reply b{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ember);margin-bottom:var(--s-1)}
+  .fb-reply .fb-time{display:block;margin-left:0;margin-top:var(--s-1)}
+  .fb-reply.from-user{border-left-color:var(--hair-2);background:rgba(242,234,247,.03)}
+  .fb-reply.from-user b{color:var(--ink-3)}
+  .fb-replybox{display:flex;gap:var(--s-2);margin-top:var(--s-3);align-items:flex-start}
+  .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:14px;line-height:1.5;
+    padding:var(--s-2) var(--s-3);border-radius:3px;border:1px solid var(--hair-2);
+    background:var(--wall);color:inherit;transition:border-color var(--dur-fast)}
+  .fb-replybox textarea::placeholder{color:var(--ink-3)}
+  .fb-replybox textarea:focus{outline:none;border-color:var(--ember)}
+  .btn-reply{background:var(--ember);border-color:var(--ember);color:var(--bone)}
+  .btn-reply:hover{background:#FFB65A;border-color:#FFB65A;color:var(--bone)}
+  @media(max-width:700px){
+    .compose{padding:var(--s-4);margin:var(--s-5) 0 var(--s-6)}
+    .fb-replybox{flex-wrap:wrap}
+    .fb-replybox textarea{flex-basis:100%}
+    .cmp-person{flex-wrap:wrap}
+    .cmp-meta{margin-left:0;flex-basis:100%;text-align:left;padding-left:var(--s-5)}
+  }
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/admin" class="back">&#8592; Admin panel</a>
-  <h1>User Feedback</h1>
-  <span class="badge" id="unread-badge" style="display:none"></span>
-</div>
-<style>
-  .fb-reply{margin:8px 0 0;padding:8px 12px;border-left:2px solid #b86adc;
-    background:rgba(184,106,220,.07);border-radius:0 6px 6px 0;font-size:12px;line-height:1.5}
-  .fb-reply b{display:block;font-size:12px;color:#c489e4;margin-bottom:4px}
-  /* A reply FROM the user reads as inbound: neutral rail, no purple. Same
-     colour for both directions would make a thread unreadable at a glance. */
-  .fb-reply.from-user{border-left-color:rgba(255,255,255,.25);background:rgba(255,255,255,.04)}
-  .fb-reply.from-user b{color:#b9aec4}
-  .fb-replybox{display:flex;gap:8px;margin-top:8px;align-items:flex-start}
-  .fb-replybox textarea{flex:1;min-width:0;resize:vertical;font:inherit;font-size:12px;
-    padding:8px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.14);
-    background:rgba(255,255,255,.04);color:inherit}
-  .fb-replybox textarea:focus{outline:2px solid #b86adc;outline-offset:1px}
-  .btn-reply{background:#7c3aed;border-color:transparent;color:#fff;white-space:nowrap}
+""" + _admin_nav("feedback") + """
 
-  /* ── Compose: starting a thread with somebody who has not written in ── */
-  .compose{max-width:820px;margin-bottom:24px;background:rgba(255,255,255,.035);
-    border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px 16px}
-  .compose h2{font-size:14px;font-weight:700;margin-bottom:4px}
-  .compose .hint{font-size:12px;color:#8b8b99;margin-bottom:12px;line-height:1.5}
-  .cmp-label{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-    color:#8b8b99;margin-bottom:8px;display:block}
-  .cmp-search{width:100%;padding:8px 12px;border-radius:9px;font:inherit;font-size:12px;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:inherit}
-  .cmp-search:focus{outline:2px solid #b86adc;outline-offset:1px}
-  .cmp-chips{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
-  .cmp-chip{font-size:12px;font-weight:600;padding:4px 8px;border-radius:99px;cursor:pointer;
-    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#b9aec4;transition:var(--dur-fast)}
-  .cmp-chip:hover{color:#f2eaf7;border-color:rgba(255,255,255,.22)}
-  .cmp-chip.on{background:rgba(145,70,255,.18);border-color:rgba(145,70,255,.45);color:#c489e4}
-  /* Scrolls rather than growing: the whole point is that this sits above the
-     feedback list, and a hundred users would push it off the screen. */
-  .cmp-people{max-height:210px;overflow-y:auto;border:1px solid rgba(255,255,255,.08);
-    border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:4px}
-  .cmp-person{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:8px;
-    cursor:pointer;font-size:12px;transition:var(--dur-fast)}
-  .cmp-person:hover{background:rgba(255,255,255,.05)}
-  .cmp-person.on{background:rgba(145,70,255,.13)}
-  .cmp-person input{accent-color:#b86adc;cursor:pointer;flex-shrink:0}
-  .cmp-nm{font-weight:600;color:#f2eaf7}
-  /* Truncates with an ellipsis rather than being sliced mid-word by the row
-     edge: "Signed up, never opened ch" reads as a rendering fault. */
-  .cmp-meta{font-size:12px;color:#6f6f80;margin-left:auto;text-align:right;white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
-  .cmp-none{padding:12px;text-align:center;color:#9c90a6;font-size:12px}
-  .cmp-foot{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
-  .cmp-count{font-size:12px;color:#8b8b99}
-  .cmp-count b{color:#c489e4}
-  .fb-started{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;
-    background:rgba(145,70,255,.15);border:1px solid rgba(145,70,255,.3);color:#c489e4}
-</style>
+<div class="wrap">
+<div class="k">Control room</div>
+<h1>Feedback</h1>
+<p class="meta">What users wrote in, the threads you opened, and a composer for reaching the people who never write.
+  <span class="fb-started" id="unread-badge" style="display:none;margin-left:8px"></span></p>
 
 <div class="compose">
   <h2>Send a message</h2>
   <div class="hint">Starts a thread in their Feedback tab — they get it live, with a badge, and
     can reply straight back to you here. Not email: most accounts sign in with Twitch and never
     give us an address, so this is the channel that actually reaches everybody.</div>
-  <label class="cmp-label" for="cmp-q">To</label>
-  <input id="cmp-q" class="cmp-search" placeholder="Search by name, Twitch login or email…" autocomplete="off">
-  <div class="cmp-chips" id="cmp-chips">
-    <button class="cmp-chip on" data-f="all">Everyone</button>
-    <button class="cmp-chip" data-f="paying">Paying</button>
-    <button class="cmp-chip" data-f="trialing">On trial</button>
-    <button class="cmp-chip" data-f="stalled">Stopped at the paywall</button>
-    <button class="cmp-chip" data-f="lapsed">Lapsed</button>
-    <button class="cmp-chip" data-f="selected">Selected</button>
+  <label class="k cmp-label" for="cmp-q">To</label>
+  <input id="cmp-q" class="field" placeholder="Search by name, Twitch login or email…" autocomplete="off">
+  <div class="chips cmp-chips" id="cmp-chips">
+    <button class="chip cmp-chip on" data-f="all">Everyone</button>
+    <button class="chip cmp-chip" data-f="paying">Paying</button>
+    <button class="chip cmp-chip" data-f="trialing">On trial</button>
+    <button class="chip cmp-chip" data-f="stalled">Stopped at the paywall</button>
+    <button class="chip cmp-chip" data-f="lapsed">Lapsed</button>
+    <button class="chip cmp-chip" data-f="selected">Selected</button>
   </div>
   <div class="cmp-people" id="cmp-people"><div class="cmp-none">Loading people…</div></div>
   <div class="cmp-foot">
-    <button class="btn btn-read" id="cmp-all">Select all shown</button>
-    <button class="btn btn-read" id="cmp-clear">Clear</button>
+    <button class="btn" id="cmp-all">Select all shown</button>
+    <button class="btn" id="cmp-clear">Clear</button>
     <span class="cmp-count" id="cmp-count">No one selected</span>
   </div>
-  <label class="cmp-label" for="cmp-msg" style="margin-top:14px">Message</label>
-  <textarea id="cmp-msg" rows="4" maxlength="2000" class="cmp-search"
-    placeholder="Write your message — they see it in the app, and can reply."
-    style="resize:vertical;line-height:1.5"></textarea>
+  <label class="k cmp-label" for="cmp-msg" style="margin-top:16px">Message</label>
+  <textarea id="cmp-msg" rows="4" maxlength="2000" class="field"
+    placeholder="Write your message — they see it in the app, and can reply."></textarea>
   <div class="cmp-foot">
     <button class="btn btn-reply" id="cmp-send">Send message</button>
     <span class="cmp-count" id="cmp-left">0/2000</span>
   </div>
 </div>
 
+<div class="block-head"><h2>Threads</h2><span class="mono dim" id="fb-c"></span></div>
 <div class="fb-list" id="list"><p class="empty">Loading…</p></div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
   let items=[];
@@ -11647,8 +11750,9 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     if(!items.length){list.innerHTML='<p class="empty">No feedback yet.</p>';return;}
     const unread=items.filter(f=>!f.read).length;
     const badge=document.getElementById('unread-badge');
-    if(unread>0){badge.textContent=unread+' unread';badge.style.display='inline-flex';}
+    if(unread>0){badge.textContent=unread+' unread';badge.style.display='inline-block';}
     else badge.style.display='none';
+    document.getElementById('fb-c').textContent=items.length+(items.length===1?' thread':' threads');
     list.innerHTML=items.map(f=>`
       <div class="fb-item${f.read?'':' unread'}" id="fb-${f.id}">
         <div class="fb-meta">
@@ -11675,8 +11779,8 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
           <button class="btn btn-reply" onclick="reply('${f.id}')">Send reply</button>
         </div>
         <div class="fb-actions">
-          ${f.read?'':`<button class="btn btn-read" onclick="markRead('${f.id}')">Mark read</button>`}
-          <button class="btn btn-del" onclick="del('${f.id}')">Delete</button>
+          ${f.read?'':`<button class="btn" onclick="markRead('${f.id}')">Mark read</button>`}
+          <button class="btn btn-bad" onclick="del('${f.id}')">Delete</button>
         </div>
       </div>`).join('');
   }
@@ -11742,7 +11846,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
       <label class="cmp-person${SEL.has(u.id)?' on':''}">
         <input type="checkbox" data-id="${esc(u.id)}"${SEL.has(u.id)?' checked':''}>
         <span class="cmp-nm">${esc(u.username||u.id)}</span>
-        <span style="color:#6f6f80;font-size:11.5px">${u.twitch_login?'@'+esc(u.twitch_login):''}</span>
+        <span class="cmp-login">${u.twitch_login?'@'+esc(u.twitch_login):''}</span>
         <span class="cmp-meta">${esc(u.funnel_label||u.plan_label||u.plan||'')}</span>
       </label>`).join('');
     // Counted over EVERYONE, not over the visible list: a selection made under
@@ -11849,31 +11953,47 @@ _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
 <title>Opt-Out Registry — Highlightz Admin</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#0e0b11;color:#f2eaf7;font-family:Inter,system-ui,sans-serif;padding:32px 24px}
-body::before{content:'';position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 400px at 50% 0,rgba(184,106,220,.12),transparent 60%)}
-h1{font-size:17px;font-weight:700;margin-bottom:4px}
-.sub{font-size:12px;color:#b9aec4;margin-bottom:24px}
-.back{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#b86adc;text-decoration:none;margin-bottom:16px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;padding:8px 12px;color:#b9aec4;border-bottom:1px solid rgba(255,255,255,.08);font-weight:500}
-td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle}
-tr:hover td{background:rgba(255,255,255,.02)}
-.btn-remove{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit}
-.btn-remove:hover{background:rgba(239,68,68,.2)}
-.empty{color:#b9aec4;font-size:14px;padding:32px 0;text-align:center}
-.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;border:1px solid rgba(184,106,220,.3);color:#f2eaf7;padding:12px 16px;border-radius:12px;font-size:12px;opacity:0;transition:var(--dur-slow);z-index:9999}
-.toast.show{opacity:1}
+<style>""" + _ADMIN_SUB_STYLE + """
+  .tw{overflow-x:auto;margin-top:var(--s-6);max-width:960px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-3);
+    text-transform:uppercase;letter-spacing:.14em;padding:0 var(--s-3) var(--s-3) 0;border-bottom:1px solid var(--hair-2);white-space:nowrap}
+  td{padding:var(--s-3) var(--s-3) var(--s-3) 0;font-size:14px;border-bottom:1px solid var(--hair);vertical-align:middle}
+  td:last-child{padding-right:0;text-align:right}
+  tbody tr{transition:background var(--dur-fast)}
+  tbody tr:hover{background:rgba(242,234,247,.03)}
+  .who b{color:#fff;font-weight:600}
+  .who .sub{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.02em}
+  @media(max-width:700px){
+    /* Stacks into cards, the same way every table on /admin does. */
+    .tw{overflow-x:visible}
+    .tw table,.tw tbody,.tw tr,.tw td{display:block}
+    .tw thead{display:none}
+    .tw tbody tr{border:1px solid var(--hair);border-radius:3px;padding:var(--s-2) var(--s-3);
+      margin-bottom:var(--s-2);background:rgba(242,234,247,.02)}
+    .tw td{display:grid;grid-template-columns:96px minmax(0,1fr);gap:var(--s-1) var(--s-3);
+      align-items:start;padding:var(--s-1) 0;border-bottom:none;text-align:left}
+    .tw td::before{content:attr(data-l);font-family:var(--mono);font-size:12px;font-weight:600;
+      letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);line-height:1.8}
+    .tw td > *{grid-column:2}
+    .tw td:first-child{display:block;padding:var(--s-1) 0 var(--s-2);margin-bottom:var(--s-1);border-bottom:1px solid var(--hair)}
+    .tw td:first-child::before,.tw td[data-l=""]::before{display:none}
+    .tw td[data-l=""]{grid-template-columns:minmax(0,1fr)}
+    .tw td:last-child{text-align:left}
+  }
 </style>
 </head>
 <body>
-<a href="/admin" class="back">&#8592; Admin panel</a>
-<h1>Streamer Opt-Out Registry</h1>
-<div class="sub">Streamers who have verified and opted out of being clipped on Highlightz.</div>
-<div id="wrap"><div class="empty">Loading...</div></div>
+""" + _admin_nav("optout") + """
+<div class="wrap">
+<div class="k">Control room</div>
+<h1>Opt-out registry</h1>
+<p class="meta">Streamers who verified with Twitch and asked not to be clipped on Highlightz. Removing someone makes their channel clippable again.</p>
+<div class="tw"><div id="wrap"><div class="empty">Loading...</div></div></div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
@@ -11888,8 +12008,8 @@ async function remove(id,name){
 async function load(){
   const items=await api('/admin/optout/list');
   if(!items.length){document.getElementById('wrap').innerHTML='<div class="empty">No streamers have opted out yet.</div>';return}
-  const rows=items.map(i=>'<tr><td><strong>'+esc(i.display_name)+'</strong><br><span style="color:#b9aec4;font-size:12px">@'+esc(i.twitch_login)+'</span></td><td style="color:#b9aec4">'+esc(i.twitch_id)+'</td><td>'+fmt(i.opted_out_at)+'</td><td><button class="btn-remove" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
-  document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted Out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+  const rows=items.map(i=>'<tr><td class="who"><b>'+esc(i.display_name)+'</b><span class="sub">@'+esc(i.twitch_login)+'</span></td><td class="mono dim" data-l="Twitch ID">'+esc(i.twitch_id)+'</td><td data-l="Opted out">'+fmt(i.opted_out_at)+'</td><td data-l=""><button class="btn btn-bad" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
+  document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
 }
 load();
 </script>

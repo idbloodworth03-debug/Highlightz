@@ -619,3 +619,38 @@ def test_the_admin_spacing_is_on_the_site_scale():
                 off.append(tok)
     assert not off, f"off-scale spacing: {sorted(set(off))}"
     assert not re.findall(r"font-size:\s*\d+\.\d+px", _admin_css()), "fractional font size"
+
+
+# ── the sub-pages wear the same sheet (2026-09-08) ───────────────────────────
+
+def test_the_feedback_and_optout_pages_share_the_admin_sheet_and_bar():
+    """Three admin screens used to be three hand-written stylesheets in three
+    fonts. Now the two sub-pages are built from one shared sheet and one nav
+    function, so a link or a token added to one is on all of them."""
+    from src.dashboard.api import _ADMIN_SUB_STYLE, _ADMIN_FEEDBACK_HTML, _ADMIN_OPTOUT_HTML
+    for page in (_ADMIN_FEEDBACK_HTML, _ADMIN_OPTOUT_HTML):
+        assert _ADMIN_SUB_STYLE in page
+        assert '<div class="topbar">' in page and 'href="/admin/optout"' in page \
+            and 'href="/admin/feedback-page"' in page and 'href="/admin"' in page
+        assert "Inter,system-ui" not in page, "the old font stack is back"
+        assert "border-radius:99px" not in page and "border-radius:16px" not in page, \
+            "the old pill/rounded-card shapes are back"
+    assert 'class="tlink on">Feedback' in _ADMIN_FEEDBACK_HTML
+    assert 'class="tlink on">Opt-out registry' in _ADMIN_OPTOUT_HTML
+
+
+def test_the_sub_pages_define_every_custom_property_they_use():
+    import re
+    from src.dashboard.api import _ADMIN_FEEDBACK_HTML, _ADMIN_OPTOUT_HTML
+    for page in (_ADMIN_FEEDBACK_HTML, _ADMIN_OPTOUT_HTML):
+        root = re.search(r":root\{(.*?)\n  \}", page, re.S).group(1)
+        defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", root))
+        used = set(re.findall(r"var\((--[a-z0-9-]+)\)", page))
+        assert used - defined == set(), f"used but never defined: {sorted(used - defined)}"
+
+
+def test_the_optout_table_stacks_with_labels_on_a_phone():
+    from src.dashboard.api import _ADMIN_OPTOUT_HTML as h
+    assert 'data-l="Twitch ID"' in h and 'data-l="Opted out"' in h
+    assert "attr(data-l)" in h
+    assert '<div class="tw"><div id="wrap">' in h

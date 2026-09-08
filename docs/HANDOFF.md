@@ -555,7 +555,14 @@ normal Clip Review screen, which still shows scores.
   Chromium at 1440/390 with stubbed `/admin/*` JSON
   (`scratchpad/v4/adminshot.js`): overflow 0, no clipped cells, no console
   errors, drawer + drill + sort exercised. The feedback and opt-out sub-pages
-  keep their own older styles — not part of this pass.
+  followed the same day: both are built from `_ADMIN_SUB_STYLE` (tokens,
+  bar, buttons, fields, chips, toast) plus `_admin_nav(current)` for the
+  shared top bar with the current screen marked, defined just above
+  `_ADMIN_FEEDBACK_HTML`. Feedback: composer as a hairline panel, ember
+  chips, threads with an ember left rule when unread, our replies on an
+  ember rule and theirs on a hairline; opt-out: the admin table, stacking
+  into labelled cards on a phone. Their JS is untouched apart from class
+  names (`scratchpad/v4/subshot.js` renders both with stubs).
 - **Landing v4 — the cinematic page (2026-09-02, later the same day).** The
   owner's second full brief: delete every section below the cover and rebuild
   imagery-first (a Squarespace/Apple register: full-bleed frame, huge plain
