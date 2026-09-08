@@ -106,6 +106,15 @@ class StreamWorker:
         self._running = False
         self._stream_info: StreamInfo | None = None
         self._buffer: AudioMeter | None = None
+        # The rolling capture buffer this worker is holding, if capture is on.
+        # Held by reference so _cleanup can release its share of the channel's
+        # recorder — several workers can be watching the same channel.
+        self._recorder = None
+        # Detached cut tasks. A cut cannot run inline with the trigger (the
+        # tail of the clip has not been broadcast yet, let alone buffered), so
+        # each one waits and then cuts. Tracked so stop() can cancel them:
+        # otherwise a removed stream keeps writing files for minutes.
+        self._cut_tasks: set[asyncio.Task] = set()
         self._engine: TriggerEngine | None = None
         self._profile: StreamerProfile | None = None
         # Resolved once per worker — the viewer-clip watcher needs it and the
@@ -331,6 +340,22 @@ class StreamWorker:
             await self._buffer.start()
         else:
             self._buffer = None
+
+        # The rolling capture buffer. Deliberately NOT sharing the meter's
+        # pipeline — see clip_recorder's module docstring on why the recorder
+        # is isolated from the thing that scores. `ensure` returns None when
+        # capture is switched off or the broadcaster has opted out, and both
+        # are ordinary outcomes: the clip is still made, it just has no local
+        # file, exactly as before this feature existed.
+        from src.ingestion import clip_recorder
+        try:
+            self._recorder = await clip_recorder.ensure(
+                channel, self._stream_info.stream_url)
+        except Exception as exc:
+            # Capture is an enhancement. It must never be able to stop a
+            # channel being monitored.
+            log.warning("clip_recorder_start_failed", channel=channel, error=str(exc))
+            self._recorder = None
 
         self._engine = TriggerEngine(
             channel,
@@ -643,6 +668,73 @@ class StreamWorker:
         )
         await self._queue.push(job)
 
+        # ── the local file ───────────────────────────────────────────────
+        # Cut the same window the platform clip covers out of the rolling
+        # buffer, so the moment is a FILE the user can download, edit and
+        # schedule without leaving the site.
+        #
+        # Detached and delayed rather than inline, for two reasons: the clip's
+        # TAIL has not been broadcast yet at trigger time, let alone reached
+        # the buffer; and the job above must be pushed immediately, because
+        # the platform's own clip capture is relative to now and every second
+        # spent here is a second of the moment lost on their side.
+        if self._recorder is not None:
+            task = asyncio.create_task(
+                self._cut_local_file(job.clip_id, time.time(),
+                                     event.pre_roll, event.post_roll),
+                name=f"cut-{job.clip_id[:8]}")
+            self._cut_tasks.add(task)
+            task.add_done_callback(self._cut_tasks.discard)
+
+    async def _cut_local_file(self, clip_id: str, fired_at: float,
+                              pre_roll: float, post_roll: float) -> None:
+        """Wait for the moment's tail to land in the buffer, then cut it out.
+
+        Every failure here is silent to the user by design: a clip with no
+        local file behaves exactly as clips did before capture existed, so a
+        buffer that was not covering the window, a full disk or an ffmpeg
+        error all degrade to the old product rather than to an error.
+        """
+        from src.ingestion import clip_recorder      # noqa: F401  (registry)
+        from src.clips import files as clip_files
+        seg = max(1, settings.clip_capture_segment_s)
+        # Two segments of slack, not one: ffmpeg only closes a segment when
+        # the NEXT one starts, so the final moment of the clip is not readable
+        # until a further segment has begun.
+        await asyncio.sleep(post_roll + seg * 2 + 1.0)
+        rec = self._recorder
+        if rec is None or not self._running:
+            return
+        if not clip_files.headroom_ok():
+            log.warning("clip_file_skipped_no_headroom", clip_id=clip_id,
+                        channel=self._config.channel)
+            return
+        out = clip_files.path_for(clip_id)
+        if out is None:
+            return
+        try:
+            got = await rec.cut(fired_at - pre_roll, fired_at + post_roll, out)
+        except Exception as exc:
+            log.warning("clip_cut_raised", clip_id=clip_id, error=str(exc))
+            return
+        if not got:
+            return
+        log.info("clip_file_ready", clip_id=clip_id, channel=self._config.channel,
+                 size_mb=round(clip_files.size_of(clip_id) / (1024 * 1024), 1))
+        # Realtime contract (CLAUDE.md): a clip becoming downloadable is
+        # user-visible state, so the open tab is told rather than finding out
+        # on a reload. The record itself may not exist yet — it is created by
+        # the processor, possibly in another process — which is exactly why
+        # the file is addressed by clip id and the flag is derived from disk
+        # when a clip is serialised, instead of written onto the record here.
+        try:
+            from src.dashboard import api as dashboard_api
+            await dashboard_api.broadcast(
+                {"event": "clip_file_ready", "clip_id": clip_id},
+                user_id=self._config.user_id)
+        except Exception as exc:
+            log.warning("clip_file_broadcast_failed", clip_id=clip_id, error=str(exc))
+
     async def _cleanup(self) -> None:
         # Cancel subtasks — guards against the case where CancelledError skips
         # the normal pending-task teardown in _run_session's try block.
@@ -656,10 +748,30 @@ class StreamWorker:
             self._profile.total_watch_seconds += time.time() - self._last_profile_save
             await get_profile_manager(self._config.user_id).save(self._profile)
 
+        # In-flight cuts die with the session. A worker that has stopped has no
+        # business writing more video, and the buffer it would read from is
+        # about to be wiped anyway.
+        for t in self._cut_tasks:
+            t.cancel()
+        if self._cut_tasks:
+            await asyncio.gather(*self._cut_tasks, return_exceptions=True)
+        self._cut_tasks.clear()
+
         if self._buffer:
             await self._buffer.stop()
             self._shared_buffers.pop(self._config.channel, None)
             self._buffer = None
+        if self._recorder is not None:
+            # Release our share rather than stopping outright: another user may
+            # still be monitoring this channel, and they should not lose their
+            # buffer because we stopped watching.
+            from src.ingestion import clip_recorder
+            try:
+                await clip_recorder.release(self._config.channel)
+            except Exception as exc:
+                log.warning("clip_recorder_release_failed",
+                            channel=self._config.channel, error=str(exc))
+            self._recorder = None
         if self._engine:
             self._engine.stop()
             self._engine = None

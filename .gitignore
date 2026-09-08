@@ -3,8 +3,13 @@
 .env.local
 .env.production.local
 
-# Clips and generated video files
-clips/
+# Clips and generated video files.
+# ANCHORED WITH A LEADING SLASH ON PURPOSE. This is the data directory
+# (settings.local_storage_path defaults to "./clips"), which lives at the repo
+# root. Unanchored, `clips/` matches a directory named clips at ANY depth — it
+# silently swallowed the whole src/clips/ package, so `git add` reported success
+# and a fresh checkout ImportError'd on a module that was never committed.
+/clips/
 *.mp4
 *.ts
 *.m3u8

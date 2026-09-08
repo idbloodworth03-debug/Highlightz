@@ -1,19 +1,29 @@
-"""The compliance line: we never hold stream video.
+"""Where video may and may not be held.
 
-This is the product's stated position — clips are created through the official
-Helix API with the user's own token and stay native Twitch clips, and nothing
-re-hosts or re-encodes anyone's stream. It is also the claim on the comparison
-page ("clip stays a native Twitch clip", "clips are not on a storage timer"),
-so it is a marketing claim as well as an architectural one.
+For most of the product's life this file pinned a simple claim: no stream
+video, ever. Clips were created through Helix on the user's own token, Twitch
+hosted every byte, and the only pull was an audio-only feed into a loudness
+meter that wrote nothing to disk.
 
-Claims like that decay quietly. src/ingestion/video_buffer.py sat in the tree
-for a long time resolving HLS URLs and buffering video; nothing ever constructed
-it, but TriggerEngine's `buffer` parameter was annotated "VideoBuffer | None",
-so by reading alone the product looked like it buffered stream video. Anyone
-auditing the claim — Twitch, a competitor, a journalist — would have found that
-first and been right to ask.
+THAT CHANGED DELIBERATELY (2026-09-08, owner's decision). The product now
+records a short rolling buffer of each monitored channel so a clip can be a
+FILE the user downloads, edits and schedules without leaving the site — see
+src/ingestion/clip_recorder.py. So these tests no longer assert the absence of
+video. They assert the SHAPE of the thing that replaced it, which is the part
+that can rot quietly:
 
-These tests pin the mechanism rather than the intention.
+  * exactly one module is allowed to pull video, and everything else that
+    touches streamlink still asks for audio only;
+  * that module never transcodes, because clip detection shares the core;
+  * the audio meter still holds nothing on disk;
+  * capture is off unless switched on, and refuses an opted-out broadcaster
+    (the ordering of that check is pinned in tests/test_clip_capture.py);
+  * we still create clips through the official API rather than assembling
+    them ourselves, and still do not reach for undocumented media URLs.
+
+The last two matter more now, not less: holding video is exactly what makes
+"and we also scrape the CDN" an easy next step, and it is not one that has
+been taken.
 """
 
 import pathlib
@@ -50,21 +60,58 @@ def test_no_video_buffering_module_exists():
     assert offenders == [], f"a video buffer is referenced again: {offenders}"
 
 
-def test_the_only_stream_pull_asks_for_audio():
-    """streamlink is how the trigger engine hears the stream at all, so this is
-    not "never touch the feed" — it is "never ask for the video track".
+# The one module allowed to pull video. Adding a second is the change this
+# guard exists to make visible: every extra pull is another multiple of the
+# bandwidth bill and another place the opt-out has to be re-checked.
+_VIDEO_PULLER = "ingestion/clip_recorder.py"
 
-    `audio_only,worst` means audio when the platform offers an audio rendition
-    and the lowest-quality stream when it does not, which is why the ffmpeg
-    test below matters as much as this one.
+
+def test_only_one_module_pulls_video_and_everything_else_asks_for_audio():
+    """streamlink is how the engine hears the stream, and now also how it sees
+    it. The split has to stay explicit: the meter asks for `audio_only,worst`
+    and the recorder is the single exception.
+
+    Comments are stripped first. The recorder's own docstring explains what
+    the meter asks for, and matching that string would let this pass on a file
+    that pulls full video — which is the exact false green this replaced.
     """
-    callers = [p for p in _python_sources()
-               if "streamlink_path" in p.read_text()]
+    callers = {str(p.relative_to(SRC)) for p in _python_sources()
+               if "streamlink_path" in _code(p)}
     assert callers, "no streamlink caller found — did the meter move?"
-    for path in callers:
-        src = path.read_text()
+    assert _VIDEO_PULLER in callers, \
+        "the clip recorder no longer pulls the stream — has capture been removed?"
+    for rel in callers - {_VIDEO_PULLER}:
+        src = _code(SRC / rel)
         assert "audio_only" in src, \
-            f"{path.relative_to(SRC)} pulls a stream without requesting audio_only"
+            f"{rel} pulls a stream without requesting audio_only"
+
+
+def test_the_recorder_never_transcodes():
+    """The whole cost argument for capture is that ffmpeg only remuxes what
+    the platform already encoded. An encoder here would compete with the audio
+    meter for the single core, and clip detection must always win."""
+    src = _code(SRC / _VIDEO_PULLER)
+    assert '"-c", "copy"' in src, "the recorder is no longer stream-copying"
+    for encoder in ("libx264", "libx265", "-crf", "-preset"):
+        assert encoder not in src, f"the recorder invokes an encoder ({encoder})"
+
+
+def test_capture_is_off_unless_it_is_switched_on():
+    """Same shape as uploads: a feature that holds bytes does not arrive
+    switched on by a deploy."""
+    from config.settings import Settings
+    assert Settings().clip_capture_enabled is False
+
+
+def test_the_buffer_is_bounded_by_a_disk_cap():
+    """A ring with no ceiling is an archive that has not filled up yet. The
+    disk is shared with the clip store, the user database and billing."""
+    from config.settings import Settings
+    s = Settings()
+    assert s.clip_capture_max_total_mb > 0
+    assert s.clip_capture_buffer_s > 0
+    src = _code(SRC / _VIDEO_PULLER)
+    assert "clip_capture_max_total_mb" in src, "nothing enforces the global cap"
 
 
 def test_the_decoder_discards_video():

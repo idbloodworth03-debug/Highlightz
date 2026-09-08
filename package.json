@@ -3,6 +3,8 @@
   "private": true,
   "description": "Dev-only tooling for the browser harnesses and the ad renderer (scripts/). The app itself has no Node build step.",
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-react": "^8.0.1",
     "playwright": "^1.54.1"
   }
 }

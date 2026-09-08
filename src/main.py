@@ -432,6 +432,27 @@ async def sweep_dead_clips_task() -> None:
             break
         except Exception as exc:
             log.error("dead_clip_sweep_error", error=str(exc))
+
+        # Captured video, on the same clock. Two jobs: files past the
+        # retention ceiling, and orphans whose clip record is gone — the
+        # record was the only handle on the file, so an orphan is disk that
+        # nothing can ever free through the UI.
+        #
+        # The live id set is read INSIDE the try. If enumerating records fails
+        # we pass nothing rather than an empty set: `sweep(None)` skips the
+        # orphan half, where sweep(set()) would read as "no clip exists" and
+        # delete every file on the disk.
+        try:
+            from src.clips import files as clip_files
+            live_ids = {c["id"] for c in dashboard_api._clips.values() if c.get("id")}
+            swept = clip_files.sweep(live_ids=live_ids)
+            if swept:
+                log.info("clip_file_sweep_done", removed=swept)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("clip_file_sweep_error", error=str(exc))
+
         await asyncio.sleep(6 * 3600)
 
 

@@ -1842,6 +1842,15 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
   // not a decorated one, so it gets its own badge and suppresses the trigger
   // badge entirely — see below.
   const sug = !!clip.suggested;
+  // Present on EVERY plan. The editor and scheduler are Pro, but a clip the
+  // product caught for you is yours to keep — see get_clip_file. Absent until
+  // the capture finishes, which is a few seconds after the card appears, and
+  // the clip_file_ready event is what makes it turn up without a refresh.
+  const dlBtn = clip.has_file ? (
+    <a href={'/clips/'+clip.id+'/file?download=1'} download className="rd-btn sm"
+       title="Download this clip" onClick={e=>e.stopPropagation()}
+       style={{textDecoration:'none',flex:'0 0 auto'}}><Icon name="download" size={13}/></a>
+  ) : null;
   return (
     <div className={'rd-clip'+(sug?' suggested':'')}>
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
@@ -1921,13 +1930,16 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             <button className="rd-btn live sm" onClick={e=>{e.stopPropagation();onApprove&&onApprove(clip.id)}}><Icon name="check" size={14}/>Approve</button>
             <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject&&onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {dlBtn}
           </> : libraryMode && clip.status==='approved' ? <>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on Twitch</a>}
+            {dlBtn}
             {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(255,90,120,.1)',color:'var(--danger)',borderColor:'rgba(255,90,120,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {dlBtn}
           </span>}
         </div>
       </div>
@@ -2152,6 +2164,12 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
                 <span className="mv" style={{color:'var(--pending)'}}>{clip.clipper_count>2?'Very strong':clip.clipper_count>1?'Strong':'Detected'}</span></div>}
               {clip.virality_score>0 && <div className="rd-meta-row"><span className="mk">Virality</span><span className="mv">{Math.round(clip.virality_score)}%</span></div>}
               {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none',marginTop:12,width:'100%',justifyContent:'center'}}><Icon name="play" size={14}/>Open on Twitch</a>}
+              {/* The file Highlightz captured. Free plans included — the
+                  paywall is on editing and scheduling, not on keeping a clip
+                  the product caught for you. */}
+              {clip.has_file && <a href={'/clips/'+clip.id+'/file?download=1'} download
+                  className="rd-btn sm" style={{textDecoration:'none',marginTop:8,width:'100%',justifyContent:'center'}}>
+                <Icon name="download" size={14}/>Download clip</a>}
               {clip.status==='pending' && <div className="rd-modal-actions">
                 <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
                 <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
@@ -6775,6 +6793,17 @@ function RdApp() {
           setModalClip(prev=>prev&&prev.id===msg.clip.id?msg.clip:prev);
         }
         else if(msg.event==='clip_removed'){setClips(p=>{const n={...p};delete n[msg.clip_id];return n;});}
+        // The capture finished and the clip is now downloadable. It arrives
+        // SECONDS AFTER clip_ready — the tail of the moment has to be
+        // broadcast and buffered before it can be cut — so the card has
+        // already been on screen without a Download button, and this is what
+        // makes it appear without a refresh. Patching the one field rather
+        // than refetching: the clip is otherwise unchanged, and a full pull
+        // would fight an open review queue for no reason.
+        else if(msg.event==='clip_file_ready'){
+          setClips(p=>p[msg.clip_id]?{...p,[msg.clip_id]:{...p[msg.clip_id],has_file:true}}:p);
+          setModalClip(prev=>prev&&prev.id===msg.clip_id?{...prev,has_file:true}:prev);
+        }
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
         else if(msg.event==='stream_status'){setStreams(p=>p[msg.channel]?{...p,[msg.channel]:{...p[msg.channel],status:msg.status}}:p);}

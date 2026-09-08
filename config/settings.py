@@ -146,6 +146,45 @@ class Settings(BaseSettings):
     # Flip to true (UPLOADS_ENABLED=true in .env) to launch.
     uploads_enabled: bool = False
 
+    # ── Clip capture (src/ingestion/clip_recorder.py) ────────────────────
+    #
+    # The rolling video buffer that lets a clip be a FILE the user can
+    # download, edit and schedule, rather than a link to somebody else's
+    # infrastructure. This is the setting group that decides what the feature
+    # costs, so each number is chosen rather than defaulted:
+    #
+    # QUALITY is the biggest lever on the bill. 720p60 is what short-form
+    # platforms re-encode to anyway, and it is roughly half the bandwidth of
+    # source 1080p60. The fallback chain matters as much as the first entry:
+    # streamlink picks the first available, and a channel streaming at 900p
+    # with no 720p rendition must still record rather than silently not.
+    #
+    # BUFFER_S has to cover the longest pre-roll the rules can ask for plus
+    # the settle window the engine waits out before firing (see
+    # _monitor_and_fire), with room for a late viewer-clip pairing. Three
+    # minutes is comfortably past all of it; it is also what bounds disk, at
+    # roughly 45 MB per channel at 720p60.
+    #
+    # SEGMENT_S is the cut precision. Twitch emits ~2s HLS segments with a
+    # keyframe at each boundary, so 2 aligns with the source and makes the
+    # ring cheap to prune.
+    #
+    # MAX_TOTAL_MB is the fuse. Capture stops when the buffers exceed it,
+    # because a degraded feature is survivable and a full disk is not.
+    clip_capture_enabled: bool = False
+    clip_capture_quality: str = "720p60,720p,best"
+    clip_capture_buffer_s: int = 180
+    clip_capture_segment_s: int = 2
+    clip_capture_max_total_mb: int = 4096      # 4 GB across every buffer
+
+    # How long a cut clip stays on disk. Retention is per plan (see
+    # src/billing/plans.py) and this is the ceiling none of them may exceed:
+    # the library is a working area for getting a clip posted, not an archive
+    # we promise to keep. Clips are deleted with their record and with the
+    # account regardless of this.
+    clip_file_max_age_days: int = 30
+    clip_file_max_total_mb: int = 15360         # 15 GB of cut clips
+
     # Importing a user's own Twitch clips is a SEPARATE, already-complete
     # feature: it lists metadata through documented Helix and needs no editor
     # to be useful ("every clip on my channel in one place" is the whole

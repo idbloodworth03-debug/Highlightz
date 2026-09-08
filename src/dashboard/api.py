@@ -514,6 +514,19 @@ async def _check_force_clip_rate(uid: str) -> None:
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _delete_clip_file(clip: dict) -> None:
+    # The captured file, addressed by clip id. Handled here rather than at each
+    # call site because every path that removes a clip — reject, delete, the
+    # dead-clip sweep, bulk clear, account deletion — already routes through
+    # this function, so one edit covers all five and none of them can be
+    # forgotten later.
+    cid = clip.get("id", "")
+    if cid:
+        try:
+            from src.clips import files as clip_files
+            clip_files.delete(cid)
+        except Exception as exc:
+            log.warning("clip_capture_delete_failed", clip_id=cid, error=str(exc))
+
     url = clip.get("storage_url", "")
     if not url:
         return
@@ -2549,6 +2562,23 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+def _clip_out(clip: dict) -> dict:
+    """A clip on its way to the browser, with the download flag attached.
+
+    `has_file` is DERIVED FROM DISK rather than stored on the record, and that
+    is deliberate. The file is written by the stream worker after the clip is
+    already queued, possibly in a different process, and swept later by
+    retention — so a flag written onto the record would need keeping in step
+    with two things that do not know about each other. Asking the filesystem
+    is one stat() and cannot be wrong.
+    """
+    try:
+        from src.clips import files as clip_files
+        return {**clip, "has_file": clip_files.exists(clip.get("id", ""))}
+    except Exception:
+        return {**clip, "has_file": False}
+
+
 @app.get("/clips")
 async def list_clips(request: Request, status: str | None = None, channel: str | None = None):
     uid = _current_user_id(request)
@@ -2558,7 +2588,46 @@ async def list_clips(request: Request, status: str | None = None, channel: str |
     if channel:
         clips = [c for c in clips if c.get("channel") == channel]
     clips.sort(key=lambda c: c.get("created_at", 0), reverse=True)
-    return clips
+    return [_clip_out(c) for c in clips]
+
+
+@app.get("/clips/{clip_id}/file")
+async def get_clip_file(request: Request, clip_id: str, download: int = 0):
+    """Serve a captured clip back to its owner.
+
+    ON EVERY PLAN, including free. The editor and the scheduler are Pro
+    features, but a clip the product caught for you is yours to have — putting
+    the download behind the paywall would make the free plan a demo of a clip
+    you can look at and not keep.
+
+    Ownership is checked against the clip record, so another user's clip id is
+    a 404 rather than a file, and the path is built from the record's id
+    through `files.path_for`, which refuses anything that is not a plain id.
+    """
+    uid = _current_user_id(request)
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    from src.clips import files as clip_files
+    path = clip_files.path_for(clip_id)
+    if not path or not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No downloadable file for this clip. Highlightz only keeps "
+                   "the video for clips it captured while the stream was live.")
+
+    # A filename the user recognises in their downloads folder, built from the
+    # channel and title rather than the uuid. Sanitised because both come from
+    # the platform and end up in a header.
+    raw = f"{clip.get('channel', 'clip')}-{clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
+    safe = re.sub(r"[^A-Za-z0-9 ._-]", "", raw)[:80].strip() or "highlight"
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        path, media_type="video/mp4",
+        headers={"Content-Disposition": f'{disposition}; filename="{safe}.mp4"',
+                 "X-Content-Type-Options": "nosniff"},
+    )
 
 
 # MUST STAY ABOVE @app.get("/clips/{clip_id}") — FastAPI resolves in
@@ -2635,7 +2704,7 @@ async def get_clip(request: Request, clip_id: str):
     clip = _clips.get(clip_id)
     if not clip or clip.get("user_id") != uid:
         raise HTTPException(status_code=404, detail="Clip not found")
-    return clip
+    return _clip_out(clip)
 
 
 @app.post("/clips/{clip_id}/approve")
@@ -2679,7 +2748,7 @@ async def approve_clip(request: Request, clip_id: str):
         training_log.log_outcome(clip, training_log.APPROVED)
         from src.stats import stream_stats
         stream_stats.record(stream_stats.APPROVED, clip)
-    await broadcast({"event": "clip_updated", "clip": clip}, user_id=uid)
+    await broadcast({"event": "clip_updated", "clip": _clip_out(clip)}, user_id=uid)
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the approval is always recorded — even if
     # the channel isn't currently being monitored (e.g. reviewing a clip after a
@@ -2695,7 +2764,7 @@ async def approve_clip(request: Request, clip_id: str):
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     await _maybe_prompt_review(uid)
-    return clip
+    return _clip_out(clip)
 
 
 def _drop_undo_entry(entry) -> None:
