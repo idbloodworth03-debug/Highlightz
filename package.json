@@ -1,0 +1,8 @@
+{
+  "name": "highlightz-tooling",
+  "private": true,
+  "description": "Dev-only tooling for the browser harnesses and the ad renderer (scripts/). The app itself has no Node build step.",
+  "devDependencies": {
+    "playwright": "^1.54.1"
+  }
+}

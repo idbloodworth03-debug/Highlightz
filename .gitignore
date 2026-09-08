@@ -54,3 +54,6 @@ logs/
 
 # State backups (src/maintenance/backup.py)
 backups/
+
+# Node tooling for the browser harnesses (scripts/). Installed, never committed.
+node_modules/
