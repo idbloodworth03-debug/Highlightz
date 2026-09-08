@@ -592,3 +592,124 @@ def test_every_recorder_type_naming_a_video_codec_also_names_an_audio_one():
 def test_the_recorder_is_told_an_audio_bitrate():
     body = _export_recorder()
     assert "audioBitsPerSecond" in body, "no audio bitrate set on the recorder"
+
+
+# ── the Clip Editor rebuild (2026-09-08) ─────────────────────────────────────
+#
+# What the rebuild has to keep. The export path is pinned above; these pin the
+# editing surface — the parts that made the old editor slow to use, and the
+# two rendering traps found while driving the new one in Chromium.
+
+def _editor() -> str:
+    return SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+
+
+def test_the_preview_paints_on_demand_not_sixty_times_a_second():
+    """The old loop repainted a paused 720x1280 canvas every animation frame.
+    Now a paused editor paints only when something changed; an export paints
+    every tick because captureStream needs a fresh frame to record."""
+    ed = _editor()
+    assert "dirtyRef" in ed, "no dirty flag — the loop has no way to skip a paint"
+    assert re.search(r"if \(dirtyRef\.current \|\| live\)", ed), \
+        "the paint is not gated on dirty-or-live"
+    assert "const live = L.playing || L.busy || !v.paused;" in ed, \
+        "a running export must count as live or the recording goes stale"
+    assert "v.addEventListener('seeked', mark)" in ed, \
+        "a seek does not mark the frame dirty, so a scrub paints the previous frame"
+
+
+def test_the_loop_is_registered_once_and_reads_through_a_ref():
+    """The old effect re-subscribed on every render (no deps) and read state
+    from its closure. One registration, one ref that render refreshes."""
+    ed = _editor()
+    i = ed.index("const draw = () => {")
+    tail = ed[i:ed.index("}, []);", i)]
+    assert "latest.current" in tail, "the loop reads a closure, not the ref"
+    assert "cancelAnimationFrame(rafRef.current)" in tail
+
+
+def test_the_timeline_has_draggable_cut_points_and_a_filmstrip():
+    assert "function EdTimeline(" in SRC
+    tl = SRC[SRC.index("function EdTimeline("):SRC.index("function ClipEditor(")]
+    for handle in ('data-h="in"', 'data-h="out"', 'data-h="head"'):
+        assert handle in tl, f"timeline has no {handle} target"
+    assert "setPointerCapture(e.pointerId)" in tl, \
+        "no pointer capture — a drag dies the moment the finger leaves the strip"
+    assert "function buildThumbs(" in SRC and "THUMB_N" in SRC
+    assert "tv.muted = true" in SRC, \
+        "the thumbnail video is not muted — it would play sound while seeking"
+
+
+def test_the_cut_points_can_be_set_from_the_keyboard():
+    ed = _editor()
+    for key, what in (("'i'", "in"), ("'o'", "out"), ("'Escape'", "close"), ("'ArrowLeft'", "step"), ("' '", "play")):
+        assert key in ed, f"no {what} shortcut"
+    assert "if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;" in ed, \
+        "shortcuts fire while typing in the title box"
+
+
+def test_the_stage_is_the_framing_control():
+    """Drag pans, wheel and pinch zoom. Wheel must be a non-passive listener
+    or the page scrolls instead of the picture zooming."""
+    ed = _editor()
+    assert "el.addEventListener('wheel', onWheel, { passive: false })" in ed
+    assert "onPointerDown={stageDown}" in ed and "p.pts.size >= 2" in ed, \
+        "no drag-to-pan or no pinch"
+    assert "touch-action:none" in SRC[SRC.index(".ed-stage{"):SRC.index(".ed-stage{") + 400]
+
+
+def test_the_export_stops_the_preview_first_and_time_boxes_every_wait():
+    """Exporting while the preview was playing hung the old editor at 0%:
+    two things driving the same element. And an export that awaits an event
+    that never comes hangs with a Cancel button, which is the worst outcome
+    the screen can produce."""
+    run = _run_export()
+    assert run.lstrip().startswith("// Exporting while the preview is playing") or "pause();" in run[:600], \
+        "runExport does not pause the preview before recording"
+    rec = _export_recorder()
+    assert "Promise.race([g.ctx.resume()" in rec, "AudioContext.resume() is awaited without a timeout"
+    assert "await waitFor(v, 'seeked', 3000)" in rec, "the in-point seek is awaited without a timeout"
+    assert "span * 1000 + 6000" in rec and "stalled" in rec, "no stall guard on the recording loop"
+    assert "Promise.race([finished" in rec, "recorder.onstop is awaited without a timeout"
+
+
+def test_the_output_size_follows_the_shape_and_never_upscales():
+    assert "function outputSize(" in SRC
+    body = SRC[SRC.index("function outputSize("):SRC.index("function EdTimeline(")]
+    assert "srcShort >= 1080" in body, "no HD/SD decision from the source"
+    assert "Math.round(w / 2) * 2" in body and "Math.round(h / 2) * 2" in body, \
+        "odd dimensions reach the encoder — H.264 refuses them"
+    # 16:9 used to render at 2276x1280 from a 1080p source. Landscape is capped
+    # at 1920 wide now.
+    assert "h = hd ? 1080 : 720;  w = h * aspect;" in body
+
+
+def test_the_stage_canvas_is_scaled_by_object_fit_not_by_max_sizes():
+    """THE TRAP THIS CAUGHT. As a grid item with max-width/max-height the
+    720x1280 canvas sat at native size and was cropped to the top of the
+    stage — the captions and the bottom of every frame were simply not on
+    screen. Absolute against a definite-height parent + object-fit cannot
+    resolve any other way."""
+    rule = SRC[SRC.index(".ed-stage canvas{"):]
+    rule = rule[:rule.index("}") + 1]
+    assert "object-fit:contain" in rule and "position:absolute" in rule
+    assert "max-height" not in rule and "max-width" not in rule
+    stage = SRC[SRC.index(".ed-stage{"):]
+    stage = stage[:stage.index("}") + 1]
+    assert "display:block" in stage and "height:min(" in stage
+
+
+def test_the_editor_is_solid_so_the_page_does_not_bleed_through_on_a_phone():
+    """The late @supports .glass rule paints a near-transparent gradient; on a
+    phone the editor is the whole screen and the library text showed through."""
+    assert ".ed.glass{background:var(--rd-bg-2)}" in SRC
+
+
+def test_the_editor_side_panel_is_tabbed_and_the_export_is_pinned():
+    ed = _editor()
+    assert "['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text']" in ed
+    assert "if (captionsOn) TABS.push(['captions', 'Captions']);" in ed, \
+        "the captions tab must follow the release flag like the old panel did"
+    assert 'className="ed-foot"' in ed and 'className="rd-btn grad ed-export"' in ed
+    css = SRC[SRC.index(".ed-foot{"):SRC.index(".ed-foot{") + 300]
+    assert "flex-shrink:0" in css

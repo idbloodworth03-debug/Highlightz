@@ -820,19 +820,96 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .tw-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.ed{width:min(1080px,100%);max-height:94vh;overflow-y:auto;border-radius:20px;padding:16px;
-  background:var(--panel);border:1px solid var(--hair)}
-.ed-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.ed-head h3{font-size:16px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ed-body{display:grid;grid-template-columns:1fr 260px;gap:16px}
-@media(max-width:820px){.ed-body{grid-template-columns:1fr}}
-.ed-stage{background:#000;border-radius:14px;overflow:hidden;display:grid;place-items:center;min-height:300px}
-.ed-stage canvas{max-width:100%;max-height:56vh;display:block}
-.ed-side{display:flex;flex-direction:column;gap:16px}
+/* The editor is a flex column so the side panel can scroll on its own while
+   the stage, transport and timeline stay put — the old single scrolling box
+   pushed the export button below the fold on every laptop. */
+.ed{width:min(1180px,100%);max-height:94vh;display:flex;flex-direction:column;border-radius:20px;
+  background:var(--rd-bg-2);border:1px solid var(--hair);outline:none;overflow:hidden}
+/* Solid, not glass: the late @supports .glass rule paints a near-transparent
+   gradient, and through it the library page bled into the editor on a phone. */
+.ed.glass{background:var(--rd-bg-2)}
+.ed-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--hair);flex-shrink:0}
+.ed-ico{color:var(--acc);display:flex}
+.ed-title{flex:1;min-width:0}
+.ed-head h3{font-size:16px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-sub{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-x{width:32px;height:32px;border-radius:var(--r-sm);border:1px solid var(--hair);background:rgba(255,255,255,.05);
+  color:var(--fg-2);display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:background var(--dur-fast),color var(--dur-fast)}
+.ed-x:hover{background:rgba(255,255,255,.1);color:#fff}
+.ed-x:disabled{opacity:.4;cursor:default}
+.ed-body{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;flex:1}
+.ed-main{display:flex;flex-direction:column;gap:8px;padding:16px;min-width:0;min-height:0;overflow:auto}
+/* The stage is the framing control: drag pans, wheel and pinch zoom.
+   touch-action:none so a finger on the picture moves the picture, not the page. */
+.ed-stage{position:relative;background:#000;border-radius:14px;overflow:hidden;display:block;
+  height:min(58vh,620px);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0}
+.ed-stage:active{cursor:grabbing}
+.ed-stage.busy{cursor:progress}
+/* The canvas is pinned to the stage's box and letterboxes its own bitmap.
+   As a grid item with max-width/max-height it did NOT scale in Chromium: the
+   row was auto-sized, so a percentage height resolved to auto and a 720x1280
+   canvas sat at native size, cropped to the top of the stage — hiding the
+   captions and the bottom of every frame. Absolute against a definite-height
+   parent cannot resolve any other way. */
+.ed-stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
+.ed-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--fg-3)}
+.ed-loading span{width:16px;height:16px;border-radius:50%;border:2px solid var(--hair-2);border-top-color:var(--acc);animation:edspin .8s linear infinite}
+@keyframes edspin{to{transform:rotate(360deg)}}
+.ed-hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);padding:4px 12px;border-radius:var(--r-pill);
+  background:rgba(4,4,8,.7);color:var(--fg-2);font-size:12px;white-space:nowrap;pointer-events:none;animation:edfade 6s forwards}
+.ed-hint.on{animation:none;color:#fff}
+@keyframes edfade{0%,70%{opacity:1}100%{opacity:0}}
+.ed-transport{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ed-play{width:40px;height:40px;border-radius:50%;border:none;background:var(--grad);color:#fff;display:grid;place-items:center;
+  cursor:pointer;flex-shrink:0;box-shadow:0 6px 18px -6px rgba(184,106,220,.6);padding:0}
+.ed-play:disabled{opacity:.4;cursor:default;box-shadow:none}
+.ed-pause{width:12px;height:14px;border-left:4px solid #fff;border-right:4px solid #fff;display:block}
+.ed-step{width:32px;height:32px;border-radius:var(--r-sm);border:1px solid var(--hair);background:rgba(255,255,255,.05);
+  color:var(--fg-2);font-size:17px;line-height:1;cursor:pointer;padding:0;transition:background var(--dur-fast),color var(--dur-fast)}
+.ed-step:hover{background:rgba(255,255,255,.1);color:#fff}
+.ed-step:disabled{opacity:.4;cursor:default}
+.ed-clock{font-size:14px;font-variant-numeric:tabular-nums;margin-left:4px}
+.ed-clock b{font-weight:700}
+.ed-clock .dim{color:var(--fg-3)}
+.ed-cut{margin-left:auto;display:flex;gap:4px}
+.ed-mark{padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--hair);background:rgba(255,255,255,.05);color:var(--fg-2);
+  font-size:12px;font-weight:600;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast)}
+.ed-mark:hover{background:rgba(255,255,255,.1);color:#fff}
+.ed-mark:disabled{opacity:.4;cursor:default}
+/* The timeline: a filmstrip with the cut lit and the rest dimmed, two handles
+   and a playhead. Handles are 24px wide for a thumb; the visible bar is 12. */
+.ed-tl{position:relative;height:64px;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.04);border:1px solid var(--hair);
+  touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer;flex-shrink:0}
+.ed-tl.off{pointer-events:none;opacity:.6}
+.ed-film{position:absolute;inset:0;display:grid;grid-template-columns:repeat(16,1fr)}
+.ed-film img,.ed-film span{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;background:rgba(255,255,255,.03)}
+.ed-dim{position:absolute;top:0;bottom:0;background:rgba(4,4,8,.72);pointer-events:none}
+.ed-dim.l{left:0}
+.ed-dim.r{right:0}
+.ed-sel{position:absolute;top:0;bottom:0;border-top:3px solid var(--acc);border-bottom:3px solid var(--acc);pointer-events:none;box-sizing:border-box}
+.ed-hd{position:absolute;top:0;bottom:0;width:24px;margin-left:-12px;cursor:ew-resize;z-index:2;display:grid;place-items:center}
+.ed-hd i{position:relative;display:block;width:12px;height:100%;background:var(--acc);box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.ed-hd.l i{border-radius:8px 4px 4px 8px}
+.ed-hd.r i{border-radius:4px 8px 8px 4px}
+.ed-hd i::after{content:'';position:absolute;top:50%;left:50%;width:2px;height:16px;transform:translate(-50%,-50%);background:rgba(0,0,0,.55);border-radius:1px}
+.ed-ph{position:absolute;top:0;bottom:0;width:16px;margin-left:-8px;z-index:3;cursor:ew-resize;display:grid;place-items:center}
+.ed-ph b{display:block;width:2px;height:100%;background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
+.ed-tlinfo{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.ed-tlinfo i{font-style:normal;color:var(--fg-3);margin-right:4px}
+.ed-tlinfo .mid{font-weight:700;color:#fff}
+.ed-side{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--hair)}
+.ed-tabs{display:flex;padding:12px 12px 0;gap:4px;flex-shrink:0}
+.ed-tabs button{flex:1;padding:8px 4px;border-radius:var(--r-sm);border:1px solid transparent;background:none;color:var(--fg-3);
+  font-size:12px;font-weight:700;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast)}
+.ed-tabs button:hover{color:#fff}
+.ed-tabs button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
+.ed-panel{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:16px;min-height:0}
+.ed-foot{padding:12px;border-top:1px solid var(--hair);display:flex;flex-direction:column;gap:8px;flex-shrink:0;background:rgba(14,11,17,.6)}
+.ed-export{width:100%;padding:12px 16px;font-size:14px}
 .ed-grp{display:flex;flex-direction:column;gap:8px}
 .ed-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
 .ed-row{display:flex;align-items:center;gap:8px}
-.ed-row input[type=range]{flex:1;accent-color:var(--acc);cursor:pointer}
+.ed-row input[type=range]{flex:1;accent-color:var(--acc);cursor:pointer;min-width:0}
 .ed-num{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
 .ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:10px;
   padding:8px 8px;color:var(--fg);font-size:12px;font-family:inherit}
@@ -841,17 +918,28 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-seg button{flex:1;min-width:64px;padding:8px 8px;border-radius:9px;font-size:12px;font-weight:700;
   background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:var(--dur-fast)}
 .ed-seg button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
-.ed-track{position:relative;height:36px;border-radius:10px;background:rgba(255,255,255,.06);
-  border:1px solid var(--hair);overflow:hidden;cursor:pointer;margin-top:4px}
-.ed-track .sel{position:absolute;top:0;bottom:0;background:var(--grad-soft);
-  border-left:2px solid var(--acc);border-right:2px solid var(--acc)}
-/* margin-left pulls the bar half its width so it stays visible at both ends
-   instead of being clipped away by the track's overflow:hidden at 0%/100%. */
-.ed-track .play{position:absolute;top:0;bottom:0;width:3px;margin-left:-4px;
-  background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
+.ed-seg small{display:block;font-size:12px;font-weight:500;color:var(--fg-3)}
+.ed-seg button.on small{color:rgba(255,255,255,.75)}
 .ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
-.ed-prog i{display:block;height:100%;background:var(--grad);border-radius:99px;transition:transform var(--dur-slow) var(--ease)}
+.ed-prog i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(0);background:var(--grad);border-radius:99px;transition:transform var(--dur-fast) linear}
 .ed-note{font-size:12px;color:var(--fg-3);line-height:1.5}
+.ed-note.ok{color:var(--acc)}
+.ed-note kbd{font-family:inherit;font-size:12px;padding:0 4px;border-radius:4px;border:1px solid var(--hair-2);background:rgba(255,255,255,.06);color:var(--fg-2);margin:0 4px 0 0}
+/* Phone: the editor is the whole screen. Stage on top, then the transport
+   and strip, then the tabs; the export button sticks to the bottom so it is
+   never below a fold. */
+@media(max-width:860px){
+  .ed-bg{padding:0}
+  .ed{width:100%;height:100%;max-height:none;border-radius:0;border:none}
+  .ed-body{grid-template-columns:1fr;overflow:auto;display:flex;flex-direction:column}
+  .ed-main{overflow:visible;padding:12px;flex-shrink:0}
+  .ed-stage{height:min(42vh,420px)}
+  .ed-side{border-left:none;border-top:1px solid var(--hair);min-height:0;flex:1}
+  .ed-panel{overflow:visible}
+  .ed-foot{position:sticky;bottom:0;background:rgba(14,11,17,.96)}
+  .ed-cut{margin-left:0;width:100%}
+  .ed-cut .ed-mark{flex:1}
+}
 .pub-row{display:flex;align-items:center;gap:8px;margin-top:8px}
 .pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
 .pub-ok{font-size:12px;color:var(--acc)}
@@ -4310,17 +4398,135 @@ function fitIssues(pf, secs, ratio, caption, fmt) {
   return out;
 }
 
+/* ── Thumbnails for the timeline ─────────────────────────────────────────────
+   A second, silent video element seeks through the clip and paints one small
+   frame per slot. Its own element rather than the editor's: seeking the
+   preview video to build a filmstrip would visibly scrub the stage. Delivered
+   in batches so the strip fills in as it is built rather than appearing all at
+   once several seconds later. */
+const THUMB_N = 16;
+
+function buildThumbs(url, dur, onBatch, isGone) {
+  const tv = document.createElement('video');
+  tv.muted = true; tv.preload = 'auto'; tv.crossOrigin = 'anonymous'; tv.playsInline = true;
+  tv.src = url;
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 72;
+  const ctx = c.getContext('2d');
+  const out = new Array(THUMB_N).fill('');
+  const seekTo = (t) => new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; tv.removeEventListener('seeked', fin); res(); };
+    tv.addEventListener('seeked', fin);
+    setTimeout(fin, 1500);                    // never hang the strip on a lost event
+    tv.currentTime = t;
+  });
+  const run = async () => {
+    await new Promise(res => {
+      if (tv.readyState >= 1) return res();
+      tv.addEventListener('loadedmetadata', res, { once: true });
+      tv.addEventListener('error', res, { once: true });
+      setTimeout(res, 4000);
+    });
+    for (let i = 0; i < THUMB_N; i++) {
+      if (isGone()) break;
+      await seekTo(Math.min(dur - 0.05, (i + 0.5) / THUMB_N * dur));
+      try {
+        const vw = tv.videoWidth || 16, vh = tv.videoHeight || 9;
+        const s = Math.max(c.width / vw, c.height / vh);
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(tv, (c.width - vw * s) / 2, (c.height - vh * s) / 2, vw * s, vh * s);
+        out[i] = c.toDataURL('image/jpeg', 0.6);
+      } catch (e) { break; }               // a tainted canvas: leave the strip plain
+      if (i % 4 === 3 || i === THUMB_N - 1) onBatch(out.slice());
+    }
+    tv.removeAttribute('src'); try { tv.load(); } catch (e) {}
+  };
+  run();
+}
+
+/* Output size per shape. Tall and square renders are capped at 1080 on the
+   short side, landscape at 1920 wide, and nothing is upscaled past the source:
+   a 720p clip exported at 1080x1920 is the same picture at three times the
+   file size and three times the encode work. Even dimensions, always — H.264
+   refuses odd ones. */
+function outputSize(ratio, vw, vh) {
+  const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
+  const srcShort = Math.min(vw || 1080, vh || 1920);
+  const hd = srcShort >= 1080;
+  let w, h;
+  if (aspect < 1)       { h = hd ? 1920 : 1280; w = h * aspect; }
+  else if (aspect === 1){ h = hd ? 1080 : 720;  w = h; }
+  else                  { h = hd ? 1080 : 720;  w = h * aspect; }
+  return { w: Math.round(w / 2) * 2, h: Math.round(h / 2) * 2, hd };
+}
+
+/* ── Timeline ────────────────────────────────────────────────────────────────
+   One pointer model for everything on the strip: press on a handle drags that
+   cut point, press on the playhead scrubs, press anywhere else jumps there and
+   then scrubs. Pointer capture keeps a drag alive when the finger leaves the
+   strip, which on a phone is every drag. The element never re-renders during
+   a drag — positions are written straight to the DOM from the pointer events
+   and React catches up when the pointer lifts. */
+function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, onSeek, onDragState }) {
+  const ref = useRef(null);
+  const drag = useRef(null);
+  const pct = (t) => (dur ? Math.max(0, Math.min(1, t / dur)) * 100 : 0);
+  const timeAt = (clientX) => {
+    const r = ref.current.getBoundingClientRect();
+    return Math.max(0, Math.min(dur, (clientX - r.left) / r.width * dur));
+  };
+  const down = (e) => {
+    if (disabled || !dur) return;
+    const kind = e.target.dataset.h || 'seek';
+    drag.current = kind;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {}
+    onDragState(true);
+    move(e);
+    e.preventDefault();
+  };
+  const move = (e) => {
+    if (!drag.current) return;
+    const t = timeAt(e.clientX);
+    if (drag.current === 'in') onIn(t);
+    else if (drag.current === 'out') onOut(t);
+    else onSeek(t);
+  };
+  const up = (e) => {
+    if (!drag.current) return;
+    drag.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (x) {}
+    onDragState(false);
+  };
+  return (
+    <div className={'ed-tl' + (disabled ? ' off' : '')} ref={ref}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+      <div className="ed-film" aria-hidden="true">
+        {thumbs.map((src, i) => src
+          ? <img key={i} src={src} alt="" draggable="false"/>
+          : <span key={i}/>)}
+      </div>
+      <div className="ed-dim l" style={{width: pct(inPt) + '%'}}/>
+      <div className="ed-dim r" style={{width: (100 - pct(outPt)) + '%'}}/>
+      <div className="ed-sel" style={{left: pct(inPt) + '%', width: (pct(outPt) - pct(inPt)) + '%'}}/>
+      <div className="ed-hd l" data-h="in" style={{left: pct(inPt) + '%'}} title="Drag to set the start"><i data-h="in"/></div>
+      <div className="ed-hd r" data-h="out" style={{left: pct(outPt) + '%'}} title="Drag to set the end"><i data-h="out"/></div>
+      <div className="ed-ph" ref={headRef} data-h="head" style={{left: 0}}><b data-h="head"/></div>
+    </div>
+  );
+}
+
 function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [] }) {
   // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
   // one shipped to paying users while CAPTIONS_ENABLED was unset on prod.
-  // The editor paints every frame of the video into .ed-stage's canvas, and it
-  // sits inside .ed-bg, which blurs the whole viewport. Same cost as a player,
-  // so it counts as one for as long as the editor is open — the canvas also
-  // repaints on scrub and on every slider drag, not only during playback.
+  // The editor paints frames into .ed-stage's canvas, and it sits inside
+  // .ed-bg, which blurs the whole viewport. Same cost as a player, so it
+  // counts as one for as long as the editor is open.
   usePlayerOpen(true);
   const [dur, setDur]       = useState(0);
+  const [srcDims, setDims]  = useState([0, 0]);
   const [inPt, setIn]       = useState(0);
   const [outPt, setOut]     = useState(0);
   const [ratio, setRatio]   = useState('9:16');
@@ -4339,14 +4545,15 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [pct, setPct]       = useState(0);
   const [err, setErr]       = useState('');
   const [done, setDone]     = useState('');
+  const [tab, setTab]       = useState('trim');
+  const [thumbs, setThumbs] = useState(() => new Array(THUMB_N).fill(''));
+  const [hint, setHint]     = useState(true);
 
   // The exported file is KEPT, not just downloaded. Handing it to the native
   // share sheet is the whole "post to TikTok/IG/YouTube" story: one tap on a
   // phone, into the real app, with no OAuth and no platform app-review. Dropping
   // the blob after download would force a re-export to share.
   const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
-  const [cap, setCap]         = useState('');    // caption text to carry across
-  const [copied, setCopied]   = useState('');
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -4355,26 +4562,41 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   const videoRef = useRef(null);
   const canvRef  = useRef(null);
+  const stageRef = useRef(null);
+  const rootRef  = useRef(null);
   const rafRef   = useRef(0);
   const cancelRef = useRef(false);
   // The playhead and the clock are driven from the animation loop, NOT from
   // render. The loop paints the canvas imperatively and changes no state, so
   // React does not re-render while the video plays — anything positioned from
   // `videoRef.current.currentTime` during render is frozen at wherever it was
-  // when the last state change happened. (It was, and the bar never moved.)
-  // Calling setState 60x/second instead would re-render the whole editor every
-  // frame, which is the wrong trade for two numbers.
+  // when the last state change happened. Calling setState 60x/second instead
+  // would re-render the whole editor every frame, which is the wrong trade.
   const headRef  = useRef(null);
   const clockRef = useRef(null);
+  // The loop reads everything through ONE ref that render refreshes, so it is
+  // registered once and never sees a stale closure. `dirty` is the other half
+  // of that design: a paused editor paints only when something changed, not
+  // sixty times a second, so a phone does not cook while someone reads the
+  // caption settings.
+  const latest   = useRef({});
+  const dirtyRef = useRef(true);
+  const dragging = useRef(false);
+  const pendingSeek = useRef(null);
+  const pinch = useRef(null);
 
-  const OUT_H = 1280;
-  const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
-  const outW = Math.round(OUT_H * aspect / 2) * 2;   // even dims: H.264 requires it
-  const outH = OUT_H;
+  const out = outputSize(ratio, srcDims[0], srcDims[1]);
+  const outW = out.w, outH = out.h;
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
     fill, capSize, capPos, capHighlight: capHi,
     caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : '' });
+
+  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH };
+  // Anything that changes the picture marks the frame dirty. Cheaper than
+  // diffing: the loop paints once and clears it.
+  useEffect(() => { dirtyRef.current = true; },
+    [outW, outH, zoom, offX, offY, text, textSize, textPos, fill, capSize, capPos, capHi, capOn, caps, inPt, outPt]);
 
   // Existing captions on open, plus live progress for a run started in another
   // tab — transcription happens on the server, so it is not tied to this one.
@@ -4438,35 +4660,69 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     }catch{ setCapErr('Could not reach the server'); setCapJob(null); }
   };
 
-  // Live preview loop.
+  // ── The paint loop: registered once, reads `latest`. ──
   useEffect(() => {
     const draw = () => {
       const v = videoRef.current, c = canvRef.current;
-      if (v && c) {
+      const L = latest.current;
+      if (v && c && L.opts) {
         // Never resize mid-export: assigning canvas.width resets the surface
         // and invalidates the MediaRecorder capture track, so a shape change
         // landing during a render would truncate the file.
-        if (c.width !== outW && !busy) { c.width = outW; c.height = outH; }
-        paintFrame(c.getContext('2d'), v, opts());
+        if ((c.width !== L.outW || c.height !== L.outH) && !L.busy) {
+          c.width = L.outW; c.height = L.outH; dirtyRef.current = true;
+        }
         const t = v.currentTime;
+        const live = L.playing || L.busy || !v.paused;
+        // Painting a paused frame again is wasted work; a busy export must
+        // paint every tick so captureStream has a fresh frame to record.
+        if (dirtyRef.current || live) {
+          if (v.readyState >= 2) paintFrame(c.getContext('2d'), v, L.opts());
+          dirtyRef.current = false;
+        }
         if (headRef.current)
-          headRef.current.style.left = (dur ? Math.min(t, dur) / dur * 100 : 0) + '%';
+          headRef.current.style.left = (L.dur ? Math.min(t, L.dur) / L.dur * 100 : 0) + '%';
         if (clockRef.current) {
           const s = edTime(t);
           if (clockRef.current.textContent !== s) clockRef.current.textContent = s;
         }
-        if (t >= outPt && playing) { v.pause(); setPlay(false); v.currentTime = inPt; }
+        // Preview loops inside the cut. Checking a trim means watching the
+        // ends, and a preview that stops dead at the out-point makes you
+        // press play again for every look.
+        if (L.playing && !L.busy && t >= L.outPt - 0.02) v.currentTime = L.inPt;
       }
       rafRef.current = requestAnimationFrame(draw);
     };
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  });
+  }, []);
+
+  // A seek lands a new decoded frame AFTER currentTime changes; without this
+  // a scrub painted the previous frame and looked a step behind the finger.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const mark = () => {
+      dirtyRef.current = true;
+      // A scrub queues at most one seek at a time — the next target waits
+      // for this one to land, so the decoder is never flooded.
+      if (pendingSeek.current != null && !v.seeking) {
+        const t = pendingSeek.current; pendingSeek.current = null; v.currentTime = t;
+      }
+    };
+    v.addEventListener('seeked', mark);
+    v.addEventListener('loadeddata', mark);
+    v.addEventListener('pause', mark);
+    return () => { v.removeEventListener('seeked', mark); v.removeEventListener('loadeddata', mark); v.removeEventListener('pause', mark); };
+  }, []);
 
   const onMeta = () => {
     const v = videoRef.current;
     if (!v) return;
-    const settle = (d) => { setDur(d); setIn(0); setOut(d); v.currentTime = 0; };
+    const settle = (d) => {
+      setDur(d); setIn(0); setOut(d); setDims([v.videoWidth || 0, v.videoHeight || 0]);
+      v.currentTime = 0; dirtyRef.current = true;
+    };
     if (isFinite(v.duration) && v.duration > 0) { settle(v.duration); return; }
     // A WebM written by MediaRecorder carries NO duration in its header, so
     // the browser reports Infinity until it has scanned the file. Bailing here
@@ -4481,22 +4737,133 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     v.currentTime = 1e101;
   };
 
-  const seek = (t) => {
-    const v = videoRef.current;
-    if (v) v.currentTime = Math.max(inPt, Math.min(outPt, t));
-  };
+  // Filmstrip, once the length is known.
+  useEffect(() => {
+    if (!dur) return;
+    let gone = false;
+    buildThumbs(clip.url, dur, t => { if (!gone) setThumbs(t); }, () => gone);
+    return () => { gone = true; };
+  }, [dur, clip.url]);
 
-  const togglePlay = () => {
+  const seek = (t, clampToCut) => {
     const v = videoRef.current;
     if (!v) return;
-    if (playing) { v.pause(); setPlay(false); }
-    else { if (v.currentTime < inPt || v.currentTime >= outPt) v.currentTime = inPt; v.play(); setPlay(true); }
+    const L = latest.current;
+    let x = Math.max(0, Math.min(L.dur || 0, t));
+    if (clampToCut) x = Math.max(L.inPt, Math.min(L.outPt, x));
+    if (v.seeking) pendingSeek.current = x; else v.currentTime = x;
   };
 
-  const trackClick = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    seek(((e.clientX - r.left) / r.width) * dur);
+  const pause = () => { const v = videoRef.current; if (v) v.pause(); setPlay(false); };
+  const play = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const L = latest.current;
+    if (v.currentTime < L.inPt || v.currentTime >= L.outPt - 0.02) v.currentTime = L.inPt;
+    v.play().catch(() => {});
+    setPlay(true);
   };
+  const togglePlay = () => { if (busy) return; latest.current.playing ? pause() : play(); };
+
+  const setInAt = (t) => {
+    const L = latest.current;
+    const x = Math.max(0, Math.min(t, L.outPt - 0.3));
+    setIn(x); seek(x);
+  };
+  const setOutAt = (t) => {
+    const L = latest.current;
+    const x = Math.min(L.dur, Math.max(t, L.inPt + 0.3));
+    setOut(x); seek(x);
+  };
+  const step = (secs) => { const v = videoRef.current; if (v) seek(v.currentTime + secs); };
+  const onDragState = (on) => {
+    dragging.current = on;
+    if (on && latest.current.playing) pause();
+  };
+
+  // Keyboard: the shortcuts every cutting tool shares. Ignored while typing
+  // in a field and while an export is running.
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const L = latest.current;
+      if (e.key === 'Escape') { if (!L.busy) onClose(); return; }
+      if (L.busy) return;
+      const v = videoRef.current;
+      if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
+      else if (e.key === 'ArrowLeft')  { e.preventDefault(); step(e.shiftKey ? -1 : -1 / 30); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 1 : 1 / 30); }
+      else if (e.key === 'i' || e.key === 'I') { if (v) setInAt(v.currentTime); }
+      else if (e.key === 'o' || e.key === 'O') { if (v) setOutAt(v.currentTime); }
+      else if (e.key === 'Home') { e.preventDefault(); seek(L.inPt); }
+      else if (e.key === 'End')  { e.preventDefault(); seek(L.outPt - 0.05); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => { if (rootRef.current) rootRef.current.focus(); }, []);
+
+  // ── Framing by hand: drag the picture, wheel or pinch to zoom. ──
+  const stageDown = (e) => {
+    if (busy) return;
+    const el = stageRef.current;
+    try { el.setPointerCapture(e.pointerId); } catch (x) {}
+    const p = pinch.current || (pinch.current = { pts: new Map() });
+    p.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    p.startX = offX; p.startY = offY; p.startZoom = zoom;
+    p.ox = e.clientX; p.oy = e.clientY;
+    if (p.pts.size === 2) {
+      const a = [...p.pts.values()];
+      p.dist0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+    }
+    setHint(false);
+    e.preventDefault();
+  };
+  const stageMove = (e) => {
+    const p = pinch.current;
+    if (!p || !p.pts.has(e.pointerId)) return;
+    p.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = stageRef.current.getBoundingClientRect();
+    if (p.pts.size >= 2) {
+      const a = [...p.pts.values()];
+      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+      setZoom(Math.max(1, Math.min(3, +(p.startZoom * d / p.dist0).toFixed(3))));
+      return;
+    }
+    // offX/offY are fractions of the OUTPUT frame, so a finger crossing a
+    // tenth of the displayed picture moves it a tenth of the frame: a direct
+    // 1:1 drag. The picture is the canvas bitmap letterboxed (object-fit)
+    // inside the stage, so its on-screen size is derived, not read.
+    const L = latest.current;
+    const s = Math.min(r.width / L.outW, r.height / L.outH);
+    const cw = Math.max(1, L.outW * s), ch = Math.max(1, L.outH * s);
+    setOffX(Math.max(-0.5, Math.min(0.5, p.startX + (e.clientX - p.ox) / cw)));
+    setOffY(Math.max(-0.5, Math.min(0.5, p.startY + (e.clientY - p.oy) / ch)));
+  };
+  const stageUp = (e) => {
+    const p = pinch.current;
+    if (!p) return;
+    p.pts.delete(e.pointerId);
+    try { stageRef.current.releasePointerCapture(e.pointerId); } catch (x) {}
+    if (!p.pts.size) pinch.current = null;
+    else { const a = [...p.pts.values()]; p.ox = a[0].x; p.oy = a[0].y; p.startX = offX; p.startY = offY; }
+  };
+  // Wheel zoom needs a non-passive listener to stop the page scrolling, and
+  // React attaches wheel passively — so it is wired by hand.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (latest.current.busy) return;
+      e.preventDefault();
+      setZoom(z => Math.max(1, Math.min(3, +(z * (1 - Math.sign(e.deltaY) * 0.06)).toFixed(3))));
+      setHint(false);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   const download = (blob, ext) => {
     const url = URL.createObjectURL(blob);
@@ -4508,9 +4875,18 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
+  // Every wait in the export is time-boxed. The first version awaited a
+  // 'seeked' that never came and an AudioContext.resume() that could stall,
+  // and an export that hangs at 0% with a Cancel button is the worst outcome
+  // this screen can produce.
+  const waitFor = (target, ev, ms) => new Promise(res => {
+    const h = () => { target.removeEventListener(ev, h); res(); };
+    target.addEventListener(ev, h);
+    setTimeout(h, ms);
+  });
+
   // ── Export: MediaRecorder path ──
-  // Records the canvas while the video plays, so it runs in real time. Used
-  // when WebCodecs is missing.
+  // Records the canvas while the video plays, so it runs in real time.
   const exportRecorder = async () => {
     const v = videoRef.current, c = canvRef.current;
     const type = pickRecorderType();
@@ -4520,12 +4896,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     // is silent — which is exactly what it used to be.
     const g = audioGraph(v, clip.url);
     if (g) {
-      try { await g.ctx.resume(); } catch (e) {}
+      try { await Promise.race([g.ctx.resume(), new Promise(r => setTimeout(r, 1000))]); } catch (e) {}
       const at = g.dest.stream.getAudioTracks()[0];
       if (at) stream.addTrack(at);
     }
     const chunks = [];
-    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6e6,
+    const hd = outputSize(ratio, srcDims[0], srcDims[1]).hd;
+    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: hd ? 9e6 : 6e6,
                                             audioBitsPerSecond: 128e3 });
     rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     const finished = new Promise(res => { rec.onstop = res; });
@@ -4535,12 +4912,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     // clip whose playhead is already parked there.
     if (Math.abs(v.currentTime - inPt) > 0.01) {
       v.currentTime = inPt;
-      await new Promise(res => {
-        const h = () => { v.removeEventListener('seeked', h); res(); };
-        v.addEventListener('seeked', h);
-        setTimeout(h, 3000);           // never block export on a missing event
-      });
+      await waitFor(v, 'seeked', 3000);
     }
+    dirtyRef.current = true;
 
     rec.start(200);
     // Give the recorder a beat to latch onto the track before playback starts.
@@ -4552,6 +4926,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     await v.play().catch(() => {});
     const span = Math.max(0.1, outPt - inPt);
     const started = Date.now();
+    let stalled = false;
     await new Promise(res => {
       const tick = () => {
         if (cancelRef.current) return res();
@@ -4559,6 +4934,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         // even for a very short trim.
         const enough = Date.now() - started >= 400;
         if (enough && (v.currentTime >= outPt || v.ended)) return res();
+        // Real time plus a margin: playback that has not reached the out
+        // point well after it should have is stuck, not slow.
+        if (Date.now() - started > span * 1000 + 6000) { stalled = true; return res(); }
         setPct(Math.min(99, ((v.currentTime - inPt) / span) * 100));
         setTimeout(tick, 100);
       };
@@ -4570,64 +4948,18 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     try { rec.requestData(); } catch {}
     await new Promise(r => setTimeout(r, 120));
     rec.stop();
-    await finished;
+    await Promise.race([finished, new Promise(r => setTimeout(r, 4000))]);
+    if (stalled) throw new Error('Playback stalled during the export. Try again, or trim a shorter section.');
     return { blob: new Blob(chunks, { type }), ext: type.includes('mp4') ? 'mp4' : 'webm' };
   };
 
-  // ── Export: WebCodecs path ──
-  // Seeks frame by frame and encodes directly — no real-time playback, so a
-  // 30s clip finishes in seconds. Falls back to the recorder if anything in
-  // the pipeline is unavailable.
-  const exportWebCodecs = async () => {
-    const v = videoRef.current, c = canvRef.current;
-    const FPS = 30;
-    const total = Math.max(1, Math.round((outPt - inPt) * FPS));
-    const chunks = [];
-    let cfg = null;
-
-    const enc = new VideoEncoder({
-      output: (chunk, meta) => {
-        if (meta && meta.decoderConfig) cfg = meta.decoderConfig;
-        const buf = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(buf);
-        chunks.push({ data: buf, key: chunk.type === 'key', ts: chunk.timestamp, dur: chunk.duration || (1e6 / FPS) });
-      },
-      error: e => { throw e; },
-    });
-
-    const support = await VideoEncoder.isConfigSupported({
-      codec: 'avc1.42001f', width: outW, height: outH, bitrate: 6e6, framerate: FPS,
-      avc: { format: 'annexb' },
-    });
-    if (!support || !support.supported) throw new Error('no-h264');
-    enc.configure(support.config);
-
-    const ctx = c.getContext('2d');
-    for (let i = 0; i < total; i++) {
-      if (cancelRef.current) break;
-      const t = inPt + i / FPS;
-      v.currentTime = t;
-      await new Promise(res => { const h = () => { v.removeEventListener('seeked', h); res(); }; v.addEventListener('seeked', h); });
-      paintFrame(ctx, v, opts());
-      const frame = new VideoFrame(c, { timestamp: Math.round((i / FPS) * 1e6), duration: Math.round(1e6 / FPS) });
-      enc.encode(frame, { keyFrame: i % (FPS * 2) === 0 });
-      frame.close();
-      if (i % 3 === 0) setPct((i / total) * 100);
-      // Let the encoder drain so memory doesn't balloon on a long clip.
-      if (enc.encodeQueueSize > 20) await new Promise(r => setTimeout(r, 8));
-    }
-    await enc.flush();
-    enc.close();
-    if (!chunks.length) throw new Error('no-frames');
-    return { blob: muxAnnexB(chunks, FPS), ext: 'h264', raw: true };
-  };
-
-  // Annex-B elementary stream. Playable and re-muxable, but not an MP4 — so
-  // this path only ships once the muxer below is proven; see runExport.
-  const muxAnnexB = (chunks) => new Blob(chunks.map(c => c.data), { type: 'video/h264' });
-
   const runExport = async () => {
+    // Exporting while the preview is playing was the reliable way to hang the
+    // old editor at 0%: two things driving the same element. Stop the preview
+    // first, always.
+    pause();
     setErr(''); setDone(''); setBusy(true); setPct(0); cancelRef.current = false;
+    latest.current.busy = true;
     const v = videoRef.current;
     // Exporting should not blast the clip across the room — but it MUST still
     // record the sound. With the WebAudio graph in place those are different
@@ -4641,8 +4973,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     else v.muted = true;
     try {
       // MediaRecorder produces a real, playable container on every browser.
-      // The WebCodecs fast path is deliberately NOT wired in yet: it yields a
-      // raw H.264 elementary stream, and shipping a file the user cannot open
+      // A WebCodecs fast path is deliberately NOT wired in: it yields a raw
+      // H.264 elementary stream, and shipping a file the user cannot open
       // would be worse than a slower export that works.
       const { blob, ext } = await exportRecorder();
       if (cancelRef.current) { setDone(''); return; }
@@ -4682,235 +5014,243 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       if (g) g.monitor.gain.value = wasGain;
       else v.muted = wasMuted;
       setBusy(false); setPlay(false);
+      latest.current.busy = false;
+      dirtyRef.current = true;
+      seek(latest.current.inPt);
     }
-  };
-
-  // Web Share API level 2 (files). On a phone this opens the OS share sheet
-  // with TikTok / Instagram / YouTube in it, which is the entire feature — no
-  // OAuth, no platform app review, no upload quota. It is genuinely absent on
-  // most desktop browsers, so this is a capability check and NOT a browser
-  // sniff, and the desktop path below is a real path rather than an apology.
-  const canShareFiles = (f) => {
-    try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [f] })); }
-    catch { return false; }
-  };
-
-  const shareFile = async () => {
-    if (!outFile) return;
-    const f = new File([outFile.blob], outFile.name,
-                       { type: outFile.blob.type || 'video/mp4' });
-    if (!canShareFiles(f)) return;
-    try { await navigator.share({ files: [f], text: cap || '' }); }
-    catch (e) {
-      // AbortError just means the user backed out of the sheet. Reporting that
-      // as a failure would be wrong and alarming.
-      if (e && e.name !== 'AbortError') setErr('Could not open the share sheet.');
-    }
-  };
-
-  const copyCap = async () => {
-    try { await navigator.clipboard.writeText(cap || ''); setCopied('caption'); }
-    catch { setErr('Could not copy — select the text and copy it manually.'); }
-    setTimeout(()=>setCopied(''), 1800);
   };
 
   const clipSecs = Math.max(0, outPt - inPt);
-  const shareReady = !!outFile;
-  const canNativeShare = shareReady && canShareFiles(
-    new File([outFile.blob], outFile.name, { type: outFile.blob.type || 'video/mp4' }));
-
   const recType = pickRecorderType();
-  const canExport = !!recType;
-  const eta = Math.max(1, Math.round(outPt - inPt));
+  const canExport = !!recType && dur > 0;
+  const eta = Math.max(1, Math.round(clipSecs));
+  const fmtOut = recType.includes('mp4') ? 'MP4' : 'WebM';
+  const framed = zoom !== 1 || offX !== 0 || offY !== 0;
+  const shape = RATIOS.find(r => r[0] === ratio) || RATIOS[0];
+
+  const TABS = [['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text']];
+  if (captionsOn) TABS.push(['captions', 'Captions']);
 
   return (
     <div className="ed-bg" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
-      <div className="ed glass">
+      <div className="ed glass" ref={rootRef} tabIndex={-1}>
         <div className="ed-head">
-          <span style={{color:'var(--acc)'}}><Icon name="film" size={18}/></span>
-          <h3>{clip.filename || 'Edit clip'}</h3>
-          <button className="rd-btn sm" onClick={onClose} disabled={busy}>Close</button>
+          <span className="ed-ico"><Icon name="film" size={18}/></span>
+          <div className="ed-title">
+            <h3>{clip.filename || 'Edit clip'}</h3>
+            <div className="ed-sub">
+              {dur ? edTime(dur) : '…'}{srcDims[1] ? ' · ' + srcDims[0] + '×' + srcDims[1] : ''}
+              {' · '}{shape[2]} {ratio} → {outW}×{outH} {fmtOut}
+            </div>
+          </div>
+          <button className="ed-x" onClick={onClose} disabled={busy} aria-label="Close editor"><Icon name="x" size={16}/></button>
         </div>
 
         <div className="ed-body">
-          <div>
-            <div className="ed-stage"><canvas ref={canvRef}/></div>
+          <div className="ed-main">
+            <div className={'ed-stage' + (busy ? ' busy' : '')} ref={stageRef}
+              onPointerDown={stageDown} onPointerMove={stageMove} onPointerUp={stageUp} onPointerCancel={stageUp}>
+              <canvas ref={canvRef} width={outW} height={outH}/>
+              {!dur && <div className="ed-loading"><span/>Loading clip…</div>}
+              {dur > 0 && hint && !busy &&
+                <div className="ed-hint">Drag to reposition · scroll or pinch to zoom</div>}
+              {busy && <div className="ed-hint on">Rendering {Math.round(pct)}%</div>}
+            </div>
 
-            <video ref={videoRef} src={clip.url} onLoadedMetadata={onMeta} playsInline
+            <video ref={videoRef} src={clip.url} onLoadedMetadata={onMeta} playsInline preload="auto"
               crossOrigin="anonymous" style={{display:'none'}}/>
 
-            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:12}}>
-              <button className="rd-btn sm" onClick={togglePlay} disabled={busy}>
-                {playing ? 'Pause' : 'Play'}
+            <div className="ed-transport">
+              <button className={'ed-play' + (playing ? ' on' : '')} onClick={togglePlay} disabled={busy || !dur}
+                aria-label={playing ? 'Pause' : 'Play'} title="Space">
+                {playing ? <span className="ed-pause"/> : <Icon name="play" size={16}/>}
               </button>
-              <span className="ed-num" style={{minWidth:0}}>
-                <b ref={clockRef}>{edTime(0)}</b> · trim {edTime(inPt)} – {edTime(outPt)} ({(outPt - inPt).toFixed(1)}s)
+              <button className="ed-step" onClick={()=>step(-1/30)} disabled={busy || !dur} title="Back one frame (←)">‹</button>
+              <button className="ed-step" onClick={()=>step(1/30)} disabled={busy || !dur} title="Forward one frame (→)">›</button>
+              <span className="ed-clock"><b ref={clockRef}>{edTime(0)}</b><span className="dim"> / {edTime(dur)}</span></span>
+              <span className="ed-cut">
+                <button className="ed-mark" onClick={()=>{const v=videoRef.current; if(v) setInAt(v.currentTime);}} disabled={busy || !dur} title="Set start here (I)">Set start</button>
+                <button className="ed-mark" onClick={()=>{const v=videoRef.current; if(v) setOutAt(v.currentTime);}} disabled={busy || !dur} title="Set end here (O)">Set end</button>
               </span>
             </div>
 
-            <div className="ed-track" onClick={trackClick}>
-              <div className="sel" style={{left:(dur?inPt/dur*100:0)+'%',
-                                           width:(dur?(outPt-inPt)/dur*100:0)+'%'}}/>
-              <div className="play" ref={headRef} style={{left:0}}/>
-            </div>
+            <EdTimeline dur={dur} inPt={inPt} outPt={outPt} thumbs={thumbs} headRef={headRef} disabled={busy}
+              onIn={setInAt} onOut={setOutAt} onSeek={t=>seek(t)} onDragState={onDragState}/>
 
-            <div className="ed-grp" style={{marginTop:8}}>
-              <div className="ed-row">
-                <span className="ed-num" style={{textAlign:'left',minWidth:34}}>Start</span>
-                <input type="range" min="0" max={dur||0} step="0.05" value={inPt} disabled={busy}
-                  onChange={e=>{const x=Math.min(+e.target.value,outPt-0.3);setIn(x);seek(x);}}/>
-                <span className="ed-num">{edTime(inPt)}</span>
-              </div>
-              <div className="ed-row">
-                <span className="ed-num" style={{textAlign:'left',minWidth:34}}>End</span>
-                <input type="range" min="0" max={dur||0} step="0.05" value={outPt} disabled={busy}
-                  onChange={e=>{const x=Math.max(+e.target.value,inPt+0.3);setOut(x);seek(x);}}/>
-                <span className="ed-num">{edTime(outPt)}</span>
-              </div>
+            <div className="ed-tlinfo">
+              <span><i>Start</i> {edTime(inPt)}</span>
+              <span className="mid"><i>Cut</i> {clipSecs.toFixed(1)}s</span>
+              <span><i>End</i> {edTime(outPt)}</span>
             </div>
           </div>
 
           <div className="ed-side">
-            <div className="ed-grp">
-              <label>Shape</label>
-              <div className="ed-seg">
-                {RATIOS.map(([k,,name])=>(
-                  <button key={k} className={ratio===k?'on':''} disabled={busy}
-                    onClick={()=>setRatio(k)}>{name}<br/>{k}</button>
-                ))}
-              </div>
+            <div className="ed-tabs" role="tablist">
+              {TABS.map(([k,l])=>(
+                <button key={k} role="tab" aria-selected={tab===k} className={tab===k?'on':''} onClick={()=>setTab(k)}>{l}</button>
+              ))}
             </div>
 
-            <div className="ed-grp">
-              <label>Fill</label>
-              <div className="ed-seg">
-                <button className={fill==='crop'?'on':''} disabled={busy}
-                  onClick={()=>setFill('crop')}>Crop<br/>fills the frame</button>
-                <button className={fill==='blur'?'on':''} disabled={busy}
-                  onClick={()=>setFill('blur')}>Blur<br/>keeps it all</button>
-              </div>
-              <div className="ed-note">
-                Crop cuts the sides off to fill a vertical frame. Blur keeps the
-                whole picture and fills the gaps with a blurred copy.
-              </div>
-            </div>
-
-            <div className="ed-grp">
-              <label>Zoom</label>
-              <div className="ed-row">
-                <input type="range" min="1" max="2.5" step="0.01" value={zoom} disabled={busy}
-                  onChange={e=>setZoom(+e.target.value)}/>
-                <span className="ed-num">{zoom.toFixed(2)}x</span>
-              </div>
-            </div>
-
-            <div className="ed-grp">
-              <label>Position</label>
-              <div className="ed-row">
-                <span className="ed-num" style={{textAlign:'left',minWidth:14}}>X</span>
-                <input type="range" min="-0.5" max="0.5" step="0.01" value={offX} disabled={busy}
-                  onChange={e=>setOffX(+e.target.value)}/>
-              </div>
-              <div className="ed-row">
-                <span className="ed-num" style={{textAlign:'left',minWidth:14}}>Y</span>
-                <input type="range" min="-0.5" max="0.5" step="0.01" value={offY} disabled={busy}
-                  onChange={e=>setOffY(+e.target.value)}/>
-              </div>
-              <button className="rd-btn sm" disabled={busy}
-                onClick={()=>{setZoom(1);setOffX(0);setOffY(0);}}>Reset framing</button>
-            </div>
-
-            {captionsOn && <div className="ed-grp">
-              <label>Auto-captions</label>
-              {!caps && !capJob &&
-                <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}>
-                  <Icon name="sparkles" size={13}/>&nbsp;Generate captions
-                </button>}
-              {capJob &&
-                <>
-                  <div className="ed-prog"><i style={{width:(capJob.pct||0)+'%'}}/></div>
-                  <div className="ed-note">Transcribing on the server… {capJob.pct||0}%</div>
-                </>}
-              {caps && !capJob && <>
-                <div className="ed-row">
-                  <button className={'rd-btn sm'+(capOn?' grad':'')} disabled={busy}
-                    onClick={()=>setCapOn(v=>!v)} style={{flex:1}}>
-                    {capOn ? 'Captions on' : 'Captions off'}
-                  </button>
-                  <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}
-                    title="Transcribe again">↻</button>
+            <div className="ed-panel">
+              {tab==='trim' && <>
+                <div className="ed-grp">
+                  <label>Shape</label>
+                  <div className="ed-seg">
+                    {RATIOS.map(([k,,name])=>(
+                      <button key={k} className={ratio===k?'on':''} disabled={busy}
+                        onClick={()=>setRatio(k)}>{name}<br/><small>{k}</small></button>
+                    ))}
+                  </div>
                 </div>
-                <div className="ed-note">
-                  {caps.length ? caps.length + ' lines · burned into the export'
-                               : 'No speech detected in this clip.'}
+                <div className="ed-grp">
+                  <label>Trim</label>
+                  <div className="ed-note">
+                    Drag the handles on the strip, or park the playhead and press
+                    <kbd>I</kbd> for the start and <kbd>O</kbd> for the end.
+                    <kbd>Space</kbd> plays the cut on a loop, <kbd>←</kbd> <kbd>→</kbd> step one frame.
+                  </div>
+                  <div className="ed-row">
+                    <button className="rd-btn sm" disabled={busy||!dur||(inPt===0&&outPt===dur)}
+                      onClick={()=>{setIn(0);setOut(dur);seek(0);}}>Use the whole clip</button>
+                  </div>
                 </div>
               </>}
-              {caps && !capJob && <>
+
+              {tab==='frame' && <>
+                <div className="ed-grp">
+                  <label>Fill</label>
+                  <div className="ed-seg">
+                    <button className={fill==='crop'?'on':''} disabled={busy}
+                      onClick={()=>setFill('crop')}>Crop<br/><small>fills the frame</small></button>
+                    <button className={fill==='blur'?'on':''} disabled={busy}
+                      onClick={()=>setFill('blur')}>Blur<br/><small>keeps it all</small></button>
+                  </div>
+                  <div className="ed-note">
+                    Crop cuts the sides off to fill a vertical frame. Blur keeps the
+                    whole picture and fills the gaps with a blurred copy.
+                  </div>
+                </div>
+                <div className="ed-grp">
+                  <label>Zoom</label>
+                  <div className="ed-row">
+                    <input type="range" min="1" max="3" step="0.01" value={zoom} disabled={busy}
+                      onChange={e=>setZoom(+e.target.value)}/>
+                    <span className="ed-num">{zoom.toFixed(2)}×</span>
+                  </div>
+                  <div className="ed-note">Drag the preview to move the picture. Scroll or pinch on it to zoom.</div>
+                </div>
+                <div className="ed-grp">
+                  <label>Position</label>
+                  <div className="ed-row">
+                    <span className="ed-num" style={{textAlign:'left',minWidth:16}}>X</span>
+                    <input type="range" min="-0.5" max="0.5" step="0.01" value={offX} disabled={busy}
+                      onChange={e=>setOffX(+e.target.value)}/>
+                  </div>
+                  <div className="ed-row">
+                    <span className="ed-num" style={{textAlign:'left',minWidth:16}}>Y</span>
+                    <input type="range" min="-0.5" max="0.5" step="0.01" value={offY} disabled={busy}
+                      onChange={e=>setOffY(+e.target.value)}/>
+                  </div>
+                  <button className="rd-btn sm" disabled={busy||!framed}
+                    onClick={()=>{setZoom(1);setOffX(0);setOffY(0);}}>Reset framing</button>
+                </div>
+              </>}
+
+              {tab==='text' && <div className="ed-grp">
+                <label>Title text</label>
+                <textarea className="ed-in" rows="2" value={text} disabled={busy}
+                  placeholder="Optional text on the clip" maxLength={120}
+                  onChange={e=>setText(e.target.value)}/>
                 <div className="ed-seg">
-                  {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([k,l])=>(
-                    <button key={k} className={capPos===k?'on':''} disabled={busy}
-                      onClick={()=>setCapPos(k)}>{l}</button>
+                  {['top','middle','bottom'].map(p=>(
+                    <button key={p} className={textPos===p?'on':''} disabled={busy}
+                      onClick={()=>setTP(p)}>{p}</button>
                   ))}
                 </div>
                 <div className="ed-row">
-                  <span className="ed-num" style={{textAlign:'left',minWidth:30}}>Size</span>
-                  <input type="range" min="0.035" max="0.09" step="0.005" value={capSize}
-                    disabled={busy} onChange={e=>setCapSize(+e.target.value)}/>
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Size</span>
+                  <input type="range" min="0.04" max="0.14" step="0.005" value={textSize} disabled={busy}
+                    onChange={e=>setTS(+e.target.value)}/>
                 </div>
-                <button className={'rd-btn sm'+(capHi?' grad':'')} disabled={busy}
-                  onClick={()=>setCapHi(!capHi)}>
-                  {capHi ? 'Highlight box on' : 'Highlight box off'}
-                </button>
-                <div className="ed-note">
-                  "Low" sits under the action — on TikTok and Reels the platform
-                  puts its own captions and buttons there, so it can end up
-                  covered. The highlight box reads on busy gameplay where an
-                  outline alone can disappear.
-                </div>
-              </>}
-              {capErr && <div className="ed-warn">{capErr}</div>}
-            </div>}
+                <div className="ed-note">Up to three lines. It is burned into the export, so it shows on every platform.</div>
+              </div>}
 
-            <div className="ed-grp">
-              <label>Title text</label>
-              <textarea className="ed-in" rows="2" value={text} disabled={busy}
-                placeholder="Optional text on the clip" maxLength={120}
-                onChange={e=>setText(e.target.value)}/>
-              <div className="ed-seg">
-                {['top','middle','bottom'].map(p=>(
-                  <button key={p} className={textPos===p?'on':''} disabled={busy}
-                    onClick={()=>setTP(p)}>{p}</button>
-                ))}
-              </div>
-              <div className="ed-row">
-                <span className="ed-num" style={{textAlign:'left',minWidth:30}}>Size</span>
-                <input type="range" min="0.04" max="0.14" step="0.005" value={textSize} disabled={busy}
-                  onChange={e=>setTS(+e.target.value)}/>
-              </div>
+              {tab==='captions' && captionsOn && <div className="ed-grp">
+                <label>Auto-captions</label>
+                {!caps && !capJob &&
+                  <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}>
+                    <Icon name="sparkles" size={13}/>&nbsp;Generate captions
+                  </button>}
+                {capJob &&
+                  <>
+                    <div className="ed-prog"><i style={{transform:'scaleX(' + ((capJob.pct||0)/100) + ')'}}/></div>
+                    <div className="ed-note">Transcribing on the server… {capJob.pct||0}%</div>
+                  </>}
+                {caps && !capJob && <>
+                  <div className="ed-row">
+                    <button className={'rd-btn sm'+(capOn?' grad':'')} disabled={busy}
+                      onClick={()=>setCapOn(v=>!v)} style={{flex:1}}>
+                      {capOn ? 'Captions on' : 'Captions off'}
+                    </button>
+                    <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}
+                      title="Transcribe again">↻</button>
+                  </div>
+                  <div className="ed-note">
+                    {caps.length ? caps.length + ' lines · burned into the export'
+                                 : 'No speech detected in this clip.'}
+                  </div>
+                  <div className="ed-seg">
+                    {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([k,l])=>(
+                      <button key={k} className={capPos===k?'on':''} disabled={busy}
+                        onClick={()=>setCapPos(k)}>{l}</button>
+                    ))}
+                  </div>
+                  <div className="ed-row">
+                    <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Size</span>
+                    <input type="range" min="0.035" max="0.09" step="0.005" value={capSize}
+                      disabled={busy} onChange={e=>setCapSize(+e.target.value)}/>
+                  </div>
+                  <button className={'rd-btn sm'+(capHi?' grad':'')} disabled={busy}
+                    onClick={()=>setCapHi(!capHi)}>
+                    {capHi ? 'Highlight box on' : 'Highlight box off'}
+                  </button>
+                  <div className="ed-note">
+                    "Low" sits under the action — on TikTok and Reels the platform
+                    puts its own captions and buttons there, so it can end up
+                    covered. The highlight box reads on busy gameplay where an
+                    outline alone can disappear.
+                  </div>
+                </>}
+                {capErr && <div className="ed-warn">{capErr}</div>}
+              </div>}
             </div>
 
-            {busy && <div className="ed-grp">
-              <div className="ed-prog"><i style={{width:pct+'%'}}/></div>
-              <div className="ed-note">Exporting… {Math.round(pct)}%</div>
-              <button className="rd-btn sm danger" onClick={()=>{cancelRef.current=true;}}>Cancel</button>
-            </div>}
+            <div className="ed-foot">
+              {busy && <div className="ed-grp">
+                <div className="ed-prog"><i style={{transform:'scaleX(' + (pct/100) + ')'}}/></div>
+                <div className="ed-row">
+                  <span className="ed-note" style={{flex:1}}>Rendering {edTime(Math.min(clipSecs, clipSecs*pct/100))} of {edTime(clipSecs)}</span>
+                  <button className="rd-btn sm danger" onClick={()=>{cancelRef.current=true;}}>Cancel</button>
+                </div>
+              </div>}
 
-            {!busy && <button className="rd-btn grad" onClick={runExport} disabled={!canExport}>
-              <Icon name="download" size={14}/>&nbsp;Export {ratio}
-            </button>}
+              {!busy && <button className="rd-btn grad ed-export" onClick={runExport} disabled={!canExport}>
+                <Icon name="download" size={14}/>&nbsp;Export {ratio} · {clipSecs.toFixed(1)}s
+              </button>}
 
-            {!canExport &&
-              <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
-            {canExport && !busy && !done &&
-              <div className="ed-note">Renders on your machine, about {eta}s. Keep this tab open.</div>}
-            {done && <div className="ed-note" style={{color:'var(--acc)'}}>{done}</div>}
-            {err && <div className="ed-warn">{err}</div>}
-
-            {/* The render is in the Scheduler now — that is where posting
-                lives, so the editor stays about editing. */}
-            {shareReady && <div className="ed-note" style={{color:'var(--acc)'}}>
-              Open the <b>Scheduler</b> tab to caption it, pick platforms and post.
-            </div>}
+              {!canExport && dur > 0 &&
+                <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
+              {canExport && !busy && !done && !err &&
+                <div className="ed-note">Renders on your machine in about {eta}s as {fmtOut}. Keep this tab open.</div>}
+              {done && <div className="ed-note ok">{done}</div>}
+              {err && <div className="ed-warn">{err}</div>}
+              {outFile && !busy && <div className="ed-row">
+                <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>Download again</button>
+                {/* The render is in the Scheduler now — that is where posting
+                    lives, so the editor stays about editing. */}
+                <span className="ed-note">Caption it and post from the <b>Scheduler</b> tab.</span>
+              </div>}
+            </div>
           </div>
         </div>
       </div>

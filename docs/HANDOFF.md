@@ -1189,6 +1189,59 @@ on. That is why transcription is server-side at all.
 Encoding is a genuinely different resource profile from the current box — if
 export ever *does* move server-side, expect to need a dedicated encode droplet.
 
+### Clip Editor rebuilt for smoothness (2026-09-08)
+
+Same features (trim, shape, crop/blur fill, zoom + position, title text,
+auto-captions, export to the Scheduler), rebuilt so they are fast to use.
+What changed and why, in `ClipEditor` / `EdTimeline` / `buildThumbs` /
+`outputSize` in `aurora_html.py`:
+
+- **Timeline is a filmstrip with draggable cut points.** 16 thumbnails from a
+  second muted video element (`buildThumbs`, batched in as they are made),
+  the cut lit and the rest dimmed, in/out handles and a playhead all driven
+  by one pointer model with pointer capture (a drag survives the finger
+  leaving the strip). Dragging a handle seeks the preview to that frame.
+  Keyboard: Space/K play, ←/→ one frame (Shift = 1s), I/O set start/end at
+  the playhead, Home/End, Esc closes. Preview loops inside the cut.
+- **The stage is the framing control.** Drag pans, wheel and pinch zoom
+  (wheel is a hand-wired non-passive listener; React's is passive and the
+  page would scroll). Sliders remain for precision.
+- **Paint on demand.** One rAF loop registered once, reading everything
+  through `latest` (a ref refreshed by render). A paused editor paints only
+  when `dirtyRef` is set (any draw state change, `seeked`, `loadeddata`);
+  playing or exporting paints every tick. Measured in Chromium: 0 paints/s
+  paused, 60 playing. `seeked` marking dirty is what makes a scrub show the
+  frame under the finger rather than the previous one.
+- **Export cannot hang any more.** The old editor hung at 0% if you pressed
+  Export while the preview was playing (reproduced in the harness: 90s and
+  never finished). `runExport` pauses the preview first; every wait in
+  `exportRecorder` is time-boxed (`AudioContext.resume` 1s, the in-point
+  seek 3s, a stall guard of real time + 6s on the recording loop, `onstop`
+  4s). Verified: export-while-playing of a 5.4s cut finishes in ~6s and the
+  file decodes at 720x1280.
+- **Output size follows the shape** (`outputSize`): 9:16 → 720x1280 or
+  1080x1920, 1:1 → 720/1080 square, 16:9 → 1280x720 or 1920x1080, HD only
+  when the source's short side is ≥1080. 16:9 used to render 2276x1280.
+- **Side panel is tabbed** (Trim / Frame / Text / Captions, the last only
+  when `captionsOn`) with the export button pinned in a footer; on a phone
+  the editor is the whole screen and the footer is sticky.
+- **Two rendering traps, both pinned by tests:** (1) a canvas as a grid
+  item with `max-width/max-height` did NOT scale in Chromium — it sat at
+  native size cropped to the stage top, so captions and the bottom of every
+  frame were off screen; the canvas is now `position:absolute;inset:0;
+  object-fit:contain` inside a `display:block` stage with a definite
+  height. (2) the late `@supports .glass` gradient made `.ed` near
+  transparent and the library page bled through on a phone; `.ed.glass` is
+  solid `--rd-bg-2`.
+
+Harness: `scratchpad/ed/` — `mkclip.js` records a 12s test clip in
+Chromium itself (no ffmpeg on the box), `harness.js` serves the real
+`DASHBOARD_HTML` with vendored React and stubbed `/me`, `/uploads`,
+`/publish/*`, and `edrun.js` drives open → scrub → drag handle → I/O →
+wheel/pan → shapes → blur → play → export-while-playing → catches the
+download and decodes it. This Chromium has no H.264, so its MP4 is VP9 in
+fMP4; real Chrome picks `avc1/mp4a` from `REC_TYPES` as before.
+
 ## Publishing — deliberately NOT an API integration (2026-08-02)
 
 **We do not post on the user's behalf, and that is the design.** Posting
