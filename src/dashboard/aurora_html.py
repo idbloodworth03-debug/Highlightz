@@ -4163,7 +4163,12 @@ const HAS_WEBCODECS = typeof window !== 'undefined'
 // The video-only variants ('...codecs=avc1.42E01E' on its own) are gone: the
 // bare container below each one matches every browser they did and lets the
 // browser choose an audio codec too, which is the whole point.
+// Profile order matters for the picture: High (avc1.64) and Main (avc1.4D)
+// get CABAC and B-frames, so the same bitrate buys visibly more detail than
+// Baseline (avc1.42), which is listed last as the compatibility floor.
 const REC_TYPES = [
+  'video/mp4;codecs=avc1.640028,mp4a.40.2',
+  'video/mp4;codecs=avc1.4D401F,mp4a.40.2',
   'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
   'video/mp4',
   'video/webm;codecs=h264,opus',
@@ -4438,6 +4443,12 @@ function drawCaption(ctx, cue, o) {
 function paintFrame(ctx, video, o) {
   const { w, h, zoom, offX, offY, text, textSize, textPos, caption } = o;
   const fill = o.fill || 'crop';
+  // Every crop scales the source: a 16:9 frame reframed to 9:16 is drawn at
+  // 1.78x, and the default resampler for that is bilinear. 'high' costs
+  // nothing measurable per frame and is the difference between a soft
+  // upscale and a clean one.
+  ctx.imageSmoothingEnabled = true;
+  try { ctx.imageSmoothingQuality = 'high'; } catch (e) {}
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, w, h);
 
@@ -4622,15 +4633,17 @@ function buildThumbs(url, dur, onBatch, isGone) {
   run();
 }
 
-/* Output size per shape. Tall and square renders are capped at 1080 on the
-   short side, landscape at 1920 wide, and nothing is upscaled past the source:
-   a 720p clip exported at 1080x1920 is the same picture at three times the
-   file size and three times the encode work. Even dimensions, always — H.264
-   refuses odd ones. */
+/* Output size per shape: 1080x1920, 1080x1080 or 1920x1080 for any source of
+   720p and up, the 720 class only below that. This DOES upscale a 720p clip,
+   on purpose: TikTok, Shorts and Reels re-encode every upload to 1080x1920
+   with their own scaler, and a 720x1280 file handed to that pipeline comes
+   out visibly softer than the same picture delivered at 1080x1920 — the
+   scaling happens either way; doing it here with a high-quality resampler
+   keeps it out of theirs. Even dimensions, always — H.264 refuses odd ones. */
 function outputSize(ratio, vw, vh) {
   const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
   const srcShort = Math.min(vw || 1080, vh || 1920);
-  const hd = srcShort >= 1080;
+  const hd = srcShort >= 720;
   let w, h;
   if (aspect < 1)       { h = hd ? 1920 : 1280; w = h * aspect; }
   else if (aspect === 1){ h = hd ? 1080 : 720;  w = h; }
@@ -5116,8 +5129,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     }
     const chunks = [];
     const hd = outputSize(ratio, srcDims[0], srcDims[1]).hd;
-    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: hd ? 9e6 : 6e6,
-                                            audioBitsPerSecond: 128e3 });
+    // The budget is deliberately generous: a Twitch clip arrives at 6-8 Mbps
+    // for 1080p60, and re-encoding the same picture in real time at less than
+    // that is where the softness in "my export looks blurry" came from.
+    // Real-time encoders spend what they are given; a 30s clip at 16 Mbps is
+    // 60 MB, well inside the upload cap.
+    const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: hd ? 16e6 : 10e6,
+                                            audioBitsPerSecond: 160e3 });
     rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     const finished = new Promise(res => { rec.onstop = res; });
 

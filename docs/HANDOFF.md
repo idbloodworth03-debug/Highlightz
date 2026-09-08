@@ -1262,6 +1262,30 @@ What changed and why, in `ClipEditor` / `EdTimeline` / `buildThumbs` /
   of the file (`shots/*-file-frame-*.png`): backdrop, plate/outline and the
   lit word are all in the bytes, not just the preview.
 
+**Export sharpness (2026-09-08, same day).** Owner: "after editing, some
+clips get blurry". Measured with `scratchpad/ed/sharp.js` (variance of the
+Laplacian on a decoded frame of the export vs the source frame drawn the
+same way) and `bitrate.js` (does the recorder honour `videoBitsPerSecond`?
+Yes, proportionally: 6 Mbps asked → 3.4 achieved, 16 → 7.8 on detailed
+content; the flat test clip is content-limited so it cannot show the gain).
+Three fixes, all pinned in `test_dashboard_contract.py`:
+1. `paintFrame` sets `imageSmoothingQuality='high'` — every crop is an
+   upscale (16:9 → 9:16 is 1.78x) and the default resampler is bilinear.
+2. Bitrate budget 16 Mbps HD / 10 Mbps SD (was 9 / 6): a 1080p Twitch clip
+   arrives at 6-8 Mbps and the old export landed at 1.8 Mbps.
+3. `REC_TYPES` lists High (`avc1.640028`) and Main (`avc1.4D401F`) before
+   Baseline — same bitrate, more detail (CABAC, B-frames).
+Plus `outputSize` now ships the 1080 class (1080x1920 / 1080x1080 /
+1920x1080) for any source of 720p and up, reversing the earlier
+"never upscale" rule on purpose: the platforms re-encode every upload to
+1080x1920 with their own scaler, and a 720x1280 file comes out of that
+softer than the same picture delivered at 1080x1920. Export of a 5.4s cut
+at 1080x1920 still runs in real time (6.6s) in software-rendered Chromium,
+blur layout included. What cannot be fixed here: a 9:16 crop of a 1080p
+source is a 607px-wide region; every tool upscales it, and Punch In zooms
+it further. If the owner still sees softness on prod, check the SOURCE
+(a 720p download from Twitch is the usual culprit) before the pipeline.
+
 **Templates (2026-09-08, same day).** Five one-click starting points in a
 row above the side-panel tabs (`TEMPLATES` in `aurora_html.py`), copied from
 the formats streamer clips ship in on TikTok / Shorts / Reels (researched

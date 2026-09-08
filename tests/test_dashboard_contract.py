@@ -680,10 +680,14 @@ def test_the_export_stops_the_preview_first_and_time_boxes_every_wait():
     assert "Promise.race([finished" in rec, "recorder.onstop is awaited without a timeout"
 
 
-def test_the_output_size_follows_the_shape_and_never_upscales():
+def test_the_output_size_follows_the_shape_and_ships_the_1080_class_from_720p_up():
+    """Platforms re-encode every upload to 1080x1920 with their own scaler; a
+    720x1280 file comes out of that softer than the same picture delivered
+    at 1080x1920. So the 1080 class is the output for any source of 720p and
+    up, and the 720 class is only for sources below that."""
     assert "function outputSize(" in SRC
     body = SRC[SRC.index("function outputSize("):SRC.index("function EdTimeline(")]
-    assert "srcShort >= 1080" in body, "no HD/SD decision from the source"
+    assert "srcShort >= 720" in body, "the HD decision no longer covers 720p sources"
     assert "Math.round(w / 2) * 2" in body and "Math.round(h / 2) * 2" in body, \
         "odd dimensions reach the encoder — H.264 refuses them"
     # 16:9 used to render at 2276x1280 from a 1080p source. Landscape is capped
@@ -782,3 +786,35 @@ def test_the_template_row_is_in_the_panel_and_the_layout_is_a_manual_control_too
     assert "onClick={()=>setLayout('single')}" in ed and "setLayout('split')" in ed, \
         "the split layout can only be reached through a template"
     assert "L.layout === 'split'" in ed, "a drag in the split layout does not move the camera window"
+
+
+# ── export sharpness (2026-09-08) ─────────────────────────────────────────────
+#
+# "The video gets blurry after editing." Three causes, each pinned: the crop
+# resampled with the default bilinear filter, a bitrate budget below what the
+# source arrived at, and the Baseline H.264 profile listed first.
+
+def test_the_frame_is_resampled_at_high_quality():
+    body = SRC[SRC.index("function paintFrame("):SRC.index("function ClipEditor(")]
+    head = body[:body.index("const vw = video.videoWidth")]
+    assert "ctx.imageSmoothingEnabled = true;" in head
+    assert "ctx.imageSmoothingQuality = 'high'" in head, "the crop is drawn with the default bilinear resampler"
+
+
+def test_the_export_bitrate_is_above_what_a_twitch_clip_arrives_at():
+    """Measured: this recorder spends roughly half of what it is asked for,
+    and at 6 Mbps requested the export landed at 1.8 Mbps — below the 6-8
+    Mbps a 1080p Twitch clip is delivered at. The budget has to be well
+    above the source's, not near it."""
+    rec = _export_recorder()
+    m = re.search(r"videoBitsPerSecond: hd \? (\d+)e6 : (\d+)e6", rec)
+    assert m, "no HD/SD bitrate split"
+    assert int(m.group(1)) >= 14 and int(m.group(2)) >= 10, f"bitrate budget too low: {m.groups()}"
+
+
+def test_high_and_main_h264_profiles_are_preferred_over_baseline():
+    m = re.search(r"const REC_TYPES = \[(.*?)\];", SRC, re.S)
+    types = re.findall(r"'([^']+)'", m.group(1))
+    avc = [t for t in types if "avc1" in t]
+    assert avc[0].startswith("video/mp4;codecs=avc1.64"), "High profile is not first"
+    assert avc[-1].startswith("video/mp4;codecs=avc1.42"), "Baseline must remain as the floor"
