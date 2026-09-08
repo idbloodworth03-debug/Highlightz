@@ -9837,236 +9837,263 @@ ADMIN_HTML = """<!DOCTYPE html>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-400.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  /* The admin panel is an INSTRUMENT, not marketing — same room, same light,
-     but no display face and no glow. Every number is mono because every number
-     here is a measurement you compare against another one. */
+  /* The admin panel is an INSTRUMENT, not marketing: the same black ground
+     and the same three inks as the site, the display voice for the one
+     heading, mono for every number because every number here is a
+     measurement you compare against another one. One action colour (the
+     ember), and it is reserved for the thing you would act on: the live
+     figure, the current tab, the selected filter, the button that mints
+     something. Everything else is ink on hairlines. */
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
-  /* METRIC-MATCHED FALLBACK. Sora is the only one of the three faces that
-     causes layout shift: isolated by loading one font at a time, it measured
-     CLS 0.0416 on its own while Lobster and Plex Mono came in at 0.0004 and
-     0.0001. The page total was 0.0759 against a 0.05 target, and the shift
-     landed on the hero CTA row at the instant of the swap.
-
-     The numbers are measured, not guessed. The same string at 100px is
-     3154.6px in Sora and 2790.5px in Arial — a ratio of 1.1305, tuned to 1.144 after measuring the two
-     against each other with both actually loaded — and Sora's
-     ascent/descent are 97/29 against Arial's 91/21. size-adjust scales the
-     fallback to Sora's advance; the overrides restate those metrics against
-     the adjusted em, so the line box is the same height before and after the
-     swap and nothing below it moves. */
+  /* Metric-matched fallback so the swap to Sora does not move the page. The
+     numbers are the ones measured for the landing page (size-adjust from the
+     advance-width ratio, the overrides restated against the adjusted em). */
   @font-face{font-family:'Sora Fallback';font-style:normal;font-weight:100 900;
     src:local('Arial'),local('Helvetica'),local('Liberation Sans');
     size-adjust:114.4%;ascent-override:84.8%;descent-override:25.3%;line-gap-override:0%}
   @font-face{font-family:'Plex';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/plexmono-400.woff2) format('woff2')}
   @font-face{font-family:'Plex';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/plexmono-600.woff2) format('woff2')}
   :root{
-    --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
-    --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB; --ember:#F7A745;
+    /* Surfaces: the site's black, one step up for fields and panels. */
+    --bone:#0A0A0C; --void:#0E0B11; --wall:#151119; --bruise:#33203F;
     --ink:#F2EAF7; --ink-2:#B9AEC4; --ink-3:#9C90A6;
+    --hair:rgba(242,234,247,.085); --hair-2:rgba(242,234,247,.15);
+    /* The action colour, the brand light (kept for the staff marks only),
+       and the two verdict colours. */
+    --ember:#F7A745; --plum:#B86ADC; --glow:#B86ADC; --glow-ink:#C489E4; --flare:#D26AFB;
     --good:#4ADE80; --bad:#FF7A8A;
-    --hair:rgba(242,234,247,.085);
     --mono:'Plex',ui-monospace,SFMono-Regular,Menlo,monospace;
     --sans:'Sora','Sora Fallback',system-ui,sans-serif;
+    /* One curve, two durations: the same names the site uses, defined HERE
+       because the old sheet referenced them without ever declaring them, so
+       every transition on this page was silently instant. */
+    --ease:cubic-bezier(.16,1,.3,1); --dur-fast:150ms; --dur-slow:400ms;
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--void);color:var(--ink);font-family:var(--sans);font-weight:400;
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bone);color:var(--ink);font-family:var(--sans);font-weight:400;
     font-size:14px;line-height:1.6;min-height:100vh;
     -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-  .grain{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:.03;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size:180px 180px}
   a{text-decoration:none;color:inherit}
-  :focus-visible{outline:2px solid var(--flare);outline-offset:2px;border-radius:3px}
-  ::selection{background:rgba(210,106,251,.3)}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--wall);
+    padding:0 var(--s-1);border-radius:3px}
+  :focus-visible{outline:2px solid var(--ember);outline-offset:2px;border-radius:3px}
+  ::selection{background:rgba(247,167,69,.35)}
+  button,input,select{font:inherit;color:inherit}
 
-  /* ── Top bar ── */
-  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
-    padding:12px 24px;background:var(--void);border-bottom:1px solid transparent;
-    background-image:linear-gradient(var(--void),var(--void)),
-      linear-gradient(270deg,rgba(184,106,220,.34),rgba(242,234,247,.06) 55%,rgba(242,234,247,.02));
-    background-origin:padding-box,border-box;background-clip:padding-box,border-box}
-  .logo{display:flex;align-items:center;gap:8px}
-  .logo img{height:22px}
-  .logo span{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase}
-  .badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--flare);border:1px solid rgba(210,106,251,.35);
-    padding:4px 8px;border-radius:2px}
-  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:4px}
-  .tlink{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--ink-3);
-    padding:8px 12px;border-radius:3px;transition:color var(--dur-fast),background var(--dur-fast);white-space:nowrap}
+  /* ── Mono label: the same voice the site uses for every kicker. ── */
+  .k{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+
+  /* ── Top bar. The site's bar, sticky: lockup left, three links right.
+     The word Admin sits in the lockup in the action colour so the page
+     is never mistaken for the dashboard when three tabs are open. ── */
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--s-4);
+    padding:var(--s-3) var(--s-5);background:#09070C;border-bottom:1px solid var(--hair)}
+  .logo{display:flex;align-items:center;gap:var(--s-2);flex-shrink:0}
+  .logo img{height:22px;display:block}
+  .logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+  .badge{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ember);padding-left:var(--s-3);border-left:1px solid var(--hair-2);line-height:1.2}
+  .topbar-right{margin-left:auto;display:flex;align-items:center;gap:var(--s-1);min-width:0}
+  .tlink{font-family:var(--mono);font-size:12px;letter-spacing:.02em;color:var(--ink-3);
+    padding:var(--s-2) var(--s-3);border-radius:3px;white-space:nowrap;
+    transition:color var(--dur-fast),background var(--dur-fast)}
   .tlink:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .tlink .n{color:var(--ember)}
 
-  .wrap{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
-  h1{font-size:24px;font-weight:700;letter-spacing:-.025em}
-  .meta{font-size:14px;color:var(--ink-2);margin-top:4px}
+  .wrap{max-width:1240px;margin:0 auto;padding:var(--s-7) var(--s-5) var(--s-8)}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--s-4);flex-wrap:wrap}
+  h1{font-family:var(--sans);font-weight:800;letter-spacing:-.04em;line-height:.98;
+    font-size:clamp(36px,5vw,56px);color:#fff;margin-top:var(--s-2)}
+  .meta{font-size:14px;color:var(--ink-2);margin-top:var(--s-3);max-width:52ch;line-height:1.5}
 
   /* ── Overview rail. Not six floating tiles: one ruled strip, uneven weight,
      each figure carrying the second number that makes it mean something. ── */
-  .rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:24px 0 8px;
+  .rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:var(--s-6) 0 0;
     border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  .cell{padding:16px 0 16px 16px;border-left:1px solid var(--hair);min-width:0}
+  .cell{padding:var(--s-5) var(--s-4) var(--s-5) var(--s-4);border-left:1px solid var(--hair);min-width:0}
   .cell:first-child{padding-left:0;border-left:none}
-  .cell .v{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-size:24px;letter-spacing:-.03em;line-height:1.1;color:var(--ink)}
+  .cell .v{font-family:var(--sans);font-weight:800;font-variant-numeric:tabular-nums;
+    font-size:clamp(28px,2.6vw,36px);letter-spacing:-.04em;line-height:1;color:#fff}
   .cell.hot .v{color:var(--ember)}
-  .cell .k{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--ink-3);margin-top:8px}
-  .cell .s{font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.4;
-    min-height:2.8em;padding-right:12px}
+  .cell .k{margin-top:var(--s-3)}
+  .cell .s{font-size:12px;color:var(--ink-2);margin-top:var(--s-1);line-height:1.5;min-height:3em}
+
+  /* ── Refusals. Only exists when something is wrong, so it is allowed the
+     one red rule on the page. ── */
+  #refusals-box{border:1px solid rgba(255,122,138,.3);border-left:3px solid var(--bad);border-radius:3px;
+    padding:var(--s-4) var(--s-5);margin-top:var(--s-5)}
+  #refusals-box .hd{display:flex;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;margin-bottom:var(--s-3)}
+  #refusals-box h2{font-size:17px;font-weight:700;letter-spacing:-.02em;color:var(--bad)}
+  #refusals-box .sub{margin-top:0}
 
   /* ── Tabs ── */
-  .tabs{display:flex;gap:0;margin:32px 0 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
-  .tab{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  .tabs{display:flex;gap:0;margin:var(--s-7) 0 0;border-bottom:1px solid var(--hair);flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--ink-3);background:none;border:none;border-bottom:2px solid transparent;
-    padding:12px 16px;cursor:pointer;transition:color var(--dur-fast),border-color var(--dur-fast);margin-bottom:-4px}
+    padding:var(--s-3) var(--s-4);cursor:pointer;
+    transition:color var(--dur-fast),border-color var(--dur-fast)}
   .tab:hover{color:var(--ink-2)}
-  .tab.on{color:var(--ink);border-bottom-color:var(--flare)}
-  .tab .c{color:var(--ink-3);margin-left:8px}
+  .tab.on{color:var(--ink);border-bottom-color:var(--ember)}
+  .tab .c{color:var(--ink-3);margin-left:var(--s-2);font-weight:400}
   .tab.on .c{color:var(--ember)}
-  .panel{display:none;padding-top:24px}
+  .panel{display:none;padding-top:var(--s-5)}
   .panel.on{display:block}
-  .lede{font-size:14px;color:var(--ink-2);max-width:74ch;margin-bottom:16px;line-height:1.6}
+  .lede{font-size:14px;color:var(--ink-2);max-width:74ch;margin-bottom:var(--s-4);line-height:1.6}
   .lede b{color:var(--ink);font-weight:600}
-  .block{margin-bottom:48px}
-  .block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
-  .block-head h2{font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .block{margin-bottom:var(--s-7)}
+  .block-head{display:flex;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;margin-bottom:var(--s-1)}
+  .block-head h2{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff}
   .block-head .c{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-3)}
 
   /* ── Toolbar ── */
-  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-  .field{background:var(--wall);border:1px solid var(--hair);color:var(--ink);border-radius:3px;
-    padding:8px 12px;font-size:12px;font-family:var(--sans);flex:1 1 260px;max-width:340px;min-width:0}
+  .toolbar{display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;margin-bottom:var(--s-4)}
+  .field{background:var(--wall);border:1px solid var(--hair-2);color:var(--ink);border-radius:3px;
+    padding:var(--s-2) var(--s-3);font-size:14px;font-family:var(--sans);flex:1 1 260px;max-width:360px;min-width:0;
+    transition:border-color var(--dur-fast)}
   .field::placeholder{color:var(--ink-3)}
-  .field:focus{outline:none;border-color:rgba(184,106,220,.5)}
-  .chips{display:flex;gap:0;border:1px solid var(--hair);border-radius:3px;overflow:hidden}
-  .chip{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
-    color:var(--ink-3);background:none;border:none;border-right:1px solid var(--hair);
-    padding:8px 12px;cursor:pointer;transition:var(--dur-fast)}
-  .chip:last-child{border-right:none}
-  .chip:hover{color:var(--ink-2);background:rgba(242,234,247,.04)}
-  .chip.on{color:var(--void);background:var(--ember);font-weight:600}
+  .field:focus{outline:none;border-color:var(--ember)}
+  /* Filters are separate chips, not one joined strip: a strip cannot wrap,
+     and on a phone nine of them have to. */
+  .chips{display:flex;gap:var(--s-1);flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);background:none;border:1px solid var(--hair);border-radius:3px;
+    padding:var(--s-1) var(--s-3);cursor:pointer;
+    transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .chip:hover{color:var(--ink);border-color:var(--hair-2)}
+  .chip.on{color:var(--bone);background:var(--ember);border-color:var(--ember);font-weight:600}
   .spacer{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.06em}
 
   /* ── Tables ── */
   .tw{overflow-x:auto}
   table{width:100%;border-collapse:collapse}
   th{text-align:left;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-3);
-    text-transform:uppercase;letter-spacing:.16em;padding:0 12px 8px 0;border-bottom:1px solid var(--hair);
+    text-transform:uppercase;letter-spacing:.14em;padding:0 var(--s-3) var(--s-3) 0;border-bottom:1px solid var(--hair-2);
     white-space:nowrap}
   th:last-child{padding-right:0}
-  td{padding:12px 12px 12px 0;font-size:14px;border-bottom:1px solid var(--hair);vertical-align:middle}
+  td{padding:var(--s-3) var(--s-3) var(--s-3) 0;font-size:14px;border-bottom:1px solid var(--hair);vertical-align:middle}
   td:last-child{padding-right:0}
-  tbody tr:hover{background:linear-gradient(90deg,rgba(184,106,220,.05),transparent 70%)}
+  tbody tr{transition:background var(--dur-fast)}
+  tbody tr:hover{background:rgba(242,234,247,.03)}
   tr.u-row{cursor:pointer}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
   .dim{color:var(--ink-3)}
-  .who{display:flex;align-items:center;gap:12px;min-width:0}
-  .avatar{width:30px;height:30px;border-radius:3px;object-fit:cover;flex-shrink:0;
-    background:linear-gradient(150deg,#3A2348,#231733);border:1px solid var(--hair)}
-  .username{font-weight:600;letter-spacing:-.01em}
-  .sub{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.03em}
+  .mono{font-family:var(--mono);font-size:12px;letter-spacing:.02em}
+  .who{display:flex;align-items:center;gap:var(--s-3);min-width:0}
+  .avatar{width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0;
+    background:var(--wall);border:1px solid var(--hair)}
+  .username{font-weight:600;letter-spacing:-.01em;color:#fff}
+  .sub{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.02em;
+    overflow-wrap:anywhere}
 
   /* ── Plan + status marks. Text, not filled pills: a table of eight coloured
-     lozenges is unreadable, and the plan is the thing you scan for. ── */
+     lozenges is unreadable, and the plan is the thing you scan for. Pro wears
+     the action colour because it is the row that pays. ── */
   .plan{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
-  .plan-pro{color:var(--flare)}
-  .plan-starter{color:var(--glow-ink)}
+  .plan-pro{color:var(--ember)}
+  .plan-starter{color:var(--ink)}
   .plan-free{color:var(--ink-3)}
-  .plan-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.06em}
+  .plan-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.02em}
   .plan-note.pay{color:var(--good)}
   .plan-note.trial{color:var(--ember)}
   .plan-note.lapsed{color:var(--bad)}
-  .tagm{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--ember);border:1px solid rgba(247,167,69,.3);padding:4px 4px;border-radius:2px;margin-left:8px}
-  .tagm.adm{color:var(--flare);border-color:rgba(210,106,251,.35)}
+  .tagm{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ember);border:1px solid rgba(247,167,69,.35);padding:0 var(--s-1);border-radius:2px;margin-left:var(--s-2);
+    font-weight:600;vertical-align:middle}
+  .tagm.adm{color:var(--glow-ink);border-color:rgba(184,106,220,.45)}
 
-  /* ── Buttons ── */
-  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:4px 12px;border-radius:3px;
-    cursor:pointer;border:1px solid var(--hair);background:var(--wall);color:var(--ink-2);
-    transition:var(--dur-fast);white-space:nowrap}
-  .btn:hover{color:var(--ink);border-color:rgba(184,106,220,.45)}
+  /* ── Buttons. The same shape as the site's: square corners, one weight. ── */
+  .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:var(--s-1) var(--s-3);border-radius:3px;
+    cursor:pointer;border:1px solid var(--hair-2);background:transparent;color:var(--ink-2);
+    line-height:1.5;white-space:nowrap;
+    transition:color var(--dur-fast),background var(--dur-fast),border-color var(--dur-fast)}
+  .btn:hover{color:#fff;border-color:rgba(242,234,247,.45)}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.5;cursor:default}
   /* The drawer's "Send a message" is a LINK, because it goes to another page —
      a button that navigates cannot be opened in a new tab. Scoped to a.btn so
      the real buttons and the select.btn pickers keep their own display mode. */
-  a.btn{display:inline-flex;align-items:center;text-decoration:none;line-height:1.5}
-  .btn-key{border-color:rgba(210,106,251,.5);color:var(--ink);
-    background:linear-gradient(166deg,var(--bruise),#25172E)}
-  .btn-key:hover{background:linear-gradient(166deg,#412852,#2C1B36);border-color:#EFA6FF}
-  .btn-good{color:var(--good);border-color:rgba(74,222,128,.3)}
-  .btn-good:hover{color:var(--good);border-color:rgba(74,222,128,.6)}
-  .btn-bad{color:var(--bad);border-color:rgba(255,122,138,.28)}
-  .btn-bad:hover{color:var(--bad);border-color:rgba(255,122,138,.6)}
-  select.btn{font-family:var(--mono);font-size:12px;letter-spacing:.06em}
-  select.btn option{background:#16121C;color:var(--ink);font-family:var(--sans)}
-  .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-  .empty,.loading{padding:32px 0;text-align:center;color:var(--ink-3);font-size:12px}
-  .err{color:var(--bad);font-size:12px;padding:16px 0}
+  a.btn{display:inline-flex;align-items:center;text-decoration:none}
+  /* The one filled button: it mints something. */
+  .btn-key{background:var(--ember);border-color:var(--ember);color:var(--bone)}
+  .btn-key:hover{background:#FFB65A;border-color:#FFB65A;color:var(--bone)}
+  .btn-good{color:var(--good);border-color:rgba(74,222,128,.35)}
+  .btn-good:hover{color:var(--good);border-color:var(--good)}
+  .btn-bad{color:var(--bad);border-color:rgba(255,122,138,.3)}
+  .btn-bad:hover{color:var(--bad);border-color:var(--bad)}
+  select.btn{font-family:var(--mono);font-size:12px;letter-spacing:.04em;background:var(--wall);
+    padding-right:var(--s-5);appearance:none;-webkit-appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);
+    background-position:calc(100% - 12px) 55%,calc(100% - 8px) 55%;background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+  select.btn option{background:var(--wall);color:var(--ink);font-family:var(--sans)}
+  .acts{display:flex;gap:var(--s-2);flex-wrap:wrap;justify-content:flex-end}
+  .empty,.loading{padding:var(--s-6) 0;color:var(--ink-3);font-size:14px;font-family:var(--mono);letter-spacing:.02em}
+  .err{color:var(--bad);font-size:14px;padding:var(--s-4) 0}
 
   /* ── Sortable header ── */
-  th.sortable{cursor:pointer;user-select:none}
-  th.sortable:hover{color:var(--ink-2)}
+  th.sortable{cursor:pointer;user-select:none;transition:color var(--dur-fast)}
+  th.sortable:hover{color:var(--ink)}
   th.sortable.on{color:var(--ember)}
   tr.expandable{cursor:pointer}
   .drill{background:rgba(242,234,247,.02)}
-  .drill td{padding:16px 0}
-  .bar{flex:1;height:3px;background:rgba(242,234,247,.08);overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--glow)}
+  .drill td{padding:var(--s-4) 0 var(--s-4) var(--s-4);border-left:2px solid var(--ember)}
+  .drl{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-1) 0;font-size:12px}
+  .drl-when{width:118px;flex-shrink:0;font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  .drl-n{width:150px;flex-shrink:0;text-align:right;font-size:12px}
+  .bar{flex:1;height:3px;background:rgba(242,234,247,.08);overflow:hidden;min-width:32px}
+  .bar i{display:block;height:100%;background:var(--ember)}
 
   /* ── Toast ── */
-  .toast{position:fixed;bottom:22px;right:22px;background:var(--wall);border:1px solid var(--hair);
-    border-radius:3px;padding:12px 16px;font-size:12px;font-weight:600;opacity:0;transform:translateY(6px);
-    transition:var(--dur-slow);pointer-events:none;z-index:999}
+  .toast{position:fixed;bottom:var(--s-5);right:var(--s-5);background:var(--wall);border:1px solid var(--hair-2);
+    border-radius:3px;padding:var(--s-3) var(--s-4);font-size:14px;font-weight:600;opacity:0;transform:translateY(6px);
+    max-width:min(420px,calc(100vw - 48px));overflow-wrap:anywhere;
+    transition:opacity var(--dur-slow) var(--ease),transform var(--dur-slow) var(--ease);pointer-events:none;z-index:999}
   .toast.show{opacity:1;transform:none}
-  .toast.ok{border-color:rgba(74,222,128,.45);color:var(--good)}
-  .toast.err{border-color:rgba(255,122,138,.45);color:var(--bad)}
+  .toast.ok{border-color:rgba(74,222,128,.5);color:var(--good)}
+  .toast.err{border-color:rgba(255,122,138,.5);color:var(--bad)}
 
   /* ── User drawer. A drawer, not a centred modal: it holds the identity, the
      billing facts and the rare/destructive actions, so it is a place you read
      top to bottom rather than a dialog you dismiss. ── */
-  .scrim{position:fixed;inset:0;background:rgba(6,4,9,.72);z-index:100;opacity:0;
-    pointer-events:none;transition:var(--dur-fast)}
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;opacity:0;
+    pointer-events:none;transition:opacity var(--dur-fast)}
   .scrim.open{opacity:1;pointer-events:auto}
   .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:101;
-    background:var(--void);border-left:1px solid transparent;
-    background-image:linear-gradient(var(--void),var(--void)),
-      linear-gradient(200deg,rgba(210,106,251,.45),rgba(242,234,247,.06) 60%,rgba(242,234,247,.02));
-    background-origin:padding-box,border-box;background-clip:padding-box,border-box;
+    background:var(--bone);border-left:1px solid var(--hair-2);
     display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;
     transition:transform var(--dur-slow) var(--ease),visibility var(--dur-slow)}
   .drawer.open{transform:none;visibility:visible}
-  .drawer-head{display:flex;align-items:flex-start;gap:12px;padding:16px 24px;border-bottom:1px solid var(--hair)}
-  .drawer-head h3{font-size:17px;font-weight:700;letter-spacing:-.02em}
-  .drawer-head .s{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;letter-spacing:.05em}
-  .x{margin-left:auto;width:28px;height:28px;border-radius:3px;background:var(--wall);
-    border:1px solid var(--hair);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0}
-  .x:hover{color:var(--ink);border-color:rgba(210,106,251,.5)}
-  .drawer-body{overflow-y:auto;padding:24px 24px 32px;display:flex;flex-direction:column;gap:24px}
-  .dh{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
-    color:var(--ink-3);padding-bottom:8px;border-bottom:1px solid var(--hair);margin-bottom:12px}
-  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:8px 12px;font-size:12px}
-  .kv dt{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:4px}
-  .kv dd{color:var(--ink-2);word-break:break-word}
-  .kv dd b{color:var(--ink);font-weight:600}
+  .drawer-head{display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--hair)}
+  .drawer-head h3{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff;overflow-wrap:anywhere}
+  .drawer-head .s{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.04em}
+  .x{margin-left:auto;width:32px;height:32px;border-radius:3px;background:transparent;
+    border:1px solid var(--hair-2);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0;
+    transition:color var(--dur-fast),border-color var(--dur-fast)}
+  .x:hover{color:#fff;border-color:var(--ember)}
+  .drawer-body{overflow-y:auto;padding:var(--s-5) var(--s-5) var(--s-6);display:flex;flex-direction:column;gap:var(--s-6)}
+  .dh{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);padding-bottom:var(--s-2);border-bottom:1px solid var(--hair-2);margin-bottom:var(--s-3)}
+  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:var(--s-2) var(--s-3);font-size:14px}
+  .kv dt{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:var(--s-1)}
+  .kv dd{color:var(--ink-2);overflow-wrap:anywhere}
+  .kv dd b{color:#fff;font-weight:600}
   /* Lifetime clip decisions. Five small readouts on one row so the shape of
      someone's usage is one glance, not five lines of prose. Wraps rather than
      scrolls: the drawer is narrow on a phone and a number you have to swipe
      to reach is a number nobody reads. */
-  .stat-row{display:flex;flex-wrap:wrap;gap:8px}
-  .sbox{flex:1 1 84px;min-width:0;padding:8px 12px;border-radius:3px;
+  .stat-row{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+  .sbox{flex:1 1 84px;min-width:0;padding:var(--s-2) var(--s-3);border-radius:3px;
     border:1px solid var(--hair);background:rgba(242,234,247,.02)}
-  .sbox b{display:block;font-family:var(--mono);font-weight:600;font-size:17px;
-    font-variant-numeric:tabular-nums;line-height:1.1}
-  .sbox span{display:block;margin-top:4px;font-family:var(--mono);font-size:12px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--fg-2)}
-  /* --good and --bad, which is what THIS page defines. --live is a dashboard
-     token and does not exist here, so `accepted` was rendering in plain ink
-     while `rejected` was red — the one comparison the block exists to make,
-     and only half of it was coloured. */
+  .sbox b{display:block;font-family:var(--sans);font-weight:800;font-size:24px;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;line-height:1.1;color:#fff}
+  .sbox span{display:block;margin-top:var(--s-1);font-family:var(--mono);font-size:12px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
   .sbox.good b{color:var(--good)}
   .sbox.bad b{color:var(--bad)}
-  .srow{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--hair);font-size:12px}
+  .srow{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) 0;border-bottom:1px solid var(--hair);font-size:14px}
   .srow:last-child{border-bottom:none}
+  .srow b{color:#fff}
   .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
   .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
   .dot-offline{background:var(--ink-3)}
@@ -10074,50 +10101,93 @@ ADMIN_HTML = """<!DOCTYPE html>
   /* Approved clips are the ones that mattered, so they lead the list and are
      marked. Colour alone would not be enough — the status word carries the same
      information for anyone who cannot see the difference between the rules. */
-  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:12px;align-items:center;
-    padding:8px 0 8px 12px;border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
-    font-size:12px}
+  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:var(--s-3);align-items:center;
+    padding:var(--s-2) 0 var(--s-2) var(--s-3);border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
+    font-size:14px}
   .crow:last-child{border-bottom:none}
   .crow.ok{border-left-color:var(--good);
     background:linear-gradient(90deg,rgba(74,222,128,.06),transparent 45%)}
-  .crow .st{font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+  .crow .st{font-family:var(--mono);font-size:12px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--ink-3)}
   .crow.ok .st{color:var(--good)}
-  .crow.ok b{color:var(--ink)}
-  .ct{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:4px;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.03em}
-  .danger{border:1px solid rgba(255,122,138,.22);border-radius:3px;padding:16px 16px}
-  .danger .dh{border-bottom-color:rgba(255,122,138,.22);color:var(--bad)}
-  .danger p{font-size:12px;color:var(--ink-3);margin-bottom:12px;line-height:1.5}
+  .crow.ok b{color:#fff}
+  .ct{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
+  .danger{border:1px solid rgba(255,122,138,.25);border-radius:3px;padding:var(--s-4) var(--s-4)}
+  .danger .dh{border-bottom-color:rgba(255,122,138,.25);color:var(--bad)}
+  .danger p{font-size:14px;color:var(--ink-3);margin-bottom:var(--s-3);line-height:1.5}
 
   @media(max-width:980px){
     .rail{grid-template-columns:repeat(3,minmax(0,1fr))}
     .cell:nth-child(4){padding-left:0;border-left:none}
     .cell:nth-child(-n+3){border-bottom:1px solid var(--hair)}
   }
-  @media(max-width:660px){
-    .wrap{padding:24px 16px 64px}
-    .topbar{padding:8px 16px;gap:8px}
-    .logo span{display:none}
+  @media(max-width:700px){
+    .wrap{padding:var(--s-5) var(--s-4) var(--s-8)}
+    .topbar{padding:var(--s-2) var(--s-4);flex-wrap:wrap;row-gap:var(--s-1);gap:var(--s-3)}
+    .topbar-right{margin-left:0;width:100%;gap:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .tlink{padding:var(--s-1) var(--s-2) var(--s-1) 0}
+    .tlink + .tlink{padding-left:var(--s-2)}
     .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .cell{padding-left:16px}
+    .cell{padding:var(--s-4) var(--s-3) var(--s-4) var(--s-3)}
     .cell:nth-child(odd){padding-left:0;border-left:none}
     .cell:nth-child(-n+4){border-bottom:1px solid var(--hair)}
-    .field{max-width:none;width:100%}
-    .acts{justify-content:flex-start}
-    .topbar{flex-wrap:wrap;row-gap:4px}
-    .topbar-right{margin-left:0;width:100%;justify-content:flex-start;gap:0}
-    .tlink{padding:4px 8px;font-size:12px}
-    .tab{padding:8px 12px;font-size:12px}
-    /* User | Membership | Actions only. Streams, clips and joined-date are all
-       in the drawer, and keeping them here just pushed the actions off-screen. */
-    #u-wrap th:nth-child(n+3),#u-wrap td:nth-child(n+3){display:none}
-    /* Seven filters do not fit 390px, and a clipped row of them reads as
-       broken rather than as scrollable. */
-    .chips{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
-    .chip{flex:0 0 auto}
-    .kv{grid-template-columns:minmax(0,1fr);gap:4px 0}
-    .kv dd{margin-bottom:8px}
+    .cell .s{min-height:0}
+    /* Four tabs as a two-by-two grid: four in a row do not fit 390px, and a
+       row that wraps one orphan onto its own line reads as broken. */
+    .tabs{margin-top:var(--s-6);display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .tab{padding:var(--s-2) var(--s-3);text-align:center}
+    .field{max-width:none;width:100%;flex-basis:100%}
+    .spacer{margin-left:0;width:100%}
+    .block-head h2{font-size:20px}
+    #refusals-box{padding:var(--s-3) var(--s-4)}
+
+    /* ── EVERY TABLE STACKS. Nothing is hidden on a phone: each row becomes
+       a card, each cell a label/value pair, the label copied from the
+       column header by the script (data-l). The first cell is the row's
+       name and needs no label. Sorting survives because the clip record's
+       header row turns into a row of sort chips instead of vanishing. ── */
+    .tw{overflow-x:visible}
+    .tw table,.tw tbody,.tw tr,.tw td{display:block}
+    .tw thead{display:none}
+    .tw tbody tr{border:1px solid var(--hair);border-radius:3px;padding:var(--s-2) var(--s-3);
+      margin-bottom:var(--s-2);background:rgba(242,234,247,.02)}
+    .tw td{display:grid;grid-template-columns:96px minmax(0,1fr);gap:var(--s-1) var(--s-3);
+      align-items:start;padding:var(--s-1) 0;border-bottom:none;font-size:14px}
+    .tw td::before{content:attr(data-l);font-family:var(--mono);font-size:12px;font-weight:600;
+      letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);line-height:1.8}
+    /* The label is the pseudo-element in column one; EVERY real child goes to
+       column two, so a cell holding a plan plus two notes stacks its lines
+       under the value instead of flowing them into the label column. */
+    .tw td > *{grid-column:2}
+    .tw td:first-child{display:block;padding:var(--s-1) 0 var(--s-2);margin-bottom:var(--s-1);
+      border-bottom:1px solid var(--hair)}
+    .tw td:first-child::before,.tw td:not([data-l])::before,.tw td[data-l=""]::before{display:none}
+    .tw td:not([data-l]),.tw td[data-l=""]{grid-template-columns:minmax(0,1fr)}
+    .tw td[style*="max-width"]{max-width:none}
+    .tw .acts{justify-content:flex-start}
+    .tw tr.drill{margin-top:calc(-1 * var(--s-2));border-top:none;border-radius:0 0 3px 3px}
+    .drill td{border-left:none;padding:var(--s-2) 0}
+    #cr-wrap thead,#cr-wrap thead tr{display:flex;flex-wrap:wrap;gap:var(--s-1)}
+    #cr-wrap thead{margin-bottom:var(--s-3)}
+    #cr-wrap thead th{display:block;border:1px solid var(--hair);border-radius:3px;
+      padding:var(--s-1) var(--s-2);letter-spacing:.08em;border-bottom:1px solid var(--hair)}
+    #cr-wrap thead th.on{color:var(--bone);background:var(--ember);border-color:var(--ember)}
+    .drl{flex-wrap:wrap}
+    .drl-when{width:auto}
+    .drl-n{width:100%;text-align:left}
+    .bar{flex-basis:100%;order:3}
+    .kv{grid-template-columns:minmax(0,1fr);gap:var(--s-1) 0}
+    .kv dt{padding-top:0}
+    .kv dd{margin-bottom:var(--s-2)}
+    .drawer{width:100%;border-left:none}
+    .drawer-head{padding:var(--s-4)}
+    .drawer-body{padding:var(--s-4) var(--s-4) var(--s-6);gap:var(--s-5)}
+    .crow{grid-template-columns:minmax(0,1fr) auto;row-gap:var(--s-1)}
+    .crow .st{grid-column:1}
+    .crow .num{grid-column:2;grid-row:1;text-align:right}
+    .crow .btn,.crow .dim{grid-column:2;grid-row:2;justify-self:end}
+    .toast{left:var(--s-4);right:var(--s-4);bottom:var(--s-4);max-width:none}
   }
 </style>
 </head>
@@ -10136,6 +10206,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 
 <div class="wrap">
+  <div class="k">Control room</div>
   <h1>Admin</h1>
   <p class="meta">Platform overview, memberships and user management.</p>
 
@@ -10157,7 +10228,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <div id="refusals-box" style="display:none;margin:0 0 18px">
     <div class="hd"><h2>Channels Twitch is refusing to clip</h2>
       <span class="sub" id="refusals-sum"></span></div>
-    <div id="refusals-wrap"></div>
+    <div class="tw"><div id="refusals-wrap"></div></div>
   </div>
 
   <div class="tabs" id="tabs">
@@ -10743,7 +10814,7 @@ async function openUser(u){
     + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
     + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
     + '<dt>Last seen</dt><dd>' + (u.last_active_at
-        ? esc(ago(u.last_active_at)) + ' <span class="dim" style="font-size:11px">('
+        ? esc(ago(u.last_active_at)) + ' <span class="dim" style="font-size:12px">('
           + fmt(u.last_active_at) + ')</span>'
         : '<span class="dim">not since we started counting</span>') + '</dd>'
     // Distinct from Last seen: this only moves when they go through Twitch and
@@ -10752,13 +10823,13 @@ async function openUser(u){
     // means "not since then", not "never" — and saying "never" about a daily
     // user would be a lie the panel tells with a straight face.
     + '<dt>Last sign-in</dt><dd>' + (u.last_login_at
-        ? esc(ago(u.last_login_at)) + ' <span class="dim" style="font-size:11px">('
+        ? esc(ago(u.last_login_at)) + ' <span class="dim" style="font-size:12px">('
           + fmt(u.last_login_at) + ')</span>'
         : '<span class="dim">not since we started recording it</span>') + '</dd>'
     + '<dt>Joined</dt><dd>' + fmt(u.created_at) + '</dd>'
     + '<dt>Email</dt><dd>' + (u.email
         ? esc(u.email) + (u.email_source
-            ? ' <span class="dim" style="font-size:11px">(' + esc(u.email_source) + ')</span>'
+            ? ' <span class="dim" style="font-size:12px">(' + esc(u.email_source) + ')</span>'
             : '')
         : '<span class="dim">none &mdash; arrives when they next sign in</span>') + '</dd>'
     + '<dt>User id</dt><dd>' + esc(u.id) + '</dd>'
@@ -10792,10 +10863,10 @@ async function openUser(u){
     ? streams.map(s => '<div class="srow"><span class="' + dotClass(s.status||'offline') + '"></span>'
         + '<span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
         + '<span class="ct">' + esc(s.platform) + ' · preset ' + esc(s.preset || 'default') + '</span></span>'
-        + '<span class="dim" style="font-size:12px;text-transform:capitalize">' + esc(s.status||'offline') + '</span>'
+        + '<span class="dim mono" style="text-transform:capitalize">' + esc(s.status||'offline') + '</span>'
         + '<button class="btn btn-bad dr-stopone" data-ch="' + esc(s.channel) + '">Stop</button>'
         + '</div>').join('')
-    : '<div class="dim" style="font-size:13px">No streams registered.</div>';
+    : '<div class="dim">No streams registered.</div>';
   html += '</div>';
 
   // LIFETIME decisions, straight off the ledger. Above this the drawer shows
@@ -10834,12 +10905,12 @@ async function openUser(u){
         return '<div class="crow' + (ok ? ' ok' : '') + '"><span style="min-width:0"><b>' + esc(c.channel) + '</b>'
         + '<span class="ct">' + esc(c.clip_title || c.stream_title || '') + ' · ' + fmtTs(c.created_at) + '</span></span>'
         + '<span class="st">' + (ok ? 'Approved' : esc(c.status || 'pending')) + '</span>'
-        + '<span class="num" style="font-size:12px;color:var(--glow-ink)">' + Math.round(c.virality_score||0) + '%</span>'
+        + '<span class="num" style="font-size:12px;color:var(--ink-2)">' + Math.round(c.virality_score||0) + '%</span>'
         + (c.twitch_url ? '<a class="btn" href="' + esc(c.twitch_url) + '" target="_blank" rel="noopener">Watch ↗</a>'
                         : '<span class="dim" style="font-size:12px">no link</span>')
         + '</div>';
       }).join('')
-    : '<div class="dim" style="font-size:13px">No clips yet.</div>';
+    : '<div class="dim">No clips yet.</div>';
   html += '</div>';
 
   if(!u.is_admin || u.id !== ME){
@@ -10955,9 +11026,9 @@ function ivRow(i){
     ? i.claims.map(c => rvEsc(c.username || c.user_id)).join(', ')
     : '<span class="dim">unclaimed</span>';
   const state = i.live
-    ? '<span class="st" style="color:var(--good)">Live</span>'
-    : '<span class="st">' + (i.expired ? 'Expired' : 'Used up') + '</span>';
-  return '<tr><td><span class="num" style="font-size:12px">' + rvEsc(url) + '</span>'
+    ? '<span class="plan" style="color:var(--good)">Live</span>'
+    : '<span class="plan plan-free">' + (i.expired ? 'Expired' : 'Used up') + '</span>';
+  return '<tr><td><span class="mono" style="color:var(--ink);overflow-wrap:anywhere">' + rvEsc(url) + '</span>'
     + (i.note ? '<span class="ct">' + rvEsc(i.note) + '</span>' : '') + '</td>'
     + '<td><span class="plan ' + planClass(i.plan) + '">' + rvEsc(i.plan) + '</span>'
     + '<div class="plan-note">' + (i.days ? i.days + ' days' : 'no end date') + '</div></td>'
@@ -11043,7 +11114,7 @@ async function loadReferrals(){
         + '<td class="num">' + r.connected + '</td>'
         + '<td class="num" style="color:var(--good)">' + r.active_wk2 + '</td>'
         + '<td class="num">' + r.paid + '</td>'
-        + '<td class="dim" style="font-family:var(--mono);font-size:11.5px">'
+        + '<td class="dim mono">'
         + (r.ref === 'direct' ? '—' : 'highlightz.app/?ref=' + rvEsc(r.ref)) + '</td></tr>').join('')
     + '</tbody></table>';
 }
@@ -11068,7 +11139,7 @@ function renderPromo(){
   wrap.className = '';
   wrap.innerHTML = '<table><thead><tr><th>Code</th><th>Signups</th><th>Active now</th>'
     + '<th>Est. payout ($5/signup)</th></tr></thead><tbody>'
-    + codes.map(c => '<tr><td style="font-weight:600;color:var(--glow-ink)">' + esc(c) + '</td>'
+    + codes.map(c => '<tr><td class="mono" style="font-weight:600;color:var(--ember)">' + esc(c) + '</td>'
         + '<td class="num">' + byCode[c].signups + '</td>'
         + '<td class="num">' + byCode[c].active + '</td>'
         + '<td class="num">$' + (byCode[c].signups * 5) + '</td></tr>').join('')
@@ -11143,10 +11214,10 @@ function crRender(){
           + ' aged out before review, so the keep rate counts them as not kept. '
           + 'Of what was actually reviewed: ' + r.kept_of_reviewed_pct + '%.</p>';
       }
-      inner += ss.map(s => '<div style="display:flex;align-items:center;gap:12px;padding:4px 0;font-size:12.5px">'
-        + '<span class="dim" style="width:118px;flex-shrink:0;font-family:var(--mono);font-size:11px">' + crWhen(s.started_at) + '</span>'
+      inner += ss.map(s => '<div class="drl">'
+        + '<span class="drl-when">' + crWhen(s.started_at) + '</span>'
         + '<span class="bar"><i style="width:' + (s.caught ? (s.approved/s.caught*100) : 0) + '%"></i></span>'
-        + '<span class="num" style="width:150px;flex-shrink:0;text-align:right;font-size:12px">'
+        + '<span class="num drl-n">'
         + s.approved + ' kept of ' + s.caught + (s.caught ? ' (' + s.kept_pct + '%)' : '') + '</span></div>').join('');
       html += '<tr class="drill"><td colspan="' + CR_COLS.length + '">' + inner + '</td></tr>';
     }
@@ -11180,7 +11251,7 @@ document.getElementById('cr-filter').addEventListener('input', crRender);
 // ── reviews ─────────────────────────────────────────────────────────────────
 function rvStars(n){
   return '<span style="color:var(--ember);letter-spacing:1px">' + RV_STAR.repeat(n)
-    + '<span style="color:#3A3242">' + RV_STAR.repeat(5-n) + '</span></span>';
+    + '<span style="color:rgba(242,234,247,.18)">' + RV_STAR.repeat(5-n) + '</span></span>';
 }
 
 function rvRow(r){
@@ -11190,7 +11261,7 @@ function rvRow(r){
   const act = r.publish_consent
     ? '<button class="btn rv-act" data-id="' + rvEsc(r.id) + '" data-on="' + (!r.approved) + '">'
       + (r.approved ? 'Unpublish' : 'Publish') + '</button>'
-    : '<span class="dim" style="font-size:11px">no consent</span>';
+    : '<span class="dim mono">no consent</span>';
   return '<tr><td>' + rvStars(r.stars) + '</td>'
     + '<td style="max-width:340px;white-space:pre-wrap">' + rvEsc(r.comment || '—') + '</td>'
     + '<td class="dim">' + rvEsc(r.username || r.user_id) + '</td>'
@@ -11232,6 +11303,31 @@ document.getElementById('rv-wrap').addEventListener('click', async e => {
     loadReviews();
   }
 });
+
+// ── phone layout ────────────────────────────────────────────────────────────
+// Under 700px every table stacks into cards (see the stylesheet), and each
+// cell shows its column's name in front of the value. The name is copied from
+// the header here, after every render, so the seven render functions do not
+// each have to know about it and a column added later is labelled for free.
+// Observing childList only: setting an attribute does not fire it, so the
+// labeller cannot trigger itself.
+function labelCells(root){
+  root.querySelectorAll('table').forEach(t => {
+    const heads = Array.from(t.querySelectorAll('thead th'))
+      .map(h => h.textContent.replace(/[▾▴]/g, '').trim());
+    t.querySelectorAll('tbody tr').forEach(tr => {
+      if(tr.classList.contains('drill')) return;
+      Array.from(tr.children).forEach((td, i) => td.setAttribute('data-l', heads[i] || ''));
+    });
+  });
+}
+new MutationObserver(ms => {
+  const seen = new Set();
+  ms.forEach(m => {
+    const tw = m.target.nodeType === 1 ? m.target.closest('.tw') : null;
+    if(tw && !seen.has(tw)){ seen.add(tw); labelCells(tw); }
+  });
+}).observe(document.body, {childList:true, subtree:true});
 
 // ── boot ────────────────────────────────────────────────────────────────────
 // refresh() is what every mutating action calls, so a grant/revoke/delete

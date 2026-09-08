@@ -536,6 +536,26 @@ normal Clip Review screen, which still shows scores.
   structured data on all three marketing pages (SoftwareApplication +
   Organization/WebSite + FAQPage, HowTo, ItemList), and the landing's
   crawlable-text floor.
+- **Admin page restyled, nothing hidden on a phone (2026-09-08).** `ADMIN_HTML`
+  wears the site's system now: black ground, the display voice for the one
+  heading and the rail figures, mono labels, the ember as the only action
+  colour (current tab, selected filter, the mint button, Pro), hairline
+  tables, Sora/Plex only. The old sheet referenced `--dur-fast`, `--dur-slow`,
+  `--ease` and `--fg-2` without declaring them, so every transition was
+  instant; they are declared in `:root` now and a test forbids undeclared
+  vars. Phone (≤700): the users table used to HIDE every column past
+  Membership. Now every table (users, refusals, invites, referrals, promo,
+  clip record incl. the per-stream drill, reviews) stacks into cards; each
+  cell shows its column name via `td::before{content:attr(data-l)}`, copied
+  from the header by a `MutationObserver` (`labelCells`) after every render
+  so the renderers know nothing about it. The clip record's header becomes a
+  row of sort chips so sorting still works stacked. Tabs are a 2×2 grid,
+  filters wrap, the drawer is full-width. Markup/JS otherwise untouched (all
+  pinned substrings, zero backslashes, delegated handlers). Verified in
+  Chromium at 1440/390 with stubbed `/admin/*` JSON
+  (`scratchpad/v4/adminshot.js`): overflow 0, no clipped cells, no console
+  errors, drawer + drill + sort exercised. The feedback and opt-out sub-pages
+  keep their own older styles — not part of this pass.
 - **Landing v4 — the cinematic page (2026-09-02, later the same day).** The
   owner's second full brief: delete every section below the cover and rebuild
   imagery-first (a Squarespace/Apple register: full-bleed frame, huge plain

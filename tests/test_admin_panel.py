@@ -555,3 +555,67 @@ def test_the_header_still_reports_entitlement_somewhere():
     from src.dashboard import api
     src = inspect.getsource(api.admin_overview)
     assert '"by_plan": by_plan' in src, "entitlement counts were dropped entirely"
+
+
+# ── the 2026-09-08 restyle: nothing is hidden on a phone ─────────────────────
+# The old sheet hid every users-table column past Membership under 660px, so
+# the phone view lost streams, clips and last-seen entirely. Now every table
+# stacks into cards and each cell carries its column name, copied from the
+# header by the page after every render.
+
+def _admin_css() -> str:
+    import re
+    from src.dashboard.api import ADMIN_HTML
+    return "\n".join(re.findall(r"<style>(.*?)</style>", ADMIN_HTML, re.S))
+
+
+def test_no_table_column_is_hidden_on_a_phone():
+    import re
+    css = _admin_css()
+    assert not re.search(r"nth-child\([^)]*\)[^{]*\{[^}]*display:\s*none", css), \
+        "a table column is hidden by a media rule again"
+    assert "attr(data-l)" in css, "the stacked cells have no label"
+
+
+def test_every_table_is_labelled_after_it_renders():
+    """The renderers do not know about the phone layout; the observer does."""
+    from src.dashboard.api import ADMIN_HTML
+    assert "function labelCells(" in ADMIN_HTML
+    assert "new MutationObserver(" in ADMIN_HTML
+    assert "setAttribute('data-l'" in ADMIN_HTML
+    # Every table the page renders sits inside a .tw so the observer sees it.
+    for wrap in ("u-wrap", "iv-wrap", "rf-wrap", "pr-wrap", "cr-wrap", "rv-wrap", "refusals-wrap"):
+        assert f'<div class="tw"><div id="{wrap}"' in ADMIN_HTML, f"{wrap} is not inside a .tw"
+
+
+def test_the_clip_record_can_still_be_sorted_on_a_phone():
+    """Stacking hides the header row, which is where sorting lives, so the
+    clip record's header becomes a row of sort chips instead of vanishing."""
+    css = _admin_css()
+    i = css.index("#cr-wrap thead")
+    assert "display:flex" in css[i:i + 200]
+
+
+def test_every_custom_property_the_admin_page_uses_is_defined():
+    """THE BUG THIS CAUGHT. The old sheet used --dur-fast, --dur-slow, --ease
+    and --fg-2 without ever declaring them, so every transition on the page
+    was silently instant and one label rendered in the inherited colour."""
+    import re
+    from src.dashboard.api import ADMIN_HTML
+    root = re.search(r":root\{(.*?)\n  \}", ADMIN_HTML, re.S).group(1)
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", root))
+    used = set(re.findall(r"var\((--[a-z0-9-]+)\)", ADMIN_HTML))
+    assert used - defined == set(), f"used but never defined: {sorted(used - defined)}"
+
+
+def test_the_admin_spacing_is_on_the_site_scale():
+    import re
+    scale = {0, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128}
+    off = []
+    for m in re.finditer(r"(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left))?\s*:\s*([^;}\n]+)", _admin_css()):
+        for tok in m.group(1).split():
+            mm = re.fullmatch(r"(-?\d+(?:\.\d+)?)px", tok)
+            if mm and abs(float(mm.group(1))) not in scale:
+                off.append(tok)
+    assert not off, f"off-scale spacing: {sorted(set(off))}"
+    assert not re.findall(r"font-size:\s*\d+\.\d+px", _admin_css()), "fractional font size"
