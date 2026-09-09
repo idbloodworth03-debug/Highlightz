@@ -141,6 +141,37 @@ def _referral_paths() -> set[str]:
 _AUTH_PREFIXES = ("/auth/", "/billing/", "/i/")
 _STATIC_PREFIX = "/static"
 
+def _is_api_request(request: Request) -> bool:
+    """Whether this is a script asking for data, not a person navigating.
+
+    WHY THIS EXISTS. An unauthenticated request used to be answered with a 302
+    to /login unless the client sent `Accept: application/json`. The dashboard
+    is a single-page app that reaches the server through `fetch`, and browser
+    fetch sends `Accept: */*` unless told otherwise — so when a long-lived tab
+    outlived its session, every poll was answered with a whole HTML sign-in
+    page, which the tab then tried to parse as its clip list. Two things went
+    wrong at once and both were silent: the app got nonsense instead of an
+    error it could act on, and each redirect landed on /login and was counted
+    as somebody arriving at the sign-in page.
+
+    FAILS TOWARD THE REDIRECT. An unrecognised client gets the sign-in page,
+    which is exactly what every client got before this function existed — so a
+    browser too old to send Sec-Fetch headers is no worse off than it was, and
+    no real navigation can be mistaken for an API call and answered with raw
+    JSON.
+    """
+    h = request.headers
+    if h.get("accept", "").startswith("application/json"):
+        return True
+    # Sent by every current browser. `empty` is what fetch()/XHR produce;
+    # a real navigation is `document`.
+    if h.get("sec-fetch-dest") == "empty":
+        return True
+    if h.get("x-requested-with") == "XMLHttpRequest":
+        return True
+    return False
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -154,7 +185,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # so visitors see it instead of being bounced straight to sign-in.
             if path == "/":
                 return await call_next(request)
-            if request.headers.get("accept", "").startswith("application/json"):
+            # A script gets an error it can act on; a person gets the page.
+            if _is_api_request(request):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
         # Refresh is_admin and subscription state from DB on every request

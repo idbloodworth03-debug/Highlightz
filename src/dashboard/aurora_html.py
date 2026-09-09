@@ -1387,6 +1387,49 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
+// ── An expired session must SAY so ──────────────────────────────────────────
+//
+// This tab stays open for hours while streams run, and the session behind it
+// can lapse while it does. Until this existed, that failed in silence: every
+// poll was answered with the HTML sign-in page, each fetch tried to parse it
+// as JSON, threw, and was swallowed by the .catch() that every call site has.
+// The screen simply stopped updating, with nothing on it saying why, and the
+// only way out was for the user to guess and reload.
+//
+// The server now answers a script with 401 instead of a page (_is_api_request
+// in api.py). This is the other half: turn that into the one thing that can
+// actually help, which is sending them to sign in again.
+//
+// WRAPPED HERE RATHER THAN AT 44 CALL SITES so a call added later cannot
+// forget it, and so the Accept header goes out on every request — that header
+// is what gets a 401 rather than a redirect from a browser too old to send
+// Sec-Fetch-Dest, which would otherwise still be silently parsing HTML.
+(function(){
+  const real = window.fetch;
+  let leaving = false;
+  window.fetch = function(input, init){
+    const url = (typeof input === 'string') ? input : (input && input.url) || '';
+    // Same-origin API calls only. An absolute URL is somebody else's server and
+    // none of this applies to it.
+    const ours = url.charAt(0) === '/';
+    if (ours) {
+      init = Object.assign({}, init);
+      const h = new Headers((init && init.headers) || (typeof input === 'object' && input.headers) || {});
+      if (!h.has('Accept')) h.set('Accept', 'application/json');
+      init.headers = h;
+    }
+    return real.call(this, input, init).then(function(res){
+      if (ours && res.status === 401 && !leaving) {
+        // Once. Several polls can land at the same moment and every one of
+        // them is a 401; without the guard they fight over the location.
+        leaving = true;
+        window.location.href = '/login';
+      }
+      return res;
+    });
+  };
+})();
+
 // ONE name per signal, for the whole app. There were two of these tables — the
 // clip modal called KEYWORD "Keyword hits" and the streams screen called the
 // same signal "Keyword", so the product had two names for one thing depending
