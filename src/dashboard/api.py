@@ -811,7 +811,11 @@ async def notify_clip_ready(clip: dict) -> None:
         # clips with the three suggestions on top rather than inside.
         from src.billing.plans import limits_for
         from src.auth import users as _plan_user_store
-        _limits = limits_for(_plan_user_store.get_by_id(clip_uid))
+        # Bound rather than inlined into limits_for: the funnel below needs the
+        # same record to tell staff from a real user, and reading the user file
+        # twice per clip on a 1 vCPU box for one boolean is not worth it.
+        _clip_user = _plan_user_store.get_by_id(clip_uid)
+        _limits = limits_for(_clip_user)
         is_suggestion = bool(clip.get("suggested"))
         pending_cap = (_limits.get("max_suggested", 0) if is_suggestion
                        else _limits["max_pending"])
@@ -857,7 +861,15 @@ async def notify_clip_ready(clip: dict) -> None:
             # the branch that STORES the clip: the branch above discards it, and
             # counting there would report the product as having delivered
             # something the user never saw.
-            funnel.record_once("first_clip", clip_uid)
+            #
+            # STAFF ARE MARKED BUT NOT COUNTED. The owner's own account holds
+            # hundreds of clips from testing on live channels, and counting it
+            # as an activated user would report the product as having delivered
+            # to somebody it did not acquire — on a funnel whose totals are
+            # currently in single digits, one staff account is the difference
+            # between "nothing is working" and "activation looks fine".
+            funnel.record_once("first_clip", clip_uid,
+                               count=not (_clip_user or {}).get("is_admin"))
             if counts_as_caught:
                 increment_clip_counter()
             # Counted at creation, not from _clips — rejected clips are deleted,

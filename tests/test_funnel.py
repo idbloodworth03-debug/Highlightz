@@ -94,6 +94,34 @@ def test_a_milestone_without_an_account_is_ignored():
     assert funnel.totals()["totals"]["first_clip"] == 0
 
 
+def test_a_marked_but_uncounted_account_does_not_count_later():
+    """How staff are excluded: the account is remembered so the caller's
+    "is this person staff?" lookup runs once rather than on every clip, but it
+    never reaches the total."""
+    assert funnel.record_once("first_clip", "staff", count=False) is False
+    assert funnel.totals()["totals"]["first_clip"] == 0
+    # Already seen, so a later clip does not sneak it in.
+    assert funnel.record_once("first_clip", "staff") is False
+    assert funnel.totals()["totals"]["first_clip"] == 0
+
+
+def test_excluding_one_account_does_not_affect_another():
+    funnel.record_once("first_clip", "staff", count=False)
+    funnel.record_once("first_clip", "real")
+    assert funnel.totals()["totals"]["first_clip"] == 1
+
+
+def test_an_exclusion_survives_a_restart(scratch):
+    """Otherwise the next deploy counts the owner's account on its next clip,
+    which is exactly the number this is meant to keep out."""
+    funnel.record_once("first_clip", "staff", count=False)
+    funnel.flush(force=True)
+    funnel._loaded = False
+    funnel.load()
+    assert funnel.record_once("first_clip", "staff") is False
+    assert funnel.totals()["totals"]["first_clip"] == 0
+
+
 def test_milestones_survive_a_restart(scratch):
     """They live in the same file as the counts. If they did not persist, a
     deploy would re-credit every existing user on their next clip."""
@@ -334,3 +362,72 @@ def test_an_admin_gets_the_counts(client, monkeypatch):
     body = client.login("admin1").get("/admin/funnel").json()
     assert body["totals"]["landing"] == 4
     assert {r["key"] for r in body["rows"]} >= {"landing", "signup"}
+
+
+# ── staff exclusion, through the real clip path ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_an_admins_clip_does_not_count_as_an_activated_user(client, monkeypatch):
+    """THE NUMBER THIS PROTECTS. The owner's account holds hundreds of clips
+    from testing on live channels. Counted, it reports the product as having
+    activated a user it never acquired — and on a funnel whose totals are in
+    single digits that is the difference between "nothing works" and
+    "activation looks fine"."""
+    from src.auth import users as user_store
+    people = {"boss":  {"id": "boss", "is_admin": True,
+                        "subscription_status": "active", "plan": "pro"},
+              "punter": {"id": "punter", "is_admin": False,
+                         "subscription_status": "active", "plan": "pro"}}
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: people.get(uid))
+    monkeypatch.setattr(api, "_save_clips", lambda: None)
+    monkeypatch.setattr(api, "increment_clip_counter", lambda *a, **k: None)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+    api._clips.clear()
+    try:
+        await api.notify_clip_ready({
+            "id": "c1", "user_id": "boss", "channel": "lacy",
+            "status": "pending", "created_at": 1000.0, "platform": "twitch"})
+        assert funnel.totals()["totals"]["first_clip"] == 0
+
+        await api.notify_clip_ready({
+            "id": "c2", "user_id": "punter", "channel": "marlon",
+            "status": "pending", "created_at": 2000.0, "platform": "twitch"})
+        assert funnel.totals()["totals"]["first_clip"] == 1
+    finally:
+        api._clips.clear()
+
+
+@pytest.mark.asyncio
+async def test_the_admin_lookup_happens_once_not_per_clip(client, monkeypatch):
+    """The exclusion marks the account as seen. Without that mark the store
+    would be re-read for every clip the owner's account ever receives, which on
+    an account with hundreds of them is a full user-file read each time."""
+    from src.auth import users as user_store
+    calls = {"n": 0}
+
+    def counting_get(uid):
+        calls["n"] += 1
+        return {"id": "boss", "is_admin": True,
+                "subscription_status": "active", "plan": "pro"}
+    monkeypatch.setattr(user_store, "get_by_id", counting_get)
+    monkeypatch.setattr(api, "_save_clips", lambda: None)
+    monkeypatch.setattr(api, "increment_clip_counter", lambda *a, **k: None)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(api, "broadcast", _noop)
+    api._clips.clear()
+    try:
+        for i in range(5):
+            await api.notify_clip_ready({
+                "id": f"x{i}", "user_id": "boss", "channel": f"ch{i}",
+                "status": "pending", "created_at": 1000.0 + i * 999,
+                "platform": "twitch"})
+        assert funnel.totals()["totals"]["first_clip"] == 0
+        # The account is remembered, so it is never re-counted...
+        assert funnel.record_once("first_clip", "boss") is False
+    finally:
+        api._clips.clear()

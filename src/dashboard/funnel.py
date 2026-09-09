@@ -164,11 +164,17 @@ def record(step: str, n: int = 1) -> None:
         log.warning("funnel_record_failed", step=step, error=str(exc))
 
 
-def record_once(step: str, user_id: str) -> bool:
+def record_once(step: str, user_id: str, count: bool = True) -> bool:
     """Count a step the FIRST time an account reaches it, and never again.
 
     Returns whether it counted, so a caller can log the milestone without
     repeating the "have they done this before" logic. Never raises.
+
+    `count=False` marks the account as seen WITHOUT adding to the total. That
+    is how staff are excluded: marking them still costs one entry but means the
+    caller's "is this person staff?" lookup happens once per account rather
+    than on every clip they ever receive. Skipping the mark entirely would
+    leave the account permanently un-seen and re-run that lookup forever.
     """
     global _dirty
     try:
@@ -180,6 +186,9 @@ def record_once(step: str, user_id: str) -> bool:
             return False
         seen.add(user_id)
         _dirty = True
+        if not count:
+            flush()
+            return False
         record(step)          # record() flushes, which persists `seen` too
         return True
     except Exception as exc:                       # noqa: BLE001
