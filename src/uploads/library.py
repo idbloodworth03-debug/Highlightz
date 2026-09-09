@@ -1,18 +1,21 @@
 """
 Clip Upload library — the user's own video files, stored on our disk.
 
-This is the ONE place in Highlightz that holds video bytes. Everything else
-(live clipping, the VOD scanner) deliberately keeps video on Twitch's CDN and
-only ever handles metadata. The reason this exists: TikTok's and Instagram's
+Files the USER handed us, as opposed to files we produced — those live in
+src/clips/files.py. The reason this exists: TikTok's and Instagram's
 publishing APIs take either raw bytes or a URL on a domain you have verified
 you own. Neither accepts a twitch.tv link, so posting a clip anywhere requires
 possessing the file. Editing needs the same thing.
 
-The source is the USER'S OWN UPLOAD, not a scrape. Broadcasters can already
-download their own clips from the Twitch Creator Dashboard, so this asks them
-for a file they are entitled to and we never fetch from Twitch ourselves.
-That keeps the "we never record or re-host" promise in the Terms of Service
-true for the automated clipping path, which is what it is actually about.
+The source is the USER'S OWN UPLOAD, not a scrape: this module never fetches
+anything from Twitch, which is still true of the whole product.
+
+SCOPE NOTE (2026-09-08). This was once the ONLY place holding video bytes, and
+the docstring leaned on that. It is not any more — src/clips/files.py holds
+files cut from the live capture buffer, and a clip sent to the editor is
+copied in through save_stream below. The two stores stay separate because
+their lifetimes differ: an upload is the user's until they delete it, a cut
+clip is a working copy on a retention clock.
 
 Three things drive the design:
 

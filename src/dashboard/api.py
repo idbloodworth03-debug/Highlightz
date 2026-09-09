@@ -5920,8 +5920,12 @@ comparison — is at https://highlightz.app/llms-full.txt.
 - Scores each second from seven live signals ({sig}) against that channel's
   own threshold, so a small channel and a huge one are judged the same way.
 - Creates real Twitch clips through the official Clips API using your own
-  authorised Twitch account. It never records, downloads, re-hosts or stores
-  stream video.
+  authorised Twitch account. Twitch makes and hosts the clip.
+- Never downloads video from Twitch and never re-hosts a Twitch-hosted clip.
+  While a channel is monitored it may record a few minutes of the live public
+  broadcast into a rolling buffer that is continuously overwritten, so a
+  detected moment can be saved as a file for that account. An opted-out
+  channel is never recorded. See the Privacy Policy for retention.
 - Highlight clips: alongside the score, a second way of finding moments. They
   arrive in the review queue marked Highlight, in purple, are usually the
   higher-quality clips, and a green label marks the ones that stood out even
@@ -5960,7 +5964,8 @@ afterwards, and both sell a subscription and then meter it in credits or
 minutes that run out and have to be bought again. Highlightz watches the
 stream live and clips as it happens, so a moment is captured while it is
 still on air. Because clips are made through Twitch's own API, they live on
-Twitch under the streamer's account rather than being re-hosted elsewhere.
+Twitch under the streamer's account, and nothing is ever fetched back out of
+Twitch to produce them.
 
 ## Pages
 
@@ -6015,7 +6020,8 @@ async def llms_full_txt():
     w("> Automatic Twitch clipping. Highlightz watches a live channel, scores every "
       "second from seven live signals against that channel's own threshold, and when "
       "the score crosses it creates a real Twitch clip through the official Clips API. "
-      "Every clip lands in a review queue first. Nothing is recorded or re-hosted. "
+      "Every clip lands in a review queue first. Twitch makes and hosts the clip; "
+      "Highlightz never downloads video from Twitch. "
       "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
     w("## The seven signals\n")
@@ -9314,8 +9320,8 @@ def _faq() -> str:
          "&mdash; chat speed, keywords, emotes, sentiment, audio, viewer movement and silence "
          "&mdash; into one score and checks it against that channel's own threshold. When the "
          "score crosses, it asks Twitch to make a real Twitch clip of that moment through the "
-         "official Clips API, and the clip lands in your review queue. Nothing is recorded, "
-         "downloaded or re-hosted."),
+         "official Clips API, and the clip lands in your review queue. Twitch makes and hosts "
+         "the clip, under your account."),
         ("Can I clip channels I don't own?",
          "Yes. That is what most people use it for. Add any live Twitch channel and the clip is "
          "created with your authorized account, exactly as if you had pressed Twitch's own Clip "
@@ -9384,17 +9390,25 @@ def _faq() -> str:
          "catalogue nobody was watching live is still worth mining, and every hit links to its own "
          "timestamp in the VOD."),
         ("Is this allowed on Twitch?",
-         "Yes. Clips are created through Twitch's official Clips API with your authorized account, "
-         "the same mechanism as Twitch's own Clip button. Nothing here works around a rate limit or "
-         "scrapes a page, and there is no second copy of anyone's video anywhere."),
+         "Clips are created through Twitch's official Clips API with your authorized account, the "
+         "same mechanism as Twitch's own Clip button. Nothing here works around a rate limit, "
+         "scrapes a page, or uses an undocumented endpoint to get at video. Highlightz never "
+         "downloads anything from Twitch &mdash; where it saves a moment as a file, it does so by "
+         "recording the live public broadcast as it is transmitted, the same stream any viewer "
+         "receives. You are responsible for what you do with a clip of a channel you do not own; "
+         "see the <a href=\"/tos\">Terms</a>."),
         ("What if a streamer does not want to be clipped?",
          "They can opt out at any time on our <a href=\"/opt-out\">opt-out page</a>, and it takes "
          "effect immediately across every account, with nothing to email and nobody to wait on. A "
          "channel that has opted out cannot be added by anyone."),
         ("Do you record or store my stream?",
-         "Never. When a moment hits, Highlightz asks Twitch to create a real Twitch clip through the "
-         "official API. Twitch hosts it and it is attributed to your account. We keep the clip's "
-         "title, score and link, and nothing else."),
+         "Not the whole stream, and never a channel that has opted out. While a channel is being "
+         "monitored, Highlightz holds a few minutes of it in a rolling buffer that is continuously "
+         "overwritten, so that when a moment hits it can be saved as a video file as well as a "
+         "Twitch clip. Nothing else is kept: the buffer is thrown away when monitoring stops, and "
+         "a saved file lives under your account only, for up to 30 days, and goes when you delete "
+         "the clip or your account. The clip itself is a real Twitch clip, hosted by Twitch and "
+         "attributed to you. Full detail is in the <a href=\"/privacy\">Privacy Policy</a>."),
         ("How does billing work?",
          f"Free is free: it asks for no card and it never expires. Starter is <b>${st['price']}</b> a month and Pro is "
          f"<b>${pro['price']}</b> a month. Move between them whenever you like and cancel from the "
@@ -9744,7 +9758,9 @@ TOS_HTML = """<!DOCTYPE html>
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
-  <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account. Highlightz does not record, copy, download, or re-host stream video. To measure loudness we may read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
+  <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account.</p>
+  <p><strong>Recording of live broadcasts.</strong> While a channel you have added is being monitored, the Service may record a short rolling segment of that live public broadcast on its own servers, so that a moment it detects can also be saved as a video file for you. That rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is kept for a limited period &mdash; currently up to <!--CLIPDAYS--> days &mdash; and is deleted when you delete the clip, when your account is deleted, or when that period ends, whichever comes first. It is available only to the account the clip belongs to; it is not published, shared with other users, or hosted anywhere publicly accessible. A channel that has opted out under Section 5 is never recorded.</p>
+  <p>Highlightz does not download video from Twitch. It does not fetch, copy, alter, or re-host clips or past broadcasts that Twitch hosts, and does not use undocumented or unsanctioned Twitch endpoints to obtain video. Any recording is of the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
   <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
   <p>Support for Kick is not yet available. Kick channels cannot currently be monitored and no Kick account is connected to or required by the Service. If Kick support ships, these Terms and our Privacy Policy will be updated before it does.</p>
   <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
@@ -9768,7 +9784,8 @@ TOS_HTML = """<!DOCTYPE html>
   </ul>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
-  <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct; it never records, stores, or re-hosts any stream video itself.</p>
+  <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account. The resulting clip is owned, hosted, and governed by Twitch. Highlightz acts only as a tool that you direct.</p>
+  <p><strong>This applies equally to any recording.</strong> Where the Service records a segment of a live broadcast as described in Section 1, it does so because you added that channel and directed the Service to monitor it. The resulting file is yours to the same extent the clip is — and your responsibility to the same extent. Everything in this Section about permission, licensing, and how you use, share, download, or distribute a clip applies to that file as well, including when the broadcaster is somebody other than you.</p>
   <p><strong>Highlight clips are someone else's clips.</strong> A Highlight clip was created on Twitch by another Twitch user, remains that user's clip under Twitch's terms, and is hosted by Twitch under their account. Approving one keeps a link to it in your library; Highlightz does not copy, re-host, or alter it, and cannot delete it. Everything in this Section about your responsibility for how you use, share, or distribute a clip applies equally to a Highlight clip.</p>
   <p><strong>Broadcasters may opt out.</strong> Any broadcaster can remove their channel from the Service at <a href="/opt-out">highlightz.app/opt-out</a>. Once a channel has opted out, no user can add it for monitoring, any monitoring of it already running is stopped, and the Service will not create clips from it. If you are asked by a broadcaster to stop clipping their channel, stop; the opt-out page exists so that request can be enforced for everyone at once rather than relying on you.</p>
   <p>You acknowledge and agree that:</p>
@@ -9862,7 +9879,8 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. We do not store any stream video; clips are hosted by Twitch.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
+    <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. We do not download video from Twitch, and a channel that has opted out is never recorded.</li>
     <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
@@ -9901,7 +9919,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <p>We implement reasonable technical and organizational safeguards including session-based authentication, HTTPS-only transmission, encryption of stored Twitch tokens at rest, and per-user data isolation. No system is perfectly secure; we encourage you to protect your Twitch account with a strong, unique password and two-factor authentication.</p>
 
   <h2>6a. Clips and Streamer Content</h2>
-  <p>Clips you create through the Service are created with your Twitch account and are hosted by Twitch, not by us. You are solely responsible for the clips you create and for how you share or distribute them, including clips of streamers other than yourself. See Section 5 of our <a href="/tos">Terms of Service</a> for details on your responsibilities.</p>
+  <p>Clips you create through the Service are created with your Twitch account and are hosted by Twitch, not by us. Where we also record a segment of the live broadcast, that file is held under your account as described in Section 1 and is available only to you. You are solely responsible for the clips you create, for any recording made at your direction, and for how you share or distribute either, including where the broadcaster is somebody other than yourself. See Section 5 of our <a href="/tos">Terms of Service</a> for details on your responsibilities.</p>
 
   <h2>7. Children</h2>
   <p>The Service is not directed at persons under 18 years of age. We do not knowingly collect personal data from minors. If you believe a minor has provided us with data, contact us and we will delete it promptly.</p>
@@ -9925,6 +9943,14 @@ PRIVACY_HTML = """<!DOCTYPE html>
 from src.ingestion.stream_worker import CHAT_SNAPSHOT_MESSAGES  # noqa: E402
 PRIVACY_HTML = PRIVACY_HTML.replace(
     "<!--CHATN-->", str(CHAT_SNAPSHOT_MESSAGES), 1)
+
+# The retention period is stated in two legal documents and enforced in one
+# setting. Rendering it from the setting is the only way those cannot drift:
+# a policy promising 30 days over code that keeps 90 is not a stale comment,
+# it is a false statement about data retention in a published privacy policy.
+_CLIP_DAYS = str(settings.clip_file_max_age_days)
+TOS_HTML = TOS_HTML.replace("<!--CLIPDAYS-->", _CLIP_DAYS, 1)
+PRIVACY_HTML = PRIVACY_HTML.replace("<!--CLIPDAYS-->", _CLIP_DAYS, 1)
 
 COOKIES_HTML = """<!DOCTYPE html>
 <html lang="en">

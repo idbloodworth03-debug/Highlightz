@@ -51,23 +51,50 @@ switched off.
 
 ## Non-negotiable product constraints
 
-- **No video recording/re-hosting, ever — on the CLIPPING path.** Clips are
-  real Twitch clips made via the official Helix API with the user's own token;
-  Twitch hosts everything. This is the compliance moat — rejected repeatedly
-  for both 60s clips and Kick. Scope note (2026-07-31): Clip Upload holds
-  video bytes, but the source is the user's own upload of their own file, and
-  we never fetch from Twitch. The ToS wording (`api.py`, "never records,
-  stores, or re-hosts any stream video itself") is specifically about the
-  Service creating clips on the user's behalf, which is untouched. **If
-  server-side clip fetching is ever added, five user-facing places must be
-  rewritten first** — landing hero, features, FAQ, compliance section, and the
-  ToS — search for "re-host".
-- **We never download from Twitch ourselves.** Being OAuth'd as the user does
-  NOT unlock clip video: there is no Twitch scope for it, and the CDN
+- **We record live broadcasts now. THIS CHANGED 2026-09-08, on the owner's
+  decision.** For most of the product's life the constraint here was "no video
+  recording, ever", and it was the compliance moat — rejected repeatedly for
+  both 60s clips and Kick. The owner decided to hold video so a clip can be a
+  FILE the user downloads, edits and schedules without leaving the site.
+  What that means in practice:
+  - `src/ingestion/clip_recorder.py` runs its own streamlink per monitored
+    channel and keeps a rolling ~3 min buffer of MPEG-TS segments, stream-copy
+    only (never transcodes — clip detection owns the core). Bounded by
+    `clip_capture_max_total_mb`; wiped when monitoring stops.
+  - On a trigger, `stream_worker._cut_local_file` cuts an MP4 named by the
+    `clip_id` and `src/clips/files.py` holds it. Retention
+    `clip_file_max_age_days` (30), swept in `main.sweep_dead_clips_task`.
+  - **Off by default.** `clip_capture_enabled=False`. Turning it on is a
+    deliberate act, not a deploy.
+  - Opt-out is checked BEFORE the recorder starts, and that ordering is pinned
+    by a test — an opted-out broadcaster is never recorded.
+  - The five user-facing places the old note said must be rewritten first HAVE
+    been rewritten (2026-09-08): landing FAQ, llms.txt, llms-full.txt, ToS
+    §1 and §5, Privacy §1 and §6a, the compare page and the tutorial FAQ.
+    `tests/test_video_disclosure.py` now fails if a retired denial comes back
+    or if the promised retention drifts from `clip_file_max_age_days` (both
+    legal pages render it from the setting via a `<!--CLIPDAYS-->` placeholder,
+    so do NOT type the number).
+  - **Unchanged, and still the narrower claim worth defending:** the clip
+    itself is still a real Twitch clip made through Helix on the user's own
+    token, and Twitch still hosts it.
+- **We still never download from Twitch ourselves.** Recording the live public
+  broadcast is not the same act as fetching Twitch-hosted media, and the
+  distinction is load-bearing in the rewritten copy. Being OAuth'd as the user
+  does NOT unlock clip video: there is no Twitch scope for it, and the CDN
   (`clips-media-assets2.twitch.tv`) does not check tokens at all. Getting
-  bytes means the undocumented thumbnail→MP4 URL pattern or the private GQL
-  endpoint. Both are grey-area (StreamLadder-style); neither is in the
-  product. Asked and answered 2026-07-31.
+  bytes that way means the undocumented thumbnail→MP4 URL pattern or the
+  private GQL endpoint. Both are grey-area (StreamLadder-style); neither is in
+  the product, and `tests/test_no_video_ingest.py` keeps it that way — it
+  allowlists exactly ONE module that may pull video. Asked and answered
+  2026-07-31; still true after the capture change.
+- **The risk this trades into, stated plainly so nobody rediscovers it.**
+  Twitch's Developer Agreement / DSA terms prohibit storing Twitch Content and
+  cap caching at 24h; our buffer is short but the cut files are kept for days.
+  The realistic downside is app suspension rather than litigation, and it
+  scales WITH success. The owner was walked through this before deciding and
+  chose to proceed. Do not relitigate it — but do not let the copy drift back
+  into denying it either, which is what the disclosure tests are for.
 - Twitch clips are ~30s, hard API limit (no duration param on Create Clip).
   Captured buffer ~90s; creators can extend to 60s only in Twitch's browser
   editor (edit_url currently discarded — storing it + an "Extend to 60s"

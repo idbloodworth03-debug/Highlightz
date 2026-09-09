@@ -2,8 +2,9 @@
 Creates clips on Kick via the public v1 Clips API.
 
 Kick clips are created with the user's OAuth token (scope: clips:write).
-The clip is hosted by Kick and attributed to the user — Highlightz never
-records or re-hosts any video.
+The clip is hosted by Kick and attributed to the user, and nothing here
+fetches video back out of Kick. (Live capture, where it runs at all, is a
+separate path — see src/ingestion/clip_recorder.py.)
 
 Flow:
   POST /public/v1/clips  {"channel_name": slug}  → clip_url

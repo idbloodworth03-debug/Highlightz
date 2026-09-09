@@ -199,8 +199,9 @@ FEATURES = (
 
     ("Clip stays a native Twitch clip",
      True, False, False,
-     "We never re-host or re-encode your video, so there is no watermark to "
-     "remove and nothing to upload. The clip is a normal Twitch clip."),
+     "The clip is a normal Twitch clip, made through Twitch's own API and "
+     "hosted by Twitch. Nothing is re-uploaded and nothing is re-encoded, so "
+     "there is no watermark to remove and no quality lost on the way in."),
 
     ("Shows you why each clip fired",
      True, False, False,
@@ -370,9 +371,14 @@ FAQ = (
      "clip; if you then want it reframed and captioned for TikTok, that is "
      "exactly what those tools are good at. The two jobs do not overlap much."),
     ("Do you re-upload or re-host my video?",
-     "No, and that is deliberate. Clips stay native Twitch clips. Nothing is "
-     "downloaded, re-encoded or stored as video on our side, so there is no "
-     "watermark and no second copy of your stream sitting on someone's server."),
+     "No. Clips stay native Twitch clips, hosted by Twitch, and nothing is "
+     "re-uploaded anywhere public or re-encoded &mdash; so there is no "
+     "watermark and no quality loss. Nothing is ever downloaded out of Twitch "
+     "either. While a channel is monitored we do hold a few minutes of the "
+     "live broadcast in a rolling buffer that keeps overwriting itself, so a "
+     "moment can be saved as a file for the account that caught it; that file "
+     "is private to that account and is deleted with the clip. The "
+     "<a href=\"/privacy\">Privacy Policy</a> has the detail."),
     ("Where do these competitor prices come from?",
      "Each product's own public pricing page, linked next to its prices, with "
      "the date we checked. Prices change without notice — follow the links "

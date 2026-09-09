@@ -530,8 +530,12 @@ FAQ: tuple[tuple[str, str], ...] = (
      "library; it does not broadcast it."),
 
     ("Do you record my stream?",
-     "No. Highlightz never records, downloads or re-hosts your video. It asks Twitch "
-     "to make a clip at the right moment, and Twitch hosts it."),
+     "Not all of it, and never a channel that has opted out. While a channel is being "
+     "monitored, Highlightz holds a few minutes of it in a rolling buffer that keeps "
+     "overwriting itself, so that when a moment hits it can be saved as a video file "
+     "as well as a Twitch clip. That file is private to the account that caught it and "
+     "is deleted with the clip. Highlightz never downloads anything from Twitch, and "
+     "the clip itself is a real Twitch clip that Twitch makes and hosts."),
 
     ("Can I use this on a channel that is not mine?",
      "Yes, as long as that streamer has not opted out. A lot of people run Highlightz "

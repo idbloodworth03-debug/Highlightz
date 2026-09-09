@@ -242,9 +242,34 @@ def test_llms_txt_says_what_the_product_actually_is():
     body = TestClient(api.app).get("/llms.txt").text.lower()
     for phrase in ("twitch", "clips api", "live", "review queue", "vod"):
         assert phrase in body, f"llms.txt never mentions {phrase!r}"
-    assert "never records" in body or "does not" in body, \
-        "the no-video-hosting position is not stated"
     assert "opt-out" in body, "the broadcaster opt-out is not linked"
+
+
+def test_llms_txt_states_the_video_position_as_it_now_stands():
+    """THIS TEST CHANGED SIDES, and that is the point of writing it out.
+
+    It used to accept the words "never records", because for most of the
+    product's life that was true. It is not any more: while a channel is
+    monitored, a rolling buffer of the live broadcast is held on disk so a
+    clip can also be a file (src/ingestion/clip_recorder.py).
+
+    A brief that still said "never records" would be worse than no brief —
+    every model that reads it would repeat a denial of data collection on our
+    behalf. So the assertion is now the other way round: the recording has to
+    be DISCLOSED, and the thing that is still true (we never pull video back
+    out of Twitch) has to be stated as the narrower claim it is.
+    """
+    body = TestClient(api.app).get("/llms.txt").text.lower()
+    assert "never downloads video from twitch" in body, \
+        "the one claim still true about Twitch's own video is missing"
+    assert "record" in body, \
+        "llms.txt does not disclose that the live broadcast is recorded"
+    assert "buffer" in body or "overwritten" in body, \
+        "the recording is disclosed without saying it is a short rolling one"
+    # The denial that is no longer true must not come back by copy-paste.
+    for stale in ("never records", "nothing is recorded", "does not record"):
+        assert stale not in body, \
+            f"llms.txt still claims {stale!r}, which stopped being true"
 
 
 @pytest.mark.parametrize("path,expected_type", [

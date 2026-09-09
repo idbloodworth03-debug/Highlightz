@@ -10,8 +10,9 @@ a scan of its own VOD, and this was most of the quality half of that gap.
 HOW IT WORKS. Exactly the pipeline AudioMeter already uses for live streams —
 streamlink pulls an audio-only rendition, FFmpeg decodes it to raw 8 kHz mono
 PCM, and RMS is computed straight off the samples. No file is written and no
-video is ever downloaded or re-hosted, so this stays inside the same compliance
-line as everything else: we measure loudness, we do not keep audio.
+video is decoded at all: scanning a past broadcast measures loudness and keeps
+nothing. Live capture (src/ingestion/clip_recorder.py) does hold video, but it
+is a different path and does not run here — a VOD scan writes no media.
 
 The one difference from live is direction of time. Live reads a socket at
 whatever rate reality supplies; here the whole VOD is decoded as fast as the

@@ -1,8 +1,13 @@
 """
 Clip processor: picks up a clip job and creates a clip on Twitch or Kick via
 their respective APIs using the requesting user's OAuth token. The clip is
-hosted by the platform and attributed to the user — Highlightz never records
-or stores video.
+hosted by the platform and attributed to the user, and nothing here fetches
+video from the platform.
+
+The file a user downloads is cut from the live capture buffer by the stream
+worker (src/ingestion/clip_recorder.py) and addressed by the same clip_id this
+job carries — so the two halves never have to talk to each other, which
+matters because this may run in a different process.
 """
 
 import asyncio

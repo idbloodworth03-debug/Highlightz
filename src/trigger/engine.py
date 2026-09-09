@@ -43,8 +43,10 @@ class TriggerEngine:
         # This said "VideoBuffer | None" and was the only thing in the codebase
         # still pointing at src/ingestion/video_buffer.py, which nothing ever
         # constructed. A stale annotation naming a module that appears to buffer
-        # stream video is the first thing anyone auditing the no-re-hosting
-        # claim would find, so the module is gone and this says what is passed.
+        # stream video is the first thing anyone auditing what this product
+        # holds would find, so the module is gone and this says what is passed.
+        # (Video capture is real now, but it lives in ingestion/clip_recorder.py
+        # and never reaches the engine — scoring still only ever sees loudness.)
         buffer=None,
         preset: str = "default",
     ) -> None:

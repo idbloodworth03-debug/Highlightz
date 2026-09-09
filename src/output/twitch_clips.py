@@ -3,7 +3,14 @@ Creates clips on Twitch via the Helix Clips API.
 
 Compliance model: the clip is created with the *user's* OAuth token (scope
 `clips:edit`), so Twitch hosts the clip on its CDN and attributes it to that
-user's account. Highlightz never records or re-hosts any video.
+user's account. Nothing here fetches video back out of Twitch.
+
+SCOPE NOTE (2026-09-08). "Highlightz never records any video" used to be
+true of the whole product and is no longer: src/ingestion/clip_recorder.py
+records a rolling buffer of the LIVE broadcast so a clip can also be a file.
+That is a separate path and it does not touch this one — the clip this module
+makes is still made by Twitch, on the user's account, and still the only thing
+the review queue links to.
 
 Flow:
   1. resolve_broadcaster_id(login)         — app token, login → numeric id
