@@ -1830,7 +1830,7 @@ function spikeLabel(clip){
   return pool[Math.abs(h) % pool.length];
 }
 
-function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
+function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMode }) {
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
@@ -1850,6 +1850,14 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
     <a href={'/clips/'+clip.id+'/file?download=1'} download className="rd-btn sm"
        title="Download this clip" onClick={e=>e.stopPropagation()}
        style={{textDecoration:'none',flex:'0 0 auto'}}><Icon name="download" size={13}/></a>
+  ) : null;
+  // Straight into the editor, no download-then-reupload. `onEdit` is only
+  // passed when the Editor is actually reachable for this account, so the
+  // button cannot appear next to a tab the user does not have — the endpoint
+  // enforces the same thing, this just stops offering a dead end.
+  const edBtn = (clip.has_file && onEdit) ? (
+    <button className="rd-btn sm" title="Edit this clip" style={{flex:'0 0 auto'}}
+       onClick={e=>{e.stopPropagation();onEdit(clip)}}><Icon name="sliders" size={13}/></button>
   ) : null;
   return (
     <div className={'rd-clip'+(sug?' suggested':'')}>
@@ -1931,15 +1939,18 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, libraryMode }) {
             <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject&&onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
+            {edBtn}
           </> : libraryMode && clip.status==='approved' ? <>
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on Twitch</a>}
             {dlBtn}
+            {edBtn}
             {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(255,90,120,.1)',color:'var(--danger)',borderColor:'rgba(255,90,120,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
             {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
+            {edBtn}
           </span>}
         </div>
       </div>
@@ -2018,7 +2029,7 @@ function usePlayerOpen(open) {
   }, [open]);
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFeature }) {
+function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featured, onFeature }) {
   // Retry counter for the Twitch iframe. Declared BEFORE the null-clip early
   // return: hooks must run on every render or React errors when the modal
   // opens (same trap documented on the VOD plan gate).
@@ -2170,6 +2181,14 @@ function ClipModal({ clip, onClose, onApprove, onReject, isAdmin, featured, onFe
               {clip.has_file && <a href={'/clips/'+clip.id+'/file?download=1'} download
                   className="rd-btn sm" style={{textDecoration:'none',marginTop:8,width:'100%',justifyContent:'center'}}>
                 <Icon name="download" size={14}/>Download clip</a>}
+              {/* The other half of "never leave the site": the file is already
+                  on our disk, so this hands it to the editor without a
+                  download and a re-upload. Only rendered when the Editor is
+                  reachable for this account — see the onEdit gate in App. */}
+              {clip.has_file && onEdit && <button className="rd-btn grad sm"
+                  style={{marginTop:8,width:'100%',justifyContent:'center'}}
+                  onClick={()=>{onEdit(clip);onClose()}}>
+                <Icon name="sliders" size={14}/>Edit clip</button>}
               {clip.status==='pending' && <div className="rd-modal-actions">
                 <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
                 <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
@@ -2547,7 +2566,7 @@ function RdMenu({ label, value, options, onChange, icon, align }) {
 // two halves is routinely empty, and a heading over no clips reads as a bug —
 // the count on the toolbar already says how much is on screen.
 function ClipSection({ title, clips, sorts, sortBy, setSortBy, sortDir, setSortDir,
-                       onApprove, onReject, onOpen }) {
+                       onApprove, onReject, onOpen, onEdit }) {
   if(!clips.length) return null;
   return (
     /* No class on the wrapper: it groups, it does not style, and the gap
@@ -2562,7 +2581,7 @@ function ClipSection({ title, clips, sorts, sortBy, setSortBy, sortDir, setSortD
       </div>
       <div className="rd-sect-g">
         {clips.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove}
-          onReject={onReject} onOpen={onOpen}/>)}
+          onReject={onReject} onOpen={onOpen} onEdit={onEdit}/>)}
       </div>
     </div>
   );
@@ -2622,7 +2641,7 @@ function SortPicker({ sorts, sortBy, setSortBy, sortDir, setSortDir, compact }) 
 // clips needing a verdict with clips that had one — and the Clip Library is
 // already the place approved clips live, in full, sorted by when you kept them.
 // Nothing is lost by dropping them from here; the two screens stop overlapping.
-function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, lost, me, onDismissLost, onGoTutorial }) {
+function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
@@ -2805,11 +2824,11 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
               <ClipSection title="Highlights" clips={hiClips} sorts={SORTS}
                 sortBy={sortBy} setSortBy={setSortBy}
                 sortDir={sortDir} setSortDir={setSortDir}
-                onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>
+                onApprove={onApprove} onReject={onReject} onOpen={onOpen} onEdit={onEdit}/>
               <ClipSection title="Everything else" clips={restClips} sorts={SORTS}
                 sortBy={restBy} setSortBy={setRestBy}
                 sortDir={restDir} setSortDir={setRestDir}
-                onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>
+                onApprove={onApprove} onReject={onReject} onOpen={onOpen} onEdit={onEdit}/>
             </div>
           : <div className="rd-grid">
           {/* EMPTY MEANS TWO DIFFERENT THINGS NOW, and they need different
@@ -2839,7 +2858,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, los
                       has to read instructions about this screen in a window that
                       is not this screen. */}
                   <button className="rd-emptylink" onClick={()=>onGoTutorial()}>Read the walkthrough →</button></div>)
-            : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen}/>)}
+            : shown.map(c=><RdClip key={c.id} clip={c} onApprove={onApprove} onReject={onReject} onOpen={onOpen} onEdit={onEdit}/>)}
             </div>}
       </section>
     </div>
@@ -3003,7 +3022,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
 // /clips/{id}/reject) rather than kept with a status — so "Rejected" could never
 // match anything, and "All" and "Approved" were the same button twice. The
 // streamer filter stays: it is the one that still narrows a real list.
-function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
+function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
   const [chanFilter, setChanFilter] = useState('all');
   // Defaults to newest APPROVAL, not newest capture. The library is the record
   // of what you decided to keep, so approving a clip puts it at the top even if
@@ -3065,7 +3084,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onGoReview }) {
       {clipsArr.length===0
         ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
         : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
-            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} libraryMode/>)}
+            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} libraryMode/>)}
           </div>}
     </div>
   );
@@ -5840,7 +5859,8 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
   );
 }
 
-function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [] }) {
+function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [],
+                        openUpload = null, onOpened = null }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -5868,6 +5888,21 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
     window.addEventListener('hz_refetch', load);
     return ()=>window.removeEventListener('hz_refetch', load);
   },[load]);
+
+  // Arriving from a clip card's "Edit clip". The parent has already copied the
+  // file into the library and switched the route here; this is the last step —
+  // open the editor on it, and hand the parent back its null so navigating
+  // away and returning does not re-open the same clip.
+  //
+  // Also inserts the record directly rather than waiting for `load()`: this
+  // screen mounts at the same moment, and opening the editor on an upload the
+  // list has not fetched yet would otherwise race.
+  useEffect(()=>{
+    if(!openUpload) return;
+    setUploads(p=>p.some(u=>u.id===openUpload.id)?p:[openUpload,...p]);
+    setEditing(openUpload);
+    onOpened && onOpened();
+  },[openUpload]);
 
   // Live updates from the user's OTHER tabs — upload on your laptop, see it
   // appear on your phone without a refresh.
@@ -7027,6 +7062,35 @@ function RdApp() {
     }
     await loadFeatured();
   };
+  // Captured clip → editor, with no download and no re-upload in between. The
+  // server copies the file it already holds into the upload library and hands
+  // back the record; all this does is carry the user to the tab it landed on.
+  //
+  // Idempotent on the server: sending the same clip twice returns the upload
+  // that already exists rather than spending the quota again, so a double
+  // click is harmless and needs no guard here beyond the busy flag.
+  const [editorTarget, setEditorTarget] = useState(null);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const sendToEditor = async(clip)=>{
+    if(editorBusy) return;
+    setEditorBusy(true);
+    // Copying tens of megabytes is not instant on a busy box, and a button
+    // that does nothing visible for two seconds reads as broken.
+    flash('Opening in the editor...');
+    try{
+      const r = await fetch(`/clips/${clip.id}/to-editor`,{method:'POST'});
+      if(!r.ok){
+        let d='Could not open that clip in the editor';
+        try{ d=(await r.json()).detail||d; }catch{}
+        flash(d); return;
+      }
+      const up = await r.json();
+      setEditorTarget(up);
+      setRoute('uploads');
+    }catch{ flash('Could not reach the server'); }
+    finally{ setEditorBusy(false); }
+  };
+
   const deleteClip = async(id)=>{
     if(!confirm('Delete this clip? This cannot be undone.')) return;
     // True delete — housekeeping only. Never routes through /reject: deleting
@@ -7058,6 +7122,14 @@ function RdApp() {
   // flag means one env edit silently ships an unreleased feature again, so the
   // owner is the only one who sees these until that is a deliberate decision.
   const adminOnlyTabs = ['uploads', 'schedule'];
+  // Whether a clip card may offer "Edit clip". It has to match the tab's OWN
+  // visibility exactly, both halves of it: the release flag (or the screen is
+  // UploadsUnderConstruction) and the admin gate above (or `view` bounces
+  // straight back to the review queue). Get either wrong and the button walks
+  // the user to a screen that isn't there. The endpoint refuses independently
+  // — this only stops us offering a dead end.
+  const editorOn = uploadsOn && !!(me && me.is_admin);
+  const onEditClip = editorOn ? sendToEditor : null;
   // The screen actually rendered. The nav is the only way in today (`route`
   // lives in React state alone), but that is a property of the current code,
   // not a guarantee — normalise so a future deep link or restored route cannot
@@ -7073,13 +7145,14 @@ function RdApp() {
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
-  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onGoReview:()=>setRoute('review')}}/>;
+  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
-  else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}/>;
+  else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
+      openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
   else if(view==='account') screen=<AccountScreen me={me}/>;
@@ -7160,6 +7233,7 @@ function RdApp() {
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
+        onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
       {wake && <WakeSequence channel={wake.channel}
         score={(scores[wake.channel]||{}).score||0}

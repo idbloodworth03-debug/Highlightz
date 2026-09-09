@@ -2630,6 +2630,110 @@ async def get_clip_file(request: Request, clip_id: str, download: int = 0):
     )
 
 
+def _read_chunk(fh, size: int) -> bytes:
+    """Named so the thread hop below reads as what it is."""
+    return fh.read(size)
+
+
+@app.post("/clips/{clip_id}/to-editor", status_code=201)
+async def send_clip_to_editor(request: Request, clip_id: str):
+    """Put a captured clip into the user's library so the editor can open it.
+
+    WHY THE COPY HAPPENS HERE rather than the browser downloading the file and
+    posting it back. The bytes are already on this disk. A round trip would
+    push tens of megabytes to the user and immediately back again — on a phone
+    that is the difference between "edit this clip" being instant and being a
+    minute of progress bar on a metered connection — and it would validate
+    nothing, because no part of the file came from the client.
+
+    It goes through `save_stream` rather than a plain copy for the same reason
+    an upload does: that function is where every disk cap, the container sniff
+    and the atomic rename live. A second writer into the same directory would
+    be a second place for all of those to be forgotten.
+
+    THIS IS WHERE THE PAYWALL ACTUALLY SITS. `get_clip_file` above serves the
+    clip on any plan including free, because a clip the product caught for you
+    is yours. Editing it is the Pro feature, so this route — and not the
+    download — is the one behind `_require_upload_access`.
+
+    Reads are handed to a thread. This process also runs the audio meters, and
+    blocking the event loop on a 40 MB disk read would stall live scoring for
+    every monitored channel to save one user a moment.
+    """
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Already sent. Return the existing upload rather than making a second
+    # copy: without this, clicking Edit twice silently spends the user's
+    # upload quota twice on identical bytes and leaves two cards in the
+    # library that nothing distinguishes.
+    existing_id = clip.get("editor_upload_id")
+    if existing_id:
+        existing = upload_lib.get(existing_id, uid)
+        if existing:
+            return existing.public()
+
+    from src.clips import files as clip_files
+    path = clip_files.path_for(clip_id)
+    if not path or not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No file for this clip yet. Highlightz only keeps the video "
+                   "for clips it captured while the stream was live.")
+
+    raw = f"{clip.get('channel', 'clip')} - {clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
+
+    async def _chunks():
+        with path.open("rb") as fh:
+            while True:
+                chunk = await asyncio.to_thread(_read_chunk, fh, _UPLOAD_CHUNK)
+                if not chunk:
+                    break
+                yield chunk
+
+    try:
+        up = await upload_lib.save_stream(uid, f"{raw}.mp4", _chunks(),
+                                          source="clip")
+    except upload_lib.UploadError as exc:
+        # The library's 400 is worded for somebody who picked a file off their
+        # desktop. Here the file is ours, so a rejection means our capture is
+        # bad — telling this user to "upload an MP4" blames them for it.
+        detail = ("That capture didn't finish cleanly, so it can't be edited. "
+                  "Download it and check the file."
+                  if exc.status == 400 else exc.message)
+        raise HTTPException(status_code=exc.status, detail=detail)
+
+    linked = None
+    async with _data_lock:
+        # Re-read under the lock: the clip may have been deleted while the copy
+        # was running, and writing the link back would resurrect a dead record.
+        # The owner is re-checked too, so `linked` can only ever be this user's
+        # own clip — nothing else may reach the broadcast below.
+        live = _clips.get(clip_id)
+        if live is not None and live.get("user_id") == uid:
+            live["editor_upload_id"] = up.id
+            _save_clips()
+            linked = live
+
+    payload = up.public()
+    # Realtime contract, both halves. The library gains a card (the same event
+    # the upload path emits, so the existing handler covers it), and the clip's
+    # own record is refreshed in every open tab.
+    await broadcast({"event": "upload_added", "upload": payload,
+                     "quota": upload_lib.quota(uid)}, user_id=uid)
+    if linked is not None:
+        await broadcast({"event": "clip_updated", "clip": _clip_out(linked)},
+                        user_id=uid)
+    log.info("clip_sent_to_editor", user_id=uid, clip_id=clip_id,
+             upload_id=up.id, size=up.size)
+    return payload
+
+
 # MUST STAY ABOVE @app.get("/clips/{clip_id}") — FastAPI resolves in
 # declaration order, so a literal /clips/undo declared after the
 # parameterised route is matched as clip_id="undo" and 404s.

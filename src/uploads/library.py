@@ -59,6 +59,10 @@ _INDEX = Path(settings.local_storage_path) / "uploads.json"
 # recording produces it. Anything else is refused rather than guessed at.
 EXT_FOR_KIND = {"mp4": ".mp4", "mov": ".mov", "webm": ".webm"}
 
+# Every value `Upload.source` may hold. It arrives from a query string, so it
+# is checked against this rather than stored as given.
+SOURCES = ("upload", "render", "clip")
+
 
 def sniff_container(head: bytes) -> str | None:
     """Identify a video container from its leading bytes, or None.
@@ -95,7 +99,10 @@ class Upload:
     kind: str              # mp4 | mov | webm
     size: int              # bytes
     created_at: float
-    source: str = "upload"  # where it came from; future: "twitch", "recording"
+    # Where it came from. "upload" is a file the user picked; "render" is an
+    # export the editor wrote back and is hidden from the pickers; "clip" is a
+    # moment Highlightz captured live and copied in for editing.
+    source: str = "upload"
 
     def public(self) -> dict:
         d = asdict(self)
@@ -287,7 +294,9 @@ async def save_stream(user_id: str, filename: str, chunks,
             kind=kind,
             size=written,
             created_at=time.time(),
-            source=source if source in ("upload", "render") else "upload",
+            # Allowlisted, not passed through: `source` reaches this from a
+            # query string on POST /uploads, and it is rendered in the library.
+            source=source if source in SOURCES else "upload",
         )
         final = path_for(up)
         os.replace(tmp, final)       # atomic: never expose a partial file
