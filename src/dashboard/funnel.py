@@ -145,23 +145,76 @@ def flush(force: bool = False) -> None:
         log.warning("funnel_write_failed", error=str(exc))
 
 
-def record(step: str, n: int = 1) -> None:
+# How many steps of one browsing session are remembered for `undo`. The whole
+# journey is four entries; the cap exists so a session cookie cannot grow
+# without bound if somebody reloads the sign-in page two hundred times.
+_JOURNAL_MAX = 24
+
+
+def record(step: str, n: int = 1, journal: list | None = None) -> None:
     """Count one step. Never raises — see the module docstring.
 
     Unknown steps are dropped rather than stored: the admin page renders from
     STEPS, so a typo'd key would be counted forever and displayed nowhere.
+
+    `journal` is a list living in the visitor's session. The first steps of the
+    funnel happen before anyone is identified — a landing page view has no
+    account attached to it — so the only way to keep staff out of them is to
+    write down what this browsing session was counted for and subtract it again
+    if the person turns out to be staff when they finally sign in. Entries are
+    [day, step] so the reversal lands in the bucket it came from rather than in
+    today's, which is what keeps a sign-in on Friday from corrupting Monday.
     """
     global _dirty
     try:
         if step not in _KEYS:
             return
         _ensure_loaded()
-        _counts.setdefault(_today(), {})[step] = \
-            _counts.setdefault(_today(), {}).get(step, 0) + n
+        day = _today()
+        _counts.setdefault(day, {})[step] = \
+            _counts.setdefault(day, {}).get(step, 0) + n
         _dirty = True
+        if journal is not None:
+            journal.append([day, step])
+            del journal[:-_JOURNAL_MAX]
         flush()
     except Exception as exc:                       # noqa: BLE001 — see docstring
         log.warning("funnel_record_failed", step=step, error=str(exc))
+
+
+def undo(entries) -> int:
+    """Take back steps counted earlier in one browsing session.
+
+    Called when somebody signs in and turns out to be staff: everything their
+    browser was counted for on the way to that sign-in was counted before we
+    could know who they were. Returns how many were reversed.
+
+    Clamped at zero. The journal rides a session cookie, and a cookie is a
+    thing the client holds — a replayed or edited one must not be able to drive
+    a counter negative and make the funnel report a step nobody reached.
+    """
+    global _dirty
+    n = 0
+    try:
+        _ensure_loaded()
+        for entry in (entries or []):
+            try:
+                day, step = entry[0], entry[1]
+            except (TypeError, IndexError, KeyError):
+                continue
+            if step not in _KEYS or day not in _counts:
+                continue
+            have = _counts[day].get(step, 0)
+            if have <= 0:
+                continue
+            _counts[day][step] = have - 1
+            n += 1
+        if n:
+            _dirty = True
+            flush()
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("funnel_undo_failed", error=str(exc))
+    return n
 
 
 def record_once(step: str, user_id: str, count: bool = True) -> bool:

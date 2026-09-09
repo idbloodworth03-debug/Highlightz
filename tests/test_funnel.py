@@ -431,3 +431,165 @@ async def test_the_admin_lookup_happens_once_not_per_clip(client, monkeypatch):
         assert funnel.record_once("first_clip", "boss") is False
     finally:
         api._clips.clear()
+
+
+# ── staff leave no trace anywhere ────────────────────────────────────────────
+#
+# The first four steps happen before anybody has an identity: a landing page
+# view has no account attached to it. The only way to keep staff out of them is
+# to write down what a browsing session was counted for and subtract it again
+# when that session turns out to belong to staff. These pin that reversal, and
+# especially the ways it could be abused or go negative.
+
+def test_a_journalled_step_is_counted_normally():
+    j = []
+    funnel.record("landing", journal=j)
+    assert funnel.totals()["totals"]["landing"] == 1
+    assert j and j[0][1] == "landing"
+
+
+def test_undo_takes_back_exactly_what_the_session_was_counted_for():
+    j = []
+    for step in ("landing", "login_view", "oauth_start", "oauth_return"):
+        funnel.record(step, journal=j)
+    funnel.record("landing")                 # somebody else, not in the journal
+    assert funnel.undo(j) == 4
+    t = funnel.totals()["totals"]
+    assert t["landing"] == 1                 # the stranger's visit survives
+    assert t["login_view"] == 0 and t["oauth_start"] == 0 and t["oauth_return"] == 0
+
+
+def test_undo_reverses_into_the_day_the_step_was_counted():
+    """A staff sign-in on Friday must not decrement Monday's bucket, or the
+    daily series goes wrong in both directions at once."""
+    funnel._counts["2026-09-01"] = {"landing": 5}
+    assert funnel.undo([["2026-09-01", "landing"]]) == 1
+    assert funnel._counts["2026-09-01"]["landing"] == 4
+
+
+def test_undo_can_never_drive_a_count_negative():
+    """The journal rides a session cookie, which is a thing the CLIENT holds.
+    A replayed or edited cookie must not be able to make the funnel report a
+    step that nobody reached."""
+    j = [[funnel._today(), "landing"]] * 50
+    funnel.record("landing")
+    funnel.undo(j)
+    funnel.undo(j)
+    assert funnel.totals()["totals"]["landing"] == 0
+
+
+def test_undo_ignores_junk_in_the_journal():
+    """Same reason: the shape arrives from a cookie, not from us."""
+    funnel.record("landing")
+    funnel.undo([None, [], ["nope"], ["2026-01-01", "not_a_step"],
+                 ["1999-01-01", "landing"], "garbage"])
+    assert funnel.totals()["totals"]["landing"] == 1
+
+
+def test_undo_on_an_empty_journal_is_harmless():
+    assert funnel.undo(None) == 0
+    assert funnel.undo([]) == 0
+
+
+def test_the_journal_cannot_grow_without_bound():
+    """It lives in a session cookie. Somebody reloading the sign-in page two
+    hundred times must not produce a cookie too big to send."""
+    j = []
+    for _ in range(200):
+        funnel.record("login_view", journal=j)
+    assert len(j) <= funnel._JOURNAL_MAX
+
+
+@pytest.mark.asyncio
+async def test_an_admin_signing_in_leaves_the_funnel_untouched(client, monkeypatch):
+    """END TO END, through the real routes. The owner is the most frequent
+    visitor to their own site; on a funnel whose totals are in single digits,
+    their sign-ins alone would dominate every step above the account level."""
+    from src.auth import users as user_store
+    admin = {"id": "boss", "is_admin": True, "username": "boss",
+             "subscription_status": "active", "plan": "pro"}
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: admin)
+    monkeypatch.setattr(user_store, "get_by_twitch_id", lambda tid: admin)
+    monkeypatch.setattr(user_store, "upsert_twitch_user", lambda **k: admin)
+    monkeypatch.setattr(user_store, "mark_login", lambda uid: None)
+    monkeypatch.setattr(user_store, "set_email", lambda *a, **k: None)
+
+    async def _exchange(code):
+        return {"access_token": "a", "refresh_token": "r", "expires_in": 3600}
+
+    async def _get_user(tok):
+        return {"id": "42", "login": "boss", "username": "boss"}
+    from src.auth import twitch_oauth
+    monkeypatch.setattr(twitch_oauth, "exchange_code", _exchange)
+    monkeypatch.setattr(twitch_oauth, "get_user", _get_user)
+    monkeypatch.setattr(twitch_oauth, "authorization_url",
+                        lambda state: "https://id.twitch.tv/oauth2/authorize")
+    monkeypatch.setattr(api.settings, "twitch_client_id", "test-client")
+
+    # base_url is https on purpose: dashboard_https_only marks the session
+    # cookie Secure, and an http test client silently never sends it back —
+    # which makes every request look like a brand-new session.
+    c = TestClient(api.app, follow_redirects=False, base_url="https://testserver")
+    c.get("/")                                  # landing
+    c.get("/login")                             # sign-in page
+    r = c.get("/auth/twitch")                   # off to Twitch
+    assert r.status_code in (302, 307), r.status_code
+    # Everything above is counted; nobody knows who they are yet.
+    assert funnel.totals()["totals"]["landing"] == 1
+
+    # The CSRF state rode out in the session cookie. Read it back and replay
+    # the callback the way Twitch would.
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    raw = signer.unsign(c.cookies.get("session")).decode()
+    state = _j.loads(base64.b64decode(raw)).get("oauth_state")
+    assert state, "no oauth state was stored"
+
+    c.get(f"/auth/twitch/callback?code=abc&state={state}")
+
+    t = funnel.totals()["totals"]
+    assert t["landing"] == 0, "the admin's landing view was not taken back"
+    assert t["login_view"] == 0
+    assert t["oauth_start"] == 0
+    assert t["oauth_return"] == 0
+    assert t["signup"] == 0 and t["returning"] == 0
+
+
+def test_the_journal_accumulates_across_requests():
+    """THE BUG THIS CAUGHT, and it failed invisibly.
+
+    Starlette's Session rewrites the cookie only when `session.modified` is
+    set, and that flag is set by DICT operations. Appending to a list already
+    inside the session never touches the dict, so the cookie was never re-sent
+    and the journal reset to a single entry on every request.
+
+    Nothing looked wrong: every step was still counted correctly, the cookie
+    still existed, and no error was raised anywhere. It would have surfaced
+    only as a staff sign-in taking back one step instead of four — a wrong
+    number on a panel built to be trusted, which is the worst shape of failure
+    this feature has.
+    """
+    c = TestClient(api.app, follow_redirects=False, base_url="https://testserver")
+    c.get("/")
+    c.get("/login")
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    sess = _j.loads(base64.b64decode(signer.unsign(c.cookies.get("session")).decode()))
+    steps = [e[1] for e in sess.get("_fn", [])]
+    assert steps == ["landing", "login_view"], steps
+
+
+def test_why_these_tests_speak_https():
+    """A note to the next person, written as a test so it cannot go stale.
+
+    dashboard_https_only marks the session cookie Secure. httpx keeps such a
+    cookie in its jar but will not SEND it to an http:// URL, so over http every
+    request arrives with no session and the journal never accumulates — which
+    would make the tests above pass against a product that was in fact broken.
+    Hence base_url="https://testserver" everywhere the journal matters.
+    """
+    http = TestClient(api.app, follow_redirects=False, base_url="http://testserver")
+    http.get("/")
+    http.get("/login")
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    sess = _j.loads(base64.b64decode(signer.unsign(http.cookies.get("session")).decode()))
+    # One entry, not two: the second request never saw the first one's session.
+    assert [e[1] for e in sess.get("_fn", [])] == ["login_view"]

@@ -918,7 +918,7 @@ async def twitch_login(request: Request, intent: str = ""):
     """Redirect the browser to Twitch's OAuth consent screen."""
     _capture_ref(request)
     from src.auth.twitch_oauth import authorization_url
-    funnel.record("oauth_start")
+    _fn_record(request, "oauth_start")
     if not settings.twitch_client_id:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
     state = secrets.token_urlsafe(16)
@@ -936,7 +936,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # people Twitch sent back at all, and a failed exchange is still somebody
     # who got that far. Counting only successes would hide a broken callback
     # as an empty step rather than showing it as a cliff.
-    funnel.record("oauth_return")
+    _fn_record(request, "oauth_return")
     if error:
         return RedirectResponse("/login?error=twitch_failed")
     if not code or state != request.session.pop("oauth_state", None):
@@ -989,7 +989,15 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # rather than in upsert_twitch_user because that runs for a returning user
     # too and this is specifically about the authorisation, not the account.
     user_store.mark_login(user["id"])
-    funnel.record("signup" if _was_new else "returning")
+    # STAFF LEAVE NO TRACE IN THE FUNNEL. Everything this browser was counted
+    # for on the way here — landing, sign-in page, the click out to Twitch and
+    # the return — was counted before anyone had an identity, so it is taken
+    # back now that there is one. Read BEFORE session.clear() below, which is
+    # the same one-line window pending_ref and pending_invite live in.
+    if user.get("is_admin"):
+        funnel.undo(request.session.get("_fn"))
+    else:
+        funnel.record("signup" if _was_new else "returning")
 
     if pending_ref:
         # First touch only — set_ref_once refuses to overwrite, so a returning
@@ -3513,7 +3521,13 @@ async def add_stream(request: Request, req: StreamRequest):
     # First channel this account has EVER added. record_once holds the marker,
     # so removing it and adding another does not count twice — the step is
     # "did they ever get started", not "how many channels have they added".
-    funnel.record_once("first_channel", uid)
+    # Staff are marked and not counted, same as the clip step: the owner's own
+    # channels are testing, not activation. `count=False` still records the
+    # account so this lookup runs once rather than on every channel they add.
+    from src.auth import users as _fn_user_store
+    funnel.record_once(
+        "first_channel", uid,
+        count=not (_fn_user_store.get_by_id(uid) or {}).get("is_admin"))
     await broadcast({"event": "stream_added", "stream": record}, user_id=uid)
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, preset, uid)
@@ -5609,7 +5623,7 @@ _ERROR_MESSAGES = {
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
     _capture_ref(request)
-    funnel.record("login_view")
+    _fn_record(request, "login_view")
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
@@ -5767,6 +5781,32 @@ def _capture_ref(request: Request) -> None:
         request.session["ref"] = ref
 
 
+def _fn_record(request: Request, step: str) -> None:
+    """Count a funnel step and remember it against this browsing session.
+
+    The journal lives in the session because that is the only thing surviving
+    the trip out to twitch.tv and back — the same reason `ref` and `invite` do.
+    It exists so a staff sign-in can be subtracted again: the landing page and
+    the sign-in page are counted before anybody has an identity, so without a
+    record of what this browser was counted for there is nothing to take back.
+
+    THE REASSIGNMENT ON THE LAST LINE IS LOAD-BEARING, and it is the reason
+    this is a function rather than three inline lines. Starlette's Session
+    rewrites the cookie only when `session.modified` is set, and that flag is
+    set by DICT operations — __setitem__, pop, clear. Appending to a list
+    already inside the session never touches the dict, so the flag stays false,
+    the cookie is never re-sent, and the journal silently resets to one entry
+    on every request. It fails invisibly: each step is still counted correctly,
+    so nothing looks wrong until a staff sign-in takes back one step instead of
+    four. Writing the key back marks the session dirty.
+    """
+    j = request.session.get("_fn")
+    if not isinstance(j, list):
+        j = []
+    funnel.record(step, journal=j)
+    request.session["_fn"] = j
+
+
 def render_landing(html: str | None = None) -> str:
     """Bake the live clip count into the landing HTML before serving it.
 
@@ -5847,7 +5887,7 @@ async def dashboard(request: Request):
     # Signed-out only: a logged-in user reloading their dashboard is not a
     # visitor arriving at the top of the funnel, and counting them there would
     # make the product look like it converts worse the more it is used.
-    funnel.record("landing")
+    _fn_record(request, "landing")
     return HTMLResponse(content=render_landing())
 
 
