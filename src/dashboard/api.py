@@ -51,6 +51,7 @@ except ImportError:
 
 from config.settings import settings
 from src.dashboard import undo
+from src.dashboard import funnel
 from src.trigger import dismissed_suggestions as _dismissed
 from src.billing import plans as _plans
 from src.dashboard.aurora_html import DASHBOARD_HTML
@@ -852,6 +853,11 @@ async def notify_clip_ready(clip: dict) -> None:
         else:
             _clips[clip["id"]] = clip
             _save_clips()
+            # The first clip this account has ever actually received. Placed on
+            # the branch that STORES the clip: the branch above discards it, and
+            # counting there would report the product as having delivered
+            # something the user never saw.
+            funnel.record_once("first_clip", clip_uid)
             if counts_as_caught:
                 increment_clip_counter()
             # Counted at creation, not from _clips — rejected clips are deleted,
@@ -900,6 +906,7 @@ async def twitch_login(request: Request, intent: str = ""):
     """Redirect the browser to Twitch's OAuth consent screen."""
     _capture_ref(request)
     from src.auth.twitch_oauth import authorization_url
+    funnel.record("oauth_start")
     if not settings.twitch_client_id:
         raise HTTPException(status_code=503, detail="Twitch OAuth not configured")
     state = secrets.token_urlsafe(16)
@@ -913,6 +920,11 @@ async def twitch_login(request: Request, intent: str = ""):
 async def twitch_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle Twitch OAuth callback, create/find user, store tokens, set session."""
     from src.auth import twitch_oauth, users as user_store
+    # Counted BEFORE the error branches: the funnel question here is how many
+    # people Twitch sent back at all, and a failed exchange is still somebody
+    # who got that far. Counting only successes would hide a broken callback
+    # as an empty step rather than showing it as a cliff.
+    funnel.record("oauth_return")
     if error:
         return RedirectResponse("/login?error=twitch_failed")
     if not code or state != request.session.pop("oauth_state", None):
@@ -941,6 +953,9 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     pending_invite = request.session.get("invite")
 
     is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
+    # Asked BEFORE the upsert, which is the only moment the answer exists —
+    # afterwards every account looks like one that was already there.
+    _was_new = user_store.get_by_twitch_id(tuser["id"]) is None
     user = user_store.upsert_twitch_user(
         twitch_id=tuser["id"],
         login=tuser["login"],
@@ -962,6 +977,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # rather than in upsert_twitch_user because that runs for a returning user
     # too and this is specifically about the authorisation, not the account.
     user_store.mark_login(user["id"])
+    funnel.record("signup" if _was_new else "returning")
 
     if pending_ref:
         # First touch only — set_ref_once refuses to overwrite, so a returning
@@ -3482,6 +3498,10 @@ async def add_stream(request: Request, req: StreamRequest):
         # Going back to a channel outranks having once cleared it from the
         # list, so the dismissal is lifted here rather than surviving forever.
         _unhide_suggestion(uid, req.channel)
+    # First channel this account has EVER added. record_once holds the marker,
+    # so removing it and adding another does not count twice — the step is
+    # "did they ever get started", not "how many channels have they added".
+    funnel.record_once("first_channel", uid)
     await broadcast({"event": "stream_added", "stream": record}, user_id=uid)
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, preset, uid)
@@ -4845,6 +4865,17 @@ async def force_clip(request: Request, channel: str):
     return {"status": "queued", "channel": channel}
 
 
+@app.get("/admin/funnel")
+async def admin_funnel(request: Request, days: int = 30):
+    """Signup funnel counts for the admin page.
+
+    Counts only — see src/dashboard/funnel.py for why there is no visitor id
+    and what that means for reading the numbers.
+    """
+    _require_admin(request)
+    return funnel.totals(days=max(1, min(days, 180)))
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     try:
@@ -5566,6 +5597,7 @@ _ERROR_MESSAGES = {
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
     _capture_ref(request)
+    funnel.record("login_view")
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
@@ -5800,6 +5832,10 @@ async def dashboard(request: Request):
     # marketing landing page.
     if request.session.get("auth"):
         return HTMLResponse(content=DASHBOARD_HTML)
+    # Signed-out only: a logged-in user reloading their dashboard is not a
+    # visitor arriving at the top of the funnel, and counting them there would
+    # make the product look like it converts worse the more it is used.
+    funnel.record("landing")
     return HTMLResponse(content=render_landing())
 
 
@@ -10432,6 +10468,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 
   <div class="tabs" id="tabs">
     <button class="tab on" data-tab="users">Users<span class="c" id="tc-users"></span></button>
+    <button class="tab" data-tab="funnel">Funnel<span class="c" id="tc-funnel"></span></button>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
@@ -10455,6 +10492,28 @@ ADMIN_HTML = """<!DOCTYPE html>
       <span class="spacer" id="u-count"></span>
     </div>
     <div class="tw"><div id="u-wrap" class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <!-- ── FUNNEL ── -->
+  <div class="panel" id="panel-funnel">
+    <div class="block-head"><h2>Signup funnel</h2><span class="c" id="fn-c"></span></div>
+    <p class="lede">
+      Where people stop. <b>Counts, not people</b> &mdash; there is no visitor
+      cookie, so this is a shape rather than a set of individuals: someone can
+      land on Monday and sign up on Friday, and one person reloading counts
+      twice. It is enough to tell an empty top of funnel from a leaky middle,
+      which is the only question it exists to answer.
+      <b>Of prev</b> is the step-to-step conversion; that is where the leak is.
+    </p>
+    <div class="toolbar">
+      <select class="btn" id="fn-days">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="180">All of it</option>
+      </select>
+    </div>
+    <div class="tw"><div id="fn-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
   <!-- ── GROWTH: referrals and promo codes answer the same question, so they
@@ -10602,7 +10661,79 @@ document.getElementById('tabs').addEventListener('click', e => {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t === b));
   document.querySelectorAll('.panel').forEach(p =>
     p.classList.toggle('on', p.id === 'panel-' + b.dataset.tab));
+  // Loaded on first open rather than at boot. The box is a 1 vCPU droplet
+  // running eleven workers; a panel nobody looked at should cost nothing.
+  if(b.dataset.tab === 'funnel' && !FUNNEL_LOADED) loadFunnel();
 });
+
+// ── funnel ────────────────────────────────────────────────
+let FUNNEL_LOADED = false;
+
+function fnBar(pct){
+  // Width relative to the top of the funnel, so the shape is readable at a
+  // glance without reading any numbers.
+  const w = Math.max(0, Math.min(100, pct == null ? 0 : pct));
+  return '<div style="height:8px;border-radius:4px;background:rgba(242,234,247,.07);overflow:hidden">'
+       + '<div style="height:100%;width:' + w + '%;background:linear-gradient(90deg,var(--plum),var(--ember))"></div></div>';
+}
+
+async function loadFunnel(){
+  const wrap = document.getElementById('fn-wrap');
+  const days = document.getElementById('fn-days').value;
+  wrap.className = 'loading';
+  wrap.textContent = 'Loading...';
+  let d;
+  try{
+    d = await api('/admin/funnel?days=' + days);
+  }catch(err){
+    wrap.className = '';
+    wrap.textContent = 'Could not load the funnel.';
+    return;
+  }
+  FUNNEL_LOADED = true;
+  const help = {};
+  (d.steps || []).forEach(s => { help[s.key] = s; });
+  const t = d.totals || {};
+
+  let html = '<table><thead><tr>'
+    + '<th>Step</th><th>Count</th><th>Of prev</th><th>Of top</th><th>Shape</th>'
+    + '</tr></thead><tbody>';
+  (d.rows || []).forEach(r => {
+    const meta = help[r.key] || {};
+    const prev = r.pct_prev == null ? '<span class="dim">&mdash;</span>'
+      : '<b style="color:' + (r.pct_prev < 25 ? 'var(--bad)' : r.pct_prev < 60 ? 'var(--ember)' : 'var(--good)') + '">'
+        + r.pct_prev + '%</b>';
+    const top = r.pct_top == null ? '<span class="dim">&mdash;</span>' : r.pct_top + '%';
+    html += '<tr>'
+      + '<td><b>' + (meta.label || r.key) + '</b><div class="dim" style="font-size:12px;line-height:1.4;margin-top:2px;max-width:44ch">'
+        + (meta.help || '') + '</div></td>'
+      + '<td class="mono">' + r.count + '</td>'
+      + '<td>' + prev + '</td>'
+      + '<td class="mono dim">' + top + '</td>'
+      + '<td style="min-width:120px">' + fnBar(r.pct_top) + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+
+  // Returning sign-ins are deliberately outside the funnel table: they are not
+  // a stage anybody passes through, but without them "came back" looks like it
+  // leaks people who in fact signed up months ago.
+  html += '<p class="lede" style="margin-top:16px">Returning sign-ins in this window: <b>'
+       + (t.returning || 0) + '</b>. Those are existing accounts, not funnel steps &mdash; '
+       + '<b>New account</b> plus this should roughly equal <b>Came back</b>.</p>';
+
+  if(!(d.rows || []).some(r => r.count > 0)){
+    html = '<p class="lede">Nothing counted yet. Counting started when this was '
+         + 'deployed, so it has no history before that &mdash; give it a day.</p>' + html;
+  }
+
+  wrap.className = '';
+  wrap.innerHTML = html;
+  document.getElementById('fn-c').textContent = d.days + ' DAYS';
+  labelCells(wrap);
+}
+
+document.getElementById('fn-days').addEventListener('change', loadFunnel);
 
 // ── overview ────────────────────────────────────────────────────────────────
 // Read straight from the server. The header used to be computed in the browser
