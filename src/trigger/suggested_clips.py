@@ -107,6 +107,24 @@ SETTLE_SECS = 180.0
 # length plus a few seconds of human variance.
 CLUSTER_SECS = 45.0
 
+# HOW FAR APART TWO MOMENTS MUST BE TO COUNT AS DIFFERENT ONES, once we have
+# already suggested one of them. Deliberately wider than CLUSTER_SECS, and
+# split from it because the two windows do different jobs:
+#
+#   CLUSTER_SECS groups clips INTO a moment. Widening it would merge genuinely
+#   separate plays into one suggestion and lose the second one entirely.
+#
+#   This one asks "have I already sent this?" — and the failure it prevents is
+#   a second cluster forming from stragglers who clipped the same play late.
+#   Those arrive well beyond one clip length: a viewer reacting to the replay
+#   is a minute or more behind the one who hit the button on reflex, and every
+#   such straggler is a fresh slug that clusters happily on its own.
+#
+# Erring wide here costs at most one extra suggestion of a nearby moment.
+# Erring narrow puts two clips of the same play in somebody's review queue,
+# which is the thing being complained about.
+RESUGGEST_SECS = 150.0
+
 # Distinct viewers who must have clipped a moment. One is deliberate: on a
 # 200-viewer channel almost nothing gets clipped twice, and those are exactly
 # the users for whom a missed moment hurts most. The clipper count rides along
@@ -303,7 +321,7 @@ class SuggestionBuffer:
         return len(self._emissions) < MAX_PER_HOUR
 
     def _already_suggested_moment(self, ts: float) -> bool:
-        return any(abs(ts - m) <= CLUSTER_SECS for m in self._emitted_moments)
+        return any(abs(ts - m) <= RESUGGEST_SECS for m in self._emitted_moments)
 
     def _expire(self, now: float) -> None:
         for slug, c in list(self._pending.items()):
@@ -312,6 +330,9 @@ class SuggestionBuffer:
         # These two only ever grow, and a channel can stream for many hours.
         if len(self._emitted) > 5000:
             self._emitted.clear()
+        # Must stay comfortably wider than RESUGGEST_SECS: a moment forgotten
+        # while it can still be re-suggested is exactly the duplicate this
+        # guard exists to stop.
         cutoff = now - MAX_AGE_SECS - 3600.0
         self._emitted_moments = [m for m in self._emitted_moments if m > cutoff]
 

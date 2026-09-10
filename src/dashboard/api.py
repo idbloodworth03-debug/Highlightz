@@ -610,6 +610,20 @@ async def broadcast(event: dict, user_id: str | None = None) -> None:
 # ── Clip pipeline ─────────────────────────────────────────────────────────────
 
 _DEDUP_WINDOW    = 45   # seconds — skip clip if same channel+user had one recently
+
+# HIGHLIGHT-vs-HIGHLIGHT GETS A WIDER WINDOW, and it needs one.
+#
+# A Highlight's timestamp is when a VIEWER pressed the clip button, not when
+# the moment happened. A Twitch clip covers the preceding ~30s, so two people
+# clipping the same play — one on reflex, one after the replay — are routinely
+# 60-90s apart while capturing overlapping video. At 45s the second one reads
+# as a fresh moment and both land, which is the duplicate pair users see.
+#
+# Deliberately NOT applied to triggered clips. Those are timestamped when the
+# detector fired, so their spread is tens of seconds at most, and widening
+# their window would start suppressing genuinely separate moments on a busy
+# channel — trading a visible duplicate for an invisible miss.
+_SUGGESTION_DEDUP_WINDOW = 150
 # Per-user pending-clip cap is plan-dependent (Starter 50 / Pro 200) — see
 # src/billing/plans.py. Oldest pending clips are evicted when the cap is hit.
 
@@ -826,13 +840,24 @@ async def notify_clip_ready(clip: dict) -> None:
         clip_uid = clip.get("user_id")
         clip_ts  = clip.get("created_at", time.time())
 
-        # Dedup within the same user's clips only
+        # Dedup within the same user's clips only.
+        #
+        # Checked HERE rather than only in the suggestion buffer because this
+        # store is on disk: the buffer's own same-moment guard lives in worker
+        # memory and is lost on every restart, so a moment suggested before a
+        # deploy could otherwise come back after one.
+        _new_is_suggestion = bool(clip.get("suggested"))
         for existing in _clips.values():
-            if (existing.get("channel") == channel
-                    and existing.get("user_id") == clip_uid
-                    and abs(existing.get("created_at", 0) - clip_ts) < _DEDUP_WINDOW):
+            if (existing.get("channel") != channel
+                    or existing.get("user_id") != clip_uid):
+                continue
+            window = (_SUGGESTION_DEDUP_WINDOW
+                      if _new_is_suggestion and existing.get("suggested")
+                      else _DEDUP_WINDOW)
+            if abs(existing.get("created_at", 0) - clip_ts) < window:
                 log.info("clip_deduplicated", clip_id=clip["id"], channel=channel,
-                         duplicate_of=existing["id"])
+                         duplicate_of=existing["id"], window=window,
+                         suggested=_new_is_suggestion)
                 return
 
         # TWO BUDGETS, NOT ONE. Triggered clips draw on max_pending (Free 20 /
@@ -866,6 +891,40 @@ async def notify_clip_ready(clip: dict) -> None:
         # so this path only fires when the queue filled between that check and
         # here. Keeping it is what stops a race from putting the queue over cap.
         dropped = len(user_pending) >= pending_cap
+
+        # HIGHLIGHTS OUTRANK TRIGGERED CLIPS ON FREE, and may take a slot to
+        # get in. A Highlight is a moment a human framed; on the one tier where
+        # the queue is genuinely tight it is worth more than the weakest thing
+        # the formula caught sitting next to it.
+        #
+        # THE WEAKEST, NOT THE OLDEST. Displacing by age would sooner or later
+        # throw away a 95-score clip to make room, which loses on the very
+        # measure this is meant to serve. Lowest trigger score goes first, with
+        # the older one breaking a tie.
+        #
+        # It stops when there is nothing left to take: once the queue holds
+        # only Highlights, a further one is dropped like any other. That is the
+        # "until it is full of highlight clips" bound, and it is what keeps
+        # this from being unbounded eviction wearing a different hat.
+        evicted = None
+        if (dropped and is_suggestion and _limits.get("highlight_priority")):
+            victims = sorted(
+                (c for c in _clips.values()
+                 if c.get("status") == "pending"
+                 and c.get("user_id") == clip_uid
+                 and not c.get("suggested")),
+                key=lambda c: (float(c.get("trigger_score") or 0),
+                               c.get("created_at", 0)),
+            )
+            if victims:
+                evicted = victims[0]
+                _clips.pop(evicted["id"], None)
+                _delete_clip_file(evicted)
+                dropped = False
+                log.info("clip_evicted_for_highlight",
+                         clip_id=evicted["id"], channel=evicted.get("channel"),
+                         score=evicted.get("trigger_score"),
+                         for_clip=clip.get("id"), user_id=clip_uid)
         # The public counter is "clips the formula caught", and it is published
         # beside a keep rate computed from APPROVED/REJECTED — which excludes
         # crowd suggestions. Counting suggestions here and not there would put
@@ -921,6 +980,15 @@ async def notify_clip_ready(clip: dict) -> None:
 
     # Outside the lock: notify_clip_missed broadcasts, and awaiting a socket
     # write while holding _data_lock stalls every other clip in the pipeline.
+    #
+    # The eviction is announced FIRST, so a tab watching its queue sees the old
+    # clip leave before the Highlight arrives rather than briefly showing one
+    # more clip than the plan allows. Realtime contract: this changed
+    # user-visible state, so it does not wait for a reload.
+    if evicted is not None:
+        await broadcast({"event": "clip_removed", "clip_id": evicted["id"]},
+                        user_id=clip_uid)
+
     if dropped:
         # "You missed a clip" is a claim about the product failing the user,
         # and it drives an upgrade prompt. A crowd suggestion that did not fit

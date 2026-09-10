@@ -113,27 +113,43 @@ _SUGGESTED = "max_suggested"
 # cap is on what you STORE, so it counts what is stored.
 _LIB_WEEK = "max_library_week"
 
+# WHETHER A HIGHLIGHT MAY TAKE A SLOT OFF A TRIGGERED CLIP.
+#
+# Free only, on purpose. Highlight clips are moments a human framed and they
+# hold up better than the detector's own picks, so on the one tier where the
+# queue is genuinely tight they are worth more than the weakest triggered clip
+# sitting next to them. Every paid tier has room for both and never needs the
+# trade — Starter holds fifty triggered clips and twenty-five Highlights, and
+# a queue that full is a review backlog rather than a capacity problem.
+#
+# This is a NARROW re-introduction of eviction, which was removed in 2026-08-03
+# because a full queue silently destroying the user's existing clips is
+# hostile. What makes it defensible here: it only ever displaces a triggered
+# clip, only for something rated higher, only on free, only the weakest one,
+# and it tells the tab it happened. See notify_clip_ready.
+_HL_PRIORITY = "highlight_priority"
+
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
     # It is not any more, and with free reopened nothing lands here at all —
     # the label survives for the one caller that can still reach it.
     "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
                 "max_pending": 0, _SUGGESTED: 0, _LIB_WEEK: 0,
-                "vod": False, "uploads": False},
+                "vod": False, "uploads": False, _HL_PRIORITY: False},
     # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
     # the product that still proves it works: one channel, twenty clips in the
     # queue, and five suggested clips on top of those — see _SUGGESTED.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
                 "max_pending": 20, _SUGGESTED: 5, _LIB_WEEK: 30,
-                "vod": False, "uploads": False},
+                "vod": False, "uploads": False, _HL_PRIORITY: True},
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
                 "max_pending": 50, _SUGGESTED: 25, _LIB_WEEK: 100,
-                "vod": False, "uploads": False},
+                "vod": False, "uploads": False, _HL_PRIORITY: False},
     # Pro is the tier with no ceiling on what you keep, which is most of why
     # somebody moves up from Starter.
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
                 "max_pending": 200, _SUGGESTED: 75, _LIB_WEEK: UNLIMITED_PENDING,
-                "vod": True, "uploads": True},
+                "vod": True, "uploads": True, _HL_PRIORITY: False},
 }
 
 PAID_PLANS = ("starter", "pro")
