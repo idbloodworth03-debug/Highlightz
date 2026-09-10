@@ -10802,7 +10802,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         Codes are 3&ndash;24 characters and must be unique.
       </p>
       <div class="toolbar">
-        <input class="field" id="af-user" placeholder="Account username or user id" maxlength="80">
+        <select class="btn" id="af-user"><option value="">Loading accounts&hellip;</option></select>
         <input class="field" id="af-code" placeholder="Code, e.g. tommy" maxlength="24">
         <button class="btn btn-key" id="af-set">Assign code</button>
       </div>
@@ -11279,7 +11279,39 @@ async function loadUsers(){
   try { USERS = await api('/admin/users'); }
   catch(e){ fail('u-wrap', 'users'); return; }
   renderUsers();
+  fillAffiliatePicker();
 }
+
+// The account picker in Growth. Filled from here rather than from
+// loadAffiliates because the two run concurrently at boot and USERS may not
+// have landed yet — a picker built from an empty array is an empty picker that
+// never refills itself.
+function fillAffiliatePicker(){
+  const sel = document.getElementById('af-user');
+  if(!sel) return;
+  const keep = sel.value;
+  const rows = (USERS || []).slice().sort((a, b) =>
+    (a.username || '').toLowerCase().localeCompare((b.username || '').toLowerCase()));
+  sel.innerHTML = '<option value="">Choose an account&hellip;</option>'
+    + rows.map(u => {
+        // The existing code rides along in the label, so assigning a second one
+        // to somebody who already has one is a visible act rather than a
+        // surprise the server has to refuse.
+        const has = u.affiliate_code ? '  \u2014 ' + u.affiliate_code : '';
+        const staff = u.is_admin ? '  (admin)' : '';
+        return '<option value="' + esc(u.id) + '" data-code="'
+             + esc(u.affiliate_code || '') + '">'
+             + esc(u.username || u.id) + esc(has) + esc(staff) + '</option>';
+      }).join('');
+  if(keep) sel.value = keep;
+}
+
+// Picking somebody who already has a code loads it into the box, so the form
+// reads as editing what is there rather than silently replacing it.
+document.getElementById('af-user').addEventListener('change', e => {
+  const opt = e.target.selectedOptions[0];
+  document.getElementById('af-code').value = (opt && opt.dataset.code) || '';
+});
 
 document.getElementById('u-search').addEventListener('input', e => {
   U_Q = (e.target.value || '').toLowerCase().trim(); renderUsers();
@@ -11735,9 +11767,10 @@ async function loadAffiliates(){
 }
 
 async function setAffiliate(who, code){
-  // Accept a username as well as an id — nobody reading the user table has the
-  // id to hand, and making them find it is the kind of friction that means the
-  // feature does not get used.
+  // `who` is a user id: the picker supplies one directly, and the Remove
+  // buttons in the table carry one. A username is still accepted because the
+  // table's buttons are not the only caller and a stale label should not be
+  // the thing that breaks an assignment.
   let uid = who;
   const match = (USERS || []).find(u =>
     u.id === who || (u.username || '').toLowerCase() === String(who).toLowerCase());
@@ -11749,14 +11782,17 @@ async function setAffiliate(who, code){
   let body = {};
   try { body = await r.json(); } catch(e){}
   if(!r.ok){ alert(body.detail || 'Could not set that code'); return false; }
+  // Both: the table below, and the picker's labels — which carry each
+  // account's current code and would otherwise still show the old one.
   await loadAffiliates();
+  await loadUsers();
   return true;
 }
 
 document.getElementById('af-set').onclick = async () => {
-  const who = document.getElementById('af-user').value.trim();
+  const who = document.getElementById('af-user').value;
   const code = document.getElementById('af-code').value.trim();
-  if(!who){ alert('Which account?'); return; }
+  if(!who){ alert('Pick an account first.'); return; }
   if(await setAffiliate(who, code)){
     document.getElementById('af-user').value = '';
     document.getElementById('af-code').value = '';
