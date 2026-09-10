@@ -580,65 +580,35 @@ class StreamWorker:
         busy the channel gets.
         """
         from src.dashboard import api as dashboard_api
-        from src.processor.metadata import ClipMetadata
-        from src.trigger import dismissed_suggestions
 
         ripe = buf.ready()
         if not ripe:
             return
-        uid = self._config.user_id
-        used, room = dashboard_api.suggestion_room(uid)
-        info = self._stream_info
 
-        for s in ripe:
-            # Already said no to this moment. Checked HERE rather than in the
-            # buffer because the buffer is shared by every worker watching this
-            # channel — one user clearing their queue must not suppress a
-            # suggestion another user has never been shown. The buffer's own
-            # guards are in-memory and cover a single process; this one is what
-            # survives a restart, which is when the reappearance was happening.
-            if dismissed_suggestions.is_dismissed(uid, s.channel, s.slug,
-                                                  s.created_at):
-                log.info("suggested_clip_skipped_dismissed", channel=s.channel,
-                         user_id=uid, slug=s.slug)
-                continue
-            if used >= room:
-                log.info("suggested_clip_skipped_budget", channel=s.channel,
-                         user_id=uid, waiting=used, suggestion_cap=room)
-                break
-            meta = ClipMetadata(
-                channel=s.channel,
-                platform=self._config.platform_name,
-                # NOT the moment the suggestion was processed. The viewer's
-                # clip timestamp is when the moment actually happened, which is
-                # what the review queue sorts by — and it is what lets
-                # notify_clip_ready's dedup window recognise a moment we
-                # already clipped ourselves and drop this as a duplicate.
-                created_at=s.created_at,
-                # A suggestion comes off the same channel, so it is gated the
-                # same way — the player has to route it identically.
-                age_restricted=bool(info.is_mature) if info else False,
-                stream_title=info.title if info else "",
-                game=info.game if info else "",
-                clip_title=s.title,
-                duration_seconds=s.duration or 30.0,
-                user_id=uid,
-                twitch_clip_id=s.slug,
-                twitch_url=s.url,
-                embed_url=s.embed_url,
-                thumbnail_url=s.thumbnail_url,
-                # Zero, and deliberately: no score was consulted to get here.
-                trigger_score=0.0,
-                virality_score=0.0,
-                suggested=True,
-                clipper_count=s.clipper_count,
-                suggested_views=s.view_count,
-            )
-            await dashboard_api.notify_clip_ready(meta.to_dict())
-            used += 1
-            log.info("suggested_clip_landed", channel=s.channel, user_id=uid,
-                     slug=s.slug, clippers=s.clipper_count, views=s.view_count)
-
+        # EVERY USER WATCHING THIS CHANNEL, not just this worker's own.
+        #
+        # THE BUG THIS FIXES. The viewer-clip poll is gated per channel so five
+        # users watching one streamer cost one Helix call rather than five —
+        # which means exactly one worker per channel ever reaches this code.
+        # `buf.ready()` is destructive, so that worker drained the ripened
+        # moments and handed them to its own user alone. Every other account
+        # watching that channel got nothing, permanently, and a NEW user
+        # joining a channel somebody already monitored got nothing at all. It
+        # read as "Highlights don't work", and for every account but one it was.
+        #
+        # Fanning out here rather than making the buffer per-user is the
+        # smaller correct change: ripening a moment is genuinely shared work
+        # and should happen once, while DELIVERY is per-user and already has
+        # per-user rules — dismissals and budget — inside _land_for_user.
+        watchers = dashboard_api.watchers_of(self._config.channel)
+        if self._config.user_id and self._config.user_id not in watchers:
+            # Our own user always counts, even if the registry has not caught
+            # up. Losing this worker's suggestions to a bookkeeping lag would
+            # be a worse bug than the one being fixed.
+            watchers.append(self._config.user_id)
+        for uid in watchers:
+            await _land_for_user(ripe, uid, self._stream_info,
+                                 self._config.platform_name)
     async def _on_trigger(self, event: TriggerEvent) -> None:
         info = self._stream_info
         snapshot = self._engine._metrics.snapshot() if self._engine else None
@@ -790,3 +760,72 @@ class StreamWorker:
             self._engine.stop()
         for t in self._tasks:
             t.cancel()
+
+
+async def _land_for_user(ripe, uid: str, info, platform_name: str) -> None:
+    """Offer this batch of ripe moments to one user, under their own rules.
+
+    MODULE-LEVEL RATHER THAN A METHOD, and not incidentally: the suggestion
+    path is tested by calling _land_suggestions unbound with a stub standing in
+    for `self`, which is what makes it testable without a live stream. A second
+    method would have to be added to every such stub; a module function needs
+    nothing.
+
+    A fresh ClipMetadata is built per user, so each gets its own clip id —
+    sharing one across users would collide in the clip store and only one of
+    them would ever see the moment.
+    """
+    from src.dashboard import api as dashboard_api
+    from src.processor.metadata import ClipMetadata
+    from src.trigger import dismissed_suggestions
+
+    used, room = dashboard_api.suggestion_room(uid)
+
+    for s in ripe:
+        # Already said no to this moment. Checked HERE rather than in the
+        # buffer because the buffer is shared by every worker watching this
+        # channel — one user clearing their queue must not suppress a
+        # suggestion another user has never been shown. The buffer's own
+        # guards are in-memory and cover a single process; this one is what
+        # survives a restart, which is when the reappearance was happening.
+        if dismissed_suggestions.is_dismissed(uid, s.channel, s.slug,
+                                              s.created_at):
+            log.info("suggested_clip_skipped_dismissed", channel=s.channel,
+                     user_id=uid, slug=s.slug)
+            continue
+        if used >= room:
+            log.info("suggested_clip_skipped_budget", channel=s.channel,
+                     user_id=uid, waiting=used, suggestion_cap=room)
+            break
+        meta = ClipMetadata(
+            channel=s.channel,
+            platform=platform_name,
+            # NOT the moment the suggestion was processed. The viewer's
+            # clip timestamp is when the moment actually happened, which is
+            # what the review queue sorts by — and it is what lets
+            # notify_clip_ready's dedup window recognise a moment we
+            # already clipped ourselves and drop this as a duplicate.
+            created_at=s.created_at,
+            # A suggestion comes off the same channel, so it is gated the
+            # same way — the player has to route it identically.
+            age_restricted=bool(info.is_mature) if info else False,
+            stream_title=info.title if info else "",
+            game=info.game if info else "",
+            clip_title=s.title,
+            duration_seconds=s.duration or 30.0,
+            user_id=uid,
+            twitch_clip_id=s.slug,
+            twitch_url=s.url,
+            embed_url=s.embed_url,
+            thumbnail_url=s.thumbnail_url,
+            # Zero, and deliberately: no score was consulted to get here.
+            trigger_score=0.0,
+            virality_score=0.0,
+            suggested=True,
+            clipper_count=s.clipper_count,
+            suggested_views=s.view_count,
+        )
+        await dashboard_api.notify_clip_ready(meta.to_dict())
+        used += 1
+        log.info("suggested_clip_landed", channel=s.channel, user_id=uid,
+                 slug=s.slug, clippers=s.clipper_count, views=s.view_count)

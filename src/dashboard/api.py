@@ -4443,6 +4443,24 @@ def pending_room(uid: str) -> tuple[int, int]:
     return used, cap
 
 
+def watchers_of(channel: str) -> list[str]:
+    """Every user with this channel registered.
+
+    WHY THIS EXISTS. The viewer-clip poll is shared per channel — five users
+    watching one streamer cost one Helix call, not five — and the worker that
+    wins that poll is the one that ripens the crowd suggestions. It then had to
+    hand them to somebody, and it only knew its own user, so on any channel
+    with more than one watcher exactly one account received Highlights and the
+    rest received none. This is how the other watchers get found.
+    """
+    seen: list[str] = []
+    for rec in _streams.values():
+        uid = rec.get("user_id")
+        if rec.get("channel") == channel and uid and uid not in seen:
+            seen.append(uid)
+    return seen
+
+
 def suggestion_room(uid: str) -> tuple[int, int]:
     """(crowd suggestions waiting on this user, what their plan allows).
 

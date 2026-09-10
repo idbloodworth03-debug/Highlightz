@@ -215,9 +215,14 @@ def test_an_expiring_undo_entry_does_not_forget():
 # ── the worker consults it ───────────────────────────────────────────────────
 
 def test_the_worker_checks_before_landing_a_suggestion():
+    """Reads _land_for_user, not _land_suggestions. The per-user half was split
+    out when suggestions started fanning out to every watcher of a channel —
+    _land_suggestions now decides WHO gets offered a moment, and this decides
+    whether a given user actually receives it, which is where the dismissal
+    lives."""
     import inspect
     from src.ingestion import stream_worker
-    src = inspect.getsource(stream_worker.StreamWorker._land_suggestions)
+    src = inspect.getsource(stream_worker._land_for_user)
     assert "dismissed_suggestions.is_dismissed(" in src, \
         "suggestions are landed without checking whether they were dismissed"
     # The branch must SKIP, not merely log. Window is the guard's own block —
@@ -414,10 +419,17 @@ async def _land(worker, buf, landed):
 
 
 class _Worker:
-    """The bare attributes _land_suggestions touches on self."""
+    """The bare attributes _land_suggestions touches on self.
 
-    def __init__(self, uid):
-        self._config = type("C", (), {"user_id": uid, "platform_name": "twitch"})()
+    `channel` is needed since suggestions began fanning out to every watcher:
+    the worker asks the dashboard who else is on this channel. In these tests
+    the stream registry is empty, so the fan-out falls back to this worker's
+    own user — which is exactly the single-user case these were written for.
+    """
+
+    def __init__(self, uid, channel="lacy"):
+        self._config = type("C", (), {"user_id": uid, "platform_name": "twitch",
+                                      "channel": channel})()
         self._stream_info = None
 
 
