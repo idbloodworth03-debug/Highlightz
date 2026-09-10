@@ -1,10 +1,16 @@
 """
-Highlights outrank triggered clips on the free tier, and duplicates of one
-moment stop arriving in pairs.
+Highlights outrank triggered clips on the free tier.
 
-TWO CHANGES, ONE FILE, because they are the same complaint from two ends: the
-free queue should hold the best moments available, and it should hold each of
-them once.
+ON DEDUPLICATION, WHICH IS NOT WHAT IT MIGHT LOOK LIKE HERE. A wider window for
+Highlight-vs-Highlight shipped alongside this and was reverted the next day on
+the owner's call. The reasoning for it was sound — a Highlight is timestamped
+when a VIEWER pressed clip, so two people catching one play are routinely 60-90s
+apart — but a wider window also swallows genuinely separate moments, and the
+preference is to keep those and tolerate the occasional duplicate pair.
+
+The dedup tests below therefore pin the 45s position DELIBERATELY, including
+the case that now lands twice. They are there so the two constants cannot drift
+apart again without somebody deciding to.
 
 WHAT MAKES THE EVICTION HALF DELICATE. Automatic deletion of a user's pending
 clips was removed in 2026-08-03 precisely because a full queue silently
@@ -198,32 +204,39 @@ async def test_the_evicted_clips_file_is_cleaned_up(store, monkeypatch):
 # ── the duplicates ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_two_highlights_of_one_moment_land_once(store):
-    """THE REPORTED BUG. A Highlight is timestamped when a VIEWER clipped, so
-    one person reacting on reflex and another after the replay are routinely a
-    minute apart while capturing the same play."""
+async def test_two_clips_of_the_same_moment_land_once(store):
+    """Inside the window, whatever kind they are."""
     _put("freebie", "first", suggested=True, ts=NOW)
     await api.notify_clip_ready(
-        _new("freebie", "second", suggested=True, ts=NOW + 90))
+        _new("freebie", "second", suggested=True, ts=NOW + 30))
     assert "second" not in api._clips
 
 
 @pytest.mark.asyncio
-async def test_highlights_far_enough_apart_are_still_two_moments(store):
+async def test_the_window_is_the_same_for_every_clip_type(store):
+    """A WIDER HIGHLIGHT WINDOW WAS TRIED AND REVERTED (owner's call). This
+    pins the position that replaced it, so the two constants cannot silently
+    drift apart again: a Highlight 90s after another one LANDS, because
+    widening the window to catch that pair also swallows genuinely separate
+    moments, and the preference is to keep those.
+
+    The cost is stated rather than hidden: some duplicate pairs get through.
+    If they become the bigger annoyance, _DEDUP_WINDOW is the number to raise."""
+    _put("freebie", "hl_first", suggested=True, ts=NOW)
+    await api.notify_clip_ready(_new("freebie", "hl_late", suggested=True, ts=NOW + 90))
+    assert "hl_late" in api._clips
+
+    _put("freebie", "t_first", suggested=False, ts=NOW + 10_000)
+    await api.notify_clip_ready(_new("freebie", "t_late", ts=NOW + 10_090))
+    assert "t_late" in api._clips
+
+
+@pytest.mark.asyncio
+async def test_clips_far_enough_apart_are_still_two_moments(store):
     _put("freebie", "first", suggested=True, ts=NOW)
     await api.notify_clip_ready(
         _new("freebie", "later", suggested=True, ts=NOW + 400))
     assert "later" in api._clips
-
-
-@pytest.mark.asyncio
-async def test_the_wider_window_does_not_apply_to_triggered_clips(store):
-    """Their timestamps come from the detector firing, not a human reacting,
-    so widening theirs would suppress genuinely separate moments on a busy
-    channel — trading a visible duplicate for an invisible miss."""
-    _put("freebie", "t_first", suggested=False, ts=NOW)
-    await api.notify_clip_ready(_new("freebie", "t_second", ts=NOW + 90))
-    assert "t_second" in api._clips
 
 
 @pytest.mark.asyncio
@@ -255,21 +268,16 @@ async def test_another_users_clip_is_never_a_duplicate(store):
 
 # ── the source-side guard ────────────────────────────────────────────────────
 
-def test_the_resuggest_guard_is_wider_than_the_clustering_window():
-    """They were one constant and did different jobs. CLUSTER_SECS groups clips
-    INTO a moment — widening it merges separate plays and loses one. The
-    re-suggest guard asks 'have I sent this already', and its failure is a
-    straggler forming a second cluster minutes later."""
-    from src.trigger import suggested_clips as sc
-    assert sc.RESUGGEST_SECS > sc.CLUSTER_SECS
-
-
-def test_a_late_straggler_does_not_become_a_second_suggestion():
+def test_the_resuggest_guard_uses_the_clustering_window():
+    """One constant again, after the split was reverted. Pinned so a future
+    change to one of these jobs is a deliberate split rather than a quiet
+    widening of the other — CLUSTER_SECS also decides what gets grouped INTO a
+    moment, and widening that merges separate plays and loses one."""
     from src.trigger import suggested_clips as sc
     buf = sc.SuggestionBuffer("lacy")
     buf._emitted_moments.append(NOW)
-    assert buf._already_suggested_moment(NOW + 90) is True
-    assert buf._already_suggested_moment(NOW + 400) is False
+    assert buf._already_suggested_moment(NOW + sc.CLUSTER_SECS - 1) is True
+    assert buf._already_suggested_moment(NOW + sc.CLUSTER_SECS + 1) is False
 
 
 def test_free_is_the_only_tier_with_highlight_priority():

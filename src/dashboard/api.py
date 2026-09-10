@@ -609,21 +609,16 @@ async def broadcast(event: dict, user_id: str | None = None) -> None:
 
 # ── Clip pipeline ─────────────────────────────────────────────────────────────
 
-_DEDUP_WINDOW    = 45   # seconds — skip clip if same channel+user had one recently
-
-# HIGHLIGHT-vs-HIGHLIGHT GETS A WIDER WINDOW, and it needs one.
+# Seconds. One window for every clip type: a Highlight arriving this soon after
+# anything already in the queue is treated as the same moment.
 #
-# A Highlight's timestamp is when a VIEWER pressed the clip button, not when
-# the moment happened. A Twitch clip covers the preceding ~30s, so two people
-# clipping the same play — one on reflex, one after the replay — are routinely
-# 60-90s apart while capturing overlapping video. At 45s the second one reads
-# as a fresh moment and both land, which is the duplicate pair users see.
-#
-# Deliberately NOT applied to triggered clips. Those are timestamped when the
-# detector fired, so their spread is tens of seconds at most, and widening
-# their window would start suppressing genuinely separate moments on a busy
-# channel — trading a visible duplicate for an invisible miss.
-_SUGGESTION_DEDUP_WINDOW = 150
+# A WIDER WINDOW FOR HIGHLIGHTS WAS TRIED AND REVERTED (2026-09-10, owner's
+# call). The reasoning for it still holds — a Highlight is timestamped when a
+# VIEWER pressed clip, so two people catching one play can be 60-90s apart —
+# but widening it also starts swallowing genuinely separate moments, and the
+# owner would rather see the occasional duplicate pair than lose a real one.
+# If duplicates become the bigger annoyance, this is the number to raise.
+_DEDUP_WINDOW    = 45
 # Per-user pending-clip cap is plan-dependent (Starter 50 / Pro 200) — see
 # src/billing/plans.py. Oldest pending clips are evicted when the cap is hit.
 
@@ -846,18 +841,12 @@ async def notify_clip_ready(clip: dict) -> None:
         # store is on disk: the buffer's own same-moment guard lives in worker
         # memory and is lost on every restart, so a moment suggested before a
         # deploy could otherwise come back after one.
-        _new_is_suggestion = bool(clip.get("suggested"))
         for existing in _clips.values():
-            if (existing.get("channel") != channel
-                    or existing.get("user_id") != clip_uid):
-                continue
-            window = (_SUGGESTION_DEDUP_WINDOW
-                      if _new_is_suggestion and existing.get("suggested")
-                      else _DEDUP_WINDOW)
-            if abs(existing.get("created_at", 0) - clip_ts) < window:
+            if (existing.get("channel") == channel
+                    and existing.get("user_id") == clip_uid
+                    and abs(existing.get("created_at", 0) - clip_ts) < _DEDUP_WINDOW):
                 log.info("clip_deduplicated", clip_id=clip["id"], channel=channel,
-                         duplicate_of=existing["id"], window=window,
-                         suggested=_new_is_suggestion)
+                         duplicate_of=existing["id"])
                 return
 
         # TWO BUDGETS, NOT ONE. Triggered clips draw on max_pending (Free 20 /
