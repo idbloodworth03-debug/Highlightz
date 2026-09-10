@@ -4957,10 +4957,27 @@ async def affiliate_portal_stats(request: Request):
     uid = _current_user_id(request)
     me = user_store.get_by_id(uid) or {}
     code = me.get("affiliate_code")
-    out = {"username": me.get("username") or "", "code": code}
+    users = user_store.get_all()          # loaded once; every stat reads it
+    out = {"username": me.get("username") or "", "code": code,
+           "is_admin": bool(me.get("is_admin"))}
     if code:
         out["stats"] = affiliates.stats_for(
-            code, users=user_store.get_all(), last_active=_user_last_active)
+            code, users=users, last_active=_user_last_active)
+
+    # An admin sees every code. Without this the owner opening their own portal
+    # is told they have no affiliate code, which is true and useless — it is a
+    # dead end on the one page that knows the answer they came for.
+    #
+    # STILL NOTHING READ FROM THE REQUEST. The list is derived from the caller's
+    # own is_admin flag, so the guarantee that no caller can name a code they
+    # want to see holds for admins too; they simply get all of them.
+    if out["is_admin"]:
+        out["all"] = sorted(
+            ({**affiliates.stats_for(u["affiliate_code"], users=users,
+                                     last_active=_user_last_active),
+              "username": u.get("username") or ""}
+             for u in affiliates.all_affiliates()),
+            key=lambda r: -r["signups"])
     return out
 
 

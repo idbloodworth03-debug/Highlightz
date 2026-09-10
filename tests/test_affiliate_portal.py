@@ -282,3 +282,74 @@ def test_a_broken_lookup_cannot_take_down_the_landing_page(client, monkeypatch):
     monkeypatch.setattr(affiliates, "owner_of",
                         lambda c: (_ for _ in ()).throw(RuntimeError("store gone")))
     assert referrals.normalise("anything") is None        # must not raise
+
+
+# ── what staff see ───────────────────────────────────────────────────────────
+
+def test_an_admin_sees_every_code_on_the_portal(client):
+    """Before this, the owner opening their own portal was told they have no
+    affiliate code — true, and a dead end on the one page that knows the
+    answer they came for."""
+    client.store.update({"a1": _referred("a1", "tommy", 30, paid=True),
+                         "b1": _referred("b1", "andrewz", 30)})
+    body = client.login("boss").get("/portal/stats").json()
+    assert body["is_admin"] is True
+    codes = {r["code"] for r in body["all"]}
+    assert codes == {"tommy", "andrewz"}
+    tommy = next(r for r in body["all"] if r["code"] == "tommy")
+    assert tommy["signups"] == 1 and tommy["paid"] == 1
+    assert tommy["username"] == "tommy"
+
+
+def test_the_admin_list_is_ordered_by_signups(client):
+    client.store.update({
+        "a1": _referred("a1", "andrewz", 30),
+        "a2": _referred("a2", "andrewz", 30),
+        "b1": _referred("b1", "tommy", 30),
+    })
+    rows = client.login("boss").get("/portal/stats").json()["all"]
+    assert [r["code"] for r in rows] == ["andrewz", "tommy"]
+
+
+def test_an_admin_with_no_code_of_their_own_still_gets_the_page(client):
+    """The owner is not an affiliate. The page has to work for them anyway."""
+    body = client.login("boss").get("/portal/stats").json()
+    assert body["code"] is None
+    assert "stats" not in body
+    assert "all" in body
+
+
+def test_an_admin_who_is_also_an_affiliate_gets_both(client):
+    client.store["boss"] = {**client.store["boss"], "affiliate_code": "bosscode"}
+    client.store["a1"] = _referred("a1", "bosscode", 30)
+    body = client.login("boss").get("/portal/stats").json()
+    assert body["code"] == "bosscode"
+    assert body["stats"]["signups"] == 1
+    assert "bosscode" in {r["code"] for r in body["all"]}
+
+
+def test_a_plain_affiliate_never_receives_the_full_list(client):
+    """THE LEAK THIS PREVENTS. `all` carries every affiliate's commercial
+    numbers; it must be gated on the caller's own is_admin flag and nothing
+    else. A missing key here is the difference between a portal and a
+    competitor report."""
+    client.store["b1"] = _referred("b1", "andrewz", 30)
+    body = client.login("tommy").get("/portal/stats").json()
+    assert body["is_admin"] is False
+    assert "all" not in body
+    assert "andrewz" not in _j.dumps(body)
+
+
+def test_a_forged_admin_cookie_does_not_unlock_the_list(client):
+    """is_admin is read from the DATABASE, not the session — the same rule
+    _require_admin follows. A session claiming it proves nothing."""
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    data = base64.b64encode(_j.dumps({
+        "auth": True, "user_id": "tommy", "is_admin": True,
+        "subscription_status": "none",
+    }).encode())
+    client.cookies.clear()
+    client.cookies.set("session", signer.sign(data).decode())
+    body = client.get("/portal/stats").json()
+    assert body["is_admin"] is False
+    assert "all" not in body

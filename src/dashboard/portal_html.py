@@ -67,6 +67,12 @@ PORTAL_HTML = """<!DOCTYPE html>
   dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13.5px}
   dt{color:var(--ink);font-weight:600;white-space:nowrap}
   dd{margin:0;color:var(--ink-3)}
+  .tblwrap{overflow-x:auto;margin:0 -4px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+     color:var(--ink-3);font-weight:700;padding:0 12px 9px 0;white-space:nowrap}
+  td{padding:10px 12px 10px 0;border-top:1px solid var(--hair);color:var(--ink-2)}
+  td.mono{font-family:var(--mono);color:var(--ink)}
   .loading{color:var(--ink-3);padding:24px 0}
   @media(max-width:560px){
     .wrap{padding:24px 14px 60px}
@@ -104,10 +110,10 @@ function render(d){
   document.getElementById('who').innerHTML =
     esc(d.username || '') + ' <a href="/logout">Sign out</a>';
 
-  // Not an affiliate. Says what to do rather than just refusing — somebody who
-  // followed a link here and sees a bare "no access" has no idea whether that
-  // is a mistake or a decision.
-  if(!d.code){
+  // Not an affiliate, and not staff. Says what to do rather than just
+  // refusing — somebody who followed a link here and sees a bare "no access"
+  // has no idea whether that is a mistake or a decision.
+  if(!d.code && !d.is_admin){
     root.innerHTML = '<div class="card empty">'
       + '<div class="big">No affiliate code on this account</div>'
       + '<div class="muted">You are signed in as <b>' + esc(d.username || 'your account')
@@ -116,11 +122,54 @@ function render(d){
     return;
   }
 
+  // Everyone's codes, for staff. Rendered above their own block, because an
+  // admin opening this page came to see the programme, not their personal
+  // numbers — and most of the time they have no code of their own at all.
+  var adminHtml = '';
+  if(d.is_admin){
+    var rows = d.all || [];
+    adminHtml = '<div class="card"><h2>All affiliate codes</h2>';
+    if(!rows.length){
+      adminHtml += '<div class="muted">Nobody has a code yet. Assign one from '
+                 + '<a href="/admin" style="color:var(--plum)">the admin page</a>, Growth tab.</div>';
+    } else {
+      var tot = rows.reduce(function(a, r){ return a + (r.signups || 0); }, 0);
+      var totPaid = rows.reduce(function(a, r){ return a + (r.paid || 0); }, 0);
+      adminHtml += '<div class="lede"><b>' + rows.length + '</b> code'
+        + (rows.length === 1 ? '' : 's') + ' &middot; <b>' + tot + '</b> signup'
+        + (tot === 1 ? '' : 's') + ' attributed &middot; <b>' + totPaid + '</b> paying</div>'
+        + '<div class="tblwrap"><table><thead><tr><th>Code</th><th>Who</th>'
+        + '<th>Signups</th><th>Connected</th><th>Paying</th><th>7d</th><th>30d</th>'
+        + '</tr></thead><tbody>'
+        + rows.map(function(r){
+            return '<tr>'
+              + '<td><b class="mono" style="color:var(--flare)">' + esc(r.code) + '</b></td>'
+              + '<td>' + esc(r.username || '') + '</td>'
+              + '<td class="mono">' + (r.signups || 0) + '</td>'
+              + '<td class="mono">' + (r.connected || 0) + '</td>'
+              + '<td class="mono">' + (r.paid ? '<b style="color:var(--good)">' + r.paid + '</b>' : '0') + '</td>'
+              + '<td class="mono">' + (r.last_7 || 0) + '</td>'
+              + '<td class="mono">' + (r.last_30 || 0) + '</td>'
+              + '</tr>';
+          }).join('')
+        + '</tbody></table></div>';
+    }
+    adminHtml += '</div>';
+  }
+
+  // An admin with no code of their own stops here: the rest of this page is
+  // one affiliate's figures, and rendering it from an empty stats object would
+  // print a wall of zeros that reads as the programme having failed.
+  if(!d.code){
+    root.innerHTML = adminHtml;
+    return;
+  }
+
   var s = d.stats || {};
   var elig = s.retention_eligible || 0;
   var pct = elig ? Math.round((s.retained_wk2 || 0) / elig * 100) : null;
 
-  root.innerHTML =
+  root.innerHTML = adminHtml +
       '<div class="card">'
     +   '<h2>Your code</h2>'
     +   '<div class="code">' + esc(s.code) + '</div>'
