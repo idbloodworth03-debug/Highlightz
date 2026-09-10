@@ -4923,6 +4923,86 @@ async def force_clip(request: Request, channel: str):
     return {"status": "queued", "channel": channel}
 
 
+# ── Affiliate portal ──────────────────────────────────────────────────────────
+#
+# One page, no navigation: an affiliate has exactly one question and every
+# control that is not an answer to it is somewhere to get lost. Authentication
+# is the SAME Twitch OAuth everyone else uses — there is no second password to
+# issue, forget or leak — and the code is a field on their account, so "show me
+# my numbers" is the signed-in user asking about their own record.
+
+@app.get("/portal", response_class=HTMLResponse)
+async def affiliate_portal(request: Request):
+    """The portal shell. Numbers arrive from /portal/stats.
+
+    Deliberately served to ANY signed-in account, including one with no code.
+    Refusing here would mean an affiliate whose code has not been attached yet
+    hits a wall with nothing telling them why; the page says so instead.
+    """
+    from src.dashboard.portal_html import PORTAL_HTML
+    return HTMLResponse(PORTAL_HTML)
+
+
+@app.get("/portal/stats")
+async def affiliate_portal_stats(request: Request):
+    """This caller's own affiliate numbers, and nobody else's.
+
+    THE CODE IS NEVER TAKEN FROM THE REQUEST. It is looked up from the signed-in
+    user's record, so there is no parameter to tamper with and no way to ask for
+    a competitor's figures — the only thing the caller controls is who they are
+    signed in as.
+    """
+    from src.auth import affiliates
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    me = user_store.get_by_id(uid) or {}
+    code = me.get("affiliate_code")
+    out = {"username": me.get("username") or "", "code": code}
+    if code:
+        out["stats"] = affiliates.stats_for(
+            code, users=user_store.get_all(), last_active=_user_last_active)
+    return out
+
+
+@app.get("/admin/affiliates")
+async def admin_affiliates(request: Request):
+    """Every account holding a code, with its numbers — the owner's view."""
+    from src.auth import affiliates
+    from src.auth import users as user_store
+    _require_admin(request)
+    users = user_store.get_all()
+    rows = []
+    for u in affiliates.all_affiliates():
+        st = affiliates.stats_for(u["affiliate_code"], users=users,
+                                  last_active=_user_last_active)
+        rows.append({**st, "user_id": u["id"],
+                     "username": u.get("username") or "",
+                     "email": u.get("email") or ""})
+    return {"rows": sorted(rows, key=lambda r: -r["signups"])}
+
+
+class _AffiliateCodeRequest(BaseModel):
+    code: str | None = Field(default=None, max_length=32)
+
+
+@app.post("/admin/affiliates/{user_id}")
+async def admin_set_affiliate(request: Request, user_id: str,
+                              body: _AffiliateCodeRequest):
+    """Attach a code to an account, or clear it by sending an empty one.
+
+    Every refusal reason comes back as text, because the three ways this fails
+    — malformed, taken, collides with a built-in referrer — need different
+    actions from whoever is assigning it.
+    """
+    from src.auth import affiliates
+    _require_admin(request)
+    ok, message = affiliates.assign(user_id, body.code)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "ok", "message": message,
+            "code": affiliates.code_for(user_id)}
+
+
 @app.get("/admin/funnel")
 async def admin_funnel(request: Request, days: int = 30):
     """Signup funnel counts for the admin page.
@@ -10621,6 +10701,22 @@ ADMIN_HTML = """<!DOCTYPE html>
       <div class="tw"><div id="iv-wrap" class="loading">Loading&hellip;</div></div>
     </div>
     <div class="block">
+      <div class="block-head"><h2>Affiliates</h2><span class="c" id="af-c"></span></div>
+      <p class="lede">
+        Give somebody a code and they get their own page at
+        <code>/portal</code> &mdash; they sign in with Twitch like anyone else and see
+        only their own numbers. <b>The code lives on their account</b>, so there is no
+        second password to issue and nothing to revoke but the code itself.
+        Codes are 3&ndash;24 characters and must be unique.
+      </p>
+      <div class="toolbar">
+        <input class="field" id="af-user" placeholder="Account username or user id" maxlength="80">
+        <input class="field" id="af-code" placeholder="Code, e.g. tommy" maxlength="24">
+        <button class="btn btn-key" id="af-set">Assign code</button>
+      </div>
+      <div class="tw"><div id="af-wrap" class="loading">Loading&hellip;</div></div>
+    </div>
+    <div class="block">
       <div class="block-head"><h2>Referrals</h2><span class="c" id="rf-c"></span></div>
       <p class="lede">
         Signups per person, from <code>?ref=</code> links and typed codes alike.
@@ -11513,6 +11609,76 @@ document.getElementById('iv-wrap').addEventListener('click', async e => {
 });
 
 // ── growth: referrals + promo codes ─────────────────────────────────────────
+// ── affiliates ──────────────────────────────────────────────────────────────
+let AFFILIATES = [];
+
+async function loadAffiliates(){
+  const wrap = document.getElementById('af-wrap');
+  let d;
+  try { d = await api('/admin/affiliates'); } catch(e){ fail('af-wrap', 'affiliates'); return; }
+  AFFILIATES = d.rows || [];
+  document.getElementById('af-c').textContent = AFFILIATES.length + ' with a code';
+  if(!AFFILIATES.length){
+    wrap.className = 'empty';
+    wrap.textContent = 'Nobody has a code yet. Assign one above.';
+    return;
+  }
+  wrap.className = '';
+  wrap.innerHTML = '<table><thead><tr><th>Code</th><th>Account</th><th>Signups</th>'
+    + '<th>Connected</th><th>Paying</th><th>Last 7d</th><th>Link</th><th></th>'
+    + '</tr></thead><tbody>'
+    + AFFILIATES.map(r =>
+        '<tr>'
+      + '<td><b class="mono">' + esc(r.code) + '</b></td>'
+      + '<td>' + esc(r.username || r.user_id) + '</td>'
+      + '<td class="mono">' + r.signups + '</td>'
+      + '<td class="mono">' + r.connected + '</td>'
+      + '<td class="mono">' + (r.paid ? '<b style="color:var(--good)">' + r.paid + '</b>' : '0') + '</td>'
+      + '<td class="mono">' + r.last_7 + '</td>'
+      + '<td class="mono dim">' + esc(r.link) + '</td>'
+      + '<td><button class="btn" data-af-clear="' + esc(r.user_id) + '">Remove</button></td>'
+      + '</tr>').join('')
+    + '</tbody></table>';
+  labelCells(wrap);
+}
+
+async function setAffiliate(who, code){
+  // Accept a username as well as an id — nobody reading the user table has the
+  // id to hand, and making them find it is the kind of friction that means the
+  // feature does not get used.
+  let uid = who;
+  const match = (USERS || []).find(u =>
+    u.id === who || (u.username || '').toLowerCase() === String(who).toLowerCase());
+  if(match) uid = match.id;
+  const r = await fetch('/admin/affiliates/' + encodeURIComponent(uid), {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ code: code || null })
+  });
+  let body = {};
+  try { body = await r.json(); } catch(e){}
+  if(!r.ok){ alert(body.detail || 'Could not set that code'); return false; }
+  await loadAffiliates();
+  return true;
+}
+
+document.getElementById('af-set').onclick = async () => {
+  const who = document.getElementById('af-user').value.trim();
+  const code = document.getElementById('af-code').value.trim();
+  if(!who){ alert('Which account?'); return; }
+  if(await setAffiliate(who, code)){
+    document.getElementById('af-user').value = '';
+    document.getElementById('af-code').value = '';
+  }
+};
+
+document.getElementById('af-wrap').addEventListener('click', async e => {
+  const b = e.target.closest('[data-af-clear]');
+  if(!b) return;
+  if(!confirm('Remove this code? Their portal will stop showing numbers, and the '
+            + 'link will no longer attribute new signups.')) return;
+  await setAffiliate(b.dataset.afClear, null);
+});
+
 async function loadReferrals(){
   let d;
   try { d = await api('/admin/referrals'); } catch(e){ fail('rf-wrap', 'referrals'); return; }
@@ -11761,6 +11927,7 @@ fetch('/admin/feedback').then(r => r.json()).then(fb => {
 }).catch(() => {});
 
 refresh();
+loadAffiliates();
 loadReferrals();
 loadInvites();
 loadClipRecord();

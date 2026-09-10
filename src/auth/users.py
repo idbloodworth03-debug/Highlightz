@@ -484,6 +484,24 @@ def set_admin(user_id: str, on: bool) -> bool:
     return False
 
 
+def set_affiliate_code(user_id: str, code: str | None) -> bool:
+    """Give this account an affiliate code, or clear it with None.
+
+    Validation and the uniqueness check live in src/auth/affiliates.py — this
+    is only the write. Returns True if the account was found.
+    """
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if code:
+                u["affiliate_code"] = code
+            else:
+                u.pop("affiliate_code", None)
+            _save(users)
+            return True
+    return False
+
+
 def set_email(user_id: str, email: str, source: str = "stripe") -> None:
     """Record an email for this account, and where it came from.
 

@@ -55,13 +55,37 @@ def normalise(raw: str | None) -> str | None:
     Case and stray punctuation are forgiven because these are typed by hand
     into DMs and read off screenshots. Unknown values return None so they are
     never stored.
+
+    AFFILIATE CODES RESOLVE HERE TOO, and they have to: this is the single
+    place a `?ref=` is turned into something storable, so a code that this
+    function does not recognise is a link that silently attributes to nobody.
+    The built-in keys above are checked FIRST and therefore always win — a
+    collision cannot quietly move somebody's signups into another bucket, and
+    affiliates.assign refuses to hand out a colliding code in the first place.
+
+    ORDERED SO THE COMMON PATH COSTS NOTHING. Almost every request carries no
+    ref at all and returns on the first line; a ref that is a built-in key
+    never reaches the user store either. Only an unrecognised code pays for a
+    lookup, which is the case that is about to be attributed to somebody.
     """
     if not raw:
         return None
     cleaned = _CLEAN.sub("", str(raw).strip().lower())[:MAX_LEN]
     if not cleaned:
         return None
-    return _ALIASES.get(cleaned)
+    known = _ALIASES.get(cleaned)
+    if known:
+        return known
+    try:
+        from src.auth import affiliates
+        if affiliates.owner_of(cleaned):
+            return affiliates.normalise_code(cleaned)
+    except Exception as exc:                      # noqa: BLE001
+        # A broken lookup must not stop somebody visiting the site. Losing the
+        # attribution on one visit is recoverable; a 500 on the landing page
+        # from a link somebody just posted is not.
+        log.warning("affiliate_lookup_failed", code=cleaned, error=str(exc))
+    return None
 
 
 def label(key: str | None) -> str:
