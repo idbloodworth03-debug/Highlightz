@@ -210,6 +210,22 @@ class Settings(BaseSettings):
     # what someone said. CAPTIONS_VAD=true to put it back.
     captions_vad: bool = False
 
+    # DECODING QUALITY, both defaulted to what has always been running so that
+    # adding them changes nothing until somebody deliberately turns a knob.
+    #
+    # beam_size=1 is greedy decoding: markedly cheaper and markedly less
+    # accurate than a beam search. 5 is Whisper's own default and the usual
+    # remedy for "it keeps picking the wrong word", at roughly 2-3x the decode
+    # cost — which on this box is CPU that clip detection may want.
+    captions_beam_size: int = 1
+    # Whisper accepts a sentence of context to bias its vocabulary. Something
+    # like "Live gameplay commentary from a Twitch stream." nudges it toward
+    # the register these clips are actually in. Empty by default and worth
+    # A/B-ing rather than assuming: a prompt can also make a small model INSERT
+    # the words it names when the audio is unclear, which is the same failure
+    # in the other direction.
+    captions_initial_prompt: str = ""
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so

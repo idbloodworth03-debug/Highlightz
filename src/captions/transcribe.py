@@ -145,7 +145,9 @@ def _load_model():
     )
 
 
-def _run_whisper(wav: Path, vad: bool | None = None) -> tuple[list[Segment], str]:
+def _run_whisper(wav: Path, vad: bool | None = None, *, model=None,
+                 beam: int | None = None,
+                 prompt: str | None = None) -> tuple[list[Segment], str]:
     """The only part that touches Whisper. Synchronous and CPU-bound — callers
     run it in an executor.
 
@@ -158,11 +160,20 @@ def _run_whisper(wav: Path, vad: bool | None = None) -> tuple[list[Segment], str
     `python -m src.captions.transcribe --selftest` before trusting it.
     """
     global _model
-    if _model is None:
-        _model = _load_model()
-    segs, info = _model.transcribe(
+    # `model` is for the comparison tool, which needs several sizes in one
+    # process. The service path passes nothing and keeps the single cached one.
+    if model is None:
+        if _model is None:
+            _model = _load_model()
+        model = _model
+    segs, info = model.transcribe(
         str(wav),
-        beam_size=1,                 # greedy: markedly cheaper, fine for captions
+        # Greedy (1) by default — cheaper, and less accurate. See
+        # config/settings.py; src/maintenance/caption_model_test.py measures
+        # what raising it actually buys on a real clip.
+        beam_size=max(1, int(beam or settings.captions_beam_size)),
+        initial_prompt=(prompt if prompt is not None
+                        else settings.captions_initial_prompt) or None,
         # See config/settings.py: VAD discards audio before transcription, so a
         # false negative silently deletes speech. Default off.
         vad_filter=settings.captions_vad if vad is None else vad,
