@@ -85,3 +85,52 @@ def test_assigning_a_code_refreshes_the_picker_labels():
     fn = fn[:fn.index("document.getElementById('af-set')")]
     assert "loadUsers()" in fn, "the picker is left showing stale codes"
     assert "loadAffiliates()" in fn
+
+
+# ── affiliates are visible in the users table ────────────────────────────────
+
+def test_an_affiliate_is_marked_in_the_users_table():
+    """They were indistinguishable from any other account. Somebody asking
+    'is this person an affiliate?' had to open the Growth tab and read a
+    different list."""
+    html = api.ADMIN_HTML
+    assert "u.affiliate_code" in html
+    assert '<span class="tagm aff"' in html, "no affiliate mark is rendered"
+    assert ".tagm.aff{" in html, "the mark has no styling of its own"
+
+
+def test_the_mark_carries_the_code_itself():
+    """'AFFILIATE' alone sends you to another tab to find out which code. The
+    code is the thing you need when somebody asks about their numbers."""
+    html = api.ADMIN_HTML
+    marks = html[html.index("const marks = "):]
+    marks = marks[:marks.index("const canGrant")]
+    assert "esc(u.affiliate_code)" in marks, \
+        "the mark does not print the code"
+
+
+def test_affiliates_can_be_filtered_for():
+    """A label you cannot filter by means scrolling to find them."""
+    html = api.ADMIN_HTML
+    assert 'data-f="affiliate"' in html, "no Affiliates chip"
+    assert "U_FILTER === 'affiliate'" in html, "the chip filters nothing"
+
+
+def test_the_affiliate_filter_is_checked_before_the_plan_fallback():
+    """THE BUG THIS PREVENTS. The last line of userMatches is
+    `return u.plan === U_FILTER`, so a filter added after it is compared
+    against plan names and silently matches nobody — a chip that looks wired
+    up and always shows an empty list."""
+    html = api.ADMIN_HTML
+    fn = html[html.index("function userMatches(u)"):]
+    fn = fn[:fn.index("\n}")]
+    assert fn.index("U_FILTER === 'affiliate'") < fn.index("return u.plan === U_FILTER")
+
+
+def test_an_account_can_be_searched_by_its_code():
+    """You are usually holding the code, not the username — somebody asks
+    about 'tommy' and that is what you have to go on."""
+    html = api.ADMIN_HTML
+    hay = html[html.index("const hay = "):]
+    hay = hay[:hay.index("\n")+120]
+    assert "affiliate_code" in hay, "the code is not searchable"

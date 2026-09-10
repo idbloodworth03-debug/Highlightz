@@ -10493,6 +10493,11 @@ ADMIN_HTML = """<!DOCTYPE html>
     color:var(--ember);border:1px solid rgba(247,167,69,.35);padding:0 var(--s-1);border-radius:2px;margin-left:var(--s-2);
     font-weight:600;vertical-align:middle}
   .tagm.adm{color:var(--glow-ink);border-color:rgba(184,106,220,.45)}
+  /* Affiliates get the "good" green rather than the staff purple: they are
+     not staff, and a mark that reads as a role would be misleading on an
+     account that is otherwise an ordinary user. */
+  .tagm.aff{color:var(--good);border-color:rgba(74,222,128,.42);text-transform:none;
+    letter-spacing:.04em}
 
   /* ── Buttons. The same shape as the site's: square corners, one weight. ── */
   .btn{font-family:var(--sans);font-size:12px;font-weight:600;padding:var(--s-1) var(--s-3);border-radius:3px;
@@ -10741,6 +10746,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         <button class="chip" data-f="free">Free</button>
         <button class="chip" data-f="trialing">Trial</button>
         <button class="chip" data-f="lapsed">Lapsed</button>
+        <button class="chip" data-f="affiliate" title="Accounts with an affiliate code attached">Affiliates</button>
         <button class="chip" data-f="stalled" title="Started signing up and did not finish">Stalled</button>
         <button class="chip" data-f="noemail" title="No email on file — they have not paid, and their Twitch grant predates the email scope">No email</button>
         <button class="chip" data-f="all">All</button>
@@ -11162,7 +11168,8 @@ function userState(u){
 
 function userMatches(u){
   if(U_Q){
-    const hay = ((u.username||'') + ' ' + (u.twitch_login||'') + ' ' + (u.email||'') + ' ' + (u.promo_code||'')).toLowerCase();
+    const hay = ((u.username||'') + ' ' + (u.twitch_login||'') + ' ' + (u.email||'')
+                 + ' ' + (u.promo_code||'') + ' ' + (u.affiliate_code||'')).toLowerCase();
     if(hay.indexOf(U_Q) < 0) return false;
   }
   const st = userState(u);
@@ -11196,6 +11203,10 @@ function userMatches(u){
   // here is waiting on a re-login: no Stripe email because they never paid, and
   // no Twitch email because their grant predates the scope.
   if(U_FILTER === 'noemail') return !u.email;
+  // Cuts across plan and status rather than being one of them — an affiliate
+  // can be free, paying or lapsed. Checked before the fallback below, which
+  // would otherwise read "affiliate" as a plan name and match nobody.
+  if(U_FILTER === 'affiliate') return !!u.affiliate_code;
   return u.plan === U_FILTER;
 }
 
@@ -11231,8 +11242,15 @@ function renderUsers(){
     const avatar = u.avatar_url
       ? '<img class="avatar" src="' + esc(u.avatar_url) + '" alt="">'
       : '<span class="avatar"></span>';
+    // The code itself, not just the word: "AFFILIATE" alone would send you to
+    // the Growth tab to find out which one, and the code is the thing you
+    // actually need when somebody asks about their numbers.
     const marks = (u.is_admin ? '<span class="tagm adm">Admin</span>' : '')
-                + (u.is_labeler ? '<span class="tagm">Trainer</span>' : '');
+                + (u.is_labeler ? '<span class="tagm">Trainer</span>' : '')
+                + (u.affiliate_code
+                    ? '<span class="tagm aff" title="Affiliate code — see the Growth tab">'
+                      + esc(u.affiliate_code) + '</span>'
+                    : '');
     // Only the three actions you take from a LIST live here. Promote, sync,
     // delete are one-at-a-time decisions you make after looking at someone, so
     // they moved into the drawer where you can see who they are first.
