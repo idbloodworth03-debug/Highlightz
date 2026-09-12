@@ -6959,13 +6959,24 @@ LANDING_HTML = """<!DOCTYPE html>
      later in the DOM) paints over it, so the two lights meet at the bottom. */
   .cover-bg{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;
     display:flex;align-items:center;justify-content:center}
+  /* HOT PINK, and only here. The mark is a shared asset — /static/logo-mark.png
+     is painted in ten places, the nav and the favicon among them — so the file
+     itself must stay the brand purple. hue-rotate on THIS element repaints one
+     instance and touches nothing else. 40deg was picked against the real thing:
+     it reads pink beside the original violet, where 50 starts turning crimson
+     at the top of the gradient. */
   .cover-bg img{height:clamp(440px,104vh,1040px);width:auto;display:block;
-    filter:blur(clamp(14px,1.5vw,22px));opacity:.5;transform:translateY(-3%);
+    filter:blur(clamp(14px,1.5vw,22px)) hue-rotate(40deg);opacity:.5;
+    transform:translateY(-3%);
     -webkit-user-select:none;user-select:none}
   /* Blur is in screen pixels: a phone's mark is a third the size, so the
      same radius would dissolve it. Enough to soften, not enough to lose the H. */
   @media(max-width:700px){
-    .cover-bg img{height:clamp(400px,96vh,720px);filter:blur(12px);opacity:.45}
+    /* `filter` is one property: naming blur here REPLACES the desktop value
+       wholesale, so the hue-rotate has to be repeated or the mark is pink on
+       a laptop and purple on a phone. */
+    .cover-bg img{height:clamp(400px,96vh,720px);
+      filter:blur(12px) hue-rotate(40deg);opacity:.45}
   }
   .cover-word{font-family:var(--mono);font-weight:600;
     font-size:clamp(24px,4.6vw,54px);letter-spacing:.12em;text-transform:uppercase;
