@@ -277,7 +277,11 @@ def test_the_success_path_actually_clears_it():
     import src.main as m
     src = inspect.getsource(m)
     i = src.index("meta = await asyncio.wait_for(processor.process(job)")
-    window = src[i:i + 600]
+    # Bounded by the NEXT statement rather than a character count. The count was
+    # 600 and a comment growing by four lines pushed the call outside it, which
+    # failed as "a successful clip does not clear the refusal record" — a claim
+    # about behaviour that was not true. A landmark cannot drift; a number can.
+    window = src[i:src.index("await dashboard_api.notify_clip_ready", i)]
     assert "_refusals.clear(job.channel)" in window, \
         "a successful clip does not clear the channel's refusal record"
 
@@ -297,8 +301,10 @@ def test_all_three_refusal_causes_are_recorded():
     import src.main as m
     src = inspect.getsource(m)
     for reason in ("CLASSIFICATION", "TITLE_AUTOMOD", "NOT_AUTHORIZED"):
-        assert f"_refusals.record(_ch, _refusals.{reason})" in src, \
-            f"{reason} refusals are not recorded"
+        # The user id is part of the call now: the same warning is shown to the
+        # user whose channel it is, and an unattributed refusal reaches nobody.
+        assert f"_refusals.record(_ch, _refusals.{reason}, _uid)" in src, \
+            f"{reason} refusals are not recorded against the affected user"
 
 
 def test_a_corrupt_or_missing_store_is_survivable(refusals, tmp_path):

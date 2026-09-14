@@ -1020,6 +1020,12 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-lost-x{flex-shrink:0;background:none;border:0;color:var(--fg-3);font-size:24px;
   line-height:1;cursor:pointer;padding:0 4px;transition:color var(--dur-fast)}
 .rd-lost-x:hover{color:var(--fg-1)}
+/* The refusal notice is the same banner in red. A different colour because it
+   is a different KIND of problem: the amber one is a limit the user can act on
+   by upgrading or clearing, this one is a wall on the broadcaster's side that
+   they cannot act on at all. Same shape so the X reads as the same control. */
+.rd-refused{background:rgba(255,122,138,.08);border-color:rgba(255,122,138,.32)}
+.rd-refused .ic,.rd-refused .tx b{color:#ff7a8a}
 @media(max-width:640px){.rd-lost{flex-direction:column;align-items:flex-start}}
 .rv{max-width:460px;width:100%;padding:24px 24px;border-radius:20px;
   display:flex;flex-direction:column;gap:12px}
@@ -1646,6 +1652,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     chevron: <polyline points="6 9 12 15 18 9"/>,
     arrowdown: <><path d="M12 5v14"/><polyline points="19 12 12 19 5 12"/></>,
     arrowup: <><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></>,
+    alert: <><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill}
@@ -2684,7 +2691,30 @@ function SortPicker({ sorts, sortBy, setSortBy, sortDir, setSortDir, compact }) 
 // clips needing a verdict with clips that had one — and the Clip Library is
 // already the place approved clips live, in full, sorted by when you kept them.
 // Nothing is lost by dropping them from here; the two screens stop overlapping.
-function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, onGoTutorial }) {
+// What Twitch is actually refusing, in the user's terms, and WHO CAN FIX IT.
+//
+// That last part is the whole value of the notice. Every one of these is the
+// broadcaster's setting — not the user's account, not ours — so a user staring
+// at an empty queue needs to be told the thing is working and where the wall
+// actually is. Kept as one map beside the banner so the wording is in one
+// place; the admin table has its own, blunter copy, because an operator wants
+// the cause and a customer wants to know whether to keep waiting.
+const REFUSAL_COPY = {
+  classification: {
+    what: 'Twitch has not determined this channel’s content rating, and it will not create clips until it does.',
+    who: 'The streamer needs to set their Content Classification Labels. Clipping resumes on its own once they do.'
+  },
+  title_automod: {
+    what: 'The stream title did not pass Twitch’s automod, and Twitch refuses to clip while it stands.',
+    who: 'It clears by itself when the streamer renames their stream — we keep trying in the background.'
+  },
+  not_authorized: {
+    what: 'This broadcaster has clipping turned off on Twitch.',
+    who: 'Only they can change that, so we stopped monitoring the channel to free the slot.'
+  },
+};
+
+function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, refusals, onDismissRefusal, onGoTutorial }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
@@ -2759,6 +2789,26 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
   return (
     <div className="rd-body rd-body-full" style={{flex:1}}>
       <section className="rd-main">
+        {/* ABOVE the queue-full notice on purpose. Both answer "why am I not
+            getting clips", and this one is the answer that is not the user's
+            fault and that they cannot act on — reading it first stops them
+            upgrading a plan to fix a broadcaster's setting.
+
+            The server has already scoped these to this account and stripped
+            the ones they dismissed, so everything that arrives is rendered. */}
+        {(refusals||[]).map(r => {
+          const copy = REFUSAL_COPY[r.reason] || {what:'Twitch is refusing to create clips on this channel.', who:''};
+          return <div className="rd-lost rd-refused" key={r.channel}>
+            <span className="ic"><Icon name="alert" size={16}/></span>
+            <div className="tx">
+              <b>Twitch will not clip {r.channel}.</b>{' '}
+              {copy.what}{copy.who ? ' ' + copy.who : ''}
+              {' '}Nothing is wrong with your account.
+            </div>
+            <button className="rd-lost-x" onClick={()=>onDismissRefusal(r.channel)}
+              title="Dismiss" aria-label={'Dismiss the notice for ' + r.channel}>×</button>
+          </div>;
+        })}
         {lostN > 0 && <div className="rd-lost">
           <span className="ic"><Icon name="zap" size={16}/></span>
           <div className="tx">
@@ -6696,6 +6746,10 @@ function RdApp() {
   // Clips DELETED by the pending cap. Not 'missed' — the new clip is kept
   // and the oldest unreviewed one is dropped, which is what the notice says.
   const [lostClips, setLostClips] = useState(null);
+  // Channels Twitch is refusing to clip FOR THIS USER. Server-scoped and
+  // server-filtered: it only ever contains this account's channels, and rows
+  // the user dismissed are already gone by the time they arrive here.
+  const [refusals, setRefusals] = useState([]);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -6781,6 +6835,10 @@ function RdApp() {
     // Static config, but it still belongs here: refetchAll runs on every
     // reconnect, so a deploy that changes a platform limit reaches open
     // tabs without anyone being told to refresh.
+    // In refetchAll, not just on mount: a channel can start or stop being
+    // refused while the tab sits open, and a reconnect (sleep, deploy) is the
+    // one moment we get to notice we missed the event that said so.
+    fetch('/clip-refusals').then(r=>r.json()).then(d=>setRefusals(d.rows||[])).catch(()=>{});
     fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
@@ -6955,6 +7013,16 @@ function RdApp() {
         }
         // Forward team scoring ticks to the Training screen's live counter
         else if(msg.event==='miss_notice_dismissed'){ setLostClips(null); }
+        // A channel started or stopped being refused. Re-pull rather than
+        // patching from the event: the server is the only thing that knows
+        // which rows this user may see and which they have dismissed, and
+        // duplicating that filter in the browser is how the two drift apart.
+        // Fires on a refusal, on a dismissal in another tab, and on recovery —
+        // so the banner appears and disappears without a refresh.
+        else if(msg.event==='refusals_changed'){
+          fetch('/clip-refusals').then(r=>r.json())
+            .then(d=>setRefusals(d.rows||[])).catch(()=>{});
+        }
         // Clearing recents in one tab must clear them in every open tab. The
         // suggestion list lives inside AddStreamPanel and is fetched on open
         // rather than on mount, so there is no top-level state to update and
@@ -7062,6 +7130,15 @@ function RdApp() {
   const dismissMissNotice = ()=>{
     setLostClips(null);                       // instant; the POST is bookkeeping
     fetch('/me/dismiss-miss-notice',{method:'POST'}).catch(()=>{});
+  };
+
+  // One channel at a time, because one dismissal must not hide a different
+  // channel breaking tomorrow. Removed locally first so the X is instant; the
+  // POST persists it and its broadcast closes it in the user's other tabs.
+  const dismissRefusal = (channel)=>{
+    setRefusals(p=>p.filter(r=>r.channel!==channel));
+    fetch('/clip-refusals/'+encodeURIComponent(channel)+'/dismiss',{method:'POST'})
+      .catch(()=>{});
   };
 
   const grabFeature = async (id)=>{
@@ -7188,7 +7265,7 @@ function RdApp() {
   // a tab can never be clickable-but-dead (or greyed-out-but-working).
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,onGoTutorial:()=>setRoute('tutorial')}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;

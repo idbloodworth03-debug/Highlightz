@@ -185,6 +185,27 @@ _CLASSIFICATION_BACKOFF_S = 300.0
 _classification_until: dict[str, float] = {}
 
 
+async def _tell_refused(user_id: str) -> None:
+    """Push the refusal notice to a user's open tabs.
+
+    The `clip_failed` toast beside each of these callers is a one-off message
+    that scrolls away; this is what keeps the standing banner on their screen
+    honest. Both exist because the toast fires once per backoff window and the
+    banner has to still be there ten minutes later when they come back and
+    wonder why the queue is empty.
+
+    Never fatal. A diagnostic notice is not worth taking the clip processor
+    down for, which is the same rule the tally itself follows.
+    """
+    if not user_id:
+        return
+    try:
+        await dashboard_api.broadcast({"event": "refusals_changed"},
+                                      user_id=user_id)
+    except Exception:
+        pass
+
+
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
     log.info("clip_processor_started")
@@ -263,7 +284,17 @@ async def run_clip_processor() -> None:
             # channel is over. Without this the tally only ever grows and a
             # channel that recovered weeks ago still reads as broken — which
             # would make the admin list useless within a month.
-            _refusals.clear(job.channel)
+            #
+            # Everyone who was warned about it is told to re-read, so the
+            # notice leaves their screen the moment the channel recovers
+            # instead of on their next page load. The uids come back from
+            # clear() because it just deleted the only record of who they were.
+            for _was_warned in _refusals.clear(job.channel):
+                try:
+                    await dashboard_api.broadcast(
+                        {"event": "refusals_changed"}, user_id=_was_warned)
+                except Exception:
+                    pass
             await dashboard_api.notify_clip_ready(meta.to_dict())
         except asyncio.CancelledError:
             break
@@ -304,7 +335,8 @@ async def run_clip_processor() -> None:
                 _title_automod_until[_ch] = time.time() + _TITLE_AUTOMOD_BACKOFF_S
             log.warning("clip_title_automod_backoff", channel=_ch, user_id=_uid,
                         backoff_s=_TITLE_AUTOMOD_BACKOFF_S, first=_first)
-            _refusals.record(_ch, _refusals.TITLE_AUTOMOD)
+            _refusals.record(_ch, _refusals.TITLE_AUTOMOD, _uid)
+            await _tell_refused(_uid)
             # ONCE per backoff window, not once per moment. The old generic path
             # sent a toast on every failure, which on this channel meant 265 of
             # them in six hours, all saying something untrue about trying again.
@@ -335,7 +367,8 @@ async def run_clip_processor() -> None:
                 _classification_until[_ch] = time.time() + _CLASSIFICATION_BACKOFF_S
             log.warning("clip_classification_backoff", channel=_ch, user_id=_uid,
                         backoff_s=_CLASSIFICATION_BACKOFF_S, first=_first)
-            _refusals.record(_ch, _refusals.CLASSIFICATION)
+            _refusals.record(_ch, _refusals.CLASSIFICATION, _uid)
+            await _tell_refused(_uid)
             # ONCE per window. The generic path said "it'll try again on the
             # next moment" on every single trigger, which on a channel in this
             # state is untrue every time it is said.
@@ -367,7 +400,8 @@ async def run_clip_processor() -> None:
             _uid = getattr(job, "user_id", "") if job else ""
             _ch  = getattr(job, "channel", "") if job else ""
             log.warning("clip_channel_not_clippable", channel=_ch, user_id=_uid)
-            _refusals.record(_ch, _refusals.NOT_AUTHORIZED)
+            _refusals.record(_ch, _refusals.NOT_AUTHORIZED, _uid)
+            await _tell_refused(_uid)
             if _ch:
                 try:
                     await dashboard_api.stop_stream_internal(_ch, _uid)

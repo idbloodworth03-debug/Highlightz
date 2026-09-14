@@ -5274,6 +5274,56 @@ async def admin_revoke_invite(request: Request, code: str):
     return Response(status_code=204)
 
 
+@app.get("/clip-refusals")
+async def my_clip_refusals(request: Request):
+    """The channels Twitch is refusing to clip FOR THIS USER.
+
+    WHY USERS SEE THIS AT ALL. The admin panel has shown it since it existed,
+    and the person who most needs it was the one person who could not see it:
+    when Twitch refuses a channel the user gets an empty queue and no reason
+    for it, and the reasonable conclusion is that the product is broken. Every
+    one of these has a cause that is neither ours nor theirs — it is the
+    broadcaster's settings — and saying so is the difference between a bug and
+    an explanation.
+
+    SCOPED, AND THAT IS LOAD-BEARING. `rows_for_user` returns only channels
+    whose refusals hit this account. The admin list is every channel on the
+    platform, which is a list of what other customers monitor; serving it here
+    would hand the customer list to anyone with a login.
+
+    Dismissed rows are filtered out SERVER-SIDE, and by timestamp rather than a
+    flag, so closing it holds across tabs and devices and the notice still
+    comes back if the channel refuses again — same contract as the queue-full
+    notice.
+    """
+    from src.stats import clip_refusals
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user = user_store.get_by_id(uid) or {}
+    rows = [
+        {"channel": r.get("channel", ""), "count": int(r.get("count", 0)),
+         "reason": r.get("reason", ""), "last_seen": r.get("last_seen", 0),
+         "first_seen": r.get("first_seen", 0)}
+        for r in clip_refusals.rows_for_user(uid)
+        if (r.get("last_seen") or 0) > user_store.refusal_dismissed_at(
+            user, r.get("channel", ""))
+    ]
+    return {"rows": rows}
+
+
+@app.post("/clip-refusals/{channel}/dismiss")
+async def dismiss_clip_refusal(channel: str, request: Request):
+    """Close the notice for one channel until it refuses again."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user_store.set_refusal_dismissed(uid, channel, time.time())
+    # Scoped to this user's sockets so their OTHER tabs close it too. Dismissing
+    # in one window and finding it still sitting in another is the same
+    # complaint in a different shape.
+    await broadcast({"event": "refusals_changed"}, user_id=uid)
+    return {"ok": True}
+
+
 @app.get("/admin/clip-refusals")
 async def admin_clip_refusals(request: Request):
     """Channels Twitch is currently refusing to clip, worst-recent first.
@@ -5281,6 +5331,11 @@ async def admin_clip_refusals(request: Request):
     Exists because "is this one channel or everywhere" was only answerable by
     grepping journalctl on the right day. A channel drops off this list the
     moment it produces a clip again, so what is here is what is broken NOW.
+
+    Platform-wide and UNFILTERED — deliberately not the same view as
+    `/clip-refusals`, which is scoped to the caller and honours their
+    dismissals. An admin dismissing a notice on their own account must not
+    blind the control room to a channel that is still broken.
     """
     _require_admin(request)
     from src.stats import clip_refusals

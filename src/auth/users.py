@@ -400,6 +400,46 @@ def set_miss_notice_dismissed(user_id: str, when: float) -> None:
             return
 
 
+def set_refusal_dismissed(user_id: str, channel: str, when: float) -> None:
+    """Remember that the user closed the notice about one refusing channel.
+
+    Per channel, not one flag for the whole notice: dismissing "kaicenat has
+    clipping restricted" must not also hide a different channel breaking
+    tomorrow.
+
+    Stored as a timestamp rather than a boolean, so the notice can come back
+    when there is something new to say — the reader compares it against the
+    channel's last refusal. Same shape, and the same reason, as
+    `miss_notice_dismissed_at`.
+    """
+    if not channel:
+        return
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            d = dict(u.get("refusals_dismissed") or {})
+            d[channel.lower()] = when
+            # Bounded: a channel dismissed long ago is deleted from the tally
+            # the moment it clips again, so its entry here would otherwise sit
+            # forever. Keep the most recent handful — anything older cannot
+            # still be suppressing a live row.
+            if len(d) > 50:
+                d = dict(sorted(d.items(), key=lambda kv: kv[1])[-50:])
+            u["refusals_dismissed"] = d
+            _save(users)
+            return
+
+
+def refusal_dismissed_at(user: dict, channel: str) -> float:
+    """When this user last closed the notice for `channel`, or 0."""
+    if not user or not channel:
+        return 0.0
+    try:
+        return float((user.get("refusals_dismissed") or {}).get(channel.lower()) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def set_ref_once(user_id: str, ref: str) -> bool:
     """Attribute a user to a referrer, FIRST TOUCH ONLY.
 
