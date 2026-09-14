@@ -2687,6 +2687,44 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+# How long after a clip is caught its file may still be on its way.
+#
+# The cut is not instant and cannot be: `_cut_local_file` sleeps for the
+# post-roll plus two segment lengths before it can read the tail of the moment
+# out of the buffer (ffmpeg only closes a segment when the next one starts),
+# then runs the cut. That is ~15-25s in the current configuration. This window
+# is deliberately several times that — it decides whether the browser says
+# "preparing" or "not available", and calling a file missing while it is still
+# being written is the worse error of the two.
+_CLIP_FILE_WAIT_S = 120.0
+
+
+def _file_state(clip: dict) -> str:
+    """Why this clip can or cannot be downloaded. One of:
+
+      ready    the file is on disk, the download works right now
+      pending  the capture has not finished writing it yet
+      off      capture is switched off, so no file was ever going to exist
+      missed   capture was on but produced nothing for this moment
+
+    THE STATES EXIST BECAUSE SILENCE WAS THE BUG. Every failure in the cut path
+    is deliberately non-fatal — a clip with no file behaves exactly as clips did
+    before capture existed — but the browser rendered that by showing no button
+    at all, which from the outside is indistinguishable from a broken download.
+    Naming the state is what lets the UI say which of the four it is.
+    """
+    try:
+        from src.clips import files as clip_files
+        if clip_files.exists(clip.get("id", "")):
+            return "ready"
+    except Exception:
+        return "missed"
+    if not settings.clip_capture_enabled:
+        return "off"
+    age = time.time() - float(clip.get("created_at") or 0)
+    return "pending" if 0 <= age < _CLIP_FILE_WAIT_S else "missed"
+
+
 def _clip_out(clip: dict) -> dict:
     """A clip on its way to the browser, with the download flag attached.
 
@@ -2696,12 +2734,12 @@ def _clip_out(clip: dict) -> dict:
     retention — so a flag written onto the record would need keeping in step
     with two things that do not know about each other. Asking the filesystem
     is one stat() and cannot be wrong.
+
+    `file_state` carries the same answer with its reason; `has_file` stays
+    because it is what every existing caller reads.
     """
-    try:
-        from src.clips import files as clip_files
-        return {**clip, "has_file": clip_files.exists(clip.get("id", ""))}
-    except Exception:
-        return {**clip, "has_file": False}
+    state = _file_state(clip)
+    return {**clip, "has_file": state == "ready", "file_state": state}
 
 
 @app.get("/clips")

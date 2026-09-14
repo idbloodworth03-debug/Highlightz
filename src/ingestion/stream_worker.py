@@ -660,10 +660,17 @@ class StreamWorker:
                               pre_roll: float, post_roll: float) -> None:
         """Wait for the moment's tail to land in the buffer, then cut it out.
 
-        Every failure here is silent to the user by design: a clip with no
-        local file behaves exactly as clips did before capture existed, so a
-        buffer that was not covering the window, a full disk or an ffmpeg
-        error all degrade to the old product rather than to an error.
+        Every failure here is non-fatal by design: a clip with no local file
+        behaves exactly as clips did before capture existed, so a buffer that
+        was not covering the window, a full disk or an ffmpeg error all degrade
+        to the old product rather than to an error.
+
+        NON-FATAL IS NOT THE SAME AS SILENT, and it used to be both. Two of the
+        four ways this gives up logged nothing at all, so "no clips are
+        downloadable" arrived with no trace of which one had happened and no
+        way to tell it from a UI that was not rendering the button. Every exit
+        now says why, under a common `clip_file_skipped` name with a `why` —
+        one grep answers the question for the whole class.
         """
         from src.ingestion import clip_recorder      # noqa: F401  (registry)
         from src.clips import files as clip_files
@@ -674,20 +681,32 @@ class StreamWorker:
         await asyncio.sleep(post_roll + seg * 2 + 1.0)
         rec = self._recorder
         if rec is None or not self._running:
+            log.warning("clip_file_skipped", clip_id=clip_id,
+                        channel=self._config.channel,
+                        why="no_recorder" if rec is None else "worker_stopped")
             return
         if not clip_files.headroom_ok():
-            log.warning("clip_file_skipped_no_headroom", clip_id=clip_id,
-                        channel=self._config.channel)
+            log.warning("clip_file_skipped", clip_id=clip_id,
+                        channel=self._config.channel, why="no_headroom")
             return
         out = clip_files.path_for(clip_id)
         if out is None:
+            log.warning("clip_file_skipped", clip_id=clip_id,
+                        channel=self._config.channel, why="bad_clip_id")
             return
         try:
             got = await rec.cut(fired_at - pre_roll, fired_at + post_roll, out)
         except Exception as exc:
-            log.warning("clip_cut_raised", clip_id=clip_id, error=str(exc))
+            log.warning("clip_file_skipped", clip_id=clip_id,
+                        channel=self._config.channel, why="cut_raised",
+                        error=str(exc))
             return
         if not got:
+            # The commonest one, and the one people read as a broken download:
+            # the buffer did not cover the requested window. Says so rather than
+            # leaving the only evidence a missing file.
+            log.warning("clip_file_skipped", clip_id=clip_id,
+                        channel=self._config.channel, why="buffer_miss")
             return
         log.info("clip_file_ready", clip_id=clip_id, channel=self._config.channel,
                  size_mb=round(clip_files.size_of(clip_id) / (1024 * 1024), 1))

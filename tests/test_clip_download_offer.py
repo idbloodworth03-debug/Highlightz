@@ -1,0 +1,211 @@
+"""Every clip says whether it can be downloaded, and why not when it cannot.
+
+THE BUG THIS CLOSES IS AN ABSENCE, WHICH IS WHY IT WAS HARD TO SEE. The
+download worked; it just never appeared. A clip with no captured file rendered
+no button at all, and from the outside "there is no file for this clip" and
+"the download feature is broken" look exactly the same. On top of that the
+button that DID render was a 13px glyph with no word beside it, in a row where
+every other control was labelled.
+
+So the fix has two halves and both are pinned here:
+
+  * the server says WHICH of the four states a clip is in, rather than a
+    boolean that collapses "not yet" and "never" into the same silence, and
+  * the browser always answers — with the download, with "preparing", or with
+    the reason there is no file.
+
+THE ONE THING THAT MUST NOT CREEP IN. Nothing in the no-file copy may send the
+user to Twitch to fetch the video. These clips are of OTHER people's channels;
+Twitch's download is a broadcaster control in their own Creator Dashboard, so
+that advice points a clipper at a button that does not exist for them. It is
+also the edge of the compliance line the product is built on.
+"""
+
+import time
+
+import pytest
+
+from src.dashboard import api
+
+FRONTEND = __import__("pathlib").Path(__file__).resolve().parent.parent / "src/dashboard/aurora_html.py"
+SRC = FRONTEND.read_text()
+
+
+@pytest.fixture
+def on_disk(tmp_path, monkeypatch):
+    """A real clipfiles root, so `exists()` is answered by the filesystem the
+    way it is in production rather than by a stub."""
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    return root
+
+
+def _clip(cid="c1", age_s=0.0):
+    return {"id": cid, "user_id": "u1", "channel": "aceu",
+            "created_at": time.time() - age_s}
+
+
+# ── the four states ──────────────────────────────────────────────────────────
+
+def test_a_captured_clip_is_ready(on_disk, monkeypatch):
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    (on_disk / "c1.mp4").write_bytes(b"x")
+    out = api._clip_out(_clip())
+    assert out["file_state"] == "ready" and out["has_file"] is True
+
+
+def test_a_fresh_clip_is_pending_not_missing(on_disk, monkeypatch):
+    """The cut runs AFTER the moment's tail has been broadcast and buffered, so
+    the card exists for ~20s before its file does. Calling that 'no file' is
+    what taught people the feature does not work."""
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    out = api._clip_out(_clip(age_s=5))
+    assert out["file_state"] == "pending" and out["has_file"] is False
+
+
+def test_an_old_clip_with_no_file_is_missed(on_disk, monkeypatch):
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    out = api._clip_out(_clip(age_s=api._CLIP_FILE_WAIT_S + 60))
+    assert out["file_state"] == "missed"
+
+
+def test_capture_switched_off_says_so_rather_than_missed(on_disk, monkeypatch):
+    """A different sentence to the user and a different fix for the operator:
+    'off' is a flag, 'missed' is a buffer that did not cover the moment."""
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", False)
+    assert api._clip_out(_clip(age_s=1))["file_state"] == "off"
+
+
+def test_the_wait_window_is_longer_than_the_cut_takes():
+    """`_cut_local_file` sleeps post_roll + two segments before it can even
+    start, so a window near that length would call files missing while they are
+    still being written."""
+    from config.settings import settings as s
+    earliest = s.clip_post_roll_seconds + s.clip_capture_segment_s * 2 + 1
+    assert api._CLIP_FILE_WAIT_S > earliest * 2
+
+
+def test_has_file_still_means_what_it_meant(on_disk, monkeypatch):
+    """Every existing caller reads the boolean. It has to keep agreeing with
+    the filesystem exactly."""
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    assert api._clip_out(_clip())["has_file"] is False
+    (on_disk / "c1.mp4").write_bytes(b"x")
+    assert api._clip_out(_clip())["has_file"] is True
+
+
+def test_a_broken_clip_store_does_not_break_the_clip_list(monkeypatch):
+    """Serialising a clip must not raise because the disk answered oddly — the
+    whole review queue is rendered from this."""
+    from src.clips import files as clip_files
+    monkeypatch.setattr(clip_files, "exists",
+                        lambda cid: (_ for _ in ()).throw(OSError("nope")))
+    assert api._clip_out(_clip())["has_file"] is False
+
+
+# ── the offer in the browser ─────────────────────────────────────────────────
+
+def _card():
+    return SRC[SRC.index("const fileState ="):SRC.index("const edBtn")]
+
+
+def test_the_download_button_has_the_word_on_it():
+    """It was an unlabelled 13px glyph among labelled buttons. Findable only if
+    you already knew it was there, which is not the same as being offered."""
+    assert ">Download</a>" in _card()
+
+
+def test_a_clip_still_being_cut_says_preparing():
+    card = _card()
+    assert "pending" in card and "Preparing" in card
+
+
+def test_the_card_offers_nothing_when_there_is_no_file():
+    """A grid of dead controls is noise — the modal is where the reason goes."""
+    assert ") : null;" in _card(), \
+        "the card renders something for a clip with no file"
+
+
+def _modal():
+    i = SRC.index("clip.file_state === 'pending'")
+    return SRC[i:SRC.index("clip.has_file && onEdit", i)]
+
+
+def test_the_modal_always_answers():
+    """This is the screen someone opens because they want the file, so 'no
+    button' is the one answer it must never give."""
+    modal = _modal()
+    assert "file?download=1" in modal, "no download for a ready clip"
+    assert "Preparing the download" in modal, "nothing for a clip still being cut"
+    assert modal.count("No file for this clip") == 2, \
+        "'off' and 'missed' do not both explain themselves"
+
+
+def test_the_two_no_file_reasons_read_differently():
+    """They have different causes and different outlooks — collapsing them
+    would tell someone their buffer missed when the feature is simply off."""
+    modal = _modal()
+    assert "not holding video" in modal          # off
+    assert "buffer did not cover" in modal       # missed
+
+
+def test_no_copy_sends_the_user_to_twitch_for_the_file():
+    """See the module docstring: a clipper has no download button on another
+    broadcaster's clip, and this is the edge of the compliance line."""
+    modal = _modal().lower()
+    for bad in ("creator dashboard", "download it from twitch",
+                "download from twitch", "get it from twitch"):
+        assert bad not in modal
+
+
+def test_the_ready_event_clears_the_preparing_state():
+    """Patching has_file alone would leave file_state at 'pending', so the card
+    would keep saying Preparing over a file that is on disk."""
+    i = SRC.index("msg.event==='clip_file_ready'")
+    branch = SRC[i:i + 500]
+    assert "file_state:'ready'" in branch and "has_file:true" in branch
+
+
+# ── the diagnosis (why a file is missing at all) ─────────────────────────────
+
+def test_every_give_up_in_the_cut_path_logs_why():
+    """Two of the four exits logged nothing, so 'no clips are downloadable'
+    arrived with no trace of which one happened — and no way to tell it from a
+    UI that was not rendering the button."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker._cut_local_file)
+    body = src[src.index("rec = self._recorder"):]
+    # Every bare `return` in the give-up section must be preceded by a log.
+    for why in ("no_recorder", "worker_stopped", "no_headroom", "bad_clip_id",
+                "cut_raised", "buffer_miss"):
+        assert why in body, f"the {why} exit is still silent"
+    # The real invariant, and what catches an exit added later: every way out
+    # of the give-up section is explained. Counted rather than eyeballed
+    # because a silent `return` is invisible in review — that is how two of
+    # them got there.
+    gave_up = body[:body.index("log.info(\"clip_file_ready\"")]
+    assert gave_up.count("return") == gave_up.count('"clip_file_skipped"'), \
+        "an exit path gives up without saying why"
+
+
+def test_the_reasons_share_one_event_name():
+    """One grep has to answer the question for the whole class, or nobody will
+    find the ones they did not think to look for."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker._cut_local_file)
+    assert src.count('"clip_file_skipped"') == 5
+
+
+def test_the_diagnostic_exists_and_is_read_only():
+    """It is pointed at production, where a tool that writes is a tool nobody
+    dares run."""
+    import inspect
+    from src.maintenance import why_no_download
+    src = inspect.getsource(why_no_download)
+    for writes in ("write_text(", "unlink(", "_save(", "rmtree("):
+        assert writes not in src, f"the diagnostic calls {writes}"
+    assert "clip_capture_enabled" in src and "clip_file_skipped" in src

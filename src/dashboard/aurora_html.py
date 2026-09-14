@@ -601,6 +601,15 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-clip-title{font-size:12px;color:var(--fg);margin-top:8px;font-weight:500;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rd-clip-meta{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;overflow:hidden;max-height:48px}
 .rd-tag{font-size:12px;color:var(--fg-2);background:rgba(255,255,255,.05);padding:4px 8px;border-radius:var(--r-pill)}
+/* "Preparing" wears the button's shape so the row does not reflow when it
+   becomes the real download, but it is visibly not pressable. */
+.rd-dl-wait{opacity:.6}
+/* The explanation that stands in for a download button. Quiet — it is an
+   answer, not an error, and the clip itself is fine. */
+.rd-dl-note{margin-top:8px;padding:12px;border-radius:10px;font-size:12px;
+  line-height:1.5;color:var(--fg-2);background:rgba(255,255,255,.03);
+  border:1px solid var(--hair)}
+.rd-dl-note b{color:var(--fg)}
 .rd-clip-actions{display:flex;gap:8px;margin-top:auto;padding-top:12px;flex-wrap:wrap}
 .rd-clip-actions .rd-btn{flex:1}
 .rd-resolved{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:4px 0;flex-wrap:wrap}
@@ -1896,10 +1905,24 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
   // product caught for you is yours to keep — see get_clip_file. Absent until
   // the capture finishes, which is a few seconds after the card appears, and
   // the clip_file_ready event is what makes it turn up without a refresh.
-  const dlBtn = clip.has_file ? (
+  // LABELLED, not a bare glyph. It used to be a 13px download icon with no
+  // word next to it, in a row of buttons that all had words — findable only if
+  // you already knew it was there, which is not the same as being offered.
+  //
+  // `file_state` is the server's answer to "why can this not be downloaded",
+  // and 'pending' is the common case people read as broken: the cut runs after
+  // the moment's tail has been broadcast and buffered, so the card exists for
+  // ~20s before its file does. Saying so beats showing nothing and letting
+  // them conclude the feature does not work. The clip_file_ready event swaps
+  // this for the real button with no refresh.
+  const fileState = clip.file_state || (clip.has_file ? 'ready' : 'missed');
+  const dlBtn = fileState === 'ready' ? (
     <a href={'/clips/'+clip.id+'/file?download=1'} download className="rd-btn sm"
-       title="Download this clip" onClick={e=>e.stopPropagation()}
-       style={{textDecoration:'none',flex:'0 0 auto'}}><Icon name="download" size={13}/></a>
+       title="Download this clip as an MP4" onClick={e=>e.stopPropagation()}
+       style={{textDecoration:'none'}}><Icon name="download" size={13}/>Download</a>
+  ) : fileState === 'pending' ? (
+    <span className="rd-btn sm rd-dl-wait" title="Highlightz is cutting the video for this clip"
+       style={{cursor:'default'}}><Icon name="download" size={13}/>Preparing</span>
   ) : null;
   // Straight into the editor, no download-then-reupload. `onEdit` is only
   // passed when the Editor is actually reachable for this account, so the
@@ -2227,10 +2250,39 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
               {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none',marginTop:12,width:'100%',justifyContent:'center'}}><Icon name="play" size={14}/>Open on Twitch</a>}
               {/* The file Highlightz captured. Free plans included — the
                   paywall is on editing and scheduling, not on keeping a clip
-                  the product caught for you. */}
-              {clip.has_file && <a href={'/clips/'+clip.id+'/file?download=1'} download
-                  className="rd-btn sm" style={{textDecoration:'none',marginTop:8,width:'100%',justifyContent:'center'}}>
-                <Icon name="download" size={14}/>Download clip</a>}
+                  the product caught for you.
+
+                  ALWAYS SAYS SOMETHING. This is the screen a person opens
+                  because they want the file, so "no button" is the one answer
+                  it must never give: it reads as a broken feature rather than
+                  as an absent file, and there is no way to tell from the
+                  outside which it was. The card can stay quiet — a grid of
+                  dead controls is noise — but here there is room to name the
+                  reason.
+
+                  Nothing here points at Twitch. These clips are of OTHER
+                  people's channels, and Twitch's own download is a
+                  broadcaster's control in their Creator Dashboard — telling a
+                  clipper to go and get it there sends them somewhere the
+                  button does not exist. */}
+              {clip.file_state === 'pending'
+                ? <div className="rd-dl-note"><b>Preparing the download…</b> Highlightz cuts
+                    the video a few seconds after the moment ends. This turns into a
+                    download button on its own — no need to reload.</div>
+                : clip.has_file
+                ? <a href={'/clips/'+clip.id+'/file?download=1'} download
+                    className="rd-btn sm" style={{textDecoration:'none',marginTop:8,width:'100%',justifyContent:'center'}}>
+                  <Icon name="download" size={14}/>Download clip</a>
+                : <div className="rd-dl-note">
+                    {clip.file_state === 'off'
+                      ? <><b>No file for this clip.</b> Highlightz was not holding video when
+                          this moment was caught, so there is nothing to download. Clips caught
+                          from here on come with an MP4.</>
+                      : <><b>No file for this clip.</b> Highlightz keeps the video only for
+                          moments it captured live, and the buffer did not cover this one —
+                          usually a stream reconnect, or monitoring that had just started.
+                          Later clips on this channel should download normally.</>}
+                  </div>}
               {/* The other half of "never leave the site": the file is already
                   on our disk, so this hands it to the editor without a
                   download and a re-upload. Only rendered when the Editor is
@@ -6937,8 +6989,12 @@ function RdApp() {
         // than refetching: the clip is otherwise unchanged, and a full pull
         // would fight an open review queue for no reason.
         else if(msg.event==='clip_file_ready'){
-          setClips(p=>p[msg.clip_id]?{...p,[msg.clip_id]:{...p[msg.clip_id],has_file:true}}:p);
-          setModalClip(prev=>prev&&prev.id===msg.clip_id?{...prev,has_file:true}:prev);
+          // Both fields, not just has_file: the card reads file_state now, and
+          // leaving it at 'pending' would keep saying "Preparing" over a file
+          // that is sitting on disk ready to serve.
+          const rdy = o => ({...o, has_file:true, file_state:'ready'});
+          setClips(p=>p[msg.clip_id]?{...p,[msg.clip_id]:rdy(p[msg.clip_id])}:p);
+          setModalClip(prev=>prev&&prev.id===msg.clip_id?rdy(prev):prev);
         }
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
