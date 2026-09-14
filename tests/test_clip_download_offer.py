@@ -376,7 +376,7 @@ def test_serialising_a_big_clip_list_does_not_rescan_the_store(tmp_path, monkeyp
     root = tmp_path / "clipfiles"
     root.mkdir()
     monkeypatch.setattr(clip_files, "_ROOT", root)
-    clip_files._forget_horizon()
+    clip_files._forget_scan()
     monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
     for i in range(20):
         _put(root, f"f{i}", mb=0, age_s=86400)
@@ -390,11 +390,60 @@ def test_serialising_a_big_clip_list_does_not_rescan_the_store(tmp_path, monkeyp
         return real_glob(self, pattern)
 
     monkeypatch.setattr(type(root), "glob", counting_glob)
+    import os as _os
+    real_scandir = _os.scandir
+    def counting_scandir(path=".", *a, **k):
+        if str(path) == str(root):
+            scans["n"] += 1
+        return real_scandir(path, *a, **k)
+    monkeypatch.setattr(clip_files.os, "scandir", counting_scandir)
+
+    # Per-clip stat() is the same bug one order of magnitude smaller, so it is
+    # counted here too: 1,606 is_file()+stat() pairs was 340 ms per request.
+    stats = {"n": 0}
+    real_stat = type(root).stat
+    def counting_stat(self, *a, **k):
+        if str(self).startswith(str(root)):
+            stats["n"] += 1
+        return real_stat(self, *a, **k)
+    monkeypatch.setattr(type(root), "stat", counting_stat)
+
+    listing = clip_files.existing_ids()
     for i in range(200):
-        api._clip_out(_clip(f"absent{i}", age_s=86400 * 5))
+        api._clip_out(_clip(f"absent{i}", age_s=86400 * 5), listing)
     assert scans["n"] <= 1, (
         f"the store was scanned {scans['n']} times to serialise 200 clips — "
         "this is the one that took production down")
+    assert stats["n"] == 0, (
+        f"{stats['n']} per-clip stat() calls to serialise 200 clips — "
+        "the listing is not being used")
+
+
+def test_the_clip_list_endpoint_reads_the_directory_once(tmp_path, monkeypatch):
+    """The guard one level up: it is `list_clips` that has to pass the listing
+    down, and a future caller that forgets reverts the whole fix silently."""
+    import inspect
+    src = inspect.getsource(api.list_clips)
+    assert "existing_ids()" in src, "the clip list does not read the store once"
+    assert "_clip_out(c, listing)" in src, "the listing is computed and not used"
+
+
+def test_a_single_clip_is_checked_exactly_not_from_the_cache():
+    """The cached listing is for lists. One clip gets the authoritative stat,
+    so approving a clip cannot report a file state up to the TTL out of date."""
+    import inspect
+    src = inspect.getsource(api._file_state)
+    assert "clip_files.exists(" in src, \
+        "the single-clip path no longer checks the real file"
+
+
+def test_the_file_endpoint_never_trusts_the_cache():
+    """It is about to hand over bytes. A cache cannot be allowed to say a file
+    is there when it is not — that serves a 200 with nothing behind it."""
+    import inspect
+    src = inspect.getsource(api.get_clip_file)
+    assert "existing_ids" not in src
+    assert "path.is_file()" in src
 
 
 def test_the_horizon_cache_is_not_shared_between_stores(tmp_path, monkeypatch):
@@ -419,7 +468,7 @@ def test_deleting_files_drops_the_cached_horizon(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(clip_files, "_ROOT", root)
     monkeypatch.setattr(clip_files.settings, "clip_file_max_total_mb", 10)
-    clip_files._forget_horizon()
+    clip_files._forget_scan()
     for i in range(10):
         _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
     first = clip_files.oldest_mtime()

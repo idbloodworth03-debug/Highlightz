@@ -23,6 +23,7 @@ assumption that stops being true after a refactor, and the cost of the check
 is one regex.
 """
 
+import os
 import re
 import time
 from pathlib import Path
@@ -78,7 +79,7 @@ def delete(clip_id: str) -> bool:
     try:
         if p.is_file():
             p.unlink()
-            _forget_horizon()
+            _forget_scan()
             log.info("clip_file_deleted", clip_id=clip_id)
             return True
     except OSError as exc:
@@ -99,14 +100,84 @@ def total_bytes() -> int:
     return total
 
 
-# Cached horizon: (root, computed_at, value). See oldest_mtime.
+# ONE cached read of the clip store, answering both questions asked of it:
+# which ids have a usable file, and how far back the oldest one goes.
+#
+# They were two caches with two TTLs and two invalidation paths, which meant
+# two walks of the same directory and twice the chance of one going stale
+# alone. The directory is read once; both answers come out of that read.
 #
 # The ROOT is part of the key, not decoration. Tests redirect `_ROOT` at a
-# tmp_path and a cache keyed on time alone would carry one test's answer into
-# the next — the exact shape of order-dependent failure tests/conftest.py exists
-# to prevent.
-_horizon: tuple[str, float, float] = ("", 0.0, 0.0)
-_HORIZON_TTL_S = 60.0
+# tmp_path, and a cache keyed on time alone carries one test's store into the
+# next — the exact order-dependent failure tests/conftest.py exists to prevent.
+#
+# FIVE SECONDS. Short because a cut landing has to become downloadable on the
+# next page load, and the socket event only reaches tabs that are already open.
+# One scan of ~900 entries is about 1.5 ms, so even continuous traffic costs
+# nothing measurable.
+_scan: tuple[str, float, frozenset, float] = ("", 0.0, frozenset(), 0.0)
+_SCAN_TTL_S = 5.0
+
+
+def _read_store() -> tuple[frozenset, float]:
+    """(ids with a usable file, mtime of the oldest file). Cached."""
+    global _scan
+    now = time.time()
+    root = str(_ROOT)
+    where, when, ids, oldest = _scan
+    if where == root and when and now - when < _SCAN_TTL_S:
+        return ids, oldest
+
+    found, oldest = set(), 0.0
+    try:
+        with os.scandir(_ROOT) as it:
+            for e in it:
+                if not e.name.endswith(".mp4"):
+                    continue
+                try:
+                    st = e.stat()
+                    if not e.is_file():
+                        continue
+                except OSError:
+                    continue
+                # SIZE IS PART OF "EXISTS", and not incidentally. A zero-byte
+                # file is a cut that failed halfway; calling it ready offers a
+                # download that produces an empty MP4. scandir already carries
+                # the size in the directory entry, so the check is free — which
+                # is why this is not simply a listing of names.
+                if st.st_size > 0:
+                    found.add(e.name[:-4])
+                if oldest == 0.0 or st.st_mtime < oldest:
+                    oldest = st.st_mtime
+    except OSError:
+        return frozenset(), 0.0
+
+    out = frozenset(found)
+    # An EMPTY store is never cached. Reading an empty directory costs nothing,
+    # so there is no saving to bank — and caching "no files" would hide the
+    # first cut to land in a fresh store for the length of the TTL, which is
+    # exactly the moment somebody is watching for it.
+    if out or oldest:
+        _scan = (root, now, out, oldest)
+    return out, oldest
+
+
+def existing_ids() -> frozenset:
+    """Every clip id that has a usable file, from ONE directory read.
+
+    WHY A LISTING AND NOT A STAT PER CLIP. `exists()` is right for one clip and
+    wrong for a list: serialising a clip list called it once per record, which
+    at production size is 1,606 is_file()+stat() pairs — about 3,500 syscalls
+    and 340 ms per GET /clips, synchronously, on the event loop of a one-vCPU
+    box that is also running an ffmpeg audio meter per channel. Reading the
+    directory once and asking a set instead costs 1.5 ms for the read and
+    0.07 ms for all 1,606 lookups.
+
+    Deliberately NOT used by the file-serving endpoint. That one is about to
+    hand over actual bytes, so it stats the real path and cannot be told by a
+    cache that something is there when it is not.
+    """
+    return _read_store()[0]
 
 
 def oldest_mtime() -> float:
@@ -116,55 +187,19 @@ def oldest_mtime() -> float:
     and it is nothing like the configured one. `clip_file_max_age_days` is a
     30-day CEILING; what actually decides how long a file survives is the size
     cap and how fast clips arrive, which on a busy day is a couple of days. A
-    clip older than this has no file and never will again — and that is a
+    clip older than this has no file and never will again — which is a
     different sentence to the user than "the buffer missed this moment",
     because it is a different thing that happened.
-
-    CACHED, AND THAT IS NOT AN OPTIMISATION — it is the difference between the
-    dashboard working and the box falling over. The uncached version walked the
-    whole directory, and the caller is `_clip_out`, which runs ONCE PER CLIP
-    while serialising a clip list. At production size that is ~1,600 clips
-    against ~900 files: some 600,000 stat() calls per GET /clips, synchronously,
-    on the event loop, on one vCPU. It took the whole app down with it —
-    dashboard, socket and clip processor alike — which reads from outside as
-    "clips are erroring and nothing is being taken".
-
-    A minute of staleness costs nothing here. The horizon only moves when a
-    trim or a sweep runs, and the consequence of reading it late is that one
-    clip says "expired" a minute early or late.
     """
-    global _horizon
-    now = time.time()
-    root = str(_ROOT)
-    where, when, value = _horizon
-    if where == root and when and now - when < _HORIZON_TTL_S:
-        return value
-
-    oldest = 0.0
-    try:
-        for p in _ROOT.glob("*.mp4"):
-            try:
-                m = p.stat().st_mtime
-            except OSError:
-                continue
-            if oldest == 0.0 or m < oldest:
-                oldest = m
-    except OSError:
-        return 0.0
-    # An EMPTY store is not cached. Scanning an empty directory costs nothing,
-    # so there is no saving to bank — and caching "no files" would mean the
-    # first file to land in a fresh store is invisible to the horizon for a
-    # minute afterwards. Cheap to avoid, so avoid it.
-    if oldest:
-        _horizon = (root, now, oldest)
-    return oldest
+    return _read_store()[1]
 
 
-def _forget_horizon() -> None:
-    """Drop the cached horizon — called by anything that deletes files, so the
-    next read is not a minute behind a trim that just ran."""
-    global _horizon
-    _horizon = ("", 0.0, 0.0)
+def _forget_scan() -> None:
+    """Drop the cached read — called by anything that adds or removes a file,
+    so a cut is downloadable on the next request and a trim does not leave a
+    stale horizon behind it."""
+    global _scan
+    _scan = ("", 0.0, frozenset(), 0.0)
 
 
 def headroom_ok() -> bool:
@@ -245,7 +280,7 @@ def trim_to_cap() -> int:
         removed += 1
         log.info("clip_file_swept", clip_id=p.stem, reason="over_cap")
     if removed:
-        _forget_horizon()          # the horizon just moved, by definition
+        _forget_scan()
         log.info("clip_file_store_trimmed", removed=removed,
                  now_mb=round(total / MB), cap_mb=settings.clip_file_max_total_mb)
     elif total >= cap:
@@ -289,7 +324,7 @@ def sweep(live_ids: set[str] | None = None) -> int:
         except OSError:
             continue
     if removed:
-        _forget_horizon()
+        _forget_scan()
     return removed
 
 

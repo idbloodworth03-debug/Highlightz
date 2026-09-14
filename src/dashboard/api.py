@@ -2699,7 +2699,7 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
 _CLIP_FILE_WAIT_S = 120.0
 
 
-def _file_state(clip: dict) -> str:
+def _file_state(clip: dict, listing=None) -> str:
     """Why this clip can or cannot be downloaded. One of:
 
       ready    the file is on disk, the download works right now
@@ -2720,10 +2720,16 @@ def _file_state(clip: dict) -> str:
     was cut and later cleared or never cut at all. Either way it will not come
     back, which is what "expired" tells the user — and it stops us blaming a
     buffer miss for a file the size cap deleted.
+
+    `listing` is the set of ids that have a file, read once for a whole clip
+    list. Without it this stats the one clip, which is exact and is what the
+    single-clip callers want. With it, serialising 1,606 clips costs one
+    directory read instead of 1,606 — see `files.existing_ids`.
     """
     try:
         from src.clips import files as clip_files
-        if clip_files.exists(clip.get("id", "")):
+        if (clip.get("id", "") in listing if listing is not None
+                else clip_files.exists(clip.get("id", ""))):
             return "ready"
         horizon = clip_files.oldest_mtime()
     except Exception:
@@ -2739,7 +2745,7 @@ def _file_state(clip: dict) -> str:
     return "missed"
 
 
-def _clip_out(clip: dict) -> dict:
+def _clip_out(clip: dict, listing=None) -> dict:
     """A clip on its way to the browser, with the download flag attached.
 
     `has_file` is DERIVED FROM DISK rather than stored on the record, and that
@@ -2751,8 +2757,10 @@ def _clip_out(clip: dict) -> dict:
 
     `file_state` carries the same answer with its reason; `has_file` stays
     because it is what every existing caller reads.
+
+    Pass `listing` when serialising MORE THAN ONE clip — see `_file_state`.
     """
-    state = _file_state(clip)
+    state = _file_state(clip, listing)
     return {**clip, "has_file": state == "ready", "file_state": state}
 
 
@@ -2765,7 +2773,14 @@ async def list_clips(request: Request, status: str | None = None, channel: str |
     if channel:
         clips = [c for c in clips if c.get("channel") == channel]
     clips.sort(key=lambda c: c.get("created_at", 0), reverse=True)
-    return [_clip_out(c) for c in clips]
+    # ONE directory read for the whole list. Per-clip it was 1,606 is_file() +
+    # stat() pairs on the event loop — see files.existing_ids for the numbers.
+    from src.clips import files as clip_files
+    try:
+        listing = clip_files.existing_ids()
+    except Exception:
+        listing = None          # fall back to the exact per-clip check
+    return [_clip_out(c, listing) for c in clips]
 
 
 @app.get("/clips/{clip_id}/file")

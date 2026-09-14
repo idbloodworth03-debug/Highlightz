@@ -716,6 +716,11 @@ class StreamWorker:
             log.warning("clip_file_skipped", clip_id=clip_id,
                         channel=self._config.channel, why="buffer_miss")
             return
+        # The cached directory listing that `/clips` reads is now one file out
+        # of date. Dropping it here means the download appears on the next
+        # request rather than up to the TTL later — the socket event covers an
+        # open tab, this covers a page loaded in between.
+        clip_files._forget_scan()
         log.info("clip_file_ready", clip_id=clip_id, channel=self._config.channel,
                  size_mb=round(clip_files.size_of(clip_id) / (1024 * 1024), 1))
         # Realtime contract (CLAUDE.md): a clip becoming downloadable is
