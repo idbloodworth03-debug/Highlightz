@@ -65,12 +65,13 @@ def client(monkeypatch):
         "boss":   {"id": "boss", "username": "admin", "is_admin": True},
     })
     from src.auth import users as user_store
+    # The store is backed by PEOPLE rather than stubbed, so the real
+    # set_refusal_dismissed runs — its scoping and its bound are part of what
+    # these tests are checking, and a stub would assert the stub. _save is a
+    # no-op because _load hands back the very dicts PEOPLE holds.
+    monkeypatch.setattr(user_store, "_load", lambda: list(PEOPLE.values()))
+    monkeypatch.setattr(user_store, "_save", lambda users: None)
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: PEOPLE.get(uid))
-
-    def _dismiss(uid, channel, when):
-        PEOPLE[uid].setdefault("refusals_dismissed", {})[channel.lower()] = when
-
-    monkeypatch.setattr(user_store, "set_refusal_dismissed", _dismiss)
     return _client()
 
 
@@ -229,13 +230,109 @@ def test_the_dismissal_store_is_bounded(monkeypatch, tmp_path):
     assert "ch79" in rec["refusals_dismissed"], "the newest dismissal was dropped"
 
 
-def test_an_admin_dismissal_does_not_blind_the_control_room(client):
-    """The two views are deliberately not the same query. An operator closing
-    the notice on their own account must not hide a channel that is still
-    broken from the admin panel."""
-    import inspect
-    src = inspect.getsource(api.admin_clip_refusals)
-    assert "all_rows" in src and "refusal_dismissed_at" not in src
+def test_a_dashboard_dismissal_does_not_blind_the_control_room(client):
+    """The two views are deliberately not the same query, and this is why: the
+    operator monitors channels too, so the banner appears on their dashboard
+    like anyone's. Closing it there must not strike the channel off the control
+    room's list of what is broken."""
+    admin = _client("boss")
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "boss")
+    admin.post("/clip-refusals/kaicenat/dismiss")
+    assert admin.get("/clip-refusals").json()["rows"] == []
+    rows = admin.get("/admin/clip-refusals").json()["rows"]
+    assert [r["channel"] for r in rows] == ["kaicenat"]
+    assert rows[0]["acked"] is False, "a dashboard dismissal acknowledged it here"
+
+
+def test_acknowledging_in_the_control_room_does_not_silence_the_dashboard(client):
+    """And the other direction. The account-level warning exists to explain an
+    empty queue; an operator tidying their ops list has not answered that."""
+    admin = _client("boss")
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "boss")
+    admin.post("/admin/clip-refusals/kaicenat/ack")
+    assert [r["channel"] for r in admin.get("/clip-refusals").json()["rows"]] \
+        == ["kaicenat"]
+
+
+# ── acknowledging in the control room ────────────────────────────────────────
+
+def test_acknowledging_marks_the_row_not_deletes_it(client):
+    """The counts in that box are the platform's, not one operator's reading
+    list. Dropping rows from the payload would make the summary lie."""
+    admin = _client("boss")
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "mine")
+    admin.post("/admin/clip-refusals/kaicenat/ack")
+    d = admin.get("/admin/clip-refusals").json()
+    assert d["channels"] == 1 and d["acked"] == 1 and d["live"] == 0
+    assert d["rows"][0]["acked"] is True
+
+
+def test_acknowledging_is_per_admin(client):
+    """Five staff accounts share that page. One person tidying their view is
+    not an act performed on everybody else's."""
+    PEOPLE["deputy"] = {"id": "deputy", "username": "deputy", "is_admin": True}
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "mine")
+    _client("boss").post("/admin/clip-refusals/kaicenat/ack")
+    other = _client("deputy").get("/admin/clip-refusals").json()
+    assert other["rows"][0]["acked"] is False and other["live"] == 1
+
+
+def test_a_later_refusal_un_acknowledges_it(client):
+    """Acknowledging says 'I have seen this one', not 'never mention this
+    channel again'. A recurrence is new information."""
+    admin = _client("boss")
+    cr.record("kaicenat", cr.CLASSIFICATION, "mine")
+    admin.post("/admin/clip-refusals/kaicenat/ack")
+    assert admin.get("/admin/clip-refusals").json()["live"] == 0
+    time.sleep(0.01)
+    cr.record("kaicenat", cr.CLASSIFICATION, "mine")
+    assert admin.get("/admin/clip-refusals").json()["live"] == 1
+
+
+def test_acknowledging_one_channel_does_not_acknowledge_the_next(client):
+    admin = _client("boss")
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "mine")
+    cr.record("summit1g", cr.CLASSIFICATION, "mine")
+    admin.post("/admin/clip-refusals/kaicenat/ack")
+    live = [r["channel"] for r in admin.get("/admin/clip-refusals").json()["rows"]
+            if not r["acked"]]
+    assert live == ["summit1g"]
+
+
+def test_the_ack_endpoint_is_admin_only(client):
+    """`mine` is not staff. Without the guard any account could edit the
+    control room's view."""
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "mine")
+    client.post("/admin/clip-refusals/kaicenat/ack")
+    assert _client("boss").get("/admin/clip-refusals").json()["live"] == 1
+
+
+def test_the_admin_payload_does_not_carry_the_affected_user_ids(client):
+    """The table never showed them and the browser has no use for them."""
+    admin = _client("boss")
+    cr.record("kaicenat", cr.NOT_AUTHORIZED, "mine")
+    assert "users" not in admin.get("/admin/clip-refusals").json()["rows"][0]
+
+
+def test_the_control_room_hides_acknowledged_rows_by_default():
+    """Filtered in the browser, since the payload keeps them. A row that will
+    never clear itself — clipping restricted stops the stream, so no further
+    job is attempted and clear() never runs — would otherwise sit there
+    forever and the box would stop meaning 'broken now'."""
+    admin_js = api.ADMIN_HTML[api.ADMIN_HTML.index("async function loadRefusals"):]
+    admin_js = admin_js[:admin_js.index("async function ackRefusal")]
+    assert "r.acked" in admin_js, "acknowledged rows are not separated out"
+    assert "REFUSALS_SHOW_ACKED" in admin_js, "there is no way to see what was silenced"
+
+
+def test_the_acknowledge_button_posts_to_the_ack_endpoint():
+    assert "/ack'" in api.ADMIN_HTML and "data-ack" in api.ADMIN_HTML
+
+
+def test_the_channel_is_not_interpolated_into_an_inline_handler():
+    """esc() escapes &<> and nothing else, so a name carrying a quote would
+    close the handler string early and break the row."""
+    assert "onclick=\"ackRefusal(" not in api.ADMIN_HTML
 
 
 # ── realtime (the CLAUDE.md contract) ────────────────────────────────────────

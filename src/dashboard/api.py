@@ -5332,16 +5332,48 @@ async def admin_clip_refusals(request: Request):
     grepping journalctl on the right day. A channel drops off this list the
     moment it produces a clip again, so what is here is what is broken NOW.
 
-    Platform-wide and UNFILTERED — deliberately not the same view as
-    `/clip-refusals`, which is scoped to the caller and honours their
-    dismissals. An admin dismissing a notice on their own account must not
-    blind the control room to a channel that is still broken.
+    PLATFORM-WIDE, and separate from `/clip-refusals`, which is scoped to one
+    account. The two are never the same query: an admin dismissing the notice
+    on their own dashboard — where it appears because they monitor that channel
+    themselves — must not strike it off the control room's list.
+
+    ACKNOWLEDGEMENT is this view's own flag, `refusals_acked`, and it is per
+    admin. A row that will never clear itself is why it exists: a channel with
+    clipping restricted has its stream stopped, so no further clip job is ever
+    attempted, so nothing ever calls clear() and it sits in the box forever.
+
+    Every row is still returned, acknowledged or not — the counts here are the
+    platform's, not one operator's reading list, and hiding rows from the
+    payload would make the summary lie. The browser decides what to show.
     """
     _require_admin(request)
     from src.stats import clip_refusals
-    rows = clip_refusals.all_rows()
+    from src.auth import users as user_store
+    me = user_store.get_by_id(_current_user_id(request)) or {}
+    rows = []
+    for r in clip_refusals.all_rows():
+        row = {k: v for k, v in r.items() if k != "users"}
+        row["acked"] = (r.get("last_seen") or 0) <= user_store.refusal_dismissed_at(
+            me, r.get("channel", ""), scope="admin")
+        rows.append(row)
     return {"rows": rows, "total": sum(int(r.get("count", 0)) for r in rows),
-            "channels": len(rows)}
+            "channels": len(rows),
+            "acked": sum(1 for r in rows if r["acked"]),
+            "live": sum(1 for r in rows if not r["acked"])}
+
+
+@app.post("/admin/clip-refusals/{channel}/ack")
+async def admin_ack_clip_refusal(channel: str, request: Request):
+    """Take one channel out of the control room's box until it refuses again.
+
+    Per admin, so acknowledging is not an act performed on the other staff
+    accounts, and per channel, so it cannot silence the next thing that breaks.
+    """
+    from src.auth import users as user_store
+    _require_admin(request)
+    user_store.set_refusal_dismissed(_current_user_id(request), channel,
+                                     time.time(), scope="admin")
+    return {"ok": True}
 
 
 @app.get("/admin/overview")
@@ -11129,23 +11161,72 @@ const REFUSAL_LABEL = {
   not_authorized: 'The broadcaster has clipping restricted on Twitch.',
 };
 
+// Whether the acknowledged rows are currently revealed. Per page load, not
+// persisted: the reveal is "let me check what I silenced", not a preference.
+let REFUSALS_SHOW_ACKED = false;
+
 async function loadRefusals(){
   let d;
   try { d = await api('/admin/clip-refusals'); } catch(e){ return; }
   const box = document.getElementById('refusals-box');
-  if(!d || !d.rows || !d.rows.length){ box.style.display='none'; return; }
+  const all = (d && d.rows) || [];
+  // ACKNOWLEDGED ROWS ARE HIDDEN, NOT DELETED. A channel with clipping
+  // restricted has its stream stopped, so no further clip job is attempted and
+  // nothing ever calls clear() — without this it sits in the box forever and
+  // the box stops meaning "something is broken now". Acknowledging lasts until
+  // the channel refuses AGAIN, so a recurrence still gets noticed.
+  const live = all.filter(function(r){ return !r.acked; });
+  const acked = all.filter(function(r){ return r.acked; });
+  const shown = REFUSALS_SHOW_ACKED ? all : live;
+  if(!shown.length){ box.style.display='none'; return; }
   box.style.display='';
-  document.getElementById('refusals-sum').textContent =
-    d.channels + ' channel' + (d.channels===1?'':'s') + ' · ' + n0(d.total) + ' refused attempts';
+  const visibleTotal = shown.reduce(function(n,r){ return n + (r.count||0); }, 0);
+  document.getElementById('refusals-sum').innerHTML =
+    shown.length + ' channel' + (shown.length===1?'':'s') + ' · ' + n0(visibleTotal) + ' refused attempts'
+    + (acked.length
+        ? ' · <button class="btn" data-ack-toggle="1" style="margin-left:6px">'
+          + (REFUSALS_SHOW_ACKED ? 'hide' : 'show') + ' ' + acked.length + ' acknowledged</button>'
+        : '');
   let html = '<table><thead><tr><th>Channel</th><th>Refusals</th>'
-    + '<th>Last seen</th><th>Why, and who can fix it</th></tr></thead><tbody>';
-  d.rows.forEach(function(r){
-    html += '<tr><td><b>' + esc(r.channel) + '</b></td>'
+    + '<th>Last seen</th><th>Why, and who can fix it</th><th></th></tr></thead><tbody>';
+  shown.forEach(function(r){
+    html += '<tr' + (r.acked ? ' style="opacity:.45"' : '') + '>'
+      + '<td><b>' + esc(r.channel) + '</b></td>'
       + '<td>' + n0(r.count) + '</td>'
       + '<td>' + (r.last_seen ? new Date(r.last_seen*1000).toLocaleString() : '&mdash;') + '</td>'
-      + '<td>' + esc(REFUSAL_LABEL[r.reason] || r.reason || '') + '</td></tr>';
+      + '<td>' + esc(REFUSAL_LABEL[r.reason] || r.reason || '') + '</td>'
+      + '<td style="text-align:right">'
+      // The channel travels in a DATA ATTRIBUTE and is read back with
+      // getAttribute, not interpolated into an inline onclick. esc() escapes
+      // &<> and nothing else, so a name containing a quote would have closed
+      // the handler string early and broken the row — a data attribute has no
+      // such edge.
+      + (r.acked
+          ? '<span style="color:var(--ink-3);font-size:12px">acknowledged</span>'
+          : '<button class="btn" data-ack="' + encodeURIComponent(r.channel) + '">Acknowledge</button>')
+      + '</td></tr>';
   });
-  document.getElementById('refusals-wrap').innerHTML = html + '</tbody></table>';
+  const wrap = document.getElementById('refusals-wrap');
+  wrap.innerHTML = html + '</tbody></table>';
+  wrap.querySelectorAll('[data-ack]').forEach(function(b){
+    b.addEventListener('click', function(){ ackRefusal(b); });
+  });
+  const tog = document.querySelector('[data-ack-toggle]');
+  if(tog) tog.addEventListener('click', function(){
+    REFUSALS_SHOW_ACKED = !REFUSALS_SHOW_ACKED;
+    loadRefusals();
+  });
+}
+
+async function ackRefusal(btn){
+  btn.disabled = true;
+  try {
+    await api('/admin/clip-refusals/' + btn.getAttribute('data-ack') + '/ack', 'POST');
+  } catch(e){ btn.disabled = false; return; }
+  // Re-read rather than splicing the row out: the ack is per admin and the
+  // server is what knows which rows that leaves, so asking it is the only way
+  // the table and the summary cannot disagree.
+  loadRefusals();
 }
 
 // ── users ───────────────────────────────────────────────────────────────────

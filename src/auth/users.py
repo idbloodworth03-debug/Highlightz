@@ -400,8 +400,17 @@ def set_miss_notice_dismissed(user_id: str, when: float) -> None:
             return
 
 
-def set_refusal_dismissed(user_id: str, channel: str, when: float) -> None:
-    """Remember that the user closed the notice about one refusing channel.
+# The two places a refusal is shown, and they are tracked SEPARATELY on
+# purpose. An operator closing the banner on their own dashboard — where it
+# appears because they monitor that channel themselves — must not also strike
+# it off the control room's list, and acknowledging it in the control room must
+# not silence the account-level warning. Same mechanism, two independent keys.
+_REFUSAL_SCOPES = {"user": "refusals_dismissed", "admin": "refusals_acked"}
+
+
+def set_refusal_dismissed(user_id: str, channel: str, when: float,
+                          scope: str = "user") -> None:
+    """Remember that this person closed the notice about one refusing channel.
 
     Per channel, not one flag for the whole notice: dismissing "kaicenat has
     clipping restricted" must not also hide a different channel breaking
@@ -412,12 +421,13 @@ def set_refusal_dismissed(user_id: str, channel: str, when: float) -> None:
     channel's last refusal. Same shape, and the same reason, as
     `miss_notice_dismissed_at`.
     """
-    if not channel:
+    key = _REFUSAL_SCOPES.get(scope)
+    if not channel or not key:
         return
     users = _load()
     for u in users:
         if u["id"] == user_id:
-            d = dict(u.get("refusals_dismissed") or {})
+            d = dict(u.get(key) or {})
             d[channel.lower()] = when
             # Bounded: a channel dismissed long ago is deleted from the tally
             # the moment it clips again, so its entry here would otherwise sit
@@ -425,17 +435,18 @@ def set_refusal_dismissed(user_id: str, channel: str, when: float) -> None:
             # still be suppressing a live row.
             if len(d) > 50:
                 d = dict(sorted(d.items(), key=lambda kv: kv[1])[-50:])
-            u["refusals_dismissed"] = d
+            u[key] = d
             _save(users)
             return
 
 
-def refusal_dismissed_at(user: dict, channel: str) -> float:
-    """When this user last closed the notice for `channel`, or 0."""
-    if not user or not channel:
+def refusal_dismissed_at(user: dict, channel: str, scope: str = "user") -> float:
+    """When this person last closed the notice for `channel`, or 0."""
+    key = _REFUSAL_SCOPES.get(scope)
+    if not user or not channel or not key:
         return 0.0
     try:
-        return float((user.get("refusals_dismissed") or {}).get(channel.lower()) or 0)
+        return float((user.get(key) or {}).get(channel.lower()) or 0)
     except (TypeError, ValueError):
         return 0.0
 
