@@ -78,6 +78,7 @@ def delete(clip_id: str) -> bool:
     try:
         if p.is_file():
             p.unlink()
+            _forget_horizon()
             log.info("clip_file_deleted", clip_id=clip_id)
             return True
     except OSError as exc:
@@ -98,6 +99,16 @@ def total_bytes() -> int:
     return total
 
 
+# Cached horizon: (root, computed_at, value). See oldest_mtime.
+#
+# The ROOT is part of the key, not decoration. Tests redirect `_ROOT` at a
+# tmp_path and a cache keyed on time alone would carry one test's answer into
+# the next — the exact shape of order-dependent failure tests/conftest.py exists
+# to prevent.
+_horizon: tuple[str, float, float] = ("", 0.0, 0.0)
+_HORIZON_TTL_S = 60.0
+
+
 def oldest_mtime() -> float:
     """When the oldest file we still hold was written, or 0 for an empty store.
 
@@ -108,7 +119,27 @@ def oldest_mtime() -> float:
     clip older than this has no file and never will again — and that is a
     different sentence to the user than "the buffer missed this moment",
     because it is a different thing that happened.
+
+    CACHED, AND THAT IS NOT AN OPTIMISATION — it is the difference between the
+    dashboard working and the box falling over. The uncached version walked the
+    whole directory, and the caller is `_clip_out`, which runs ONCE PER CLIP
+    while serialising a clip list. At production size that is ~1,600 clips
+    against ~900 files: some 600,000 stat() calls per GET /clips, synchronously,
+    on the event loop, on one vCPU. It took the whole app down with it —
+    dashboard, socket and clip processor alike — which reads from outside as
+    "clips are erroring and nothing is being taken".
+
+    A minute of staleness costs nothing here. The horizon only moves when a
+    trim or a sweep runs, and the consequence of reading it late is that one
+    clip says "expired" a minute early or late.
     """
+    global _horizon
+    now = time.time()
+    root = str(_ROOT)
+    where, when, value = _horizon
+    if where == root and when and now - when < _HORIZON_TTL_S:
+        return value
+
     oldest = 0.0
     try:
         for p in _ROOT.glob("*.mp4"):
@@ -120,7 +151,20 @@ def oldest_mtime() -> float:
                 oldest = m
     except OSError:
         return 0.0
+    # An EMPTY store is not cached. Scanning an empty directory costs nothing,
+    # so there is no saving to bank — and caching "no files" would mean the
+    # first file to land in a fresh store is invisible to the horizon for a
+    # minute afterwards. Cheap to avoid, so avoid it.
+    if oldest:
+        _horizon = (root, now, oldest)
     return oldest
+
+
+def _forget_horizon() -> None:
+    """Drop the cached horizon — called by anything that deletes files, so the
+    next read is not a minute behind a trim that just ran."""
+    global _horizon
+    _horizon = ("", 0.0, 0.0)
 
 
 def headroom_ok() -> bool:
@@ -201,6 +245,7 @@ def trim_to_cap() -> int:
         removed += 1
         log.info("clip_file_swept", clip_id=p.stem, reason="over_cap")
     if removed:
+        _forget_horizon()          # the horizon just moved, by definition
         log.info("clip_file_store_trimmed", removed=removed,
                  now_mb=round(total / MB), cap_mb=settings.clip_file_max_total_mb)
     elif total >= cap:
@@ -243,6 +288,8 @@ def sweep(live_ids: set[str] | None = None) -> int:
                          reason="age" if too_old else "orphan")
         except OSError:
             continue
+    if removed:
+        _forget_horizon()
     return removed
 
 

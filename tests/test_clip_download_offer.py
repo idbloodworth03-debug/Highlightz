@@ -355,3 +355,73 @@ def test_the_expired_copy_does_not_blame_the_buffer():
     assert "buffer" not in branch, \
         "the expired copy blames a buffer miss for a file the cap cleared"
     assert "make room" in branch, "it does not say what actually happened"
+
+
+# ── serialising a clip list must not walk the disk per clip ──────────────────
+
+def test_serialising_a_big_clip_list_does_not_rescan_the_store(tmp_path, monkeypatch):
+    """THE REGRESSION THIS EXISTS FOR. `_clip_out` runs once per clip, and the
+    horizon lookup it gained walked the whole clipfiles directory. At
+    production size — ~1,600 clips against ~900 files — that is hundreds of
+    thousands of stat() calls per GET /clips, synchronously, on the event loop,
+    on one vCPU. It did not fail: it took the dashboard, the socket and the
+    clip processor down with it, which from outside reads as clips erroring and
+    nothing being taken.
+
+    Counted rather than timed, because a timing assertion on a shared CI box is
+    a flake generator and the thing that actually matters is the number of
+    scans, not how long one took.
+    """
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    clip_files._forget_horizon()
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    for i in range(20):
+        _put(root, f"f{i}", mb=0, age_s=86400)
+
+    scans = {"n": 0}
+    real_glob = type(root).glob
+
+    def counting_glob(self, pattern):
+        if str(self) == str(root):
+            scans["n"] += 1
+        return real_glob(self, pattern)
+
+    monkeypatch.setattr(type(root), "glob", counting_glob)
+    for i in range(200):
+        api._clip_out(_clip(f"absent{i}", age_s=86400 * 5))
+    assert scans["n"] <= 1, (
+        f"the store was scanned {scans['n']} times to serialise 200 clips — "
+        "this is the one that took production down")
+
+
+def test_the_horizon_cache_is_not_shared_between_stores(tmp_path, monkeypatch):
+    """Keyed on the root as well as the clock. Without that a cached answer
+    outlives the directory it was computed from — which in tests means one
+    test's store answering for the next."""
+    from src.clips import files as clip_files
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", a)
+    _put(a, "old", mb=0, age_s=86400)
+    assert clip_files.oldest_mtime() > 0
+    monkeypatch.setattr(clip_files, "_ROOT", b)
+    assert clip_files.oldest_mtime() == 0.0, "an empty store answered with another's"
+
+
+def test_deleting_files_drops_the_cached_horizon(tmp_path, monkeypatch):
+    """A trim moves the horizon by definition. A minute of staleness after one
+    would mislabel clips that are still downloadable as expired."""
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    monkeypatch.setattr(clip_files.settings, "clip_file_max_total_mb", 10)
+    clip_files._forget_horizon()
+    for i in range(10):
+        _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
+    first = clip_files.oldest_mtime()
+    assert clip_files.trim_to_cap() > 0
+    assert clip_files.oldest_mtime() > first, "the horizon is stale after a trim"
