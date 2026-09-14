@@ -480,6 +480,12 @@ async def sweep_dead_clips_task() -> None:
             from src.clips import files as clip_files
             live_ids = {c["id"] for c in dashboard_api._clips.values() if c.get("id")}
             swept = clip_files.sweep(live_ids=live_ids)
+            # And then by size, which age alone never reaches: a store that
+            # fills before its files are 30 days old would otherwise sit at the
+            # cap with every new cut skipped. Second, not first, so the free
+            # deletions (expired, orphaned) happen before anything still in use
+            # is considered.
+            swept += clip_files.trim_to_cap()
             if swept:
                 log.info("clip_file_sweep_done", removed=swept)
         except asyncio.CancelledError:

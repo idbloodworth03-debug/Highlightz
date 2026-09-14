@@ -686,9 +686,17 @@ class StreamWorker:
                         why="no_recorder" if rec is None else "worker_stopped")
             return
         if not clip_files.headroom_ok():
-            log.warning("clip_file_skipped", clip_id=clip_id,
-                        channel=self._config.channel, why="no_headroom")
-            return
+            # The cap used to be a wall: once the store filled, every cut from
+            # then on was skipped and only the 30-day clock could ever free
+            # space. Make room from the oldest files instead — a working area,
+            # not an archive — and only give up if that could not free any.
+            # In a thread because it is a directory walk and a run of unlinks
+            # on the same core the audio meters need.
+            freed = await asyncio.to_thread(clip_files.trim_to_cap)
+            if not freed and not clip_files.headroom_ok():
+                log.warning("clip_file_skipped", clip_id=clip_id,
+                            channel=self._config.channel, why="no_headroom")
+                return
         out = clip_files.path_for(clip_id)
         if out is None:
             log.warning("clip_file_skipped", clip_id=clip_id,

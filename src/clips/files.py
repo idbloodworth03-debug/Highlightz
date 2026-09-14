@@ -109,6 +109,83 @@ def headroom_ok() -> bool:
     return not cap or total_bytes() < cap
 
 
+# What `trim_to_cap` leaves behind, as a fraction of the cap. Not 100%: trimming
+# to exactly the cap means the next cut is at the wall again and every single
+# clip from then on pays for a trim.
+_TRIM_TARGET = 0.9
+
+# A file this new is never evicted, even to make room. Someone watching a clip
+# land and reaching for Download is the whole point of the feature, and
+# deleting it out from under them to store the next one trades a certain loss
+# for a speculative gain.
+_TRIM_MIN_AGE_S = 3600.0
+
+
+def trim_to_cap() -> int:
+    """Delete the oldest files until the store is back under the cap.
+
+    WHY THIS EXISTS. `clip_file_max_total_mb` was a WALL: at the cap
+    `headroom_ok` returned False and every subsequent cut was skipped, while
+    `sweep` only ever freed space by AGE. So a store that filled before its
+    files were 30 days old stayed full, and the product quietly stopped
+    producing downloadable clips — with symptoms identical to the bug that
+    prompted all of this, because the visible result is the same: no Download
+    button, no explanation.
+
+    Evicting the oldest is the right trade rather than a reluctant one. These
+    files are a working area for getting a moment posted, not an archive — that
+    is what the retention clock already says — and the clips people act on are
+    the recent ones. Refusing new cuts instead protects month-old files nobody
+    opened by breaking the feature for everybody.
+
+    Returns the number of files removed.
+    """
+    cap = settings.clip_file_max_total_mb * MB
+    if not cap:
+        return 0
+    try:
+        entries = []
+        for p in _ROOT.glob("*.mp4"):
+            try:
+                st = p.stat()
+                entries.append((st.st_mtime, st.st_size, p))
+            except OSError:
+                continue
+    except OSError:
+        return 0
+
+    total = sum(size for _, size, _ in entries)
+    if total < cap:
+        return 0
+
+    target = cap * _TRIM_TARGET
+    youngest_evictable = time.time() - _TRIM_MIN_AGE_S
+    removed = 0
+    for mtime, size, p in sorted(entries):          # oldest first
+        if total <= target:
+            break
+        if mtime > youngest_evictable:
+            # Sorted by age, so everything left is younger still. Stop rather
+            # than continue: there is nothing further this can legally free.
+            break
+        try:
+            p.unlink()
+        except OSError:
+            continue
+        total -= size
+        removed += 1
+        log.info("clip_file_swept", clip_id=p.stem, reason="over_cap")
+    if removed:
+        log.info("clip_file_store_trimmed", removed=removed,
+                 now_mb=round(total / MB), cap_mb=settings.clip_file_max_total_mb)
+    elif total >= cap:
+        # Worth saying: the store is full of files too new to evict, which is
+        # the one case where cuts really do have to be skipped.
+        log.warning("clip_file_store_full_of_new_files",
+                    mb=round(total / MB), cap_mb=settings.clip_file_max_total_mb)
+    return removed
+
+
 def sweep(live_ids: set[str] | None = None) -> int:
     """Delete files that are too old, or that no clip record points at.
 

@@ -84,7 +84,15 @@ def main(argv) -> int:
     mp4s = sorted(root.glob("*.mp4")) if root.exists() else []
     total = sum(p.stat().st_size for p in mp4s)
     print(f"  {root}")
-    print(f"  {_n(len(mp4s))} file(s), {total / (1024*1024):.0f} MB")
+    cap_mb = settings.clip_file_max_total_mb
+    used_mb = total / (1024 * 1024)
+    pct = int(100 * used_mb / cap_mb) if cap_mb else 0
+    print(f"  {_n(len(mp4s))} file(s), {used_mb:.0f} MB of {_n(cap_mb)} MB cap ({pct}%)")
+    if cap_mb and pct >= 80:
+        print("  >> Near the cap. At the cap the oldest files are evicted to make")
+        print("     room (clip_file_swept reason=over_cap), so new clips keep")
+        print("     downloading — but the oldest ones stop. Raise")
+        print("     CLIP_FILE_MAX_TOTAL_MB if there is disk for it: `df -h /`")
     if mp4s:
         newest = max(mp4s, key=lambda p: p.stat().st_mtime)
         age_h = (time.time() - newest.stat().st_mtime) / 3600

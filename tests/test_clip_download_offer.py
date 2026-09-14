@@ -209,3 +209,93 @@ def test_the_diagnostic_exists_and_is_read_only():
     for writes in ("write_text(", "unlink(", "_save(", "rmtree("):
         assert writes not in src, f"the diagnostic calls {writes}"
     assert "clip_capture_enabled" in src and "clip_file_skipped" in src
+
+
+# ── the size cap must not become a wall ──────────────────────────────────────
+
+def _store(tmp_path, monkeypatch, cap_mb):
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    monkeypatch.setattr(clip_files.settings, "clip_file_max_total_mb", cap_mb)
+    return clip_files, root
+
+
+def _put(root, name, mb, age_s):
+    p = root / (name + ".mp4")
+    p.write_bytes(b"\0" * int(mb * 1024 * 1024))
+    import os
+    t = time.time() - age_s
+    os.utime(p, (t, t))
+    return p
+
+
+def test_a_full_store_evicts_the_oldest_instead_of_refusing(tmp_path, monkeypatch):
+    """The cap used to stop every cut until the 30-day clock freed something,
+    so a store that filled early quietly stopped producing downloads — with
+    symptoms identical to the bug that started all this."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    for i in range(10):
+        _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
+    assert clip_files.headroom_ok() is False
+    assert clip_files.trim_to_cap() > 0
+    assert clip_files.headroom_ok() is True
+    assert not (root / "c0.mp4").exists(), "the oldest file survived the trim"
+    assert (root / "c9.mp4").exists(), "the newest file was evicted"
+
+
+def test_the_trim_leaves_headroom_rather_than_stopping_at_the_cap(tmp_path, monkeypatch):
+    """Trimming to exactly the cap puts the next cut back at the wall, so every
+    clip from then on pays for a trim."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    for i in range(10):
+        _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
+    clip_files.trim_to_cap()
+    assert clip_files.total_bytes() <= 10 * clip_files.MB * clip_files._TRIM_TARGET
+
+
+def test_a_file_someone_may_be_about_to_download_is_never_evicted(tmp_path, monkeypatch):
+    """Deleting a clip that landed minutes ago to store the next one trades a
+    certain loss for a speculative gain."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=4)
+    for i in range(5):
+        _put(root, f"new{i}", mb=1, age_s=60)
+    assert clip_files.trim_to_cap() == 0
+    assert len(list(root.glob("*.mp4"))) == 5
+
+
+def test_an_under_cap_store_is_left_alone(tmp_path, monkeypatch):
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=100)
+    _put(root, "c1", mb=1, age_s=86400)
+    assert clip_files.trim_to_cap() == 0
+    assert (root / "c1.mp4").exists()
+
+
+def test_no_cap_means_no_eviction(tmp_path, monkeypatch):
+    """0 disables the cap, and a disabled cap must not delete anything."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=0)
+    _put(root, "c1", mb=1, age_s=86400 * 99)
+    assert clip_files.trim_to_cap() == 0
+    assert (root / "c1.mp4").exists()
+
+
+def test_the_cut_path_makes_room_before_giving_up():
+    """Reaching the cap must not be the end of downloads until the next sweep,
+    six hours away."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker._cut_local_file)
+    i = src.index("headroom_ok()")
+    window = src[i:i + 600]
+    assert "trim_to_cap" in window, "the cut still gives up at the cap"
+    assert "to_thread" in window, \
+        "a directory walk and a run of unlinks would run on the meters' core"
+
+
+def test_the_periodic_sweep_also_trims_by_size():
+    """Age alone never reaches a store that fills before its files expire."""
+    import inspect
+    from src import main
+    assert "trim_to_cap" in inspect.getsource(main.auto_delete_old_clips) or \
+        "trim_to_cap" in inspect.getsource(main.sweep_dead_clips_task)
