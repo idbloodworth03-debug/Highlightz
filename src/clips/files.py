@@ -98,6 +98,31 @@ def total_bytes() -> int:
     return total
 
 
+def oldest_mtime() -> float:
+    """When the oldest file we still hold was written, or 0 for an empty store.
+
+    THE POINT OF KNOWING THIS is that it is the store's real retention horizon,
+    and it is nothing like the configured one. `clip_file_max_age_days` is a
+    30-day CEILING; what actually decides how long a file survives is the size
+    cap and how fast clips arrive, which on a busy day is a couple of days. A
+    clip older than this has no file and never will again — and that is a
+    different sentence to the user than "the buffer missed this moment",
+    because it is a different thing that happened.
+    """
+    oldest = 0.0
+    try:
+        for p in _ROOT.glob("*.mp4"):
+            try:
+                m = p.stat().st_mtime
+            except OSError:
+                continue
+            if oldest == 0.0 or m < oldest:
+                oldest = m
+    except OSError:
+        return 0.0
+    return oldest
+
+
 def headroom_ok() -> bool:
     """Whether another cut may be written.
 

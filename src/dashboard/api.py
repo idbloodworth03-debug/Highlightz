@@ -2705,24 +2705,38 @@ def _file_state(clip: dict) -> str:
       ready    the file is on disk, the download works right now
       pending  the capture has not finished writing it yet
       off      capture is switched off, so no file was ever going to exist
+      expired  the file existed and was cleared to make room for newer clips
       missed   capture was on but produced nothing for this moment
 
     THE STATES EXIST BECAUSE SILENCE WAS THE BUG. Every failure in the cut path
     is deliberately non-fatal — a clip with no file behaves exactly as clips did
     before capture existed — but the browser rendered that by showing no button
     at all, which from the outside is indistinguishable from a broken download.
-    Naming the state is what lets the UI say which of the four it is.
+    Naming the state is what lets the UI say which of the five it is.
+
+    `expired` is inferred from the store's oldest surviving file rather than
+    recorded, and that is exact enough to say out loud: if a clip predates
+    everything we still hold, then whatever we had for it is gone, whether it
+    was cut and later cleared or never cut at all. Either way it will not come
+    back, which is what "expired" tells the user — and it stops us blaming a
+    buffer miss for a file the size cap deleted.
     """
     try:
         from src.clips import files as clip_files
         if clip_files.exists(clip.get("id", "")):
             return "ready"
+        horizon = clip_files.oldest_mtime()
     except Exception:
         return "missed"
     if not settings.clip_capture_enabled:
         return "off"
-    age = time.time() - float(clip.get("created_at") or 0)
-    return "pending" if 0 <= age < _CLIP_FILE_WAIT_S else "missed"
+    created = float(clip.get("created_at") or 0)
+    age = time.time() - created
+    if 0 <= age < _CLIP_FILE_WAIT_S:
+        return "pending"
+    if horizon and created and created < horizon:
+        return "expired"
+    return "missed"
 
 
 def _clip_out(clip: dict) -> dict:

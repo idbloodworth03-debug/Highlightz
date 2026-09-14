@@ -2278,6 +2278,11 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
                       ? <><b>No file for this clip.</b> Highlightz was not holding video when
                           this moment was caught, so there is nothing to download. Clips caught
                           from here on come with an MP4.</>
+                      : clip.file_state === 'expired'
+                      ? <><b>This download has expired.</b> Video is held for a few days
+                          and then cleared to make room for new clips, so grab the ones you
+                          want soon after they land. The clip itself is unaffected — only
+                          the downloadable file is gone.</>
                       : <><b>No file for this clip.</b> Highlightz keeps the video only for
                           moments it captured live, and the buffer did not cover this one —
                           usually a stream reconnect, or monitoring that had just started.

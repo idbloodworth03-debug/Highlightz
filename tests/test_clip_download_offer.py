@@ -9,8 +9,9 @@ every other control was labelled.
 
 So the fix has two halves and both are pinned here:
 
-  * the server says WHICH of the four states a clip is in, rather than a
-    boolean that collapses "not yet" and "never" into the same silence, and
+  * the server says WHICH of the five states a clip is in, rather than a
+    boolean that collapses "not yet", "never" and "not any more" into the same
+    silence, and
   * the browser always answers — with the download, with "preparing", or with
     the reason there is no file.
 
@@ -299,3 +300,58 @@ def test_the_periodic_sweep_also_trims_by_size():
     from src import main
     assert "trim_to_cap" in inspect.getsource(main.auto_delete_old_clips) or \
         "trim_to_cap" in inspect.getsource(main.sweep_dead_clips_task)
+
+
+# ── an evicted file is not a buffer miss ─────────────────────────────────────
+
+def test_a_clip_older_than_everything_we_hold_reads_as_expired(tmp_path, monkeypatch):
+    """The size cap deletes oldest-first, so on a busy box a file survives days,
+    not the configured 30. Blaming 'the buffer did not cover this moment' for a
+    file the cap cleared tells the user to expect a fix that is not coming."""
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    _put(root, "kept", mb=0, age_s=86400)          # the oldest we still hold
+    assert api._clip_out(_clip("gone", age_s=86400 * 3))["file_state"] == "expired"
+
+
+def test_a_recent_clip_with_no_file_is_still_a_miss(tmp_path, monkeypatch):
+    """Inside the horizon the cap is not the explanation, so the honest answer
+    is still that nothing was captured for that moment."""
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    _put(root, "kept", mb=0, age_s=86400 * 3)
+    assert api._clip_out(_clip("nope", age_s=3600))["file_state"] == "missed"
+
+
+def test_an_empty_store_never_claims_a_clip_expired(on_disk, monkeypatch):
+    """With nothing on disk there is no horizon to compare against, and
+    guessing 'expired' would invent a file that never existed."""
+    monkeypatch.setattr(api.settings, "clip_capture_enabled", True)
+    assert api._clip_out(_clip(age_s=86400 * 9))["file_state"] == "missed"
+
+
+def test_the_oldest_mtime_is_the_oldest(tmp_path, monkeypatch):
+    from src.clips import files as clip_files
+    root = tmp_path / "clipfiles"
+    root.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", root)
+    assert clip_files.oldest_mtime() == 0.0
+    _put(root, "young", mb=0, age_s=60)
+    old = _put(root, "old", mb=0, age_s=86400)
+    assert abs(clip_files.oldest_mtime() - old.stat().st_mtime) < 0.01
+
+
+def test_the_expired_copy_does_not_blame_the_buffer():
+    """The whole reason this state exists."""
+    modal = _modal()
+    i = modal.index("This download has expired")
+    branch = modal[i:i + 420]
+    assert "buffer" not in branch, \
+        "the expired copy blames a buffer miss for a file the cap cleared"
+    assert "make room" in branch, "it does not say what actually happened"
