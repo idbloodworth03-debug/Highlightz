@@ -847,7 +847,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 /* A grid: header across the top, main | side in the middle, and the export
    footer as its OWN row under the side column. It is never inside a
    scroller, so it can never cover a control on a phone. */
-.ed{width:min(1180px,100%);max-height:94vh;display:grid;grid-template-columns:minmax(0,1fr) 300px;
+.ed{width:min(1220px,100%);max-height:94vh;display:grid;grid-template-columns:minmax(0,1fr) 340px;
   grid-template-rows:auto minmax(0,1fr) auto;border-radius:20px;
   background:var(--rd-bg-2);border:1px solid var(--hair);outline:none;overflow:hidden}
 /* Solid, not glass: the late @supports .glass rule paints a near-transparent
@@ -923,20 +923,26 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tlinfo i{font-style:normal;color:var(--fg-3);margin-right:4px}
 .ed-tlinfo .mid{font-weight:700;color:#fff}
 .ed-side{grid-column:2;grid-row:2;display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--hair)}
-.ed-tpls{padding:12px 12px 0;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
-.ed-tpl-h{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
-.ed-tpl-h span{font-weight:500;letter-spacing:0;text-transform:none;color:var(--fg-3);margin-left:4px}
-.ed-tpl-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
-.ed-tpl{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:var(--r-sm);
-  border:1px solid var(--hair);background:rgba(255,255,255,.04);color:var(--fg-2);cursor:pointer;min-width:0;
+.ed-tpls{padding:16px 16px 0;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.ed-sec-t{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);
+  display:flex;align-items:center;gap:8px;padding:16px 16px 0}
+.ed-tpls .ed-sec-t{padding:0}
+.ed-sec-t b{width:20px;height:20px;border-radius:50%;background:var(--grad-soft);border:1px solid rgba(196,137,228,.4);
+  color:#fff;font-size:12px;display:grid;place-items:center;letter-spacing:0}
+/* Five cards, two to a row, the fifth across the bottom: big enough to
+   read and hit, with the diagram beside the name rather than stacked. */
+.ed-tpl-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ed-tpl{display:flex;flex-direction:row;align-items:center;gap:12px;padding:8px 12px;border-radius:12px;
+  border:1px solid var(--hair);background:rgba(255,255,255,.04);color:var(--fg-2);cursor:pointer;min-width:0;text-align:left;
   transition:background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast)}
+.ed-tpl:last-child{grid-column:1/-1}
 .ed-tpl:hover{background:rgba(255,255,255,.08);color:#fff}
-.ed-tpl.on{background:var(--grad-soft);border-color:rgba(196,137,228,.5);color:#fff}
+.ed-tpl.on{background:var(--grad-soft);border-color:rgba(196,137,228,.6);color:#fff;box-shadow:0 0 0 1px rgba(196,137,228,.25)}
 .ed-tpl:disabled{opacity:.5;cursor:default}
-.ed-tpl-n{font-size:12px;font-weight:700;line-height:1.2;text-align:center;max-width:100%;overflow-wrap:anywhere}
+.ed-tpl-n{font-size:14px;font-weight:700;line-height:1.2;min-width:0;overflow-wrap:anywhere}
 /* Tiny 9:16 diagrams of each layout, drawn in CSS so they are the same
    colours as the rest of the panel. i = the main picture, b = the accent. */
-.ed-tpl-ic{position:relative;width:22px;height:38px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
+.ed-tpl-ic{position:relative;width:20px;height:34px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
 .ed-tpl-ic i,.ed-tpl-ic b{position:absolute;display:block;border-radius:2px;background:rgba(255,255,255,.55)}
 .ed-tpl-ic.camgame i{left:0;right:0;top:0;height:40%;background:rgba(255,255,255,.55)}
 .ed-tpl-ic.camgame b{left:0;right:0;top:44%;height:32%;background:rgba(255,255,255,.3)}
@@ -948,24 +954,33 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tpl-ic.punch b{left:4px;right:4px;bottom:6px;height:4px;background:var(--acc)}
 .ed-tpl-ic.hook i{inset:0;border-radius:0;background:rgba(255,255,255,.3)}
 .ed-tpl-ic.hook b{left:3px;right:3px;top:4px;height:6px;background:#fff}
-.ed-tabs{display:flex;padding:12px 12px 0;gap:4px;flex-shrink:0}
-.ed-tabs button{flex:1;padding:8px 4px;border-radius:var(--r-sm);border:1px solid transparent;background:none;color:var(--fg-3);
-  font-size:12px;font-weight:700;cursor:pointer;transition:background var(--dur-fast),color var(--dur-fast)}
-.ed-tabs button:hover{color:#fff}
-.ed-tabs button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
-.ed-panel{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:16px;min-height:0}
-.ed-foot{grid-column:2;grid-row:3;padding:12px;border-top:1px solid var(--hair);border-left:1px solid var(--hair);display:flex;flex-direction:column;gap:8px;flex-shrink:0;background:rgba(14,11,17,.6)}
-.ed-export{width:100%;padding:12px 16px;font-size:14px}
+/* The adjust sections: one open at a time, each header carrying its current
+   setting so the whole state reads at a glance without opening anything. */
+.ed-panel{flex:1;overflow-y:auto;padding:8px 16px 16px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.ed-sec{border:1px solid var(--hair);border-radius:12px;background:rgba(255,255,255,.03);overflow:hidden;flex-shrink:0}
+.ed-sec.open{border-color:rgba(196,137,228,.4);background:rgba(255,255,255,.04)}
+.ed-sec-h{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;
+  transition:background var(--dur-fast)}
+.ed-sec-h:hover{background:rgba(255,255,255,.04)}
+.ed-sec-l{font-size:14px;font-weight:700;color:var(--fg);flex-shrink:0;min-width:64px}
+.ed-sec-s{flex:1;min-width:0;font-size:12px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.ed-sec.open .ed-sec-s{color:var(--acc)}
+.ed-sec-c{color:var(--fg-3);font-size:16px;line-height:1;transition:transform var(--dur-fast)}
+.ed-sec.open .ed-sec-c{transform:rotate(90deg)}
+.ed-sec-b{padding:4px 16px 16px;display:flex;flex-direction:column;gap:16px;border-top:1px solid var(--hair)}
+.ed-foot{grid-column:2;grid-row:3;padding:16px;border-top:1px solid var(--hair);border-left:1px solid var(--hair);display:flex;flex-direction:column;gap:8px;flex-shrink:0;background:rgba(14,11,17,.6)}
+.ed-export{width:100%;padding:16px 16px;font-size:16px;border-radius:12px}
 .ed-grp{display:flex;flex-direction:column;gap:8px}
-.ed-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ed-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-top:8px}
+.ed-grp label:first-child{margin-top:8px}
 .ed-row{display:flex;align-items:center;gap:8px}
 .ed-row input[type=range]{flex:1;accent-color:var(--acc);cursor:pointer;min-width:0}
 .ed-num{font-size:12px;color:var(--fg-3);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
-.ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:10px;
-  padding:8px 8px;color:var(--fg);font-size:12px;font-family:inherit}
+.ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:12px;
+  padding:12px 12px;color:var(--fg);font-size:14px;font-family:inherit}
 .ed-in:focus{outline:none;border-color:var(--acc-2)}
 .ed-seg{display:flex;gap:4px;flex-wrap:wrap}
-.ed-seg button{flex:1;min-width:64px;padding:8px 8px;border-radius:9px;font-size:12px;font-weight:700;
+.ed-seg button{flex:1;min-width:64px;padding:12px 8px;border-radius:12px;font-size:14px;font-weight:700;
   background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:var(--dur-fast)}
 .ed-seg button.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
 .ed-seg small{display:block;font-size:12px;font-weight:500;color:var(--fg-3)}
@@ -989,7 +1004,9 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
   .ed-foot{grid-column:1;grid-row:3;border-left:none;background:rgba(14,11,17,.96)}
   .ed-cut{margin-left:0;width:100%}
   .ed-cut .ed-mark{flex:1}
-  .ed-tpl-n{font-size:12px}
+  .ed-tpl-n{font-size:14px}
+  .ed-tpls{padding:12px 12px 0}
+  .ed-panel{padding:8px 12px 32px}
 }
 .pub-row{display:flex;align-items:center;gap:8px;margin-top:8px}
 .pub-row .rd-btn{flex-shrink:0;min-width:104px;justify-content:center}
@@ -6153,7 +6170,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             <h3>{clip.filename || 'Edit clip'}</h3>
             <div className="ed-sub">
               {dur ? edTime(dur) : '…'}{srcDims[1] ? ' · ' + srcDims[0] + '×' + srcDims[1] : ''}
-              {' · '}{shape[2]} {ratio} → {outW}×{outH} {fmtOut}
             </div>
           </div>
           <button className="ed-x" onClick={onClose} disabled={busy} aria-label="Close editor"><Icon name="x" size={16}/></button>
@@ -6198,8 +6214,12 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           </div>
 
           <div className="ed-side">
+            {/* ── 1. Style: five big cards. One press sets everything; the
+                   sections below are for tweaking, and each says its current
+                   setting on its header so nothing has to be opened to be
+                   understood. */}
             <div className="ed-tpls">
-              <div className="ed-tpl-h">Templates <span>one click, then tweak anything</span></div>
+              <div className="ed-sec-t"><b>1</b> Pick a style</div>
               <div className="ed-tpl-row">
                 {TEMPLATES.map(t => (
                   <button key={t.id} className={'ed-tpl' + (tpl === t.id ? ' on' : '')} disabled={busy}
@@ -6211,29 +6231,48 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               </div>
               {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
             </div>
-            <div className="ed-tabs" role="tablist">
-              {TABS.map(([k,l])=>(
-                <button key={k} role="tab" aria-selected={tab===k} className={tab===k?'on':''} onClick={()=>setTab(k)}>{l}</button>
-              ))}
-            </div>
 
-            <div className="ed-panel">
-              {tab==='trim' && <>
+            {/* ── 2. Adjust: one section open at a time. `tab` is the open
+                   section (a template opens the one it cares about). TABS is
+                   the section list; captions join it only when the feature
+                   is on. */}
+            <div className="ed-sec-t"><b>2</b> Adjust</div>
+            <div className="ed-panel" role="tablist">
+              {TABS.map(([k,l])=>{
+                const open = tab === k;
+                const sums = {
+                  trim: shape[2] + ' ' + ratio + ' · ' + ((inPt===0 && outPt===dur) ? 'whole clip' : clipSecs.toFixed(1) + 's'),
+                  frame: (layout==='split' ? 'Cam + game' : (fill==='crop' ? 'Crop' : 'Blur')) + ' · ' + zoom.toFixed(1) + '×',
+                  text: text ? '“' + text.slice(0, 22) + (text.length > 22 ? '…' : '') + '” · ' + textPos : 'None',
+                  fx: (transIn==='none' && transOut==='none' ? 'No transitions' : [transIn!=='none' ? transIn + ' in' : '', transOut!=='none' ? transOut + ' out' : ''].filter(Boolean).join(', '))
+                      + ' · ' + ((sfxIn!=='none' || sfxOut!=='none') ? 'sound on' : 'no sound'),
+                  captions: caps ? (capOn ? caps.length + ' lines · ' + capPos : 'Off') : (capJob ? 'Transcribing…' : 'Not generated'),
+                };
+                return (
+                  <div key={k} className={'ed-sec' + (open ? ' open' : '')}>
+                    <button className="ed-sec-h" role="tab" aria-selected={open} aria-expanded={open}
+                      onClick={()=>setTab(open ? '' : k)}>
+                      <span className="ed-sec-l">{l}</span>
+                      <span className="ed-sec-s">{sums[k]}</span>
+                      <span className="ed-sec-c" aria-hidden="true">›</span>
+                    </button>
+                    {open && <div className="ed-sec-b">
+
+              {k==='trim' && <>
                 <div className="ed-grp">
                   <label>Shape</label>
                   <div className="ed-seg">
-                    {RATIOS.map(([k,,name])=>(
-                      <button key={k} className={ratio===k?'on':''} disabled={busy}
-                        onClick={()=>setRatio(k)}>{name}<br/><small>{k}</small></button>
+                    {RATIOS.map(([kk,,name])=>(
+                      <button key={kk} className={ratio===kk?'on':''} disabled={busy}
+                        onClick={()=>setRatio(kk)}>{name}<br/><small>{kk}</small></button>
                     ))}
                   </div>
                 </div>
                 <div className="ed-grp">
-                  <label>Trim</label>
+                  <label>Length</label>
                   <div className="ed-note">
-                    Drag the handles on the strip, or park the playhead and press
-                    <kbd>I</kbd> for the start and <kbd>O</kbd> for the end.
-                    <kbd>Space</kbd> plays the cut on a loop, <kbd>←</kbd> <kbd>→</kbd> step one frame.
+                    Drag the handles under the video, or park the playhead and press
+                    <kbd>I</kbd> for start, <kbd>O</kbd> for end.
                   </div>
                   <div className="ed-row">
                     <button className="rd-btn sm" disabled={busy||!dur||(inPt===0&&outPt===dur)}
@@ -6242,18 +6281,17 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 </div>
               </>}
 
-              {tab==='frame' && <>
+              {k==='frame' && <>
                 <div className="ed-grp">
                   <label>Layout</label>
                   <div className="ed-seg">
                     <button className={layout==='single'?'on':''} disabled={busy}
                       onClick={()=>setLayout('single')}>Single<br/><small>one picture</small></button>
                     <button className={layout==='split'?'on':''} disabled={busy}
-                      onClick={()=>{setLayout('split'); if(zoom<1.5) setZoom(2.4);}}>Cam + game<br/><small>facecam over gameplay</small></button>
+                      onClick={()=>{setLayout('split'); if(zoom<1.5) setZoom(2.4);}}>Cam + game<br/><small>facecam on top</small></button>
                   </div>
                   {layout==='split' && <div className="ed-note">
-                    The top window is cut from the source around the camera: drag the preview to
-                    put it on the streamer, zoom to tighten it. The gameplay keeps its full width below.
+                    Drag the preview to put the top window on the camera; zoom to tighten it.
                   </div>}
                 </div>
                 {layout==='single' && <div className="ed-grp">
@@ -6264,10 +6302,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                     <button className={fill==='blur'?'on':''} disabled={busy}
                       onClick={()=>setFill('blur')}>Blur<br/><small>keeps it all</small></button>
                   </div>
-                  <div className="ed-note">
-                    Crop cuts the sides off to fill a vertical frame. Blur keeps the
-                    whole picture and fills the gaps with a blurred copy.
-                  </div>
                 </div>}
                 <div className="ed-grp">
                   <label>{layout==='split' ? 'Camera window' : 'Zoom'}</label>
@@ -6276,10 +6310,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                       onChange={e=>setZoom(+e.target.value)}/>
                     <span className="ed-num">{zoom.toFixed(2)}×</span>
                   </div>
-                  <div className="ed-note">Drag the preview to move the picture. Scroll or pinch on it to zoom.</div>
+                  <div className="ed-note">Drag the preview to move the picture. Scroll or pinch to zoom.</div>
                 </div>
                 <div className="ed-grp">
-                  <label>Position</label>
                   <div className="ed-row">
                     <span className="ed-num" style={{textAlign:'left',minWidth:16}}>X</span>
                     <input type="range" min="-0.5" max="0.5" step="0.01" value={offX} disabled={busy}
@@ -6295,10 +6328,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 </div>
               </>}
 
-              {tab==='text' && <div className="ed-grp">
-                <label>Title text</label>
+              {k==='text' && <div className="ed-grp">
                 <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
-                  placeholder={tpl==='hook' ? 'Your hook, e.g. HE ACTUALLY DID IT' : 'Optional text on the clip'} maxLength={120}
+                  placeholder={tpl==='hook' ? 'Your hook, e.g. HE ACTUALLY DID IT' : 'Title on the clip (optional)'} maxLength={120}
                   onChange={e=>setText(e.target.value)}/>
                 <div className="ed-seg">
                   {['top','middle','bottom'].map(p=>(
@@ -6311,44 +6343,44 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   <input type="range" min="0.04" max="0.14" step="0.005" value={textSize} disabled={busy}
                     onChange={e=>setTS(+e.target.value)}/>
                 </div>
-                <div className="ed-note">Up to three lines. It is burned into the export, so it shows on every platform.</div>
-              </div>}
-
-              {tab==='fx' && <div className="ed-grp">
-                <label>Transitions</label>
-                <div className="ed-row">
-                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>In</span>
-                  <div className="ed-seg" style={{flex:1}}>
-                    {[['none','None'],['fade','Fade'],['zoom','Zoom']].map(([k,l])=>(
-                      <button key={k} className={transIn===k?'on':''} disabled={busy} onClick={()=>setTransIn(k)}>{l}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="ed-row">
-                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Out</span>
-                  <div className="ed-seg" style={{flex:1}}>
-                    {[['none','None'],['fade','Fade']].map(([k,l])=>(
-                      <button key={k} className={transOut===k?'on':''} disabled={busy} onClick={()=>setTransOut(k)}>{l}</button>
-                    ))}
-                  </div>
-                </div>
                 <div className="ed-row">
                   <button className={'rd-btn sm'+(textAnim?' grad':'')} disabled={busy}
                     onClick={()=>setTextAnim(v=>!v)} style={{flex:1}}>
                     {textAnim ? 'Title rises in' : 'Title static'}
                   </button>
                 </div>
+                <div className="ed-note">Up to three lines, burned into the export.</div>
+              </div>}
+
+              {k==='fx' && <div className="ed-grp">
+                <label>Transitions</label>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>In</span>
+                  <div className="ed-seg" style={{flex:1}}>
+                    {[['none','None'],['fade','Fade'],['zoom','Zoom']].map(([kk,l2])=>(
+                      <button key={kk} className={transIn===kk?'on':''} disabled={busy} onClick={()=>setTransIn(kk)}>{l2}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Out</span>
+                  <div className="ed-seg" style={{flex:1}}>
+                    {[['none','None'],['fade','Fade']].map(([kk,l2])=>(
+                      <button key={kk} className={transOut===kk?'on':''} disabled={busy} onClick={()=>setTransOut(kk)}>{l2}</button>
+                    ))}
+                  </div>
+                </div>
                 <label style={{marginTop:8}}>Sound</label>
                 <div className="ed-row">
                   <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Start</span>
                   <select className="ed-in" value={sfxIn} disabled={busy} onChange={e=>setSfxIn(e.target.value)}>
-                    {SFX_KINDS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                    {SFX_KINDS.map(([kk,l2])=><option key={kk} value={kk}>{l2}</option>)}
                   </select>
                 </div>
                 <div className="ed-row">
                   <span className="ed-num" style={{textAlign:'left',minWidth:32}}>End</span>
                   <select className="ed-in" value={sfxOut} disabled={busy} onChange={e=>setSfxOut(e.target.value)}>
-                    {SFX_KINDS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                    {SFX_KINDS.map(([kk,l2])=><option key={kk} value={kk}>{l2}</option>)}
                   </select>
                 </div>
                 <div className="ed-row">
@@ -6356,13 +6388,12 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   <input type="range" min="0" max="1" step="0.05" value={sfxGain} disabled={busy}
                     onChange={e=>setSfxGain(+e.target.value)}/>
                 </div>
-                <div className="ed-note">Sounds are synthesized, so the export carries exactly what the preview plays. Press play to hear them; the word-pop on captions is always on.</div>
+                <div className="ed-note">Press play to hear them. The export carries exactly what you hear.</div>
               </div>}
 
-              {tab==='captions' && captionsOn && <div className="ed-grp">
-                <label>Auto-captions</label>
+              {k==='captions' && captionsOn && <div className="ed-grp">
                 {!caps && !capJob &&
-                  <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}>
+                  <button className="rd-btn grad sm" onClick={makeCaptions} disabled={busy}>
                     <Icon name="sparkles" size={13}/>&nbsp;Generate captions
                   </button>}
                 {capJob &&
@@ -6384,9 +6415,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                                  : 'No speech detected in this clip.'}
                   </div>
                   <div className="ed-seg">
-                    {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([k,l])=>(
-                      <button key={k} className={capPos===k?'on':''} disabled={busy}
-                        onClick={()=>setCapPos(k)}>{l}</button>
+                    {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([kk,l2])=>(
+                      <button key={kk} className={capPos===kk?'on':''} disabled={busy}
+                        onClick={()=>setCapPos(kk)}>{l2}</button>
                     ))}
                   </div>
                   <div className="ed-row">
@@ -6410,15 +6441,16 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                       </button>}
                   </div>
                   <div className="ed-note">
-                    Word pop lights each word in orange as it is spoken. Boxed puts
-                    a dark plate behind every line and reads on busy gameplay where
-                    an outline alone can disappear. "Low" sits under the action,
-                    where TikTok and Reels draw their own buttons, so it can end up
-                    covered.
+                    Boxed reads on busy gameplay. "Low" sits where TikTok and Reels draw their buttons.
                   </div>
                 </>}
                 {capErr && <div className="ed-warn">{capErr}</div>}
               </div>}
+
+                    </div>}
+                  </div>
+                );
+              })}
             </div>
 
           </div>
@@ -6433,13 +6465,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           </div>}
 
           {!busy && <button className="rd-btn grad ed-export" onClick={runExport} disabled={!canExport}>
-            <Icon name="download" size={14}/>&nbsp;Export {ratio} · {clipSecs.toFixed(1)}s
+            <Icon name="download" size={14}/>&nbsp;Export · {shape[2]} {ratio} · {clipSecs.toFixed(1)}s
           </button>}
 
           {!canExport && dur > 0 &&
             <div className="ed-warn">This browser can't export video. Use Chrome, Edge or Safari.</div>}
           {canExport && !busy && !done && !err &&
-            <div className="ed-note">Renders on your machine in about {eta}s as {fmtOut}. Keep this tab open.</div>}
+            <div className="ed-note">{outW}×{outH} {fmtOut} · about {eta}s on your machine. Keep this tab open.</div>}
           {done && <div className="ed-note ok">{done}</div>}
           {err && <div className="ed-warn">{err}</div>}
           {outFile && !busy && <div className="ed-row">

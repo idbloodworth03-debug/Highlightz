@@ -1043,6 +1043,11 @@ def test_templates_carry_effects_and_the_setters_accept_them():
 
 def test_the_effects_tab_exists_and_exposes_every_knob():
     assert "['fx', 'Effects']" in SRC
-    ui = SRC[SRC.index("{tab==='fx' && <div className=\"ed-grp\">"):SRC.index("{tab==='captions' && captionsOn")]
-    for setter in ("setTransIn", "setTransOut", "setTextAnim", "setSfxIn", "setSfxOut", "setSfxGain"):
-        assert setter in ui, f"the Effects tab has no control for {setter}"
+    # The Effects controls live in the accordion section keyed 'fx' (2026-09-15
+    # simplification: sections with a one-line summary replaced the tab strip).
+    ui = SRC[SRC.index("{k==='fx' && <div className=\"ed-grp\">"):SRC.index("{k==='captions' && captionsOn")]
+    for setter in ("setTransIn", "setTransOut", "setSfxIn", "setSfxOut", "setSfxGain"):
+        assert setter in ui, f"the Effects section has no control for {setter}"
+    # The title's own animation sits with the title, in the Text section.
+    text_ui = SRC[SRC.index("{k==='text' && <div className=\"ed-grp\">"):SRC.index("{k==='fx' && <div")]
+    assert "setTextAnim" in text_ui, "the Text section has no 'Title rises in' toggle"
