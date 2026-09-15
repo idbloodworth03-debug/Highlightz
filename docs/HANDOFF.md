@@ -1766,6 +1766,19 @@ are output, not input.
   a caption box, and a per-platform FIT CHECK.
 - `src/publish/schedule.py` + `/publish/schedule` — the queue itself.
 
+**Editor side panel (simplified 2026-09-15).** Owner: "still looks very
+cluttered … big, easy and professional … not too big." Two numbered steps:
+**1 Pick a style** — the five TEMPLATES as large cards (`.ed-tpl-row`, two
+per row, diagram beside the name); **2 Adjust** — the old five tabs are
+collapsible sections (`.ed-sec`), one open at a time (`tab` is the open
+key; a template still opens its own section), each header carrying a
+one-line summary of its current setting so the whole state reads closed.
+Help text is one line per control. "Title rises in" lives in Text, not
+Effects. Nothing in paintFrame/export changed. Rendered and eyeballed at
+1380 and 400 wide with a browser-generated clip (the scratchpad harness
+makes a WebM with canvas + MediaRecorder; there is no ffmpeg in the dev
+container).
+
 **Editor draw options** (all through `paintFrame`, so preview and export can
 never disagree): `fill` crop|blur, `capSize`, `capPos` top|middle|bottom|low,
 `capHighlight`. Blur fill CONTAINS the video and puts an over-scaled blurred
