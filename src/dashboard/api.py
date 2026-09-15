@@ -2824,6 +2824,18 @@ async def _fetch_and_announce(clip_id: str, uid: str, slug: str) -> None:
         return
     await broadcast({"event": "clip_file_ready", "clip_id": clip_id},
                     user_id=uid)
+    await on_clip_file_ready(clip_id)
+
+
+async def on_clip_file_ready(clip_id: str) -> None:
+    """Every path that makes a clip's file exist ends here: the capture cut
+    (stream_worker), the Twitch fetch (above) and the on-demand fetch. An
+    approved clip whose file arrived after the approval is Autopilot's cue."""
+    from src.autopilot import runner as _autopilot
+    try:
+        await _autopilot.maybe_run_by_id(clip_id)
+    except Exception as exc:                      # never let a hook break the caller
+        log.warning("autopilot_hook_failed", clip_id=clip_id, error=str(exc))
 
 
 def _start_fetch(clip: dict) -> None:
@@ -3032,6 +3044,7 @@ async def send_clip_to_editor(request: Request, clip_id: str):
         # the same event the capture path emits, scoped to this user.
         await broadcast({"event": "clip_file_ready", "clip_id": clip_id},
                         user_id=uid)
+        await on_clip_file_ready(clip_id)
 
     raw = f"{clip.get('channel', 'clip')} - {clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
 
@@ -3215,6 +3228,10 @@ async def approve_clip(request: Request, clip_id: str):
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     await _maybe_prompt_review(uid)
+    # Autopilot (src/autopilot): an approval is the trigger. Detached — a
+    # render takes seconds to minutes and the approve click must return now.
+    from src.autopilot import runner as _autopilot
+    _autopilot.kick(_autopilot.maybe_run(clip))
     return _clip_out(clip)
 
 
@@ -5134,6 +5151,49 @@ async def public_media(token: str):
     return FileResponse(path, media_type=media,
                         headers={"X-Content-Type-Options": "nosniff",
                                  "Cache-Control": "private, max-age=0"})
+
+
+# ── Autopilot ────────────────────────────────────────────────────────────────
+#
+# Pro, per user, off by default. Approve a clip → the server renders it to
+# 9:16 (src/autopilot/render.py) → it lands in the queue at a time the
+# user's timing rule picks → the poster posts it to their connected
+# accounts. Config lives on the user record (users.autopilot_for).
+
+@app.get("/autopilot")
+async def autopilot_get(request: Request):
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    from src.autopilot import render as _ap_render
+    return {"config": user_store.autopilot_for(uid),
+            "font_ok": bool(_ap_render.font_path()),
+            "captions_available": settings.captions_enabled}
+
+
+@app.put("/autopilot")
+async def autopilot_put(request: Request):
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send the settings as an object.")
+    cfg = user_store.set_autopilot(uid, body)
+    await broadcast({"event": "autopilot_changed", "config": cfg}, user_id=uid)
+    return {"config": cfg}
+
+
+@app.post("/autopilot/run", status_code=202)
+async def autopilot_run(request: Request):
+    """Run Autopilot over the recently approved clips that have a file and
+    are not already scheduled — including ones that failed. Renders run in
+    the background; the cards and the calendar follow over the socket."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    _autopilot.kick(_autopilot.run_now(uid))
+    return {"status": "started"}
 
 
 # ── Posting queue ─────────────────────────────────────────────────────────────

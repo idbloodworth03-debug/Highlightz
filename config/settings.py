@@ -181,6 +181,14 @@ class Settings(BaseSettings):
     clip_capture_segment_s: int = 2
     clip_capture_max_total_mb: int = 4096      # 4 GB across every buffer
 
+    # ── Autopilot (src/autopilot) ──────────────────────────────────────────
+    # Pro, per user, off by default: an approved clip is rendered to 9:16
+    # by ffmpeg on this box and queued for posting. One render at a time.
+    # drawtext needs a real TTF for the title and captions; DejaVu Sans Bold
+    # ships with Ubuntu. Missing font = no text, not a failed render.
+    autopilot_font: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    autopilot_render_timeout_s: float = 300.0
+
     # How long a cut clip stays on disk. Retention is per plan (see
     # src/billing/plans.py) and this is the ceiling none of them may exceed:
     # the library is a working area for getting a clip posted, not an archive

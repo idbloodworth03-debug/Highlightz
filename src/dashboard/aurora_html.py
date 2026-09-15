@@ -589,6 +589,30 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 /* Amber, matching the weekly-allowance warning: not an error and not a
    verdict on the clip, just a fact that changes what you can do with it. Sits
    bottom-right so it never collides with the score or suggested badge. */
+.rd-apbadge{position:absolute;left:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 8px;border-radius:7px;
+  color:#fff;background:rgba(124,107,255,.92)}
+.rd-apbadge.failed{background:rgba(255,138,76,.92);color:#0a0a0a}
+.rd-apbadge.rendering{background:rgba(196,137,228,.92);color:#0a0a0a}
+.rd-apbadge.waiting_file{background:rgba(255,255,255,.18)}
+.ap{margin-top:12px;padding:16px}
+.ap.on{border-color:rgba(184,106,220,.35)}
+.ap-head{display:flex;align-items:center;gap:12px}
+.ap-title{flex:1;min-width:0;display:flex;align-items:center;gap:12px}
+.ap-title h3{margin:0}
+.ap-title .desc{font-size:12px;color:var(--fg-3)}
+.ap-switch{all:unset;box-sizing:border-box;cursor:pointer;width:48px;height:28px;border-radius:99px;background:rgba(255,255,255,.12);
+  border:1px solid var(--hair-2);position:relative;flex-shrink:0;transition:background var(--dur-fast)}
+.ap-switch i{position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform var(--dur-fast)}
+.ap-switch.on{background:var(--grad);border-color:transparent}
+.ap-switch.on i{transform:translateX(20px)}
+.ap-switch:disabled{opacity:.6;cursor:default}
+.ap-body{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.ap-grp{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ap-grp label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.ap-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3)}
+.ap-row .ed-in{width:auto;flex:0 1 160px}
+.ap-toggles{flex-direction:row;flex-wrap:wrap;align-items:center;grid-column:1/-1}
 .rd-agebadge{position:absolute;right:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
   font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 8px;border-radius:7px;
   color:#0a0a0a;background:rgba(250,204,21,.92)}
@@ -2122,6 +2146,12 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
             what you do: a gated clip cannot be reviewed inline, and on a plan
             with a weekly keep limit it is worth knowing before you spend a
             slot on something you have to leave the site to watch. */}
+        {clip.autopilot && clip.autopilot.status && <span className={'rd-apbadge ' + clip.autopilot.status}
+          title={clip.autopilot.status === 'failed' ? ('Autopilot: ' + (clip.autopilot.error || 'failed'))
+               : clip.autopilot.status === 'scheduled' ? 'Autopilot: on the calendar' + (clip.autopilot.due_at ? ' for ' + qWhen(clip.autopilot.due_at) : '')
+               : clip.autopilot.status === 'rendering' ? 'Autopilot: rendering now' : 'Autopilot: waiting for the video file'}>
+          <Icon name="zap" size={11}/>{{scheduled:'Autopilot', rendering:'Rendering…', failed:'Autopilot failed', waiting_file:'Autopilot · waiting'}[clip.autopilot.status] || 'Autopilot'}
+        </span>}
         {clip.age_restricted && <span className="rd-agebadge"
           title={clip.platform === 'kick'
             ? 'This channel is flagged mature on Kick. The clip is a file Highlightz captured and plays here.'
@@ -6950,7 +6980,109 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
   );
 }
 
-function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true }) {
+
+/* Autopilot: approve a clip and the server renders and queues it. Pro,
+   off by default. Saves on every change (PUT /autopilot) and carries the
+   browser's timezone so "daily at 18:00" means the user's 18:00. */
+function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }) {
+  const cfg = (ap && ap.config) || null;
+  const [busy, setBusy] = useState(false);
+  const [ran, setRan] = useState('');
+  if (!cfg) return null;
+  const connected = (connections||[]).filter(c=>c.connected && !c.last_error);
+  const save = async (patch) => {
+    setBusy(true);
+    try {
+      const r = await fetch('/autopilot', {method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({...cfg, ...patch, tz_offset_min: -new Date().getTimezoneOffset()})});
+      if (r.ok && onSaved) onSaved((await r.json()).config);
+    } catch {}
+    setBusy(false);
+  };
+  const runNow = async () => {
+    setRan('');
+    try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the calendar.' : 'Could not start.'); }
+    catch { setRan('Could not reach the server.'); }
+  };
+  const on = !!cfg.enabled;
+  return (
+    <div className={'rd-card glass ap' + (on ? ' on' : '')}>
+      <div className="ap-head">
+        <div className="ap-title">
+          <span className="si"><Icon name="zap" size={15}/></span>
+          <div>
+            <h3>Autopilot</h3>
+            <div className="desc" style={{margin:0}}>Approve a clip and it is cut for vertical, captioned and posted for you.</div>
+          </div>
+        </div>
+        <button className={'ap-switch' + (on ? ' on' : '')} role="switch" aria-checked={on} disabled={busy}
+          onClick={()=>save({enabled: !on})} aria-label="Autopilot on or off"><i/></button>
+      </div>
+      {on && <div className="ap-body">
+        <div className="ap-grp">
+          <label>Style</label>
+          <div className="ed-seg">
+            {[['full','Full Frame'],['blur','Blur Bars'],['punch','Punch In'],['hook','Hook Title']].map(([k,l])=>(
+              <button key={k} className={cfg.template===k?'on':''} disabled={busy} onClick={()=>save({template:k})}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <div className="ap-grp">
+          <label>Post to</label>
+          {connected.length === 0
+            ? <div className="sc-sub">Connect an account above. Until then Autopilot still cuts each clip and puts it on the calendar as a reminder.</div>
+            : <div className="sc-pchips">
+                {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
+                  <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
+                    onClick={()=>save({platforms: picked ? cfg.platforms.filter(p=>p!==c.id) : [...cfg.platforms, c.id]})}>
+                    {picked ? '✓ ' : ''}{c.label}
+                  </button>); })}
+              </div>}
+        </div>
+        <div className="ap-grp">
+          <label>When</label>
+          <div className="ed-seg">
+            {[['now','Right away'],['spaced','Spread out'],['daily','Once a day']].map(([k,l])=>(
+              <button key={k} className={cfg.timing===k?'on':''} disabled={busy} onClick={()=>save({timing:k})}>{l}</button>
+            ))}
+          </div>
+          {cfg.timing==='spaced' && <div className="ap-row">
+            <span>Every</span>
+            <select className="ed-in" value={cfg.spacing_h} disabled={busy} onChange={e=>save({spacing_h:+e.target.value})}>
+              {[1,2,3,4,6,8,12,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}
+            </select>
+          </div>}
+          {cfg.timing==='daily' && <div className="ap-row">
+            <span>At</span>
+            <input className="ed-in" type="time" value={cfg.daily_at} disabled={busy} onChange={e=>save({daily_at:e.target.value})}/>
+            <span className="sc-sub">your local time</span>
+          </div>}
+        </div>
+        <div className="ap-grp">
+          <label>Caption</label>
+          <input className="ed-in" defaultValue={cfg.caption_text} disabled={busy} maxLength={2200}
+            onBlur={e=>{ if (e.target.value !== cfg.caption_text) save({caption_text:e.target.value}); }}/>
+          <div className="sc-sub">{'{title}'}, {'{channel}'} and {'{game}'} are filled in from the clip.</div>
+        </div>
+        <div className="ap-grp ap-toggles">
+          <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
+            {cfg.title ? '✓ ' : ''}Title on the video
+          </button>
+          {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
+            {cfg.captions ? '✓ ' : ''}Auto-captions
+          </button>}
+          <button className="rd-btn sm" onClick={runNow} disabled={busy} title="Every clip approved this week that has a file and is not scheduled yet">
+            Run on my approved clips
+          </button>
+          {ran && <span className="sc-sub">{ran}</span>}
+        </div>
+        {ap && ap.font_ok === false && <div className="ed-warn">The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}
+      </div>}
+    </div>
+  );
+}
+
+function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false }) {
   const [month, setMonth] = useState(()=>{ const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [selected, setSelected] = useState(dayKey(new Date()));
   const [openId, setOpenId] = useState(null);
@@ -7018,6 +7150,7 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
       </div>}
 
       <AccountChips me={me} connections={connections}/>
+      <AutopilotCard me={me} ap={autopilot} connections={connections} captionsOn={captionsOn} onSaved={onAutopilot}/>
 
       {!uploadsOn &&
         <div className="ed-warn" style={{marginTop:12}}>
@@ -7845,6 +7978,12 @@ function RdApp() {
     fetch('/publish/connections').then(r=>r.ok?r.json():null)
       .then(d=>{ if(d) setConnections(d.platforms||[]); }).catch(()=>{});
   },[]);
+  // Autopilot settings: {config, font_ok, captions_available}. Null until
+  // /autopilot answers (403 below Pro leaves it null and the card hidden).
+  const [autopilot, setAutopilot] = useState(null);
+  const refetchAutopilot = useCallback(()=>{
+    fetch('/autopilot').then(r=>r.ok?r.json():null).then(d=>{ if(d) setAutopilot(d); }).catch(()=>{});
+  },[]);
   // {clips} while the review prompt is open, null otherwise.
   const [reviewAsk, setReviewAsk] = useState(null);
   // Clips DELETED by the pending cap. Not 'missed' — the new clip is kept
@@ -7952,6 +8091,7 @@ function RdApp() {
     fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     refetchConnections();
+    refetchAutopilot();
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     fetch('/tutorial/content').then(r=>r.ok?r.json():null)
@@ -8201,6 +8341,9 @@ function RdApp() {
         }
         else if(msg.event==='schedule_removed'){
           setQueue(q=>q.filter(i=>i.id!==msg.item_id));
+        }
+        else if(msg.event==='autopilot_changed'){
+          setAutopilot(a=>({...(a||{}), config: msg.config}));
         }
         else if(msg.event==='publish_connections_changed'){
           // Sent on connect, disconnect, and when the poster finds a token
@@ -8478,7 +8621,8 @@ function RdApp() {
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
-  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} connections={connections} uploadsOn={uploadsOn}/>;
+  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
+      autopilot={autopilot} onAutopilot={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))} captionsOn={captionsOn}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;

@@ -440,6 +440,27 @@ def set_refusal_dismissed(user_id: str, channel: str, when: float,
             return
 
 
+# ── Autopilot (src/autopilot) ─────────────────────────────────────────────────
+
+def autopilot_for(user_id: str) -> dict:
+    """This account's Autopilot settings, normalised. Empty/absent = off."""
+    from src.autopilot import normalize
+    u = get_by_id(user_id) or {}
+    return normalize(u.get("autopilot") or {})
+
+
+def set_autopilot(user_id: str, cfg: dict) -> dict:
+    from src.autopilot import normalize
+    clean = normalize(cfg)
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["autopilot"] = clean
+            _save(users)
+            break
+    return clean
+
+
 def refusal_dismissed_at(user: dict, channel: str, scope: str = "user") -> float:
     """When this person last closed the notice for `channel`, or 0."""
     key = _REFUSAL_SCOPES.get(scope)

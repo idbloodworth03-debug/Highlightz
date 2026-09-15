@@ -83,6 +83,10 @@ class Item:
     # posting while any platform is in flight, posted when every attempted
     # one landed, failed when any did not.
     results: dict = field(default_factory=dict)
+    # Who put it here: "" for an export from the editor, "autopilot" for a
+    # clip the server rendered and queued by itself. Autopilot reads its own
+    # last due time from this to space posts out.
+    source: str = ""
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
@@ -132,7 +136,8 @@ def _save() -> None:
 
 def add(user_id: str, upload_id: str, filename: str, caption: str,
         platforms: list[str], due_at: float = 0.0,
-        duration_s: float = 0.0, ratio: str = "", fmt: str = "") -> Item:
+        duration_s: float = 0.0, ratio: str = "", fmt: str = "",
+        source: str = "") -> Item:
     _load()
     if due_at < 0:
         raise ValueError("Pick a time for this post.")
@@ -147,7 +152,7 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
                 filename=filename, caption=caption,
                 platforms=list(platforms), due_at=float(due_at),
                 duration_s=float(duration_s), ratio=str(ratio),
-                fmt=str(fmt).lower().lstrip("."))
+                fmt=str(fmt).lower().lstrip("."), source=str(source or ""))
     _items[item.id] = item
     _save()
     return item
@@ -160,6 +165,16 @@ def for_user(user_id: str) -> list[Item]:
     # actually have a time.
     return sorted((i for i in _items.values() if i.user_id == user_id),
                   key=lambda i: (i.due_at <= 0, i.due_at, -i.created_at))
+
+
+def last_due_from(user_id: str, source: str) -> float:
+    """The latest due time among this user's items from `source` (0 if
+    none). Autopilot spaces its next post after this, so a run of approvals
+    in one evening lands as a run of posts over the coming days."""
+    _load()
+    return max((i.due_at for i in _items.values()
+                if i.user_id == user_id and i.source == source and i.due_at > 0),
+               default=0.0)
 
 
 def get(item_id: str, user_id: str) -> Item | None:

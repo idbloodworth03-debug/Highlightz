@@ -1826,6 +1826,65 @@ takes the whole queue.
 **Not built, on purpose:** email and browser-push reminders. In-app only for
 now — the owner's call. Email needs a sender that does not exist yet.
 
+## Autopilot — approve → render → post, with nobody in the loop (2026-09-15)
+
+Owner: "an autopilot thing for people with pro that can auto grab accepted
+clips, edit them and post." Pro only, per user, OFF by default, switched on
+from the Scheduler tab (`AutopilotCard`, above the calendar).
+
+**The chain, and what writes what:**
+1. `POST /clips/{id}/approve` → `runner.kick(maybe_run(clip))` (detached;
+   the approve click returns at once). A clip whose file lands AFTER the
+   approval is caught by `api.on_clip_file_ready(clip_id)`, which every
+   file-producing path calls (capture cut in stream_worker, both Twitch
+   fetch paths).
+2. `runner.process_clip`: `clip["autopilot"] = {status}` at every step —
+   `waiting_file` (no file yet; still eligible), `rendering`, `scheduled`
+   (`item_id`, `due_at`, `platforms`), `failed` (`error`). Each write is
+   `_save_clips()` + a `clip_updated` broadcast, so the card badge
+   (`.rd-apbadge`) follows live. `_inflight` stops a double run.
+3. `src/autopilot/render.py`: ONE ffmpeg pass, `libx264 veryfast crf 20`,
+   1080×1920, templates `full` (centre crop), `punch` (1.25× zoom), `blur`
+   (16:9 over a blurred fill), `hook` (full + boxed title). Title and
+   captions are `drawtext` (escaping in `_esc`; `enable=between(t,s,e)` per
+   cue, ≤120 cues); fades in/out 0.4 s video+audio. **No Cam + Game**
+   (needs a human to point at the camera) and **no SFX** (browser-only).
+   `_slot` = one render at a time — 1 vCPU that is also scoring streams.
+   Font: `AUTOPILOT_FONT` (DejaVu Sans Bold by default); missing font =
+   no text, logged `autopilot_font_missing`, never a failed render. The
+   card shows a warning when `/autopilot` reports `font_ok: false`.
+   Captions come from the same Whisper pass the editor uses
+   (`transcribe.load` cache beside the file, else `transcribe`), only when
+   `CAPTIONS_ENABLED` and the user ticked it; any failure = no captions.
+4. The render is copied into the uploads library (`source="render"`, so
+   it is in the editor's library too, never in its source picker), then a
+   schedule item with `source="autopilot"` — a NEW `Item` field, "" for
+   everything else — on `cfg.platforms ∩ connected`. Nothing connected =
+   a reminder on the calendar, which the card says out loud.
+5. The poster posts it like any other item.
+
+**Timing (`autopilot.next_due`, pure, tested on fixed clocks):** `now` =
++60 s; `spaced` = `spacing_h` after the LAST autopilot item's due
+(`schedule.last_due_from(uid, "autopilot")`), so an evening of approvals
+becomes a run of posts; `daily` = next `daily_at` in the USER's zone
+(`tz_offset_min`, sent by the browser on every save), one per day.
+Caption from `caption_text` with `{title} {channel} {game} {platform}`
+(unknown keys blank, never an error).
+
+**Config** lives on the user record (`users.autopilot_for` /
+`set_autopilot`, normalised by `autopilot.normalize`: unknown keys dropped,
+ranges clamped). Routes, all `_require_upload_access`: `GET/PUT
+/autopilot`, `POST /autopilot/run` (the bulk button: approved this week,
+has a file, not rendering/scheduled — failed ones get another go, ≤10).
+`autopilot_changed` broadcast; `/autopilot` in `refetchAll`.
+
+**Unverified on prod:** that the droplet's ffmpeg has `drawtext` (needs
+libfreetype) and that `/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`
+exists. Check: `ffmpeg -hide_banner -filters | grep drawtext; ls
+/usr/share/fonts/truetype/dejavu/`. The render itself is the same ffmpeg
+the capture cut uses. 18 tests in `tests/test_autopilot.py` build the
+command rather than run it (no ffmpeg in the dev container).
+
 ## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
 
 **A full pending queue now drops the new moment. It no longer evicts an old

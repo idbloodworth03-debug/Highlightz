@@ -738,6 +738,8 @@ class StreamWorker:
             await dashboard_api.broadcast(
                 {"event": "clip_file_ready", "clip_id": clip_id},
                 user_id=self._config.user_id)
+            # Autopilot's cue when the approval came before the file did.
+            await dashboard_api.on_clip_file_ready(clip_id)
         except Exception as exc:
             log.warning("clip_file_broadcast_failed", clip_id=clip_id, error=str(exc))
 
