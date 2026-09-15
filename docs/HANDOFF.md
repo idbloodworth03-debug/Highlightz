@@ -1648,14 +1648,28 @@ for a few minutes. Each of those is now handled rather than avoided:
   `POST /publish/schedule/{id}/post` (Post now / Retry, 202, background).
   Plus the sessionless `GET /media/{token}`.
 - Dashboard: Scheduler released to Pro (`adminOnlyTabs = []`, paywall card
-  below Pro), `ConnectionsPanel` (Connect / Connected as … / Disconnect /
-  Connect again), per-platform **Auto** chip on the card for connected
-  platforms, "Posts at" vs "Remind at", Post now / Retry, result rows with
-  the link and TikTok's private note. Share / Mark posted only show when
-  some chosen platform is manual. Realtime: `connections` in `refetchAll`,
-  `publish_connections_changed` refetches, `schedule_updated` carries the
-  results. `test_the_queue_says_exactly_when_it_posts_and_when_it_only_
-  reminds` pins the wording both ways.
+  below Pro). **Rebuilt as a calendar the same evening** (owner: "a little
+  too confusing … simpler … sleek … a real calendar"): `AccountChips` (one
+  row: Connected as … ×, reconnect, Connect, soon), `InboxTray` (exports
+  with no time yet, draggable), `MonthCalendar` (7×5/6 grid, a chip per
+  clip colored by state, drag between days — a drop keeps the clip's time
+  of day or gives it `SC_DEFAULT_HOUR` 18:00, resolved from LOCAL fields to
+  an instant), `DayList` (the selected day; on a phone the cells only show
+  dots so this is where the names are), and `ScheduleDrawer` (video,
+  caption, platform chips with the **Auto** tag, "Posts at" vs "Remind at"
+  `datetime-local`, results with the link and TikTok's private note, Post
+  now / Retry; Share / Mark posted only when some chosen platform is
+  manual). The drawer is DERIVED from the queue (`items.find(...openId)`),
+  so a result over the socket updates it in place. The 1-2-3 strip only
+  renders on an empty queue. Two things that bit: calendar state classes
+  are `is-*` because a bare `.today` is the TodayHeader's global rule, and
+  the grid tracks are `minmax(0,1fr)` or a long filename widens the cell.
+  Realtime: `connections` in `refetchAll`, `publish_connections_changed`
+  refetches, `schedule_updated` carries the results.
+  `test_the_queue_says_exactly_when_it_posts_and_when_it_only_reminds` pins
+  the wording both ways; `test_the_scheduler_is_a_calendar` pins the shape.
+  Rendered and eyeballed in headless Chromium at 1280 and 400 wide
+  (scratchpad harness, not checked in).
 - 38 tests in `tests/test_publish_posting.py`: encryption at rest, scoping,
   signed link forge/expiry, status derivation, never-twice, dead-token
   handling, backoff, each provider against canned HTTP (resumable upload,

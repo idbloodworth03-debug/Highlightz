@@ -625,20 +625,42 @@ def test_the_queue_payload_carries_results_for_the_card(client):
 
 def test_the_scheduler_ui_tells_posted_for_you_from_post_it_yourself():
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
-    card = html[html.index("function ScheduleCard("):html.index("function ConnectionsPanel(")]
-    # The chip that marks a platform the server posts to, and the two labels
+    drawer = html[html.index("function ScheduleDrawer("):html.index("function ScheduleScreen(")]
+    # The tag that marks a platform the server posts to, and the two labels
     # the time picker switches between.
-    assert 'className="sc-auto"' in card and "'Posts at' : 'Remind at'" in card
-    assert "'Retry' : 'Post now'" in card
+    assert "<small title=\"Highlightz posts this one for you\">Auto</small>" in drawer
+    assert "'Posts at' : 'Remind at'" in drawer
+    assert "'Retry' : 'Post now'" in drawer
     # Share / Mark posted only for platforms the user posts by hand.
-    assert "manual.length > 0 && <button" in card and "Mark posted" in card
-    # Results on the card, with the link.
-    assert "res.status === 'posted'" in card and 'href={res.url}' in card
+    assert "manual.length > 0 && <button" in drawer and "Mark posted" in drawer
+    # Results in the drawer, with the link.
+    assert "res.status === 'posted'" in drawer and 'href={res.url}' in drawer
     screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
     assert "Scheduler is a Pro feature" in screen
-    assert "<ConnectionsPanel" in screen
+    assert "<AccountChips" in screen
     # The old promise is gone from the whole bundle.
     assert "never posts for you" not in html.lower()
+
+
+def test_the_scheduler_is_a_calendar():
+    """Owner: "add a real calendar for scheduling". A month grid, clips as
+    chips on their day, drag between days, a tray for exports with no time,
+    and the drawer for the exact time. Times are still epoch seconds on the
+    wire: a drop resolves the local day + hour to an instant in the browser."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    for comp in ("MonthCalendar", "InboxTray", "DayList", "ScheduleDrawer", "AccountChips"):
+        assert f"function {comp}(" in html, f"{comp} missing"
+    cal = html[html.index("function MonthCalendar("):html.index("function DayList(")]
+    assert "onDrop={e=>dropOn(e, d)}" in cal and "draggable={canDrag}" in cal
+    assert "st !== 'posting' && st !== 'posted'" in cal, "a posted or mid-upload clip can be dragged"
+    screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
+    assert "<MonthCalendar" in screen and "<InboxTray" in screen and "<DayList" in screen
+    # A drop keeps the clip's time of day, or gives it the default hour; the
+    # instant is computed from LOCAL fields, never by string-concatenating UTC.
+    assert "had ? had.getHours() : SC_DEFAULT_HOUR" in screen
+    assert "Math.floor(t.getTime()/1000)" in screen
+    # The open drawer is derived from the queue, so a socket update reaches it.
+    assert "items.find(i=>i.id === openId)" in screen
 
 
 def test_the_scheduler_is_wired_for_realtime():

@@ -1000,39 +1000,109 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .q-mid{flex:1;min-width:0}
 .q-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .q-sub{font-size:12px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
-.sc-card{display:flex;gap:16px;padding:16px;border-radius:18px}
-@media(max-width:760px){.sc-card{flex-direction:column}}
-.sc-card.due{border-color:rgba(184,106,220,.55)}
-.sc-card.missed{border-color:rgba(255,138,76,.4)}
-.sc-media{flex-shrink:0;width:184px}
-@media(max-width:760px){.sc-media{width:100%}}
-.sc-media video{width:100%;border-radius:12px;background:#000;aspect-ratio:9/16;object-fit:contain}
-.sc-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
-.sc-top{display:flex;align-items:center;gap:8px}
-.sc-name{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-when{font-size:12px;font-weight:800;color:var(--acc);flex-shrink:0}
-.sc-when.missed{color:#f7a745}
-.sc-plats{display:flex;flex-direction:column;gap:4px}
-.sc-plat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.sc-plat .rd-btn{min-width:96px;justify-content:center}
-.sc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.sc-card.done{opacity:.85}
-.sc-auto{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--acc);
-  padding:4px 8px;border-radius:99px;background:var(--grad-soft);border:1px solid rgba(184,106,220,.35)}
+/* ── Scheduler: account chips, inbox tray, month calendar, day list, drawer ── */
+.sc-top-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sc-acct{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:99px;
+  border:1px solid var(--hair);background:rgba(255,255,255,.03);font-size:12px;font-weight:600;
+  color:var(--fg-2);text-decoration:none;transition:border-color var(--dur-fast),background var(--dur-fast)}
+a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);color:var(--fg)}
+.sc-acct.on{border-color:rgba(184,106,220,.45);color:var(--fg);background:var(--grad-soft)}
+.sc-acct.err{border-color:rgba(255,138,76,.5);color:#f7a745}
+.sc-acct.off{opacity:.5}
+.sc-acct .dot{width:8px;height:8px;border-radius:99px;background:var(--fg-3);flex-shrink:0}
+.sc-acct.on .dot{background:#5ce0a8}
+.sc-acct.err .dot{background:#f7a745}
+.sc-acct button{all:unset;cursor:pointer;color:var(--fg-3);display:inline-flex;margin-left:4px}
+.sc-acct button:hover{color:var(--fg)}
+.sc-hint{font-size:12px;color:var(--fg-3);margin:8px 0 0}
+.sc-sub{font-size:12px;color:var(--fg-3);line-height:1.5}
+.sc-sub a{color:var(--acc)}
+.sc-inbox{margin-top:12px;padding:12px 16px}
+.sc-inbox-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--fg-2);margin-bottom:8px;flex-wrap:wrap}
+.sc-inbox-head .sc-sub{font-weight:500}
+.sc-tray{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.sc-tile{flex:0 0 auto;width:168px;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.04);
+  border:1px solid var(--hair);cursor:grab;display:flex;flex-direction:column;gap:4px;transition:border-color var(--dur-fast)}
+.sc-tile:hover{border-color:rgba(184,106,220,.45)}
+.sc-tile:active{cursor:grabbing}
+.sc-tile b{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-tile span{font-size:12px;color:var(--fg-3)}
+.sc-cal{margin-top:12px;padding:16px}
+.sc-cal-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.sc-cal-head h3{flex:1;font-size:16px;font-weight:800;letter-spacing:-.02em;margin:0}
+.sc-cal-nav{all:unset;box-sizing:border-box;cursor:pointer;width:32px;height:32px;border-radius:10px;display:grid;
+  place-items:center;border:1px solid var(--hair);color:var(--fg-2);font-size:16px;line-height:1}
+.sc-cal-nav:hover{background:rgba(255,255,255,.06);color:var(--fg)}
+.sc-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-bottom:4px}
+.sc-dow span{font-size:12px;font-weight:700;color:var(--fg-3);text-align:center;text-transform:uppercase;letter-spacing:.06em}
+.sc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.sc-day{min-height:96px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.02);
+  padding:8px;display:flex;flex-direction:column;gap:4px;cursor:pointer;min-width:0;
+  transition:background var(--dur-fast),border-color var(--dur-fast)}
+.sc-day:hover{background:rgba(255,255,255,.04)}
+.sc-day.is-out{opacity:.35}
+.sc-day.is-today{border-color:rgba(184,106,220,.55)}
+.sc-day.is-sel{background:var(--grad-soft);border-color:rgba(184,106,220,.7)}
+.sc-day.is-over{background:rgba(184,106,220,.2);border-color:var(--acc)}
+.sc-day .n{font-size:12px;font-weight:700;color:var(--fg-2)}
+.sc-day.is-today .n{color:var(--acc)}
+.sc-day .chips{display:flex;flex-direction:column;gap:4px;min-width:0}
+.sc-chip{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.2;
+  background:rgba(255,255,255,.06);border:1px solid transparent;min-width:0;cursor:pointer;transition:background var(--dur-fast)}
+.sc-chip:hover{background:rgba(255,255,255,.1)}
+.sc-chip i{width:8px;height:8px;border-radius:99px;flex-shrink:0;background:var(--acc)}
+.sc-chip.posted i{background:#5ce0a8}
+.sc-chip.posted{opacity:.75}
+.sc-chip.failed i,.sc-chip.missed i{background:#f7a745}
+.sc-chip.posting i{animation:scPulse 1s infinite}
+.sc-chip.due{border-color:rgba(184,106,220,.5)}
+@keyframes scPulse{0%,100%{opacity:1}50%{opacity:.25}}
+.sc-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-chip .t{color:var(--fg-3);flex-shrink:0}
+.sc-more{font-size:12px;color:var(--fg-3);padding:0 8px}
+@media(max-width:760px){
+  .sc-day{min-height:56px;padding:4px}
+  .sc-day .chips{flex-direction:row;flex-wrap:wrap}
+  .sc-chip span,.sc-chip .t,.sc-more{display:none}
+  .sc-chip{padding:4px}
+}
+.sc-daylist{margin-top:12px;padding:16px}
+.sc-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--hair);cursor:pointer}
+.sc-row:hover .name{color:var(--acc)}
+.sc-row .when{width:72px;flex-shrink:0;font-size:12px;font-weight:700;color:var(--acc)}
+.sc-row .name{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-row .st{font-size:12px;color:var(--fg-3);flex-shrink:0}
+.sc-row .st.failed,.sc-row .st.missed{color:#f7a745}
+.sc-row .st.posted{color:#5ce0a8}
+.sc-state{font-size:12px;font-weight:800;color:var(--acc);flex-shrink:0}
+.sc-state.failed,.sc-state.missed{color:#f7a745}
+.sc-state.posted{color:#5ce0a8}
+/* No backdrop blur on the scrim: the drawer holds a playing <video>, and a live
+   blur layer beside a decoding video drops frames (test_player_smoothness). */
+.sc-drawer-bg{position:fixed;inset:0;z-index:150;background:rgba(4,4,8,.72)}
+.sc-drawer{position:fixed;top:0;right:0;bottom:0;z-index:151;width:min(460px,100%);display:flex;flex-direction:column;
+  background:rgba(16,14,22,.97);border-left:1px solid var(--hair-2);box-shadow:-24px 0 64px -24px rgba(0,0,0,.8);
+  animation:scSlide .2s ease-out}
+@keyframes scSlide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.sc-dr-head{display:flex;align-items:center;gap:8px;padding:16px;border-bottom:1px solid var(--hair)}
+.sc-dr-head b{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-dr-body{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.sc-dr-body video{width:100%;max-height:280px;border-radius:12px;background:#000;object-fit:contain}
+.sc-dr-foot{padding:12px 16px;border-top:1px solid var(--hair);display:flex;gap:8px;flex-wrap:wrap}
+.sc-dr-foot a{text-decoration:none}
+.sc-lbl{font-size:12px;font-weight:700;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.sc-pchips{display:flex;gap:8px;flex-wrap:wrap}
+.sc-pchip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:99px;border:1px solid var(--hair);
+  background:rgba(255,255,255,.03);font-size:12px;font-weight:600;cursor:pointer;color:var(--fg-2);transition:border-color var(--dur-fast),background var(--dur-fast)}
+.sc-pchip:hover{border-color:var(--hair-2)}
+.sc-pchip.on{border-color:rgba(184,106,220,.55);background:var(--grad-soft);color:var(--fg)}
+.sc-pchip small{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc)}
+.sc-pchip:disabled{opacity:.5;cursor:default}
+.sc-res{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.sc-res div{display:flex;gap:8px;align-items:flex-start}
+.sc-res b{width:72px;flex-shrink:0}
+.sc-res a{color:var(--acc)}
 .sc-note{color:var(--fg-3)}
-.sc-when-pick{display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:180px;font-size:12px;color:var(--fg-3)}
-.sc-when-pick .ed-in{flex:1;min-width:150px}
-.sc-conns{margin-top:12px}
-.sc-conn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:12px}
-.sc-conn{padding:12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--hair);
-  display:flex;flex-direction:column;gap:8px}
-.sc-conn.on{border-color:rgba(184,106,220,.35)}
-.sc-conn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px}
-.sc-conn-who{font-size:12px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-conn-act{display:flex;gap:8px;flex-wrap:wrap}
-.sc-conn-act a{text-decoration:none}
-.sc-conn-off{font-size:12px;color:var(--fg-3)}
 .sr-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 @media(max-width:620px){.sr-tiles{grid-template-columns:repeat(2,1fr)}}
 .sr-tile{background:rgba(255,255,255,.04);border:1px solid var(--hair);
@@ -6356,16 +6426,17 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
 
 /* ── Scheduler ────────────────────────────────────────────────────────────────
-   Everything exported lands here. This is where posting lives, so it gets the
-   room: a card per clip with the video, the caption, the platform buttons and
-   the fit check, rather than a strip squeezed into the editor's sidebar.
+   One row of account chips, a tray of exports with no time yet, a month
+   calendar, the selected day as a list, and a drawer for one clip. The
+   calendar IS the schedule: drag a clip onto a day (it keeps its time of day,
+   or gets 6 PM), open it to set the exact time, caption and platforms.
 
-   Since 2026-09-15 it POSTS: an account connected in ConnectionsPanel is
-   posted to by the server at the chosen time (src/publish/poster.py), and the
-   card shows each platform's outcome as it happens. A platform that is NOT
-   connected still gets the reminder + share path. Every card says which of
-   the two each platform is — "Auto" next to the name — because a queue that
-   looks manual where it is not posts something the user did not expect. */
+   It POSTS (2026-09-15): an account connected in the chip row is posted to by
+   the server at the clip's time (src/publish/poster.py), and the drawer shows
+   each platform's outcome as it happens. A platform that is NOT connected
+   still gets the reminder + share path. The drawer says which is which — the
+   "Auto" tag on a platform chip — because a queue that looks manual where it
+   is not posts something the user did not expect. */
 /* ── Review prompt ────────────────────────────────────────────────────────────
    Appears after 25 approved clips. Three things it must get right:
 
@@ -6465,14 +6536,202 @@ function ReviewPrompt({ clips, onClose }) {
   );
 }
 
-function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
+/* Calendar helpers. Days are keyed by LOCAL date ('YYYY-MM-DD') because the
+   browser is the only place that knows the zone; due_at stays epoch seconds
+   on the wire (see toLocalInput / the datetime-local handler). */
+const SC_DEFAULT_HOUR = 18;   // a clip dropped on a day with no time yet posts at 6 PM
+function dayKey(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+}
+function itemDay(it) { return it.due_at ? dayKey(new Date(it.due_at * 1000)) : ''; }
+function scState(it) {
+  if (it.status === 'posting') return 'posting';
+  if (it.status === 'posted' || it.status === 'skipped') return 'posted';
+  if (it.status === 'failed') return 'failed';
+  if (it.missed) return 'missed';
+  if (it.due) return 'due';
+  return 'pending';
+}
+const SC_LABEL = {posting:'Posting…', posted:'Posted', failed:'Needs attention',
+                  missed:'Missed', due:'Due now', pending:'Scheduled'};
+const scTime = ts => new Date(ts * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+
+/* The three accounts a clip can be posted to, as one row of chips: connected
+   (with the account name and a disconnect ×), broken (reconnect), not yet
+   connected (Connect), or not set up by the operator (soon). */
+function AccountChips({ me, connections = [] }) {
+  const disconnect = (id) => fetch('/publish/connections/'+id, {method:'DELETE'}).catch(()=>{});
+  return (
+    <div>
+      <div className="sc-top-row">
+        {(connections||[]).map(c=>{
+          if (c.connected && !c.last_error) return (
+            <span key={c.id} className="sc-acct on" title={'Highlightz posts to ' + (c.account_name||c.label) + ' for you'}>
+              <i className="dot"/>{c.label} · {c.account_name || 'connected'}
+              <button onClick={()=>disconnect(c.id)} aria-label={'Disconnect ' + c.label} title={'Disconnect ' + c.label}>
+                <Icon name="x" size={12}/>
+              </button>
+            </span>);
+          if (c.connected) return (
+            <a key={c.id} className="sc-acct err" href={'/publish/connect/'+c.id} title={c.last_error}>
+              <i className="dot"/>{c.label} · reconnect
+            </a>);
+          if (c.configured) return (
+            <a key={c.id} className="sc-acct" href={'/publish/connect/'+c.id}>
+              <Icon name="plus" size={12}/>Connect {c.label}
+            </a>);
+          return (
+            <span key={c.id} className="sc-acct off"
+              title={me && me.is_admin ? 'Add this platform’s app keys to .env (see HANDOFF)' : 'Coming soon'}>
+              <i className="dot"/>{c.label} · soon
+            </span>);
+        })}
+      </div>
+      <p className="sc-hint">
+        Connect an account and Highlightz posts your clips to it for you. Only the clips you choose it for, only while it is connected.
+      </p>
+    </div>
+  );
+}
+
+/* Exported clips with no time yet. Drag one onto a day, or open it. */
+function InboxTray({ items, onOpen }) {
+  if (!items.length) return null;
+  return (
+    <div className="rd-card glass sc-inbox">
+      <div className="sc-inbox-head">
+        <Icon name="download" size={13}/>
+        {items.length} exported, not scheduled yet
+        <span className="sc-sub">· drag onto a day, or open one to pick a time</span>
+      </div>
+      <div className="sc-tray">
+        {items.map(it=>(
+          <div key={it.id} className="sc-tile" draggable title="Drag onto a day"
+            onDragStart={e=>{ e.dataTransfer.setData('text/plain', it.id); e.dataTransfer.effectAllowed = 'move'; }}
+            onClick={()=>onOpen(it)}>
+            <b>{it.filename}</b>
+            <span>{Math.round(it.duration_s||0)}s · {(it.platforms||[]).length
+              ? (it.platforms||[]).length + ' platform' + ((it.platforms||[]).length > 1 ? 's' : '')
+              : 'no platform yet'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* A month. Six rows of seven, trimmed to five when the sixth is all next
+   month. A chip per scheduled clip, colored by state, draggable between days
+   unless it is mid-upload or already posted. */
+function MonthCalendar({ month, onMonth, items, selected, onSelect, onOpen, onMove }) {
+  const [over, setOver] = useState('');
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const start = new Date(first); start.setDate(1 - first.getDay());
+  const cells = [];
+  for (let i = 0; i < 42; i++) { const d = new Date(start); d.setDate(start.getDate() + i); cells.push(d); }
+  const rows = cells[35].getMonth() === month.getMonth() ? cells : cells.slice(0, 35);
+  const byDay = {};
+  (items||[]).forEach(it=>{ const k = itemDay(it); if (k) (byDay[k] = byDay[k] || []).push(it); });
+  Object.values(byDay).forEach(l=>l.sort((a,b)=>a.due_at - b.due_at));
+  const todayKey = dayKey(new Date());
+  const shift = n => onMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+  const today = () => { const n = new Date(); onMonth(new Date(n.getFullYear(), n.getMonth(), 1)); onSelect(todayKey); };
+  const dropOn = (e, d) => {
+    e.preventDefault(); setOver('');
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) onMove(id, d);
+  };
+  return (
+    <div className="rd-card glass sc-cal">
+      <div className="sc-cal-head">
+        <h3>{month.toLocaleDateString([], {month:'long', year:'numeric'})}</h3>
+        <button className="rd-btn sm" onClick={today}>Today</button>
+        <button className="sc-cal-nav" onClick={()=>shift(-1)} aria-label="Previous month">‹</button>
+        <button className="sc-cal-nav" onClick={()=>shift(1)} aria-label="Next month">›</button>
+      </div>
+      <div className="sc-dow">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><span key={d}>{d}</span>)}</div>
+      <div className="sc-grid">
+        {rows.map(d=>{
+          const k = dayKey(d);
+          const list = byDay[k] || [];
+          // State classes are prefixed: a bare `today` collides with the
+          // TodayHeader's global .today rule and pushes the day number right.
+          const cls = 'sc-day' + (d.getMonth() !== month.getMonth() ? ' is-out' : '')
+                    + (k === todayKey ? ' is-today' : '') + (k === selected ? ' is-sel' : '')
+                    + (over === k ? ' is-over' : '');
+          return (
+            <div key={k} className={cls} onClick={()=>onSelect(k)}
+              onDragOver={e=>{ e.preventDefault(); if (over !== k) setOver(k); }}
+              onDragLeave={()=>{ if (over === k) setOver(''); }}
+              onDrop={e=>dropOn(e, d)}>
+              <span className="n">{d.getDate()}</span>
+              <div className="chips">
+                {list.slice(0, 3).map(it=>{
+                  const st = scState(it);
+                  const canDrag = st !== 'posting' && st !== 'posted';
+                  return (
+                    <div key={it.id} className={'sc-chip ' + st} draggable={canDrag}
+                      title={it.filename + ' · ' + SC_LABEL[st]}
+                      onDragStart={e=>{ e.dataTransfer.setData('text/plain', it.id); e.dataTransfer.effectAllowed = 'move'; }}
+                      onClick={e=>{ e.stopPropagation(); onOpen(it); }}>
+                      <i/><span className="t">{scTime(it.due_at)}</span><span>{it.filename}</span>
+                    </div>
+                  );
+                })}
+                {list.length > 3 && <div className="sc-more">+{list.length - 3} more</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* The selected day, as a list. On a phone the calendar cells only have room
+   for dots, so this is where the names are; on a desktop it is the agenda. */
+function DayList({ day, items, onOpen }) {
+  const list = items.filter(it=>itemDay(it) === day).sort((a,b)=>a.due_at - b.due_at);
+  const d = new Date(day + 'T12:00');
+  return (
+    <div className="rd-card glass sc-daylist">
+      <div className="sc-inbox-head">
+        <Icon name="clock" size={13}/>{d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'})}
+      </div>
+      {list.length === 0
+        ? <div className="sc-sub">Nothing scheduled. Drag a clip onto this day, or open one and pick a time.</div>
+        : list.map(it=>{
+            const st = scState(it);
+            return (
+              <div key={it.id} className="sc-row" onClick={()=>onOpen(it)}>
+                <span className="when">{scTime(it.due_at)}</span>
+                <span className="name">{it.filename}</span>
+                <span className={'st ' + st}>{SC_LABEL[st]}</span>
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+/* One clip, in a drawer: caption, where it goes, when, and what happened.
+   Everything saves as you go (PATCH on blur/change), and the drawer follows
+   the item over the socket, so a post in progress updates in place. */
+function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) {
   const [cap, setCap]     = useState(item.caption || '');
   const [when, setWhen]   = useState(item.due_at ? toLocalInput(item.due_at) : '');
   const [picked, setPicked] = useState(new Set(item.platforms || []));
-  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [busyErr, setBusyErr] = useState('');
   const [shareable, setShareable] = useState(false);
+
+  // Follow the item when it changes underneath us (a drag on the calendar, a
+  // result arriving) — but never the caption mid-edit.
+  useEffect(()=>{
+    setPicked(new Set(item.platforms || []));
+    setWhen(item.due_at ? toLocalInput(item.due_at) : '');
+  }, [item.id, item.due_at, (item.platforms || []).join(',')]);
 
   // Only offer the share sheet if this browser can actually take a file. It is
   // absent on most desktops, so the download + upload-page path below is the
@@ -6492,16 +6751,15 @@ function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
   const manual = [...picked].filter(p=>!connected.has(p));
   const posting = item.status === 'posting';
   const done    = item.status === 'posted';
+  const st = scState(item);
 
   const save = async (patch) => {
-    setSaving(true); setBusyErr('');
+    setBusyErr('');
     try {
       const r = await fetch('/publish/schedule/'+item.id, {method:'PATCH',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch)});
       if(!r.ok){ let d='Could not save'; try{ d=(await r.json()).detail||d; }catch{} setBusyErr(d); }
     } catch { setBusyErr('Could not reach the server'); }
-    setSaving(false);
-    if (onChange) onChange();
   };
 
   const toggle = (id) => {
@@ -6513,7 +6771,7 @@ function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
   };
 
   // Post now / Retry. The server clears failed platforms, keeps posted ones,
-  // and uploads in the background; the card follows over the socket.
+  // and uploads in the background; the drawer follows over the socket.
   const postNow = async () => {
     setBusyErr('');
     try {
@@ -6544,65 +6802,74 @@ function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
     catch { setBusyErr('Could not copy — select the text and copy it.'); }
   };
 
-  const when_ = posting ? 'Posting…'
-              : done ? 'Posted'
-              : item.status === 'failed' ? 'Needs attention'
-              : item.missed ? 'Missed' : item.due ? 'Post now'
-              : item.scheduled ? (auto.length ? 'Posts ' : '') + qWhen(item.due_at)
-              : 'No time set';
-  const tone = item.status === 'failed' || item.missed ? ' missed' : '';
+  const issues = (platforms||[]).filter(pf=>picked.has(pf.id))
+    .map(pf=>fitIssues(pf, item.duration_s||0, item.ratio||'', cap, item.fmt||'')[0]).filter(Boolean);
+  const byId = {}; (platforms||[]).forEach(pf=>{ byId[pf.id] = pf; });
 
   return (
-    <div className={'sc-card glass'+(item.due||posting?' due':'')+(tone?' missed':'')+(done?' done':'')}>
-      <div className="sc-media">
-        <video src={'/uploads/'+item.upload_id+'/file'} controls preload="metadata"/>
-      </div>
-      <div className="sc-body">
-        <div className="sc-top">
-          <div className="sc-name">{item.filename}</div>
-          <div className={'sc-when'+tone}>{when_}</div>
+    <>
+      <div className="sc-drawer-bg" onMouseDown={onClose}/>
+      <div className="sc-drawer" role="dialog" aria-label="Scheduled clip">
+        <div className="sc-dr-head">
+          <b>{item.filename}</b>
+          <span className={'sc-state ' + st}>{SC_LABEL[st]}</span>
+          <button className="sc-cal-nav" onClick={onClose} aria-label="Close"><Icon name="x" size={14}/></button>
         </div>
+        <div className="sc-dr-body">
+          <video src={'/uploads/'+item.upload_id+'/file'} controls preload="metadata"/>
 
-        <textarea className="ed-in" rows="3" value={cap} disabled={posting}
-          placeholder="Caption + hashtags — written once, used everywhere"
-          onChange={e=>setCap(e.target.value)} onBlur={()=>save({caption:cap})}/>
+          <div className="sc-lbl">Caption</div>
+          <textarea className="ed-in" rows="3" value={cap} disabled={posting}
+            placeholder="Caption + hashtags — written once, used everywhere"
+            onChange={e=>setCap(e.target.value)} onBlur={()=>save({caption:cap})}/>
 
-        <div className="sc-plats">
-          {(platforms||[]).map(pf=>{
-            const issues = fitIssues(pf, item.duration_s||0, item.ratio||'', cap, item.fmt||'');
-            const on = picked.has(pf.id);
-            const res = results[pf.id];
-            const isAuto = on && connected.has(pf.id);
-            let state;
-            if (res && res.status === 'posted')
-              state = <span className="pub-ok">Posted{res.url ? <> · <a href={res.url} target="_blank" rel="noopener noreferrer">View</a></> : ''}{res.note ? <span className="sc-note"> {res.note}</span> : null}</span>;
-            else if (res && res.status === 'posting')
-              state = <span className="pub-ok">Uploading…</span>;
-            else if (res && res.status === 'failed')
-              state = <span className="pub-warn">{res.error}</span>;
-            else if (issues.length)
-              state = <span className="pub-warn">{issues[0]}</span>;
-            else
-              state = <span className="pub-ok">Fits · {Math.round(item.duration_s||0)}s</span>;
-            return (
-              <div key={pf.id} className="sc-plat">
-                <button className={'rd-btn sm'+(on?' grad':'')} onClick={()=>toggle(pf.id)} disabled={posting}>
-                  {on ? '✓ ' : ''}{pf.label}
+          <div className="sc-lbl">Post to</div>
+          <div className="sc-pchips">
+            {(platforms||[]).map(pf=>{
+              const on = picked.has(pf.id);
+              const isAuto = on && connected.has(pf.id);
+              return (
+                <button key={pf.id} className={'sc-pchip' + (on ? ' on' : '')} onClick={()=>toggle(pf.id)} disabled={posting}>
+                  {on ? '✓ ' : ''}{pf.label}{isAuto && <small title="Highlightz posts this one for you">Auto</small>}
                 </button>
-                {isAuto
-                  ? <span className="sc-auto" title="Highlightz posts this one for you">Auto</span>
-                  : <a className="rd-btn sm" href={pf.upload_url} target="_blank"
-                       rel="noopener noreferrer">Open</a>}
-                {state}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          {issues.map((t,i)=><div key={i} className="pub-warn">{t}</div>)}
+          <div className="sc-sub">
+            Connected accounts are posted to for you at this time; the rest get a reminder and one-tap share.
+            {manual.length > 0 && <> Open: {manual.map((p,i)=>(
+              <span key={p}>{i ? ', ' : ' '}<a href={(byId[p]||{}).upload_url} target="_blank" rel="noopener noreferrer">{(byId[p]||{}).label || p}</a></span>
+            ))}</>}
+          </div>
 
-        <div className="sc-actions">
+          <div className="sc-lbl">{auto.length ? 'Posts at' : 'Remind at'}</div>
+          <input className="ed-in" type="datetime-local" value={when} disabled={posting}
+            onChange={e=>{ setWhen(e.target.value);
+              const t = e.target.value ? Math.floor(new Date(e.target.value).getTime()/1000) : 0;
+              save({due_at: t}); }}/>
+
+          {Object.keys(results).length > 0 && <>
+            <div className="sc-lbl">Results</div>
+            <div className="sc-res">
+              {Object.entries(results).map(([p, res])=>(
+                <div key={p}>
+                  <b>{(byId[p]||{}).label || p}</b>
+                  {res.status === 'posted'
+                    ? <span className="pub-ok">Posted{res.url ? <> · <a href={res.url} target="_blank" rel="noopener noreferrer">View</a></> : ''}{res.note ? <span className="sc-note"> {res.note}</span> : null}</span>
+                    : res.status === 'posting'
+                      ? <span className="pub-ok">Uploading…</span>
+                      : <span className="pub-warn">{res.error}</span>}
+                </div>
+              ))}
+            </div>
+          </>}
+          {busyErr && <div className="ed-warn">{busyErr}</div>}
+        </div>
+        <div className="sc-dr-foot">
           {auto.length > 0 && !posting && !done &&
             <button className="rd-btn sm grad" onClick={postNow}>
-              <Icon name="upload" size={13}/>&nbsp;{item.status === 'failed' ? 'Retry' : 'Post now'}
+              <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
             <Icon name="upload" size={13}/>&nbsp;Share to an app
@@ -6612,80 +6879,41 @@ function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
           <button className="rd-btn sm" onClick={copy} disabled={!cap}>
             {copied ? 'Copied' : 'Copy caption'}
           </button>
-          <label className="sc-when-pick">
-            <span>{auto.length ? 'Posts at' : 'Remind at'}</span>
-            <input className="ed-in" type="datetime-local" value={when} disabled={posting}
-              onChange={e=>{ setWhen(e.target.value);
-                const t = e.target.value ? Math.floor(new Date(e.target.value).getTime()/1000) : 0;
-                save({due_at: t}); }}/>
-          </label>
           {!done && !posting && manual.length > 0 &&
-            <button className="rd-btn sm" onClick={()=>save({status:'posted'})}
-              disabled={saving}>Mark posted</button>}
-          <button className="rd-btn sm danger" onClick={()=>onDrop(item.id)} disabled={posting}>Remove</button>
+            <button className="rd-btn sm" onClick={()=>save({status:'posted'})}>Mark posted</button>}
+          <button className="rd-btn sm danger" onClick={()=>{ onDrop(item.id); onClose(); }} disabled={posting}>Remove</button>
         </div>
-        {busyErr && <div className="ed-warn">{busyErr}</div>}
       </div>
-    </div>
-  );
-}
-
-/* The three accounts a clip can be posted to, and whether this user has
-   connected them. `configured` is the OPERATOR side (app keys in .env):
-   without it the button says so rather than 503ing on click. */
-function ConnectionsPanel({ me, connections = [] }) {
-  const [busy, setBusy] = useState('');
-  const disconnect = async (id) => {
-    setBusy(id);
-    try { await fetch('/publish/connections/'+id, {method:'DELETE'}); } catch {}
-    setBusy('');
-  };
-  return (
-    <div className="rd-card glass sc-conns">
-      <h3><span className="si"><Icon name="user" size={15}/></span>Connected accounts</h3>
-      <div className="desc">
-        Connect an account and Highlightz posts your clips to it for you, at the
-        time you set. Only the clips you choose it for, only while it is connected.
-      </div>
-      <div className="sc-conn-grid">
-        {(connections||[]).map(c=>(
-          <div key={c.id} className={'sc-conn'+(c.connected?' on':'')}>
-            <div className="sc-conn-head">
-              <b>{c.label}</b>
-              {c.connected && !c.last_error && <span className="sc-auto">Connected</span>}
-            </div>
-            {c.connected
-              ? <>
-                  <div className="sc-conn-who">{c.account_name || 'Connected'}</div>
-                  {c.last_error && <div className="pub-warn">{c.last_error}</div>}
-                  <div className="sc-conn-act">
-                    {c.last_error && <a href={'/publish/connect/'+c.id} className="rd-btn sm grad">Connect again</a>}
-                    <button className="rd-btn sm" onClick={()=>disconnect(c.id)} disabled={busy===c.id}>Disconnect</button>
-                  </div>
-                </>
-              : c.configured
-                ? <div className="sc-conn-act">
-                    <a href={'/publish/connect/'+c.id} className="rd-btn sm grad">Connect {c.label}</a>
-                  </div>
-                : <div className="sc-conn-off">
-                    {me && me.is_admin
-                      ? 'Not set up: add this platform’s app keys to .env (see HANDOFF).'
-                      : 'Coming soon.'}
-                  </div>}
-          </div>
-        ))}
-      </div>
-    </div>
+    </>
   );
 }
 
 function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true }) {
-  const [tab, setTab] = useState('todo');
+  const [month, setMonth] = useState(()=>{ const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
+  const [selected, setSelected] = useState(dayKey(new Date()));
+  const [openId, setOpenId] = useState(null);
   const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
-  const pending = (queue||[]).filter(i=>i.status==='pending'||i.status==='posting'||i.status==='failed');
-  const done    = (queue||[]).filter(i=>i.status==='posted'||i.status==='skipped');
-  const shown   = tab==='todo' ? pending : done;
+  const items = queue || [];
+  const inbox = items.filter(i=>!i.due_at && (i.status === 'pending' || i.status === 'failed'));
+  const scheduled = items.filter(i=>i.due_at > 0);
+  // Derived from the queue, not copied: a result arriving over the socket
+  // updates the open drawer in place.
+  const openItem = items.find(i=>i.id === openId) || null;
+
+  // A drop keeps the clip's time of day if it had one; a clip from the tray
+  // gets the default hour. Local wall clock, resolved to an instant here.
+  const move = async (id, d) => {
+    const it = items.find(i=>i.id === id);
+    if (!it) return;
+    const had = it.due_at ? new Date(it.due_at * 1000) : null;
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(),
+                       had ? had.getHours() : SC_DEFAULT_HOUR, had ? had.getMinutes() : 0);
+    setSelected(dayKey(d));
+    await fetch('/publish/schedule/'+id, {method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({due_at: Math.floor(t.getTime()/1000)})}).catch(()=>{});
+  };
 
   // Plan gate mirrors the backend 403 with an upgrade card, the same shape
   // as the Clip Editor's. After every hook, so hook order stays stable.
@@ -6710,12 +6938,12 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
 
   return (
     <div className="rd-wrap">
-      {/* Same three-step shape as the other tabs: nothing on screen otherwise
-          says where these clips came from or what the user is meant to do. */}
-      <div className="rd-how">
-        {[['download','1','Export a clip','Anything you export in the Clip Editor lands here automatically.'],
+      {/* First run only: the three steps say where clips come from and what
+          to do with them. Once there is a clip the calendar says it. */}
+      {items.length === 0 && <div className="rd-how">
+        {[['download','1','Export a clip','Anything you export in the Clip Editor lands here.'],
           ['chat','2','Write it once','One caption, reused for every platform. We check it fits before it goes out.'],
-          ['clock','3','Post it','Pick platforms and a time. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
+          ['clock','3','Post it','Drop it on a day. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
         ].map(([icon,n,title,body])=>(
           <div className="rd-step" key={n}>
             <span className="sn">{n}</span>
@@ -6725,39 +6953,22 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
             </div>
           </div>
         ))}
-      </div>
+      </div>}
 
-      <ConnectionsPanel me={me} connections={connections}/>
-
-      <div className="ed-seg" style={{maxWidth:280,marginTop:12}}>
-        <button className={tab==='todo'?'on':''} onClick={()=>setTab('todo')}>
-          To post{pending.length?' ('+pending.length+')':''}
-        </button>
-        <button className={tab==='done'?'on':''} onClick={()=>setTab('done')}>
-          Posted{done.length?' ('+done.length+')':''}
-        </button>
-      </div>
+      <AccountChips me={me} connections={connections}/>
 
       {!uploadsOn &&
         <div className="ed-warn" style={{marginTop:12}}>
           The Clip Editor is switched off, so nothing can reach the Scheduler yet.
         </div>}
 
-      {shown.length === 0
-        ? <div className="rd-card glass" style={{marginTop:12}}>
-            <h3><span className="si"><Icon name="clock" size={15}/></span>
-              {tab==='todo' ? 'Nothing waiting to post' : 'Nothing posted yet'}</h3>
-            <div className="desc">
-              {tab==='todo'
-                ? 'Export a clip in the Clip Editor and it shows up here, ready to caption and post.'
-                : 'Clips that have been posted, by Highlightz or by you, move here so the list above stays what is left to do.'}
-            </div>
-          </div>
-        : <div className="sc-list">
-            {shown.map(i=>(
-              <ScheduleCard key={i.id} item={i} platforms={platforms} connections={connections} onDrop={drop}/>
-            ))}
-          </div>}
+      <InboxTray items={inbox} onOpen={it=>setOpenId(it.id)}/>
+      <MonthCalendar month={month} onMonth={setMonth} items={scheduled} selected={selected}
+        onSelect={setSelected} onOpen={it=>setOpenId(it.id)} onMove={move}/>
+      <DayList day={selected} items={scheduled} onOpen={it=>setOpenId(it.id)}/>
+
+      {openItem && <ScheduleDrawer item={openItem} platforms={platforms} connections={connections}
+        onClose={()=>setOpenId(null)} onDrop={drop}/>}
     </div>
   );
 }
