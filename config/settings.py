@@ -144,7 +144,11 @@ class Settings(BaseSettings):
     # the tab is hidden. Admins bypass it so the owner can exercise the real
     # feature on prod; their dashboard says plainly that users cannot see it.
     # Flip to true (UPLOADS_ENABLED=true in .env) to launch.
-    uploads_enabled: bool = False
+    # RELEASED to Pro on 2026-09-15 (owner: "open up the editor to pro users
+    # now"). The plan gate (PLAN_LIMITS[...]["uploads"]) is what keeps it Pro;
+    # this flag is the kill switch. UPLOADS_ENABLED=false takes the editor
+    # away from everyone but admins in one restart.
+    uploads_enabled: bool = True
 
     # ── Clip capture (src/ingestion/clip_recorder.py) ────────────────────
     #

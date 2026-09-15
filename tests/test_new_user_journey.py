@@ -300,20 +300,34 @@ def test_they_can_start_a_vod_scan(app, monkeypatch):
     assert r.status_code < 500, f"VOD scan errored: {r.status_code} {r.text[:200]}"
 
 
-# ── the two features that are deliberately NOT released ──────────────────────
+# ── what is released, and what is deliberately not ───────────────────────────
 #
-# Clip Editor and Scheduler are adminOnly in NAV and behind release flags
-# (UPLOADS_ENABLED / CLIP_IMPORT_ENABLED, both defaulting False). A new user
-# never sees them, so "every feature works" is true of everything they are
-# actually shown. These tests pin that the two sides agree — a nav entry with a
-# 503 behind it, or an endpoint open to a screen nobody can reach, are both
-# ways for this to rot quietly.
+# The Clip Editor was RELEASED TO PRO on 2026-09-15 (owner: "open up the
+# editor to pro users now"). It is gated the way the VOD scanner is: the tab
+# shows for everyone, the screen is the paywall for a plan without
+# `plan_limits.uploads`, and the endpoints refuse independently. The Scheduler
+# is still adminOnly in NAV and behind its own decision. These tests pin that
+# the sides agree — a nav entry with a 503 behind it, or an endpoint open to a
+# screen nobody can reach, are both ways for this to rot quietly.
 
-def test_the_clip_editor_is_hidden_from_a_new_user(app):
-    """Not a gap: it is unreleased, and the nav hides it. The failure mode
-    worth guarding is the nav showing it while the endpoint refuses."""
+def test_the_clip_editor_is_open_to_pro_and_paywalled_for_the_rest(app):
+    """Released: no adminOnly on the tab, and the Edit button on a card follows
+    the PLAN, not the admin flag — otherwise Pro users see the tab and never
+    the button, or free users get a button that walks to a paywall."""
     from src.dashboard.aurora_html import DASHBOARD_HTML
-    assert "{id:'uploads',label:'Clip Editor',icon:'upload',adminOnly:true}" in DASHBOARD_HTML
+    assert "{id:'uploads',label:'Clip Editor',icon:'upload'}" in DASHBOARD_HTML
+    assert "adminOnly:true" not in DASHBOARD_HTML[DASHBOARD_HTML.index("{id:'uploads'"):DASHBOARD_HTML.index("{id:'uploads'") + 60]
+    assert "const adminOnlyTabs = ['schedule'];" in DASHBOARD_HTML, \
+        "the editor is still bounced back to the review queue for non-admins"
+    assert "const editorOn = uploadsOn && !!(me && (me.plan_limits?.uploads || me.is_admin));" in DASHBOARD_HTML
+    # The paywall screen exists for the plans that do not include it.
+    assert "Clip Editor is a Pro feature" in DASHBOARD_HTML
+
+
+def test_the_scheduler_is_still_hidden_from_a_new_user(app):
+    """Not a gap: it is unreleased, and the nav hides it."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML
+    assert "{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true}" in DASHBOARD_HTML
     assert "n.adminOnly||(me&&me.is_admin)" in DASHBOARD_HTML, \
         "adminOnly nav entries are no longer filtered for non-admins"
 
@@ -378,16 +392,27 @@ def test_every_editor_and_scheduler_endpoint_is_behind_the_release_gate():
             f"{list(r.methods)[0]} {r.path} is reachable without the release gate"
 
 
-@pytest.mark.parametrize("path", ["/uploads", "/twitch/clips", "/publish/schedule",
-                                  "/publish/platforms"])
-def test_the_unreleased_endpoints_refuse_cleanly(app, path):
-    """Belt and braces behind the nav. A 503 with an honest message is right;
-    a 500 or a silent empty success is not."""
+@pytest.mark.parametrize("path", ["/uploads", "/publish/schedule", "/publish/platforms"])
+def test_the_editor_endpoints_refuse_a_free_user_as_a_plan_matter(app, path):
+    """Belt and braces behind the nav. Since the editor's release to Pro
+    (2026-09-15) a new free user is refused by PLAN — a 403 that says so and
+    points at the upgrade — not by the release flag's 503 "coming soon". A 500
+    or a silent empty success is still the thing this guards against."""
     app.signup()
     r = app.get(path)
-    assert r.status_code == 503, f"{path} -> {r.status_code}"
+    assert r.status_code == 403, f"{path} -> {r.status_code}"
+    assert "pro" in r.text.lower(), \
+        f"{path} refuses without saying it is a plan matter: {r.text[:200]}"
+
+
+def test_the_unreleased_clip_import_still_refuses_cleanly(app):
+    """Clip import is the half that is still held back (CLIP_IMPORT_ENABLED
+    defaults False). A 503 with an honest message is right."""
+    app.signup()
+    r = app.get("/twitch/clips")
+    assert r.status_code == 503, f"/twitch/clips -> {r.status_code}"
     assert "coming soon" in r.text.lower() or "available" in r.text.lower(), \
-        f"{path} refuses without saying why: {r.text[:200]}"
+        f"/twitch/clips refuses without saying why: {r.text[:200]}"
 
 
 def test_the_nav_and_the_release_flags_agree(app):

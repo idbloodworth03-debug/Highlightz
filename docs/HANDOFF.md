@@ -542,6 +542,22 @@ normal Clip Review screen, which still shows scores.
   up to 90 days" line has no rotation config in the repo; if uploads or the
   backup job point at S3/GCS in prod, the provider needs naming under
   sharing and backups need a retention line.
+- **Clip Editor RELEASED TO PRO (2026-09-15).** Owner: "open up the editor
+  to pro users now as well." The `uploads` NAV entry lost `adminOnly`,
+  `adminOnlyTabs` is now `['schedule']` only, and the card's Edit button
+  (`editorOn`) follows `plan_limits.uploads` instead of the admin flag. It is
+  gated the way the VOD scanner is: the tab shows for everyone, the screen is
+  the paywall below Pro, `_require_upload_access` refuses independently.
+  `uploads_enabled` defaults True now and is the kill switch
+  (`UPLOADS_ENABLED=false` takes it away from everyone but admins in one
+  restart). **The Scheduler is still admin-only** — so an export for a
+  non-admin is saved to their Clip Editor library and says so, and the
+  `/publish/schedule` POST is skipped (`schedulerOn` prop on `ClipEditor`);
+  "added to your Scheduler" with no Scheduler tab would promise a screen
+  they cannot see. The public-marketing restriction below was NOT lifted by
+  this — nobody asked for landing/pricing copy — so the editor is released
+  but still unmarketed; `test_the_unreleased_features_are_not_marketed…`
+  keeps pinning that until the owner says otherwise.
 - **Clip Editor and Scheduler: unmarketed and gated (2026-09-02, late).**
   Owner: "not ready to push that out yet — remove the clip editor and auto
   post stuff on the landing page and make sure it is gatekept". Removed from
@@ -1040,7 +1056,7 @@ the reason for holding one back does not apply to the other:
 | Flag | What it gates | Why |
 |---|---|---|
 | `CLIP_IMPORT_ENABLED` | "Your Twitch clips" — browse every clip on your channel | **Complete on its own.** Ready to launch whenever you want. |
-| `UPLOADS_ENABLED` | drag-and-drop upload + library | Half a feature until the editor exists. |
+| `UPLOADS_ENABLED` | drag-and-drop upload + library + the editor | **Released to Pro 2026-09-15; defaults True.** Now the kill switch, not the release gate. |
 
 The tab renders if EITHER is on (`clipTabOn`), so import can ship alone.
 

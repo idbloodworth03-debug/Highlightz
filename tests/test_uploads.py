@@ -416,10 +416,15 @@ def _nav_entry(tab: str) -> str:
     return nav[nav.rindex("{", 0, j):nav.index("}", j) + 1]
 
 
-def test_both_tabs_are_admin_only_in_the_nav():
-    for tab in ("Clip Editor", "Scheduler"):
-        assert "adminOnly:true" in _nav_entry(tab), (
-            f"the {tab} nav entry is not adminOnly, so it renders for everyone")
+def test_the_scheduler_is_admin_only_and_the_editor_is_not():
+    """This used to pin BOTH tabs as adminOnly. The Clip Editor was released
+    to Pro on 2026-09-15 (owner's call) and is now gated by plan on the screen
+    and at the endpoint, the way the VOD scanner is; the Scheduler has not had
+    that decision and stays behind the admin flag."""
+    assert "adminOnly:true" in _nav_entry("Scheduler"), \
+        "the Scheduler nav entry is not adminOnly, so it renders for everyone"
+    assert "adminOnly:true" not in _nav_entry("Clip Editor"), \
+        "the Clip Editor is hidden from the Pro users it was released to"
 
 
 def test_the_gate_does_not_depend_on_a_release_flag():
@@ -436,7 +441,10 @@ def test_the_route_is_normalised_so_a_hidden_screen_cannot_be_rendered():
     guarantee. A deep link or restored route must not reach these screens."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     flat = html.replace(" ", "").replace("\n", "")
-    assert "adminOnlyTabs=['uploads','schedule']" in flat
+    # 'uploads' left this list on 2026-09-15 when the editor was released to
+    # Pro; a Pro user typing the route must land on the editor, not be bounced
+    # to the review queue. The Scheduler is still bounced.
+    assert "adminOnlyTabs=['schedule']" in flat
     assert "adminOnlyTabs.includes(route)&&!(me&&me.is_admin)" in flat
 
 
@@ -460,5 +468,7 @@ def test_uploads_stay_off_by_default_in_code():
     gate no longer trusts it — but a False default is still the right one."""
     from config.settings import Settings
     s = Settings.model_fields
-    assert s["uploads_enabled"].default is False
+    # Released to Pro on 2026-09-15: the flag is on by default now and acts
+    # as the kill switch; the plan gate is what keeps the editor Pro.
+    assert s["uploads_enabled"].default is True
     assert s["clip_import_enabled"].default is False

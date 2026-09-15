@@ -3523,7 +3523,7 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload',adminOnly:true},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
@@ -5337,7 +5337,7 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
   );
 }
 
-function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [] }) {
+function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [], schedulerOn = false }) {
   // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
@@ -5974,23 +5974,31 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       // for our benefit — it is what lets the Scheduler tab, and the user's
       // PHONE, share the edited clip. A blob living in one tab's memory is
       // unreachable from the device that has the TikTok app on it.
-      setDone('Exported. Saving to your Scheduler…');
+      // The Scheduler is still admin-only (see adminOnlyTabs). For everyone
+      // else the render is saved to their Clip Editor library and the
+      // wording says that — "added to your Scheduler" with no Scheduler tab
+      // would be a promise about a screen they cannot see.
+      const where = schedulerOn ? 'Scheduler' : 'Clip Editor library';
+      setDone('Exported. Saving to your ' + where + '…');
       try {
         const fd = new FormData();
         fd.append('file', new File([blob], name, { type: blob.type || 'video/mp4' }));
         const ur = await fetch('/uploads?source=render', { method: 'POST', body: fd });
         if (!ur.ok) throw new Error((await ur.json().catch(()=>({}))).detail || 'save failed');
         const saved = await ur.json();
-        await fetch('/publish/schedule', { method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ upload_id: saved.id, caption: '', platforms: [],
-                                 due_at: 0, duration_s: clipSecs, ratio, fmt: ext }) });
-        setDone('Exported and added to your Scheduler.');
+        if (schedulerOn) {
+          await fetch('/publish/schedule', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ upload_id: saved.id, caption: '', platforms: [],
+                                   due_at: 0, duration_s: clipSecs, ratio, fmt: ext }) });
+        }
+        setDone(schedulerOn ? 'Exported and added to your Scheduler.'
+                            : 'Exported and saved to your Clip Editor library.');
       } catch (e) {
         // The user still HAS the file — it downloaded. Say what did and did
         // not happen rather than reporting a failed export.
         setDone('');
-        setErr('Exported to your downloads, but saving it to the Scheduler failed'
+        setErr('Exported to your downloads, but saving it to the ' + where + ' failed'
                + (e && e.message ? ' (' + e.message + ')' : '') + '.');
       }
       if (onExported) onExported(blob, ext);
@@ -6915,7 +6923,8 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         </div>
         </>}
       </div>
-      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}/>}
+      {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}
+        schedulerOn={!!(me && me.is_admin)}/>}
     </div>
   );
 }
@@ -7991,19 +8000,22 @@ function RdApp() {
   // The tab is worth showing if EITHER half is live. Import is complete on its
   // own (browse every clip on your channel); uploads are what's held back.
   const clipTabOn = uploadsOn || importOn;
-  // Clip Editor and Scheduler are ADMIN ONLY, full stop. Not gated on the
-  // release flags: UPLOADS_ENABLED was set true in production, which handed
-  // every Pro subscriber a working Editor and Scheduler. Tying visibility to a
-  // flag means one env edit silently ships an unreleased feature again, so the
-  // owner is the only one who sees these until that is a deliberate decision.
-  const adminOnlyTabs = ['uploads', 'schedule'];
-  // Whether a clip card may offer "Edit clip". It has to match the tab's OWN
-  // visibility exactly, both halves of it: the release flag (or the screen is
-  // UploadsUnderConstruction) and the admin gate above (or `view` bounces
-  // straight back to the review queue). Get either wrong and the button walks
-  // the user to a screen that isn't there. The endpoint refuses independently
-  // — this only stops us offering a dead end.
-  const editorOn = uploadsOn && !!(me && me.is_admin);
+  // The Scheduler is ADMIN ONLY, full stop — not gated on a release flag,
+  // because UPLOADS_ENABLED once went true in production and handed every Pro
+  // subscriber a working Editor and Scheduler before either was a decision.
+  //
+  // THE EDITOR LEFT THIS LIST ON 2026-09-15, deliberately, on the owner's
+  // call: "open up the editor to pro users now." It is now gated the way the
+  // VOD scanner is — the tab shows for everyone, the screen itself is the
+  // paywall for anyone without `plan_limits.uploads`, and the endpoints refuse
+  // independently. The Scheduler stays here until it gets its own decision.
+  const adminOnlyTabs = ['schedule'];
+  // Whether a clip card may offer "Edit clip". It has to match what the user
+  // can actually reach: the release flag (or the screen is
+  // UploadsUnderConstruction) AND a plan that includes the editor (or an
+  // admin), or the button walks them to the paywall. The endpoint refuses
+  // independently — this only stops us offering a dead end.
+  const editorOn = uploadsOn && !!(me && (me.plan_limits?.uploads || me.is_admin));
   const onEditClip = editorOn ? sendToEditor : null;
   // The screen actually rendered. The nav is the only way in today (`route`
   // lives in React state alone), but that is a property of the current code,
