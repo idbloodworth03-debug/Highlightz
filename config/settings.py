@@ -207,13 +207,20 @@ class Settings(BaseSettings):
     clip_import_enabled: bool = False
 
     # Auto-captions (Whisper, on this box — owner's call over a paid API).
-    # 'tiny.en' is the only size that belongs on a 1 vCPU / 2 GB droplet that is
-    # already running an audio meter per monitored channel; 'base.en' is roughly
-    # 2x the cost for a modest accuracy gain, so move up only if the box is
-    # visibly idle. Captioning is deliberately serialised to one clip at a time
-    # (src/captions/transcribe.py) — clip detection must always win the core.
+    #
+    # DEFAULTS RAISED 2026-09-15. They started at tiny.en / greedy / no prompt,
+    # the cheapest settings Whisper has, because this is a 1 vCPU / 2 GB box
+    # that also runs an audio meter per monitored channel. Measured on prod
+    # with src/maintenance/caption_model_test.py against real clips: tiny.en
+    # mis-hears words a viewer would notice, and greedy decoding TRUNCATES —
+    # it drops the tail of what was said. base.en with a beam of 5 read
+    # correctly on the same audio. The owner's brief was "highest quality", so
+    # that is the default now; the cost is a slower caption job, never a
+    # slower clip — captioning is serialised to one clip at a time
+    # (src/captions/transcribe.py) and bounded by captions_timeout_s, and clip
+    # detection always wins the core. CAPTIONS_MODEL=tiny.en puts it back.
     captions_enabled: bool = False
-    captions_model: str = "tiny.en"
+    captions_model: str = "base.en"
     captions_timeout_s: float = 240.0
     # Whisper's voice-activity filter drops audio it judges to be non-speech
     # BEFORE transcription, so anything it gets wrong is gone — there is no
@@ -231,14 +238,14 @@ class Settings(BaseSettings):
     # accurate than a beam search. 5 is Whisper's own default and the usual
     # remedy for "it keeps picking the wrong word", at roughly 2-3x the decode
     # cost — which on this box is CPU that clip detection may want.
-    captions_beam_size: int = 1
-    # Whisper accepts a sentence of context to bias its vocabulary. Something
-    # like "Live gameplay commentary from a Twitch stream." nudges it toward
-    # the register these clips are actually in. Empty by default and worth
-    # A/B-ing rather than assuming: a prompt can also make a small model INSERT
-    # the words it names when the audio is unclear, which is the same failure
-    # in the other direction.
-    captions_initial_prompt: str = ""
+    captions_beam_size: int = 5
+    # Whisper accepts a sentence of context to bias its vocabulary. This one
+    # names the register these clips are in — shouted, slangy speech over game
+    # audio — without naming any specific word, because a prompt can also make
+    # a small model INSERT the words it names when the audio is unclear. Kept
+    # generic for that reason; CAPTIONS_INITIAL_PROMPT= (empty) switches it off.
+    captions_initial_prompt: str = ("Live Twitch stream. A streamer reacts and "
+                                    "commentates over gameplay, with chat.")
 
     # App behaviour
     log_level: str = "INFO"

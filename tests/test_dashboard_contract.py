@@ -520,7 +520,14 @@ def test_the_recorded_stream_is_given_an_audio_track():
     exists to catch.
     """
     body = _export_recorder()
-    assert "c.captureStream(30)" in body, "export no longer records the canvas"
+    # 60 for an HD source since 2026-09-15 (Twitch delivers 60 and the
+    # platforms take it); the SD floor stays at 30.
+    assert "c.captureStream(hd ? 60 : 30)" in body, "export no longer records the canvas"
+    # The preview canvas is stage-sized now, so the export must size it to the
+    # real output BEFORE captureStream — a resize after would reset the
+    # surface and invalidate the capture track.
+    assert body.index("c.width = outW; c.height = outH;") < body.index("c.captureStream("), \
+        "the canvas is not sized to the output before the capture track is taken"
     assert re.search(
         r"const g = audioGraph\(v, clip\.url\);\s*\n"
         r"\s*if \(g\) \{[\s\S]{0,400}?"
@@ -818,3 +825,112 @@ def test_high_and_main_h264_profiles_are_preferred_over_baseline():
     avc = [t for t in types if "avc1" in t]
     assert avc[0].startswith("video/mp4;codecs=avc1.64"), "High profile is not first"
     assert avc[-1].startswith("video/mp4;codecs=avc1.42"), "Baseline must remain as the floor"
+
+
+# ── Frame-accurate export (2026-09-15) ───────────────────────────────────────
+# MediaRecorder records the canvas in REAL TIME and keeps only the frames the
+# encoder finishes in time. Measured on the real paint path in software-rendered
+# Chromium: 10.8 fps in the file from captureStream(30), 11.6 from 60, at 1.5
+# Mbps against 16 asked for. The WebCodecs path encodes every presented frame at
+# its own media time, pauses playback when the encoder falls behind, slows the
+# element and seeks back when IT skips, and encodes audio offline. Verified end
+# to end (scratchpad/ed/export_fa.js): a 60 fps source produced a 62 fps file
+# with 154 frames, every presented frame kept; 30 fps in, 30.4 fps out.
+
+def _fa():
+    return SRC[SRC.index("async function exportFrameAccurate("):SRC.index("/* ── Export audio ────")]
+
+
+def test_the_frame_accurate_path_is_preferred_and_the_recorder_remains():
+    body = SRC[SRC.index("const runExport = async () => {"):SRC.index("const clipSecs = Math.max(0, outPt - inPt);")]
+    assert "if (faSup) {" in body and "exportFrameAccurate(faSup" in body
+    assert "result = await exportRecorder();" in body, "the recorder fallback is gone"
+    assert body.index("exportFrameAccurate(faSup") < body.index("exportRecorder();")
+
+
+def test_both_export_paths_size_the_canvas_to_the_output_first():
+    """The preview canvas is stage-sized. An export that recorded or encoded
+    it at that size would ship a 400px file."""
+    body = SRC[SRC.index("const runExport = async () => {"):SRC.index("const clipSecs = Math.max(0, outPt - inPt);")]
+    assert body.index("c.width = outW; c.height = outH;") < body.index("if (faSup) {")
+
+
+def test_support_is_probed_with_the_real_output_and_a_42_level_first():
+    """H.264 level 4.0 is rated to 1080p30; 1080x1920 at 60 needs 4.2. Probing
+    a canned 1080p30 config would say yes and then fail to configure."""
+    src = SRC[SRC.index("async function frameAccurateSupport("):SRC.index("function _makeMuxer(")]
+    assert "width: w, height: h" in src and "framerate: fps" in src
+    types = re.findall(r"'(avc1\.[0-9A-Fa-f]+)'", src)
+    assert types[0] == "avc1.64002A", "High 4.2 is not tried first"
+    assert "vp09" in src and "'opus'" in src, "no VP9/Opus fallback for browsers without H.264/AAC encoders"
+    assert "typeof Mp4Muxer !== 'undefined'" in src and "typeof WebMMuxer !== 'undefined'" in src
+
+
+def test_no_frame_is_ever_dropped_on_purpose():
+    """The three mechanisms, each pinned: encoder backpressure pauses playback
+    rather than skipping; an element skip halves the rate AND seeks back to
+    the last encoded frame; re-presented frames are deduplicated by timestamp
+    so the seek-back cannot double-encode."""
+    fa = _fa()
+    assert "enc.encodeQueueSize > 6 && !v.paused" in fa and "v.pause();" in fa
+    assert "md.presentedFrames - lastPresented > 1" in fa
+    assert "v.playbackRate = v.playbackRate / 2" in fa
+    assert "v.currentTime = inPt + lastTs / 1e6;" in fa, "an element skip is not recovered"
+    assert "if (ts > lastTs)" in fa, "re-presented frames would be encoded twice"
+
+
+def test_frames_carry_media_time_not_wall_time():
+    """That is what makes a slower pass produce the same file."""
+    fa = _fa()
+    assert "const ts = Math.round((mt - inPt) * 1e6);" in fa
+    assert "new VideoFrame(c, { timestamp: ts" in fa
+
+
+def test_every_wait_in_the_frame_accurate_export_is_bounded():
+    fa = _fa()
+    assert "setTimeout(h, 3000)" in fa, "the in-point seek can hang"
+    assert "Date.now() - lastFrameAt > 10000" in fa, "no stall guard"
+
+
+def test_audio_is_encoded_offline_from_the_source_not_recorded_live():
+    src = SRC[SRC.index("async function _encodeAudioOffline("):SRC.index("async function exportFrameAccurate(")]
+    assert "decodeAudioData(" in src and "OfflineAudioContext(" in src
+    assert "new AudioEncoder(" in src
+    assert "return null;" in src, "an unfetchable source must export silent, not fail"
+
+
+def test_the_muxers_are_vendored_same_origin_with_their_licences():
+    """The dashboard cannot load scripts from arbitrary CDNs, and a raw encoder
+    stream is a file nobody can open — which is why this path was not wired
+    before."""
+    import pathlib
+    vendor = pathlib.Path(__file__).resolve().parent.parent / "src/dashboard/static/vendor"
+    for f in ("mp4-muxer.js", "webm-muxer.js", "mp4-muxer.LICENSE", "webm-muxer.LICENSE"):
+        assert (vendor / f).is_file(), f"{f} is missing"
+    assert '<script src="/static/vendor/mp4-muxer.js"></script>' in SRC
+    assert '<script src="/static/vendor/webm-muxer.js"></script>' in SRC
+    assert SRC.index("/static/vendor/webm-muxer.js") < SRC.index('<script type="text/babel">'), \
+        "the muxers load after the app that uses them"
+    for f in ("mp4-muxer.js", "webm-muxer.js"):
+        assert "unpkg.com" not in SRC[SRC.index(f) - 80:SRC.index(f)], f"{f} is loaded from a CDN"
+
+
+def test_the_export_button_reflects_whichever_path_will_run():
+    tail = SRC[SRC.index("const recType = pickRecorderType();"):SRC.index("const framed = zoom !== 1")]
+    assert "(!!faSup || !!recType) && dur > 0" in tail
+    assert "faSup ? (faSup.ext === 'mp4' ? 'MP4' : 'WebM')" in tail
+
+
+# ── Preview at display size (2026-09-15) ─────────────────────────────────────
+
+def test_the_preview_is_painted_at_the_size_it_is_shown():
+    """A 236px-wide stage does not need a 1080x1920 bitmap behind it.
+    Measured identical on screen (Laplacian variance 1374 vs 1376 on the same
+    frame) at about a fifth of the pixels per tick — the difference between
+    stutter and smooth on a laptop GPU or a phone. Capped at the output size
+    so a large monitor never upscales past what export gets."""
+    loop = SRC[SRC.index("// ── The paint loop: registered once, reads `latest`. ──"):SRC.index("// A seek lands a new decoded frame")]
+    assert "stageSizeRef.current" in loop
+    assert "Math.min(1, sw / L.outW, sh / L.outH)" in loop, "the preview can upscale past the output"
+    assert "if (!L.busy)" in loop, "an export would be painted at preview size"
+    assert "new ResizeObserver(" in SRC[SRC.index("const stageSizeRef"):SRC.index("// ── The paint loop")]

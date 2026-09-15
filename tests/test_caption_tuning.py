@@ -13,14 +13,21 @@ class FakeModel:
         return [], I()
 
 
-def test_the_defaults_change_nothing_about_how_it_decodes():
-    """Adding a knob must not move the setting. tiny.en/greedy/no-prompt is
-    what has always run, and a silent change to any of them would confound the
-    very comparison the tool exists to make."""
+def test_the_defaults_are_the_measured_good_trade():
+    """This test used to pin tiny.en/greedy/no-prompt, because adding a knob
+    must not move a setting. The setting then moved DELIBERATELY (2026-09-15):
+    the A/B on prod showed tiny.en mis-hearing and greedy decoding truncating
+    the tail of what was said, and base.en with a beam of 5 reading correctly.
+    What this pins now is that nobody quietly slides back to the cheap
+    settings, and that the prompt stays generic — it names a register, never a
+    word a small model could be tempted to insert."""
     s = Settings()
-    assert s.captions_model == "tiny.en"
-    assert s.captions_beam_size == 1
-    assert s.captions_initial_prompt == ""
+    assert s.captions_model == "base.en"
+    assert s.captions_beam_size == 5
+    assert s.captions_initial_prompt
+    for specific in ("kaicenat", "ishowspeed", "fortnite", "warzone", "gg"):
+        assert specific not in s.captions_initial_prompt.lower(), \
+            "the prompt names a specific word the model may start inserting"
 
 
 def test_beam_and_prompt_are_passed_through(monkeypatch):
@@ -43,7 +50,11 @@ def test_beam_can_never_be_zero_or_negative(monkeypatch):
     decoder inside a background job nobody is watching."""
     m = FakeModel()
     cap._run_whisper(Path("x.wav"), model=m, beam=0)
-    assert m.calls[0]["beam_size"] == 1
+    # Zero is "not given", so it takes the configured default (5 now, was 1);
+    # what matters is that the decoder never sees zero or less.
+    assert m.calls[0]["beam_size"] == Settings().captions_beam_size >= 1
+    cap._run_whisper(Path("x.wav"), model=m, beam=-3)
+    assert m.calls[1]["beam_size"] >= 1
 
 
 def test_the_service_path_still_uses_the_one_cached_model(monkeypatch):

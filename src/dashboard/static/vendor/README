@@ -1,0 +1,4 @@
+Vendored, unmodified IIFE builds (served same-origin from /static/vendor; the dashboard cannot load scripts from arbitrary CDNs and needs no bundler):
+  mp4-muxer  5.2.2  MIT  https://github.com/Vanilagy/mp4-muxer   global: Mp4Muxer
+  webm-muxer 5.1.4  MIT  https://github.com/Vanilagy/webm-muxer  global: WebMMuxer
+Used by the frame-accurate export in src/dashboard/aurora_html.py (WebCodecs VideoEncoder/AudioEncoder output needs a container).

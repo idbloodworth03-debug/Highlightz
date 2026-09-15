@@ -1389,6 +1389,77 @@ wheel/pan → shapes → blur → play → export-while-playing → catches the
 download and decodes it. This Chromium has no H.264, so its MP4 is VP9 in
 fMP4; real Chrome picks `avc1/mp4a` from `REC_TYPES` as before.
 
+### Editor quality pass — export, preview, captions (2026-09-15)
+
+Owner: "still not the highest quality … make everything clean and smoothly
+working. Captions are still crappy and the fonts look pixelated." Everything
+below was measured before it was changed; the harnesses are in the session
+scratchpad (`ed/preview_sharp.js`, `ed/export_fps.js`, `ed/export_fa.js`).
+
+**The export was the smoothness problem, and it was structural.** MediaRecorder
+records the canvas in REAL TIME: it keeps whatever frames the encoder finishes
+before the next one lands and drops the rest, and spends bitrate on its own
+schedule. On the real paint path (blur fill + caption) in software-rendered
+Chromium: `captureStream(30)` → **10.8 fps in the file**, `captureStream(60)`
+→ 11.6, at **1.5 Mbps against 16 asked for**. A laptop GPU does better, but
+smoothness depends on the machine and 60 fps is never guaranteed.
+
+**Frame-accurate export (WebCodecs), now the default where the browser can:**
+`exportFrameAccurate` in `aurora_html.py`. `requestVideoFrameCallback` hands
+over every presented frame; the canvas is painted for exactly that media
+time; the frame goes to a `VideoEncoder`. Three things make it lossless:
+encoder backpressure PAUSES playback until the queue drains (never drops);
+an element skip (`presentedFrames` jumps) halves `playbackRate` AND seeks
+back to the last encoded frame so the skipped ones are presented again; and
+re-presented frames are deduplicated by media-time timestamp. Audio is
+decoded OFFLINE from the source (`decodeAudioData` → `OfflineAudioContext` at
+48 kHz → `AudioEncoder`), so it cannot drift or stall. Container by vendored
+muxers in `src/dashboard/static/vendor/` (mp4-muxer 5.2.2 / webm-muxer
+5.1.4, MIT, unmodified IIFE builds — the raw encoder output is an elementary
+stream nobody can open, which is why this was never wired before): MP4
+(H.264 + AAC) where those encoders exist, else WebM (VP9 + Opus).
+`frameAccurateSupport(w, h, fps)` probes with the REAL output — H.264 level
+4.0 is only rated to 1080p30, so 1080x1920@60 asks for 4.2 first.
+MediaRecorder stays as the fallback (now `captureStream(60)` for HD) and
+`runExport` sizes the canvas to the output synchronously before either path.
+**Measured (`export_fa.js`, VP9 branch, this container):** 60 fps source →
+**62 fps file, 154 frames, every presented frame kept** (161 callbacks, 7
+re-presented dupes correctly skipped); 30 fps → 30.4 fps, 76 frames, done in
+half real time. A decoded frame of the output carries the blur, the title
+and the lit caption word. **Unverified here, on purpose stated:** the MP4
+branch (H.264/AAC) — this Chromium has only the free codecs; the code path is
+identical with a different muxer and runs on any user's Chrome/Edge/Safari.
+If an export ever comes out wrong on prod, the first check is
+`frameAccurateSupport` in the console: `null` means the recorder ran.
+
+**"Fonts look pixelated" — not reproducible, and the bitmap is sharp.**
+`preview_sharp.js` renders the same frame two ways at 2x: the shipped
+1080x1920 canvas CSS-scaled into a 236px stage, and a canvas painted at the
+stage's own device-pixel size. **Laplacian variance 1374 vs 1376 — identical
+on screen**, and the export bitmap at 1:1 is clean Inter 800 with a crisp
+stroke (`shots/export-bitmap-caption-1to1.png`). The font is a real variable
+face (400–800), so 800 is not synthesized. Whatever the owner saw is either
+their display path or the old low-fps/low-bitrate export smearing text —
+the export fix is the likeliest cure. Ask for a screenshot before touching
+`drawCaption` again.
+
+**Preview is painted at display size anyway** (`stageSizeRef` fed by a
+`ResizeObserver`; the paint loop sizes the backing store to stage × DPR,
+capped at the output). Same picture, about a fifth of the pixels per tick —
+that fifth was the stutter on a laptop GPU or a phone. The export resizes to
+the real output before it starts and `busy` holds it there.
+
+**Captions: the defaults were the problem.** `tiny.en` / greedy / no prompt —
+the cheapest settings Whisper has — and the prod A/B (`caption_model_test`)
+showed tiny.en mis-hearing and greedy decoding TRUNCATING the tail of what was
+said. Defaults are now **`base.en`, beam 5**, and a generic register prompt
+("Live Twitch stream. A streamer reacts and commentates over gameplay, with
+chat.") — generic on purpose: a prompt that names a word tempts a small model
+to insert it. Cost is a slower caption job, never a slower clip (serialised,
+timeboxed, detection wins the core). `CAPTIONS_MODEL=tiny.en` puts it back.
+The cue shaping (`_MAX_CUE_*`) and the word-pop rendering were already the
+short-form standard and are unchanged.
+
 ## Publishing — deliberately NOT an API integration (2026-08-02)
 
 **We do not post on the user's behalf, and that is the design.** Posting

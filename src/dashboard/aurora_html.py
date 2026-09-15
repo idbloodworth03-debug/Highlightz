@@ -1399,6 +1399,8 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"></script>
+<script src="/static/vendor/mp4-muxer.js"></script>
+<script src="/static/vendor/webm-muxer.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -4398,6 +4400,231 @@ function pickRecorderType() {
   return REC_TYPES.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || '';
 }
 
+/* ── Export, frame-accurate (WebCodecs) ──────────────────────────────────────
+   WHY A SECOND EXPORT PATH. MediaRecorder records the canvas in REAL TIME:
+   it keeps whatever frames the encoder finishes before the next one arrives
+   and drops the rest, and it spends bitrate on its own schedule. Measured in
+   software-rendered Chromium on the real paint path (blur fill + caption):
+   captureStream(30) landed 10.8 fps in the file and captureStream(60) landed
+   11.6, at 1.5 Mbps against 16 asked for. A laptop GPU does better, but the
+   mechanism is the same — smoothness depends on the machine, and 60 fps is
+   never guaranteed. That is "the export is not smooth".
+
+   This path encodes EVERY frame the source presents, at its own media time,
+   with the encoder allowed to fall behind: requestVideoFrameCallback hands
+   over each decoded frame, the canvas is painted for exactly that time, the
+   frame is queued to a VideoEncoder, and if the queue backs up playback is
+   PAUSED until it drains rather than frames being lost. If the video element
+   itself starts skipping (presentedFrames jumps), playback rate is halved so
+   it stops. Audio is decoded offline from the source file and encoded
+   separately, so it cannot drift or stall. The result is deterministic:
+   source fps in, source fps out, the bitrate that was asked for, and no
+   "playback stalled" failure mode. It runs at roughly real time on a slow
+   machine and faster than real time on a fast one.
+
+   The container is written by a vendored muxer (/static/vendor): the raw
+   encoder output is an elementary stream nobody can open, which is the reason
+   this was not wired in before. MP4 (H.264 + AAC) where the browser has those
+   encoders, else WebM (VP9 + Opus); the MediaRecorder path stays as the
+   fallback for browsers with neither WebCodecs nor a muxer-compatible codec.
+
+   Same paintFrame, same opts. There is still exactly one draw path. */
+
+function _haveMuxers() {
+  return typeof Mp4Muxer !== 'undefined' || typeof WebMMuxer !== 'undefined';
+}
+
+// Which encoders THIS browser has for THIS output. null means "use the
+// recorder". Probed with the real dimensions: H.264 level 4.0 is only rated to
+// 1080p30, so 1080x1920 at 60 asks for 4.2 first and lets the browser say no.
+async function frameAccurateSupport(w, h, fps) {
+  if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') return null;
+  if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return null;
+  if (!_haveMuxers()) return null;
+  const tryV = async (codec) => {
+    try { return (await VideoEncoder.isConfigSupported({ codec, width: w, height: h, bitrate: 16e6, framerate: fps })).supported; }
+    catch (e) { return false; }
+  };
+  const tryA = async (codec) => {
+    try { return (await AudioEncoder.isConfigSupported({ codec, sampleRate: 48000, numberOfChannels: 2, bitrate: 160e3 })).supported; }
+    catch (e) { return false; }
+  };
+  if (typeof Mp4Muxer !== 'undefined' && await tryA('mp4a.40.2')) {
+    for (const c of ['avc1.64002A', 'avc1.640028', 'avc1.4D402A', 'avc1.4D401F', 'avc1.42E01F']) {
+      if (await tryV(c)) return { ext: 'mp4', mime: 'video/mp4', vcodec: c, acodec: 'mp4a.40.2', mux: 'mp4', label: 'MP4 (H.264)' };
+    }
+  }
+  if (typeof WebMMuxer !== 'undefined' && await tryA('opus') && await tryV('vp09.00.10.08')) {
+    return { ext: 'webm', mime: 'video/webm', vcodec: 'vp09.00.10.08', acodec: 'opus', mux: 'webm', label: 'WebM (VP9)' };
+  }
+  return null;
+}
+
+function _makeMuxer(sup, w, h, fps, audio) {
+  const a = audio ? { sampleRate: audio.sampleRate, numberOfChannels: audio.channels } : null;
+  if (sup.mux === 'mp4') {
+    return new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: 'avc', width: w, height: h, frameRate: fps },
+      audio: a ? { codec: 'aac', ...a } : undefined,
+      // The index at the front, so the file plays before it has fully
+      // downloaded — the same reason the ffmpeg cut uses +faststart.
+      fastStart: 'in-memory',
+      firstTimestampBehavior: 'offset',
+    });
+  }
+  return new WebMMuxer.Muxer({
+    target: new WebMMuxer.ArrayBufferTarget(),
+    video: { codec: 'V_VP9', width: w, height: h, frameRate: fps },
+    audio: a ? { codec: 'A_OPUS', ...a } : undefined,
+    firstTimestampBehavior: 'offset',
+  });
+}
+
+// The clip's own sound for the cut, encoded OFFLINE: fetch the source, decode
+// it, render just [inPt, outPt] to 48 kHz through an OfflineAudioContext, and
+// feed that to an AudioEncoder in 1024-frame pieces. Nothing here is real
+// time, so it cannot drift against the picture or stall behind it. A source
+// we cannot fetch (cross-origin) exports silent, as the recorder path did.
+async function _encodeAudioOffline(sup, srcUrl, inPt, outPt) {
+  let decoded;
+  try {
+    const ab = await (await fetch(srcUrl)).arrayBuffer();
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    try { decoded = await actx.decodeAudioData(ab); } finally { actx.close().catch(() => {}); }
+  } catch (e) { return null; }
+  if (!decoded || !decoded.numberOfChannels) return null;
+  const sr = 48000, ch = Math.min(2, decoded.numberOfChannels);
+  const secs = Math.max(0.05, outPt - inPt);
+  const len = Math.ceil(secs * sr);
+  const off = new OfflineAudioContext(ch, len, sr);
+  const src = off.createBufferSource();
+  src.buffer = decoded; src.connect(off.destination);
+  src.start(0, Math.max(0, inPt), secs);
+  const pcm = await off.startRendering();
+  const chunks = [];
+  let err = null;
+  const enc = new AudioEncoder({ output: (chunk, meta) => chunks.push([chunk, meta]), error: e => { err = e; } });
+  enc.configure({ codec: sup.acodec, sampleRate: sr, numberOfChannels: ch, bitrate: 160e3 });
+  const N = 1024;
+  for (let i = 0; i < len; i += N) {
+    const n = Math.min(N, len - i);
+    const planar = new Float32Array(n * ch);
+    for (let k = 0; k < ch; k++) planar.set(pcm.getChannelData(k).subarray(i, i + n), k * n);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: sr, numberOfFrames: n, numberOfChannels: ch,
+                               timestamp: Math.round(i / sr * 1e6), data: planar });
+    enc.encode(ad); ad.close();
+    if (err) break;
+  }
+  await enc.flush(); enc.close();
+  if (err) throw err;
+  return { chunks, sampleRate: sr, channels: ch };
+}
+
+// Every frame, at its own time. See the block comment above.
+//   v, c    the editor's video and canvas (canvas already at outW x outH)
+//   paint   (t) => paints the canvas for media time t
+//   onPct   progress 0..99
+//   cancel  a ref; true aborts
+async function exportFrameAccurate(sup, { v, c, paint, inPt, outPt, outW, outH, fps, hd, srcUrl, onPct, cancel }) {
+  const audio = await _encodeAudioOffline(sup, srcUrl, inPt, outPt).catch(() => null);
+  if (cancel.current) return null;
+  const muxer = _makeMuxer(sup, outW, outH, fps, audio);
+  if (audio) for (const [chunk, meta] of audio.chunks) muxer.addAudioChunk(chunk, meta);
+
+  let encErr = null;
+  const enc = new VideoEncoder({
+    output: (chunk, meta) => { try { muxer.addVideoChunk(chunk, meta); } catch (e) { encErr = e; } },
+    error: e => { encErr = e; },
+  });
+  const cfg = { codec: sup.vcodec, width: outW, height: outH, bitrate: hd ? 16e6 : 10e6,
+                framerate: fps, latencyMode: 'quality' };
+  if (sup.mux === 'mp4') cfg.avc = { format: 'avc' };
+  enc.configure(cfg);
+
+  // Park at the in-point. Assigning the current time fires no 'seeked'.
+  v.pause();
+  if (Math.abs(v.currentTime - inPt) > 0.01) {
+    v.currentTime = inPt;
+    await new Promise(res => { const h = () => { v.removeEventListener('seeked', h); res(); };
+                               v.addEventListener('seeked', h); setTimeout(h, 3000); });
+  }
+  const span = Math.max(0.1, outPt - inPt);
+  const frameDur = Math.round(1e6 / fps);
+  let n = 0, lastTs = -1, lastPresented = null, lastFrameAt = Date.now();
+  v.playbackRate = 1;
+
+  await new Promise((res, rej) => {
+    let finished = false;
+    const done = (e) => { if (finished) return; finished = true; e ? rej(e) : res(); };
+    const onFrame = (_now, md) => {
+      if (finished) return;
+      if (cancel.current) return done();
+      if (encErr) return done(encErr);
+      lastFrameAt = Date.now();
+      const mt = md.mediaTime;
+      if (mt >= outPt - 1e-4) return done();
+      // The ELEMENT skipped a frame (it decodes on its own clock and a busy
+      // tab can fall behind). Slow it down AND go back for what it skipped:
+      // seek to the last frame that was encoded, so the skipped ones are
+      // presented again on the slower pass. The `ts > lastTs` guard below
+      // makes the re-presented frames harmless, and the timestamps stay
+      // media time, so the file is identical to a pass that never skipped.
+      // Measured without the seek-back: 5 frames lost in the first 100 ms
+      // while the rate ramped 1 -> 0.5 -> 0.25, then none. This closes that.
+      if (lastPresented !== null && md.presentedFrames - lastPresented > 1) {
+        if (v.playbackRate > 0.25) v.playbackRate = v.playbackRate / 2;
+        if (lastTs >= 0) {
+          lastPresented = null;              // the seek re-presents; not a skip
+          v.currentTime = inPt + lastTs / 1e6;
+          v.requestVideoFrameCallback(onFrame);
+          return;
+        }
+      }
+      lastPresented = md.presentedFrames;
+      if (mt >= inPt - 1e-4) {
+        const ts = Math.round((mt - inPt) * 1e6);
+        if (ts > lastTs) {                 // a re-presented frame after a pause
+          paint(mt);
+          const frame = new VideoFrame(c, { timestamp: ts, duration: frameDur });
+          try { enc.encode(frame, { keyFrame: n % (fps * 2) === 0 }); } finally { frame.close(); }
+          n++; lastTs = ts;
+        }
+      }
+      onPct(Math.min(99, ((mt - inPt) / span) * 100));
+      // Backpressure: the encoder is behind. Hold the picture until it has
+      // caught up — that is the whole difference from the recorder path,
+      // which would have thrown these frames away.
+      if (enc.encodeQueueSize > 6 && !v.paused) {
+        v.pause();
+        (async () => {
+          while (enc.encodeQueueSize > 2 && !finished && !cancel.current) await new Promise(r => setTimeout(r, 15));
+          if (!finished && !cancel.current) v.play().catch(e => done(e));
+        })();
+      }
+      v.requestVideoFrameCallback(onFrame);
+    };
+    v.addEventListener('ended', () => done(), { once: true });
+    v.requestVideoFrameCallback(onFrame);
+    // A stall guard on real time, like the recorder's: no frame for 10s is
+    // stuck, not slow.
+    const guard = setInterval(() => {
+      if (finished) return clearInterval(guard);
+      if (Date.now() - lastFrameAt > 10000) { clearInterval(guard); done(new Error('Playback stalled during the export. Try again, or trim a shorter section.')); }
+    }, 1000);
+    v.play().catch(e => done(e));
+  });
+  v.pause();
+  v.playbackRate = 1;
+  if (cancel.current) { try { enc.close(); } catch (e) {} return null; }
+  await enc.flush();
+  enc.close();
+  if (encErr) throw encErr;
+  if (!n) throw new Error('Export produced no frames.');
+  muxer.finalize();
+  return { blob: new Blob([muxer.target.buffer], { type: sup.mime }), ext: sup.ext, frames: n };
+}
+
 /* ── Export audio ────────────────────────────────────────────────────────────
    WHY THIS EXISTS. The export records canvas.captureStream(), and a canvas has
    no sound — so the recorded stream carried a video track and nothing else,
@@ -5080,24 +5307,65 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     }catch{ setCapErr('Could not reach the server'); setCapJob(null); }
   };
 
+  // The stage's size in device pixels, kept current by a ResizeObserver so
+  // the paint loop never has to read layout on a tick.
+  const stageSizeRef = useRef([0, 0]);
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const r = el.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      stageSizeRef.current = [Math.round(r.width * dpr), Math.round(r.height * dpr)];
+      dirtyRef.current = true;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // ── The paint loop: registered once, reads `latest`. ──
   useEffect(() => {
     const draw = () => {
       const v = videoRef.current, c = canvRef.current;
       const L = latest.current;
       if (v && c && L.opts) {
+        // THE PREVIEW IS PAINTED AT THE SIZE IT IS SHOWN, not at the export
+        // size. paintFrame draws everything relative to w/h, so a stage 420
+        // CSS px tall on a 2x display gets an 840px-tall bitmap rather than a
+        // 1920px one — measured identical on screen (Laplacian variance 1374
+        // vs 1376 on the same frame) at about a fifth of the pixels per tick.
+        // That fifth is what makes scrubbing and playback smooth on a laptop
+        // GPU or a phone, where painting two megapixels per frame plus the
+        // blur pipeline was the stutter. Never larger than the output, so a
+        // huge monitor does not upscale the picture past what export gets.
+        //
+        // An export paints at the real output size: exportRecorder sizes the
+        // canvas itself before it starts recording, and `busy` holds it there.
         // Never resize mid-export: assigning canvas.width resets the surface
         // and invalidates the MediaRecorder capture track, so a shape change
         // landing during a render would truncate the file.
-        if ((c.width !== L.outW || c.height !== L.outH) && !L.busy) {
-          c.width = L.outW; c.height = L.outH; dirtyRef.current = true;
+        let tw = L.outW, th = L.outH;
+        if (!L.busy) {
+          const [sw, sh] = stageSizeRef.current;
+          if (sw > 0 && sh > 0) {
+            const s = Math.min(1, sw / L.outW, sh / L.outH);
+            tw = Math.max(2, Math.round(L.outW * s / 2) * 2);
+            th = Math.max(2, Math.round(L.outH * s / 2) * 2);
+          }
+        }
+        if ((c.width !== tw || c.height !== th) && !L.busy) {
+          c.width = tw; c.height = th; dirtyRef.current = true;
         }
         const t = v.currentTime;
         const live = L.playing || L.busy || !v.paused;
         // Painting a paused frame again is wasted work; a busy export must
         // paint every tick so captureStream has a fresh frame to record.
         if (dirtyRef.current || live) {
-          if (v.readyState >= 2) paintFrame(c.getContext('2d'), v, L.opts());
+          if (v.readyState >= 2) {
+            const o = L.opts();
+            paintFrame(c.getContext('2d'), v, c.width === o.w && c.height === o.h ? o : { ...o, w: c.width, h: c.height });
+          }
           dirtyRef.current = false;
         }
         if (headRef.current)
@@ -5335,7 +5603,19 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const v = videoRef.current, c = canvRef.current;
     const type = pickRecorderType();
     if (!type) throw new Error('This browser cannot export video. Try Chrome.');
-    const stream = c.captureStream(30);
+    const hd = outputSize(ratio, srcDims[0], srcDims[1]).hd;
+    // The preview canvas is sized to the stage, not to the export. Size it to
+    // the real output HERE, synchronously, before captureStream — the paint
+    // loop would do it on its next tick, but by then the capture track would
+    // already be attached to the small surface, and resizing a canvas resets
+    // it and invalidates that track. `busy` is already set, so the loop
+    // leaves it alone from here on.
+    if (c.width !== outW || c.height !== outH) { c.width = outW; c.height = outH; }
+    if (v.readyState >= 2) paintFrame(c.getContext('2d'), v, opts());
+    // 60 for an HD source: Twitch delivers 60 fps and the platforms take it.
+    // What the encoder actually keeps is machine-dependent — this is the
+    // ceiling, not a promise; the frame-accurate path is the promise.
+    const stream = c.captureStream(hd ? 60 : 30);
     // The canvas gives picture only. Add the clip's own audio, or the export
     // is silent — which is exactly what it used to be.
     const g = audioGraph(v, clip.url);
@@ -5345,7 +5625,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       if (at) stream.addTrack(at);
     }
     const chunks = [];
-    const hd = outputSize(ratio, srcDims[0], srcDims[1]).hd;
     // The budget is deliberately generous: a Twitch clip arrives at 6-8 Mbps
     // for 1080p60, and re-encoding the same picture in real time at less than
     // that is where the softness in "my export looks blurry" came from.
@@ -5402,6 +5681,16 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     return { blob: new Blob(chunks, { type }), ext: type.includes('mp4') ? 'mp4' : 'webm' };
   };
 
+  // Which export this browser gets. Probed once per output size, async,
+  // because isConfigSupported is; null until it answers, and null for good on
+  // a browser without WebCodecs or a usable codec — then the recorder runs.
+  const [faSup, setFaSup] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    frameAccurateSupport(outW, outH, out.hd ? 60 : 30).then(s => { if (!gone) setFaSup(s); }).catch(() => {});
+    return () => { gone = true; };
+  }, [outW, outH, out.hd]);
+
   const runExport = async () => {
     // Exporting while the preview is playing was the reliable way to hang the
     // old editor at 0%: two things driving the same element. Stop the preview
@@ -5421,12 +5710,26 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     if (g) g.monitor.gain.value = 0;
     else v.muted = true;
     try {
-      // MediaRecorder produces a real, playable container on every browser.
-      // A WebCodecs fast path is deliberately NOT wired in: it yields a raw
-      // H.264 elementary stream, and shipping a file the user cannot open
-      // would be worse than a slower export that works.
-      const { blob, ext } = await exportRecorder();
-      if (cancelRef.current) { setDone(''); return; }
+      // Frame-accurate WebCodecs export where the browser can do it (every
+      // source frame, the bitrate asked for, no real-time race — see the
+      // block comment on exportFrameAccurate); the MediaRecorder path is the
+      // fallback, which produces a playable container on every browser.
+      const c = canvRef.current;
+      if (c.width !== outW || c.height !== outH) { c.width = outW; c.height = outH; }
+      let result;
+      if (faSup) {
+        // Paint for an EXACT media time, not whatever currentTime reads on
+        // this tick: the frame being encoded is the one rVFC just presented.
+        const paintAt = (t) => paintFrame(c.getContext('2d'), v,
+          { ...opts(), t, caption: capOn ? activeCaption(caps, t) : null });
+        result = await exportFrameAccurate(faSup, {
+          v, c, paint: paintAt, inPt, outPt, outW, outH, fps: out.hd ? 60 : 30, hd: out.hd,
+          srcUrl: clip.url, onPct: setPct, cancel: cancelRef });
+      } else {
+        result = await exportRecorder();
+      }
+      if (cancelRef.current || !result) { setDone(''); return; }
+      const { blob, ext } = result;
       if (!blob.size) throw new Error('Export produced an empty file.');
       const name = (clip.filename || 'clip').replace(RE_EXT, '')
                    + '-' + ratio.replace(':', 'x') + '.' + ext;
@@ -5471,9 +5774,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   const clipSecs = Math.max(0, outPt - inPt);
   const recType = pickRecorderType();
-  const canExport = !!recType && dur > 0;
+  // Frame-accurate where the browser can, the recorder where it cannot; the
+  // button is live if either path exists.
+  const canExport = (!!faSup || !!recType) && dur > 0;
   const eta = Math.max(1, Math.round(clipSecs));
-  const fmtOut = recType.includes('mp4') ? 'MP4' : 'WebM';
+  const fmtOut = faSup ? (faSup.ext === 'mp4' ? 'MP4' : 'WebM') : (recType.includes('mp4') ? 'MP4' : 'WebM');
   const framed = zoom !== 1 || offX !== 0 || offY !== 0;
   const shape = RATIOS.find(r => r[0] === ratio) || RATIOS[0];
 
