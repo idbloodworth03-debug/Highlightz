@@ -2203,8 +2203,9 @@ def _paywall_copy(kind: str) -> dict:
         "subline":  ("free covers one channel and a queue of 20 clips, which is "
                      "enough to see whether the detector earns its place. Paid "
                      "plans widen both, and Pro adds the VOD Scanner for streams "
-                     "that already happened and the Clip Editor for reframing any "
-                     "clip for vertical — from $10/month, cancel anytime."),
+                     "that already happened, the Clip Editor for reframing any "
+                     "clip for vertical and the Scheduler to post it to YouTube, "
+                     "TikTok and Instagram for you — from $10/month, cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -6799,9 +6800,10 @@ and editors who follow several channels at once and cannot watch them all.
   {keeps(st)}.
 - Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
-  {keeps(pro)}, plus the VOD Scanner and the Clip Editor (reframe any caught
+  {keeps(pro)}, plus the VOD Scanner, the Clip Editor (reframe any caught
   clip for vertical, title it, add transitions and a sound, export it frame by
-  frame in the browser).
+  frame in the browser) and the Scheduler (post exported clips to the YouTube,
+  TikTok and Instagram accounts you connect, at a time you set).
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -6891,6 +6893,7 @@ async def llms_full_txt():
     w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
     w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
     w(f"| Clip Editor | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
+    w(f"| Scheduler | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
     w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
@@ -8172,6 +8175,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .edit-card{border-top:2px solid var(--paper-ink);padding-top:var(--s-4);min-width:0}
   .edit-card h3{margin:0 0 var(--s-2);font-size:clamp(17px,1.5vw,20px);line-height:1.25}
   .edit-card p{margin:0;font-size:15px;line-height:1.55;color:var(--paper-ink-2)}
+  .edit.post{margin-top:var(--s-7);padding-top:var(--s-6)}
   .edit-cta{display:flex;align-items:center;gap:var(--s-4);flex-wrap:wrap;margin:var(--s-7) 0 0}
   .edit-cta span{font-size:15px;color:var(--paper-ink-2)}
   .price-lead{margin:var(--s-4) 0 0;font-size:clamp(16px,1.4vw,19px);line-height:1.5;
@@ -10111,6 +10115,8 @@ def _pricing() -> str:
             ("Clips kept per week", week(limits)),
             ("VOD Scanner", "Yes" if limits["vod"] else "No"),
             ("Clip Editor", "Yes" if limits["uploads"] else "No"),
+            # Same entitlement as the editor, on purpose: cut it, then post it.
+            ("Scheduler", "Yes" if limits["uploads"] else "No"),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
@@ -10169,6 +10175,24 @@ def _editor_section() -> str:
                   "never a recording of the preview."))
     body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
                    for h, p in cards)
+    # The Scheduler, marketed the same day it started posting (owner:
+    # "market the scheduler and only open it to pro"). Same block, under the
+    # editor cards: cut it, then post it, is one story.
+    post_cards = [
+        ("Connect once",
+         "YouTube, TikTok and Instagram Reels, from the Scheduler tab. Your "
+         "account stays yours; Highlightz only holds what it needs to post."),
+        ("Pick a time",
+         "Every export lands in the queue. Give it a time and Highlightz posts it "
+         "for you, with your caption, to every account you chose. Or press Post "
+         "now."),
+        ("One caption, checked",
+         "Written once, used everywhere, and checked against each platform's "
+         "length, ratio and format limits before it goes out, so the upload page "
+         "never says no."),
+    ]
+    post_body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
+                        for h, p in post_cards)
     # A div, not a section: it sits inside the pricing section under the
     # plans, hairlined off the way the FAQ is, so the page keeps its eight.
     return (
@@ -10179,8 +10203,15 @@ def _editor_section() -> str:
         "titled and cut, right where it landed. In the browser, on your machine, "
         "with nothing waiting on a render queue.</p>"
         '<div class="edit-grid">' + body + "</div>"
+        '<div class="edit post" id="post">'
+        '<p class="edit-tag">Scheduler &middot; Pro</p>'
+        '<h2 class="disp l-h" id="post-h">Then post it.</h2>'
+        '<p class="l-sub">Connect your YouTube, TikTok and Instagram accounts once and '
+        "the Scheduler posts your clips to them for you, at the time you set.</p>"
+        '<div class="edit-grid">' + post_body + "</div>"
+        "</div>"
         '<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Open the editor</a>'
-        '<span>Included with Pro, with the VOD Scanner.</span></p>'
+        '<span>Both included with Pro, with the VOD Scanner.</span></p>'
         "</div>")
 
 
@@ -10210,7 +10241,7 @@ def _tos_plans() -> str:
         + str(st["max_library_week"]) + " clips a week. Pro is $"
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
-        "keep, the VOD Scanner and the Clip Editor. Current plan details and "
+        "keep, the VOD Scanner, the Clip Editor and the Scheduler. Current plan details and "
         "prices are shown on our pricing page and in your Account tab.</p>"
         "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
@@ -10312,13 +10343,17 @@ def _faq() -> str:
          f"<b>{week(st)}</b> on Starter, <b>{week(pro)}</b> on Pro. Reaching the number pauses new "
          "approvals until the week rolls over. Nothing already in your library is ever removed "
          "because of it."),
-        ("What are the VOD Scanner and the Clip Editor?",
-         "Both are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
+        ("What are the VOD Scanner, the Clip Editor and the Scheduler?",
+         "All three are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
          "so a back catalogue nobody was watching live is still worth mining, and every hit links to "
          "its own timestamp in the VOD. The Clip Editor opens any clip you have caught with one "
          "press, reframes it for vertical with five templates, adds a title, transitions and a sound "
          "on the cut, and exports it frame by frame at up to 1080×1920, in your browser, "
-         "with nothing waiting on a render queue."),
+         "with nothing waiting on a render queue. The Scheduler takes every clip you export and "
+         "posts it to the YouTube, TikTok and Instagram accounts you connect, at the time you pick, "
+         "with one caption checked against each platform's limits first. Disconnect an account and "
+         "Highlightz forgets its login. TikTok may land a post as private until TikTok finishes "
+         "reviewing the Highlightz app; you set it public in TikTok."),
         ("Is this allowed on Twitch?",
          "Clips are created through Twitch's official Clips API with your authorized account, the "
          "same mechanism as Twitch's own Clip button. So you can download, edit and post a "
@@ -10560,7 +10595,8 @@ def _paywall_plans() -> str:
             + card(st, "starter", "", "ghost",
                    ["Live clip detection &amp; analytics"], False)
             + card(pro, "pro", "pro", "",
-                   ["VOD Scanner included", "Clip Editor included"], True)
+                   ["VOD Scanner included", "Clip Editor included",
+                    "Scheduler included"], True)
             + "</div>")
 
 
@@ -10808,6 +10844,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2; when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
+    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account in the Scheduler, the OAuth tokens that authorize the Service to upload clips you schedule to that account, and the account's public name. They are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>

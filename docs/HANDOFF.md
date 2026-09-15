@@ -563,12 +563,21 @@ normal Clip Review screen, which still shows scores.
   dashes and one "no X, no Y" construction, and the copy was written to
   those rules rather than the rules loosened. Also a Clip Editor
   row in the pricing tables and the paywall, the FAQ entry, the Terms' plan
-  sentence and both LLM briefs. The Scheduler and auto-posting are released
-  (see below) but STILL UNMARKETED — nobody has asked for landing copy for
-  them; `test_the_scheduler_and_auto_posting_are_not_marketed_anywhere_public`
-  pins that until the owner does, and
-  `test_the_clip_editor_is_marketed_on_the_landing_page` pins the editor copy
-  so it cannot drift back to the September silence.
+  sentence and both LLM briefs. **The Scheduler followed the same evening**
+  (owner: "market the scheduler and only open it to pro"): a second block
+  inside the same `_editor_section()` div (`id="post"`, "Then post it.",
+  three cards: Connect once / Pick a time / One caption, checked), a
+  Scheduler row in the pricing facts, the paywall subline and Pro card, the
+  FAQ entry (now "What are the VOD Scanner, the Clip Editor and the
+  Scheduler?", which also carries the honest TikTok-private-until-audit
+  line), the Terms' plan sentence, both LLM briefs, and a "Connected posting
+  accounts" item in the Privacy Policy's data list with the Google API
+  Services User Data Policy sentence Google's verification asks for. Pro
+  only is the existing entitlement (`PLAN_LIMITS[*]["uploads"]`, true only
+  on Pro), and `test_the_scheduler_is_marketed_on_the_landing_page_and_
+  sold_as_pro_only` pins both the copy and that the pricing table says Yes
+  on exactly the Pro column. `test_the_clip_editor_is_marketed_on_the_
+  landing_page` still pins the editor copy.
 - **Clip Editor and Scheduler: unmarketed and gated (2026-09-02, late).**
   Owner: "not ready to push that out yet — remove the clip editor and auto
   post stuff on the landing page and make sure it is gatekept". Removed from
@@ -1653,8 +1662,8 @@ for a few minutes. Each of those is now handled rather than avoided:
   TikTok chunking + forced-private note, Instagram public URL + polling),
   the routes and the UI strings.
 
-**Not done, deliberately:** marketing it (no landing copy asked for);
-scheduling per platform at different times (one time per item); YouTube
+**Not done, deliberately:** scheduling per platform at different times
+(one time per item); YouTube
 Shorts-specific metadata beyond vertical + ≤60 s (YouTube decides Shorts
 from the file); the `ORG_PROFILES` still empty.
 

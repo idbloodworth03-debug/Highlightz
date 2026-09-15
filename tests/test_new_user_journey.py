@@ -366,22 +366,30 @@ def _visible_text(html: str) -> str:
     return re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S).lower()
 
 
-def test_the_scheduler_and_auto_posting_are_not_marketed_anywhere_public():
-    """Owner (2026-09-02): "we need to not market the clip editor yet …
-    remove the clip editor and auto post stuff on the landing page and make
-    sure it is gatekept". The EDITOR half of that was lifted on 2026-09-15
-    ("market the editor on the landing page now") — see the test below. The
-    Scheduler and auto-posting are still unreleased, and every public surface
-    must stay silent about them until they ship."""
-    for name, html in _public_surfaces().items():
-        text = _visible_text(html)
-        # The comparison page names the COMPETITORS' schedulers, auto-posting
-        # and ready-to-post exports and says we do not do it, which is the
-        # opposite of marketing it. llms-full.txt carries it verbatim.
-        if name in ("compare", "llms-full.txt"):
-            continue
-        for tell in ("scheduler", "auto-post", "autopost", "ready to post"):
-            assert tell not in text, f"{name} markets the unreleased Scheduler: {tell!r}"
+def test_the_scheduler_is_marketed_on_the_landing_page_and_sold_as_pro_only():
+    """Owner (2026-09-02): "remove the clip editor and auto post stuff on the
+    landing page". Both halves lifted on 2026-09-15: the editor first
+    ("market the editor on the landing page now"), then, once it actually
+    posted, the Scheduler ("market the scheduler and only open it to pro").
+    Marketed everywhere the editor is, and sold — and gated — as Pro only."""
+    from src.billing.plans import PLAN_LIMITS
+    s = _public_surfaces()
+    landing = _visible_text(s["landing"])
+    assert 'id="post"' in s["landing"], "no Scheduler block on the landing page"
+    for need in ("scheduler", "then post it", "connect once", "pick a time",
+                 "youtube, tiktok and instagram"):
+        assert need in landing, f"the landing page does not say: {need!r}"
+    for name in ("pricing", "terms plans", "llms.txt", "paywall"):
+        assert "scheduler" in _visible_text(s[name]), f"{name} omits the Scheduler"
+    assert "| scheduler |" in _visible_text(s["llms-full.txt"])
+    # Pro only: the entitlement is the editor's, and only Pro has it — so the
+    # pricing table says Yes on exactly the Pro column.
+    import re
+    assert [k for k, v in PLAN_LIMITS.items() if v["uploads"]] == ["pro"]
+    rows = re.findall(r'plan-name">([^<]+)</h3>.*?<span>Scheduler</span><b>(Yes|No)</b>',
+                      s["pricing"], re.S)
+    assert rows, "no Scheduler row in the pricing table"
+    assert {label for label, yes in rows if yes == "Yes"} == {PLAN_LIMITS["pro"]["label"]}, rows
 
 
 def test_the_clip_editor_is_marketed_on_the_landing_page():
