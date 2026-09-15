@@ -339,41 +339,62 @@ def test_typing_the_route_does_not_strand_them(app):
     assert "adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review'" in DASHBOARD_HTML
 
 
-def test_the_unreleased_features_are_not_marketed_anywhere_public():
-    """Owner (2026-09-02): "we need to not market the clip editor yet …
-    remove the clip editor and auto post stuff on the landing page and make
-    sure it is gatekept". Every public surface — the landing page (pricing
-    rows, FAQ), the Terms' plan sentence, the tutorial, the comparison, both
-    LLM briefs — must stay silent about the Clip Editor, the Scheduler and
-    auto-posting until they ship. The legal pages' data disclosures are the
-    one exception, because an admin can still upload."""
-    import re
+def _public_surfaces():
     from fastapi.testclient import TestClient
     from src.dashboard import api, compare_html, tutorial_html
     c = TestClient(api.app)
-    surfaces = {
+    return {
         "landing": api.LANDING_HTML, "tutorial": tutorial_html.render(),
         "compare": compare_html.render(), "llms.txt": c.get("/llms.txt").text,
         "llms-full.txt": c.get("/llms-full.txt").text, "terms plans": api._tos_plans(),
         "pricing": api._pricing(), "paywall": api.PAYWALL_HTML,
     }
-    for name, html in surfaces.items():
-        text = re.sub(r"<!--.*?-->", "", html, flags=re.S)
-        text = re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S).lower()
-        tells = ["clip editor", "cut them for vertical", "and uploads"]
+
+
+def _visible_text(html: str) -> str:
+    import re
+    text = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+    return re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S).lower()
+
+
+def test_the_scheduler_and_auto_posting_are_not_marketed_anywhere_public():
+    """Owner (2026-09-02): "we need to not market the clip editor yet …
+    remove the clip editor and auto post stuff on the landing page and make
+    sure it is gatekept". The EDITOR half of that was lifted on 2026-09-15
+    ("market the editor on the landing page now") — see the test below. The
+    Scheduler and auto-posting are still unreleased, and every public surface
+    must stay silent about them until they ship."""
+    for name, html in _public_surfaces().items():
+        text = _visible_text(html)
         # The comparison page names the COMPETITORS' schedulers, auto-posting
-        # and ready-to-post exports ("no scheduler, no B-roll"; "auto-posts to
-        # TikTok — theirs, not ours"; "hand you something ready to post") and
-        # says we do not do it, which is the opposite of marketing it.
-        # llms-full.txt carries the comparison verbatim, so the same exemption.
-        if name not in ("compare", "llms-full.txt"):
-            tells += ["scheduler", "auto-post", "autopost", "ready to post"]
-        for tell in tells:
-            assert tell not in text, f"{name} still markets the unreleased feature: {tell!r}"
-    # And the in-app upgrade prompt, which a free user reads on the Account tab.
-    from src.dashboard.aurora_html import DASHBOARD_HTML
-    i = DASHBOARD_HTML.index("Want more?")
-    assert "Clip Editor" not in DASHBOARD_HTML[i:i + 600], "the upgrade prompt sells the Clip Editor"
+        # and ready-to-post exports and says we do not do it, which is the
+        # opposite of marketing it. llms-full.txt carries it verbatim.
+        if name in ("compare", "llms-full.txt"):
+            continue
+        for tell in ("scheduler", "auto-post", "autopost", "ready to post"):
+            assert tell not in text, f"{name} markets the unreleased Scheduler: {tell!r}"
+
+
+def test_the_clip_editor_is_marketed_on_the_landing_page():
+    """Released to Pro and, since 2026-09-15, sold: a section of its own on
+    the landing page, a row in every pricing table, the FAQ, the Terms' plan
+    sentence and both LLM briefs. Pinned so the copy cannot quietly drift back
+    to the September silence."""
+    from src.dashboard import api
+    s = _public_surfaces()
+    landing = _visible_text(s["landing"])
+    assert 'id="edit"' in s["landing"], "no Clip Editor section on the landing page"
+    assert "<!--editor-->" not in landing, "the editor placeholder was never rendered"
+    for need in ("clip editor", "then make it yours", "five templates", "transitions and sound"):
+        assert need in landing, f"the landing page does not say: {need!r}"
+    assert "clip editor" in _visible_text(s["pricing"]), "no Clip Editor row in pricing"
+    assert "clip editor" in _visible_text(s["terms plans"]), "the Terms' plan sentence omits it"
+    assert "clip editor" in _visible_text(s["llms.txt"])
+    assert "| clip editor |" in _visible_text(s["llms-full.txt"])
+    assert "clip editor" in _visible_text(s["paywall"])
+    # And the captions card is only there when captions actually are.
+    assert ("captions, word by word" in landing) == bool(api.settings.captions_enabled), \
+        "the landing page sells captions it does not (or does) have"
 
 
 def test_every_editor_and_scheduler_endpoint_is_behind_the_release_gate():

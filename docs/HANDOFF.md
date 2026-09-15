@@ -554,10 +554,21 @@ normal Clip Review screen, which still shows scores.
   non-admin is saved to their Clip Editor library and says so, and the
   `/publish/schedule` POST is skipped (`schedulerOn` prop on `ClipEditor`);
   "added to your Scheduler" with no Scheduler tab would promise a screen
-  they cannot see. The public-marketing restriction below was NOT lifted by
-  this — nobody asked for landing/pricing copy — so the editor is released
-  but still unmarketed; `test_the_unreleased_features_are_not_marketed…`
-  keeps pinning that until the owner says otherwise.
+  they cannot see. **Marketed the same day** (owner: "market the editor on
+  the landing page now"): a block on the landing page inside the pricing
+  section, under the plans and hairlined off them the way the FAQ is
+  (`_editor_section()`, rendered into `<!--EDITOR-->` at import so the
+  captions card appears only when `CAPTIONS_ENABLED` is on). It is a `div`,
+  not a ninth `<section>`: `test_landing_not_a_template.py` pins the page to
+  exactly eight sections in a fixed dark/light rhythm, a budget of three em
+  dashes and one "no X, no Y" construction, and the copy was written to
+  those rules rather than the rules loosened. Also a Clip Editor
+  row in the pricing tables and the paywall, the FAQ entry, the Terms' plan
+  sentence and both LLM briefs. The Scheduler and auto-posting are STILL
+  unmarketed and unreleased; `test_the_scheduler_and_auto_posting_are_not_
+  marketed_anywhere_public` pins that, and
+  `test_the_clip_editor_is_marketed_on_the_landing_page` pins the copy so it
+  cannot drift back to the September silence.
 - **Clip Editor and Scheduler: unmarketed and gated (2026-09-02, late).**
   Owner: "not ready to push that out yet — remove the clip editor and auto
   post stuff on the landing page and make sure it is gatekept". Removed from

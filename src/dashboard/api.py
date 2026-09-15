@@ -2195,7 +2195,8 @@ def _paywall_copy(kind: str) -> dict:
         "subline":  ("free covers one channel and a queue of 20 clips, which is "
                      "enough to see whether the detector earns its place. Paid "
                      "plans widen both, and Pro adds the VOD Scanner for streams "
-                     "that already happened — from $10/month, cancel anytime."),
+                     "that already happened and the Clip Editor for reframing any "
+                     "clip for vertical — from $10/month, cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -6628,7 +6629,9 @@ and editors who follow several channels at once and cannot watch them all.
   {keeps(st)}.
 - Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
-  {keeps(pro)}, plus the VOD Scanner.
+  {keeps(pro)}, plus the VOD Scanner and the Clip Editor (reframe any caught
+  clip for vertical, title it, add transitions and a sound, export it frame by
+  frame in the browser).
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -6717,6 +6720,7 @@ async def llms_full_txt():
     w(f"| Highlight clips | {f['max_suggested']} | {st['max_suggested']} | {pro['max_suggested']} |")
     w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
     w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
+    w(f"| Clip Editor | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
     w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
@@ -7987,6 +7991,19 @@ LANDING_HTML = """<!DOCTYPE html>
 
   /* ══ 7. PRICING. Paper. Two tall columns of facts, the price in the mono. ══ */
   .pricing{padding-top:var(--s-9);padding-bottom:var(--s-9)}
+  /* ── Clip Editor block, inside the pricing section under the plans and
+     hairlined off them the way the FAQ is. Same light-page grammar: a rule on
+     top of each card, the body face, the dark button. ── */
+  .edit{margin-top:var(--s-8);padding-top:var(--s-7);border-top:1px solid var(--paper-hair)}
+  .edit-tag{margin:0 0 var(--s-3);font-family:var(--mono);font-size:12px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--paper-ink-2)}
+  .edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+    gap:clamp(24px,3vw,48px);margin-top:var(--s-7)}
+  .edit-card{border-top:2px solid var(--paper-ink);padding-top:var(--s-4);min-width:0}
+  .edit-card h3{margin:0 0 var(--s-2);font-size:clamp(17px,1.5vw,20px);line-height:1.25}
+  .edit-card p{margin:0;font-size:15px;line-height:1.55;color:var(--paper-ink-2)}
+  .edit-cta{display:flex;align-items:center;gap:var(--s-4);flex-wrap:wrap;margin:var(--s-7) 0 0}
+  .edit-cta span{font-size:15px;color:var(--paper-ink-2)}
   .price-lead{margin:var(--s-4) 0 0;font-size:clamp(16px,1.4vw,19px);line-height:1.5;
     color:var(--paper-ink-2);max-width:var(--measure)}
   .price-lead b{color:var(--paper-ink);font-weight:700}
@@ -8342,6 +8359,14 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <h2 class="disp l-h" id="pricing-h">Pricing</h2>
     <!--PRICING-->
+    <!-- The Clip Editor, marketed (owner, 2026-09-15). It lives inside the
+         pricing section under the plans, cut from them by a hairline the way
+         the FAQ is, because the page is built on a fixed eight-section rhythm
+         and a ninth section is exactly what the guard test forbids. Rendered
+         by _editor_section() so the captions card only appears when
+         CAPTIONS_ENABLED is on. Nothing here mentions the Scheduler or
+         posting: that half is not released. -->
+    <!--EDITOR-->
   </div>
 </section>
 
@@ -9915,6 +9940,7 @@ def _pricing() -> str:
             ("Highlight clips", str(limits["max_suggested"])),
             ("Clips kept per week", week(limits)),
             ("VOD Scanner", "Yes" if limits["vod"] else "No"),
+            ("Clip Editor", "Yes" if limits["uploads"] else "No"),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
@@ -9934,6 +9960,58 @@ def _pricing() -> str:
         + plan(pro, "Get Pro") + "</div>"
         '<p class="price-tiny">Move between them whenever you like. Cancel from the Account tab. '
         "No contracts. Streamers can opt out at any time, and it applies everywhere at once.</p>")
+
+
+def _editor_section() -> str:
+    """The Clip Editor on the landing page (owner: "market the editor on the
+    landing page now", 2026-09-15).
+
+    Built at render time rather than typed into the page for one reason: the
+    captions card is only true when CAPTIONS_ENABLED is on, and a landing page
+    must not sell a tab that is not there. Everything else here is what the
+    editor does for a Pro account today — the templates in TEMPLATES, the
+    transitions and sounds in the Effects tab, the frame-accurate export.
+
+    Nothing about the Scheduler or posting. That half is not released, and
+    the guard test still forbids the words.
+    """
+    cards = [
+        ("One click from any clip",
+         "Press Edit on a clip in your queue or library and it opens in the editor "
+         "with the video already there. Nothing to download first, nothing to "
+         "upload back."),
+        ("Five templates",
+         "Cam + Game, Full Frame, Blur Bars, Punch In, Hook Title: the shapes "
+         "streamer clips actually ship in on TikTok, Shorts and Reels. One press, "
+         "then drag the picture to frame it."),
+        ("Transitions and sound",
+         "A zoom punch, fades, a title that rises in, and a whoosh, hit or pop on "
+         "the cut. Small, and they render into the file exactly as you hear them."),
+    ]
+    if settings.captions_enabled:
+        cards.append(("Captions, word by word",
+                      "Generated on our server from the clip's own audio, then burned "
+                      "in with each word lit as it is spoken. Outline or boxed, your "
+                      "size, your position."))
+    cards.append(("Every frame, sharp",
+                  "Exports are cut frame by frame, up to 1080×1920 at 60 fps, "
+                  "at the bitrate the clip came in at. The file is the clip, "
+                  "never a recording of the preview."))
+    body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
+                   for h, p in cards)
+    # A div, not a section: it sits inside the pricing section under the
+    # plans, hairlined off the way the FAQ is, so the page keeps its eight.
+    return (
+        '<div class="edit" id="edit">'
+        '<p class="edit-tag">Clip Editor &middot; Pro</p>'
+        '<h2 class="disp l-h" id="edit-h">Then make it yours.</h2>'
+        '<p class="l-sub">Every clip Highlightz catches can be reframed for vertical, '
+        "titled and cut, right where it landed. In the browser, on your machine, "
+        "with nothing waiting on a render queue.</p>"
+        '<div class="edit-grid">' + body + "</div>"
+        '<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Open the editor</a>'
+        '<span>Included with Pro, with the VOD Scanner.</span></p>'
+        "</div>")
 
 
 def _tos_plans() -> str:
@@ -9962,7 +10040,7 @@ def _tos_plans() -> str:
         + str(st["max_library_week"]) + " clips a week. Pro is $"
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
-        "keep, and the VOD Scanner. Current plan details and "
+        "keep, the VOD Scanner and the Clip Editor. Current plan details and "
         "prices are shown on our pricing page and in your Account tab.</p>"
         "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
@@ -10064,10 +10142,13 @@ def _faq() -> str:
          f"<b>{week(st)}</b> on Starter, <b>{week(pro)}</b> on Pro. Reaching the number pauses new "
          "approvals until the week rolls over. Nothing already in your library is ever removed "
          "because of it."),
-        ("What is the VOD Scanner?",
-         "A Pro feature. It runs the same scoring over a stream that has already ended, so a back "
-         "catalogue nobody was watching live is still worth mining, and every hit links to its own "
-         "timestamp in the VOD."),
+        ("What are the VOD Scanner and the Clip Editor?",
+         "Both are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
+         "so a back catalogue nobody was watching live is still worth mining, and every hit links to "
+         "its own timestamp in the VOD. The Clip Editor opens any clip you have caught with one "
+         "press, reframes it for vertical with five templates, adds a title, transitions and a sound "
+         "on the cut, and exports it frame by frame at up to 1080×1920, in your browser, "
+         "with nothing waiting on a render queue."),
         ("Is this allowed on Twitch?",
          "Clips are created through Twitch's official Clips API with your authorized account, the "
          "same mechanism as Twitch's own Clip button. So you can download, edit and post a "
@@ -10102,6 +10183,7 @@ def _faq() -> str:
 
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ-->", _faq(), 1)
+LANDING_HTML = LANDING_HTML.replace("<!--EDITOR-->", _editor_section(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--RAIL-->", _rail_html(), 1)
 
 # LAST, and that is the whole point. _faq_schema derives the FAQPage from the
@@ -10308,7 +10390,7 @@ def _paywall_plans() -> str:
             + card(st, "starter", "", "ghost",
                    ["Live clip detection &amp; analytics"], False)
             + card(pro, "pro", "pro", "",
-                   ["VOD Scanner included"], True)
+                   ["VOD Scanner included", "Clip Editor included"], True)
             + "</div>")
 
 
