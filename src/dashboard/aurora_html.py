@@ -122,6 +122,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 .wake-status{margin-top:var(--s-4);font-size:var(--t-small);color:var(--fg-2);
   opacity:0;transition:opacity var(--dur-slow) var(--ease)}
 .wake.b3 .wake-status{opacity:1}
+.wake{cursor:pointer}
+.wake-skip{margin-top:var(--s-4);font-size:var(--t-caption);color:var(--fg-3);letter-spacing:.06em;
+  text-transform:uppercase;opacity:0;transition:opacity var(--dur-slow) var(--ease)}
+.wake.b1 .wake-skip{opacity:1}
 
 /* ══ THE RETURNING HEADER ═════════════════════════════════════════════════
    One fact, at the size of the fact. Coming back to the product, the thing
@@ -141,8 +145,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   transform-origin:left center;transform:scaleX(var(--v,0));
   transition:transform var(--dur-slow) var(--ease)}
 @media(prefers-reduced-motion:reduce){
-  .wake-chip,.wake-frame,.wake-rule,.wake-status,.today-bar i{transition:none}
-  .wake-chip,.wake-frame,.wake-status{opacity:1;transform:none}
+  .wake-chip,.wake-frame,.wake-rule,.wake-status,.wake-skip,.today-bar i{transition:none}
+  .wake-chip,.wake-frame,.wake-status,.wake-skip{opacity:1;transform:none}
   .wake-rule{transform:scaleX(1)}
 }
 /* ══ KEYBOARD FOCUS ═══════════════════════════════════════════════════════
@@ -7643,17 +7647,28 @@ function FirstRun({ onAdd }) {
    It is tabular and min-width:3ch so the box cannot resize as digits land —
    a counter that reflows its own container is the jitter this project already
    fixed once on the landing page. */
-function WakeSequence({ channel, score, onDone }) {
+function WakeSequence({ channel, platform = 'twitch', score, onDone }) {
   const [beat, setBeat] = useState(0);
   const [n, setN] = useState(0);
   const reduced = typeof matchMedia === 'function' &&
     matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Plays on EVERY channel added (owner, 2026-09-15: "pop up every time …
+  // a person can just skip it by clicking"), so it has to get out of the way
+  // on demand: a click anywhere, Escape or Enter ends it. `finished` makes
+  // onDone fire once whichever of the timer and the click comes first.
+  const finished = useRef(false);
+  const done = () => { if (finished.current) return; finished.current = true; onDone(); };
   useEffect(()=>{
-    if (reduced) { setBeat(3); setN(score||0); const t=setTimeout(onDone,300); return ()=>clearTimeout(t); }
+    const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') done(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  },[]);
+  useEffect(()=>{
+    if (reduced) { setBeat(3); setN(score||0); const t=setTimeout(done,300); return ()=>clearTimeout(t); }
     const ts = [setTimeout(()=>setBeat(1), 30),
                 setTimeout(()=>setBeat(2), 400),
                 setTimeout(()=>setBeat(3), 900),
-                setTimeout(onDone, 1500)];
+                setTimeout(done, 1500)];
     return ()=>ts.forEach(clearTimeout);
   },[]);
   useEffect(()=>{
@@ -7667,16 +7682,18 @@ function WakeSequence({ channel, score, onDone }) {
     return ()=>clearInterval(id);
   },[beat]);
   const cls = 'wake' + (beat>=1?' b1':'') + (beat>=2?' b2':'') + (beat>=3?' b3':'');
+  const platName = platform === 'kick' ? 'Kick' : 'Twitch';
   return (
-    <div className={cls} role="status" aria-live="polite">
+    <div className={cls} role="status" aria-live="polite" onClick={done} title="Click to skip">
       <div className="wake-in">
-        <span className="wake-chip"><span className="dot"/>{channel}</span>
+        <span className="wake-chip"><span className="dot"/>{channel} · {platName}</span>
         <div className="wake-frame">
           <span className="wake-score">{n}</span>
           <div className="wake-rule"/>
           <div className="wake-lab">live score &middot; watching</div>
-          <div className="wake-status">Watching {channel}. Clips appear the moment one fires.</div>
+          <div className="wake-status">Watching {channel} on {platName}. Clips appear the moment one fires.</div>
         </div>
+        <div className="wake-skip">Click anywhere to skip</div>
       </div>
     </div>
   );
@@ -8179,15 +8196,13 @@ function RdApp() {
       // subsequent WebSocket stream_added event doesn't create a duplicate entry.
       const first = Object.keys(streams).length === 0;
       setStreams(p=>({...p,[s.channel]:s}));
-      // The wake plays ONLY on the first channel a user ever adds. On the
-      // second and later it would be a 1.5s wall in front of a dashboard they
-      // are already using, which is the thing this phase exists to remove.
-      if (first) {
-        try { localStorage.setItem('hz_welcome_seen','1'); } catch {}
-        setWake({channel:s.channel, score:0});
-      } else {
-        flash('Monitoring '+s.channel);
-      }
+      // The wake plays on EVERY channel added, Twitch or Kick (owner,
+      // 2026-09-15; it used to play only on the very first). It is skippable
+      // with a click, which is what keeps it from being a wall in front of a
+      // dashboard the user is already using. The first-run flag still only
+      // flips on the first add: it gates the welcome overlay, not the wake.
+      if (first) { try { localStorage.setItem('hz_welcome_seen','1'); } catch {} }
+      setWake({channel:s.channel, platform:s.platform||platform, score:0});
     }catch{flash('Failed to add stream');}
   };
   const removeStream = async(channel)=>{
@@ -8511,7 +8526,7 @@ function RdApp() {
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
-      {wake && <WakeSequence channel={wake.channel}
+      {wake && <WakeSequence channel={wake.channel} platform={wake.platform}
         score={(scores[wake.channel]||{}).score||0}
         onDone={()=>{ setWake(null); flash('Monitoring '+wake.channel); }}/>}
     </div>

@@ -442,12 +442,22 @@ def test_first_run_is_gated_on_clips_too_not_just_streams():
     assert "seenBefore" in g, "the gate ignores whether they have been here before"
 
 
-def test_the_wake_plays_once_and_only_on_the_first_channel():
-    """On the second and later adds it would be a 1.5s wall in front of a
-    dashboard the user is already using — the thing this phase removes."""
+def test_the_wake_plays_on_every_channel_and_can_be_skipped():
+    """It used to play only on the first channel, because a 1.5 s wall in
+    front of a dashboard the user is already using is the thing that phase
+    removed. Owner (2026-09-15): play it every time, Twitch and Kick, and let
+    a click skip it — the skip is what makes "every time" acceptable, so the
+    two are pinned together. The first-run flag still flips on the first
+    add only: it gates the welcome overlay, not the wake."""
     d = _dash()
     assert "const first = Object.keys(streams).length === 0;" in d
-    assert "if (first) {" in d and "setWake({channel:s.channel" in d
+    assert "if (first) { try { localStorage.setItem('hz_welcome_seen','1'); } catch {} }" in d
+    assert "setWake({channel:s.channel, platform:s.platform||platform, score:0});" in d
+    wake = d[d.index("function WakeSequence("):d.index("function ", d.index("function WakeSequence(") + 10)]
+    assert 'onClick={done}' in wake and "finished.current" in wake, "a click does not end the wake"
+    assert "e.key === 'Escape'" in wake, "no keyboard way out"
+    assert "Click anywhere to skip" in wake
+    assert "{channel} · {platName}" in wake and "platform === 'kick' ? 'Kick' : 'Twitch'" in wake
 
 
 def test_the_wake_animates_only_transform_and_opacity():
