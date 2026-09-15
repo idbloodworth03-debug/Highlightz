@@ -2528,16 +2528,19 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   const [ch, setCh] = useState('');
   const [preset, setPreset] = useState('default');
   // Streamer suggestions: zero state = recently monitored + popular-now;
-  // typing = Twitch partial-name search (debounced). Twitch-only — the data
-  // source is Helix, so the dropdown stays away on other platforms.
+  // typing = partial-name search (debounced). Per platform: Helix on
+  // Twitch, Kick's search + live list on Kick (same row shapes).
   const [sugg, setSugg] = useState(null);
   const [suggOpen, setSuggOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const suggT = useRef(null);
   const inputRef = useRef(null);
-  const canSugg = activePlatform === 'twitch';
+  const canSugg = activePlatform === 'twitch' || activePlatform === 'kick';
+  const platName = activePlatform === 'kick' ? 'Kick' : 'Twitch';
+  // A list fetched for one platform must not be shown under the other.
+  useEffect(()=>{ setSugg(null); setSuggOpen(false); }, [activePlatform]);
   const fetchSugg = (q) => {
-    fetch('/streams/suggest' + (q ? '?q=' + encodeURIComponent(q) : ''))
+    fetch('/streams/suggest?platform=' + encodeURIComponent(activePlatform) + (q ? '&q=' + encodeURIComponent(q) : ''))
       .then(r => r.ok ? r.json() : null).then(d => { if(d) setSugg(d); }).catch(()=>{});
   };
   const onChInput = (v) => {
@@ -2676,7 +2679,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                           </div>))}
                       </>}
                       {!(sugg.recent||[]).length && !(sugg.popular||[]).length &&
-                        <div className="rd-suggempty">Type a channel name to search Twitch</div>}
+                        <div className="rd-suggempty">Type a channel name to search {platName}</div>}
                     </>
                   )}
                 </div>

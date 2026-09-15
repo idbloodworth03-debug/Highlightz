@@ -278,3 +278,122 @@ class KickPlatform(BasePlatform):
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
+
+
+# ── suggestions for the add-stream box ───────────────────────────────────────
+#
+# Same two rows the Twitch dropdown draws (src/output/twitch_clips.py
+# search_channels / get_top_streams): {login, name, avatar, is_live, game} for
+# a search hit and {login, name, game, viewers} for a popular channel. Kick's
+# public API has "who is live, sorted by viewers" but no name search, so
+# search goes to the site endpoint and falls back to an exact-slug lookup.
+
+KICK_SITE_SEARCH = "https://kick.com/api/search"
+KICK_SITE_LIVE = "https://kick.com/stream/livestreams/en"
+SUGGEST_LIMIT = 24
+
+_shared: KickPlatform | None = None
+
+
+def _client() -> KickPlatform:
+    global _shared
+    if _shared is None:
+        _shared = KickPlatform()
+    return _shared
+
+
+def _search_row(ch: dict) -> dict | None:
+    user = ch.get("user") or {}
+    slug = str(ch.get("slug") or user.get("username") or "").strip().lower()
+    if not slug:
+        return None
+    return {"login": slug,
+            "name": str(user.get("username") or ch.get("username") or slug),
+            "avatar": str(user.get("profile_pic") or ch.get("profile_pic") or ""),
+            "is_live": bool(ch.get("is_live") or ch.get("livestream")),
+            "game": ""}
+
+
+def _live_row(item: dict) -> dict | None:
+    """One popular-channel row from either the public API's livestream shape
+    or the site's, which nest the same facts differently."""
+    ch = item.get("channel") or {}
+    user = ch.get("user") or {}
+    slug = str(item.get("slug") or ch.get("slug") or user.get("username") or "").strip().lower()
+    if not slug:
+        return None
+    cat = item.get("category") or {}
+    cats = item.get("categories") or []
+    game = cat.get("name") if isinstance(cat, dict) else ""
+    if not game and cats and isinstance(cats[0], dict):
+        game = cats[0].get("name")
+    return {"login": slug,
+            "name": str(user.get("username") or item.get("username") or slug),
+            "game": _ascii(game),
+            "viewers": int(item.get("viewer_count") or item.get("viewers") or 0)}
+
+
+async def search_channels(query: str) -> list[dict]:
+    p = _client()
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows: list[dict] = []
+    try:
+        status, body = await p._get_json(KICK_SITE_SEARCH, params={"searched_word": q},
+                                         headers=_BROWSER_HEADERS)
+        if status == 200 and isinstance(body, dict):
+            for ch in (body.get("channels") or [])[:SUGGEST_LIMIT]:
+                row = _search_row(ch) if isinstance(ch, dict) else None
+                if row:
+                    rows.append(row)
+    except Exception as exc:
+        log.info("kick_search_failed", query=q, error=str(exc))
+    if rows:
+        return rows
+    # No search result (or no search): the public API knows exact slugs.
+    try:
+        pub = await p._public_channel(q.lower())
+    except ChannelOffline:
+        return []
+    except Exception as exc:
+        log.info("kick_slug_lookup_failed", query=q, error=str(exc))
+        return []
+    if not pub:
+        return []
+    stream = pub.get("stream") or {}
+    return [{"login": q.lower(), "name": str(pub.get("slug") or q),
+             "avatar": str(pub.get("banner_picture") or ""),
+             "is_live": bool(stream.get("is_live")),
+             "game": _ascii((pub.get("category") or {}).get("name"))}]
+
+
+async def top_streams() -> list[dict]:
+    """The most-watched live Kick channels right now."""
+    p = _client()
+    if p.configured():
+        try:
+            token = await p._get_app_token()
+            status, body = await p._get_json(
+                f"{KICK_API_BASE}/livestreams",
+                params={"limit": SUGGEST_LIMIT, "sort": "viewer_count"},
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+            if status == 200 and isinstance(body, dict):
+                rows = [r for r in (_live_row(i) for i in (body.get("data") or [])
+                                    if isinstance(i, dict)) if r]
+                if rows:
+                    return rows
+            log.info("kick_public_livestreams_unusable", status=status)
+        except Exception as exc:
+            log.info("kick_public_livestreams_failed", error=str(exc))
+    try:
+        status, body = await p._get_json(KICK_SITE_LIVE,
+                                         params={"page": 1, "limit": SUGGEST_LIMIT, "sort": "desc"},
+                                         headers=_BROWSER_HEADERS)
+        if status == 200 and isinstance(body, dict):
+            return [r for r in (_live_row(i) for i in (body.get("data") or [])
+                                if isinstance(i, dict)) if r]
+        log.info("kick_site_livestreams_unusable", status=status)
+    except Exception as exc:
+        log.info("kick_site_livestreams_failed", error=str(exc))
+    return []

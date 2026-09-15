@@ -273,3 +273,101 @@ def test_the_legal_pages_and_the_brief_say_what_kick_actually_is(app):
     brief = app.get("/llms.txt").text.lower()
     assert "kick support is not live" not in brief
     assert "kick" in brief and "highlight clips are twitch-only" in brief
+
+
+# ── suggestions ("make it so it suggests kick streamers like on twitch") ────
+
+SEARCH = (200, {"channels": [
+    {"slug": "XQC", "user": {"username": "xQc", "profile_pic": "https://p/x.png"}, "is_live": True},
+    {"slug": "xqcow2", "user": {"username": "xqcow2"}, "livestream": None},
+    {"nonsense": 1}]})
+PUBLIC_LIVES = (200, {"data": [
+    {"slug": "adinross", "stream_title": "t", "viewer_count": 40000, "category": {"name": "Just Chatting"}},
+    {"slug": "xqc", "viewer_count": 30000, "category": {"name": "Slots"}}]})
+SITE_LIVES = (200, {"data": [
+    {"channel": {"slug": "amouranth", "user": {"username": "Amouranth"}}, "viewer_count": 9000,
+     "categories": [{"name": "Pools, Hot Tubs & Bikinis"}]}]})
+
+
+def test_kick_search_rows_match_the_twitch_dropdowns_shape(monkeypatch):
+    p = Scripted({"kick.com/api/search": SEARCH})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    rows = _run(kick_mod.search_channels("xq"))
+    assert rows == [
+        {"login": "xqc", "name": "xQc", "avatar": "https://p/x.png", "is_live": True, "game": ""},
+        {"login": "xqcow2", "name": "xqcow2", "avatar": "", "is_live": False, "game": ""}]
+    assert _run(kick_mod.search_channels("  ")) == []
+
+
+def test_kick_search_falls_back_to_an_exact_slug_on_the_public_api(monkeypatch):
+    _configured(monkeypatch)
+    p = Scripted({"kick.com/api/search": (403, None), "id.kick.com/oauth/token": TOKEN,
+                  "api.kick.com/public/v1/channels": PUBLIC_LIVE})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    rows = _run(kick_mod.search_channels("xqc"))
+    assert [r["login"] for r in rows] == ["xqc"] and rows[0]["is_live"] is True
+    assert rows[0]["game"] == "Just Chatting"
+    p = Scripted({"kick.com/api/search": (403, None), "id.kick.com/oauth/token": TOKEN,
+                  "api.kick.com/public/v1/channels": (200, {"data": []})})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    assert _run(kick_mod.search_channels("nobody")) == []
+
+
+def test_kick_popular_prefers_the_public_api_and_falls_back_to_the_site(monkeypatch):
+    _configured(monkeypatch)
+    p = Scripted({"id.kick.com/oauth/token": TOKEN, "api.kick.com/public/v1/livestreams": PUBLIC_LIVES})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    rows = _run(kick_mod.top_streams())
+    assert rows == [{"login": "adinross", "name": "adinross", "game": "Just Chatting", "viewers": 40000},
+                    {"login": "xqc", "name": "xqc", "game": "Slots", "viewers": 30000}]
+    call = [c for c in p.calls if "livestreams" in c[1]][0]
+    assert call[2] == {"limit": kick_mod.SUGGEST_LIMIT, "sort": "viewer_count"}
+    _configured(monkeypatch, on=False)
+    p = Scripted({"kick.com/stream/livestreams/en": SITE_LIVES})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    assert _run(kick_mod.top_streams()) == [
+        {"login": "amouranth", "name": "Amouranth", "game": "Pools, Hot Tubs & Bikinis", "viewers": 9000}]
+    p = Scripted({"kick.com/stream/livestreams/en": (403, None)})
+    monkeypatch.setattr(kick_mod, "_shared", p)
+    assert _run(kick_mod.top_streams()) == []
+
+
+def test_the_suggest_route_serves_kick_rows_on_kick_and_keeps_platforms_apart(app, monkeypatch):
+    from src.dashboard import api
+    u = app.onboard()
+    async def ksearch(q): return [{"login": "xqc", "name": "xQc", "avatar": "", "is_live": True, "game": ""}]
+    async def ktop(): return [{"login": "adinross", "name": "adinross", "game": "JC", "viewers": 1},
+                              {"login": "xqc", "name": "xqc", "game": "Slots", "viewers": 2}]
+    async def tsearch(q): return [{"login": "lacy", "name": "Lacy", "avatar": "", "is_live": True, "game": ""}]
+    async def ttop(): return [{"login": "lacy", "name": "Lacy", "game": "IRL", "viewers": 3}]
+    monkeypatch.setattr(kick_mod, "search_channels", ksearch)
+    monkeypatch.setattr(kick_mod, "top_streams", ktop)
+    from src.output import twitch_clips
+    monkeypatch.setattr(twitch_clips, "search_channels", tsearch)
+    monkeypatch.setattr(twitch_clips, "get_top_streams", ttop)
+    monkeypatch.setattr(api, "_popular_kick_cache", (0.0, []))
+    monkeypatch.setattr(api, "_popular_streams_cache", (0.0, []))
+    # A Kick channel the user already monitors is filtered out of Kick lists only.
+    api._streams[f"{u['id']}:xqc"] = {"channel": "xqc", "platform": "kick", "user_id": u["id"]}
+    # Recent: one profile per platform; each list shows its own.
+    pdir = app.tmp / "profiles" / u["id"]; pdir.mkdir(parents=True)
+    (pdir / "oldkick.json").write_text(json.dumps({"channel": "oldkick", "platform": "kick"}))
+    (pdir / "oldtwitch.json").write_text(json.dumps({"channel": "oldtwitch"}))
+
+    k = app.get("/streams/suggest?platform=kick").json()
+    assert [p["login"] for p in k["popular"]] == ["adinross"]
+    assert k["recent"] == ["oldkick"]
+    assert app.get("/streams/suggest?platform=kick&q=xq").json()["results"] == []   # xqc is monitored
+    t = app.get("/streams/suggest").json()
+    assert [p["login"] for p in t["popular"]] == ["lacy"] and t["recent"] == ["oldtwitch"]
+    assert app.get("/streams/suggest?q=la").json()["results"][0]["login"] == "lacy"
+    assert app.get("/streams/suggest?platform=myspace").json()["recent"] == ["oldtwitch"]
+
+
+def test_the_add_box_asks_for_the_active_platforms_suggestions():
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    panel = h[h.index("function AddStreamPanel("):h.index("function AddStreamPanel(") + 6000]
+    assert "const canSugg = activePlatform === 'twitch' || activePlatform === 'kick';" in panel
+    assert "'/streams/suggest?platform=' + encodeURIComponent(activePlatform)" in panel
+    assert "useEffect(()=>{ setSugg(null); setSuggOpen(false); }, [activePlatform]);" in panel
+    assert "Type a channel name to search {platName}" in h

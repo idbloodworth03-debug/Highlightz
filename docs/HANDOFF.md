@@ -178,6 +178,17 @@ switched off.
     fetched fresh on every session start, so a token that expires is
     replaced by the worker's normal reconnect. The audio meter and recorder
     are platform-agnostic.
+  - **Suggestions** (owner: "make it so it suggests kick streamers like on
+    twitch"): `/streams/suggest?platform=kick` — search via the site's
+    `kick.com/api/search` (falls back to an exact-slug lookup on the public
+    API, which has no name search), popular via the public API's
+    `/livestreams?sort=viewer_count` (app token) or the site's
+    `kick.com/stream/livestreams/en` without one; its own popular cache;
+    "recently monitored" is filtered by the profile file's `platform`. Same
+    row shapes as the Twitch dropdown; the panel refetches per platform and
+    clears the list on switch. The two site endpoints are unverified on
+    prod (the channels one is verified) — an empty "Popular" on Kick means
+    check `journalctl` for `kick_site_livestreams_unusable` / `kick_search_failed`.
   - **Not on Kick**: Highlight clips / viewer-clip learning
     (`_record_viewer_clips` returns for non-Twitch — it would look up a
     Twitch user of the same name), auto-preset (Twitch category lookup),

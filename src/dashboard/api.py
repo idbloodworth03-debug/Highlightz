@@ -3539,43 +3539,67 @@ def _unhide_suggestion(uid: str, channel: str) -> None:
         _set_hidden_for(uid, hidden - {channel.lower()})
 
 
-def _recent_channels(uid: str, monitored: set, hidden: set) -> list:
-    """Previously monitored channels, newest activity first. Not truncated —
-    callers slice. Clearing needs the full set or "clear all" would only hide
-    the visible page and the next eight would slide up to replace them."""
+def _recent_channels(uid: str, monitored: set, hidden: set,
+                     platform: str = "twitch") -> list:
+    """Previously monitored channels on this platform, newest activity first.
+    Not truncated — callers slice. Clearing needs the full set or "clear all"
+    would only hide the visible page and the next eight would slide up to
+    replace them. Profiles are one file per channel with a `platform` field
+    (absent on files from before Kick, which are Twitch)."""
     pdir = Path(settings.local_storage_path) / "profiles" / uid
     try:
         files = sorted(pdir.glob("*.json"), key=lambda p: p.stat().st_mtime,
                        reverse=True)
     except OSError:
         return []
-    return [p.stem for p in files
-            if p.stem.lower() not in monitored and p.stem.lower() not in hidden]
+    out = []
+    for p in files:
+        if p.stem.lower() in monitored or p.stem.lower() in hidden:
+            continue
+        try:
+            plat = json.loads(p.read_text(encoding="utf-8")).get("platform") or "twitch"
+        except (OSError, ValueError, AttributeError):
+            plat = "twitch"
+        if plat == platform:
+            out.append(p.stem)
+    return out
+
+
+_popular_kick_cache: tuple[float, list] = (0.0, [])
 
 
 @app.get("/streams/suggest")
-async def stream_suggestions(request: Request, q: str = ""):
+async def stream_suggestions(request: Request, q: str = "", platform: str = "twitch"):
     """Suggestions for the add-stream box, so users don't have to type exact
-    channel names. With q: Twitch partial-name search. Without q (zero state):
-    the user's previously monitored channels (their profile files, newest
-    activity first) + the most-watched live channels right now. Channels the
-    user already monitors — or has cleared from the recent list — are filtered
-    out."""
+    channel names. With q: partial-name search on the platform. Without q
+    (zero state): the user's previously monitored channels on that platform
+    (their profile files, newest activity first) + the most-watched live
+    channels right now. Channels the user already monitors — or has cleared
+    from the recent list — are filtered out. Kick (owner, 2026-09-15: "make
+    it so it suggests kick streamers like on twitch") goes through
+    src/ingestion/platform/kick.py and has its own popular cache."""
     from src.output import twitch_clips
+    from src.ingestion.platform import kick as kick_plat
     uid = _current_user_id(request)
+    platform = platform if platform in _VALID_PLATFORMS else "twitch"
     monitored = {(s.get("channel") or "").lower() for s in _streams.values()
-                 if s.get("user_id") == uid}
+                 if s.get("user_id") == uid and (s.get("platform") or "twitch") == platform}
     q = q.strip()
+    search = kick_plat.search_channels if platform == "kick" else twitch_clips.search_channels
+    top = kick_plat.top_streams if platform == "kick" else twitch_clips.get_top_streams
     if q:
-        rows = await twitch_clips.search_channels(q)
+        rows = await search(q)
         return {"results": [r for r in rows if r["login"].lower() not in monitored]}
-    recent = _recent_channels(uid, monitored, _hidden_for(uid))[:8]
-    global _popular_streams_cache
-    ts, popular = _popular_streams_cache
+    recent = _recent_channels(uid, monitored, _hidden_for(uid), platform)[:8]
+    global _popular_streams_cache, _popular_kick_cache
+    ts, popular = _popular_kick_cache if platform == "kick" else _popular_streams_cache
     if time.time() - ts > _POPULAR_STREAMS_TTL:
-        popular = await twitch_clips.get_top_streams()
-        if popular:   # keep serving the stale list through a Helix hiccup
-            _popular_streams_cache = (time.time(), popular)
+        popular = await top()
+        if popular:   # keep serving the stale list through an API hiccup
+            if platform == "kick":
+                _popular_kick_cache = (time.time(), popular)
+            else:
+                _popular_streams_cache = (time.time(), popular)
     return {"recent": recent,
             "popular": [p for p in popular
                         if p["login"].lower() not in monitored][:8]}
