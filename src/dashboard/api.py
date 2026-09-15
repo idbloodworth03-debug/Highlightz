@@ -3761,13 +3761,14 @@ async def _auto_preset_for(channel: str) -> str:
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
-    # Kick is temporarily closed off while automated clipping is built — the public
-    # Kick API has no clip-creation endpoint, so block new Kick streams rather than
-    # silently failing to clip. (UI shows an "under construction" prompt to match.)
-    if req.platform == "kick":
+    # Kick has no clip-creation API, so a Kick clip IS the file cut from the
+    # live capture buffer. Without capture there is nothing to give the user,
+    # so refuse the channel up front rather than monitor it for nothing.
+    if req.platform == "kick" and not settings.clip_capture_enabled:
         raise HTTPException(
             status_code=503,
-            detail="Kick support is under construction — automated Kick clipping is coming soon.",
+            detail="Kick clips are captured from the live broadcast, and live capture "
+                   "is switched off on this server.",
         )
     from src.auth.optout import is_opted_out
     if req.platform == "twitch" and is_opted_out(req.channel):
@@ -6834,7 +6835,9 @@ Twitch to produce them.
 
 ## Notes
 
-- Kick support is not live yet.
+- Kick: channels are monitored from public chat and broadcast audio, and a detected
+  moment is saved as a video file captured by Highlightz (Kick has no clip API, so
+  there is no Kick-hosted clip). Highlight clips are Twitch-only.
 - Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
 
@@ -10730,7 +10733,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p><strong>Recording of live broadcasts.</strong> While a channel you have added is being monitored, the Service may record a short rolling segment of that live public broadcast on its own servers, so that a moment it detects can also be saved as a video file for you. That rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is kept for a limited period &mdash; currently up to <!--CLIPDAYS--> days &mdash; and is deleted when you delete the clip, when your account is deleted, or when that period ends, whichever comes first. It is available only to the account the clip belongs to; it is not published, shared with other users, or hosted anywhere publicly accessible. A channel that has opted out under Section 5 is never recorded.</p>
   <p>To provide downloads, editing and scheduling, Highlightz stores a video file of each clip for the account that created it. That file is obtained either by recording the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives, or, where that recording is unavailable, by retrieving the clip's video from Twitch at your request. A stored file is private to your account, is never kept for a channel whose broadcaster has opted out, and is deleted when you delete the clip or your account and in any case within the retention period stated in the Privacy Policy. Highlightz does not alter or publicly re-host clips or past broadcasts that Twitch hosts. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
   <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
-  <p>Support for Kick is not yet available. Kick channels cannot currently be monitored and no Kick account is connected to or required by the Service. If Kick support ships, these Terms and our Privacy Policy will be updated before it does.</p>
+  <p><strong>Kick.</strong> The Service can also monitor public Kick channels you add, from the same public signals: the channel's public chat and the audio of its public broadcast. Kick offers no clip-creation interface, so a moment detected on Kick is saved only as a video file recorded from the live public broadcast under the paragraph above; no clip is created or hosted on Kick. No Kick account is connected to or required by the Service, and no Kick credentials are requested or stored. Highlight clips (Section 5) are a Twitch-only feature.</p>
   <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
 
   <h2>2. Eligibility</h2>
@@ -10848,7 +10851,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, the Twitch clip links generated for your account, and for a Kick clip the channel page it came from. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
     <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. Where the rolling recording did not capture a moment, we retrieve the clip's video from Twitch when you ask for it and store it under the same terms. A channel that has opted out is never recorded and its clips are never retrieved.</li>
     <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
@@ -10856,7 +10859,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
     <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
-  <p><strong>Kick.</strong> Kick support is not live. We do not monitor Kick channels, and no Kick account can be connected to the Service — no Kick credentials are requested or stored. This will be updated before that changes.</p>
+  <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. No Kick account can be connected to the Service — no Kick credentials are requested or stored. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
 
   <h2>2. How We Use Your Information</h2>
   <ul>

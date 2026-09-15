@@ -49,14 +49,10 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "", pres
         log.warning("worker_already_running", channel=channel)
         return
 
-    # Kick is closed off ("under construction") — its public API has no clips
-    # endpoint and returns 401 on every channel lookup, so a Kick worker can only
-    # reconnect-loop and spam errors. Skip spawning entirely until Kick is live.
-    if platform_name == "kick":
-        log.info("kick_worker_skipped", channel=channel,
-                 reason="kick clipping closed off (under construction)")
-        return
-
+    # Kick workers spawn like Twitch ones since 2026-09-15. The public API
+    # is asked with an app token (KICK_CLIENT_ID/SECRET) and the site endpoint
+    # for the chatroom id; a Kick clip is the file cut from live capture, so
+    # POST /streams refuses Kick while CLIP_CAPTURE_ENABLED is off.
     platform_cls = PLATFORM_MAP.get(platform_name, TwitchPlatform)
     platform = platform_cls()
 
@@ -630,19 +626,22 @@ async def main() -> None:
         stream_key = f"{user_id}:{channel}" if user_id else channel
         stream = dashboard_api._streams.get(stream_key, {})
         platform = stream.get("platform", "twitch")
-        # Only Twitch supports programmatic clip creation. Kick has no public clip
-        # API, so a Kick job would dead-end in the processor and fail silently —
-        # don't enqueue it; tell the user why instead.
-        if platform != "twitch":
+        # A Kick clip is the file cut from live capture (no Kick clip API), so
+        # a manual clip there is only possible while capture is on. Say so
+        # rather than queueing a job the processor will refuse.
+        if platform == "kick" and not settings.clip_capture_enabled:
             if user_id:
                 try:
                     await dashboard_api.broadcast(
                         {"event": "clip_failed", "channel": channel,
-                         "message": "Manual clips are only available on Twitch right now."},
+                         "message": "Kick clips are captured from the live broadcast, "
+                                    "and live capture is switched off on this server."},
                         user_id=user_id,
                     )
                 except Exception:
                     pass
+            return
+        if platform not in ("twitch", "kick"):
             return
         job = ClipJob(
             channel=channel,

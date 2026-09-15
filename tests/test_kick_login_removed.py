@@ -65,12 +65,17 @@ def test_kick_credentials_are_still_redacted_from_api_responses():
     assert pub["kick_id"] == "77"
 
 
-def test_a_kick_clip_job_fails_loudly_rather_than_half_working():
-    """The dispatch stays total, but the branch cannot silently no-op."""
+def test_a_kick_clip_job_without_capture_fails_loudly_rather_than_half_working(monkeypatch):
+    """Kick went live on 2026-09-15 with FILE-ONLY clips (no Kick clip API).
+    With live capture off there is nothing behind the record, so the branch
+    still refuses loudly instead of producing a card that can never play.
+    tests/test_kick_live.py covers the capture-on path."""
     import asyncio
+    from config.settings import settings
     from src.processor.clip_processor import ClipProcessor
+    monkeypatch.setattr(settings, "clip_capture_enabled", False)
     proc = ClipProcessor.__new__(ClipProcessor)
-    with pytest.raises(RuntimeError, match="not available"):
+    with pytest.raises(RuntimeError, match="live capture"):
         asyncio.run(proc._process_kick(None, None, "somechannel"))
 
 

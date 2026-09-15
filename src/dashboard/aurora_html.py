@@ -1992,6 +1992,9 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
   const title = clip.clip_title||clip.stream_title||'Live Stream';
   const thumb = clip.thumbnail_url || '';
   const twHref = clip.twitch_url || '';
+  // A Kick clip has no hosted clip page; it links to the channel instead.
+  const outHref = twHref || clip.platform_url || '';
+  const outName = clip.platform === 'kick' ? 'Kick' : 'Twitch';
   // A moment viewers clipped, surfaced with the score deliberately never
   // consulted (src/trigger/suggested_clips.py). It is a different KIND of card,
   // not a decorated one, so it gets its own badge and suppresses the trigger
@@ -2120,18 +2123,18 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
                 call on a clip that slipped through would white-screen the app. */}
             <button className="rd-btn live sm" onClick={e=>{e.stopPropagation();onApprove&&onApprove(clip.id)}}><Icon name="check" size={14}/>Approve</button>
             <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject&&onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
-            {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title={'Open on '+outName} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
             {edBtn}
           </> : libraryMode && clip.status==='approved' ? <>
-            {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on Twitch</a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on {outName}</a>}
             {dlBtn}
             {edBtn}
             {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(255,90,120,.1)',color:'var(--danger)',borderColor:'rgba(255,90,120,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
-            {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title="Open on Twitch" onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title={'Open on '+outName} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
             {edBtn}
           </span>}
@@ -2277,8 +2280,13 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
   // thumbnail image is broken (the old absolutely-positioned play link was an
   // unreliable hit target on mobile once the broken <img> collapsed).
   // Which now includes every gated clip, so the whole media area opens Twitch.
-  const canLinkOut = !embedSrc && !!twHref;
-  const openClip = () => { if (twHref) window.open(twHref, '_blank', 'noopener'); };
+  // A Kick clip has no embed and no clip page: it is the file Highlightz cut
+  // from live capture, played right here, and it links out to the channel.
+  const fileSrc = (!embedSrc && clip.has_file) ? '/clips/' + clip.id + '/file' : '';
+  const outHref = twHref || clip.platform_url || '';
+  const outName = clip.platform === 'kick' ? 'Kick' : 'Twitch';
+  const canLinkOut = !embedSrc && !fileSrc && !!outHref;
+  const openClip = () => { if (outHref) window.open(outHref, '_blank', 'noopener'); };
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
     const k = (s.type||'').replace('SignalType.','');
@@ -2293,8 +2301,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
         <div className="rd-modal-media" style={canLinkOut?{cursor:'pointer'}:undefined} onClick={canLinkOut?openClip:undefined}>
           {embedSrc
             ? <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
+            : fileSrc
+              ? <video src={fileSrc} controls playsInline preload="metadata" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000',objectFit:'contain'}}/>
             : thumb
-              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{twHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
+              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{outHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           {sug
@@ -2314,6 +2324,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
           <span style={{color:'var(--fg-3)'}}>Player showing an error?</span>
           <button className="rd-btn sm" onClick={()=>setPlayerTry(t=>t+1)}>Reload player</button>
           {twHref && <a href={twHref} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none',fontWeight:600}}>Watch on Twitch ↗</a>}
+        </div>}
+        {fileSrc && clip.platform === 'kick' && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(83,252,24,.08)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+          <span style={{color:'var(--fg-3)'}}>Captured by Highlightz from the live broadcast.</span>
+          {outHref && <a href={outHref} target="_blank" rel="noopener" style={{color:'#53fc18',textDecoration:'none',fontWeight:600}}>Open channel on Kick ↗</a>}
         </div>}
 
         <div className="rd-modal-body">
@@ -3610,12 +3624,13 @@ function TutorialScreen({ doc, onGo }){
 }
 
 const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-// Tabs that are closed off while Kick clipping is under construction. Used by
-// BOTH the route dispatch and the nav, so a blocked tab is greyed out and
-// unclickable rather than looking live and then dead-ending. Account, Feedback
-// and the admin/labeler tools are global and stay open; the platform switch
-// and Sign out always stay live so Kick is never a trap.
-const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
+// Tabs closed off on Kick. EMPTY since 2026-09-15: Kick monitoring is live
+// (chat + audio + viewers, clips cut from live capture — no Kick-hosted clip,
+// no Highlight clips). The mechanism stays: used by BOTH the route dispatch
+// and the nav, so a blocked tab is greyed out and unclickable rather than
+// looking live and then dead-ending, and Account / Feedback / the platform
+// switch / Sign out always stay live so Kick is never a trap.
+const KICK_BLOCKED=[];
 const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
@@ -4101,16 +4116,15 @@ function AccountScreen({ me }) {
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
             </span>
-            {/* No Connect button and no linked-account state. Connecting Kick
-                ran a full OAuth flow and stored the user's Kick tokens, for a
-                platform whose monitoring is switched off — and both legal pages
-                say we store no Kick credentials. The row stays so Kick keeps its
-                place in the product; it just says what is actually true. */}
+            {/* No Connect button and no linked-account state, on purpose: Kick
+                channels are monitored from their public broadcast and chat, so
+                no Kick login is needed and none is stored — both legal pages
+                say so. Clips on Kick are files Highlightz captures itself. */}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:12}}>Kick</div>
-              <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>Automated clipping is in progress</div>
+              <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>No account needed. Switch to Kick and add a channel.</div>
             </div>
-            <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Coming soon</span>
+            <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Live</span>
           </div>
         </div>
 
@@ -8393,12 +8407,9 @@ function RdApp() {
   const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review' : route;
 
   let screen;
-  // Kick is temporarily closed off while automated clipping is built — show a
-  // big "under construction" prompt for every platform-specific feature screen.
-  // Account and Feedback are global and stay open; Settings shows Twitch-only
-  // stats so it's also gated while Kick is under construction.
-  // KICK_BLOCKED is the single source of truth, shared with the nav below so
-  // a tab can never be clickable-but-dead (or greyed-out-but-working).
+  // KICK_BLOCKED (empty since Kick went live) is the single source of truth,
+  // shared with the nav below so a tab can never be clickable-but-dead (or
+  // greyed-out-but-working) if a screen ever has to be closed on Kick again.
   if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;

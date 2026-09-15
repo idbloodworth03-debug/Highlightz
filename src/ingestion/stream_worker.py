@@ -540,6 +540,10 @@ class StreamWorker:
         """
         from src.trigger import viewer_clips, suggested_clips
         chan = self._config.channel
+        # Twitch only: viewer clips come from Helix, and a Kick channel with
+        # the same name would be looked up as a Twitch user of that name.
+        if self._config.platform_name != "twitch":
+            return
         # Gate is shared across every worker on this channel: five users
         # watching one streamer must cost one poll, not five (Helix budget is
         # per client-id, shared across all our users).

@@ -143,16 +143,54 @@ switched off.
   (sweep_dead_clips_task) removes Twitch-deleted clips and prunes the
   showcase. Fail-safe: a failed lookup deletes NOTHING; `first=100` is
   explicit so pagination can't read as deletion.
-- Kick: no public clip-creation API (verified June 2026). Kick sign-in
-  disabled (Twitch is the only sign-in; Kick linking still works). Kick UI
-  gated behind under-construction screen; Kick scrubbed from marketing.
-  **On Kick the blocked nav tabs are genuinely `disabled`, not just dimmed**
-  (2026-07-31) — a greyed-but-clickable tab dead-ends and reads as a broken
-  app. `KICK_BLOCKED` in `aurora_html.py` is the single source of truth for
-  both the nav and the route dispatch, so a tab can never be
-  clickable-but-dead or greyed-out-but-working. Account, Feedback, the platform
-  switch and Sign out stay live — **Kick must never be a trap**
-  (`test_kick_never_traps_the_user`).
+- **Kick: LIVE since 2026-09-15** (owner: "get kick integrated as best as we
+  can right now using the same thing we have with twitch … we cannot do
+  highlight clips with them yet"). Still no public clip-creation API
+  (re-verified September 2026), so the shape is:
+  - **A Kick clip is a FILE.** `_process_kick` returns a pending record with
+    `platform_url=https://kick.com/<slug>` and no Twitch fields; the video is
+    the stream worker's live-capture cut, addressed by the same clip id and
+    announced by the same `clip_file_ready`. **`CLIP_CAPTURE_ENABLED` is a
+    precondition**: `POST /streams` answers 503 for Kick without it, the
+    processor refuses, `_force_clip` says why. The modal plays
+    `/clips/{id}/file` when there is no embed; cards and the modal link
+    "Open on Kick" (the channel page).
+  - **Liveness** (`src/ingestion/platform/kick.py`): Kick's public API
+    (`api.kick.com/public/v1/channels?slug=`) with an APP token minted by
+    client credentials from `KICK_CLIENT_ID`/`KICK_CLIENT_SECRET` (a Kick
+    developer app; no user login). Without those it falls back to the site
+    endpoint `kick.com/api/v2/channels/<slug>` (browser headers; behind
+    Cloudflare, may 403 from a datacenter IP). `ChannelOffline` is not
+    retried; a near-miss slug is refused.
+  - **Chat**: Pusher (`src/chat/platform/kick_chat.py`, key `32cbd69e…`,
+    `chatrooms.<id>.v2`). The chatroom id only exists on the site endpoint,
+    so it is **cached on disk** (`clips/kick_chatrooms.json`) the first time
+    it is learned; if it cannot be learned the channel STILL runs on audio +
+    viewer count and logs `kick_chat_unavailable`. No sub/raid events.
+  - **Video/audio**: streamlink's own Kick plugin takes the page URL
+    (`stream_url=https://kick.com/<slug>`); the audio meter and recorder are
+    platform-agnostic. **UNVERIFIED ON PROD**: streamlink's Kick plugin
+    solves a Cloudflare JS challenge with a headless browser when the API
+    403s (`$webbrowser Required` in the plugin) and caches the result for
+    30 days. If prod has no Chromium and the droplet IP is challenged,
+    capture and the audio meter fail for Kick. Diagnostic on prod:
+    `cd /opt/highlightz && venv/bin/streamlink https://kick.com/<live-slug> best --stream-url`.
+  - **Not on Kick**: Highlight clips / viewer-clip learning
+    (`_record_viewer_clips` returns for non-Twitch — it would look up a
+    Twitch user of the same name), auto-preset (Twitch category lookup),
+    the opt-out page (Twitch identities), the landing showcase (Twitch clips
+    only), Twitch-refusal notices. Kick stays **unmarketed** (nobody asked).
+  - **Same-name collision**: stream keys, profiles and recorders are keyed
+    by channel name without platform, so `xqc` on Twitch and `xqc` on Kick
+    are one channel to the store. Known, not fixed.
+  - Legal: ToS §1 and the Privacy Policy now describe Kick monitoring and
+    file-only clips, still with "no Kick credentials are requested or
+    stored" (the phrase `test_legal_pages_match_the_code` pins while there is
+    no `/auth/kick` route). `KICK_BLOCKED` is `[]`; the mechanism stays
+    (`test_kick_blocked_nav_buttons_are_actually_disabled_not_just_dimmed`)
+    for the next screen that has to close on Kick, and **Kick must never be
+    a trap** (`test_kick_never_traps_the_user`). 14 tests in
+    `tests/test_kick_live.py`.
 
 ## Billing (Stripe) — current design (TWO TIERS since 2026-07-11)
 

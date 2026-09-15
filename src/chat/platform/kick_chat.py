@@ -29,13 +29,23 @@ class KickChatMonitor:
         self._running = False
 
     async def run(self) -> None:
+        # No chatroom id means the site endpoint could not be read (see
+        # src/ingestion/platform/kick.py). The worker keeps scoring on audio
+        # and viewers; looping on an empty subscription would only spam.
+        if not self.chatroom_id:
+            log.warning("kick_chat_unavailable", why="no chatroom id")
+            return
         self._running = True
+        backoff = 5
         while self._running:
             try:
                 await self._connect()
+                backoff = 5
             except Exception as exc:
-                log.warning("kick_chat_reconnecting", chatroom_id=self.chatroom_id, error=str(exc))
-                await asyncio.sleep(5)
+                log.warning("kick_chat_reconnecting", chatroom_id=self.chatroom_id,
+                            error=str(exc), retry_in=backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
 
     async def _connect(self) -> None:
         async with websockets.connect(PUSHER_URL, ping_interval=30) as ws:
@@ -71,6 +81,11 @@ class KickChatMonitor:
 
                     elif event == "pusher:ping":
                         await ws.send(json.dumps({"event": "pusher:pong", "data": {}}))
+
+                    elif event in ("pusher:error", "pusher:subscription_error"):
+                        # A refused subscription never recovers by waiting on
+                        # the same socket; reconnect with the backoff instead.
+                        raise RuntimeError(f"Pusher {event}: {str(msg.get('data'))[:200]}")
 
                 except Exception:
                     pass  # malformed frame — ignore and continue

@@ -27,6 +27,9 @@ class ClipMetadata:
     twitch_url: str = ""       # public watch page
     embed_url: str = ""        # iframe embed URL
     thumbnail_url: str = ""
+    # Where the clip CAME FROM when there is no platform-hosted clip to link
+    # to: on Kick this is the channel page. The card's "Open on Kick" link.
+    platform_url: str = ""
     # Captured from a channel Twitch flags as intended for mature audiences.
     # NOT a judgement about the clip: it decides how the clip is PLAYED. An
     # age-gated clip cannot be shown in our embedded player, because Twitch
@@ -72,6 +75,7 @@ class ClipMetadata:
             "twitch_url": self.twitch_url,
             "embed_url": self.embed_url,
             "thumbnail_url": self.thumbnail_url,
+            "platform_url": self.platform_url,
             "age_restricted": self.age_restricted,
             "suggested": self.suggested,
             "clipper_count": self.clipper_count,

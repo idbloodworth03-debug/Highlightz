@@ -1,8 +1,8 @@
 """
-Clip processor: picks up a clip job and creates a clip on Twitch or Kick via
-their respective APIs using the requesting user's OAuth token. The clip is
-hosted by the platform and attributed to the user, and nothing here fetches
-video from the platform.
+Clip processor: picks up a clip job and, on Twitch, creates a clip through
+Helix with the requesting user's OAuth token (hosted by Twitch, attributed to
+the user). On Kick there is no clip API, so the record is file-only and the
+video is whatever the stream worker cut from its live capture buffer.
 
 The file a user downloads is cut from the live capture buffer by the stream
 worker (src/ingestion/clip_recorder.py) and addressed by the same clip_id this
@@ -125,15 +125,30 @@ class ClipProcessor:
         return meta
 
     async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
-        """Unreachable, and kept only so the dispatch above stays total.
+        """A Kick clip is the FILE the stream worker cuts from its live capture
+        buffer — nothing else exists. Kick has no public clip-creation API
+        (still true, September 2026), so there is no Kick-hosted clip, no
+        embed and no watch page; the record points at the channel and the
+        video is /clips/{id}/file once the cut lands (same clip id, same
+        `clip_file_ready` event as a Twitch clip's file).
 
-        This used to create a real Kick clip with the user's stored Kick OAuth
-        token. Those tokens are gone (see the note in src/dashboard/api.py where
-        the Kick OAuth routes were removed), and no Kick stream can be added in
-        the first place — POST /streams answers 503 for platform="kick". So the
-        only way to arrive here is a job queued before all of that, which should
-        fail loudly rather than half-work.
+        Refused outright when capture is off: a Kick clip record with no
+        file behind it is a card that can never play. POST /streams refuses
+        a Kick channel for the same reason, so this only trips on a job
+        queued before capture was switched off.
         """
-        raise RuntimeError(
-            "Kick clipping is not available yet — Kick monitoring is switched off."
-        )
+        from config.settings import settings
+        if not settings.clip_capture_enabled:
+            raise RuntimeError(
+                "Kick clips need live capture (CLIP_CAPTURE_ENABLED) — Kick has no clip API.")
+        # Same tail wait as Twitch: the worker's cut waits for post_roll too,
+        # and announcing the record before the moment is over would show a
+        # clip whose end has not happened yet.
+        if job.post_roll > 0:
+            await asyncio.sleep(min(job.post_roll, 55))
+        meta.platform_url = f"https://kick.com/{channel}"
+        meta.duration_seconds = float(job.pre_roll + job.post_roll)
+        meta.status = "pending"
+        log.info("kick_clip_ready", clip_id=meta.id, channel=channel,
+                 note="file-only; cut by the stream worker from live capture")
+        return meta

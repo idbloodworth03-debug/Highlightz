@@ -124,6 +124,7 @@ def test_what_the_code_stores_on_a_clip_is_what_the_policy_describes():
         "stream_title", "game", "created_at", "storage_url", "duration_seconds",
         "status", "virality_score", "clip_title", "vertical_url", "user_id",
         "twitch_clip_id", "twitch_url", "embed_url", "thumbnail_url",
+        "platform_url",           # "the channel page a Kick clip came from"
         "suggested", "clipper_count", "suggested_views",
         "chat_snapshot",          # disclosed as "chat samples"
         # Twitch's own label ON THE CHANNEL, not information about a person.
