@@ -104,8 +104,12 @@ def test_a_gated_clip_opens_on_twitch_instead():
     body = _code(_fn("ClipModal"))
     assert "canLinkOut = !embedSrc" in body, \
         "with no embed the media area no longer becomes a link out"
-    assert "Age-restricted on Twitch" in body, "the reason is never stated"
-    assert "Watch on Twitch" in body, "there is no way to actually watch it"
+    assert "Age-restricted on {outName}" in body, "the reason is never stated"
+    assert "Watch on {outName}" in body, "there is no way to actually watch it"
+    # And only when the flag really stops playback: a Kick clip is a captured
+    # file that plays here, and "plays on Twitch" under it was a bug.
+    assert "gated && !fileSrc && <div" in body, \
+        "the age-restricted banner shows over a clip that is playing right there"
 
 
 def test_the_gated_notice_does_not_claim_something_is_broken():
@@ -113,10 +117,10 @@ def test_the_gated_notice_does_not_claim_something_is_broken():
     'player showing an error' here would send people looking for a fault that
     does not exist."""
     body = _code(_fn("ClipModal"))
-    gated_bar = body[body.index("Age-restricted on Twitch"):]
+    gated_bar = body[body.index("Age-restricted on {outName}"):]
     gated_bar = gated_bar[:gated_bar.index("Player showing an error?")]
     assert "error" not in gated_bar.lower()
-    assert "plays on Twitch" in gated_bar
+    assert "plays on {outName}" in gated_bar
 
 
 def test_the_card_says_so_before_you_open_it():

@@ -2106,7 +2106,9 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
             with a weekly keep limit it is worth knowing before you spend a
             slot on something you have to leave the site to watch. */}
         {clip.age_restricted && <span className="rd-agebadge"
-          title="This channel is flagged mature on Twitch. The clip plays on Twitch, not in this player.">
+          title={clip.platform === 'kick'
+            ? 'This channel is flagged mature on Kick. The clip is a file Highlightz captured and plays here.'
+            : 'This channel is flagged mature on Twitch. The clip plays on Twitch, not in this player.'}>
           <Icon name="zap" size={11}/>Age-restricted
         </span>}
         {dur && <span className="rd-dur">{dur}</span>}
@@ -2316,13 +2318,17 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
             : <span className="rd-scorebadge" style={{top:14,right:60}}><span className="pip" style={{background:scoreColor(score)}}/>{score}% trigger</span>}
         </div>
 
-        {gated && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
+        {/* Only when the flag actually stops playback: a Twitch clip with no
+            local file. A Kick clip is a file Highlightz cut and plays right
+            here, mature flag or not — "plays on Twitch" under a Kick clip
+            was a real bug report (2026-09-15). */}
+        {gated && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
           <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
-            <Icon name="zap" size={13}/>Age-restricted on Twitch
+            <Icon name="zap" size={13}/>Age-restricted on {outName}
           </span>
-          <span style={{color:'var(--fg-3)'}}>It cannot play here, but it plays on Twitch.</span>
-          {twHref && <a href={twHref} target="_blank" rel="noopener" className="rd-btn sm"
-            style={{textDecoration:'none',flexShrink:0}}>Watch on Twitch ↗</a>}
+          <span style={{color:'var(--fg-3)'}}>It cannot play here, but it plays on {outName}.</span>
+          {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm"
+            style={{textDecoration:'none',flexShrink:0}}>Watch on {outName} ↗</a>}
         </div>}
         {embedSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
           <span style={{color:'var(--fg-3)'}}>Player showing an error?</span>

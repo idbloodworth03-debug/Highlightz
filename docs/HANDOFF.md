@@ -178,6 +178,13 @@ switched off.
     fetched fresh on every session start, so a token that expires is
     replaced by the worker's normal reconnect. The audio meter and recorder
     are platform-agnostic.
+  - **Verified on prod 2026-09-15**: a 43 s Kick clip captured and playing
+    in the dashboard (owner's screenshot). First Kick bug from it: the
+    "Age-restricted on Twitch … plays on Twitch" banner showed over it,
+    because Kick's `is_mature` lands in the same `age_restricted` flag. The
+    banner now only renders when the flag actually stops playback (`gated
+    && !fileSrc`) and names the clip's platform; the card badge's tooltip
+    says the Kick file plays here.
   - **Suggestions** (owner: "make it so it suggests kick streamers like on
     twitch"): `/streams/suggest?platform=kick` — search via the site's
     `kick.com/api/search` (falls back to an exact-slug lookup on the public
