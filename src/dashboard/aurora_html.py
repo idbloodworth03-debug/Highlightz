@@ -827,6 +827,14 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .tw-box{width:min(900px,100%);border-radius:18px;padding:16px}
 .tw-frame{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
 .tw-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:none}
+/* Announcement: above the editor (200) and every other layer, because the
+   one job of this surface is to be impossible to miss. */
+.rd-ann-bg{position:fixed;inset:0;z-index:300;background:rgba(5,4,8,.82);display:grid;place-items:center;padding:24px}
+.rd-ann{width:min(520px,100%);padding:24px;border-radius:20px;display:flex;flex-direction:column;gap:12px}
+.rd-ann-k{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc)}
+.rd-ann h3{margin:0;font-size:20px;font-weight:800;letter-spacing:-.01em}
+.rd-ann-body{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--fg-2);max-height:50vh;overflow:auto}
+.rd-ann .rd-btn{align-self:flex-end}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 /* The editor is a flex column so the side panel can scroll on its own while
@@ -2116,6 +2124,29 @@ function usePlayerOpen(open) {
       if(_hzPlayers === 0) document.body.classList.remove('hz-player');
     };
   }, [open]);
+}
+
+// An announcement from the operator. In FRONT of everything — above the clip
+// modal and the editor — because the whole point is that it cannot be
+// missed. One at a time, oldest first when several are waiting; dismissing
+// one reveals the next. Plain text with line breaks kept; React escapes it,
+// so nothing the operator types can become markup.
+function AnnouncementModal({ a, onSeen }) {
+  useEffect(() => {
+    const k = e => { if (e.key === 'Escape') onSeen(a.id); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [a.id]);
+  return (
+    <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-ann-title">
+      <div className="rd-ann glass">
+        <div className="rd-ann-k"><Icon name="bell" size={13}/>Announcement</div>
+        <h3 id="rd-ann-title">{a.title}</h3>
+        <div className="rd-ann-body">{a.body}</div>
+        <button className="rd-btn grad" onClick={()=>onSeen(a.id)} autoFocus>Got it</button>
+      </div>
+    </div>
+  );
 }
 
 function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featured, onFeature }) {
@@ -7390,6 +7421,9 @@ function RdApp() {
   // server-filtered: it only ever contains this account's channels, and rows
   // the user dismissed are already gone by the time they arrive here.
   const [refusals, setRefusals] = useState([]);
+  // Announcements from the operator, in front of everything until dismissed.
+  // Server-filtered: only the ones this account has not closed arrive here.
+  const [announcements, setAnnouncements] = useState([]);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -7479,6 +7513,9 @@ function RdApp() {
     // refused while the tab sits open, and a reconnect (sleep, deploy) is the
     // one moment we get to notice we missed the event that said so.
     fetch('/clip-refusals').then(r=>r.json()).then(d=>setRefusals(d.rows||[])).catch(()=>{});
+    // Announcements: the socket event reaches tabs open at the moment of
+    // sending; this reaches everyone else on their next open or reconnect.
+    fetch('/announcements').then(r=>r.json()).then(d=>setAnnouncements(d.rows||[])).catch(()=>{});
     fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
     // Which clips are featured on the landing page (admin curation state).
@@ -7679,6 +7716,17 @@ function RdApp() {
           fetch('/clip-refusals').then(r=>r.json())
             .then(d=>setRefusals(d.rows||[])).catch(()=>{});
         }
+        // An announcement from the operator: in front of everything, now.
+        // Appended (deduplicated by id) rather than refetched — the payload
+        // IS the announcement, and a fetch would only re-read it.
+        else if(msg.event==='announcement' && msg.announcement){
+          setAnnouncements(p=>p.some(a=>a.id===msg.announcement.id)?p:[...p, msg.announcement]);
+        }
+        // Retired by the operator, or dismissed in one of this user's other
+        // tabs. Either way it comes down here too.
+        else if(msg.event==='announcement_retired' || msg.event==='announcement_seen'){
+          setAnnouncements(p=>p.filter(a=>a.id!==msg.id));
+        }
         // Clearing recents in one tab must clear them in every open tab. The
         // suggestion list lives inside AddStreamPanel and is fetched on open
         // rather than on mount, so there is no top-level state to update and
@@ -7795,6 +7843,14 @@ function RdApp() {
     setRefusals(p=>p.filter(r=>r.channel!==channel));
     fetch('/clip-refusals/'+encodeURIComponent(channel)+'/dismiss',{method:'POST'})
       .catch(()=>{});
+  };
+
+  // "Got it" on an announcement. Removed locally so the modal closes at once
+  // (revealing the next one, if any); the POST persists it on the account and
+  // its broadcast closes the same modal in this user's other tabs.
+  const dismissAnnouncement = (id)=>{
+    setAnnouncements(p=>p.filter(a=>a.id!==id));
+    fetch('/announcements/'+encodeURIComponent(id)+'/seen',{method:'POST'}).catch(()=>{});
   };
 
   // FETCH A CLIP'S VIDEO FROM TWITCH, on request. Cards and the modal ask for
@@ -8051,6 +8107,7 @@ function RdApp() {
         onClose={()=>setReviewAsk(null)}/>}
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
+      {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>

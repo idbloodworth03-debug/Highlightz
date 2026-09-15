@@ -5536,6 +5536,89 @@ async def dismiss_clip_refusal(channel: str, request: Request):
     return {"ok": True}
 
 
+# ── Announcements: one message, in front of every user ───────────────────────
+
+def _announcement_out(a: dict) -> dict:
+    return {"id": a.get("id"), "title": a.get("title", ""), "body": a.get("body", ""),
+            "created_at": a.get("created_at", 0), "expires_at": a.get("expires_at", 0)}
+
+
+@app.get("/announcements")
+async def my_announcements(request: Request):
+    """What this user still has to read: active, minus what they dismissed.
+
+    Pulled on mount and in refetchAll, so somebody who was offline when it was
+    sent sees it on their next open — the socket event only reaches tabs that
+    were open at the moment of sending, and that is a minority of the accounts
+    a message is written for.
+    """
+    from src.auth import users as user_store
+    from src.dashboard import announcements
+    uid = _current_user_id(request)
+    user = user_store.get_by_id(uid) or {}
+    return {"rows": [_announcement_out(a) for a in announcements.for_user(user)]}
+
+
+@app.post("/announcements/{aid}/seen")
+async def announcement_seen(aid: str, request: Request):
+    """Dismissed. Persisted on the user, and broadcast to their other tabs so
+    the same modal does not sit open in a second window."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user_store.mark_announcement_seen(uid, aid)
+    await broadcast({"event": "announcement_seen", "id": aid}, user_id=uid)
+    return {"ok": True}
+
+
+@app.get("/admin/announcements")
+async def admin_announcements(request: Request):
+    """Everything still showing, with how many accounts have dismissed each —
+    the only read receipt a modal can honestly give."""
+    from src.auth import users as user_store
+    from src.dashboard import announcements
+    _require_admin(request)
+    users = user_store.get_all()
+    rows = []
+    for a in announcements.active():
+        row = _announcement_out(a)
+        row["by"] = a.get("by", "")
+        row["seen"] = sum(1 for u in users if a.get("id") in (u.get("announcements_seen") or []))
+        rows.append(row)
+    return {"rows": rows, "users": len(users)}
+
+
+@app.post("/admin/announcements", status_code=201)
+async def admin_send_announcement(request: Request):
+    """Send to everyone. The broadcast is GLOBAL — user_id=None — which is the
+    one case that is genuinely global: every open tab gets the modal now, and
+    /announcements covers everyone else on their next open."""
+    from src.dashboard import announcements
+    _require_admin(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        row = announcements.create(str(body.get("title", "")), str(body.get("body", "")),
+                                   body.get("days"), by=request.session.get("user_id", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await broadcast({"event": "announcement", "announcement": _announcement_out(row)},
+                    user_id=None)
+    return _announcement_out(row)
+
+
+@app.delete("/admin/announcements/{aid}")
+async def admin_retire_announcement(aid: str, request: Request):
+    """Take it down everywhere, including out of a modal somebody has open."""
+    from src.dashboard import announcements
+    _require_admin(request)
+    if not announcements.retire(aid):
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    await broadcast({"event": "announcement_retired", "id": aid}, user_id=None)
+    return {"ok": True}
+
+
 @app.get("/admin/clip-refusals")
 async def admin_clip_refusals(request: Request):
     """Channels Twitch is currently refusing to clip, worst-recent first.
@@ -11038,6 +11121,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
+    <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
   </div>
 
   <!-- ── USERS ── -->
@@ -11151,6 +11235,29 @@ ADMIN_HTML = """<!DOCTYPE html>
   </div>
 
   <!-- ── REVIEWS ── -->
+  <div class="panel" id="panel-notify">
+    <h2>Announce to everyone</h2>
+    <p class="sub">A message that pops up in front of the dashboard for every signed-up
+      account &mdash; live in every open tab the moment you send it, and on next open for
+      everyone else &mdash; until each person presses Got it.</p>
+    <div style="display:grid;gap:var(--s-3);max-width:640px;margin:var(--s-4) 0">
+      <input class="field" id="an-title" maxlength="80" placeholder="Title (up to 80 characters)">
+      <textarea class="field" id="an-body" rows="5" maxlength="1000"
+        placeholder="The message. Line breaks are kept. Up to 1,000 characters."></textarea>
+      <div style="display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">
+        <select class="btn" id="an-days">
+          <option value="7">Show for 7 days</option>
+          <option value="14" selected>Show for 14 days</option>
+          <option value="30">Show for 30 days</option>
+          <option value="90">Show for 90 days</option>
+        </select>
+        <button class="btn btn-key" id="an-send">Send to everyone</button>
+        <span class="sub" id="an-msg"></span>
+      </div>
+    </div>
+    <h2>Showing now</h2>
+    <div class="tw"><div id="an-list"><div class="sub">Loading&hellip;</div></div></div>
+  </div>
   <div class="panel" id="panel-reviews">
     <div class="block-head"><h2>Reviews</h2><span class="c" id="rv-c"></span></div>
     <p class="lede">
@@ -11247,6 +11354,59 @@ document.getElementById('tabs').addEventListener('click', e => {
   // Loaded on first open rather than at boot. The box is a 1 vCPU droplet
   // running eleven workers; a panel nobody looked at should cost nothing.
   if(b.dataset.tab === 'funnel' && !FUNNEL_LOADED) loadFunnel();
+  if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();
+});
+
+// ── announcements ─────────────────────────────────────────
+let AN_LOADED = false;
+
+async function loadAnnouncements(){
+  AN_LOADED = true;
+  let d;
+  try { d = await api('/admin/announcements'); } catch(e){ return; }
+  const el = document.getElementById('an-list');
+  const rows = (d && d.rows) || [];
+  document.getElementById('tc-notify').textContent = rows.length ? String(rows.length) : '';
+  if(!rows.length){ el.innerHTML = '<div class="sub">Nothing showing. Everyone has a clear screen.</div>'; return; }
+  let html = '<table><thead><tr><th>Sent</th><th>Message</th><th>Seen</th><th>Until</th><th></th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr><td>' + new Date(r.created_at*1000).toLocaleString() + '</td>'
+      + '<td><b>' + esc(r.title) + '</b><div class="sub" style="white-space:pre-wrap">' + esc(r.body) + '</div></td>'
+      // The only read receipt a modal can honestly give: who pressed Got it.
+      + '<td>' + n0(r.seen) + ' / ' + n0(d.users) + '</td>'
+      + '<td>' + new Date(r.expires_at*1000).toLocaleDateString() + '</td>'
+      + '<td style="text-align:right"><button class="btn btn-bad" data-retire="' + esc(r.id) + '">Retire</button></td></tr>';
+  });
+  el.innerHTML = html + '</tbody></table>';
+  el.querySelectorAll('[data-retire]').forEach(function(b){
+    b.addEventListener('click', async function(){
+      if(!confirm('Take this announcement down for everyone, including anyone reading it right now?')) return;
+      b.disabled = true;
+      try { await api('/admin/announcements/' + b.getAttribute('data-retire'), 'DELETE'); }
+      catch(e){ b.disabled = false; return; }
+      loadAnnouncements();
+    });
+  });
+}
+
+document.getElementById('an-send').addEventListener('click', async function(){
+  const btn = this, msg = document.getElementById('an-msg');
+  const title = document.getElementById('an-title').value.trim();
+  const body  = document.getElementById('an-body').value.trim();
+  const days  = +document.getElementById('an-days').value;
+  if(!title || !body){ msg.textContent = 'A title and a message are both needed.'; return; }
+  if(!confirm('Send this to every signed-up account? It pops up in front of their dashboard.')) return;
+  btn.disabled = true; msg.textContent = 'Sending…';
+  try {
+    const r = await fetch('/admin/announcements', { method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, days}) });
+    if(!r.ok){ const e = await r.json().catch(()=>({})); msg.textContent = e.detail || ('Failed (' + r.status + ')'); return; }
+    document.getElementById('an-title').value = '';
+    document.getElementById('an-body').value = '';
+    msg.textContent = 'Sent. It is in front of every open dashboard now, and everyone else sees it on their next open.';
+    loadAnnouncements();
+  } catch(e){ msg.textContent = 'Could not reach the server.'; }
+  finally { btn.disabled = false; }
 });
 
 // ── funnel ────────────────────────────────────────────────

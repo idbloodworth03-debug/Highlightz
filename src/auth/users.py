@@ -451,6 +451,23 @@ def refusal_dismissed_at(user: dict, channel: str, scope: str = "user") -> float
         return 0.0
 
 
+def mark_announcement_seen(user_id: str, aid: str) -> None:
+    """The user dismissed an announcement. On the user record, so it stays
+    dismissed on every device and after every reload. Bounded: announcements
+    expire within MAX_DAYS, so an id older than the newest fifty can no longer
+    be suppressing anything that is still showing."""
+    if not aid:
+        return
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            seen = [x for x in (u.get("announcements_seen") or []) if x != aid]
+            seen.append(aid)
+            u["announcements_seen"] = seen[-50:]
+            _save(users)
+            return
+
+
 def set_ref_once(user_id: str, ref: str) -> bool:
     """Attribute a user to a referrer, FIRST TOUCH ONLY.
 

@@ -1492,6 +1492,31 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+## Announcements — one message in front of every user (2026-09-15)
+
+Owner: "a way to send out notifications for all users ... pop up in front
+of the screen." `src/dashboard/announcements.py` (title, body, sent, expires;
+`clips/announcements.json`), admin tab **Announce** on `/admin` (compose,
+show-for 7/14/30/90 days, list with a read receipt = who pressed Got it,
+Retire), dashboard modal `AnnouncementModal` at **z-index 300** — above the
+editor (200) and everything else, because the one job of this surface is to
+be impossible to miss. Plain text, line breaks kept, React-escaped.
+
+**Two delivery paths, on purpose.** `POST /admin/announcements` broadcasts
+`announcement` with `user_id=None` — the one genuinely global broadcast —
+so every open tab gets the modal at once. `GET /announcements` (active
+minus what this account dismissed) is pulled on mount and in `refetchAll`,
+so everyone who was offline sees it on their next open. A message only the
+people online at that second saw would miss most of the accounts it was
+written for. Dismissal (`POST /announcements/{id}/seen`) is persisted on the
+user record (`announcements_seen`, bounded to 50) and broadcast to that
+user's other tabs; `DELETE /admin/announcements/{id}` retires it and
+broadcasts `announcement_retired` so it leaves an open modal too. Several
+waiting show one at a time, oldest first. Every announcement expires
+(default 14 days, max 90) and the store prunes expired rows on every write.
+20 tests in `tests/test_announcements.py`, including both halves of the
+realtime contract.
+
 ## Publishing — deliberately NOT an API integration (2026-08-02)
 
 **We do not post on the user's behalf, and that is the design.** Posting
