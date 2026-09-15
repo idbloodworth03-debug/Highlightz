@@ -3761,6 +3761,16 @@ async def _auto_preset_for(channel: str) -> str:
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
+    # Kick is an ADMIN-ONLY beta (owner, 2026-09-15: "I need it open for
+    # admins") until a live channel has been captured on prod. The DB is the
+    # authority on admin, as in _require_admin, not the session flag.
+    if req.platform == "kick":
+        from src.auth import users as _users
+        if not (_users.get_by_id(uid) or {}).get("is_admin"):
+            raise HTTPException(
+                status_code=503,
+                detail="Kick support is in an admin-only beta — coming to everyone soon.",
+            )
     # Kick has no clip-creation API, so a Kick clip IS the file cut from the
     # live capture buffer. Without capture there is nothing to give the user,
     # so refuse the channel up front rather than monitor it for nothing.

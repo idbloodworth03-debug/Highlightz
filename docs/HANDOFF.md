@@ -189,7 +189,15 @@ switched off.
   - Legal: ToS §1 and the Privacy Policy now describe Kick monitoring and
     file-only clips, still with "no Kick credentials are requested or
     stored" (the phrase `test_legal_pages_match_the_code` pins while there is
-    no `/auth/kick` route). `KICK_BLOCKED` is `[]`; the mechanism stays
+    no `/auth/kick` route). **ADMIN-ONLY BETA** (owner, later that day:
+    "Kick dashboard is closed I need it open for admins"): `kickOpen =
+    me.is_admin` opens every tab for admins; everyone else keeps
+    `KICK_BLOCKED` and the "coming soon" screen, and `POST /streams`
+    answers 503 for a non-admin Kick channel (DB is the authority, as in
+    `_require_admin`). Flip to everyone by making `kickOpen` true and
+    dropping that 503 once a live channel has been captured on prod. Note
+    a deploy does not reload an open tab's JS — hard-refresh to see a new
+    gate. The mechanism stays
     (`test_kick_blocked_nav_buttons_are_actually_disabled_not_just_dimmed`)
     for the next screen that has to close on Kick, and **Kick must never be
     a trap** (`test_kick_never_traps_the_user`). 14 tests in

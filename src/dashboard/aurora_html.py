@@ -3624,13 +3624,16 @@ function TutorialScreen({ doc, onGo }){
 }
 
 const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-// Tabs closed off on Kick. EMPTY since 2026-09-15: Kick monitoring is live
-// (chat + audio + viewers, clips cut from live capture — no Kick-hosted clip,
-// no Highlight clips). The mechanism stays: used by BOTH the route dispatch
-// and the nav, so a blocked tab is greyed out and unclickable rather than
-// looking live and then dead-ending, and Account / Feedback / the platform
-// switch / Sign out always stay live so Kick is never a trap.
-const KICK_BLOCKED=[];
+// Tabs closed off on Kick FOR NON-ADMINS. Kick monitoring went live on
+// 2026-09-15 (chat + audio + viewers, clips cut from live capture — no
+// Kick-hosted clip, no Highlight clips) as an ADMIN-ONLY beta: the owner tests
+// it on prod first, everyone else keeps the "coming soon" screen. `kickOpen`
+// in the app is the switch (admins), and this list is what closes. Used by
+// BOTH the route dispatch and the nav, so a blocked tab is greyed out and
+// unclickable rather than looking live and then dead-ending; Account,
+// Feedback, the platform switch and Sign out always stay live so Kick is
+// never a trap.
+const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
 const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
@@ -8407,10 +8410,12 @@ function RdApp() {
   const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review' : route;
 
   let screen;
-  // KICK_BLOCKED (empty since Kick went live) is the single source of truth,
-  // shared with the nav below so a tab can never be clickable-but-dead (or
-  // greyed-out-but-working) if a screen ever has to be closed on Kick again.
-  if(activePlatform==='kick' && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
+  // Kick is an admin-only beta: admins get every tab, everyone else the
+  // "coming soon" screen. KICK_BLOCKED is the single source of truth, shared
+  // with the nav below so a tab can never be clickable-but-dead (or
+  // greyed-out-but-working). The API refuses non-admin Kick channels too.
+  const kickOpen = !!(me && me.is_admin);
+  if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
@@ -8451,7 +8456,7 @@ function RdApp() {
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what
           // actually stops the click; the class only makes that visible.
-          const blocked = activePlatform==='kick' && KICK_BLOCKED.includes(n.id);
+          const blocked = activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(n.id);
           return (
           <button key={n.id} disabled={blocked} aria-disabled={blocked}
             title={blocked?'Not available on Kick yet':undefined}

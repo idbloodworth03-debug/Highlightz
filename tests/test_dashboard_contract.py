@@ -97,7 +97,7 @@ def test_kick_blocked_nav_buttons_are_actually_disabled_not_just_dimmed():
     nav = re.search(r"NAV\.filter\(.*?\}\)\}", SRC, re.S)
     assert nav, "nav render block not found"
     block = nav.group(0)
-    assert "const blocked = activePlatform==='kick' && KICK_BLOCKED.includes(n.id)" in block
+    assert "const blocked = activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(n.id)" in block
     # The lookbehind matters: `aria-disabled={blocked}` contains the literal
     # `disabled={blocked}`, so a plain substring check passes even when the
     # real `disabled` attribute has been removed and the button is clickable
