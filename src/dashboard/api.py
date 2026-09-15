@@ -991,6 +991,15 @@ async def notify_clip_ready(clip: dict) -> None:
 
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
+    # Every new clip should end up with a file. Capture is given first go; if
+    # it produced nothing by the time its window has passed, this fetches the
+    # clip from Twitch instead. Detached: the wait is tens of seconds and the
+    # clip pipeline must not stall behind it. No-op unless fetching is on.
+    task = asyncio.create_task(_fetch_when_capture_misses(clip),
+                               name=f"fetch-fallback-{clip.get('id')}")
+    _fetch_tasks.add(task)
+    task.add_done_callback(_fetch_tasks.discard)
+
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -2702,11 +2711,16 @@ _CLIP_FILE_WAIT_S = 120.0
 def _file_state(clip: dict, listing=None) -> str:
     """Why this clip can or cannot be downloaded. One of:
 
-      ready    the file is on disk, the download works right now
-      pending  the capture has not finished writing it yet
-      off      capture is switched off, so no file was ever going to exist
-      expired  the file existed and was cleared to make room for newer clips
-      missed   capture was on but produced nothing for this moment
+      ready     the file is on disk, the download works right now
+      pending   the capture has not finished writing it yet
+      fetching  a download from Twitch is running for it now
+      off       capture is switched off, so no file was ever going to exist
+      expired   the file existed and was cleared to make room for newer clips
+      missed    capture was on but produced nothing for this moment
+
+    The last three are no longer dead ends: when clip fetching is on and the
+    clip is a Twitch clip with a slug, the payload also says `fetchable`, and
+    the browser offers a Download that fetches it.
 
     THE STATES EXIST BECAUSE SILENCE WAS THE BUG. Every failure in the cut path
     is deliberately non-fatal — a clip with no file behaves exactly as clips did
@@ -2728,9 +2742,15 @@ def _file_state(clip: dict, listing=None) -> str:
     """
     try:
         from src.clips import files as clip_files
+        from src.clips import fetch as clip_fetch
         if (clip.get("id", "") in listing if listing is not None
                 else clip_files.exists(clip.get("id", ""))):
             return "ready"
+        # A download from Twitch is running for it right now. Checked before
+        # the reasons below because it supersedes them: whatever left this
+        # clip without a file, one is on its way.
+        if clip_fetch.in_flight(clip.get("id", "")):
+            return "fetching"
         horizon = clip_files.oldest_mtime()
     except Exception:
         return "missed"
@@ -2760,8 +2780,77 @@ def _clip_out(clip: dict, listing=None) -> dict:
 
     Pass `listing` when serialising MORE THAN ONE clip — see `_file_state`.
     """
+    from src.clips import fetch as clip_fetch
     state = _file_state(clip, listing)
-    return {**clip, "has_file": state == "ready", "file_state": state}
+    return {**clip, "has_file": state == "ready", "file_state": state,
+            # Only meaningful without a file: it is what turns "no file" from
+            # an explanation into a Download button.
+            "fetchable": state != "ready" and clip_fetch.fetchable(clip)}
+
+
+# Background fetches hold a strong reference here; a bare create_task can be
+# garbage-collected mid-download.
+_fetch_tasks: set[asyncio.Task] = set()
+
+
+async def _fetch_and_announce(clip_id: str, uid: str, slug: str) -> None:
+    """Fetch one clip from Twitch and tell the owner's open tabs how it went.
+
+    Success reuses `clip_file_ready` — the event the capture path already emits
+    and the frontend already handles, so a fetched file appears exactly the way
+    a captured one does. Failure gets its own event so the tab can stop saying
+    "Fetching" and say what happened instead. Both scoped to the one user.
+    """
+    from src.clips import fetch as clip_fetch
+    try:
+        await clip_fetch.fetch(clip_id, slug)
+    except clip_fetch.FetchDisabled:
+        return
+    except clip_fetch.FetchFailed:
+        await broadcast({"event": "clip_fetch_failed", "clip_id": clip_id,
+                         "message": "Couldn't get this clip's video from "
+                                    "Twitch right now. Try again in a moment."},
+                        user_id=uid)
+        return
+    await broadcast({"event": "clip_file_ready", "clip_id": clip_id},
+                    user_id=uid)
+
+
+def _start_fetch(clip: dict) -> None:
+    """Kick off a background fetch for a clip. Dedupe lives in fetch.fetch, so
+    calling this for a clip already being fetched is harmless."""
+    task = asyncio.create_task(
+        _fetch_and_announce(clip["id"], clip.get("user_id", ""),
+                            clip.get("twitch_clip_id") or ""),
+        name=f"fetch-announce-{clip['id']}")
+    _fetch_tasks.add(task)
+    task.add_done_callback(_fetch_tasks.discard)
+
+
+async def _fetch_when_capture_misses(clip: dict) -> None:
+    """The fallback that makes every NEW clip come with a file.
+
+    Capture stays primary: it is free, better quality, and never touches
+    Twitch. So this waits out the capture window first — the cut cannot even
+    start until the post-roll and two segments have been broadcast, plus the
+    cut itself — and only fetches if there is still no file. The wait also
+    gives Twitch time to finish encoding the clip on its side; a clip fetched
+    the instant Create Clip returns is often not ready yet.
+    """
+    from src.clips import files as clip_files
+    from src.clips import fetch as clip_fetch
+    if not clip_fetch.fetchable(clip):
+        return
+    await asyncio.sleep(settings.clip_post_roll_seconds
+                        + settings.clip_capture_segment_s * 2 + 30)
+    if clip_files.exists(clip["id"]):
+        return                                  # capture got it; nothing to do
+    if _clips.get(clip["id"]) is None:
+        return                                  # reviewed and gone meanwhile
+    log.info("clip_fetch_fallback", clip_id=clip["id"],
+             channel=clip.get("channel"))
+    await _fetch_and_announce(clip["id"], clip.get("user_id", ""),
+                              clip.get("twitch_clip_id") or "")
 
 
 @app.get("/clips")
@@ -2822,6 +2911,45 @@ async def get_clip_file(request: Request, clip_id: str, download: int = 0):
     )
 
 
+@app.post("/clips/{clip_id}/fetch", status_code=202)
+async def fetch_clip_file(request: Request, clip_id: str):
+    """Get this clip's video from Twitch, for a clip capture did not produce.
+
+    ON DEMAND, NOT EAGER. Every clip is downloadable, but only clips a person
+    actually asks for are fetched: pre-fetching 1,600 historical clips would
+    multiply disk, bandwidth and the grey-path footprint for files nobody
+    opens. The fallback in notify_clip_ready covers NEW clips whose capture
+    missed, so the on-demand path is mostly for the backlog.
+
+    202 and a background task rather than waiting: a fetch is seconds to tens
+    of seconds, and the tab learns the outcome over the socket —
+    `clip_file_ready` (the same event capture emits) or `clip_fetch_failed`.
+    A clip already being fetched joins that download rather than starting
+    another; see fetch.fetch.
+
+    Every plan, like the download itself: a clip the product caught for you is
+    yours. The paywall stays on editing.
+    """
+    from src.clips import files as clip_files
+    from src.clips import fetch as clip_fetch
+    uid = _current_user_id(request)
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    if clip_files.exists(clip_id):
+        return {"file_state": "ready"}
+    if not clip_fetch.enabled():
+        raise HTTPException(
+            status_code=409,
+            detail="Downloading from Twitch is switched off on this server.")
+    if not clip_fetch.fetchable(clip):
+        raise HTTPException(
+            status_code=409,
+            detail="There is no Twitch clip to fetch for this moment.")
+    _start_fetch(clip)
+    return {"file_state": "fetching"}
+
+
 def _read_chunk(fh, size: int) -> bytes:
     """Named so the thread hop below reads as what it is."""
     return fh.read(size)
@@ -2871,12 +2999,29 @@ async def send_clip_to_editor(request: Request, clip_id: str):
             return existing.public()
 
     from src.clips import files as clip_files
+    from src.clips import fetch as clip_fetch
     path = clip_files.path_for(clip_id)
     if not path or not path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail="No file for this clip yet. Highlightz only keeps the video "
-                   "for clips it captured while the stream was live.")
+        # No file yet — get one from Twitch, INLINE. "Edit" should be one
+        # click, and the wait is seconds; a 202-and-come-back here would turn
+        # it into two clicks separated by a toast. A concurrent fetch of the
+        # same clip is joined, not duplicated.
+        if not clip_fetch.fetchable(clip):
+            raise HTTPException(
+                status_code=404,
+                detail="No file for this clip. Highlightz keeps the video only "
+                       "for clips it captured live or can fetch from Twitch.")
+        try:
+            await clip_fetch.fetch(clip_id, clip.get("twitch_clip_id") or "")
+        except clip_fetch.FetchFailed:
+            raise HTTPException(
+                status_code=502,
+                detail="Couldn't get this clip's video from Twitch right now. "
+                       "Try again in a moment.")
+        # The file exists now, so the clip's own card should say so too —
+        # the same event the capture path emits, scoped to this user.
+        await broadcast({"event": "clip_file_ready", "clip_id": clip_id},
+                        user_id=uid)
 
     raw = f"{clip.get('channel', 'clip')} - {clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
 
@@ -6367,10 +6512,13 @@ comparison — is at https://highlightz.app/llms-full.txt.
   own threshold, so a small channel and a huge one are judged the same way.
 - Creates real Twitch clips through the official Clips API using your own
   authorised Twitch account. Twitch makes and hosts the clip.
-- Never downloads video from Twitch and never re-hosts a Twitch-hosted clip.
-  While a channel is monitored it may record a few minutes of the live public
-  broadcast into a rolling buffer that is continuously overwritten, so a
-  detected moment can be saved as a file for that account. An opted-out
+- Keeps a private video file of each clip for the account that caught it, so
+  it can be downloaded, edited and scheduled. While a channel is monitored it
+  may record a few minutes of the live public broadcast into a rolling buffer
+  that is continuously overwritten, so a detected moment can be saved as a
+  file for that account; where that recording did not catch the moment, the
+  clip's video is fetched from Twitch on request instead. Nothing is publicly
+  re-hosted — the clip itself stays a Twitch-hosted clip. An opted-out
   channel is never recorded. See the Privacy Policy for retention.
 - Highlight clips: alongside the score, a second way of finding moments. They
   arrive in the review queue marked Highlight, in purple, are usually the
@@ -6467,7 +6615,9 @@ async def llms_full_txt():
       "second from seven live signals against that channel's own threshold, and when "
       "the score crosses it creates a real Twitch clip through the official Clips API. "
       "Every clip lands in a review queue first. Twitch makes and hosts the clip; "
-      "Highlightz never downloads video from Twitch. "
+      "Highlightz also keeps a private video file of it for the account that made it, "
+      "recorded from the live broadcast or fetched from Twitch, so it can be "
+      "downloaded and edited. "
       "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
     w("## The seven signals\n")
@@ -9837,12 +9987,13 @@ def _faq() -> str:
          "timestamp in the VOD."),
         ("Is this allowed on Twitch?",
          "Clips are created through Twitch's official Clips API with your authorized account, the "
-         "same mechanism as Twitch's own Clip button. Nothing here works around a rate limit, "
-         "scrapes a page, or uses an undocumented endpoint to get at video. Highlightz never "
-         "downloads anything from Twitch &mdash; where it saves a moment as a file, it does so by "
-         "recording the live public broadcast as it is transmitted, the same stream any viewer "
-         "receives. You are responsible for what you do with a clip of a channel you do not own; "
-         "see the <a href=\"/tos\">Terms</a>."),
+         "same mechanism as Twitch's own Clip button. So you can download, edit and post a "
+         "clip, Highlightz also keeps a video file of it for your account: recorded from the "
+         "live public broadcast as it is transmitted where possible, and otherwise fetched "
+         "from Twitch when you ask for it. That file is private to you, is deleted with the "
+         "clip, is never kept for a channel that has opted out, and is never publicly "
+         "re-hosted. You are responsible for what you do with a clip of a channel you do not "
+         "own; see the <a href=\"/tos\">Terms</a>."),
         ("What if a streamer does not want to be clipped?",
          "They can opt out at any time on our <a href=\"/opt-out\">opt-out page</a>, and it takes "
          "effect immediately across every account, with nothing to email and nobody to wait on. A "
@@ -10206,7 +10357,7 @@ TOS_HTML = """<!DOCTYPE html>
   <h2>1. Description of Service</h2>
   <p>Highlightz is a SaaS platform that monitors live streams on Twitch, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — creates clips using Twitch's official Clips API. Clips are created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account.</p>
   <p><strong>Recording of live broadcasts.</strong> While a channel you have added is being monitored, the Service may record a short rolling segment of that live public broadcast on its own servers, so that a moment it detects can also be saved as a video file for you. That rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is kept for a limited period &mdash; currently up to <!--CLIPDAYS--> days &mdash; and is deleted when you delete the clip, when your account is deleted, or when that period ends, whichever comes first. It is available only to the account the clip belongs to; it is not published, shared with other users, or hosted anywhere publicly accessible. A channel that has opted out under Section 5 is never recorded.</p>
-  <p>Highlightz does not download video from Twitch. It does not fetch, copy, alter, or re-host clips or past broadcasts that Twitch hosts, and does not use undocumented or unsanctioned Twitch endpoints to obtain video. Any recording is of the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
+  <p>To provide downloads, editing and scheduling, Highlightz stores a video file of each clip for the account that created it. That file is obtained either by recording the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives, or, where that recording is unavailable, by retrieving the clip's video from Twitch at your request. A stored file is private to your account, is never kept for a channel whose broadcaster has opted out, and is deleted when you delete the clip or your account and in any case within the retention period stated in the Privacy Policy. Highlightz does not alter or publicly re-host clips or past broadcasts that Twitch hosts. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
   <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
   <p>Support for Kick is not yet available. Kick channels cannot currently be monitored and no Kick account is connected to or required by the Service. If Kick support ships, these Terms and our Privacy Policy will be updated before it does.</p>
   <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
@@ -10326,7 +10477,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
     <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, and the Twitch clip links generated for your account. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
-    <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. We do not download video from Twitch, and a channel that has opted out is never recorded.</li>
+    <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. Where the rolling recording did not capture a moment, we retrieve the clip's video from Twitch when you ask for it and store it under the same terms. A channel that has opted out is never recorded and its clips are never retrieved.</li>
     <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>

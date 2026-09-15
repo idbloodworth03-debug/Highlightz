@@ -1923,12 +1923,26 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
   ) : fileState === 'pending' ? (
     <span className="rd-btn sm rd-dl-wait" title="Highlightz is cutting the video for this clip"
        style={{cursor:'default'}}><Icon name="download" size={13}/>Preparing</span>
+  ) : fileState === 'fetching' ? (
+    <span className="rd-btn sm rd-dl-wait" title="Getting the video from Twitch"
+       style={{cursor:'default'}}><Icon name="download" size={13}/>Fetching</span>
+  ) : clip.fetchable ? (
+    // No file, but one can be had: the same Download button, and pressing it
+    // fetches the clip from Twitch. Sent up to App over the in-page event
+    // channel rather than threaded through five render sites as a prop — App
+    // owns the clip state, the request and the download that follows.
+    <button className="rd-btn sm" title="Download this clip as an MP4 (fetched from Twitch)"
+       onClick={e=>{e.stopPropagation();window.dispatchEvent(new CustomEvent('hz_fetch_clip',{detail:{id:clip.id,download:true}}))}}>
+      <Icon name="download" size={13}/>Download</button>
   ) : null;
   // Straight into the editor, no download-then-reupload. `onEdit` is only
   // passed when the Editor is actually reachable for this account, so the
   // button cannot appear next to a tab the user does not have — the endpoint
   // enforces the same thing, this just stops offering a dead end.
-  const edBtn = (clip.has_file && onEdit) ? (
+  //
+  // Offered for a FETCHABLE clip too: the editor route fetches the file from
+  // Twitch inline when there is none, so Edit stays one click either way.
+  const edBtn = ((clip.has_file || clip.fetchable) && onEdit) ? (
     <button className="rd-btn sm" title="Edit this clip" style={{flex:'0 0 auto'}}
        onClick={e=>{e.stopPropagation();onEdit(clip)}}><Icon name="sliders" size={13}/></button>
   ) : null;
@@ -2269,10 +2283,26 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
                 ? <div className="rd-dl-note"><b>Preparing the download…</b> Highlightz cuts
                     the video a few seconds after the moment ends. This turns into a
                     download button on its own — no need to reload.</div>
+                : clip.file_state === 'fetching'
+                ? <div className="rd-dl-note"><b>Getting the video from Twitch…</b> A few
+                    seconds. The download starts by itself when it lands.</div>
                 : clip.has_file
                 ? <a href={'/clips/'+clip.id+'/file?download=1'} download
                     className="rd-btn sm" style={{textDecoration:'none',marginTop:8,width:'100%',justifyContent:'center'}}>
                   <Icon name="download" size={14}/>Download clip</a>
+                : clip.fetchable
+                ? <>
+                    {/* No file, but one can be had. Same button, and it fetches
+                        the clip from Twitch first — see the hz_fetch_clip
+                        listener in App. The reasons below only apply to clips
+                        that cannot be fetched at all. */}
+                    <button className="rd-btn sm"
+                      style={{marginTop:8,width:'100%',justifyContent:'center'}}
+                      onClick={()=>window.dispatchEvent(new CustomEvent('hz_fetch_clip',{detail:{id:clip.id,download:true}}))}>
+                      <Icon name="download" size={14}/>Download clip</button>
+                    <div className="rd-dl-note" style={{marginTop:8}}>Highlightz fetches
+                      this one from Twitch when you ask — a few seconds, then it downloads.</div>
+                  </>
                 : <div className="rd-dl-note">
                     {clip.file_state === 'off'
                       ? <><b>No file for this clip.</b> Highlightz was not holding video when
@@ -2292,7 +2322,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
                   on our disk, so this hands it to the editor without a
                   download and a re-upload. Only rendered when the Editor is
                   reachable for this account — see the onEdit gate in App. */}
-              {clip.has_file && onEdit && <button className="rd-btn grad sm"
+              {(clip.has_file || clip.fetchable) && onEdit && <button className="rd-btn grad sm"
                   style={{marginTop:8,width:'100%',justifyContent:'center'}}
                   onClick={()=>{onEdit(clip);onClose()}}>
                 <Icon name="sliders" size={14}/>Edit clip</button>}
@@ -7000,6 +7030,18 @@ function RdApp() {
           const rdy = o => ({...o, has_file:true, file_state:'ready'});
           setClips(p=>p[msg.clip_id]?{...p,[msg.clip_id]:rdy(p[msg.clip_id])}:p);
           setModalClip(prev=>prev&&prev.id===msg.clip_id?rdy(prev):prev);
+          // The same event also closes a fetch THIS tab asked for. If the
+          // person pressed Download, the file is on disk now — start it, so
+          // the button they already pressed does not need pressing again.
+          if(wantDownload.current.delete(msg.clip_id))
+            window.location.assign('/clips/'+msg.clip_id+'/file?download=1');
+        }
+        // A fetch from Twitch did not produce a file. Say so and put the
+        // Download button back, or the card sits on "Fetching" forever.
+        else if(msg.event==='clip_fetch_failed'){
+          wantDownload.current.delete(msg.clip_id);
+          setFileState(msg.clip_id, 'missed');
+          flash(msg.message||'Could not fetch that clip from Twitch');
         }
         else if(msg.event==='stream_added'||msg.event==='stream_updated'){setStreams(p=>({...p,[msg.stream.channel]:msg.stream}));}
         else if(msg.event==='stream_removed'){setStreams(p=>{const n={...p};delete n[msg.channel];return n;});}
@@ -7201,6 +7243,49 @@ function RdApp() {
     fetch('/clip-refusals/'+encodeURIComponent(channel)+'/dismiss',{method:'POST'})
       .catch(()=>{});
   };
+
+  // FETCH A CLIP'S VIDEO FROM TWITCH, on request. Cards and the modal ask for
+  // it over the in-page event channel (hz_fetch_clip) rather than a prop
+  // threaded through five render sites; this is the one place that owns it.
+  //
+  // Optimistic: the clip flips to 'fetching' immediately so the button cannot
+  // be pressed twice, and the outcome arrives over the socket — clip_file_ready
+  // (the same event a live capture emits) or clip_fetch_failed. If the person
+  // pressed DOWNLOAD, the id is remembered so the file starts downloading by
+  // itself when it lands; nobody should have to press the button twice.
+  const wantDownload = useRef(new Set());
+  const setFileState = (id, state)=>{
+    setClips(p=>p[id]?{...p,[id]:{...p[id],file_state:state}}:p);
+    setModalClip(prev=>prev&&prev.id===id?{...prev,file_state:state}:prev);
+  };
+  useEffect(()=>{
+    const onFetch = async (e)=>{
+      const {id, download} = (e.detail||{});
+      if(!id) return;
+      if(download) wantDownload.current.add(id);
+      setFileState(id, 'fetching');
+      try{
+        const r = await fetch(`/clips/${id}/fetch`,{method:'POST'});
+        if(r.ok){
+          const d = await r.json().catch(()=>({}));
+          // Already on disk: the socket will not say anything, so act now.
+          if(d.file_state==='ready'){
+            setClips(p=>p[id]?{...p,[id]:{...p[id],has_file:true,file_state:'ready'}}:p);
+            setModalClip(prev=>prev&&prev.id===id?{...prev,has_file:true,file_state:'ready'}:prev);
+            if(wantDownload.current.delete(id)) window.location.assign(`/clips/${id}/file?download=1`);
+          }
+          return;
+        }
+        let d='Could not fetch that clip';
+        try{ d=(await r.json()).detail||d; }catch{}
+        flash(d);
+      }catch{ flash('Could not reach the server'); }
+      wantDownload.current.delete(id);
+      setFileState(id, 'missed');
+    };
+    window.addEventListener('hz_fetch_clip', onFetch);
+    return ()=>window.removeEventListener('hz_fetch_clip', onFetch);
+  },[]);
 
   const grabFeature = async (id)=>{
     try{

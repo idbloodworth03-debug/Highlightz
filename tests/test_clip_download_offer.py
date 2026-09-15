@@ -16,10 +16,11 @@ So the fix has two halves and both are pinned here:
     the reason there is no file.
 
 THE ONE THING THAT MUST NOT CREEP IN. Nothing in the no-file copy may send the
-user to Twitch to fetch the video. These clips are of OTHER people's channels;
-Twitch's download is a broadcaster control in their own Creator Dashboard, so
-that advice points a clipper at a button that does not exist for them. It is
-also the edge of the compliance line the product is built on.
+USER to Twitch to get the video themselves. These clips are of OTHER people's
+channels; Twitch's download is a broadcaster control in their own Creator
+Dashboard, so that advice points a clipper at a button that does not exist for
+them. (Since 2026-09-15 the PRODUCT fetches the file from Twitch on request —
+that is a different sentence, and the copy says it.)
 """
 
 import time
@@ -130,8 +131,10 @@ def test_the_card_offers_nothing_when_there_is_no_file():
 
 
 def _modal():
+    """The modal's download block, ending at the approve/reject row — the one
+    landmark below it that does not change shape when the buttons above do."""
     i = SRC.index("clip.file_state === 'pending'")
-    return SRC[i:SRC.index("clip.has_file && onEdit", i)]
+    return SRC[i:SRC.index("clip.status==='pending' && <div className=\"rd-modal-actions\"", i)]
 
 
 def test_the_modal_always_answers():
@@ -474,3 +477,57 @@ def test_deleting_files_drops_the_cached_horizon(tmp_path, monkeypatch):
     first = clip_files.oldest_mtime()
     assert clip_files.trim_to_cap() > 0
     assert clip_files.oldest_mtime() > first, "the horizon is stale after a trim"
+
+
+# ── fetching from Twitch, as the browser offers it ───────────────────────────
+
+def test_a_fetchable_clip_gets_a_download_button_on_the_card():
+    """'fetchable' is what turns "no file" from an explanation into a button."""
+    card = _card()
+    assert "clip.fetchable ?" in card
+    assert "hz_fetch_clip" in card, "the card cannot ask for a fetch"
+    assert "download:true" in card, "pressing Download would not download"
+
+
+def test_a_fetch_in_progress_is_shown_and_not_pressable():
+    card = _card()
+    assert "fileState === 'fetching'" in card and "Fetching" in card
+
+
+def test_edit_is_offered_for_a_fetchable_clip():
+    """The editor route fetches inline, so Edit is one click either way."""
+    i = SRC.index("const edBtn")
+    assert "(clip.has_file || clip.fetchable) && onEdit" in SRC[i:i + 200]
+    assert "(clip.has_file || clip.fetchable) && onEdit && <button" in _modal()
+
+
+def test_the_modal_offers_the_fetch_too():
+    modal = _modal()
+    assert "clip.fetchable" in modal and "hz_fetch_clip" in modal
+    assert "Getting the video from Twitch" in modal
+
+
+def test_app_owns_the_fetch_and_the_download_that_follows():
+    """One listener, so the clip state, the request and the auto-download live
+    in one place rather than in every card."""
+    i = SRC.index("hz_fetch_clip', onFetch")
+    app = SRC[SRC.rindex("const wantDownload", 0, i):i]
+    assert "/clips/${id}/fetch" in app
+    assert "setFileState(id, 'fetching')" in app, "no optimistic state — double presses"
+    assert "setFileState(id, 'missed')" in app, "a failed request leaves it stuck on Fetching"
+
+
+def test_a_fetched_file_starts_the_download_the_person_asked_for():
+    i = SRC.index("msg.event==='clip_file_ready'")
+    branch = SRC[i:i + 900]
+    assert "wantDownload.current.delete(msg.clip_id)" in branch
+    assert "file?download=1" in branch, "the person has to press Download twice"
+
+
+def test_a_failed_fetch_has_a_handler_that_puts_the_button_back():
+    """An event with no branch is silently dropped; a branch that does not
+    reset the state leaves the card on Fetching forever."""
+    i = SRC.index("msg.event==='clip_fetch_failed'")
+    branch = SRC[i:i + 400]
+    assert "setFileState(msg.clip_id, 'missed')" in branch
+    assert "flash(" in branch

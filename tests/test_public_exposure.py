@@ -256,12 +256,21 @@ def test_llms_txt_states_the_video_position_as_it_now_stands():
     A brief that still said "never records" would be worse than no brief —
     every model that reads it would repeat a denial of data collection on our
     behalf. So the assertion is now the other way round: the recording has to
-    be DISCLOSED, and the thing that is still true (we never pull video back
-    out of Twitch) has to be stated as the narrower claim it is.
+    be DISCLOSED.
+
+    AND IT CHANGED SIDES A SECOND TIME (2026-09-15). For two months the
+    narrower claim "never downloads video from Twitch" was true and asserted
+    here. It is not any more: a clip the recorder missed is fetched from Twitch
+    on request (src/clips/fetch.py). So that sentence is now the one that
+    must NOT appear, and the fetch has to be disclosed in its place.
     """
     body = TestClient(api.app).get("/llms.txt").text.lower()
-    assert "never downloads video from twitch" in body, \
-        "the one claim still true about Twitch's own video is missing"
+    assert "fetched from twitch" in body, \
+        "the fetch-from-Twitch fallback is not disclosed"
+    for retired in ("never downloads video from twitch",
+                    "never downloads anything from twitch"):
+        assert retired not in body, \
+            f"llms.txt still claims {retired!r}, which stopped being true"
     assert "record" in body, \
         "llms.txt does not disclose that the live broadcast is recorded"
     assert "buffer" in body or "overwritten" in body, \

@@ -78,16 +78,51 @@ switched off.
   - **Unchanged, and still the narrower claim worth defending:** the clip
     itself is still a real Twitch clip made through Helix on the user's own
     token, and Twitch still hosts it.
-- **We still never download from Twitch ourselves.** Recording the live public
-  broadcast is not the same act as fetching Twitch-hosted media, and the
-  distinction is load-bearing in the rewritten copy. Being OAuth'd as the user
-  does NOT unlock clip video: there is no Twitch scope for it, and the CDN
-  (`clips-media-assets2.twitch.tv`) does not check tokens at all. Getting
-  bytes that way means the undocumented thumbnail→MP4 URL pattern or the
-  private GQL endpoint. Both are grey-area (StreamLadder-style); neither is in
-  the product, and `tests/test_no_video_ingest.py` keeps it that way — it
-  allowlists exactly ONE module that may pull video. Asked and answered
-  2026-07-31; still true after the capture change.
+- **We now DO fetch clip video from Twitch — as a fallback. THIS CHANGED
+  2026-09-15, on the owner's decision, with the risk stated to them.** From
+  2026-07-31 the line here was "we never download from Twitch ourselves",
+  and it held through the capture change. The owner reversed it because
+  capture alone leaves every clip the recorder missed, and every clip from
+  before capture existed, permanently un-downloadable — and a clip that
+  cannot be downloaded, edited or scheduled is a clip the product cannot
+  finish. Their words: "Even if this means we are no longer Twitch compliant
+  I will take the risk for a better product." Do not relitigate it, and do
+  not quietly widen it either. What it means in practice:
+  - `src/clips/fetch.py` retrieves a clip's MP4 via **streamlink** (already
+    on the box as the capture engine), which uses Twitch's playback-token
+    GQL call — the path every clip tool alive uses. Deliberately not a
+    hand-rolled call: there is no undocumented URL in our code for Twitch
+    to change out from under us, and streamlink is maintained against that.
+    The thumbnail→MP4 rewrite is still dead (probe, July) and still banned.
+  - **Capture stays primary.** It is free, better quality (source 720p60),
+    and never touches Twitch. The fetch runs only when capture produced
+    nothing: `api._fetch_when_capture_misses` waits out the capture window
+    after `notify_clip_ready`, then fetches. Historical clips fetch **on
+    demand** (`POST /clips/{id}/fetch`, or Edit, which fetches inline) —
+    never eagerly, so the grey path is used for clips a human asked for.
+  - **Off by default.** `clip_fetch_enabled=False`; `CLIP_FETCH_ENABLED=true`
+    in `.env` is the deliberate act. One download at a time, per-clip
+    dedupe, `.part`-then-rename, timeout, size ceiling, same disk cap/trim
+    as every other file.
+  - **Honours the opt-out.** `fetchable()` refuses an opted-out broadcaster;
+    the Privacy Policy now says an opted-out channel's clips are never
+    retrieved, and a test pins it.
+  - The six public statements that said "never downloads video from Twitch"
+    (tutorial FAQ, landing FAQ, llms.txt, llms-full.txt, ToS, Privacy) were
+    rewritten the same day; `tests/test_video_disclosure.py` now fails if
+    any of them comes back. `tests/test_no_video_ingest.py` allowlists
+    exactly TWO video-pulling modules.
+  - **The risk, restated so nobody rediscovers it.** This is squarely what
+    Twitch's Developer Agreement prohibits; the realistic downside is the
+    app's API access being suspended, which would stop clip CREATION for
+    every user, not just downloads. It scales with visibility. Fetching only
+    what capture missed and only on request is what keeps the footprint
+    small; eager bulk fetching would not be a small delta, it would be a
+    different risk profile, and needs its own decision.
+  - **Unverified from the dev container:** streamlink's clip download was
+    exercised against a real Twitch clip on prod at deploy time, not here
+    (egress proxy). If Twitch changes the clip flow, `pip install -U
+    streamlink` on the box is the fix, not a code change.
 - **The risk this trades into, stated plainly so nobody rediscovers it.**
   Twitch's Developer Agreement / DSA terms prohibit storing Twitch Content and
   cap caching at 24h; our buffer is short but the cut files are kept for days.

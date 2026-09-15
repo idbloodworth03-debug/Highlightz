@@ -63,6 +63,14 @@ RETIRED_CLAIMS = (
     "nothing is downloaded, re-encoded or stored",
     "never records, downloads or re-hosts",
     "never records, stores, or re-hosts",
+    # Retired 2026-09-15: clips the recorder missed are now fetched from
+    # Twitch on request (src/clips/fetch.py). These were true for two months
+    # and are false now; a page that still says one of them is lying.
+    "never downloads video from twitch",
+    "never downloads anything from twitch",
+    "does not download video from twitch",
+    "do not download video from twitch",
+    "does not use undocumented or unsanctioned twitch endpoints",
 )
 
 
@@ -116,10 +124,11 @@ def test_the_promised_retention_is_the_one_the_code_enforces(anon, path):
 
 @pytest.mark.parametrize("path", PUBLIC_PAGES)
 def test_the_claim_that_is_still_true_is_not_overstated(anon, path):
-    """We do not fetch video out of Twitch — no CDN scraping, no undocumented
-    endpoints, no yt-dlp. That is a real and narrower claim than the one it
-    replaced, and it is worth keeping accurate in the other direction too: no
-    page may promise that Twitch's own hosted video is somehow re-served by us.
+    """What is STILL true after 2026-09-15: the clip itself remains a Twitch
+    clip that Twitch makes and hosts, and the file we keep is private to one
+    account and never served publicly. That is the narrower claim worth
+    keeping accurate in the other direction: no page may promise that
+    Twitch's own hosted video is somehow re-served by us to the world.
     """
     body = _text(anon, path)
     assert "we re-host" not in body and "we host the video" not in body, \

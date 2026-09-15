@@ -185,6 +185,20 @@ class Settings(BaseSettings):
     clip_file_max_age_days: int = 30
     clip_file_max_total_mb: int = 15360         # 15 GB of cut clips
 
+    # Fetching a clip's video FROM TWITCH, for clips the live capture did not
+    # produce a file for. Owner's decision, 2026-09-15, made with the risk in
+    # front of them: this is the grey path (Twitch's playback-token endpoint,
+    # via streamlink) that the product had deliberately stayed off since July.
+    # Off by default for the same reason capture is — a feature that pulls
+    # bytes does not arrive switched on by a deploy. CLIP_FETCH_ENABLED=true.
+    #
+    # TIMEOUT bounds one streamlink run; a 30s clip is a few MB and takes
+    # seconds, so anything past this is stuck. MAX_MB rejects a file that is
+    # not the ~30s clip it claims to be.
+    clip_fetch_enabled: bool = False
+    clip_fetch_timeout_s: int = 120
+    clip_fetch_max_mb: int = 200
+
     # Importing a user's own Twitch clips is a SEPARATE, already-complete
     # feature: it lists metadata through documented Helix and needs no editor
     # to be useful ("every clip on my channel in one place" is the whole

@@ -533,9 +533,11 @@ FAQ: tuple[tuple[str, str], ...] = (
      "Not all of it, and never a channel that has opted out. While a channel is being "
      "monitored, Highlightz holds a few minutes of it in a rolling buffer that keeps "
      "overwriting itself, so that when a moment hits it can be saved as a video file "
-     "as well as a Twitch clip. That file is private to the account that caught it and "
-     "is deleted with the clip. Highlightz never downloads anything from Twitch, and "
-     "the clip itself is a real Twitch clip that Twitch makes and hosts."),
+     "as well as a Twitch clip. Where that recording did not catch a moment, Highlightz "
+     "fetches the clip's video from Twitch instead when you ask for it, so every clip "
+     "can be downloaded. Either way the file is private to the account that caught it, "
+     "is deleted with the clip, and is never kept for a channel that has opted out. The "
+     "clip itself is a real Twitch clip that Twitch makes and hosts."),
 
     ("Can I use this on a channel that is not mine?",
      "Yes, as long as that streamer has not opted out. A lot of people run Highlightz "

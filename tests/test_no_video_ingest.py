@@ -19,11 +19,22 @@ that can rot quietly:
   * capture is off unless switched on, and refuses an opted-out broadcaster
     (the ordering of that check is pinned in tests/test_clip_capture.py);
   * we still create clips through the official API rather than assembling
-    them ourselves, and still do not reach for undocumented media URLs.
+    them ourselves, and still do not rewrite thumbnail URLs into media URLs.
 
-The last two matter more now, not less: holding video is exactly what makes
-"and we also scrape the CDN" an easy next step, and it is not one that has
-been taken.
+THE SECOND REVERSAL (2026-09-15, owner's decision). Holding video made "and we
+also fetch from Twitch" the obvious next step, and for two months it was the
+step deliberately not taken. Then the owner took it, with the risk stated to
+them plainly: clips the recorder missed, and every clip from before capture
+existed, could never be downloaded, edited or scheduled, and that was the
+product's whole promise. So `src/clips/fetch.py` now retrieves a clip's video
+from Twitch through streamlink — the same playback-token path every clip tool
+uses — when, and only when, capture produced nothing. Capture stays primary.
+
+What these tests guard changed shape again rather than going away: there are
+now exactly TWO modules that pull video, the fetcher honours the opt-out, it
+is off by default, and the thumbnail-rewrite and hand-rolled-downloader bans
+still stand — the point of going through streamlink is that there is no
+undocumented URL in this codebase for Twitch to change out from under us.
 """
 
 import pathlib
@@ -60,16 +71,24 @@ def test_no_video_buffering_module_exists():
     assert offenders == [], f"a video buffer is referenced again: {offenders}"
 
 
-# The one module allowed to pull video. Adding a second is the change this
-# guard exists to make visible: every extra pull is another multiple of the
+# The modules allowed to pull video. Adding one is the change this guard
+# exists to make visible: every extra pull is another multiple of the
 # bandwidth bill and another place the opt-out has to be re-checked.
+#
+# TWO SINCE 2026-09-15. The recorder captures the live broadcast; the fetcher
+# retrieves a clip's video from Twitch when the recorder produced nothing —
+# the owner's decision, with the risk in front of them (see docs/HANDOFF.md,
+# "Non-negotiable product constraints"). The fetcher's own tests pin that it
+# honours the opt-out, runs one download at a time and is off by default.
 _VIDEO_PULLER = "ingestion/clip_recorder.py"
+_CLIP_FETCHER = "clips/fetch.py"
+_VIDEO_PULLERS = {_VIDEO_PULLER, _CLIP_FETCHER}
 
 
-def test_only_one_module_pulls_video_and_everything_else_asks_for_audio():
-    """streamlink is how the engine hears the stream, and now also how it sees
-    it. The split has to stay explicit: the meter asks for `audio_only,worst`
-    and the recorder is the single exception.
+def test_only_the_named_modules_pull_video_and_everything_else_asks_for_audio():
+    """streamlink is how the engine hears the stream, how it sees it, and now
+    how it retrieves a clip. The split has to stay explicit: the meter asks
+    for `audio_only,worst`, and the two named modules are the exceptions.
 
     Comments are stripped first. The recorder's own docstring explains what
     the meter asks for, and matching that string would let this pass on a file
@@ -80,10 +99,20 @@ def test_only_one_module_pulls_video_and_everything_else_asks_for_audio():
     assert callers, "no streamlink caller found — did the meter move?"
     assert _VIDEO_PULLER in callers, \
         "the clip recorder no longer pulls the stream — has capture been removed?"
-    for rel in callers - {_VIDEO_PULLER}:
+    assert _CLIP_FETCHER in callers, \
+        "the clip fetcher no longer uses streamlink — what is it downloading with?"
+    for rel in callers - _VIDEO_PULLERS:
         src = _code(SRC / rel)
         assert "audio_only" in src, \
             f"{rel} pulls a stream without requesting audio_only"
+
+
+def test_the_fetcher_checks_the_opt_out_before_it_fetches():
+    """The recorder refuses an opted-out channel before it starts; a fetched
+    file is the same thing to that broadcaster. Pinned here beside the puller
+    list so adding a puller and forgetting the opt-out fail in the same place."""
+    src = _code(SRC / _CLIP_FETCHER)
+    assert "is_opted_out(" in src, "the fetcher does not consult the opt-out list"
 
 
 def test_the_recorder_never_transcodes():
