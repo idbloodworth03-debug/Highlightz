@@ -208,7 +208,19 @@ class KickPlatform(BasePlatform):
         chatroom_id = cached_chatroom(slug)
 
         pub = await self._public_channel(slug)
+        # The site endpoint is asked on EVERY session start, not only for the
+        # chatroom id: it is the only source of `playback_url`, the channel's
+        # HLS playlist, which is how the video is pulled (see below). Verified
+        # on prod 2026-09-15: kick.com/api/v2/channels answers the droplet
+        # with HTTP 200 and a playback_url; streamlink's own Kick plugin, on
+        # the same box, found "No playable streams".
         site: dict | None = None
+        try:
+            site = await self._site_channel(slug)
+        except ChannelOffline:
+            raise
+        except Exception as exc:
+            log.info("kick_site_lookup_failed", slug=slug, error=str(exc))
         if pub is not None:
             stream = pub.get("stream") or {}
             live = bool(stream.get("is_live"))
@@ -216,18 +228,9 @@ class KickPlatform(BasePlatform):
             game = _ascii((pub.get("category") or {}).get("name"))
             viewers = int(stream.get("viewer_count") or 0)
             mature = bool(stream.get("is_mature"))
-            # The chatroom id is the one thing the public API does not carry.
-            if not chatroom_id:
-                try:
-                    site = await self._site_channel(slug)
-                except ChannelOffline:
-                    raise
-                except Exception as exc:
-                    log.info("kick_chatroom_lookup_failed", slug=slug, error=str(exc))
         else:
             # No app credentials (or the public API is down): the site
             # endpoint carries liveness too.
-            site = await self._site_channel(slug)
             if site is None:
                 raise RuntimeError(f"Kick did not answer for '{slug}'")
             ls = site.get("livestream")
@@ -247,10 +250,17 @@ class KickPlatform(BasePlatform):
             log.warning("kick_chat_unavailable", slug=slug,
                         why="chatroom id not learned; scoring on audio and viewers")
 
+        # The HLS playlist itself, handed to streamlink's generic HLS reader
+        # (`hls://` forces that plugin), so nothing depends on the Kick plugin
+        # or its Cloudflare browser challenge. The page URL is the fallback
+        # when the site endpoint could not be read.
+        playback = str((site or {}).get("playback_url") or "")
+        stream_url = "hls://" + playback if playback.startswith("http") else f"https://kick.com/{slug}"
+
         return StreamInfo(
             channel=slug,
             platform="kick",
-            stream_url=f"https://kick.com/{slug}",     # streamlink's Kick plugin takes the page URL
+            stream_url=stream_url,
             chat_channel_id=chatroom_id,
             title=title,
             game=game,

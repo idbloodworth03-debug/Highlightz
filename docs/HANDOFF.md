@@ -167,14 +167,17 @@ switched off.
     so it is **cached on disk** (`clips/kick_chatrooms.json`) the first time
     it is learned; if it cannot be learned the channel STILL runs on audio +
     viewer count and logs `kick_chat_unavailable`. No sub/raid events.
-  - **Video/audio**: streamlink's own Kick plugin takes the page URL
-    (`stream_url=https://kick.com/<slug>`); the audio meter and recorder are
-    platform-agnostic. **UNVERIFIED ON PROD**: streamlink's Kick plugin
-    solves a Cloudflare JS challenge with a headless browser when the API
-    403s (`$webbrowser Required` in the plugin) and caches the result for
-    30 days. If prod has no Chromium and the droplet IP is challenged,
-    capture and the audio meter fail for Kick. Diagnostic on prod:
-    `cd /opt/highlightz && venv/bin/streamlink https://kick.com/<live-slug> best --stream-url`.
+  - **Video/audio**: the site endpoint's `playback_url` (the channel's IVS
+    HLS playlist, token included) is handed to streamlink as
+    `hls://<playback_url>`, which forces the generic HLS reader — NOT the
+    Kick plugin. Verified on prod 2026-09-15: `kick.com/api/v2/channels/xqc`
+    answered the droplet HTTP 200 with a playback_url while
+    `streamlink https://kick.com/xqc` said "No playable streams" (the plugin
+    wants a headless browser for Cloudflare's challenge). The page URL is the
+    fallback only when the site endpoint could not be read. The URL is
+    fetched fresh on every session start, so a token that expires is
+    replaced by the worker's normal reconnect. The audio meter and recorder
+    are platform-agnostic.
   - **Not on Kick**: Highlight clips / viewer-clip learning
     (`_record_viewer_clips` returns for non-Twitch — it would look up a
     Twitch user of the same name), auto-preset (Twitch category lookup),

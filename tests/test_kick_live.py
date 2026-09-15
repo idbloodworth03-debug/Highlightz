@@ -73,7 +73,9 @@ PUBLIC_LIVE = (200, {"data": [{"slug": "xqc", "broadcaster_user_id": 1,
                                "stream": {"is_live": True, "viewer_count": 1234, "is_mature": False}}]})
 PUBLIC_OFF = (200, {"data": [{"slug": "xqc", "stream": {"is_live": False, "viewer_count": 0},
                               "stream_title": "", "category": {}}]})
-SITE = (200, {"chatroom": {"id": 668}, "livestream": {"session_title": "site title",
+PLAYBACK = "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/x.m3u8?token=abc"
+SITE = (200, {"chatroom": {"id": 668}, "playback_url": PLAYBACK,
+              "livestream": {"session_title": "site title",
                                                      "categories": [{"name": "Slots"}],
                                                      "viewer_count": 77, "is_mature": True}})
 TOKEN = (200, {"access_token": "APP", "expires_in": 3600})
@@ -93,7 +95,9 @@ def test_public_api_with_an_app_token_gives_liveness_and_the_site_gives_the_chat
                   "kick.com/api/v2/channels/xqc": SITE})
     info = _run(p.get_stream_info("XQC"))
     assert info.platform == "kick" and info.channel == "xqc"
-    assert info.stream_url == "https://kick.com/xqc", "streamlink takes the page URL"
+    # The HLS playlist from the site endpoint, through streamlink's generic
+    # HLS reader — the Kick plugin found "No playable streams" on prod.
+    assert info.stream_url == "hls://" + PLAYBACK
     assert info.chat_channel_id == "668"
     assert info.title == "ranked  grind" and info.game == "Just Chatting"
     assert info.viewer_count == 1234 and info.is_mature is False
@@ -118,7 +122,9 @@ def test_the_chatroom_id_is_cached_on_disk_and_not_asked_for_again(monkeypatch):
                    "kick.com/api/v2/channels/xqc": (403, None)})
     info = _run(p2.get_stream_info("xqc"))
     assert info.chat_channel_id == "668"
-    assert not [c for c in p2.calls if "api/v2/channels" in c[1]], "asked the site again"
+    # The site endpoint is still asked (it is the only source of the HLS
+    # playlist); with it refusing, the page URL is the fallback.
+    assert info.stream_url == "https://kick.com/xqc"
 
 
 def test_a_channel_runs_without_chat_when_the_site_endpoint_is_blocked(monkeypatch):
@@ -127,6 +133,7 @@ def test_a_channel_runs_without_chat_when_the_site_endpoint_is_blocked(monkeypat
                   "kick.com/api/v2/channels/xqc": (403, None)})
     info = _run(p.get_stream_info("xqc"))
     assert info.chat_channel_id == "" and info.viewer_count == 1234
+    assert info.stream_url == "https://kick.com/xqc"
 
 
 def test_not_live_is_channel_offline_not_an_error(monkeypatch):
