@@ -1460,6 +1460,38 @@ timeboxed, detection wins the core). `CAPTIONS_MODEL=tiny.en` puts it back.
 The cue shaping (`_MAX_CUE_*`) and the word-pop rendering were already the
 short-form standard and are unchanged.
 
+**Transitions and sound effects in the templates (2026-09-15, same day).**
+Owner: "our editing preset models add sound effects and small transitions."
+- *Transitions* are pure functions of media time inside `paintFrame` /
+  `drawCaption`, keyed off `o.inPt`/`o.outPt` (Infinity when there is no
+  cut, which disables them with no special case): a zoom punch (1.12x → 1x
+  over `TRANS_DUR` 0.45s, a transform around the whole video block so every
+  layout gets it), fade in / fade out painted LAST over captions and title,
+  the title rising into place over 0.35s (`textAnim`), and a caption
+  word-pop (1.14x → 1x over 90ms, scaled about the word's centre; needs the
+  word's start time, which timed cues now carry as `st`). One draw path
+  still — the preview and both exporters get the identical frame.
+- *Sound effects are SYNTHESIZED* (`SFX` in `aurora_html.py`: whoosh, hit,
+  pop, riser, ding), not sample files: no asset to licence, nothing the
+  dashboard's script rules would have to allow, and the same function
+  schedules the same nodes on a live `AudioContext` (preview and the
+  recorder export, through a new `sfx` bus on `audioGraph` that feeds both
+  `monitor` and `dest`) and on the `OfflineAudioContext` the frame-accurate
+  export renders through — so the file carries exactly what the preview
+  played. Noise is seeded, so two renders of one clip are byte-identical.
+  `sfxPlanFor(span, in, out, gain)` is the plan: one sound at the cut's
+  start, one landing 0.35s before its end. A silent source with effects
+  still gets an audio track.
+- *Verified* (`export_fa.js`): a silent source exported with a whoosh at 0
+  and a ding at 2.1s decodes to RMS 0.015 / 0.000 / 0.111 in the whoosh,
+  quiet and ding windows; luminance 0 at t=0.02 (fade in), 12 at the tail,
+  44 mid-clip; still 153 frames at 61 fps. The whoosh and riser gains are
+  ~4x the others' because a bandpass on noise sheds most of its energy —
+  measured at 0.9 the whoosh peaked at 0.10 against the hit's 0.60.
+- The five templates each carry `transIn / transOut / textAnim / sfxIn /
+  sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
+  `test_dashboard_contract.py`.
+
 ## Publishing — deliberately NOT an API integration (2026-08-02)
 
 **We do not post on the user's behalf, and that is the design.** Posting

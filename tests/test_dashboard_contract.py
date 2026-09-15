@@ -934,3 +934,110 @@ def test_the_preview_is_painted_at_the_size_it_is_shown():
     assert "Math.min(1, sw / L.outW, sh / L.outH)" in loop, "the preview can upscale past the output"
     assert "if (!L.busy)" in loop, "an export would be painted at preview size"
     assert "new ResizeObserver(" in SRC[SRC.index("const stageSizeRef"):SRC.index("// ── The paint loop")]
+
+
+# ── Transitions and sound effects (2026-09-15) ───────────────────────────────
+# Transitions are pure functions of media time inside paintFrame/drawCaption,
+# so the preview and both exporters get the identical picture. Sounds are
+# synthesized with WebAudio and scheduled by ONE function onto whichever
+# destination is in play — the live graph for the preview and the recorder,
+# the OfflineAudioContext for the frame-accurate export — so the file carries
+# exactly what the preview played. Verified in scratchpad/ed/export_fa.js: a
+# silent source exported with a whoosh at 0 and a ding at 2.1 s decodes to RMS
+# 0.015 / 0 / 0.11 in those windows; luminance 0 at t=0.02 (fade in), 12 at
+# the tail (fade out), 44 mid-clip.
+
+def _paint():
+    return SRC[SRC.index("function paintFrame("):SRC.index("/* Mirrors src/publish/platforms.py")]
+
+
+def test_transitions_are_functions_of_the_cut_and_disabled_without_one():
+    p = _paint()
+    assert "const tin  = (o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;" in p
+    assert "const tout = (o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;" in p
+    for eff in ("o.transIn === 'zoom'", "o.transIn  === 'fade'", "o.transOut === 'fade'"):
+        assert eff in p, f"{eff} is not implemented"
+
+
+def test_the_fade_is_painted_last_over_captions_and_title():
+    p = _paint()
+    assert p.rindex("ctx.fillRect(0, 0, w, h);") > p.index("if (caption) drawCaption(ctx, caption, o);")
+    assert p.rindex("ctx.fillRect(0, 0, w, h);") > p.index("if (text) {")
+
+
+def test_the_zoom_punch_wraps_every_layout_and_is_restored():
+    """A transform left open would scale the captions too, and every frame
+    after the first would inherit the previous frame's transform."""
+    p = _paint()
+    i = p.index("if (punch !== 1) { ctx.translate(w / 2, h / 2);")
+    assert i < p.index("if (layout === 'split') {")
+    assert "ctx.restore();                              // end of the zoom-punch transform" in p
+    assert p.index("// end of the zoom-punch transform") < p.index("if (caption) drawCaption(")
+
+
+def test_the_caption_word_pop_needs_a_start_time_and_is_scaled_about_its_centre():
+    d = SRC[SRC.index("function drawCaption("):SRC.index("function paintFrame(")]
+    assert "st: x[0]" in d, "timed cues no longer carry the word's start"
+    assert "wd.st != null" in d
+    assert "ctx.translate(cx, ly); ctx.scale(s, s); ctx.translate(-cx, -ly);" in d
+
+
+def test_every_sound_effect_offered_is_implemented():
+    kinds = re.findall(r"\['(\w+)', '\w+'\]", SRC[SRC.index("const SFX_KINDS"):SRC.index("const _NOISE")])
+    impl = SRC[SRC.index("const SFX = {"):SRC.index("function scheduleSfx(")]
+    for k in kinds:
+        if k == "none":
+            continue
+        assert f"  {k}(ctx, dest, at, vol) {{" in impl, f"'{k}' is in the menu but not in SFX"
+
+
+def test_sound_effects_are_deterministic_and_bounded():
+    """Seeded noise so two renders of one clip are byte-identical; every effect
+    stops its sources so an offline render cannot run forever."""
+    lib = SRC[SRC.index("const _NOISE"):SRC.index("function scheduleSfx(")]
+    assert "let s = 12345;" in lib and "Math.random" not in lib
+    impl = SRC[SRC.index("const SFX = {"):SRC.index("function scheduleSfx(")]
+    assert impl.count(".start(") == impl.count(".stop("), "a source is started and never stopped"
+
+
+def test_the_export_mixes_the_sound_effects_into_the_offline_render():
+    """Same scheduleSfx, onto the OfflineAudioContext, at base 0 — that is what
+    makes the file carry what the preview played. And a silent source with
+    effects still gets an audio track."""
+    a = SRC[SRC.index("async function _encodeAudioOffline("):SRC.index("async function exportFrameAccurate(")]
+    assert "scheduleSfx(off, off.destination, sfx, 0)" in a
+    assert "if (!decoded && !haveSfx) return null;" in a
+    assert "_encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx)" in SRC
+
+
+def test_the_recorder_export_and_the_preview_share_the_live_graph():
+    g = SRC[SRC.index("function audioGraph("):SRC.index("const RATIOS = [")]
+    assert "sfx.connect(monitor); sfx.connect(dest);" in g, \
+        "effects would be heard but not recorded, or recorded but not heard"
+    rec = SRC[SRC.index("const exportRecorder = async () => {"):SRC.index("const runExport = async () => {")]
+    assert "scheduleSfx(g.ctx, g.sfx, latest.current.sfx" in rec
+    assert "if (L.fireSfx) L.fireSfx(v.currentTime);" in SRC, "play() does not start the sounds"
+    assert "if (L.fireSfx) L.fireSfx(L.inPt);" in SRC, "the preview loop does not restart the sounds"
+
+
+def test_the_frame_accurate_export_receives_the_plan():
+    body = SRC[SRC.index("const runExport = async () => {"):SRC.index("const clipSecs = Math.max(0, outPt - inPt);")]
+    assert "sfx: latest.current.sfx" in body
+
+
+def test_templates_carry_effects_and_the_setters_accept_them():
+    tpl = SRC[SRC.index("const TEMPLATES = ["):SRC.index("function capWrap(")]
+    for k in ("transIn", "transOut", "textAnim", "sfxIn", "sfxOut"):
+        assert tpl.count(f"{k}:") == 5, f"not every template sets {k}"
+        assert f"{k}: set" in SRC[SRC.index("const SETTERS = {"):SRC.index("const applyTemplate")], \
+            f"templates set {k} but applyTemplate cannot apply it"
+    for kind in re.findall(r"sfx(?:In|Out): '(\w+)'", tpl):
+        assert f"['{kind}', " in SRC[SRC.index("const SFX_KINDS"):SRC.index("const _NOISE")], \
+            f"a template names sound '{kind}', which the menu does not offer"
+
+
+def test_the_effects_tab_exists_and_exposes_every_knob():
+    assert "['fx', 'Effects']" in SRC
+    ui = SRC[SRC.index("{tab==='fx' && <div className=\"ed-grp\">"):SRC.index("{tab==='captions' && captionsOn")]
+    for setter in ("setTransIn", "setTransOut", "setTextAnim", "setSfxIn", "setSfxOut", "setSfxGain"):
+        assert setter in ui, f"the Effects tab has no control for {setter}"

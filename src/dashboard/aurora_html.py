@@ -4486,21 +4486,29 @@ function _makeMuxer(sup, w, h, fps, audio) {
 // feed that to an AudioEncoder in 1024-frame pieces. Nothing here is real
 // time, so it cannot drift against the picture or stall behind it. A source
 // we cannot fetch (cross-origin) exports silent, as the recorder path did.
-async function _encodeAudioOffline(sup, srcUrl, inPt, outPt) {
-  let decoded;
+async function _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx) {
+  let decoded = null;
   try {
     const ab = await (await fetch(srcUrl)).arrayBuffer();
     const actx = new (window.AudioContext || window.webkitAudioContext)();
     try { decoded = await actx.decodeAudioData(ab); } finally { actx.close().catch(() => {}); }
-  } catch (e) { return null; }
-  if (!decoded || !decoded.numberOfChannels) return null;
-  const sr = 48000, ch = Math.min(2, decoded.numberOfChannels);
+  } catch (e) { decoded = null; }
+  if (decoded && !decoded.numberOfChannels) decoded = null;
+  const haveSfx = !!(sfx && sfx.length);
+  if (!decoded && !haveSfx) return null;
+  const sr = 48000, ch = decoded ? Math.min(2, decoded.numberOfChannels) : 2;
   const secs = Math.max(0.05, outPt - inPt);
   const len = Math.ceil(secs * sr);
   const off = new OfflineAudioContext(ch, len, sr);
-  const src = off.createBufferSource();
-  src.buffer = decoded; src.connect(off.destination);
-  src.start(0, Math.max(0, inPt), secs);
+  if (decoded) {
+    const src = off.createBufferSource();
+    src.buffer = decoded; src.connect(off.destination);
+    src.start(0, Math.max(0, inPt), secs);
+  }
+  // The sound effects go into the SAME offline render as the clip's own
+  // audio, at the same offsets the preview scheduled them at. The context
+  // starts at 0 = the cut's start, so base is 0.
+  if (haveSfx) scheduleSfx(off, off.destination, sfx, 0);
   const pcm = await off.startRendering();
   const chunks = [];
   let err = null;
@@ -4526,8 +4534,8 @@ async function _encodeAudioOffline(sup, srcUrl, inPt, outPt) {
 //   paint   (t) => paints the canvas for media time t
 //   onPct   progress 0..99
 //   cancel  a ref; true aborts
-async function exportFrameAccurate(sup, { v, c, paint, inPt, outPt, outW, outH, fps, hd, srcUrl, onPct, cancel }) {
-  const audio = await _encodeAudioOffline(sup, srcUrl, inPt, outPt).catch(() => null);
+async function exportFrameAccurate(sup, { v, c, paint, inPt, outPt, outW, outH, fps, hd, srcUrl, onPct, cancel, sfx }) {
+  const audio = await _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx).catch(() => null);
   if (cancel.current) return null;
   const muxer = _makeMuxer(sup, outW, outH, fps, audio);
   if (audio) for (const [chunk, meta] of audio.chunks) muxer.addAudioChunk(chunk, meta);
@@ -4670,7 +4678,12 @@ function audioGraph(v, url) {
     var dest = ctx.createMediaStreamDestination();   // what gets recorded
     src.connect(monitor); monitor.connect(ctx.destination);
     src.connect(dest);
-    g = { ctx: ctx, monitor: monitor, dest: dest };
+    // Sound effects feed the same two outputs, so a preview hears them and a
+    // recorder export records them. Through `monitor` for the room, which an
+    // export turns down, and straight to `dest` for the recording.
+    var sfx = ctx.createGain();
+    sfx.connect(monitor); sfx.connect(dest);
+    g = { ctx: ctx, monitor: monitor, dest: dest, sfx: sfx };
   } catch (e) {
     g = null;                     // no audio track, or the browser said no
   }
@@ -4698,6 +4711,14 @@ function edTime(s) {
    purpose: if a transcript ends early, the screen goes clean instead of
    freezing on the last line forever and looking broken. */
 const CAP_HOLD_S = 0.8;
+
+/* ── Transitions ─────────────────────────────────────────────────────────────
+   Small, and pure functions of media time, which is the only way they can be
+   right: paintFrame draws one frame for one `t`, so a transition is just what
+   the frame looks like at that distance from the cut's start or end. The
+   preview and both exporters get the identical picture for free. */
+const TRANS_DUR = 0.45;
+const ease = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);   // ease-out cubic
 
 function activeCaption(segs, t) {
   if (!segs || !segs.length) return null;
@@ -4785,28 +4806,33 @@ const TEMPLATES = [
     desc: 'Facecam on top, gameplay under it: the streamer-clip standard. Drag the preview to put the window on the camera.',
     tab: 'frame',
     set: { ratio: '9:16', layout: 'split', fill: 'blur', zoom: 2.4, offX: -0.3, offY: -0.2,
-           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.045 } },
+           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.045,
+           transIn: 'zoom', transOut: 'fade', textAnim: true, sfxIn: 'whoosh', sfxOut: 'none' } },
   { id: 'full', name: 'Full Frame',
     desc: 'A centred vertical crop with clean outlined captions. IRL and just-chatting clips.',
     tab: 'trim',
     set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1, offX: 0, offY: 0,
-           capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055 } },
+           capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055,
+           transIn: 'fade', transOut: 'fade', textAnim: true, sfxIn: 'none', sfxOut: 'none' } },
   { id: 'blur', name: 'Blur Bars',
     desc: 'The whole 16:9 frame kept, blurred fill above and below, boxed captions under it. Gameplay where the HUD matters.',
     tab: 'captions',
     set: { ratio: '9:16', layout: 'single', fill: 'blur', zoom: 1, offX: 0, offY: 0,
-           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.05 } },
+           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.05,
+           transIn: 'fade', transOut: 'fade', textAnim: true, sfxIn: 'whoosh', sfxOut: 'none' } },
   { id: 'punch', name: 'Punch In',
     desc: 'Zoomed on the reaction with big boxed captions. Reaction and rage clips.',
     tab: 'frame',
     set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1.35, offX: 0, offY: 0,
-           capPos: 'bottom', capHi: true, capUpper: true, capWord: true, capSize: 0.07 } },
+           capPos: 'bottom', capHi: true, capUpper: true, capWord: true, capSize: 0.07,
+           transIn: 'zoom', transOut: 'none', textAnim: true, sfxIn: 'hit', sfxOut: 'none' } },
   { id: 'hook', name: 'Hook Title',
     desc: 'A bold line at the top for the first three seconds of attention, captions below. Type the hook in the Text tab.',
     tab: 'text',
     set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1, offX: 0, offY: 0,
            capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055,
-           textPos: 'top', textSize: 0.09 } },
+           textPos: 'top', textSize: 0.09,
+           transIn: 'none', transOut: 'fade', textAnim: true, sfxIn: 'pop', sfxOut: 'none' } },
 ];
 
 function capWrap(ctx, words, maxW) {
@@ -4821,6 +4847,98 @@ function capWrap(ctx, words, maxW) {
   return lines.slice(-3);
 }
 
+/* ── Sound effects, synthesized ──────────────────────────────────────────────
+   WHY SYNTHESIZED AND NOT SAMPLE FILES. A sample needs an asset with a licence
+   we would have to vouch for, a fetch the dashboard's script rules would have
+   to allow, and a file that plays identically in a live AudioContext and in
+   the OfflineAudioContext the export renders through. A few oscillators and a
+   noise burst need none of that: the same function schedules the same nodes
+   whether the destination is the speakers or an offline render, so the
+   preview and the exported file carry the identical sound. The noise is
+   seeded, so two renders of one clip are byte-identical.
+
+   Each effect is (ctx, dest, at, vol): schedule yourself at time `at` on
+   `ctx`, feeding `dest`. `at` is already in the context's clock. */
+const SFX_KINDS = [['none', 'None'], ['whoosh', 'Whoosh'], ['hit', 'Hit'], ['pop', 'Pop'], ['riser', 'Riser'], ['ding', 'Ding']];
+const _NOISE = typeof WeakMap === 'function' ? new WeakMap() : null;
+function _noise(ctx) {
+  let b = _NOISE && _NOISE.get(ctx);
+  if (b) return b;
+  const sr = ctx.sampleRate, n = Math.floor(sr * 1.2);
+  b = ctx.createBuffer(1, n, sr);
+  const d = b.getChannelData(0);
+  let s = 12345;                                  // seeded: deterministic renders
+  for (let i = 0; i < n; i++) { s = (s * 1664525 + 1013904223) >>> 0; d[i] = (s / 4294967296) * 2 - 1; }
+  if (_NOISE) _NOISE.set(ctx, b);
+  return b;
+}
+function _env(ctx, dest, at, attack, decay, peak) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), at + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay);
+  g.connect(dest);
+  return g;
+}
+const SFX = {
+  whoosh(ctx, dest, at, vol) {
+    const src = ctx.createBufferSource(); src.buffer = _noise(ctx);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(3200, at + 0.32);
+    // 3.6, not ~1: a bandpass on noise sheds most of its energy. Measured
+    // offline at 0.9 the whoosh peaked at 0.10 against the hit's 0.60.
+    src.connect(f); f.connect(_env(ctx, dest, at, 0.06, 0.34, 3.6 * vol));
+    src.start(at); src.stop(at + 0.45);
+  },
+  hit(ctx, dest, at, vol) {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(140, at); o.frequency.exponentialRampToValueAtTime(38, at + 0.28);
+    o.connect(_env(ctx, dest, at, 0.005, 0.3, 1.0 * vol)); o.start(at); o.stop(at + 0.35);
+    const n = ctx.createBufferSource(); n.buffer = _noise(ctx);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1800;
+    n.connect(f); f.connect(_env(ctx, dest, at, 0.003, 0.05, 0.5 * vol)); n.start(at); n.stop(at + 0.08);
+  },
+  pop(ctx, dest, at, vol) {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(760, at); o.frequency.exponentialRampToValueAtTime(320, at + 0.07);
+    o.connect(_env(ctx, dest, at, 0.004, 0.09, 0.8 * vol)); o.start(at); o.stop(at + 0.12);
+  },
+  riser(ctx, dest, at, vol) {
+    // Builds for 0.8s and lands AT `at`; clamped so it never starts in the past.
+    const st = Math.max(ctx.currentTime || 0, at - 0.8);
+    const src = ctx.createBufferSource(); src.buffer = _noise(ctx);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2;
+    f.frequency.setValueAtTime(250, st); f.frequency.exponentialRampToValueAtTime(4200, at);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(1.6 * vol, at);   // same bandpass loss as the whoosh
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.06); g.connect(dest);
+    src.connect(f); f.connect(g); src.start(st); src.stop(at + 0.1);
+  },
+  ding(ctx, dest, at, vol) {
+    [[1320, 0.6], [2640, 0.25]].forEach(([hz, a]) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = hz;
+      o.connect(_env(ctx, dest, at, 0.004, 0.6, a * vol)); o.start(at); o.stop(at + 0.7);
+    });
+  },
+};
+// A plan is [{kind, at, gain}] with `at` in seconds from the cut's start.
+// `base` is the context time the cut's start corresponds to.
+function scheduleSfx(ctx, dest, plan, base) {
+  (plan || []).forEach(p => {
+    const f = SFX[p.kind];
+    if (!f) return;
+    try { f(ctx, dest, Math.max(ctx.currentTime || 0, base + p.at), p.gain == null ? 0.6 : p.gain); } catch (e) {}
+  });
+}
+// The editor's two choices as a plan: one sound where the cut starts, one
+// landing just before it ends.
+function sfxPlanFor(span, sfxIn, sfxOut, gain) {
+  const plan = [];
+  if (sfxIn && sfxIn !== 'none') plan.push({ kind: sfxIn, at: 0, gain });
+  if (sfxOut && sfxOut !== 'none') plan.push({ kind: sfxOut, at: Math.max(0, span - 0.35), gain });
+  return plan;
+}
+
 function drawCaption(ctx, cue, o) {
   const { w, h } = o;
   const fs = Math.round(h * (o.capSize || 0.055));
@@ -4831,7 +4949,7 @@ function drawCaption(ctx, cue, o) {
   if (cue.words && cue.words.length) {
     let idx = -1;
     cue.words.forEach((x, i) => { if (t >= x[0] - 0.05) idx = i; });
-    words = cue.words.map((x, i) => ({ w: x[2], on: o.capWord && i === idx }));
+    words = cue.words.map((x, i) => ({ w: x[2], on: o.capWord && i === idx, st: x[0] }));
   } else {
     words = String(cue.text || '').split(' ').filter(Boolean).map(x => ({ w: x, on: false }));
   }
@@ -4864,6 +4982,15 @@ function drawCaption(ctx, cue, o) {
       else ctx.fillRect(rx, ry, rw, rh);
     }
     ln.forEach((wd, j) => {
+      // Word pop: the word that just lit up lands from 1.14x to 1x over 90 ms.
+      // Scaled about its own centre so the line does not shift. Needs the
+      // word's start time, which only timed cues carry.
+      const pop = (wd.on && o.capPop !== false && wd.st != null) ? Math.max(0, 1 - (t - wd.st) / 0.09) : 0;
+      ctx.save();
+      if (pop > 0) {
+        const cx = x + widths[j] / 2, s = 1 + 0.14 * pop;
+        ctx.translate(cx, ly); ctx.scale(s, s); ctx.translate(-cx, -ly);
+      }
       if (!o.capHighlight) {
         // Outline plus a soft shadow: the outline holds the letterforms, the
         // shadow lifts them off a bright frame where a stroke alone looks thin.
@@ -4879,6 +5006,7 @@ function drawCaption(ctx, cue, o) {
       }
       ctx.fillStyle = wd.on ? CAP_ACCENT : '#fff';
       ctx.fillText(wd.w, x, ly);
+      ctx.restore();
       x += widths[j] + space;
     });
   });
@@ -4898,6 +5026,17 @@ function paintFrame(ctx, video, o) {
 
   const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
   const layout = o.layout || 'single';
+
+  // Time from the cut's start and to its end. Both are Infinity when the
+  // caller gave no cut, which disables every transition below without a
+  // special case anywhere.
+  const tin  = (o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;
+  const tout = (o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;
+  // Zoom punch: the whole picture settles from 1.12x to 1x over TRANS_DUR.
+  // A transform around the video block, so every layout gets it the same way.
+  const punch = (o.transIn === 'zoom' && tin < TRANS_DUR) ? 1 + 0.12 * (1 - ease(tin / TRANS_DUR)) : 1;
+  ctx.save();
+  if (punch !== 1) { ctx.translate(w / 2, h / 2); ctx.scale(punch, punch); ctx.translate(-w / 2, -h / 2); }
 
   if (layout === 'split') {
     // Facecam on top, gameplay under it: the streamer-clip standard. The top
@@ -4947,6 +5086,7 @@ function paintFrame(ctx, video, o) {
     const dw = vw * scale, dh = vh * scale;
     ctx.drawImage(video, (w - dw) / 2 + offX * w, (h - dh) / 2 + offY * h, dw, dh);
   }
+  ctx.restore();                              // end of the zoom-punch transform
 
   // Auto-caption first, so a manual title drawn at the same spot sits on top
   // rather than being hidden behind it.
@@ -4958,13 +5098,18 @@ function paintFrame(ctx, video, o) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const y = textPos === 'top' ? h * 0.12 : textPos === 'middle' ? h * 0.5 : h * 0.88;
+    // The title rises into place over the first 0.35s and fades in with it.
+    // Off with textAnim:false; off automatically when there is no cut.
+    const rise = (o.textAnim !== false && tin < 0.35) ? 1 - ease(tin / 0.35) : 0;
     // NOTE: this whole script lives inside a Python triple-quoted string, so a
     // bare backslash-n here would be parsed by PYTHON into a real newline and
     // break the JS string literal. Split on a character code instead — no
     // escape, nothing for Python to eat.
     const lines = String(text).split(String.fromCharCode(10)).slice(0, 3);
+    ctx.save();
+    if (rise > 0) ctx.globalAlpha = 1 - rise;
     lines.forEach((ln, i) => {
-      const ly = y + (i - (lines.length - 1) / 2) * fs * 1.15;
+      const ly = y + (i - (lines.length - 1) / 2) * fs * 1.15 + rise * fs * 1.2;
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,.5)';
       ctx.shadowBlur = fs * 0.25;
@@ -4976,6 +5121,17 @@ function paintFrame(ctx, video, o) {
       ctx.fillStyle = '#fff';
       ctx.fillText(ln, w / 2, ly);
     });
+    ctx.restore();
+  }
+
+  // Fades last, over everything: a fade to black that left the captions lit
+  // would look like a bug, not a transition.
+  const fadeIn  = (o.transIn  === 'fade' && tin  < TRANS_DUR) ? 1 - ease(tin  / TRANS_DUR) : 0;
+  const fadeOut = (o.transOut === 'fade' && tout < TRANS_DUR) ? 1 - ease(tout / TRANS_DUR) : 0;
+  const fade = Math.max(fadeIn, fadeOut);
+  if (fade > 0.001) {
+    ctx.fillStyle = 'rgba(0,0,0,' + fade.toFixed(3) + ')';
+    ctx.fillRect(0, 0, w, h);
   }
 }
 
@@ -5178,6 +5334,15 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [capHi, setCapHi]     = useState(false);
   const [capUpper, setCapUpper] = useState(false);
   const [capWord, setCapWord]   = useState(true);
+  // Effects: small transitions and synthesized sound effects. Templates set
+  // these too; the Effects tab exposes them.
+  const [transIn, setTransIn]   = useState('none');     // 'none' | 'fade' | 'zoom'
+  const [transOut, setTransOut] = useState('none');     // 'none' | 'fade'
+  const [textAnim, setTextAnim] = useState(true);
+  const [sfxIn, setSfxIn]       = useState('none');
+  const [sfxOut, setSfxOut]     = useState('none');
+  const [sfxGain, setSfxGain]   = useState(0.6);
+  const sfxCtxRef = useRef(null);   // preview sound when the clip's own graph is unavailable
   const [playing, setPlay]  = useState(false);
   const [busy, setBusy]     = useState(false);
   const [pct, setPct]       = useState(0);
@@ -5228,10 +5393,37 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
     fill, layout, capSize, capPos, capHighlight: capHi, capUpper, capWord,
+    // Transitions are functions of where `t` sits inside the cut.
+    inPt, outPt, transIn, transOut, textAnim, capPop: true,
     t: videoRef.current ? videoRef.current.currentTime : 0,
     caption: capOn ? activeCaption(caps, videoRef.current ? videoRef.current.currentTime : 0) : null });
 
-  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH, layout, zoom };
+  // The sound plan for this cut, and how the PREVIEW plays it: scheduled on
+  // the clip's own audio graph (so it mixes with the clip and is what a
+  // recorder export records), or on a spare context when the clip's audio
+  // cannot be routed. `fromMediaTime` is where playback is right now, so the
+  // plan lands at the right offsets whether play started at the in-point or
+  // mid-cut; sounds already behind that point are simply not scheduled.
+  const sfxPlan = sfxPlanFor(Math.max(0.1, outPt - inPt), sfxIn, sfxOut, sfxGain);
+  const fireSfx = (fromMediaTime) => {
+    const plan = latest.current.sfx;
+    if (!plan || !plan.length) return;
+    const v = videoRef.current;
+    const g = v ? audioGraph(v, clip.url) : null;
+    let ctx, dest;
+    if (g) { ctx = g.ctx; dest = g.sfx; }
+    else {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!sfxCtxRef.current) sfxCtxRef.current = new AC();
+      ctx = sfxCtxRef.current; dest = ctx.destination;
+    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const base = ctx.currentTime - (fromMediaTime - latest.current.inPt);
+    scheduleSfx(ctx, dest, plan.filter(p => base + p.at >= ctx.currentTime - 0.02), base);
+  };
+
+  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH, layout, zoom, sfx: sfxPlan, fireSfx };
   // Anything that changes the picture marks the frame dirty. Cheaper than
   // diffing: the loop paints once and clears it.
   useEffect(() => { dirtyRef.current = true; },
@@ -5377,7 +5569,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         // Preview loops inside the cut. Checking a trim means watching the
         // ends, and a preview that stops dead at the out-point makes you
         // press play again for every look.
-        if (L.playing && !L.busy && t >= L.outPt - 0.02) v.currentTime = L.inPt;
+        if (L.playing && !L.busy && t >= L.outPt - 0.02) {
+          v.currentTime = L.inPt;
+          if (L.fireSfx) L.fireSfx(L.inPt);         // the loop restarts the sounds too
+        }
       }
       rafRef.current = requestAnimationFrame(draw);
     };
@@ -5449,6 +5644,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const L = latest.current;
     if (v.currentTime < L.inPt || v.currentTime >= L.outPt - 0.02) v.currentTime = L.inPt;
     v.play().catch(() => {});
+    if (L.fireSfx) L.fireSfx(v.currentTime);
     setPlay(true);
   };
   const togglePlay = () => { if (busy) return; latest.current.playing ? pause() : play(); };
@@ -5497,7 +5693,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const wantText = useRef(false);
   const SETTERS = { ratio: setRatio, layout: setLayout, fill: setFill, zoom: setZoom, offX: setOffX, offY: setOffY,
                     capPos: setCapPos, capHi: setCapHi, capUpper: setCapUpper, capWord: setCapWord, capSize: setCapSize,
-                    textPos: setTP, textSize: setTS };
+                    textPos: setTP, textSize: setTS,
+                    transIn: setTransIn, transOut: setTransOut, textAnim: setTextAnim,
+                    sfxIn: setSfxIn, sfxOut: setSfxOut };
   const applyTemplate = (t) => {
     if (busy) return;
     Object.keys(t.set).forEach(k => { if (SETTERS[k]) SETTERS[k](t.set[k]); });
@@ -5652,6 +5850,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     await new Promise(r => setTimeout(r, 150));
 
     await v.play().catch(() => {});
+    // Sound effects into the recorded track, at the cut's offsets. Only
+    // possible when the clip's audio graph exists — it is the graph's `dest`
+    // the recorder is listening to. (The frame-accurate path renders them
+    // offline and needs none of this.)
+    if (g) scheduleSfx(g.ctx, g.sfx, latest.current.sfx, g.ctx.currentTime - (v.currentTime - inPt));
     const span = Math.max(0.1, outPt - inPt);
     const started = Date.now();
     let stalled = false;
@@ -5724,7 +5927,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           { ...opts(), t, caption: capOn ? activeCaption(caps, t) : null });
         result = await exportFrameAccurate(faSup, {
           v, c, paint: paintAt, inPt, outPt, outW, outH, fps: out.hd ? 60 : 30, hd: out.hd,
-          srcUrl: clip.url, onPct: setPct, cancel: cancelRef });
+          srcUrl: clip.url, onPct: setPct, cancel: cancelRef, sfx: latest.current.sfx });
       } else {
         result = await exportRecorder();
       }
@@ -5782,7 +5985,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const framed = zoom !== 1 || offX !== 0 || offY !== 0;
   const shape = RATIOS.find(r => r[0] === ratio) || RATIOS[0];
 
-  const TABS = [['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text']];
+  const TABS = [['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text'], ['fx', 'Effects']];
   if (captionsOn) TABS.push(['captions', 'Captions']);
 
   return (
@@ -5953,6 +6156,51 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                     onChange={e=>setTS(+e.target.value)}/>
                 </div>
                 <div className="ed-note">Up to three lines. It is burned into the export, so it shows on every platform.</div>
+              </div>}
+
+              {tab==='fx' && <div className="ed-grp">
+                <label>Transitions</label>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>In</span>
+                  <div className="ed-seg" style={{flex:1}}>
+                    {[['none','None'],['fade','Fade'],['zoom','Zoom']].map(([k,l])=>(
+                      <button key={k} className={transIn===k?'on':''} disabled={busy} onClick={()=>setTransIn(k)}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Out</span>
+                  <div className="ed-seg" style={{flex:1}}>
+                    {[['none','None'],['fade','Fade']].map(([k,l])=>(
+                      <button key={k} className={transOut===k?'on':''} disabled={busy} onClick={()=>setTransOut(k)}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="ed-row">
+                  <button className={'rd-btn sm'+(textAnim?' grad':'')} disabled={busy}
+                    onClick={()=>setTextAnim(v=>!v)} style={{flex:1}}>
+                    {textAnim ? 'Title rises in' : 'Title static'}
+                  </button>
+                </div>
+                <label style={{marginTop:8}}>Sound</label>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Start</span>
+                  <select className="ed-in" value={sfxIn} disabled={busy} onChange={e=>setSfxIn(e.target.value)}>
+                    {SFX_KINDS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>End</span>
+                  <select className="ed-in" value={sfxOut} disabled={busy} onChange={e=>setSfxOut(e.target.value)}>
+                    {SFX_KINDS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="ed-row">
+                  <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Vol</span>
+                  <input type="range" min="0" max="1" step="0.05" value={sfxGain} disabled={busy}
+                    onChange={e=>setSfxGain(+e.target.value)}/>
+                </div>
+                <div className="ed-note">Sounds are synthesized, so the export carries exactly what the preview plays. Press play to hear them; the word-pop on captions is always on.</div>
               </div>}
 
               {tab==='captions' && captionsOn && <div className="ed-grp">
