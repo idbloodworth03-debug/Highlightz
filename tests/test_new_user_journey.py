@@ -303,12 +303,13 @@ def test_they_can_start_a_vod_scan(app, monkeypatch):
 # ── what is released, and what is deliberately not ───────────────────────────
 #
 # The Clip Editor was RELEASED TO PRO on 2026-09-15 (owner: "open up the
-# editor to pro users now"). It is gated the way the VOD scanner is: the tab
-# shows for everyone, the screen is the paywall for a plan without
-# `plan_limits.uploads`, and the endpoints refuse independently. The Scheduler
-# is still adminOnly in NAV and behind its own decision. These tests pin that
-# the sides agree — a nav entry with a 503 behind it, or an endpoint open to a
-# screen nobody can reach, are both ways for this to rot quietly.
+# editor to pro users now") and the Scheduler followed the same day ("I need
+# the scheduler to be working and integrated now"). Both are gated the way the
+# VOD scanner is: the tab shows for everyone, the screen is the paywall for a
+# plan without `plan_limits.uploads`, and the endpoints refuse independently.
+# These tests pin that the sides agree — a nav entry with a 503 behind it, or
+# an endpoint open to a screen nobody can reach, are both ways for this to rot
+# quietly.
 
 def test_the_clip_editor_is_open_to_pro_and_paywalled_for_the_rest(app):
     """Released: no adminOnly on the tab, and the Edit button on a card follows
@@ -317,19 +318,27 @@ def test_the_clip_editor_is_open_to_pro_and_paywalled_for_the_rest(app):
     from src.dashboard.aurora_html import DASHBOARD_HTML
     assert "{id:'uploads',label:'Clip Editor',icon:'upload'}" in DASHBOARD_HTML
     assert "adminOnly:true" not in DASHBOARD_HTML[DASHBOARD_HTML.index("{id:'uploads'"):DASHBOARD_HTML.index("{id:'uploads'") + 60]
-    assert "const adminOnlyTabs = ['schedule'];" in DASHBOARD_HTML, \
-        "the editor is still bounced back to the review queue for non-admins"
+    assert "const adminOnlyTabs = [];" in DASHBOARD_HTML, \
+        "a released tab is still bounced back to the review queue for non-admins"
     assert "const editorOn = uploadsOn && !!(me && (me.plan_limits?.uploads || me.is_admin));" in DASHBOARD_HTML
     # The paywall screen exists for the plans that do not include it.
     assert "Clip Editor is a Pro feature" in DASHBOARD_HTML
 
 
-def test_the_scheduler_is_still_hidden_from_a_new_user(app):
-    """Not a gap: it is unreleased, and the nav hides it."""
+def test_the_scheduler_is_open_to_pro_and_paywalled_for_the_rest(app):
+    """Released the same day as the editor was marketed (owner: "I need the
+    scheduler to be working and integrated now"). Same gate as the editor:
+    the tab shows for everyone, the screen is the paywall below Pro, the
+    routes refuse independently (test_the_editor_endpoints_refuse_a_free_user…)."""
     from src.dashboard.aurora_html import DASHBOARD_HTML
-    assert "{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true}" in DASHBOARD_HTML
+    assert "{id:'schedule',label:'Scheduler',icon:'clock'}" in DASHBOARD_HTML
+    assert "Scheduler is a Pro feature" in DASHBOARD_HTML
     assert "n.adminOnly||(me&&me.is_admin)" in DASHBOARD_HTML, \
         "adminOnly nav entries are no longer filtered for non-admins"
+    # A free user is refused at the API too, as a plan matter.
+    app.signup()
+    r = app.get("/publish/connections")
+    assert r.status_code == 403 and "pro" in r.text.lower()
 
 
 def test_typing_the_route_does_not_strand_them(app):
@@ -413,7 +422,8 @@ def test_every_editor_and_scheduler_endpoint_is_behind_the_release_gate():
             f"{list(r.methods)[0]} {r.path} is reachable without the release gate"
 
 
-@pytest.mark.parametrize("path", ["/uploads", "/publish/schedule", "/publish/platforms"])
+@pytest.mark.parametrize("path", ["/uploads", "/publish/schedule", "/publish/platforms",
+                                  "/publish/connections"])
 def test_the_editor_endpoints_refuse_a_free_user_as_a_plan_matter(app, path):
     """Belt and braces behind the nav. Since the editor's release to Pro
     (2026-09-15) a new free user is refused by PLAN — a 403 that says so and

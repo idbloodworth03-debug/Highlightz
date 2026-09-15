@@ -1017,6 +1017,22 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .sc-plat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .sc-plat .rd-btn{min-width:96px;justify-content:center}
 .sc-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sc-card.done{opacity:.85}
+.sc-auto{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--acc);
+  padding:4px 8px;border-radius:99px;background:var(--grad-soft);border:1px solid rgba(184,106,220,.35)}
+.sc-note{color:var(--fg-3)}
+.sc-when-pick{display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:180px;font-size:12px;color:var(--fg-3)}
+.sc-when-pick .ed-in{flex:1;min-width:150px}
+.sc-conns{margin-top:12px}
+.sc-conn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:12px}
+.sc-conn{padding:12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--hair);
+  display:flex;flex-direction:column;gap:8px}
+.sc-conn.on{border-color:rgba(184,106,220,.35)}
+.sc-conn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px}
+.sc-conn-who{font-size:12px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-conn-act{display:flex;gap:8px;flex-wrap:wrap}
+.sc-conn-act a{text-decoration:none}
+.sc-conn-off{font-size:12px;color:var(--fg-3)}
 .sr-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 @media(max-width:620px){.sr-tiles{grid-template-columns:repeat(2,1fr)}}
 .sr-tile{background:rgba(255,255,255,.04);border:1px solid var(--hair);
@@ -3523,14 +3539,14 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock',adminOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that are closed off while Kick clipping is under construction. Used by
 // BOTH the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending. Account, Feedback
 // and the admin/labeler tools are global and stay open; the platform switch
 // and Sign out always stay live so Kick is never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, ready to post'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -5974,10 +5990,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       // for our benefit — it is what lets the Scheduler tab, and the user's
       // PHONE, share the edited clip. A blob living in one tab's memory is
       // unreachable from the device that has the TikTok app on it.
-      // The Scheduler is still admin-only (see adminOnlyTabs). For everyone
-      // else the render is saved to their Clip Editor library and the
-      // wording says that — "added to your Scheduler" with no Scheduler tab
-      // would be a promise about a screen they cannot see.
+      // schedulerOn follows the plan (Pro, or admin) — the same gate as the
+      // Scheduler tab itself. For anyone else the render is saved to their
+      // Clip Editor library and the wording says that: "added to your
+      // Scheduler" with no Scheduler tab would be a promise about a screen
+      // they cannot see.
       const where = schedulerOn ? 'Scheduler' : 'Clip Editor library';
       setDone('Exported. Saving to your ' + where + '…');
       try {
@@ -6343,8 +6360,12 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
    room: a card per clip with the video, the caption, the platform buttons and
    the fit check, rather than a strip squeezed into the editor's sidebar.
 
-   It REMINDS. It cannot post — the app holds no TikTok/Instagram/YouTube
-   credentials by design. Every string here has to say so. */
+   Since 2026-09-15 it POSTS: an account connected in ConnectionsPanel is
+   posted to by the server at the chosen time (src/publish/poster.py), and the
+   card shows each platform's outcome as it happens. A platform that is NOT
+   connected still gets the reminder + share path. Every card says which of
+   the two each platform is — "Auto" next to the name — because a queue that
+   looks manual where it is not posts something the user did not expect. */
 /* ── Review prompt ────────────────────────────────────────────────────────────
    Appears after 25 approved clips. Three things it must get right:
 
@@ -6444,7 +6465,7 @@ function ReviewPrompt({ clips, onClose }) {
   );
 }
 
-function ScheduleCard({ item, platforms, onChange, onDrop }) {
+function ScheduleCard({ item, platforms, connections = [], onChange, onDrop }) {
   const [cap, setCap]     = useState(item.caption || '');
   const [when, setWhen]   = useState(item.due_at ? toLocalInput(item.due_at) : '');
   const [picked, setPicked] = useState(new Set(item.platforms || []));
@@ -6463,6 +6484,15 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
     } catch { setShareable(false); }
   },[]);
 
+  // Which chosen platforms the SERVER will post to (connected, healthy) and
+  // which the user still posts by hand. Same split the poster makes.
+  const connected = new Set((connections||[]).filter(c=>c.connected && !c.last_error).map(c=>c.id));
+  const results = item.results || {};
+  const auto   = [...picked].filter(p=>connected.has(p));
+  const manual = [...picked].filter(p=>!connected.has(p));
+  const posting = item.status === 'posting';
+  const done    = item.status === 'posted';
+
   const save = async (patch) => {
     setSaving(true); setBusyErr('');
     try {
@@ -6475,10 +6505,21 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
   };
 
   const toggle = (id) => {
+    if (posting) return;
     const next = new Set(picked);
     next.has(id) ? next.delete(id) : next.add(id);
     setPicked(next);
     save({platforms:[...next]});
+  };
+
+  // Post now / Retry. The server clears failed platforms, keeps posted ones,
+  // and uploads in the background; the card follows over the socket.
+  const postNow = async () => {
+    setBusyErr('');
+    try {
+      const r = await fetch('/publish/schedule/'+item.id+'/post', {method:'POST'});
+      if(!r.ok){ let d='Could not start posting'; try{ d=(await r.json()).detail||d; }catch{} setBusyErr(d); }
+    } catch { setBusyErr('Could not reach the server'); }
   };
 
   const share = async () => {
@@ -6503,21 +6544,26 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
     catch { setBusyErr('Could not copy — select the text and copy it.'); }
   };
 
-  const when_ = item.missed ? 'Missed' : item.due ? 'Post now'
-              : item.scheduled ? qWhen(item.due_at) : 'No time set';
+  const when_ = posting ? 'Posting…'
+              : done ? 'Posted'
+              : item.status === 'failed' ? 'Needs attention'
+              : item.missed ? 'Missed' : item.due ? 'Post now'
+              : item.scheduled ? (auto.length ? 'Posts ' : '') + qWhen(item.due_at)
+              : 'No time set';
+  const tone = item.status === 'failed' || item.missed ? ' missed' : '';
 
   return (
-    <div className={'sc-card glass'+(item.due?' due':'')+(item.missed?' missed':'')}>
+    <div className={'sc-card glass'+(item.due||posting?' due':'')+(tone?' missed':'')+(done?' done':'')}>
       <div className="sc-media">
         <video src={'/uploads/'+item.upload_id+'/file'} controls preload="metadata"/>
       </div>
       <div className="sc-body">
         <div className="sc-top">
           <div className="sc-name">{item.filename}</div>
-          <div className={'sc-when'+(item.missed?' missed':'')}>{when_}</div>
+          <div className={'sc-when'+tone}>{when_}</div>
         </div>
 
-        <textarea className="ed-in" rows="3" value={cap}
+        <textarea className="ed-in" rows="3" value={cap} disabled={posting}
           placeholder="Caption + hashtags — written once, used everywhere"
           onChange={e=>setCap(e.target.value)} onBlur={()=>save({caption:cap})}/>
 
@@ -6525,23 +6571,40 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
           {(platforms||[]).map(pf=>{
             const issues = fitIssues(pf, item.duration_s||0, item.ratio||'', cap, item.fmt||'');
             const on = picked.has(pf.id);
+            const res = results[pf.id];
+            const isAuto = on && connected.has(pf.id);
+            let state;
+            if (res && res.status === 'posted')
+              state = <span className="pub-ok">Posted{res.url ? <> · <a href={res.url} target="_blank" rel="noopener noreferrer">View</a></> : ''}{res.note ? <span className="sc-note"> {res.note}</span> : null}</span>;
+            else if (res && res.status === 'posting')
+              state = <span className="pub-ok">Uploading…</span>;
+            else if (res && res.status === 'failed')
+              state = <span className="pub-warn">{res.error}</span>;
+            else if (issues.length)
+              state = <span className="pub-warn">{issues[0]}</span>;
+            else
+              state = <span className="pub-ok">Fits · {Math.round(item.duration_s||0)}s</span>;
             return (
               <div key={pf.id} className="sc-plat">
-                <button className={'rd-btn sm'+(on?' grad':'')} onClick={()=>toggle(pf.id)}>
+                <button className={'rd-btn sm'+(on?' grad':'')} onClick={()=>toggle(pf.id)} disabled={posting}>
                   {on ? '✓ ' : ''}{pf.label}
                 </button>
-                <a className="rd-btn sm" href={pf.upload_url} target="_blank"
-                   rel="noopener noreferrer">Open</a>
-                {issues.length
-                  ? <span className="pub-warn">{issues[0]}</span>
-                  : <span className="pub-ok">Fits · {Math.round(item.duration_s||0)}s</span>}
+                {isAuto
+                  ? <span className="sc-auto" title="Highlightz posts this one for you">Auto</span>
+                  : <a className="rd-btn sm" href={pf.upload_url} target="_blank"
+                       rel="noopener noreferrer">Open</a>}
+                {state}
               </div>
             );
           })}
         </div>
 
         <div className="sc-actions">
-          {shareable && <button className="rd-btn sm grad" onClick={share}>
+          {auto.length > 0 && !posting && !done &&
+            <button className="rd-btn sm grad" onClick={postNow}>
+              <Icon name="upload" size={13}/>&nbsp;{item.status === 'failed' ? 'Retry' : 'Post now'}
+            </button>}
+          {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
             <Icon name="upload" size={13}/>&nbsp;Share to an app
           </button>}
           <a className="rd-btn sm" href={'/uploads/'+item.upload_id+'/file'}
@@ -6549,14 +6612,17 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
           <button className="rd-btn sm" onClick={copy} disabled={!cap}>
             {copied ? 'Copied' : 'Copy caption'}
           </button>
-          <input className="ed-in" type="datetime-local" value={when}
-            style={{flex:'1 1 176px',minWidth:150}}
-            onChange={e=>{ setWhen(e.target.value);
-              const t = e.target.value ? Math.floor(new Date(e.target.value).getTime()/1000) : 0;
-              save({due_at: t}); }}/>
-          <button className="rd-btn sm" onClick={()=>save({status:'posted'})}
-            disabled={saving}>Mark posted</button>
-          <button className="rd-btn sm danger" onClick={()=>onDrop(item.id)}>Remove</button>
+          <label className="sc-when-pick">
+            <span>{auto.length ? 'Posts at' : 'Remind at'}</span>
+            <input className="ed-in" type="datetime-local" value={when} disabled={posting}
+              onChange={e=>{ setWhen(e.target.value);
+                const t = e.target.value ? Math.floor(new Date(e.target.value).getTime()/1000) : 0;
+                save({due_at: t}); }}/>
+          </label>
+          {!done && !posting && manual.length > 0 &&
+            <button className="rd-btn sm" onClick={()=>save({status:'posted'})}
+              disabled={saving}>Mark posted</button>}
+          <button className="rd-btn sm danger" onClick={()=>onDrop(item.id)} disabled={posting}>Remove</button>
         </div>
         {busyErr && <div className="ed-warn">{busyErr}</div>}
       </div>
@@ -6564,13 +6630,83 @@ function ScheduleCard({ item, platforms, onChange, onDrop }) {
   );
 }
 
-function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
+/* The three accounts a clip can be posted to, and whether this user has
+   connected them. `configured` is the OPERATOR side (app keys in .env):
+   without it the button says so rather than 503ing on click. */
+function ConnectionsPanel({ me, connections = [] }) {
+  const [busy, setBusy] = useState('');
+  const disconnect = async (id) => {
+    setBusy(id);
+    try { await fetch('/publish/connections/'+id, {method:'DELETE'}); } catch {}
+    setBusy('');
+  };
+  return (
+    <div className="rd-card glass sc-conns">
+      <h3><span className="si"><Icon name="user" size={15}/></span>Connected accounts</h3>
+      <div className="desc">
+        Connect an account and Highlightz posts your clips to it for you, at the
+        time you set. Only the clips you choose it for, only while it is connected.
+      </div>
+      <div className="sc-conn-grid">
+        {(connections||[]).map(c=>(
+          <div key={c.id} className={'sc-conn'+(c.connected?' on':'')}>
+            <div className="sc-conn-head">
+              <b>{c.label}</b>
+              {c.connected && !c.last_error && <span className="sc-auto">Connected</span>}
+            </div>
+            {c.connected
+              ? <>
+                  <div className="sc-conn-who">{c.account_name || 'Connected'}</div>
+                  {c.last_error && <div className="pub-warn">{c.last_error}</div>}
+                  <div className="sc-conn-act">
+                    {c.last_error && <a href={'/publish/connect/'+c.id} className="rd-btn sm grad">Connect again</a>}
+                    <button className="rd-btn sm" onClick={()=>disconnect(c.id)} disabled={busy===c.id}>Disconnect</button>
+                  </div>
+                </>
+              : c.configured
+                ? <div className="sc-conn-act">
+                    <a href={'/publish/connect/'+c.id} className="rd-btn sm grad">Connect {c.label}</a>
+                  </div>
+                : <div className="sc-conn-off">
+                    {me && me.is_admin
+                      ? 'Not set up: add this platform’s app keys to .env (see HANDOFF).'
+                      : 'Coming soon.'}
+                  </div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true }) {
   const [tab, setTab] = useState('todo');
   const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
-  const pending = (queue||[]).filter(i=>i.status==='pending');
-  const done    = (queue||[]).filter(i=>i.status!=='pending');
+  const pending = (queue||[]).filter(i=>i.status==='pending'||i.status==='posting'||i.status==='failed');
+  const done    = (queue||[]).filter(i=>i.status==='posted'||i.status==='skipped');
   const shown   = tab==='todo' ? pending : done;
+
+  // Plan gate mirrors the backend 403 with an upgrade card, the same shape
+  // as the Clip Editor's. After every hook, so hook order stays stable.
+  if (me && me.plan_limits && !me.plan_limits.uploads && !me.is_admin) {
+    return (
+      <div className="rd-wrap">
+        <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
+          <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="clock" size={40}/></div>
+          <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Scheduler is a Pro feature</h3>
+          <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
+            Connect YouTube, TikTok and Instagram and have every clip you export
+            posted for you at the time you pick. Included with Pro, with the Clip
+            Editor and the VOD scanner.
+          </div>
+          <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
+            <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rd-wrap">
@@ -6578,8 +6714,8 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
           says where these clips came from or what the user is meant to do. */}
       <div className="rd-how">
         {[['download','1','Export a clip','Anything you export in the Clip Editor lands here automatically.'],
-          ['chat','2','Write it once','One caption, reused for every platform. We check it fits before you post.'],
-          ['clock','3','Post it','Share straight to the apps from your phone, or set a time and we will nudge you.']
+          ['chat','2','Write it once','One caption, reused for every platform. We check it fits before it goes out.'],
+          ['clock','3','Post it','Pick platforms and a time. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
         ].map(([icon,n,title,body])=>(
           <div className="rd-step" key={n}>
             <span className="sn">{n}</span>
@@ -6591,19 +6727,14 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
         ))}
       </div>
 
-      <div className="ed-warn" style={{marginTop:12,color:'var(--fg-3)',
-        background:'rgba(255,255,255,.03)',borderColor:'var(--hair)'}}>
-        Highlightz never posts for you and never asks for your TikTok, Instagram
-        or YouTube login. Your clip goes to your device and you post it from
-        your own account — a reminder here is a nudge, not an upload.
-      </div>
+      <ConnectionsPanel me={me} connections={connections}/>
 
       <div className="ed-seg" style={{maxWidth:280,marginTop:12}}>
         <button className={tab==='todo'?'on':''} onClick={()=>setTab('todo')}>
           To post{pending.length?' ('+pending.length+')':''}
         </button>
         <button className={tab==='done'?'on':''} onClick={()=>setTab('done')}>
-          Done{done.length?' ('+done.length+')':''}
+          Posted{done.length?' ('+done.length+')':''}
         </button>
       </div>
 
@@ -6619,12 +6750,12 @@ function ScheduleScreen({ me, queue = [], platforms = [], uploadsOn = true }) {
             <div className="desc">
               {tab==='todo'
                 ? 'Export a clip in the Clip Editor and it shows up here, ready to caption and post.'
-                : 'Clips you mark as posted move here, so the list above stays what is left to do.'}
+                : 'Clips that have been posted, by Highlightz or by you, move here so the list above stays what is left to do.'}
             </div>
           </div>
         : <div className="sc-list">
             {shown.map(i=>(
-              <ScheduleCard key={i.id} item={i} platforms={platforms} onDrop={drop}/>
+              <ScheduleCard key={i.id} item={i} platforms={platforms} connections={connections} onDrop={drop}/>
             ))}
           </div>}
     </div>
@@ -6924,7 +7055,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         </>}
       </div>
       {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}
-        schedulerOn={!!(me && me.is_admin)}/>}
+        schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))}/>}
     </div>
   );
 }
@@ -7418,9 +7549,16 @@ function RdApp() {
   // Publishing targets + their limits, from the server so the editor's
   // fit-check and src/publish/platforms.py can never disagree.
   const [platforms, setPlatforms] = useState([]);
-  // The posting queue. Reminders only — we hold no platform credentials,
-  // so nothing here posts by itself and every string must say so.
+  // The posting queue, and the accounts the server can post to. Both are
+  // server state that changes under an open tab (the poster writes results
+  // as it uploads; a connect finishes in another tab), so both are pulled in
+  // refetchAll and updated by their events.
   const [queue, setQueue] = useState([]);
+  const [connections, setConnections] = useState([]);
+  const refetchConnections = useCallback(()=>{
+    fetch('/publish/connections').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) setConnections(d.platforms||[]); }).catch(()=>{});
+  },[]);
   // {clips} while the review prompt is open, null otherwise.
   const [reviewAsk, setReviewAsk] = useState(null);
   // Clips DELETED by the pending cap. Not 'missed' — the new clip is kept
@@ -7527,6 +7665,7 @@ function RdApp() {
     fetch('/announcements').then(r=>r.json()).then(d=>setAnnouncements(d.rows||[])).catch(()=>{});
     fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
     fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
+    refetchConnections();
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     fetch('/tutorial/content').then(r=>r.ok?r.json():null)
@@ -7548,6 +7687,17 @@ function RdApp() {
     } else if (_params.get('kick_error')) {
       const detail = _params.get('kick_detail');
       flash('Kick connection failed' + (detail ? ': ' + decodeURIComponent(detail) : ' — check server logs'));
+      history.replaceState(null,'',location.pathname);
+    } else if (_params.get('connected')) {
+      // Back from a YouTube/TikTok/Instagram consent screen. The connection
+      // itself arrives over the socket; this just lands them on the tab.
+      const which = {youtube:'YouTube', tiktok:'TikTok', instagram:'Instagram'}[_params.get('connected')] || 'Account';
+      flash(which + ' connected — Highlightz can post there for you now.');
+      setRoute('schedule');
+      history.replaceState(null,'',location.pathname);
+    } else if (_params.get('connect_error')) {
+      flash('Could not connect ' + decodeURIComponent(_params.get('connect_error')));
+      setRoute('schedule');
       history.replaceState(null,'',location.pathname);
     }
   },[]);
@@ -7765,6 +7915,11 @@ function RdApp() {
         }
         else if(msg.event==='schedule_removed'){
           setQueue(q=>q.filter(i=>i.id!==msg.item_id));
+        }
+        else if(msg.event==='publish_connections_changed'){
+          // Sent on connect, disconnect, and when the poster finds a token
+          // dead. The event carries nothing; the list is the state.
+          refetchConnections();
         }
         else if(msg.event==='schedule_due'){
           // The list is the source of truth (`due` is derived from the clock on
@@ -8000,16 +8155,19 @@ function RdApp() {
   // The tab is worth showing if EITHER half is live. Import is complete on its
   // own (browse every clip on your channel); uploads are what's held back.
   const clipTabOn = uploadsOn || importOn;
-  // The Scheduler is ADMIN ONLY, full stop — not gated on a release flag,
-  // because UPLOADS_ENABLED once went true in production and handed every Pro
-  // subscriber a working Editor and Scheduler before either was a decision.
+  // Tabs bounced to the review queue for non-admins. Both held-back tabs used
+  // to be here — not gated on a release flag, because UPLOADS_ENABLED once
+  // went true in production and handed every Pro subscriber a working Editor
+  // and Scheduler before either was a decision.
   //
-  // THE EDITOR LEFT THIS LIST ON 2026-09-15, deliberately, on the owner's
-  // call: "open up the editor to pro users now." It is now gated the way the
-  // VOD scanner is — the tab shows for everyone, the screen itself is the
-  // paywall for anyone without `plan_limits.uploads`, and the endpoints refuse
-  // independently. The Scheduler stays here until it gets its own decision.
-  const adminOnlyTabs = ['schedule'];
+  // THE EDITOR LEFT THIS LIST ON 2026-09-15 ("open up the editor to pro users
+  // now") and THE SCHEDULER FOLLOWED THE SAME DAY ("I need the scheduler to
+  // be working and integrated now"). Both are gated the way the VOD scanner
+  // is — the tab shows for everyone, the screen itself is the paywall for
+  // anyone without `plan_limits.uploads`, and the endpoints refuse
+  // independently. The list stays so the mechanism is here for the next
+  // held-back screen.
+  const adminOnlyTabs = [];
   // Whether a clip card may offer "Edit clip". It has to match what the user
   // can actually reach: the release flag (or the screen is
   // UploadsUnderConstruction) AND a plan that includes the editor (or an
@@ -8037,7 +8195,7 @@ function RdApp() {
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
-  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} uploadsOn={uploadsOn}/>;
+  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} connections={connections} uploadsOn={uploadsOn}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;

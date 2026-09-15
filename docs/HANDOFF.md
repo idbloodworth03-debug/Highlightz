@@ -550,11 +550,10 @@ normal Clip Review screen, which still shows scores.
   the paywall below Pro, `_require_upload_access` refuses independently.
   `uploads_enabled` defaults True now and is the kill switch
   (`UPLOADS_ENABLED=false` takes it away from everyone but admins in one
-  restart). **The Scheduler is still admin-only** — so an export for a
-  non-admin is saved to their Clip Editor library and says so, and the
-  `/publish/schedule` POST is skipped (`schedulerOn` prop on `ClipEditor`);
-  "added to your Scheduler" with no Scheduler tab would promise a screen
-  they cannot see. **Marketed the same day** (owner: "market the editor on
+  restart). The Scheduler stayed admin-only for a few hours and was then
+  released and made to POST the same day — see "Publishing — the Scheduler
+  POSTS" below; `schedulerOn` on `ClipEditor` now follows the plan, the
+  same gate as the tab. **Marketed the same day** (owner: "market the editor on
   the landing page now"): a block on the landing page inside the pricing
   section, under the plans and hairlined off them the way the FAQ is
   (`_editor_section()`, rendered into `<!--EDITOR-->` at import so the
@@ -564,11 +563,12 @@ normal Clip Review screen, which still shows scores.
   dashes and one "no X, no Y" construction, and the copy was written to
   those rules rather than the rules loosened. Also a Clip Editor
   row in the pricing tables and the paywall, the FAQ entry, the Terms' plan
-  sentence and both LLM briefs. The Scheduler and auto-posting are STILL
-  unmarketed and unreleased; `test_the_scheduler_and_auto_posting_are_not_
-  marketed_anywhere_public` pins that, and
-  `test_the_clip_editor_is_marketed_on_the_landing_page` pins the copy so it
-  cannot drift back to the September silence.
+  sentence and both LLM briefs. The Scheduler and auto-posting are released
+  (see below) but STILL UNMARKETED — nobody has asked for landing copy for
+  them; `test_the_scheduler_and_auto_posting_are_not_marketed_anywhere_public`
+  pins that until the owner does, and
+  `test_the_clip_editor_is_marketed_on_the_landing_page` pins the editor copy
+  so it cannot drift back to the September silence.
 - **Clip Editor and Scheduler: unmarketed and gated (2026-09-02, late).**
   Owner: "not ready to push that out yet — remove the clip editor and auto
   post stuff on the landing page and make sure it is gatekept". Removed from
@@ -1544,28 +1544,129 @@ waiting show one at a time, oldest first. Every announcement expires
 20 tests in `tests/test_announcements.py`, including both halves of the
 realtime contract.
 
-## Publishing — deliberately NOT an API integration (2026-08-02)
+## Publishing — the Scheduler POSTS (2026-09-15, reversing 2026-08-02)
 
-**We do not post on the user's behalf, and that is the design.** Posting
-through TikTok's Content Posting API, Instagram's Content Publishing API or
-YouTube's Data API each require the app to pass platform review first — weeks
-of calendar time — and YouTube's default 10,000 units/day against 1600 per
-`videos.insert` would cap the ENTIRE app at six uploads a day. Instagram will
-not accept bytes at all; it fetches from a public URL on a domain you have
-verified, i.e. hosting user video publicly. Handing the user a correctly-shaped
-file plus a one-tap share needs none of it and shipped in a day.
+**Owner: "I need the scheduler to be working and integrated now" — real
+auto-posting, all three platforms, open to Pro now.** Until this day the
+Scheduler was a reminder queue by design (the paragraph below, kept because
+its costs are still the costs). The owner chose to pay them.
 
-If server-side posting is ever revisited, that paragraph is the cost, and it
-should be paid only with revenue data rather than speculatively.
+**The August reasoning, still true:** posting through TikTok's Content
+Posting API, Instagram's Content Publishing API or YouTube's Data API each
+require the app to pass platform review — weeks of calendar time — and
+YouTube's default 10,000 units/day against 1,600 per `videos.insert` caps the
+ENTIRE app at six uploads a day until Google raises it. Instagram will not
+accept bytes; it fetches from a public URL, i.e. we serve user video publicly
+for a few minutes. Each of those is now handled rather than avoided:
+
+- **YouTube** (`src/publish/providers/youtube.py`): Google OAuth
+  (`youtube.upload` + `youtube.readonly`, `access_type=offline&prompt=consent`
+  so a refresh token always comes back), resumable upload streamed from disk
+  in 1 MB blocks. Title = first line of the caption (100 chars), description
+  = the caption, category Gaming, public. A `quotaExceeded` is a RETRYABLE
+  failure worded as ours ("YouTube's daily upload quota for Highlightz is
+  used up"), never the user's. **Ask Google for a quota increase as soon as
+  there are users** — six posts a day across the whole app is the default.
+- **TikTok** (`tiktok.py`): Login Kit with PKCE, Content Posting API direct
+  post. `creator_info` says which privacy levels the account may post at;
+  until TikTok audits the app that is `SELF_ONLY` only, so the post lands
+  PRIVATE and the card says so (`note` on the result) — the user flips it
+  public in the app. Chunked by TikTok's rules (`chunk_plan`): one chunk up
+  to 64 MB, else 32 MB chunks with the remainder folded into the last.
+- **Instagram** (`instagram.py`): "Instagram API with Instagram Login" (no
+  Facebook Page). Account must be Professional (Business/Creator) — a
+  personal one is refused at connect with the reason. Reels via a container
+  built from `video_url`, polled to FINISHED, then `media_publish`. The
+  `video_url` is **`/media/<signed token>`** (`src/publish/media_link.py`):
+  HMAC over upload id + expiry, one hour, the ONLY video route with no
+  session (`_OPEN_PREFIXES` in api.py). WebM is refused before any network
+  call. The 1-hour short token is swapped for the 60-day one at connect and
+  refreshed whenever under a week remains (`refreshes_without_refresh_token`).
+
+**Operator setup (once, per platform; a blank id = the Connect button says
+"Coming soon" to users and "add the app keys" to admins):**
+1. `PUBLIC_BASE_URL=https://highlightz.app` (default). Redirect URIs are
+   derived from it: `https://highlightz.app/publish/connect/{youtube,tiktok,
+   instagram}/callback` — register those three exact strings.
+2. Google Cloud console → APIs & Services → enable *YouTube Data API v3* →
+   Credentials → OAuth client (Web application) with the youtube callback →
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. OAuth consent screen: add
+   the two scopes; until it is verified, add testers there (100 max) and
+   expect the "unverified app" interstitial.
+3. TikTok for Developers → app → add *Login Kit* and *Content Posting API*
+   (Direct Post), scopes `user.info.basic`, `video.publish`, the tiktok
+   callback → `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`. Submit for
+   audit when ready; posts are private until then.
+4. Meta for Developers → app → *Instagram* product → "API setup with
+   Instagram login" → the instagram callback under *Business login
+   settings* → `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET`. Add Instagram
+   testers (Roles) until App Review grants
+   `instagram_business_content_publish`.
+5. Restart. `/publish/connections` reports `configured` per platform.
+
+**What exists now:**
+- `src/publish/connections.py` — one connection per user per platform,
+  tokens Fernet-encrypted with the same key as Twitch's (`users._encrypt`),
+  written through `atomic_write_json` (0600). `public()` never carries a
+  token; the API payload and every broadcast are built from it.
+  `last_error` marks a dead grant; `connected_platforms()` excludes those,
+  and the card shows the error with "Connect again". Account deletion
+  removes them.
+- `src/publish/poster.py` — the worker. `post_due()` runs inside
+  `schedule_due_task` every 30 s: due + pending (or FAILED with only
+  retryable failures, after a 15-min backoff, inside the 24 h grace) + a
+  connected platform → `post_item()`. Serial on purpose (1 vCPU; uploads
+  are network-bound). Each platform's outcome is written to
+  `Item.results[platform]` and broadcast as `schedule_updated` BEFORE the
+  next platform is tried, so the card shows "Uploading… / Posted · View /
+  error" live and a restart loses at most the platform in flight. **A
+  platform whose result is `posted` is never tried again** — by the worker,
+  by Retry, by a second Post now (`_inflight` guards the double click).
+  `reauth` errors also set `last_error` and broadcast
+  `publish_connections_changed`.
+- `schedule.py` — statuses `pending → posting → posted | failed` (+ the old
+  `skipped`), derived in `mark_result` from the rows so summary and rows
+  cannot disagree; `reset_for_retry` drops failures, keeps successes;
+  `due_for_posting` includes FAILED so retryable ones get another go.
+  `newly_due` still nudges — but only for platforms the user has NOT
+  connected (a "time to post" toast beside "Posting to YouTube…" reads as a
+  contradiction).
+- Routes (all behind `_require_upload_access`): `GET /publish/connections`,
+  `GET /publish/connect/{p}` (state + PKCE verifier in the session),
+  `GET /publish/connect/{p}/callback` (→ `/?connected=p` or
+  `/?connect_error=…`, which the dashboard turns into a toast and the
+  Scheduler tab), `DELETE /publish/connections/{p}` (best-effort revoke),
+  `POST /publish/schedule/{id}/post` (Post now / Retry, 202, background).
+  Plus the sessionless `GET /media/{token}`.
+- Dashboard: Scheduler released to Pro (`adminOnlyTabs = []`, paywall card
+  below Pro), `ConnectionsPanel` (Connect / Connected as … / Disconnect /
+  Connect again), per-platform **Auto** chip on the card for connected
+  platforms, "Posts at" vs "Remind at", Post now / Retry, result rows with
+  the link and TikTok's private note. Share / Mark posted only show when
+  some chosen platform is manual. Realtime: `connections` in `refetchAll`,
+  `publish_connections_changed` refetches, `schedule_updated` carries the
+  results. `test_the_queue_says_exactly_when_it_posts_and_when_it_only_
+  reminds` pins the wording both ways.
+- 38 tests in `tests/test_publish_posting.py`: encryption at rest, scoping,
+  signed link forge/expiry, status derivation, never-twice, dead-token
+  handling, backoff, each provider against canned HTTP (resumable upload,
+  TikTok chunking + forced-private note, Instagram public URL + polling),
+  the routes and the UI strings.
+
+**Not done, deliberately:** marketing it (no landing copy asked for);
+scheduling per platform at different times (one time per item); YouTube
+Shorts-specific metadata beyond vertical + ≤60 s (YouTube decides Shorts
+from the file); the `ORG_PROFILES` still empty.
 
 **Tabs:** Clip Editor is for CUTTING; **Scheduler** is for POSTING. Every
 export uploads the render back to the server (`POST /uploads?source=render`)
-and drops it in the Scheduler. That round-trip is not bookkeeping — a blob in
-one tab's memory is unreachable from the phone that has the TikTok app on it,
-and the phone is where the share sheet lives. `source="render"` keeps exports
-out of the editor's source-clip picker; they are output, not input.
+and drops it in the Scheduler. That round-trip is not bookkeeping — it is
+what the poster uploads from, and a blob in one tab's memory is unreachable
+from the phone that has the TikTok app on it for the manual path.
+`source="render"` keeps exports out of the editor's source-clip picker; they
+are output, not input.
 
-**What exists:**
+**What existed before (still there, for platforms not connected):**
 - `src/publish/platforms.py` — the single source of the per-platform limits
   (ideal vs hard duration, caption cap, preferred ratio, upload URL). Carries a
   checked-on date; these move, and a stale limit is worse than none because it
@@ -1573,7 +1674,7 @@ out of the editor's source-clip picker; they are output, not input.
 - Editor "Post it" panel: keeps the exported blob, offers `navigator.share`
   with the file (the OS share sheet — TikTok/IG/YouTube, one tap, on a phone),
   a caption box, and a per-platform FIT CHECK.
-- `src/publish/schedule.py` + `/publish/schedule` — an in-app posting queue.
+- `src/publish/schedule.py` + `/publish/schedule` — the queue itself.
 
 **Editor draw options** (all through `paintFrame`, so preview and export can
 never disagree): `fill` crop|blur, `capSize`, `capPos` top|middle|bottom|low,
@@ -1598,10 +1699,12 @@ unblurred puts a giant duplicate of the video behind itself.
    browsers, and the desktop path (download + copy caption + open the upload
    page) is a real path, not an apology. `AbortError` is the user cancelling
    the sheet and must not render as a failure.
-4. **The queue reminds; it cannot post.** Every user-facing string says so
-   (`test_the_queue_never_claims_it_will_post_for_you`). A queue that looks
-   automatic and silently isn't costs someone a posting slot — worse than not
-   shipping it.
+4. **The card says which platforms are posted FOR the user and which they
+   post themselves** (`test_the_queue_says_exactly_when_it_posts_and_when_
+   it_only_reminds`). Before 2026-09-15 the rule was "the queue reminds; it
+   cannot post" for the same reason in the other direction: a queue that
+   misdescribes what will happen costs someone a posting slot or posts
+   something they did not expect.
 
 Queue design: `due_at = 0` means "exported, no time picked yet" — most clips
 arrive that way, and demanding a time at export would make the Scheduler a

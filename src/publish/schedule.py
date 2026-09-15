@@ -1,14 +1,14 @@
-"""A posting queue that REMINDS. It does not post.
+"""The posting queue. Since 2026-09-15 it POSTS.
 
-This is the honest shape of a scheduler when the app deliberately does not hold
-platform credentials (see platforms.py for why that trade was made). At the
-scheduled time the user still taps share — what this removes is the part
-creators actually lose track of: which clip was meant to go out, when, and with
-what caption.
-
-Everything user-facing must say so. A queue that looks like automation and
-silently isn't would cost someone a posting slot they were counting on, which
-is worse than not having the feature.
+Every export lands here. For a platform the user has CONNECTED (see
+connections.py) the server uploads the clip itself at the scheduled time —
+src/publish/poster.py does the work and writes the outcome into `results`,
+one entry per platform. For a platform they have not connected the queue
+still does what it did before that decision: reminds them, and hands them
+the file and a one-tap share. Both halves live on the same card, and the UI
+has to say which is which — a queue that looks automatic where it is not
+costs someone a posting slot, and one that looks manual where it is not
+posts something they did not expect.
 
 Design notes worth keeping:
   * Times are epoch seconds, UTC. The browser converts for display. Storing
@@ -37,8 +37,10 @@ log = structlog.get_logger(__name__)
 
 _INDEX = Path(settings.local_storage_path) / "schedule.json"
 
-PENDING, POSTED, SKIPPED = "pending", "posted", "skipped"
-_STATUSES = (PENDING, POSTED, SKIPPED)
+PENDING, POSTING, POSTED, FAILED, SKIPPED = "pending", "posting", "posted", "failed", "skipped"
+_STATUSES = (PENDING, POSTING, POSTED, FAILED, SKIPPED)
+# Per-platform outcome states inside Item.results.
+R_POSTING, R_POSTED, R_FAILED = "posting", "posted", "failed"
 
 MAX_PER_USER = 200          # a queue, not an archive
 CAPTION_MAX = 2200          # the most permissive platform limit
@@ -72,6 +74,15 @@ class Item:
     # Instagram — the fit check needs this or it reports "Fits" on a file
     # that cannot be posted at all.
     fmt: str = ""
+    # What happened on each platform the poster tried:
+    #   {"youtube": {"status": "posted", "url": ..., "remote_id": ..., "at": ...,
+    #                "note": ...},
+    #    "tiktok":  {"status": "failed", "error": ..., "retryable": bool, "at": ...}}
+    # A platform that is in `platforms` but not here has not been attempted
+    # (not connected, or not due yet). The item's own `status` summarises:
+    # posting while any platform is in flight, posted when every attempted
+    # one landed, failed when any did not.
+    results: dict = field(default_factory=dict)
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
@@ -83,6 +94,9 @@ class Item:
         d["missed"] = (scheduled and self.status == PENDING
                        and now >= self.due_at + GRACE_S)
         return d
+
+    def posted_on(self) -> set[str]:
+        return {p for p, r in self.results.items() if r.get("status") == R_POSTED}
 
 
 _items: dict[str, Item] = {}
@@ -223,6 +237,66 @@ def drop_upload(upload_id: str, user_id: str) -> list[str]:
     if gone:
         _save()
     return gone
+
+
+def due_for_posting(now: float | None = None) -> list[Item]:
+    """Pending, timed items whose time has come. The poster decides which of
+    them have a connected platform to post to; the rest are reminders and go
+    through newly_due() as before. Oldest first, so a backlog after a restart
+    drains in the order it was meant to go out."""
+    _load()
+    now = time.time() if now is None else now
+    # FAILED items are included so a retryable failure (quota, 5xx) gets
+    # another go; the poster applies the backoff and the retryable check.
+    return sorted((i for i in _items.values()
+                   if i.status in (PENDING, FAILED) and i.due_at > 0 and now >= i.due_at),
+                  key=lambda i: i.due_at)
+
+
+def mark_result(item_id: str, user_id: str, platform: str, status: str, *,
+                url: str = "", remote_id: str = "", error: str = "",
+                note: str = "", retryable: bool = False) -> Item | None:
+    """Record one platform's outcome and re-derive the item's own status.
+
+    The item is `posting` while any platform is in flight, `failed` if any
+    attempted platform failed, `posted` once every attempted platform landed,
+    and back to `pending` if nothing has been attempted at all (a retry that
+    cleared the results). Kept in one place so the summary can never
+    disagree with the per-platform rows the card shows.
+    """
+    item = get(item_id, user_id)
+    if not item:
+        return None
+    row = {"status": status, "at": time.time()}
+    if status == R_POSTED:
+        row.update({"url": url, "remote_id": remote_id, "note": note})
+    elif status == R_FAILED:
+        row.update({"error": error[:300], "retryable": bool(retryable)})
+    item.results[platform] = row
+    states = {r.get("status") for r in item.results.values()}
+    if R_POSTING in states:
+        item.status = POSTING
+    elif R_FAILED in states:
+        item.status = FAILED
+    elif states:
+        item.status = POSTED
+    else:
+        item.status = PENDING
+    _save()
+    return item
+
+
+def reset_for_retry(item_id: str, user_id: str) -> Item | None:
+    """Forget the failures, keep the successes, and make the item pending
+    again so the poster picks it up. A platform that already took the clip is
+    never posted to twice — that is what the successes are kept for."""
+    item = get(item_id, user_id)
+    if not item:
+        return None
+    item.results = {p: r for p, r in item.results.items() if r.get("status") == R_POSTED}
+    item.status = PENDING
+    _save()
+    return item
 
 
 def newly_due(now: float | None = None) -> list[Item]:

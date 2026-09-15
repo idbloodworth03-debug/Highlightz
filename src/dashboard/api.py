@@ -139,6 +139,11 @@ def _referral_paths() -> set[str]:
 # "/i/" is the invite link: a signed-out stranger clicking it is the
 # entire point, so it must never be bounced to /login first.
 _AUTH_PREFIXES = ("/auth/", "/billing/", "/i/")
+# "/media/<signed token>" is the one video door with no session behind it:
+# Instagram fetches a render from a public URL. The token is an HMAC over
+# the upload id and an expiry (src/publish/media_link.py), so the door opens
+# for one file, for an hour, to whoever holds a link nobody can forge.
+_OPEN_PREFIXES = _AUTH_PREFIXES + ("/media/",)
 _STATIC_PREFIX = "/static"
 
 def _is_api_request(request: Request) -> bool:
@@ -178,7 +183,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if (path in _OPEN_PATHS or path == "/login"
                 or path.startswith(_STATIC_PREFIX)
                 or path.rstrip("/").lower() in _referral_paths()
-                or any(path.startswith(p) for p in _AUTH_PREFIXES)):
+                or any(path.startswith(p) for p in _OPEN_PREFIXES)):
             return await call_next(request)
         if not request.session.get("auth"):
             # The root path is the public marketing landing page — let it through
@@ -1317,6 +1322,9 @@ async def delete_account(request: Request):
     removed_uploads = upload_lib.delete_all_for_user(uid)
     from src.publish import schedule as sched
     sched.delete_all_for_user(uid)
+    # And the YouTube/TikTok/Instagram tokens that let us post as them.
+    from src.publish import connections as _pub_conns
+    _pub_conns.delete_all_for_user(uid)
     # Their words go with them. A published quote from a deleted account is
     # someone's name on a marketing page with no way left to withdraw it.
     from src.feedback import reviews as _reviews
@@ -4955,10 +4963,9 @@ async def admin_stream_stats(request: Request):
 async def publish_platforms(request: Request):
     """Where a finished clip can go, and the limits it has to fit.
 
-    We do NOT post on the user's behalf — the clip goes to their machine and
-    they share it from there. That is why this endpoint returns specs rather
-    than OAuth state: there is no connection to hold, nothing to expire, and
-    none of it waits on TikTok/Meta/Google app review.
+    Specs only. Which of these the USER has connected is /publish/connections;
+    the two are separate because the limits are static config every tab
+    needs and the connections are per-account state that changes.
     """
     from src.publish import platforms as plat
     uid = _current_user_id(request)
@@ -4966,11 +4973,138 @@ async def publish_platforms(request: Request):
     return {"platforms": plat.public_specs()}
 
 
+# ── Connected posting accounts ───────────────────────────────────────────────
+#
+# Owner's decision, 2026-09-15: the Scheduler posts. A user connects YouTube,
+# TikTok or Instagram here (standard OAuth, state in the session, PKCE where
+# the platform takes it) and src/publish/poster.py uploads their clips at the
+# scheduled time. Tokens live encrypted in src/publish/connections.py and
+# never reach the browser.
+
+def _connections_payload(uid: str) -> list[dict]:
+    """One row per platform, connected or not, so the card can draw all
+    three: `configured` is whether the OPERATOR has set the app up (a blank
+    client id means the Connect button explains instead of failing)."""
+    from src.publish import connections as pub_conns, providers
+    mine = {c.platform: c for c in pub_conns.for_user(uid)}
+    rows = []
+    for p in providers.all_providers():
+        c = mine.get(p.id)
+        rows.append({"id": p.id, "label": p.label, "configured": p.configured(),
+                     "connected": c is not None, **(c.public() if c else {})})
+    return rows
+
+
+@app.get("/publish/connections")
+async def publish_connections(request: Request):
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    return {"platforms": _connections_payload(uid)}
+
+
+@app.get("/publish/connect/{platform}")
+async def publish_connect(request: Request, platform: str):
+    """Send the user to the platform's consent screen."""
+    import base64
+    import hashlib
+    from src.publish import providers
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    p = providers.get(platform)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Unknown platform")
+    if not p.configured():
+        raise HTTPException(status_code=503,
+                            detail=f"{p.label} posting is not set up on this server yet.")
+    state = secrets.token_urlsafe(24)
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    request.session["pub_oauth"] = {"state": state, "verifier": verifier, "platform": platform}
+    return RedirectResponse(p.authorization_url(state, challenge if p.uses_pkce else None))
+
+
+@app.get("/publish/connect/{platform}/callback")
+async def publish_connect_callback(request: Request, platform: str, code: str = "",
+                                   state: str = "", error: str = "",
+                                   error_description: str = ""):
+    """Back from consent. Lands on the dashboard either way, with a query
+    the Scheduler screen turns into a toast; the connection itself reaches
+    every open tab over the socket."""
+    import urllib.parse
+    from src.publish import connections as pub_conns, providers
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    pending = request.session.pop("pub_oauth", None) or {}
+
+    def bounce(msg: str):
+        return RedirectResponse("/?connect_error=" + urllib.parse.quote(f"{platform}: {msg}"))
+
+    p = providers.get(platform)
+    if p is None:
+        return bounce("unknown platform")
+    if error:
+        return bounce(error_description or error)
+    if not code or not state or state != pending.get("state") or pending.get("platform") != platform:
+        return bounce("the sign-in did not match this session. Try again.")
+    try:
+        got = await p.exchange(code, pending.get("verifier") if p.uses_pkce else None)
+    except providers.ProviderError as exc:
+        return bounce(exc.message)
+    except Exception as exc:
+        log.warning("publish_connect_failed", platform=platform, error=str(exc))
+        return bounce("could not reach the platform. Try again.")
+    pub_conns.save(pub_conns.Connection(
+        user_id=uid, platform=platform, account_id=str(got.get("account_id") or ""),
+        account_name=str(got.get("account_name") or p.label),
+        access_token=got["access_token"], refresh_token=got.get("refresh_token") or "",
+        expires_at=float(got.get("expires_at") or 0), scopes=str(got.get("scopes") or ""),
+        extra=dict(got.get("extra") or {})))
+    log.info("publish_connected", user_id=uid, platform=platform)
+    await broadcast({"event": "publish_connections_changed"}, user_id=uid)
+    return RedirectResponse("/?connected=" + platform)
+
+
+@app.delete("/publish/connections/{platform}", status_code=204)
+async def publish_disconnect(request: Request, platform: str):
+    from src.publish import connections as pub_conns, providers
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    c = pub_conns.remove(uid, platform)
+    if not c:
+        raise HTTPException(status_code=404, detail="Not connected")
+    p = providers.get(platform)
+    if p is not None:
+        await p.revoke(c)                   # best effort; the token is gone either way
+    await broadcast({"event": "publish_connections_changed"}, user_id=uid)
+    return Response(status_code=204)
+
+
+@app.get("/media/{token}")
+async def public_media(token: str):
+    """A render, for a platform that fetches. No session: see _OPEN_PREFIXES.
+    The token names one upload and expires; anything else is a 404 with no
+    hint whether the id exists."""
+    from src.publish import media_link
+    from src.uploads import library as upload_lib
+    upload_id = media_link.verify(token)
+    up = upload_lib.get_by_token_id(upload_id) if upload_id else None
+    if not up:
+        raise HTTPException(status_code=404, detail="Not found")
+    path = upload_lib.path_for(up)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    media = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}[up.kind]
+    return FileResponse(path, media_type=media,
+                        headers={"X-Content-Type-Options": "nosniff",
+                                 "Cache-Control": "private, max-age=0"})
+
+
 # ── Posting queue ─────────────────────────────────────────────────────────────
 #
-# Reminders, not automation: we hold no platform credentials, so at the due time
-# the user still taps share. Every string below has to say that — a queue that
-# looks automatic and silently isn't would cost someone a posting slot.
+# Every export lands here. Platforms the user has connected are posted to by
+# the server at the due time (src/publish/poster.py); the rest get a reminder
+# and a one-tap share. The card says which is which for every platform.
 
 @app.get("/publish/schedule")
 async def publish_schedule(request: Request):
@@ -5052,20 +5186,56 @@ async def publish_schedule_delete(request: Request, item_id: str):
     return Response(status_code=204)
 
 
-async def schedule_due_task() -> None:
-    """Tell open tabs the moment a queued post comes due.
+@app.post("/publish/schedule/{item_id}/post", status_code=202)
+async def publish_schedule_post_now(request: Request, item_id: str):
+    """Post it now, to every chosen platform that is connected and has not
+    already taken it. Also the Retry button: failed platforms are cleared
+    and tried again, posted ones are left alone. 202 — the upload runs in
+    the background and the card follows it over the socket."""
+    from src.publish import schedule as sched, poster
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    item = sched.get(item_id, uid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    if item.status == sched.POSTING:
+        raise HTTPException(status_code=409, detail="Already posting.")
+    item = sched.reset_for_retry(item_id, uid)
+    if not poster.auto_platforms(item):
+        raise HTTPException(
+            status_code=400,
+            detail="Nothing to post: connect an account and choose it on this clip first.")
+    await broadcast({"event": "schedule_updated", "item": item.public()}, user_id=uid)
+    poster.start_now(item, broadcast)
+    return {"status": "posting", "platforms": poster.auto_platforms(item)}
 
-    The list itself is the source of truth (`due` is derived from the clock on
-    every read), so this event is a nudge, not state. That is deliberate: a
-    missed broadcast — restart, dropped socket — must not be able to lose a
-    reminder, and here it cannot.
+
+async def schedule_due_task() -> None:
+    """The posting worker, and the reminder nudge, every 30 seconds.
+
+    Posting: anything due with a connected platform goes through the poster,
+    which writes each outcome to the item and broadcasts it. Reminders: an
+    item due on a platform the user has NOT connected gets the `schedule_due`
+    nudge as before. The list itself is the source of truth (`due` is
+    derived from the clock on every read), so the nudge is not state: a
+    missed broadcast — restart, dropped socket — cannot lose a reminder.
     """
-    from src.publish import schedule as sched
+    from src.publish import schedule as sched, poster, connections as pub_conns
     while True:
         try:
+            await poster.post_due(broadcast)
+        except Exception as exc:                       # never kill the loop
+            log.warning("schedule_post_task_error", error=str(exc))
+        try:
             for item in sched.newly_due():
-                await broadcast({"event": "schedule_due", "item": item.public()},
-                                user_id=item.user_id)
+                # Only nudge for platforms the server is not posting to; a
+                # "time to post" toast next to "Posting to YouTube…" reads as
+                # a contradiction.
+                manual = [p for p in item.platforms
+                          if p not in pub_conns.connected_platforms(item.user_id)]
+                if manual or not item.platforms:
+                    await broadcast({"event": "schedule_due", "item": item.public()},
+                                    user_id=item.user_id)
         except Exception as exc:                       # never kill the loop
             log.warning("schedule_due_task_error", error=str(exc))
         await asyncio.sleep(30)

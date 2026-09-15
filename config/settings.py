@@ -292,6 +292,37 @@ class Settings(BaseSettings):
     kick_client_secret: str = ""
     kick_redirect_uri: str = "https://highlightz.app/auth/kick/callback"
 
+    # ── Posting (src/publish/providers, src/publish/poster.py) ────────────
+    #
+    # Owner's decision, 2026-09-15: the Scheduler POSTS. A user connects
+    # their YouTube / TikTok / Instagram account and the server uploads the
+    # clip at the scheduled time. Each platform needs an app the OPERATOR
+    # registers once; a blank id means "not set up" and the Connect button
+    # says so instead of failing. Redirect URIs are derived from
+    # PUBLIC_BASE_URL: <base>/publish/connect/<platform>/callback — register
+    # those three exact URLs in each developer console.
+    public_base_url: str = "https://highlightz.app"
+    # Google Cloud console → OAuth client (Web application), YouTube Data API
+    # v3 enabled. Default quota is 10,000 units/day and one upload costs
+    # 1,600, so SIX uploads a day across every user until Google raises it —
+    # request the increase in the console as soon as the app has users.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # TikTok for Developers → app with Login Kit + Content Posting API. Until
+    # the app passes TikTok's audit every post is forced private
+    # (SELF_ONLY); the card says so when that happens.
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    # Meta for Developers → "Instagram API with Instagram Login". The user's
+    # Instagram must be a Professional (Business/Creator) account. Instagram
+    # does not take bytes: it fetches the render from a public URL, which is
+    # what /media/<signed token> is for.
+    instagram_app_id: str = ""
+    instagram_app_secret: str = ""
+    # How long a signed /media link stays valid. Instagram fetches within
+    # minutes of the container being created; an hour is generous.
+    publish_media_ttl_s: int = 3600
+
     # Detection
     enable_audio_detection: bool = True  # pull audio-only feed for the audio-spike signal
 

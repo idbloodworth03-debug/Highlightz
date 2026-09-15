@@ -194,6 +194,16 @@ def get(upload_id: str, user_id: str) -> Upload | None:
     return up if up and up.user_id == user_id else None
 
 
+def get_by_token_id(upload_id: str) -> Upload | None:
+    """Fetch one upload WITHOUT an owner check — for /media/<signed token>,
+    where possession of a valid signed link IS the proof (the token names
+    exactly this id and was minted by the server for this user's post).
+    Every other reader goes through get() and its ownership scope; this
+    exists so that route cannot reach into `_uploads` directly."""
+    _ensure_loaded()
+    return _uploads.get(upload_id)
+
+
 def user_bytes(user_id: str) -> int:
     return sum(u.size for u in for_user(user_id))
 

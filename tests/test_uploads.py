@@ -398,14 +398,16 @@ def test_me_reports_the_flag_so_the_dashboard_can_mirror_it(client, monkeypatch)
     assert me["plan_limits"]["uploads"] is True
 
 
-# ── the held-back tabs are admin-only ────────────────────────────────────────
+# ── the once-held-back tabs, and the gate that outlived the hold ─────────────
 #
 # Both were listed in the sidebar for every user: the Clip Editor showed an
 # under-construction screen, but the Scheduler rendered its REAL UI with only a
 # footnote that the Editor was off. Worse, UPLOADS_ENABLED was set true in
 # production, so every Pro subscriber had a fully working Editor and Scheduler.
 # Gating on the release flag was therefore not enough — one env edit re-opened
-# it. These are adminOnly now, independent of any flag.
+# it. They became adminOnly, independent of any flag, until each was released
+# on purpose (both on 2026-09-15). What survives the release is the shape: the
+# nav never gates on a release flag, and the route is normalised.
 
 def _nav_entry(tab: str) -> str:
     """The NAV entry for a tab, from the rendered dashboard."""
@@ -416,15 +418,15 @@ def _nav_entry(tab: str) -> str:
     return nav[nav.rindex("{", 0, j):nav.index("}", j) + 1]
 
 
-def test_the_scheduler_is_admin_only_and_the_editor_is_not():
-    """This used to pin BOTH tabs as adminOnly. The Clip Editor was released
-    to Pro on 2026-09-15 (owner's call) and is now gated by plan on the screen
-    and at the endpoint, the way the VOD scanner is; the Scheduler has not had
-    that decision and stays behind the admin flag."""
-    assert "adminOnly:true" in _nav_entry("Scheduler"), \
-        "the Scheduler nav entry is not adminOnly, so it renders for everyone"
-    assert "adminOnly:true" not in _nav_entry("Clip Editor"), \
-        "the Clip Editor is hidden from the Pro users it was released to"
+def test_neither_released_tab_is_admin_only():
+    """This used to pin BOTH tabs as adminOnly, then only the Scheduler. The
+    Clip Editor was released to Pro on 2026-09-15 and the Scheduler the same
+    day (owner: "I need the scheduler to be working and integrated now").
+    Both are gated by plan on the screen and at the endpoint, the way the VOD
+    scanner is — the admin flag is not the gate any more."""
+    for tab in ("Scheduler", "Clip Editor"):
+        assert "adminOnly:true" not in _nav_entry(tab), \
+            f"the {tab} is hidden from the Pro users it was released to"
 
 
 def test_the_gate_does_not_depend_on_a_release_flag():
@@ -442,9 +444,10 @@ def test_the_route_is_normalised_so_a_hidden_screen_cannot_be_rendered():
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     flat = html.replace(" ", "").replace("\n", "")
     # 'uploads' left this list on 2026-09-15 when the editor was released to
-    # Pro; a Pro user typing the route must land on the editor, not be bounced
-    # to the review queue. The Scheduler is still bounced.
-    assert "adminOnlyTabs=['schedule']" in flat
+    # Pro, and 'schedule' the same day; a Pro user typing either route must
+    # land on the screen, not be bounced to the review queue. The mechanism
+    # stays (empty) for the next held-back screen.
+    assert "adminOnlyTabs=[]" in flat
     assert "adminOnlyTabs.includes(route)&&!(me&&me.is_admin)" in flat
 
 

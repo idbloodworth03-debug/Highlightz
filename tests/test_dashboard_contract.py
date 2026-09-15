@@ -349,19 +349,24 @@ def test_the_editor_resyncs_caption_state_on_reconnect():
         "no grace window — a reconnect racing the POST would kill a live job"
 
 
-def test_the_queue_never_claims_it_will_post_for_you():
-    """The app holds no TikTok/Instagram/YouTube credentials, so the queue can
-    only remind. If the UI implies automation someone misses a posting slot
-    they were counting on — worse than not shipping the feature."""
+def test_the_queue_says_exactly_when_it_posts_and_when_it_only_reminds():
+    """Until 2026-09-15 this pinned "never posts for you": the app held no
+    platform credentials, so a queue that implied automation would cost
+    someone a posting slot. The owner reversed that ("I need the scheduler to
+    be working and integrated now") and the risk flipped with it: a queue
+    that looks MANUAL where it is not posts something the user did not
+    expect. So the strings now have to say which platforms are posted to for
+    them (connected ones) and which they still post by hand (the rest), and
+    the old promise must be gone."""
     low = SRC.lower().replace("’", "'")
-    for phrase in ("never posts for you",
-                   "never asks for your tiktok, instagram\n        or youtube login",
-                   "you post it from\n        your own account",
-                   "a reminder here is a nudge, not an upload"):
+    for phrase in ("connected accounts are posted to for you",
+                   "the rest get a reminder and one-tap share",
+                   "connect an account and highlightz posts your clips to it for you",
+                   "only the clips you choose it for, only while it is connected"):
         assert phrase in low, f"the Scheduler no longer says {phrase!r}"
-    for lie in ("we'll post it", "posts automatically", "auto-post",
-                "connect your tiktok", "link your instagram"):
-        assert lie not in low, f"UI claims {lie!r} — it cannot"
+    for gone in ("never posts for you", "a reminder here is a nudge, not an upload",
+                 "never asks for your tiktok"):
+        assert gone not in low, f"the Scheduler still claims {gone!r} — it posts now"
 
 
 def test_queue_times_cross_the_wire_as_epoch_seconds():
