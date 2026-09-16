@@ -1598,6 +1598,20 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### Live trigger-score chart smoothed (2026-09-16)
+
+Owner: "can we make this graph smoother." `RdScoreChart` now: (1) draws at
+the SVG's real pixel width via ResizeObserver — the old 600×150 viewBox
+stretched to ~1400px flattened every Catmull-Rom control point and put
+visible kinks in the line; (2) plots a fixed 40-slot window, right-aligned
+(padded with the first sample while the history fills), smoothed by a
+1-2-3-2-1 kernel; (3) eases each plotted value toward its target on
+requestAnimationFrame (0.22 per frame), so a new sample glides the line
+left instead of snapping; (4) uses a monotone cubic (`rdMonotonePath`,
+Fritsch–Carlson) that never overshoots. `rdSmoothPath` stays for anything
+else that uses it. Harness: `scratchpad/ed/chart_shot.js` feeds 40
+`score_update` events through the mocked socket and screenshots the card.
+
 ### VOD Scanner sized up (2026-09-16)
 
 Owner: "make this bigger too so its easier to read and use." `VodScreen`

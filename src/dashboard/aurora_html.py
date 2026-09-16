@@ -1963,29 +1963,106 @@ function rdSmoothPath(pts){
   return dStr;
 }
 
-function RdScoreChart({ data }) {
-  const w=600, h=150, pad=6;
-  let d = data && data.length>1 ? data : [0,0];
-  // Light 3-point moving average to soften single-sample noise before plotting.
-  if(d.length>2){
-    d = d.map((v,i)=>{
-      const a=(i>0?d[i-1]:v), c=(i<d.length-1?d[i+1]:v);
-      return (a+v+c)/3;
-    });
+/* Monotone cubic interpolation (Fritsch–Carlson). Unlike Catmull-Rom it
+   never overshoots between samples, so a score that steps up and holds draws
+   a clean shoulder rather than a bump above the value it actually reached. */
+function rdMonotonePath(pts){
+  const n = pts.length;
+  if(n<2) return '';
+  if(n===2) return 'M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1)+' L'+pts[1][0].toFixed(1)+' '+pts[1][1].toFixed(1);
+  const dx=[], dy=[], m=[];
+  for(let i=0;i<n-1;i++){ dx.push(pts[i+1][0]-pts[i][0]); dy.push(pts[i+1][1]-pts[i][1]); m.push(dx[i]?dy[i]/dx[i]:0); }
+  const t=[m[0]];
+  for(let i=1;i<n-1;i++) t.push((m[i-1]*m[i]<=0)?0:(m[i-1]+m[i])/2);
+  t.push(m[n-2]);
+  for(let i=0;i<n-1;i++){
+    if(m[i]===0){ t[i]=0; t[i+1]=0; continue; }
+    const a=t[i]/m[i], b=t[i+1]/m[i], s=a*a+b*b;
+    if(s>9){ const k=3/Math.sqrt(s); t[i]=k*a*m[i]; t[i+1]=k*b*m[i]; }
   }
-  const clamp=v=>Math.max(0,Math.min(100,v));
-  const pts = d.map((v,i)=>[pad+(i/(d.length-1))*(w-2*pad), h-pad-(clamp(v)/100)*(h-2*pad)]);
-  const line = rdSmoothPath(pts);
-  const area = line+` L ${w-pad} ${h} L ${pad} ${h} Z`;
+  let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  for(let i=0;i<n-1;i++){
+    const h=dx[i]/3;
+    d+=' C'+(pts[i][0]+h).toFixed(1)+' '+(pts[i][1]+t[i]*h).toFixed(1)
+      +' '+(pts[i+1][0]-h).toFixed(1)+' '+(pts[i+1][1]-t[i+1]*h).toFixed(1)
+      +' '+pts[i+1][0].toFixed(1)+' '+pts[i+1][1].toFixed(1);
+  }
+  return d;
+}
+
+/* The live trigger-score chart. Smoother in three ways (owner, 2026-09-16:
+   "can we make this graph smoother"):
+   1. Drawn at the SVG's real pixel width (ResizeObserver) instead of a 600px
+      viewBox stretched to the card, which flattened every curve's control
+      points and put visible kinks in the line.
+   2. A fixed 40-slot window, right-aligned, and a 5-tap kernel (1 2 3 2 1)
+      over the samples, so a one-second spike is a swell rather than a tooth
+      and the x-spacing never changes as the history fills up.
+   3. Each plotted value eases toward its target on requestAnimationFrame
+      (same idea as the score bar), so a new sample makes the line glide left
+      rather than snap. Drawn with a monotone cubic, so it never overshoots. */
+const CHART_SLOTS = 40;
+function RdScoreChart({ data }) {
+  const h=150, pad=6;
+  const svgRef = useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(()=>{
+    const el = svgRef.current; if(!el) return;
+    const measure = ()=>{ const cw = el.getBoundingClientRect().width; if(cw>0) setW(Math.round(cw)); };
+    measure();
+    if(typeof ResizeObserver==='undefined') return;
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return ()=>ro.disconnect();
+  },[]);
+
+  const clamp=v=>Math.max(0,Math.min(100,+v||0));
+  const raw = (data && data.length ? data : [0]).map(clamp).slice(-CHART_SLOTS);
+  const full = raw.length<CHART_SLOTS ? Array(CHART_SLOTS-raw.length).fill(raw[0]).concat(raw) : raw;
+  const K=[1,2,3,2,1], KS=9;
+  const target = full.map((_,i)=>{
+    let s=0; for(let k=-2;k<=2;k++){ const j=Math.max(0,Math.min(full.length-1,i+k)); s+=full[j]*K[k+2]; }
+    return s/KS;
+  });
+
+  // Eased display values: a ref for the animation, a tick to repaint.
+  const curRef = useRef(null);
+  const tgtRef = useRef(target);
+  const rafRef = useRef(null);
+  const [, setTick] = useState(0);
+  tgtRef.current = target;
+  if(curRef.current===null) curRef.current = target.slice();
+  useEffect(()=>{
+    const step = ()=>{
+      const cur = curRef.current, tgt = tgtRef.current;
+      let maxd = 0;
+      for(let i=0;i<tgt.length;i++){
+        const d = tgt[i]-(cur[i]===undefined?tgt[i]:cur[i]);
+        cur[i] = (cur[i]===undefined?tgt[i]:cur[i]) + d*0.22;
+        if(Math.abs(d)>maxd) maxd=Math.abs(d);
+      }
+      cur.length = tgt.length;
+      setTick(t=>t+1);
+      if(maxd>0.05) rafRef.current = requestAnimationFrame(step);
+      else { for(let i=0;i<tgt.length;i++) cur[i]=tgt[i]; }
+    };
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(step);
+    return ()=>cancelAnimationFrame(rafRef.current);
+  },[data]);
+
+  const vals = curRef.current;
+  const pts = vals.map((v,i)=>[pad+(i/(vals.length-1))*(w-2*pad), h-pad-(clamp(v)/100)*(h-2*pad)]);
+  const line = rdMonotonePath(pts);
+  const area = line+` L ${(w-pad).toFixed(1)} ${h} L ${pad} ${h} Z`;
   const last = pts[pts.length-1];
   return (
-    <svg className="rd-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+    <svg ref={svgRef} className="rd-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stopColor="rgba(184,106,220,.5)"/><stop offset="1" stopColor="rgba(184,106,220,0)"/>
       </linearGradient></defs>
       {[25,50,75].map(y=><line key={y} x1="0" x2={w} y1={h-(y/100)*(h-2*pad)-pad} y2={h-(y/100)*(h-2*pad)-pad} stroke="rgba(255,255,255,.05)" strokeWidth="1"/>)}
       <path d={area} fill="url(#cg)"/>
-      <path d={line} fill="none" stroke="#c489e4" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
+      <path d={line} fill="none" stroke="#c489e4" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
       <circle cx={last[0]} cy={last[1]} r="3.5" fill="#fff"/>
     </svg>
   );
