@@ -171,8 +171,10 @@ def test_the_banner_really_is_a_third_child_of_the_frame():
     assert "<header className=\"rd-header\">" in body
     assert "subscription_status==='trialing' &&" in body, \
         "the trial banner is no longer a conditional sibling"
-    assert '<main className="rd-screen">' in body
-    assert body.index("subscription_status==='trialing'") < body.index('className="rd-screen"'), \
+    # The class is an expression since the platform-switch sweep (it adds
+    # `plat-in` while the new screen settles); the element is the same.
+    assert re.search(r"<main className=\{'rd-screen'", body), "the screen element moved"
+    assert body.index("subscription_status==='trialing'") < body.index("'rd-screen'"), \
         "the banner must sit between the header and the screen"
 
 

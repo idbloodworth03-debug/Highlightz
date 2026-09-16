@@ -250,6 +250,30 @@ def test_kick_is_open_to_everyone_through_the_one_switch():
     assert "Coming soon</span>" not in h[h.index("{/* Kick row */}"):h.index("{/* Legal links */}")]
 
 
+def test_switching_platform_is_a_sweep_not_a_repaint():
+    """Owner (2026-09-16): "the only thing that changes is the color." A band
+    in the target platform's colour crosses the app with its name on it, the
+    screen swaps while covered, and the new screen settles in. Reduced motion
+    skips the sweep. The swap must land inside the covered window."""
+    import re
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    assert "const PLAT_SWEEP_MS=800;" in h
+    sw = h[h.index("const switchPlatform = p => {"):h.index("const [toast, setToast]")]
+    assert "prefers-reduced-motion: reduce" in sw and "if(reduce){ setActivePlatform(p); return; }" in sw
+    assert "setTimeout(()=>setActivePlatform(p), PLAT_SWEEP_MS*0.5)" in sw
+    assert "setTimeout(()=>setPlatFx(null), PLAT_SWEEP_MS)" in sw
+    assert "if(p===activePlatform || (platFx && platFx.to===p)) return;" in sw
+    assert "className={'plat-wipe plat-wipe-'+platFx.to}" in h
+    assert "'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')" in h
+    # Stylesheet: the band is fully across between 36% and 64% of 800ms
+    # (288ms to 512ms), which contains the 400ms swap.
+    assert "animation:plat-band 800ms ease-in-out both" in h
+    assert re.search(r"@keyframes plat-band\{0%\{[^}]*\}36%,64%\{transform:translateX\(0\)", h)
+    assert ".plat-wipe-kick .plat-wipe-band{background:linear-gradient(135deg,#53fc18" in h
+    assert ".plat-wipe-twitch .plat-wipe-band{background:linear-gradient(135deg,#9146ff" in h
+    assert "@media(prefers-reduced-motion:reduce){.plat-wipe{display:none}" in h
+
+
 def test_a_file_only_clip_plays_in_the_modal_and_links_to_kick():
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
     modal = h[h.index("function ClipModal("):h.index("function ", h.index("function ClipModal(") + 10)]

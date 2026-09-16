@@ -449,6 +449,28 @@ button{font-family:inherit;cursor:pointer}
 .plat-sw-btn{position:relative;z-index:1;flex:1;border:none;border-radius:99px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;background:transparent;transition:color var(--dur-slow) ease,transform var(--dur-fast) ease;-webkit-tap-highlight-color:transparent}
 .plat-sw-btn:active{transform:scale(.93)}
 .plat-sw-btn.sw-on-twitch{color:#fff}.plat-sw-btn.sw-on-kick{color:#0a0a0e}.plat-sw-btn.sw-off{color:var(--fg-2)}
+/* ── Platform-switch sweep ─────────────────────────────────────────────────
+   A skewed band in the target platform's colour crosses the whole app in
+   800ms (PLAT_SWEEP_MS in the script: the swap happens at 400ms, while the
+   band covers everything), with "Switching to Kick/Twitch" riding on it.
+   Then the new screen settles in. 800ms is a deliberate reveal, so it keeps
+   its own value rather than a duration token. */
+.plat-wipe{position:fixed;inset:0;z-index:900;pointer-events:none;overflow:hidden}
+.plat-wipe-band{position:absolute;top:-20%;bottom:-20%;left:-40%;right:-40%;
+  transform:translateX(-135%) skewX(-14deg);animation:plat-band 800ms ease-in-out both}
+.plat-wipe-twitch .plat-wipe-band{background:linear-gradient(135deg,#9146ff 0%,#7c6bff 100%)}
+.plat-wipe-kick .plat-wipe-band{background:linear-gradient(135deg,#53fc18 0%,#39b515 100%)}
+@keyframes plat-band{0%{transform:translateX(-135%) skewX(-14deg)}36%,64%{transform:translateX(0) skewX(-14deg)}100%{transform:translateX(135%) skewX(-14deg)}}
+.plat-wipe-word{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  animation:plat-word 800ms ease-in-out both}
+.plat-wipe-k{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;opacity:.85}
+.plat-wipe-word b{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.plat-wipe-twitch .plat-wipe-word{color:#fff}
+.plat-wipe-kick .plat-wipe-word{color:#0a0a0e}
+@keyframes plat-word{0%,22%{opacity:0;transform:translateY(16px)}34%,66%{opacity:1;transform:none}78%,100%{opacity:0;transform:translateY(-16px)}}
+.rd-screen.plat-in{animation:plat-in var(--dur-slow) var(--ease) both}
+@keyframes plat-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.plat-wipe{display:none}.rd-screen.plat-in{animation:none}}
 .rd-filters{display:flex;gap:4px;background:rgba(255,255,255,.04);padding:4px;border-radius:var(--r-pill);border:1px solid var(--hair)}
 .rd-filter{border:none;background:transparent;color:var(--fg-2);font-size:12px;font-weight:600;
   display:inline-flex;align-items:center;gap:8px;
@@ -3716,6 +3738,9 @@ const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'
 // Feedback, the platform switch and Sign out always stay live so Kick is
 // never a trap.
 const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
+// How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
+// duration in the stylesheet; the screen swaps at the halfway point.
+const PLAT_SWEEP_MS=800;
 const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
@@ -7962,9 +7987,28 @@ function RdApp() {
   const [histories, setHistories] = useState({});
   const [clips, setClips] = useState({});
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
+  // The platform switch is a moment, not a repaint (owner, 2026-09-16: "the
+  // only thing that changes is the color"). A band in the target platform's
+  // colour sweeps across the app with its name on it, the screen swaps
+  // underneath while it is covered, and the new screen settles in. State:
+  // {to, n} while the sweep runs; `n` keys the overlay so a second switch
+  // restarts it. Reduced motion skips the sweep and just swaps.
+  const [platFx, setPlatFx] = useState(null);
+  const platTimers = useRef([]);
+  useEffect(()=>()=>platTimers.current.forEach(clearTimeout),[]);
   const switchPlatform = p => {
-    setActivePlatform(p);
+    if(p===activePlatform || (platFx && platFx.to===p)) return;
     try{localStorage.setItem('hz_platform',p);}catch{}
+    const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if(reduce){ setActivePlatform(p); return; }
+    platTimers.current.forEach(clearTimeout);
+    setPlatFx({to:p, n:Date.now()});
+    // The band fully covers the screen from ~45% to ~55% of PLAT_SWEEP_MS;
+    // the swap lands in that window so the old screen is never seen changing.
+    platTimers.current = [
+      setTimeout(()=>setActivePlatform(p), PLAT_SWEEP_MS*0.5),
+      setTimeout(()=>setPlatFx(null), PLAT_SWEEP_MS),
+    ];
   };
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
@@ -8702,7 +8746,17 @@ function RdApp() {
           <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'var(--fg-2)',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
           <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
-        <main className="rd-screen">{screen}</main>
+        <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>{screen}</main>
+        {/* The platform-switch sweep. Keyed by n so a fresh switch restarts
+            the animation; pointer-events none so nothing under it is blocked
+            for longer than the band covers it. */}
+        {platFx && <div key={platFx.n} className={'plat-wipe plat-wipe-'+platFx.to} aria-hidden="true">
+          <div className="plat-wipe-band"/>
+          <div className="plat-wipe-word">
+            <span className="plat-wipe-k">Switching to</span>
+            <b>{platFx.to==='kick'?'Kick':'Twitch'}</b>
+          </div>
+        </div>}
       </div>
       {reviewAsk && <ReviewPrompt clips={reviewAsk.clips}
         onClose={()=>setReviewAsk(null)}/>}

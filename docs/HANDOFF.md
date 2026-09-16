@@ -1646,6 +1646,29 @@ log). Nothing fetches from Twitch just for this: the existing
 Autopilot's render still lands as a second, `source="render"` card. Tests:
 `tests/test_clip_auto_library.py`.
 
+### Platform-switch sweep (2026-09-16)
+
+Owner: "the transition between kick and twitch … right now the only thing
+that changes is the color." `switchPlatform` in the app now runs a sweep:
+`platFx = {to, n}` renders `.plat-wipe` (fixed, z-index 900, pointer-events
+none), whose `.plat-wipe-band` is a skewed full-bleed band in the target
+platform's gradient (Twitch `#9146ff→#7c6bff`, Kick `#53fc18→#39b515`)
+that crosses left-to-right in `PLAT_SWEEP_MS = 800` with "Switching to
+Kick/Twitch" on it. Keyframes hold the band fully across from 36% to 64%
+(288–512 ms); `setActivePlatform` fires at 50% (400 ms), so the theme and
+screen swap while covered, and `platFx` clears at 800 ms. `.rd-screen`
+gets `plat-in` once `platFx.to === activePlatform` (a `--dur-slow` fade
+and 8 px rise). Reduced motion: no sweep, immediate swap. Clicking the
+same platform, or the target of a sweep already running, is a no-op;
+timers are cleared on unmount. The animations use `ease-in-out` by
+keyword (`var(--ease)` made the entrance a flash: the band was fully
+across by 120 ms), and 800 ms is a literal because the transition-token
+test only governs `transition:` and `--dur-event` is reserved for the
+score wall. Pinned by `test_switching_platform_is_a_sweep_not_a_repaint`.
+Frames were checked by pausing `document.getAnimations()` and scrubbing
+`currentTime` (`scratchpad/ed/switch_frames.js`), because screenshot
+latency made real-time captures land ~200 ms late.
+
 ## Announcements — one message in front of every user (2026-09-15)
 
 Owner: "a way to send out notifications for all users ... pop up in front
