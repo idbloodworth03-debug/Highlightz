@@ -525,9 +525,10 @@ FAQ: tuple[tuple[str, str], ...] = (
 
     ("Are clips actually posted to my Twitch?",
      "A clip is created on Twitch, under your account, through the official API — "
-     "the same thing that happens when you press Twitch's own Clip button. It is not "
-     "posted publicly or shared anywhere by us. Approving a clip keeps it in your "
-     "library; it does not broadcast it."),
+     "the same thing that happens when you press Twitch's own Clip button. Nothing is "
+     "posted anywhere else unless you tell it to: approving a clip keeps it in your "
+     "library, and a clip only goes to another platform when you post it from the "
+     "posting queue or switch on Autopilot to post it for you."),
 
     ("Do you record my stream?",
      "Not all of it, and never a channel that has opted out. While a channel is being "
@@ -536,8 +537,9 @@ FAQ: tuple[tuple[str, str], ...] = (
      "as well as a Twitch clip. Where that recording did not catch a moment, Highlightz "
      "fetches the clip's video from Twitch instead when you ask for it, so every clip "
      "can be downloaded. Either way the file is private to the account that caught it, "
-     "is deleted with the clip, and is never kept for a channel that has opted out. The "
-     "clip itself is a real Twitch clip that Twitch makes and hosts."),
+     "is deleted with the clip, and is never kept for a channel that has opted out. On "
+     "Twitch the clip itself is also a real Twitch clip that Twitch makes and hosts; on "
+     "Kick the file is the clip."),
 
     ("Can I use this on a channel that is not mine?",
      "Yes, as long as that streamer has not opted out. A lot of people run Highlightz "

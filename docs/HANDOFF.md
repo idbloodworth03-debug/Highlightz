@@ -1881,12 +1881,37 @@ ranges clamped). Routes, all `_require_upload_access`: `GET/PUT
 has a file, not rendering/scheduled — failed ones get another go, ≤10).
 `autopilot_changed` broadcast; `/autopilot` in `refetchAll`.
 
-**Unverified on prod:** that the droplet's ffmpeg has `drawtext` (needs
-libfreetype) and that `/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`
-exists. Check: `ffmpeg -hide_banner -filters | grep drawtext; ls
-/usr/share/fonts/truetype/dejavu/`. The render itself is the same ffmpeg
-the capture cut uses. 18 tests in `tests/test_autopilot.py` build the
-command rather than run it (no ffmpeg in the dev container).
+**Verified on prod (2026-09-16):** the droplet's ffmpeg has `drawtext` and
+`/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf` exists. The render
+itself is the same ffmpeg the capture cut uses. 18 tests in
+`tests/test_autopilot.py` build the command rather than run it (no ffmpeg
+in the dev container). An end-to-end render on prod is still untested.
+
+## Public copy matches the product again (2026-09-16)
+
+Owner: "Online it still picks up that we create native twitch clips we
+need to change that to be accurate to how everything is working now."
+Every public surface used to describe the 2026-07 model — "a native Twitch
+clip, nothing re-uploaded, nothing re-encoded, no video file" — which
+stopped being true once uploads, the editor, the Scheduler and Autopilot
+shipped. What the copy says now, and where:
+
+- **Twitch:** a real Twitch clip under your account through the official
+  API, AND the video file, which the editor, Scheduler and Autopilot use.
+  Files live on the storage timer (`RETENTION_DAYS`), same as before.
+- **Kick:** the file IS the clip (no clip API); admin-only beta, so the
+  landing page still does not sell it. `platform_url` is the clip's link.
+- **Vertical reframe + captions, auto-posting:** the compare page rows
+  (`compare_content.py`) flipped to True for Highlightz; a watermark note
+  says exports carry none.
+- **Legal:** ToS §1/§5 and the data sentence, Privacy uses + 6a, the
+  opt-out page, `llms.txt` / `llms-full`, landing hero line and alt texts,
+  FAQ "What does Highlightz actually do?" / "Do you record or store my
+  stream?", compare FAQ "Do you re-upload or re-host my video?", tutorial
+  "Are clips actually posted to my Twitch?" / "Do you record my stream?".
+- **Still secret:** HOW a highlight is found is not on any of these pages
+  (`test_public_exposure.py`); the tutorial page must not name the
+  Scheduler / editor (`test_tutorial.py`), so it says "the posting queue".
 
 ## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
 

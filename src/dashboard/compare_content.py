@@ -197,11 +197,13 @@ FEATURES = (
      "Opus meters credits by the minute of source video. Eklipse caps "
      "highlights per stream and hours processed per day. We cap neither."),
 
-    ("Clip stays a native Twitch clip",
+    ("A real Twitch clip and the video file",
      True, False, False,
-     "The clip is a normal Twitch clip, made through Twitch's own API and "
-     "hosted by Twitch. Nothing is re-uploaded and nothing is re-encoded, so "
-     "there is no watermark to remove and no quality lost on the way in."),
+     "Every moment becomes a normal Twitch clip through Twitch's own API, "
+     "under your account, and Highlightz also keeps the video itself, recorded "
+     "from the live broadcast at source quality. The clip is on Twitch and the "
+     "file is yours to download, edit and post. On Kick, where there is no clip "
+     "API, the file is the clip."),
 
     ("Shows you why each clip fired",
      True, False, False,
@@ -215,8 +217,9 @@ FEATURES = (
 
     ("Clips are not on a storage timer",
      True, "3-29 days", "14-90 days",
-     "A native Twitch clip is permanent and lives on Twitch. Their exports sit "
-     "in their storage for a window that depends on your tier."),
+     "The Twitch clip is permanent and lives on Twitch; the working file we "
+     "keep is a 30-day copy you can re-make from it. Their exports sit in "
+     "their storage for a window that depends on your tier."),
 
     ("The subscription is the whole price",
      True, True, False,
@@ -224,13 +227,16 @@ FEATURES = (
      "to auto-clip premium titles, and $18.99 per human edit."),
 
     ("Vertical reframing and auto-captions",
-     False, True, True,
-     "Theirs, not ours. If your workflow is 'make it a TikTok automatically', "
-     "that is what they are built for."),
+     True, True, True,
+     "All three. Ours is the Clip Editor: five vertical templates, transitions, "
+     "a title and burned-in captions, rendered frame by frame in the browser "
+     "from the clip Highlightz already caught."),
 
     ("Auto-posts to TikTok, Shorts and Reels",
-     False, True, True,
-     "Also theirs. We hand you the clip; posting is yours."),
+     True, True, True,
+     "All three. Ours is the Scheduler: connect YouTube, TikTok or Instagram "
+     "and it posts at the time you set; Autopilot cuts and queues every clip "
+     "you approve by itself."),
 
     ("Works on any uploaded video, not just live streams",
      "VOD only", True, True,
@@ -239,10 +245,10 @@ FEATURES = (
 
     ("Unwatermarked on the free plan",
      True, False, False,
-     "Not generosity on our part — a mechanical consequence of the model. Our "
-     "clips ARE Twitch clips, made through Twitch's own API, so there is no "
-     "file of ours to stamp a logo onto. Their free tiers render video, which "
-     "is where a watermark can live and does."),
+     "Not generosity on our part. The clip is a Twitch clip made through "
+     "Twitch's own API and the file we keep is the broadcast as sent, so there "
+     "is nothing of ours in the picture to stamp a logo onto, on any plan. "
+     "Their free tiers render video, which is where a watermark can live and does."),
 )
 
 # ── after the subscription: the credits ──────────────────────────────────────
@@ -367,17 +373,18 @@ FAQ = (
      "Highlightz there is no meter: the plan buys channels, and a channel is "
      "watched for every second it is live."),
     ("Can I use Highlightz alongside them?",
-     "Plenty of people should. We catch the moment live and hand you a Twitch "
-     "clip; if you then want it reframed and captioned for TikTok, that is "
-     "exactly what those tools are good at. The two jobs do not overlap much."),
+     "You can, and fewer people need to than a year ago. We catch the moment "
+     "live, keep the file, reframe it for vertical in the Clip Editor and post "
+     "it from the Scheduler. Where they still win is general video: a podcast "
+     "export or a long upload is their job, not ours."),
     ("Do you re-upload or re-host my video?",
-     "No. Clips stay native Twitch clips, hosted by Twitch, and nothing is "
-     "re-uploaded anywhere public or re-encoded &mdash; so there is no "
-     "watermark and no quality loss. Nothing is ever downloaded out of Twitch "
-     "either. While a channel is monitored we do hold a few minutes of the "
-     "live broadcast in a rolling buffer that keeps overwriting itself, so a "
-     "moment can be saved as a file for the account that caught it; that file "
-     "is private to that account and is deleted with the clip. The "
+     "Not publicly, ever. The Twitch clip stays a Twitch clip. The file we keep "
+     "is private to the account that caught it and is deleted with the clip; "
+     "it is re-encoded only when you edit it, and uploaded only to the "
+     "accounts you connect, when you or Autopilot post it. While a channel is "
+     "monitored we hold a few minutes of the live broadcast in a rolling buffer "
+     "that keeps overwriting itself; where that missed a moment, the clip's "
+     "video is fetched from Twitch when you ask. The "
      "<a href=\"/privacy\">Privacy Policy</a> has the detail."),
     ("Where do these competitor prices come from?",
      "Each product's own public pricing page, linked next to its prices, with "
