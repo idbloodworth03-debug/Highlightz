@@ -179,6 +179,14 @@ class TriggerEngine:
 
         # Use profile's adaptive threshold if available
         threshold = self.profile.trigger_threshold if self.profile else rules.trigger_threshold
+        # The user's sensitivity dial (profile.sensitivity, -3..+3; Settings
+        # tab). Each step moves the bar 8%: +3 fires at 76% of the learned
+        # threshold, -3 at 124%. 0, the default and the value every existing
+        # profile loads with, leaves the threshold exactly as it was.
+        sens = int(getattr(self.profile, "sensitivity", 0) or 0) if self.profile else 0
+        sens = max(-3, min(3, sens))
+        if sens:
+            threshold = threshold * (1.0 - 0.08 * sens)
 
         in_cooldown = now - self._last_trigger < rules.cooldown_seconds
 

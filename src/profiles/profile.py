@@ -109,6 +109,11 @@ class StreamerProfile:
     # Starts at global default; nudges down when clips get approved,
     # nudges up when clips get rejected (stays in [_THRESHOLD_FLOOR, _THRESHOLD_CEIL]).
     trigger_threshold: float = 60.0
+    # The user's sensitivity dial for this channel (Settings tab, 2026-09-16):
+    # -3..+3, 0 = the learned threshold as is. Applied at fire time in
+    # trigger/engine.py as a multiplier on the threshold, so it never touches
+    # the learned value itself and 0 changes nothing on a healthy stream.
+    sensitivity: int = 0
     # Wall-clock of the last decay tick. Decay is a function of ELAPSED TIME,
     # not of monitoring uptime — see decay_elapsed. 0.0 = never decayed.
     last_decay_ts: float = 0.0

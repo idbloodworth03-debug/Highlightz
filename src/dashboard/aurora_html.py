@@ -295,6 +295,25 @@ button{font-family:inherit;cursor:pointer}
 .rd-select{background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
   color:var(--fg);font-size:12px;padding:0 8px;outline:none;cursor:pointer}
 .rd-select option{background:#15151c}
+/* Settings tab (2026-09-16): one row per monitored channel with its preset
+   and sensitivity dial, and a collapsible reference card. */
+.rd-chan-row{display:grid;grid-template-columns:minmax(120px,1fr) 160px minmax(200px,1.4fr);gap:16px;align-items:center;
+  padding:12px 0;border-top:1px solid var(--hair)}
+.rd-chan-row:first-of-type{border-top:0}
+.rd-chan-name{min-width:0;display:flex;flex-direction:column;gap:4px}
+.rd-chan-name b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd-chan-name span{font-size:12px;color:var(--fg-3)}
+.rd-chan-ctl{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rd-chan-ctl>span{font-size:12px;color:var(--fg-3)}
+.rd-chan-ctl .rd-select{width:100%}
+.rd-chan-sens input[type=range]{width:100%;margin:8px 0 0;accent-color:var(--acc)}
+.rd-chan-ends{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-3)}
+.rd-chan-ends i{font-style:normal}
+@media(max-width:760px){.rd-chan-row{grid-template-columns:1fr;gap:8px}}
+.rd-details summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px}
+.rd-details summary::-webkit-details-marker{display:none}
+.rd-details summary::after{content:'›';margin-left:auto;color:var(--fg-3);font-size:17px;transition:transform var(--dur-fast)}
+.rd-details[open] summary::after{transform:rotate(90deg)}
 .rd-btn{border:none;border-radius:var(--r-md);padding:12px 16px;font-size:12px;font-weight:600;
   display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:var(--dur-fast);white-space:nowrap}
@@ -2655,6 +2674,11 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   // as the API is. Kick needs nothing beyond the account.
   const needsTwitch = activePlatform === 'twitch' && !!(me && me.platforms && me.platforms.kick && !me.platforms.twitch && !me.is_admin);
   const [preset, setPreset] = useState('default');
+  // Settings → "Preset for new channels": the box starts on it, and follows
+  // a change made in Settings until the user picks one here themselves.
+  const presetTouched = useRef(false);
+  const defaultPreset = me && me.prefs && me.prefs.default_preset;
+  useEffect(()=>{ if(defaultPreset && !presetTouched.current) setPreset(defaultPreset); },[defaultPreset]);
   // Streamer suggestions: zero state = recently monitored + popular-now;
   // typing = partial-name search (debounced). Per platform: Helix on
   // Twitch, Kick's search + live list on Kick (same row shapes).
@@ -2817,7 +2841,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                 </div>
               )}
             </div>
-            <select className="rd-select" value={preset} onChange={e=>setPreset(e.target.value)}>
+            <select className="rd-select" value={preset} onChange={e=>{ presetTouched.current = true; setPreset(e.target.value); }}>
               <option value="default">Default</option>
               <option value="small">Small streamer</option>
               <option value="fps">FPS</option>
@@ -3538,7 +3562,63 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
   );
 }
 
-function SettingsScreen({ streams }) {
+// Settings: things you CHANGE (owner, 2026-09-16: "this settings tab basically
+// does nothing"). Per-channel preset + sensitivity (PATCH /streams/{channel}),
+// account preferences (PUT /prefs), browser notifications, and the preset
+// descriptions folded away as reference. State is the App's: streams,
+// profiles and me.prefs all arrive over the socket and refetchAll, so a
+// change made in another tab shows up here without a reload.
+function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
+  const prefs = (me && me.prefs) || {};
+  const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
+  const [err, setErr] = useState('');
+  const platName = activePlatform === 'kick' ? 'Kick' : 'Twitch';
+  const rows = Object.values(streams).filter(s => (s.platform || 'twitch') === activePlatform)
+    .sort((a, b) => String(a.channel).localeCompare(String(b.channel)));
+
+  const patchStream = async (channel, body) => {
+    setSaving(p => ({...p, [channel]: true})); setErr('');
+    try {
+      const r = await fetch('/streams/' + encodeURIComponent(channel), {method: 'PATCH',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (!r.ok) { let d = 'Could not save'; try { d = (await r.json()).detail || d; } catch {} setErr(d); }
+    } catch { setErr('Could not reach the server'); }
+    finally { setSaving(p => { const n = {...p}; delete n[channel]; return n; }); }
+  };
+  const putPref = async (patch) => {
+    const k = Object.keys(patch)[0];
+    setSaving(p => ({...p, [k]: true})); setErr('');
+    try {
+      const r = await fetch('/prefs', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(patch)});
+      if (!r.ok) setErr('Could not save that setting');
+    } catch { setErr('Could not reach the server'); }
+    finally { setSaving(p => { const n = {...p}; delete n[k]; return n; }); }
+  };
+
+  // Browser notifications need permission, which only a click can ask for.
+  const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'));
+  const toggleNotify = async () => {
+    if (prefs.notify_clips) { putPref({notify_clips: false}); return; }
+    if (typeof Notification === 'undefined') return;
+    let perm = Notification.permission;
+    if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { perm = 'denied'; } }
+    setNotifPerm(perm);
+    if (perm === 'granted') putPref({notify_clips: true});
+  };
+
+  const SENS_LABEL = {'-3': 'Far fewer clips', '-2': 'Fewer clips', '-1': 'A little fewer', '0': 'As learned',
+                      '1': 'A little more', '2': 'More clips', '3': 'Far more clips'};
+  const Toggle = ({k, label, sub, on, onClick}) => (
+    <div className="rd-field" style={{alignItems: 'center'}}>
+      <div style={{flex: 1, minWidth: 0}}>
+        <div className="fl">{label}</div>
+        {sub && <div style={{fontSize: 12, color: 'var(--fg-3)', marginTop: 4}}>{sub}</div>}
+      </div>
+      <button className={'rd-btn sm' + (on ? ' grad' : '')} disabled={!!saving[k]} onClick={onClick}
+        role="switch" aria-checked={!!on} style={{minWidth: 64}}>{on ? 'On' : 'Off'}</button>
+    </div>
+  );
+
   const PRESETS=[
     {name:'default',  emoji:'', desc:'General-purpose baseline. Good starting point for any stream type.'},
     {name:'small',    emoji:'', desc:'Small / growing streamers (<1k viewers). Lower thresholds catch moments that the default preset misses.'},
@@ -3550,14 +3630,85 @@ function SettingsScreen({ streams }) {
     {name:'variety',  emoji:'', desc:'Just Chatting, reaction and variety content. Balanced settings with broad hype-word detection.'},
     {name:'sports',   emoji:'', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
   ];
-  const streamsArr = Object.values(streams);
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
+        {err && <div className="ed-warn">{err}</div>}
+
+        {/* ── Your channels: the preset and the sensitivity dial, per channel. */}
         <div className="rd-card glass">
-          <h3><span className="si"><Icon name="film" size={15}/></span>Content presets</h3>
-          <div className="desc">Select when adding a stream to tune signal sensitivity.</div>
-          <div className="rd-preset-grid">
+          <h3><span className="si"><Icon name="radio" size={15}/></span>Your {platName} channels</h3>
+          <div className="desc">Each channel learns its own bar. The preset sets the rules it starts from; the dial moves the bar up or down from what it has learned.</div>
+          {rows.length === 0
+            ? <div className="rd-grid-empty" style={{padding: '24px 0'}}>
+                <div>No {platName} channels yet. Add one on the Live Streams tab and tune it here.</div>
+              </div>
+            : rows.map(s => {
+                const prof = profiles[s.channel] || {};
+                const sens = Number(prof.sensitivity || 0);
+                const busy = !!saving[s.channel];
+                return (
+                  <div key={s.channel} className="rd-chan-row">
+                    <div className="rd-chan-name">
+                      <b>{s.channel}</b>
+                      <span>{s.status || 'starting'}{prof.trigger_threshold ? ' · bar ' + Math.round(prof.trigger_threshold) : ''}</span>
+                    </div>
+                    <label className="rd-chan-ctl">
+                      <span>Preset</span>
+                      <select className="rd-select" value={s.preset || 'default'} disabled={busy}
+                        onChange={e => patchStream(s.channel, {preset: e.target.value})}>
+                        {PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="rd-chan-ctl rd-chan-sens">
+                      <span>Sensitivity · {SENS_LABEL[String(sens)] || 'As learned'}</span>
+                      <input type="range" min="-3" max="3" step="1" value={sens} disabled={busy}
+                        onChange={e => patchStream(s.channel, {sensitivity: +e.target.value})}
+                        aria-label={'Sensitivity for ' + s.channel}/>
+                      <div className="rd-chan-ends"><i>Fewer clips</i><i>More clips</i></div>
+                    </label>
+                  </div>
+                );
+              })}
+        </div>
+
+        {/* ── Defaults and behaviour: account-wide switches. */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="cog" size={15}/></span>Defaults</h3>
+          <div className="desc">How new channels start and where clips go.</div>
+          <div className="rd-field" style={{alignItems: 'center'}}>
+            <div style={{flex: 1, minWidth: 0}}>
+              <div className="fl">Preset for new channels</div>
+              <div style={{fontSize: 12, color: 'var(--fg-3)', marginTop: 4}}>What the add-channel box starts on. You can still pick another each time.</div>
+            </div>
+            <select className="rd-select" value={prefs.default_preset || 'default'} disabled={!!saving.default_preset}
+              onChange={e => putPref({default_preset: e.target.value})}>
+              {PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+            </select>
+          </div>
+          <Toggle k="auto_editor" label="Send approved clips to the Clip Editor"
+            sub="Approving a clip also puts its file in the editor library. Off means the Edit button on the card is the only way in."
+            on={prefs.auto_editor !== false} onClick={() => putPref({auto_editor: prefs.auto_editor === false})}/>
+          <Toggle k="reduce_motion" label="Reduce motion"
+            sub="Skip the platform-switch sweep and the wake-up animation when a channel is added."
+            on={!!prefs.reduce_motion} onClick={() => putPref({reduce_motion: !prefs.reduce_motion})}/>
+        </div>
+
+        {/* ── Notifications: a browser notification when a clip lands. */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="zap" size={15}/></span>Notifications</h3>
+          <div className="desc">A desktop notification the moment a clip lands in your review queue, from any tab where Highlightz is open in the background.</div>
+          <Toggle k="notify_clips" label="Notify me when a clip fires"
+            sub={notifPerm === 'unsupported' ? 'This browser has no notifications.'
+               : notifPerm === 'denied' ? 'Blocked in this browser. Allow notifications for this site to turn it on.'
+               : 'Only while this tab is open somewhere; nothing is sent by email.'}
+            on={!!prefs.notify_clips && notifPerm === 'granted'} onClick={toggleNotify}/>
+        </div>
+
+        {/* ── The preset descriptions, as reference, folded away. */}
+        <details className="rd-card glass rd-details">
+          <summary><h3 style={{margin: 0}}><span className="si"><Icon name="film" size={15}/></span>What each preset does</h3></summary>
+          <div className="rd-preset-grid" style={{marginTop: 12}}>
             {PRESETS.map(p=><div className="rd-preset" key={p.name}>
               <div className="pn">
                 <span>{p.name}</span>
@@ -3566,7 +3717,7 @@ function SettingsScreen({ streams }) {
               <div className="pr" style={{marginTop:8}}><span style={{color:'var(--fg-2)',fontSize:12,lineHeight:1.5}}>{p.desc}</span></div>
             </div>)}
           </div>
-        </div>
+        </details>
       </div>
     </div>
   );
@@ -3772,7 +3923,7 @@ const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','set
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','How each preset tunes what counts as a highlight'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -7916,11 +8067,11 @@ function FirstRun({ onAdd }) {
    It is tabular and min-width:3ch so the box cannot resize as digits land —
    a counter that reflows its own container is the jitter this project already
    fixed once on the landing page. */
-function WakeSequence({ channel, platform = 'twitch', score, onDone }) {
+function WakeSequence({ channel, platform = 'twitch', score, onDone, reduceMotion = false }) {
   const [beat, setBeat] = useState(0);
   const [n, setN] = useState(0);
-  const reduced = typeof matchMedia === 'function' &&
-    matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduced = reduceMotion || (typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches);
   // Plays on EVERY channel added (owner, 2026-09-15: "pop up every time …
   // a person can just skip it by clicking"), so it has to get out of the way
   // on demand: a click anywhere, Escape or Enter ends it. `finished` makes
@@ -8065,10 +8216,14 @@ function RdApp() {
   const [platFx, setPlatFx] = useState(null);
   const platTimers = useRef([]);
   useEffect(()=>()=>platTimers.current.forEach(clearTimeout),[]);
+  // The Settings tab's preferences, readable from socket handlers and event
+  // callbacks without a stale closure. Kept in step with `me` below.
+  const prefsRef = useRef({});
   const switchPlatform = p => {
     if(p===activePlatform || (platFx && platFx.to===p)) return;
     try{localStorage.setItem('hz_platform',p);}catch{}
-    const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+                   || !!prefsRef.current.reduce_motion;
     if(reduce){ setActivePlatform(p); return; }
     platTimers.current.forEach(clearTimeout);
     setPlatFx({to:p, n:Date.now()});
@@ -8082,6 +8237,7 @@ function RdApp() {
   const [toast, setToast] = useState('');
   const [modalClip, setModalClip] = useState(null);
   const [me, setMe] = useState({username:'', avatar_url:''});
+  useEffect(()=>{ prefsRef.current = (me && me.prefs) || {}; },[me]);
   // Publishing targets + their limits, from the server so the editor's
   // fit-check and src/publish/platforms.py can never disagree.
   const [platforms, setPlatforms] = useState([]);
@@ -8313,6 +8469,17 @@ function RdApp() {
         // missed. The toast is the only notice a user watching another screen
         // gets, so it says which of the two just happened.
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));
+          // Settings → "Notify me when a clip fires": a desktop notification
+          // only when this tab is in the background (a visible tab already
+          // shows the card), and only with permission already granted.
+          try{
+            if(prefsRef.current.notify_clips && document.hidden && typeof Notification!=='undefined' && Notification.permission==='granted'){
+              const c = msg.clip||{};
+              const n = new Notification('Clip caught on '+(c.channel||'your channel'), {
+                body: c.clip_title || c.stream_title || 'Waiting in your review queue', tag: 'hz-clip-'+c.id, silent: true });
+              n.onclick = ()=>{ window.focus(); setRoute('review'); n.close(); };
+            }
+          }catch{}
           flash(msg.clip.suggested
             ? 'Highlight from '+msg.clip.channel
             : 'New clip from '+msg.clip.channel);}
@@ -8474,6 +8641,10 @@ function RdApp() {
         }
         else if(msg.event==='autopilot_changed'){
           setAutopilot(a=>({...(a||{}), config: msg.config}));
+        }
+        else if(msg.event==='prefs_changed'){
+          // Settings saved in any tab: the full prefs ride on the event.
+          setMe(m=>({...(m||{}), prefs: msg.prefs||{}}));
         }
         else if(msg.event==='identity_linked'){
           // A Twitch or Kick identity was attached to this account in another
@@ -8766,7 +8937,7 @@ function RdApp() {
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
   else if(view==='account') screen=<AccountScreen me={me}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
-  else screen=<SettingsScreen {...{streams}}/>;
+  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>;
 
   // FIRST RUN. Rendered INSTEAD of the shell, not inside it: a nav rail, a
   // platform switch and a live pill are answers to questions somebody with no
@@ -8855,7 +9026,7 @@ function RdApp() {
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
-      {wake && <WakeSequence channel={wake.channel} platform={wake.platform}
+      {wake && <WakeSequence channel={wake.channel} platform={wake.platform} reduceMotion={!!(me&&me.prefs&&me.prefs.reduce_motion)}
         score={(scores[wake.channel]||{}).score||0}
         onDone={()=>{ setWake(null); flash('Monitoring '+wake.channel); }}/>}
     </div>

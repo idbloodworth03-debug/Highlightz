@@ -1371,6 +1371,8 @@ async def me(request: Request):
                                 "kick": bool(user.get("kick_id"))},
         # Whether the Kick sign-in button exists at all on this server.
         "kick_signin":         bool(settings.kick_client_id and settings.kick_client_secret),
+        # The Settings tab's preferences, always complete (defaults filled).
+        "prefs":               user_store.prefs_for(uid) if uid else dict(user_store.PREF_DEFAULTS),
     }
 
 
@@ -3240,6 +3242,11 @@ async def library_copy_if_approved(clip_id: str) -> None:
     uid = clip.get("user_id") or ""
     if not uid or not _can_use_editor(uid):
         return
+    # The Settings tab's "Send approved clips to the Clip Editor" switch
+    # (on by default). Off = the Edit button on the card is the only way in.
+    from src.auth import users as _users
+    if not _users.prefs_for(uid)["auto_editor"]:
+        return
     existing_id = clip.get("editor_upload_id")
     if existing_id and upload_lib.get(existing_id, uid):
         return
@@ -4064,6 +4071,89 @@ async def add_stream(request: Request, req: StreamRequest):
     if _publish_new_stream:
         await _publish_new_stream(req.channel, req.platform, preset, uid)
     return record
+
+
+class StreamPatch(BaseModel):
+    preset:      str | None = None
+    sensitivity: int | None = Field(default=None, ge=-3, le=3)
+
+
+@app.patch("/streams/{channel}")
+async def patch_stream(request: Request, channel: str, req: StreamPatch):
+    """Tune a monitored channel from the Settings tab (owner, 2026-09-16:
+    "this settings tab basically does nothing"). Two knobs:
+
+    - preset: rewrites the stream record and the channel's profile, then
+      restarts the worker so the new rules apply now rather than on the next
+      add. The learned threshold and weights are kept; only the rule set
+      changes.
+    - sensitivity: -3..+3 on the channel's profile. Read at fire time in
+      trigger/engine.py as a multiplier on the threshold; 0 is exactly the
+      old behaviour.
+    Both broadcast, scoped to the user, so every open tab follows."""
+    from src.auth import users as user_store
+    from src.profiles.manager import get_profile_manager
+    uid        = _current_user_id(request)
+    channel    = _clean_channel(channel)
+    stream_key = f"{uid}:{channel}"
+    if req.preset is not None and req.preset not in user_store.PRESET_NAMES:
+        raise HTTPException(status_code=400, detail="Unknown preset")
+    async with _data_lock:
+        rec = _streams.get(stream_key)
+        if not rec:
+            raise HTTPException(status_code=404, detail="Stream not found")
+        platform = rec.get("platform", "twitch")
+        preset_changed = req.preset is not None and req.preset != rec.get("preset")
+        if preset_changed:
+            rec["preset"] = req.preset
+            _save_streams()
+        rec = dict(rec)
+    pm = get_profile_manager(uid)
+    profile = await pm.load(channel, platform)
+    touched = False
+    if req.sensitivity is not None and int(req.sensitivity) != int(getattr(profile, "sensitivity", 0)):
+        profile.sensitivity = int(req.sensitivity)
+        touched = True
+    if preset_changed:
+        profile.preset = req.preset
+        touched = True
+    if touched:
+        await pm.save(profile)
+        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+    if preset_changed:
+        await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
+        # New rules need a new worker; the record survives the restart.
+        if _publish_remove_stream:
+            await _publish_remove_stream(channel, uid)
+        if _publish_new_stream:
+            await _publish_new_stream(channel, platform, req.preset, uid)
+        log.info("stream_preset_changed", user_id=uid, channel=channel, preset=req.preset)
+    if req.sensitivity is not None:
+        log.info("stream_sensitivity_set", user_id=uid, channel=channel, sensitivity=req.sensitivity)
+    return {"stream": rec, "profile": profile.to_dict()}
+
+
+@app.get("/prefs")
+async def get_prefs(request: Request):
+    from src.auth import users as user_store
+    return user_store.prefs_for(_current_user_id(request))
+
+
+@app.put("/prefs")
+async def put_prefs(request: Request):
+    """Partial update; unknown keys are dropped, values normalised. The full
+    prefs come back and go out to every open tab as prefs_changed."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    try:
+        patch = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    if not isinstance(patch, dict):
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    prefs = user_store.set_prefs(uid, patch)
+    await broadcast({"event": "prefs_changed", "prefs": prefs}, user_id=uid)
+    return prefs
 
 
 @app.delete("/streams/{channel}", status_code=204)

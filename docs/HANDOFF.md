@@ -1598,6 +1598,39 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+## Settings tab does things (2026-09-16)
+
+Owner: "This settings tab basically does nothing." It was a read-only grid
+of preset descriptions. Now (`SettingsScreen`, fed `streams, profiles, me,
+activePlatform` from the App so it follows the socket and `refetchAll`):
+
+- **Your channels** (active platform): one row per monitored channel with a
+  **preset** select and a **sensitivity dial** (−3…+3). `PATCH
+  /streams/{channel}` `{preset?, sensitivity?}`: sensitivity is written to
+  the channel's profile (`StreamerProfile.sensitivity`, new field, default
+  0, older files load as 0) and broadcast as `profile_updated`; a preset
+  change rewrites the stream record + `profile.preset`, broadcasts
+  `stream_updated`, and restarts the worker (`_publish_remove_stream` then
+  `_publish_new_stream`) so the new rules apply now. **Trigger code:**
+  `trigger/engine.py` reads the dial at fire time and multiplies the
+  threshold by `1 − 0.08·s` (+3 → 76%, −3 → 124%); at 0 the multiplier is
+  skipped, so a healthy stream is untouched (`test_settings_tab.py`). The
+  learned `trigger_threshold` itself is never modified by the dial. This is
+  the "sensitivity dial" the landing FAQ has promised since July.
+- **Defaults** (`users.prefs_for / set_prefs / normalize_prefs`,
+  `PREF_DEFAULTS`, `GET/PUT /prefs`, `prefs` on `/me`, `prefs_changed`
+  broadcast): `default_preset` (the add-channel box starts on it until the
+  user picks one), `auto_editor` (the approval → editor copy; default on;
+  `library_copy_if_approved` returns early when off), `reduce_motion`
+  (skips the platform sweep and the wake animation via `prefsRef` /
+  `reduceMotion` prop), `notify_clips`.
+- **Notifications:** `notify_clips` + `Notification.permission` — the
+  `clip_ready` socket handler posts a desktop notification only when the
+  tab is hidden; clicking it focuses the tab on Clip Review. The Settings
+  toggle asks for permission on click and reports blocked/unsupported.
+- The preset descriptions stay as a collapsed reference card.
+  Subtitle: "Tune each channel, set your defaults, turn on notifications".
+
 ### In-app Tutorial sized up (2026-09-16)
 
 Owner: "make the tutorial bigger on this page in the dashboard." CSS only,

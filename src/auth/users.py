@@ -461,6 +461,50 @@ def set_autopilot(user_id: str, cfg: dict) -> dict:
     return clean
 
 
+# ── Preferences (Settings tab, 2026-09-16) ───────────────────────────────────
+# Small, explicit, defaulted: every key has a value even for an account that
+# never opened Settings, so callers read prefs_for(uid)["x"] without guards.
+PRESET_NAMES = ("default", "small", "fps", "moba", "chess", "casino", "irl", "variety", "sports")
+PREF_DEFAULTS = {
+    "default_preset": "default",   # preset the add-channel box starts on
+    "auto_editor":    True,        # approved clips copy into the Clip Editor
+    "notify_clips":   False,       # browser notification when a clip lands
+    "reduce_motion":  False,       # skip the sweep and the wake animation
+}
+
+
+def normalize_prefs(raw: dict | None) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(PREF_DEFAULTS)
+    dp = str(raw.get("default_preset", out["default_preset"]) or "").lower()
+    out["default_preset"] = dp if dp in PRESET_NAMES else "default"
+    for k in ("auto_editor", "notify_clips", "reduce_motion"):
+        if k in raw:
+            out[k] = bool(raw[k])
+    return out
+
+
+def prefs_for(user_id: str) -> dict:
+    u = get_by_id(user_id) or {}
+    return normalize_prefs(u.get("prefs"))
+
+
+def set_prefs(user_id: str, patch: dict) -> dict:
+    """Merge a partial update into the stored prefs. Unknown keys are dropped
+    by normalize_prefs; the result is the full, normalised prefs."""
+    users = _load()
+    clean = None
+    for u in users:
+        if u["id"] == user_id:
+            merged = dict(u.get("prefs") or {})
+            merged.update(patch if isinstance(patch, dict) else {})
+            clean = normalize_prefs(merged)
+            u["prefs"] = clean
+            _save(users)
+            break
+    return clean if clean is not None else normalize_prefs(patch)
+
+
 def refusal_dismissed_at(user: dict, channel: str, scope: str = "user") -> float:
     """When this person last closed the notice for `channel`, or 0."""
     key = _REFUSAL_SCOPES.get(scope)
