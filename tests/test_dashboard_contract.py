@@ -743,8 +743,8 @@ def test_the_editor_is_solid_so_the_page_does_not_bleed_through_on_a_phone():
 
 def test_the_editor_side_panel_is_tabbed_and_the_export_is_pinned():
     ed = _editor()
-    assert "['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text']" in ed
-    assert "if (captionsOn) TABS.push(['captions', 'Captions']);" in ed, \
+    assert "['trim', 'Shape & length'], ['frame', 'Framing'], ['text', 'Title style']" in ed
+    assert "if (captionsOn) TABS.push(['captions', 'Caption style']);" in ed, \
         "the captions tab must follow the release flag like the old panel did"
     assert 'className="ed-foot"' in ed and 'className="rd-btn grad ed-export"' in ed
     css = SRC[SRC.index(".ed-foot{"):SRC.index(".ed-foot{") + 300]
@@ -1066,6 +1066,36 @@ def test_templates_carry_effects_and_the_setters_accept_them():
     for kind in re.findall(r"sfx(?:In|Out): '(\w+)'", tpl):
         assert f"['{kind}', " in SRC[SRC.index("const SFX_KINDS"):SRC.index("const _NOISE")], \
             f"a template names sound '{kind}', which the menu does not offer"
+
+
+def test_the_editor_side_panel_is_style_title_captions_then_more_options():
+    """Owner (2026-09-16): "still a little too confusing, make it even
+    simpler." The three things a user does are always in view: pick a style,
+    type a title, add captions. Shape, framing, effects and caption style sit
+    behind one "More options" button that starts closed. The accordion keeps
+    its sections (and its tests) underneath."""
+    ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
+    side = ed[ed.index('<div className="ed-side">'):ed.index('<div className="ed-foot">')]
+    assert "const [showMore, setShowMore] = useState(false);" in ed, "More options is not closed by default"
+    # Order: style cards, Title box, Captions box, More options, then the accordion.
+    i_style = side.index('className="ed-tpl-row"')
+    i_title = side.index('<div className="ed-sec-t">Title</div>')
+    i_caps = side.index('<div className="ed-sec-t">Captions</div>')
+    i_more = side.index('<span className="ed-sec-l">More options</span>')
+    i_panel = side.index('{showMore && <div className="ed-panel" role="tablist">')
+    assert i_style < i_title < i_caps < i_more < i_panel, "the side panel order changed"
+    # The title is typed in the quick box (the one textarea) and the accordion's
+    # Title style section only styles it.
+    assert side.count('<textarea className="ed-in"') == 1, "the title is typed in two places"
+    assert side.index('<textarea className="ed-in"') < i_more
+    # Captions are generated from the quick box; the accordion styles them.
+    quick_caps = side[i_caps:i_more]
+    assert "onClick={makeCaptions}" in quick_caps and "setCapOn(v=>!v)" in quick_caps
+    acc_caps = side[side.index("{k==='captions' && captionsOn"):]
+    assert "makeCaptions" not in acc_caps and "setCapOn" not in acc_caps
+    assert "setCapPos(" in acc_caps and "setCapHi(" in acc_caps
+    # No numbered steps left over from the previous layout.
+    assert "Pick a style" not in side and "<b>2</b>" not in side
 
 
 def test_the_effects_tab_exists_and_exposes_every_knob():

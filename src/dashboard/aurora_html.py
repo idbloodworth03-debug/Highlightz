@@ -1002,7 +1002,19 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tpl-ic.hook b{left:3px;right:3px;top:4px;height:6px;background:#fff}
 /* The adjust sections: one open at a time, each header carrying its current
    setting so the whole state reads at a glance without opening anything. */
-.ed-panel{flex:1;overflow-y:auto;padding:8px 16px 16px;display:flex;flex-direction:column;gap:8px;min-height:0}
+/* The side column scrolls as one: style cards, the Title and Captions
+   boxes, then "More options" and (when open) the accordion under it. */
+.ed-side{overflow-y:auto}
+.ed-quick{padding:16px 16px 0;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.ed-seg-sm button{padding:8px 8px;font-size:12px;min-width:48px;text-transform:capitalize}
+.ed-wide{flex:1;justify-content:center;display:inline-flex;align-items:center}
+.ed-more{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;margin:16px 16px 0;padding:12px 16px;
+  border:1px solid var(--hair);border-radius:12px;background:rgba(255,255,255,.03);cursor:pointer;flex-shrink:0}
+.ed-more:hover{background:rgba(255,255,255,.05)}
+.ed-more.open{border-color:rgba(196,137,228,.4)}
+.ed-more.open .ed-sec-c{transform:rotate(90deg)}
+.ed-more:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ed-panel{padding:8px 16px 16px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .ed-sec{border:1px solid var(--hair);border-radius:12px;background:rgba(255,255,255,.03);overflow:hidden;flex-shrink:0}
 .ed-sec.open{border-color:rgba(196,137,228,.4);background:rgba(255,255,255,.04)}
 .ed-sec-h{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;
@@ -5075,7 +5087,7 @@ const TEMPLATES = [
            capPos: 'bottom', capHi: true, capUpper: true, capWord: true, capSize: 0.07,
            transIn: 'zoom', transOut: 'none', textAnim: true, sfxIn: 'hit', sfxOut: 'none' } },
   { id: 'hook', name: 'Hook Title',
-    desc: 'A bold line at the top for the first three seconds of attention, captions below. Type the hook in the Text tab.',
+    desc: 'A bold line at the top for the first three seconds of attention, captions below. Type the hook in the Title box.',
     tab: 'text',
     set: { ratio: '9:16', layout: 'single', fill: 'crop', zoom: 1, offX: 0, offY: 0,
            capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055,
@@ -5603,6 +5615,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [err, setErr]       = useState('');
   const [done, setDone]     = useState('');
   const [tab, setTab]       = useState('trim');
+  // "More options" is closed until asked for: style, title and captions are
+  // the whole editor for most clips.
+  const [showMore, setShowMore] = useState(false);
   const [thumbs, setThumbs] = useState(() => new Array(THUMB_N).fill(''));
   const [hint, setHint]     = useState(true);
 
@@ -6251,8 +6266,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const framed = zoom !== 1 || offX !== 0 || offY !== 0;
   const shape = RATIOS.find(r => r[0] === ratio) || RATIOS[0];
 
-  const TABS = [['trim', 'Trim'], ['frame', 'Frame'], ['text', 'Text'], ['fx', 'Effects']];
-  if (captionsOn) TABS.push(['captions', 'Captions']);
+  const TABS = [['trim', 'Shape & length'], ['frame', 'Framing'], ['text', 'Title style'], ['fx', 'Effects']];
+  if (captionsOn) TABS.push(['captions', 'Caption style']);
 
   return (
     <div className="ed-bg" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -6307,12 +6322,12 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           </div>
 
           <div className="ed-side">
-            {/* ── 1. Style: five big cards. One press sets everything; the
-                   sections below are for tweaking, and each says its current
-                   setting on its header so nothing has to be opened to be
-                   understood. */}
+            {/* Three things a user does, in the order they do them, always in
+                view: pick a style, type a title, add captions. Everything
+                else is behind "More options" (owner, 2026-09-16: "still a
+                little too confusing, make it even simpler"). */}
             <div className="ed-tpls">
-              <div className="ed-sec-t"><b>1</b> Pick a style</div>
+              <div className="ed-sec-t">Style</div>
               <div className="ed-tpl-row">
                 {TEMPLATES.map(t => (
                   <button key={t.id} className={'ed-tpl' + (tpl === t.id ? ' on' : '')} disabled={busy}
@@ -6325,12 +6340,52 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
             </div>
 
-            {/* ── 2. Adjust: one section open at a time. `tab` is the open
-                   section (a template opens the one it cares about). TABS is
-                   the section list; captions join it only when the feature
-                   is on. */}
-            <div className="ed-sec-t"><b>2</b> Adjust</div>
-            <div className="ed-panel" role="tablist">
+            <div className="ed-quick">
+              <div className="ed-sec-t">Title</div>
+              <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
+                placeholder={tpl==='hook' ? 'Your hook, e.g. HE ACTUALLY DID IT' : 'Optional. Shows on the clip.'} maxLength={120}
+                onChange={e=>setText(e.target.value)}/>
+              {text && <div className="ed-seg ed-seg-sm">
+                {['top','middle','bottom'].map(p=>(
+                  <button key={p} className={textPos===p?'on':''} disabled={busy}
+                    onClick={()=>setTP(p)}>{p}</button>
+                ))}
+              </div>}
+            </div>
+
+            {captionsOn && <div className="ed-quick">
+              <div className="ed-sec-t">Captions</div>
+              {!caps && !capJob &&
+                <button className="rd-btn sm ed-wide" onClick={makeCaptions} disabled={busy}>
+                  <Icon name="sparkles" size={13}/>&nbsp;Add captions
+                </button>}
+              {capJob && <>
+                <div className="ed-prog"><i style={{transform:'scaleX(' + ((capJob.pct||0)/100) + ')'}}/></div>
+                <div className="ed-note">Listening to the clip… {capJob.pct||0}%</div>
+              </>}
+              {caps && !capJob &&
+                <div className="ed-row">
+                  <button className={'rd-btn sm ed-wide'+(capOn?' grad':'')} disabled={busy}
+                    onClick={()=>setCapOn(v=>!v)}>
+                    {caps.length ? (capOn ? 'Captions on · ' + caps.length + ' lines' : 'Captions off') : 'No speech found'}
+                  </button>
+                  <button className="rd-btn sm" onClick={makeCaptions} disabled={busy} title="Listen again">↻</button>
+                </div>}
+              {capErr && <div className="ed-warn">{capErr}</div>}
+            </div>}
+
+            {/* ── More options: the accordion, one section open at a time.
+                   `tab` is the open section (a template opens the one it
+                   cares about, so expanding this lands on it). TABS is the
+                   section list; caption style joins it only when the
+                   feature is on. */}
+            <button className={'ed-more' + (showMore ? ' open' : '')} onClick={()=>setShowMore(v=>!v)}
+              aria-expanded={showMore}>
+              <span className="ed-sec-l">More options</span>
+              <span className="ed-sec-s">{showMore ? '' : 'shape, framing, effects' + (captionsOn ? ', caption style' : '')}</span>
+              <span className="ed-sec-c" aria-hidden="true">›</span>
+            </button>
+            {showMore && <div className="ed-panel" role="tablist">
               {TABS.map(([k,l])=>{
                 const open = tab === k;
                 const sums = {
@@ -6422,15 +6477,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               </>}
 
               {k==='text' && <div className="ed-grp">
-                <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
-                  placeholder={tpl==='hook' ? 'Your hook, e.g. HE ACTUALLY DID IT' : 'Title on the clip (optional)'} maxLength={120}
-                  onChange={e=>setText(e.target.value)}/>
-                <div className="ed-seg">
-                  {['top','middle','bottom'].map(p=>(
-                    <button key={p} className={textPos===p?'on':''} disabled={busy}
-                      onClick={()=>setTP(p)}>{p}</button>
-                  ))}
-                </div>
+                {!text && <div className="ed-note">Type the title in the Title box above; this is how it looks.</div>}
                 <div className="ed-row">
                   <span className="ed-num" style={{textAlign:'left',minWidth:32}}>Size</span>
                   <input type="range" min="0.04" max="0.14" step="0.005" value={textSize} disabled={busy}
@@ -6485,28 +6532,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               </div>}
 
               {k==='captions' && captionsOn && <div className="ed-grp">
-                {!caps && !capJob &&
-                  <button className="rd-btn grad sm" onClick={makeCaptions} disabled={busy}>
-                    <Icon name="sparkles" size={13}/>&nbsp;Generate captions
-                  </button>}
-                {capJob &&
-                  <>
-                    <div className="ed-prog"><i style={{transform:'scaleX(' + ((capJob.pct||0)/100) + ')'}}/></div>
-                    <div className="ed-note">Transcribing on the server… {capJob.pct||0}%</div>
-                  </>}
+                {!caps && <div className="ed-note">Press Add captions above first; the style lives here.</div>}
                 {caps && !capJob && <>
-                  <div className="ed-row">
-                    <button className={'rd-btn sm'+(capOn?' grad':'')} disabled={busy}
-                      onClick={()=>setCapOn(v=>!v)} style={{flex:1}}>
-                      {capOn ? 'Captions on' : 'Captions off'}
-                    </button>
-                    <button className="rd-btn sm" onClick={makeCaptions} disabled={busy}
-                      title="Transcribe again">↻</button>
-                  </div>
-                  <div className="ed-note">
-                    {caps.length ? caps.length + ' lines · burned into the export'
-                                 : 'No speech detected in this clip.'}
-                  </div>
                   <div className="ed-seg">
                     {[['top','Top'],['middle','Middle'],['bottom','Bottom'],['low','Low']].map(([kk,l2])=>(
                       <button key={kk} className={capPos===kk?'on':''} disabled={busy}
@@ -6544,7 +6571,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   </div>
                 );
               })}
-            </div>
+            </div>}
 
           </div>
         </div>

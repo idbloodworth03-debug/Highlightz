@@ -1598,6 +1598,26 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### Editor side panel: Style, Title, Captions, More options (2026-09-16)
+
+Owner, after the audit: "still a little too confusing, make it even
+simpler." The side column of `ClipEditor` is now, top to bottom: **Style**
+(the five cards, no step numbers), a **Title** box (the one textarea,
+`textRef`; top/middle/bottom chips appear once there is text), a
+**Captions** box (`Add captions` → progress → `Captions on · N lines` /
+off toggle and a re-listen button; only when `captionsOn`), then one
+**More options** button (`showMore`, closed by default) that reveals the
+accordion: Shape & length, Framing, Title style (size + rise), Effects,
+Caption style. The Text and Captions accordion sections lost their
+inputs/buttons and keep only styling; `TABS` labels changed. The column
+scrolls as a whole (`.ed-side{overflow-y:auto}`; `.ed-panel` no longer
+flex:1). `applyTemplate` still calls `setTab(t.tab)`, so expanding More
+lands on the section the template cares about, and the hook template
+still focuses the Title box. Pinned by
+`test_the_editor_side_panel_is_style_title_captions_then_more_options`;
+the harness (`editor_audit.js`) re-ran clean on every style, ratio, fill
+and an export.
+
 ### Editor audit: black stage and white dropdowns (2026-09-16)
 
 Owner: "A ton of the features in the editor are bugged out. The formats are
