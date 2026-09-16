@@ -6913,8 +6913,8 @@ comparison — is at https://highlightz.app/llms-full.txt.
 
 ## What it does
 
-- Monitors live Twitch channels continuously and clips automatically, with no
-  one watching the stream. Add a channel before it goes live and it is
+- Monitors live Twitch and Kick channels continuously and clips automatically,
+  with no one watching the stream. Add a channel before it goes live and it is
   rechecked every 30 seconds; monitoring stops after 8 hours without the
   dashboard being opened.
 - Scores each second from seven live signals ({sig}) against that channel's
@@ -7034,7 +7034,7 @@ async def llms_full_txt():
     out = []
     w = out.append
     w("# Highlightz — the full public copy\n")
-    w("> Automatic Twitch clipping. Highlightz watches a live channel, scores every "
+    w("> Automatic Twitch and Kick clipping. Highlightz watches a live channel, scores every "
       "second from seven live signals against that channel's own threshold, and when "
       "the score crosses it creates a real Twitch clip through the official Clips API "
       "and keeps the video file. Every clip lands in a review queue first. Twitch makes "
@@ -7383,8 +7383,8 @@ LANDING_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Highlightz — Automatic Twitch Clipper | Monitor Up To 10 Channels At Once</title>
-<meta name="description" content="Highlightz watches every channel you clip for — up to 10 at once — and creates the Twitch clip the moment something pops. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
+<title>Highlightz — Automatic Twitch &amp; Kick Clipper | Monitor Up To 10 Channels At Once</title>
+<meta name="description" content="Highlightz watches every Twitch and Kick channel you clip for — up to 10 at once — and catches the clip the moment something pops, then reframes it for vertical and posts it for you. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
@@ -7395,7 +7395,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again, on 10 streams at once">
-<meta property="og:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
+<meta property="og:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, no time limit.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
@@ -7406,7 +7406,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:image:alt" content="The Highlightz logo: a magenta-to-violet H with a play mark, and the Highlightz wordmark, on black.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch clipping across every channel you watch — a transparent formula, not AI. Free to start — no card, no time limit.">
+<meta name="twitter:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, no time limit.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v6.png">
 <meta name="twitter:image:alt" content="The Highlightz logo: a magenta-to-violet H with a play mark, and the Highlightz wordmark, on black.">
 <link rel="alternate" type="text/markdown" href="https://highlightz.app/llms.txt" title="Highlightz for language models">
@@ -8482,7 +8482,7 @@ LANDING_HTML = """<!DOCTYPE html>
     }
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch clipping: Highlightz watches your live stream and creates Twitch clips of the best moments automatically using a transparent scoring formula \u2014 not AI.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Twitch clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch and Kick clipping: Highlightz watches live streams, catches the best moments with a transparent scoring formula \u2014 not AI \u2014 as a real Twitch clip plus the video file, then reframes them for vertical and posts them to YouTube, TikTok and Instagram.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
@@ -10039,8 +10039,10 @@ def _org_schema() -> str:
             "@id": SITE_ORIGIN + "/#website",
             "url": SITE_ORIGIN + "/",
             "name": "Highlightz",
-            "description": "Automatic Twitch clipping across every channel you "
-                           "watch, using a transparent scoring formula.",
+            "description": "Automatic Twitch and Kick clipping across every "
+                           "channel you watch, using a transparent scoring "
+                           "formula, with a vertical clip editor and "
+                           "auto-posting built in.",
             "inLanguage": "en",
             "publisher": {"@id": SITE_ORIGIN + "/#organization"}}
     blob = json.dumps({"@context": "https://schema.org",

@@ -1960,6 +1960,14 @@ shipped. What the copy says now, and where:
 - **Still secret:** HOW a highlight is found is not on any of these pages
   (`test_public_exposure.py`); the tutorial page must not name the
   Scheduler / editor (`test_tutorial.py`), so it says "the posting queue".
+- **"It still says we are only Twitch" (owner, later the same day):** an
+  AI summary of the site cited the page `<title>` ("Automatic Twitch
+  Clipper"). The title, meta description, og/twitter descriptions, both
+  JSON-LD descriptions (SoftwareApplication in `LANDING_HTML`, WebSite in
+  `_org_schema`), the llms-full lead and the llms.txt "Monitors…" bullet
+  now say "Twitch and Kick" and mention the vertical editor and
+  auto-posting. Kick is still a closed beta in the product; llms.txt's
+  Notes say so. Sign-in copy stays Twitch (it is).
 
 ## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
 
