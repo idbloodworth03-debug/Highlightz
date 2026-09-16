@@ -1617,6 +1617,17 @@ Close to the bar / Over the bar · bar 68"; "Learning this channel" until
 a threshold exists). Height 150 → 180. `chart_shot.js` feeds the trace at
 one sample per second so the marker lands where it would in production.
 
+**Prod regression, same day ("You broke it"):** the chart card collapsed
+to a ~35px sliver with the number clipped. Cause: `.rd-chart-card` got
+`overflow:hidden` (to clip the pulse ring), and `.rd-detail` is a flex
+COLUMN with a fixed height — a flex item with non-visible overflow loses
+its automatic `min-height`, so once the column was over-full the card was
+squeezed by `flex-shrink`. The harness had too little content under the
+chart to over-fill the column. Fix: `flex-shrink:0` on `.rd-chart-card`.
+`chart_shot.js` now measures the card at a 620px-tall window: 269px
+fixed, 34px with the bug re-injected. Rule for this column: any card that
+sets `overflow` must also set `flex-shrink:0`.
+
 ### Live trigger-score chart smoothed (2026-09-16)
 
 Owner: "can we make this graph smoother." `RdScoreChart` now: (1) draws at

@@ -791,7 +791,11 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-chart-t.clip{fill:var(--fg);opacity:.9;font-weight:700;font-size:12px}
 .rd-chart-pulse{transform-box:fill-box;transform-origin:center;animation:rd-pulse 1800ms ease-out infinite}
 @keyframes rd-pulse{0%{transform:scale(1);opacity:.9}100%{transform:scale(3.2);opacity:0}}
-.rd-chart-card{position:relative;overflow:hidden}
+/* flex-shrink:0 is load-bearing: .rd-detail is a flex column with a fixed
+   height, and a flex item with overflow:hidden loses its automatic minimum
+   height, so an over-full column squeezed this card to a sliver (prod,
+   2026-09-16, "You broke it"). overflow:hidden only clips the pulse ring. */
+.rd-chart-card{position:relative;overflow:hidden;flex-shrink:0}
 .rd-chart-head>div{display:flex;flex-direction:column;gap:4px}
 .rd-chart-state{font-size:12px;color:var(--fg-3)}
 .rd-chart-state.hot{color:#ffb347;font-weight:700}
