@@ -1625,6 +1625,27 @@ now checks the grid's Edit button and forbids `rd-picks`;
 in the Playwright harness (`scratchpad/ed/lib_shot.js`: desktop, phone,
 empty, walkthrough open).
 
+### Approved clips populate the editor on their own (2026-09-16)
+
+Owner: "make it so auto accepted clips populate in the editor." Approving a
+clip now copies its file into the Clip Editor library without the Edit
+click. `api.library_copy_if_approved(clip_id)` runs detached from
+`approve_clip` (via `runner.kick`, so the click returns at once) and is
+awaited first thing in `on_clip_file_ready`, which covers a clip approved
+before its capture or Twitch fetch landed. The copy code is shared with the
+Edit button (`_copy_clip_into_library`): `save_stream` with
+`source="clip"`, the `editor_upload_id` link-back under `_data_lock`, and
+the `upload_added` + `clip_updated` broadcasts, so the library card appears
+live and the card's Edit reuses the copy.
+
+Quiet, never raises, on: plan without the editor or `UPLOADS_ENABLED` off
+(`_can_use_editor`), clip not approved, no file yet, already linked to a
+living upload, library cap (`UploadError` → `clip_auto_library_skipped`
+log). Nothing fetches from Twitch just for this: the existing
+`_fetch_when_capture_misses` policy brings the file and re-enters the hook.
+Autopilot's render still lands as a second, `source="render"` card. Tests:
+`tests/test_clip_auto_library.py`.
+
 ## Announcements — one message in front of every user (2026-09-15)
 
 Owner: "a way to send out notifications for all users ... pop up in front

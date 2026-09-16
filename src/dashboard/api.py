@@ -2830,8 +2830,10 @@ async def _fetch_and_announce(clip_id: str, uid: str, slug: str) -> None:
 async def on_clip_file_ready(clip_id: str) -> None:
     """Every path that makes a clip's file exist ends here: the capture cut
     (stream_worker), the Twitch fetch (above) and the on-demand fetch. An
-    approved clip whose file arrived after the approval is Autopilot's cue."""
+    approved clip whose file arrived after the approval is Autopilot's cue,
+    and the moment it can populate the Clip Editor."""
     from src.autopilot import runner as _autopilot
+    await library_copy_if_approved(clip_id)
     try:
         await _autopilot.maybe_run_by_id(clip_id)
     except Exception as exc:                      # never let a hook break the caller
@@ -3046,6 +3048,26 @@ async def send_clip_to_editor(request: Request, clip_id: str):
                         user_id=uid)
         await on_clip_file_ready(clip_id)
 
+    try:
+        up = await _copy_clip_into_library(clip, uid, path)
+    except upload_lib.UploadError as exc:
+        # The library's 400 is worded for somebody who picked a file off their
+        # desktop. Here the file is ours, so a rejection means our capture is
+        # bad — telling this user to "upload an MP4" blames them for it.
+        detail = ("That capture didn't finish cleanly, so it can't be edited. "
+                  "Download it and check the file."
+                  if exc.status == 400 else exc.message)
+        raise HTTPException(status_code=exc.status, detail=detail)
+    return up.public()
+
+
+async def _copy_clip_into_library(clip: dict, uid: str, path) -> "object":
+    """The copy itself, shared by the Edit button and the approval hook:
+    stream the captured file through `save_stream`, link the upload to the
+    clip, and tell every open tab. Raises `upload_lib.UploadError` when a cap
+    refuses it; callers decide whether that is an HTTP error or a log line."""
+    from src.uploads import library as upload_lib
+    clip_id = clip["id"]
     raw = f"{clip.get('channel', 'clip')} - {clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
 
     async def _chunks():
@@ -3056,17 +3078,7 @@ async def send_clip_to_editor(request: Request, clip_id: str):
                     break
                 yield chunk
 
-    try:
-        up = await upload_lib.save_stream(uid, f"{raw}.mp4", _chunks(),
-                                          source="clip")
-    except upload_lib.UploadError as exc:
-        # The library's 400 is worded for somebody who picked a file off their
-        # desktop. Here the file is ours, so a rejection means our capture is
-        # bad — telling this user to "upload an MP4" blames them for it.
-        detail = ("That capture didn't finish cleanly, so it can't be edited. "
-                  "Download it and check the file."
-                  if exc.status == 400 else exc.message)
-        raise HTTPException(status_code=exc.status, detail=detail)
+    up = await upload_lib.save_stream(uid, f"{raw}.mp4", _chunks(), source="clip")
 
     linked = None
     async with _data_lock:
@@ -3080,18 +3092,61 @@ async def send_clip_to_editor(request: Request, clip_id: str):
             _save_clips()
             linked = live
 
-    payload = up.public()
     # Realtime contract, both halves. The library gains a card (the same event
     # the upload path emits, so the existing handler covers it), and the clip's
     # own record is refreshed in every open tab.
-    await broadcast({"event": "upload_added", "upload": payload,
+    await broadcast({"event": "upload_added", "upload": up.public(),
                      "quota": upload_lib.quota(uid)}, user_id=uid)
     if linked is not None:
         await broadcast({"event": "clip_updated", "clip": _clip_out(linked)},
                         user_id=uid)
     log.info("clip_sent_to_editor", user_id=uid, clip_id=clip_id,
              upload_id=up.id, size=up.size)
-    return payload
+    return up
+
+
+def _can_use_editor(uid: str) -> bool:
+    """`_require_upload_access` as a question rather than an HTTP error."""
+    try:
+        _require_upload_access(uid)
+    except HTTPException:
+        return False
+    return True
+
+
+async def library_copy_if_approved(clip_id: str) -> None:
+    """Approved clips populate the Clip Editor on their own (owner,
+    2026-09-16: "make it so auto accepted clips populate in the editor").
+
+    Runs from two places, so it is idempotent: the approve endpoint, and the
+    file-arrived hook for a clip approved before its capture or fetch landed.
+    Quiet — never raises — on every reason not to: the user cannot use the
+    editor (plan or release flag), the clip is not approved, it has no file
+    yet (the fetch fallback will bring one and re-enter here), it is already
+    in the library, or the library is full. The Edit button on the clip's
+    card still works in every one of those cases and says why when it can't.
+    """
+    from src.uploads import library as upload_lib
+    from src.clips import files as clip_files
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("status") != "approved":
+        return
+    uid = clip.get("user_id") or ""
+    if not uid or not _can_use_editor(uid):
+        return
+    existing_id = clip.get("editor_upload_id")
+    if existing_id and upload_lib.get(existing_id, uid):
+        return
+    path = clip_files.path_for(clip_id)
+    if not path or not path.is_file():
+        return
+    try:
+        await _copy_clip_into_library(clip, uid, path)
+    except upload_lib.UploadError as exc:
+        log.info("clip_auto_library_skipped", user_id=uid, clip_id=clip_id,
+                 status=exc.status, reason=exc.message)
+    except Exception as exc:                      # a hook must never break its caller
+        log.warning("clip_auto_library_failed", clip_id=clip_id, error=str(exc))
 
 
 # MUST STAY ABOVE @app.get("/clips/{clip_id}") — FastAPI resolves in
@@ -3228,9 +3283,11 @@ async def approve_clip(request: Request, clip_id: str):
         await pm.save(profile)
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     await _maybe_prompt_review(uid)
-    # Autopilot (src/autopilot): an approval is the trigger. Detached — a
-    # render takes seconds to minutes and the approve click must return now.
+    # Two detached follow-ups, so the approve click returns now: the clip's
+    # file is copied into the Clip Editor library (seconds for a big capture),
+    # and Autopilot (src/autopilot) renders and schedules it when switched on.
     from src.autopilot import runner as _autopilot
+    _autopilot.kick(library_copy_if_approved(clip_id))
     _autopilot.kick(_autopilot.maybe_run(clip))
     return _clip_out(clip)
 
