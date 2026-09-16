@@ -971,10 +971,24 @@ def _paint():
 
 def test_transitions_are_functions_of_the_cut_and_disabled_without_one():
     p = _paint()
-    assert "const tin  = (o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;" in p
-    assert "const tout = (o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;" in p
+    assert "const tin  = (!o.settled && o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;" in p
+    assert "const tout = (!o.settled && o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;" in p
     for eff in ("o.transIn === 'zoom'", "o.transIn  === 'fade'", "o.transOut === 'fade'"):
         assert eff in p, f"{eff} is not implemented"
+
+
+def test_the_paused_preview_is_drawn_settled_so_a_fade_in_is_not_a_black_stage():
+    """Owner (2026-09-16): "the formats are just making the screen black with
+    some clips." Full Frame and Blur Bars fade in from black; the paused
+    editor sits at the in-point, where that fade is 100% black and the title
+    is still below the frame. The preview loop paints a paused frame with
+    `settled`, which paintFrame reads as "no transition here"; playback and
+    export (`live`) still paint every transition. Measured in the harness:
+    mean luma 0 -> 83 on Full Frame after this."""
+    src = SRC[SRC.index("const draw = () => {"):SRC.index("const onMeta = () => {")]
+    assert "const o = { ...L.opts(), settled: !live };" in src
+    assert "const live = L.playing || L.busy || !v.paused;" in src
+    assert src.index("const live = ") < src.index("settled: !live")
 
 
 def test_the_fade_is_painted_last_over_captions_and_title():

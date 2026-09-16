@@ -1598,6 +1598,37 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### Editor audit: black stage and white dropdowns (2026-09-16)
+
+Owner: "A ton of the features in the editor are bugged out. The formats are
+just making the screen black with some clips. The drop downs are white and
+you cant read the words. Check for all the problems." Audited in the
+browser harness (`scratchpad/ed/editor_audit.js`: opens a landscape and a
+portrait WebM, clicks every style, ratio and fill, plays, types a title,
+exports, and measures the preview canvas's mean luma so "black" is a
+number). Findings, both reproduced then fixed:
+
+1. **Black stage = the fade-in at the in-point.** Full Frame and Blur Bars
+   carry `transIn: 'fade'`; a paused editor sits at t = inPt, where the
+   fade is 100% black (luma 0 on both clips) and the title's rise has it
+   below the frame. Nothing was wrong with the picture. Fix: the preview
+   loop passes `settled: !live` and `paintFrame` treats `settled` as "no
+   cut here" (`tin`/`tout` = Infinity), so a paused frame shows the
+   picture as it will look once the transition is over. Playback and
+   export (`live`) still paint every transition. After: luma 83 / 71 on
+   Full Frame / Blur Bars. Pinned by
+   `test_the_paused_preview_is_drawn_settled_so_a_fade_in_is_not_a_black_stage`.
+2. **White dropdowns = the OS popup on a light-scheme page.** `select.ed-in`
+   (sound in/out, Autopilot spacing) had light text and options with a
+   transparent background, so Windows/Chrome drew a white list with
+   near-white words. Fix: `select.ed-in, select.rd-select {color-scheme:
+   dark}` and `option {background:#15151c; color:var(--fg)}`.
+
+Checked clean in the same run: all five styles, 9:16 / 1:1 / 16:9, blur
+and crop fills, playback, the title, and an export that renders (WebCodecs
+in headless Chromium). No page errors. Not checkable here: captions (server
+Whisper) and sound effects (AudioContext output).
+
 ### Editor library screen facelift (2026-09-16)
 
 Owner: "still way too cluttered. I dont want the tut on the top I want it

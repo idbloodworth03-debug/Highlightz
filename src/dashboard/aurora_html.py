@@ -1025,6 +1025,13 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-in{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--hair);border-radius:12px;
   padding:12px 12px;color:var(--fg);font-size:14px;font-family:inherit}
 .ed-in:focus{outline:none;border-color:var(--acc-2)}
+/* A native <select> paints its popup with the OS scheme: on a light-scheme
+   page that is a white list, and .ed-in's light text on it was unreadable
+   (owner, 2026-09-16: "the drop downs are white and you cant read the
+   words"). Tell the browser the control is dark and give every option the
+   dashboard's own surface and ink. */
+select.ed-in,select.rd-select{color-scheme:dark}
+.ed-in option,.rd-select option{background:#15151c;color:var(--fg)}
 .ed-seg{display:flex;gap:4px;flex-wrap:wrap}
 .ed-seg button{flex:1;min-width:64px;padding:12px 8px;border-radius:12px;font-size:14px;font-weight:700;
   background:rgba(255,255,255,.05);border:1px solid var(--hair);color:var(--fg-3);cursor:pointer;transition:var(--dur-fast)}
@@ -5270,9 +5277,15 @@ function paintFrame(ctx, video, o) {
 
   // Time from the cut's start and to its end. Both are Infinity when the
   // caller gave no cut, which disables every transition below without a
-  // special case anywhere.
-  const tin  = (o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;
-  const tout = (o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;
+  // special case anywhere. `o.settled` (the PAUSED preview) forces the same:
+  // a paused editor sits at the in-point, and a template whose transIn is a
+  // fade is 100% black there, its title still below the frame — so picking
+  // Full Frame or Blur Bars showed a black stage until play was pressed
+  // (owner, 2026-09-16: "the formats are just making the screen black").
+  // Paused = show the picture as it will look once the transition is over;
+  // playback and export still run every transition.
+  const tin  = (!o.settled && o.inPt  != null && o.t != null) ? (o.t - o.inPt)  : Infinity;
+  const tout = (!o.settled && o.outPt != null && o.t != null) ? (o.outPt - o.t) : Infinity;
   // Zoom punch: the whole picture settles from 1.12x to 1x over TRANS_DUR.
   // A transform around the video block, so every layout gets it the same way.
   const punch = (o.transIn === 'zoom' && tin < TRANS_DUR) ? 1 + 0.12 * (1 - ease(tin / TRANS_DUR)) : 1;
@@ -5796,8 +5809,11 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         // paint every tick so captureStream has a fresh frame to record.
         if (dirtyRef.current || live) {
           if (v.readyState >= 2) {
-            const o = L.opts();
-            paintFrame(c.getContext('2d'), v, c.width === o.w && c.height === o.h ? o : { ...o, w: c.width, h: c.height });
+            // A paused preview is drawn settled (no fade, no title rise): see
+            // paintFrame. Playback and export paint the transitions.
+            const o = { ...L.opts(), settled: !live };
+            if (c.width !== o.w || c.height !== o.h) { o.w = c.width; o.h = c.height; }
+            paintFrame(c.getContext('2d'), v, o);
           }
           dirtyRef.current = false;
         }
