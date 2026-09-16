@@ -1970,6 +1970,19 @@ shipped. What the copy says now, and where:
   now say "Twitch and Kick" and mention the vertical editor and
   auto-posting. Kick opened to everyone the same day; llms.txt's Notes
   say "open on every plan". Sign-in copy stays Twitch (it is).
+- **Kick on the landing page (owner, same day: "market kick on the landing
+  page"):** the proof note reads "one channel, Twitch or Kick"; the watch
+  section's sub says "Twitch and Kick, in the same dashboard" and gains a
+  two-tile `.plats` row (`#platforms`: Twitch = real clip via the official
+  Twitch API plus the file, Highlight clips too; Kick = no clip API, the
+  file is cut from the live broadcast, same signals/queue/editor). Tiles,
+  not a section, so the page keeps its eight. Twitch's rule is white:
+  `test_the_purple_stays_in_the_logo_and_the_cover` bans `#9146ff` below
+  the cover; Kick's is `#53fc18`. FAQ: "Can I clip channels I don't own?"
+  now says Twitch or Kick, and a new "Does it work on Kick?" answer. The
+  no-JS claims guard needs the literal "official Twitch API" in body text,
+  which the Twitch tile carries. Verified in the harness
+  (`scratchpad/ed/landing_shot.js`).
 
 ## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
 

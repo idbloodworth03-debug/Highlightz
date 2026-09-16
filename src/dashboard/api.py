@@ -7909,6 +7909,15 @@ LANDING_HTML = """<!DOCTYPE html>
     font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--ink-3)}
   .wall-cap b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
+  /* The two platforms under the watch headline: a pair of tiles on black.
+     Twitch's rule is the page's own white (its purple never enters the
+     palette below the cover, by test); Kick's is Kick green. */
+  .plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--s-5);
+    margin:var(--s-6) 0 0;max-width:var(--measure)}
+  .plat{border-top:2px solid var(--ink);padding-top:var(--s-3);min-width:0}
+  .plat-kick{border-top-color:#53fc18}
+  .plat h3{margin:0 0 var(--s-2);font-size:17px;line-height:1.25;color:var(--ink)}
+  .plat p{margin:0;font-size:15px;line-height:1.55;color:var(--ink-2)}
   .wall-cap .sep{flex:1 1 auto;height:1px;background:var(--hair)}
   /* One line or nothing. Wrapped, the caption stole a second row from the wall
      and the tiles paid for it. */
@@ -8585,7 +8594,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <h2 class="disp proof-h" id="proof-h">Every big moment,<br>already a clip.</h2>
     <div class="proof-act">
       <a href="/login" class="btn btn-go btn-lg">Start clipping free</a>
-      <p class="proof-note">Free plan &middot; one Twitch channel &middot; no card &middot; no time limit</p>
+      <p class="proof-note">Free plan &middot; one channel, Twitch or Kick &middot; no card &middot; no time limit</p>
     </div>
   </div>
   <div class="fan">
@@ -8676,7 +8685,20 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <div class="watch-head">
       <h2 class="disp l-h" id="watch-h">Ten streams are live right now.</h2>
-      <p class="l-sub">Pro watches ten channels at once, Starter three, and the free plan one, with no card and no time limit. Each is scored against its own threshold. The one that crosses gets a real Twitch clip made through the official Twitch API, and the video file itself, waiting in your review queue. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
+      <p class="l-sub">Pro watches ten channels at once, Starter three, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
+      <!-- Both platforms, stated once (owner, 2026-09-16: "market kick on
+           the landing page"). Two tiles, not a section: the page keeps its
+           eight. What differs is only what the clip IS on each platform. -->
+      <div class="plats" id="platforms">
+        <div class="plat plat-twitch">
+          <h3>Twitch</h3>
+          <p>A real Twitch clip, made through the official Twitch API under your account, plus the video file. Highlight clips too.</p>
+        </div>
+        <div class="plat plat-kick">
+          <h3>Kick</h3>
+          <p>Kick has no clip API, so Highlightz cuts the file from the live broadcast itself. Same signals, same review queue, same editor.</p>
+        </div>
+      </div>
     </div>
     <div class="wall" id="wall"></div>
     <div class="wall-cap">
@@ -10445,9 +10467,17 @@ def _faq() -> str:
          "download, edit for vertical and post. On Kick, which has no clip API, the file is "
          "the clip."),
         ("Can I clip channels I don't own?",
-         "Yes. That is what most people use it for. Add any live Twitch channel and the clip is "
-         "created with your authorized account, exactly as if you had pressed Twitch's own Clip "
-         "button while watching. Twitch hosts it and it is attributed to you, same as a manual clip."),
+         "Yes. That is what most people use it for. Add any live Twitch or Kick channel. On Twitch "
+         "the clip is created with your authorized account, exactly as if you had pressed Twitch's "
+         "own Clip button while watching: Twitch hosts it and it is attributed to you, same as a "
+         "manual clip. On Kick the clip is the video file Highlightz saves for you."),
+        ("Does it work on Kick?",
+         "Yes, on every plan. Switch to Kick at the top of the dashboard and add a channel the same "
+         "way. Kick has no clip API, so there is no Kick-hosted clip: Highlightz cuts the video "
+         "file from the live broadcast the moment the score crosses, and that file is what lands "
+         "in your review queue, plays in the Clip Library, opens in the Clip Editor and goes out "
+         "through the Scheduler. Highlight clips are Twitch-only, and you still sign in with "
+         "Twitch; no Kick login is needed."),
         ("Do I have to leave anything running?",
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
