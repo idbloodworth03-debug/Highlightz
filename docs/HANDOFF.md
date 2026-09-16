@@ -1598,6 +1598,18 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### VOD Scanner sized up (2026-09-16)
+
+Owner: "make this bigger too so its easier to read and use." `VodScreen`
+wraps in `.rd-settings.rd-vod`; the `.rd-vod` rules widen the column to
+1100px and raise the card padding to 32px, the title to 24px, card heads
+to 17px, the URL input to 16px with 16px padding, the preset select to
+48px tall, the Scan button to 16×24 padding, and all copy (how-it-works,
+job title 16px, meta/moments/messages 14px, empty state 24/16) up a
+step. Score badges are 44px. Spacing stays on the scale (a 44px margin
+tripped the token test; it is 48). Checked in the harness
+(`scratchpad/ed/vod_shot.js`: empty, a done job with moments, phone).
+
 ## Settings tab does things (2026-09-16)
 
 Owner: "This settings tab basically does nothing." It was a read-only grid

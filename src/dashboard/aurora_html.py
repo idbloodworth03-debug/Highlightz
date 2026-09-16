@@ -794,6 +794,22 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-weight .wf{height:100%;border-radius:99px;background:var(--grad);transition:transform var(--dur-slow) var(--ease)}
 .rd-weight .wv{width:46px;text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
 .rd-settings{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px;width:100%}
+/* VOD Scanner, sized up (2026-09-16): a wider column, 16px copy, and an
+   input and button big enough to be the point of the screen. */
+.rd-vod{max-width:1100px;gap:24px}
+.rd-vod .rd-section-title h2{font-size:24px}
+.rd-vod .rd-section-title .cnt{font-size:14px}
+.rd-vod .rd-card{padding:32px}
+.rd-vod .rd-card h3{font-size:17px}
+.rd-vod .rd-card h3 .si{width:36px;height:36px}
+.rd-vod .rd-card .desc{font-size:14px;margin-left:48px;margin-bottom:24px}
+.rd-vod .rd-input{font-size:16px;padding:16px 16px;border-radius:14px}
+.rd-vod .rd-select{font-size:14px;height:48px;padding:0 16px}
+.rd-vod .rd-btn.grad{font-size:14px;padding:16px 24px;border-radius:14px}
+.rd-vod .rd-btn.sm{font-size:14px;padding:8px 16px}
+.rd-vod .rd-eyebrow{font-size:12px}
+.rd-vod .rd-grid-empty .big{font-size:24px}
+.rd-vod .rd-grid-empty{font-size:16px}
 /* ── Tutorial tab ── two columns: a sticky contents rail and the prose. The
    rail is position:sticky inside the scroller, so it follows without a scroll
    listener moving it. */
@@ -7887,11 +7903,14 @@ function VodScreen({ clips, me }) {
   }
   return (
     <div className="rd-scroll">
-      <div className="rd-settings">
+      {/* .rd-vod: sized up (owner, 2026-09-16: "make this bigger too so its
+          easier to read and use") — wider column, 16px copy, taller input
+          and button; the rules live under .rd-vod in the stylesheet. */}
+      <div className="rd-settings rd-vod">
         <div className="rd-section-title"><h2>Past Streams</h2><span className="cnt">Scan finished streams for highlights</span></div>
 
         <div className="rd-card glass">
-          <h3><span className="si"><Icon name="video" size={15}/></span>Analyze a VOD</h3>
+          <h3><span className="si"><Icon name="video" size={17}/></span>Analyze a VOD</h3>
           <div className="desc">Paste a Twitch VOD URL and the bot will scan it for highlight moments{audioOn?' — chat replay plus the stream\u2019s audio.':' — no video download needed.'}</div>
           <div style={{display:'flex',flexDirection:'column',gap:12,marginTop:4}}>
             <input
@@ -7914,8 +7933,8 @@ function VodScreen({ clips, me }) {
               </button>}
             </div>
           </div>
-          {err && <div style={{marginTop:8,padding:'8px 12px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:12}}>{err}</div>}
-          <div style={{marginTop:12,padding:'8px 12px',borderRadius:10,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:12,color:'var(--fg-3)',lineHeight:1.6}}>
+          {err && <div style={{marginTop:8,padding:'12px 16px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:14}}>{err}</div>}
+          <div style={{marginTop:16,padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',fontSize:14,color:'var(--fg-3)',lineHeight:1.6}}>
             <strong style={{color:'var(--fg-2)'}}>How it works:</strong> The bot pulls the VOD{audioOn?' chat replay and its audio track':' chat replay'}, then scans second-by-second with the same scoring engine as live monitoring — chat velocity, keywords, sentiment{audioOn?', and audio spikes':''}. When the score crosses the threshold, a moment is found. Each moment links to that exact timestamp in the VOD, and lands in your review queue automatically.{audioOn?' Audio scans take a few minutes; nothing is recorded or stored — only loudness is measured.':''}
           </div>
         </div>
@@ -7927,10 +7946,10 @@ function VodScreen({ clips, me }) {
                 ? <img src={job.thumbnail_url} alt="" onError={e=>{e.target.style.display='none'}} style={{width:80,height:45,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
                 : <div style={{width:80,height:45,borderRadius:8,background:'var(--grad-soft)',flexShrink:0,display:'grid',placeItems:'center'}}><Icon name="video" size={18} style={{color:'var(--acc)'}}/></div>}
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:14,marginBottom:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                <div style={{fontWeight:700,fontSize:16,marginBottom:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
                   {job.vod_title||`VOD ${job.vod_id}`}
                 </div>
-                <div style={{fontSize:12,color:'var(--fg-2)',display:'flex',gap:8,flexWrap:'wrap'}}>
+                <div style={{fontSize:14,color:'var(--fg-2)',display:'flex',gap:8,flexWrap:'wrap'}}>
                   {job.channel && <span>{job.channel}</span>}
                   {job.game && <span>{job.game}</span>}
                   {job.duration>0 && <span><Icon name="clock" size={11} style={{display:'inline',verticalAlign:'middle',marginRight:4}}/>{fmtDuration(job.duration)}</span>}
@@ -7945,14 +7964,14 @@ function VodScreen({ clips, me }) {
             {job.status==='running' && <ScanActivity job={job}/>}
 
             {job.status==='failed' && (
-              <div style={{padding:'8px 12px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:12,marginBottom:12}}>
+              <div style={{padding:'12px 16px',borderRadius:10,background:'rgba(255,90,120,.08)',border:'1px solid rgba(255,90,120,.2)',color:'var(--danger)',fontSize:14,marginBottom:12}}>
                 {job.error||'Analysis failed'}
               </div>
             )}
 
             {job.status==='done' && (
-              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:'var(--live)',fontWeight:600,marginBottom:12}}>
-                <Icon name="check" size={14}/>
+              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,color:'var(--live)',fontWeight:600,marginBottom:12}}>
+                <Icon name="check" size={16}/>
                 {(job.moments||[]).length===0
                   ? 'No highlight moments found in this VOD.'
                   : `Found ${(job.moments||[]).length} highlight moment${(job.moments||[]).length===1?'':'s'} — added to your review queue`}
@@ -7970,15 +7989,15 @@ function VodScreen({ clips, me }) {
                       borderRadius:12,background:'rgba(255,255,255,.03)',border:'1px solid var(--hair)',
                     }}>
                       <span style={{
-                        minWidth:36,height:36,borderRadius:10,
+                        minWidth:44,height:44,borderRadius:12,
                         background: sc>=75?'var(--live-soft)':sc>=50?'var(--pending-soft)':'var(--grad-soft)',
                         color: sc>=75?'var(--live)':sc>=50?'var(--pending)':'var(--acc)',
-                        display:'grid',placeItems:'center',fontWeight:800,fontSize:12,flexShrink:0,
+                        display:'grid',placeItems:'center',fontWeight:800,fontSize:14,flexShrink:0,
                         fontVariantNumeric:'tabular-nums',
                       }}>{sc}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600,fontSize:12}}>{m.timestamp}</div>
-                        <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>
+                        <div style={{fontWeight:600,fontSize:14}}>{m.timestamp}</div>
+                        <div style={{fontSize:14,color:'var(--fg-3)',marginTop:4}}>
                           {(m.trigger_signals||[]).filter(s=>s.value>0.1).map(s=>s.type.replace('CHAT_','').replace('_',' ')).join(' · ')}
                         </div>
                       </div>
