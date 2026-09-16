@@ -6878,8 +6878,11 @@ comparison — is at https://highlightz.app/llms-full.txt.
   arrive in the review queue marked Highlight, in purple, are usually the
   higher-quality clips, and a green label marks the ones that stood out even
   more. Each plan has its own Highlight allowance.
-- Puts every clip in a review queue first. Nothing is published automatically.
-  Approving and rejecting tunes the channel's threshold to your taste.
+- Puts every clip in a review queue first. Nothing is posted anywhere until
+  you approve it. Autopilot (Pro, off by default) then renders each approved
+  clip for vertical and queues it to the accounts you connected, so approving
+  is the only click. Approving and rejecting tunes the channel's threshold to
+  your taste.
 - Scans finished broadcasts (VODs) for highlights on the Pro plan.
 - Any Twitch broadcaster can opt their channel out at any time; it takes
   effect immediately across every account.
@@ -6901,8 +6904,10 @@ and editors who follow several channels at once and cannot watch them all.
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
   {keeps(pro)}, plus the VOD Scanner, the Clip Editor (reframe any caught
   clip for vertical, title it, add transitions and a sound, export it frame by
-  frame in the browser) and the Scheduler (post exported clips to the YouTube,
-  TikTok and Instagram accounts you connect, at a time you set).
+  frame in the browser), the Scheduler (post exported clips to the YouTube,
+  TikTok and Instagram accounts you connect, at a time you set) and Autopilot
+  (every clip you approve is rendered vertical and queued to those accounts on
+  a schedule you choose, with nobody in the loop).
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -6914,9 +6919,10 @@ Tools like Opus Clip and Eklipse take a finished video and cut it up
 afterwards, and both sell a subscription and then meter it in credits or
 minutes that run out and have to be bought again. Highlightz watches the
 stream live and clips as it happens, so a moment is captured while it is
-still on air. Because clips are made through Twitch's own API, they live on
-Twitch under the streamer's account, and nothing is ever fetched back out of
-Twitch to produce them.
+still on air. The Twitch clip is made through Twitch's own API and lives on
+Twitch under your account; the video file Highlightz keeps beside it is what
+the Clip Editor, Scheduler and Autopilot work from, with no upload step and
+no credits to run out.
 
 ## Pages
 
@@ -6935,7 +6941,8 @@ Twitch to produce them.
 
 - Kick: channels are monitored from public chat and broadcast audio, and a detected
   moment is saved as a video file captured by Highlightz (Kick has no clip API, so
-  there is no Kick-hosted clip). Highlight clips are Twitch-only.
+  there is no Kick-hosted clip). Kick monitoring is in a closed beta today and is
+  not yet open to every account. Highlight clips are Twitch-only.
 - Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
 
@@ -6976,8 +6983,10 @@ async def llms_full_txt():
       "and keeps the video file. Every clip lands in a review queue first. Twitch makes "
       "and hosts the Twitch clip; the file, recorded from the live broadcast or fetched "
       "from Twitch, is private to the account that made it and is what the Clip Editor "
-      "reframes for vertical and the Scheduler posts to YouTube, TikTok and Instagram. "
-      "Kick channels are monitored the same way; there the file is the clip. "
+      "reframes for vertical and the Scheduler posts to YouTube, TikTok and Instagram; "
+      "Autopilot (Pro, off by default) does both for every clip you approve. "
+      "Kick channels are monitored the same way, in a closed beta; there the file is "
+      "the clip. "
       "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
     w("## The seven signals\n")
@@ -6996,6 +7005,7 @@ async def llms_full_txt():
     w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
     w(f"| Clip Editor | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
     w(f"| Scheduler | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
+    w(f"| Autopilot | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
     w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
