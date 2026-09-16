@@ -1598,6 +1598,18 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### In-app Tutorial sized up (2026-09-16)
+
+Owner: "make the tutorial bigger on this page in the dashboard." CSS only,
+in the `.rd-tut` / `.tut-*` block: the grid is 1320px wide (was 1060) with
+a 208px contents rail and 48px gutter; title 30px (24), section heads 24px
+(16), lead/body/steps/tips/table/FAQ 16px (14), notes/captions 14px (12),
+TOC links 14px with more padding; the screenshots are `width:100%` so they
+grow with the column (~1030px at 1440 wide, was ~840). Every size is on
+the type scale, so `test_design_tokens` passes untouched. Checked in the
+harness (`scratchpad/ed/tut_shot.js`, which needs a signed session cookie
+to fetch `/tutorial/content`).
+
 ## Sign in with Kick, either-or with Twitch (2026-09-16)
 
 Owner: "make people able to sign up with kick now too, give them the option

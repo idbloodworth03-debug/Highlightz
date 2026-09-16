@@ -778,47 +778,50 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 /* ── Tutorial tab ── two columns: a sticky contents rail and the prose. The
    rail is position:sticky inside the scroller, so it follows without a scroll
    listener moving it. */
-.rd-tut{max-width:1060px;margin:0 auto;width:100%;display:grid;grid-template-columns:186px minmax(0,1fr);gap:32px;align-items:start}
+/* Sized up 2026-09-16 (owner: "make the tutorial bigger on this page"):
+   a wider column, body type at 16px, section heads at 24px, and the
+   screenshots follow the column so they grow with it. */
+.rd-tut{max-width:1320px;margin:0 auto;width:100%;display:grid;grid-template-columns:208px minmax(0,1fr);gap:48px;align-items:start}
 .tut-toc{position:sticky;top:0;display:flex;flex-direction:column;gap:4px;padding-top:4px}
-.tut-toc-k{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3);padding:0 8px 8px}
-.tut-toc-l{text-align:left;background:none;border:0;cursor:pointer;font:inherit;font-size:12px;color:var(--fg-2);padding:4px 8px;border-radius:8px;border-left:2px solid transparent}
+.tut-toc-k{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3);padding:0 12px 8px}
+.tut-toc-l{text-align:left;background:none;border:0;cursor:pointer;font:inherit;font-size:14px;color:var(--fg-2);padding:8px 12px;border-radius:8px;border-left:2px solid transparent}
 .tut-toc-l:hover{color:var(--fg);background:rgba(255,255,255,.04)}
 .tut-toc-l.on{color:var(--acc);border-left-color:var(--acc);background:rgba(184,106,220,.10);font-weight:600}
-.tut-toc-out{margin-top:12px;font-size:12px;color:var(--fg-3);text-decoration:none;padding:4px 8px}
+.tut-toc-out{margin-top:12px;font-size:14px;color:var(--fg-3);text-decoration:none;padding:8px 12px}
 .tut-toc-out:hover{color:var(--acc)}
-.tut-main{min-width:0;display:flex;flex-direction:column;gap:24px;padding-bottom:64px}
+.tut-main{min-width:0;display:flex;flex-direction:column;gap:32px;padding-bottom:64px}
 /* scroll-margin so a jumped-to heading is not welded to the top edge */
 .tut-sec{scroll-margin-top:12px;min-width:0}
-.tut-title{font-size:24px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
-.tut-lead{font-size:14px;color:var(--fg-2);line-height:1.6;max-width:66ch}
-.tut-h{font-size:16px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.tut-title{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
+.tut-lead{font-size:16px;color:var(--fg-2);line-height:1.6;max-width:70ch}
+.tut-h{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-bottom:8px;display:flex;align-items:center;gap:12px}
 .tut-plan{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);background:rgba(184,106,220,.16);padding:4px 8px;border-radius:999px}
-.tut-body{font-size:14px;color:var(--fg-2);line-height:1.7;max-width:66ch}
+.tut-body{font-size:16px;color:var(--fg-2);line-height:1.7;max-width:70ch}
 .tut-body b,.tut-steps b,.tut-note b,.tut-tip b{color:var(--fg);font-weight:700}
-.tut-steps{margin:12px 0 0;padding-left:16px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--fg-2);line-height:1.6;max-width:66ch}
-.tut-note{margin-top:12px;font-size:12px;color:var(--fg-3);line-height:1.6;max-width:66ch}
+.tut-steps{margin:12px 0 0;padding-left:24px;display:flex;flex-direction:column;gap:12px;font-size:16px;color:var(--fg-2);line-height:1.6;max-width:70ch}
+.tut-note{margin-top:12px;font-size:14px;color:var(--fg-3);line-height:1.6;max-width:70ch}
 .tut-fig{margin:16px 0 0}
 .tut-media{width:100%;height:auto;border-radius:12px;border:1px solid var(--hair);display:block;background:rgba(255,255,255,.02)}
-.tut-cap{margin-top:8px;font-size:12px;color:var(--fg-3);line-height:1.5}
+.tut-cap{margin-top:8px;font-size:14px;color:var(--fg-3);line-height:1.5}
 .tut-ph{margin-top:16px;border:1px dashed var(--hair);border-radius:12px;padding:24px 24px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,.02)}
 .tut-ph-k{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3)}
-.tut-ph-a{font-size:12px;color:var(--fg-2);line-height:1.6}
+.tut-ph-a{font-size:14px;color:var(--fg-2);line-height:1.6}
 .tut-tip{margin-top:12px;border-left:2px solid var(--acc);background:rgba(184,106,220,.07);border-radius:0 10px 10px 0;padding:12px 16px}
 .tut-tip-k{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
-.tut-tip p{margin-top:4px;font-size:14px;color:var(--fg-2);line-height:1.6}
+.tut-tip p{margin-top:4px;font-size:16px;color:var(--fg-2);line-height:1.6}
 .tut-tablewrap{margin-top:12px;overflow-x:auto;border:1px solid var(--hair);border-radius:12px}
-.tut-table{width:100%;border-collapse:collapse;font-size:14px;min-width:460px}
+.tut-table{width:100%;border-collapse:collapse;font-size:16px;min-width:460px}
 .tut-table th,.tut-table td{padding:12px 12px;text-align:left;border-bottom:1px solid var(--hair)}
 .tut-table thead th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);font-weight:700}
 .tut-table tbody th{font-weight:600;color:var(--fg-2)}
 .tut-table tbody tr:last-child th,.tut-table tbody tr:last-child td{border-bottom:0}
 .tut-faq{margin-top:12px;border-top:1px solid var(--hair)}
 .tut-q{border-bottom:1px solid var(--hair)}
-.tut-q-h{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;background:none;border:0;cursor:pointer;font:inherit;font-size:14px;font-weight:600;color:var(--fg);text-align:left;padding:12px 4px}
+.tut-q-h{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;background:none;border:0;cursor:pointer;font:inherit;font-size:16px;font-weight:600;color:var(--fg);text-align:left;padding:16px 4px}
 .tut-q-h:hover{color:var(--acc)}
 .tut-q-c{color:var(--fg-3);font-size:17px;flex-shrink:0}
 .tut-q.on .tut-q-c{color:var(--acc)}
-.tut-q-a{padding:0 4px 16px;font-size:14px;color:var(--fg-2);line-height:1.7;max-width:70ch}
+.tut-q-a{padding:0 4px 16px;font-size:16px;color:var(--fg-2);line-height:1.7;max-width:74ch}
 .tut-q-a b{color:var(--fg)}
 .tut-q-a a{color:var(--acc)}
 @media(max-width:820px){
