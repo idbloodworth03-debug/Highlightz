@@ -290,7 +290,10 @@ def test_the_legal_pages_and_the_brief_say_what_kick_actually_is(app):
     for path in ("/tos", "/privacy"):
         t = app.get(path).text.lower()
         assert "kick support is not" not in t, f"{path} still says Kick is not live"
-        assert "no kick credentials are requested or stored" in t
+        # Kick sign-in exists since 2026-09-16: identity is kept, the token
+        # is not, and the pages say exactly that rather than denying both.
+        assert "no kick credentials are requested or stored" not in t
+        assert "does not keep the kick access token" in t or "do not keep the kick access token" in t
     assert "no clip is created or hosted on kick" in app.get("/tos").text.lower()
     assert "recorded from that live public broadcast" in app.get("/privacy").text.lower()
     brief = app.get("/llms.txt").text.lower()

@@ -1598,6 +1598,53 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+## Sign in with Kick, either-or with Twitch (2026-09-16)
+
+Owner: "make people able to sign up with kick now too, give them the option
+to do either or." The Kick OAuth flow removed on 2026-08-27 is back in a
+different shape: **identity only**.
+
+- `src/auth/kick_oauth.py`: OAuth 2.1 with PKCE (S256) against
+  `id.kick.com/oauth/authorize` + `/oauth/token`, scope `user:read`, then
+  `GET api.kick.com/public/v1/users` for the caller. `configured()` =
+  `KICK_CLIENT_ID` + `KICK_CLIENT_SECRET` (the same app the monitoring app
+  token uses); redirect = `KICK_REDIRECT_URI` or
+  `<PUBLIC_BASE_URL>/auth/kick/callback` — register that on the Kick app.
+- Routes: `GET /auth/kick` (state + PKCE verifier in the session; redirects
+  to `/login?error=kick_signin_disabled` when unconfigured) and
+  `GET /auth/kick/callback`. The callback exchanges the code, asks who it
+  is, then `del tokens`: **no Kick token is ever stored**
+  (`users.upsert_kick_user` writes kick_id / kick_slug / kick_username /
+  avatar only; `test_nothing_in_the_user_store_writes_a_kick_token`).
+- Sign-in page: "Continue with Kick" (Kick green) under the Twitch button,
+  only when configured, so an unconfigured server never shows a button that
+  fails.
+- **Twitch clips need a Twitch identity** (they are made under the user's
+  own token). `POST /streams` for `platform=twitch` answers 403 with
+  "Connect your Twitch account (Account tab)…" for a KICK-ONLY account
+  (`kick_id` and no `twitch_id`; admins exempt). Password-only and older
+  records without either identity behave as before — the first cut gated
+  on "no twitch_id" alone and broke `test_admin_stop_streams`, whose user
+  has neither. The Live Streams add box shows the same
+  notice with a Connect link; the Account tab's Twitch and Kick rows offer
+  Connect. Linking: `/auth/twitch?intent=link` and `/auth/kick?intent=link`
+  from a signed-in account attach the identity to THAT account
+  (`users.link_twitch_identity` — stores the Twitch tokens — and
+  `link_kick_identity`); an identity that already has its own account is
+  refused (`/?link_error=twitch_taken|kick_taken`). Success lands on
+  `/?linked=<platform>` and broadcasts `identity_linked` (scoped), which the
+  app answers by refetching `/me`.
+- `/me` carries `platforms: {twitch, kick}` and `kick_signin`. A Kick-only
+  account with no stored platform choice starts on Kick.
+- Legal: the "no Kick credentials are requested or stored" denials are
+  gone from ToS §1/§3 and Privacy §1/Kick (the test in
+  `test_legal_pages_match_the_code` forbids them while `/auth/kick`
+  exists); they now say identity is kept and the token is not. FAQ and
+  llms.txt say you can sign in with either.
+- Tests: `tests/test_kick_login.py` (replaces `test_kick_login_removed.py`;
+  the purge-script test moved with it). Unverified on prod: the real Kick
+  consent screen — the app needs the redirect URL registered first.
+
 ### Editor side panel: Style, Title, Captions, More options (2026-09-16)
 
 Owner, after the audit: "still a little too confusing, make it even

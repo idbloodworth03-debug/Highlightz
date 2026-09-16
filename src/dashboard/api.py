@@ -1028,6 +1028,11 @@ async def twitch_login(request: Request, intent: str = ""):
     request.session["oauth_state"] = state
     if intent == "optout":
         request.session["optout_intent"] = True
+    # A signed-in account (one that came in through Kick) attaching Twitch:
+    # the callback links instead of signing in. The intent lives in the
+    # session for one round trip, like the opt-out one.
+    if intent == "link" and request.session.get("user_id"):
+        request.session["link_intent"] = request.session["user_id"]
     return RedirectResponse(authorization_url(state))
 
 
@@ -1058,6 +1063,22 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         request.session["optout_display_name"]   = tuser.get("display_name") or tuser["login"]
         request.session["optout_avatar"]         = tuser.get("avatar_url", "")
         return RedirectResponse("/opt-out/confirm")
+
+    # Link flow: a signed-in Kick account attaching its Twitch identity. No
+    # new session, no new user; the tokens land on the existing record so
+    # Twitch clips can be made under it from now on.
+    link_uid = request.session.pop("link_intent", None)
+    if link_uid and request.session.get("user_id") == link_uid:
+        linked = user_store.link_twitch_identity(
+            link_uid, tuser["id"], tuser["login"], tuser["username"],
+            tuser.get("avatar_url", ""), tokens.get("access_token", ""),
+            tokens.get("refresh_token", ""), tokens.get("expires_in", 0))
+        if not linked:
+            return RedirectResponse("/?link_error=twitch_taken")
+        request.session["username"] = linked["username"]
+        request.session["avatar_url"] = linked.get("avatar_url", "")
+        await broadcast({"event": "identity_linked", "platform": "twitch"}, user_id=link_uid)
+        return RedirectResponse("/?linked=twitch")
 
     # Read the referral BEFORE session.clear() below wipes it. This is the only
     # moment it exists: the code rode the session cookie out to twitch.tv and
@@ -1112,6 +1133,83 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         _redeem_invite(pending_invite, user)
 
     # Clear any existing session before setting new auth data (session fixation)
+    request.session.clear()
+    request.session["auth"]                = True
+    request.session["user_id"]             = user["id"]
+    request.session["username"]            = user["username"]
+    request.session["avatar_url"]          = user.get("avatar_url", "")
+    request.session["is_admin"]            = user.get("is_admin", False)
+    request.session["subscription_status"] = user.get("subscription_status", "none")
+    request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
+    return RedirectResponse("/")
+
+
+# ── Kick OAuth (sign-in, 2026-09-16) ─────────────────────────────────────────
+# Either-or with Twitch (owner: "give them the option to do either or"). A
+# Kick sign-in makes an account keyed by kick_id; with `intent=link` from a
+# signed-in account it attaches the Kick identity instead. The token is used
+# once, for the who-is-this call, and never stored — see src/auth/kick_oauth.
+
+@app.get("/auth/kick")
+async def kick_login(request: Request, intent: str = ""):
+    _capture_ref(request)
+    from src.auth import kick_oauth
+    _fn_record(request, "oauth_start")
+    if not kick_oauth.configured():
+        return RedirectResponse("/login?error=kick_signin_disabled")
+    state = secrets.token_urlsafe(16)
+    verifier = kick_oauth.make_verifier()
+    request.session["kick_oauth_state"] = state
+    request.session["kick_pkce"] = verifier
+    if intent == "link" and request.session.get("user_id"):
+        request.session["kick_link_intent"] = request.session["user_id"]
+    return RedirectResponse(kick_oauth.authorization_url(state, verifier))
+
+
+@app.get("/auth/kick/callback")
+async def kick_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    from src.auth import kick_oauth, users as user_store
+    _fn_record(request, "oauth_return")
+    verifier = request.session.pop("kick_pkce", "")
+    link_uid = request.session.pop("kick_link_intent", None)
+    if error:
+        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=kick_failed")
+    if not code or not verifier or state != request.session.pop("kick_oauth_state", None):
+        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=invalid_state")
+    try:
+        tokens = await kick_oauth.exchange_code(code, verifier)
+        kuser = await kick_oauth.get_user(tokens["access_token"])
+    except Exception as exc:
+        log.warning("kick_oauth_failed", error=str(exc))
+        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=kick_failed")
+    # The token has done its one job. Nothing below keeps it.
+    del tokens
+
+    if link_uid and request.session.get("user_id") == link_uid:
+        linked = user_store.link_kick_identity(link_uid, kuser["id"], kuser["slug"],
+                                               kuser["username"], kuser.get("avatar_url", ""))
+        if not linked:
+            return RedirectResponse("/?link_error=kick_taken")
+        await broadcast({"event": "identity_linked", "platform": "kick"}, user_id=link_uid)
+        return RedirectResponse("/?linked=kick")
+
+    pending_ref = request.session.get("ref")
+    pending_invite = request.session.get("invite")
+    _was_new = user_store.get_by_kick_id(kuser["id"]) is None
+    user = user_store.upsert_kick_user(kuser["id"], kuser["slug"], kuser["username"],
+                                       kuser.get("avatar_url", ""))
+    if kuser.get("email"):
+        user_store.set_email(user["id"], kuser["email"], source="kick")
+    user_store.mark_login(user["id"])
+    if user.get("is_admin"):
+        funnel.undo(request.session.get("_fn"))
+    else:
+        funnel.record("signup" if _was_new else "returning")
+    if pending_ref and user_store.set_ref_once(user["id"], pending_ref):
+        log.info("referral_attributed", user_id=user["id"], ref=pending_ref)
+    if pending_invite:
+        _redeem_invite(pending_invite, user)
+
     request.session.clear()
     request.session["auth"]                = True
     request.session["user_id"]             = user["id"]
@@ -1265,6 +1363,14 @@ async def me(request: Request):
         "twitch_login":        user.get("twitch_login") or (request.session.get("username") if user.get("twitch_id") else None),
         "kick_slug":           user.get("kick_slug") or "",
         "kick_username":       user.get("kick_username") or "",
+        # Which sign-in identities this account holds. Twitch clips need the
+        # Twitch one (the clip is made under the user's own login); Kick
+        # needs nothing beyond the account. The dashboard gates the Twitch
+        # add-channel box on this and offers Connect in the Account tab.
+        "platforms":           {"twitch": bool(user.get("twitch_id")),
+                                "kick": bool(user.get("kick_id"))},
+        # Whether the Kick sign-in button exists at all on this server.
+        "kick_signin":         bool(settings.kick_client_id and settings.kick_client_secret),
     }
 
 
@@ -3870,6 +3976,20 @@ async def add_stream(request: Request, req: StreamRequest):
             detail="Kick clips are captured from the live broadcast, and live capture "
                    "is switched off on this server.",
         )
+    # A Twitch clip is made with the USER's Twitch token. An account that
+    # signed up with Kick and never connected Twitch has none, so refuse up
+    # front with the way forward rather than monitoring a channel whose clips
+    # could never be created. Only Kick-only accounts: password (admin) and
+    # any older record without either identity behave exactly as before.
+    if req.platform == "twitch":
+        from src.auth import users as _users
+        _u = _users.get_by_id(uid) or {}
+        if _u.get("kick_id") and not _u.get("twitch_id") and not _u.get("is_admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Connect your Twitch account (Account tab) to clip Twitch "
+                       "channels. Twitch clips are made under your own Twitch login.",
+            )
     from src.auth.optout import is_opted_out
     if req.platform == "twitch" and is_opted_out(req.channel):
         raise HTTPException(status_code=403, detail=f"{req.channel} has opted out of clipping on Highlightz")
@@ -6529,8 +6649,17 @@ async def login_page(request: Request, error: str = ""):
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
     err_html = f'<p class="error">{_html.escape(err_msg)}</p>' if err_msg else ""
-    # Sign-in is Twitch-only for now; the Kick sign-in button is removed.
-    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
+    # Either-or (owner, 2026-09-16): the Kick button appears once the server
+    # has a Kick app registered (KICK_CLIENT_ID + KICK_CLIENT_SECRET); until
+    # then the page is Twitch-only rather than showing a button that 503s.
+    from src.auth import kick_oauth
+    kick_html = (
+        '<a href="/auth/kick" class="kick-btn">'
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="#0a0a0e" aria-hidden="true">'
+        '<path d="M3 2h6v6h2V6h2V4h2V2h6v6h-2v2h-2v2h2v2h2v6h-6v-2h-2v-2h-2v2H9v2H3z"/></svg>'
+        'Continue with Kick</a>'
+        if kick_oauth.configured() else "")
+    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html).replace("{kick}", kick_html))
 
 
 @app.get("/demo", response_class=HTMLResponse)
@@ -6990,8 +7119,9 @@ no credits to run out.
 
 - Kick: channels are monitored from public chat and broadcast audio, and a detected
   moment is saved as a video file captured by Highlightz (Kick has no clip API, so
-  there is no Kick-hosted clip). Kick is open on every plan; sign-in is still
-  through Twitch. Highlight clips are Twitch-only.
+  there is no Kick-hosted clip). Kick is open on every plan, and you can sign
+  in with a Kick account or a Twitch account (a Kick account connects Twitch
+  from the Account tab to clip Twitch channels). Highlight clips are Twitch-only.
 - Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
 
@@ -10476,8 +10606,9 @@ def _faq() -> str:
          "way. Kick has no clip API, so there is no Kick-hosted clip: Highlightz cuts the video "
          "file from the live broadcast the moment the score crosses, and that file is what lands "
          "in your review queue, plays in the Clip Library, opens in the Clip Editor and goes out "
-         "through the Scheduler. Highlight clips are Twitch-only, and you still sign in with "
-         "Twitch; no Kick login is needed."),
+         "through the Scheduler. You can sign in with Kick or with Twitch; to clip Twitch "
+         "channels from a Kick account, connect Twitch once from the Account tab, because a "
+         "Twitch clip is made under your own Twitch login. Highlight clips are Twitch-only."),
         ("Do I have to leave anything running?",
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
@@ -10630,6 +10761,10 @@ LOGIN_HTML = """<!DOCTYPE html>
   .twitch-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#9146ff;color:#fff;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:background var(--dur-fast)}
   .twitch-btn:hover{background:#772ce8}
   .twitch-btn svg{flex-shrink:0}
+  .kick-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#53fc18;color:#0a0a0e;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:700;text-decoration:none;margin-top:8px;cursor:pointer}
+  .kick-btn:hover{filter:brightness(1.08)}
+  .kick-btn svg{flex-shrink:0}
+  .or-line{margin:12px 0 0;font-size:12px;color:#9c90a6;text-align:center}
   .or-divider{display:flex;align-items:center;gap:12px;margin:12px 0;color:#9c90a6;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
   .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
   .divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:#9c90a6;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
@@ -10657,6 +10792,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     <svg width="20" height="20" viewBox="0 0 2400 2800" fill="#fff"><path d="M500 0L0 500v1800h600v500l500-500h400l900-900V0H500zm1700 1300l-400 400h-400l-350 350v-350H600V200h1600v1100z"/><path d="M1700 550h-200v600h200V550zm-550 0h-200v600h200V550z"/></svg>
     Continue with Twitch
   </a>
+  {kick}
   <p class="price-note">The free plan has no time limit. Want more channels? Plans start at $10/month, cancel any time from your account.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
@@ -10924,14 +11060,14 @@ TOS_HTML = """<!DOCTYPE html>
   <p><strong>Recording of live broadcasts.</strong> While a channel you have added is being monitored, the Service may record a short rolling segment of that live public broadcast on its own servers, so that a moment it detects can also be saved as a video file for you. That rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is kept for a limited period &mdash; currently up to <!--CLIPDAYS--> days &mdash; and is deleted when you delete the clip, when your account is deleted, or when that period ends, whichever comes first. It is available only to the account the clip belongs to; it is not published, shared with other users, or hosted anywhere publicly accessible. A channel that has opted out under Section 5 is never recorded.</p>
   <p>To provide downloads, editing and scheduling, Highlightz stores a video file of each clip for the account that created it. That file is obtained either by recording the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives, or, where that recording is unavailable, by retrieving the clip's video from Twitch at your request. A stored file is private to your account, is never kept for a channel whose broadcaster has opted out, and is deleted when you delete the clip or your account and in any case within the retention period stated in the Privacy Policy. Highlightz does not alter or publicly re-host clips or past broadcasts that Twitch hosts. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
   <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
-  <p><strong>Kick.</strong> The Service can also monitor public Kick channels you add, from the same public signals: the channel's public chat and the audio of its public broadcast. Kick offers no clip-creation interface, so a moment detected on Kick is saved only as a video file recorded from the live public broadcast under the paragraph above; no clip is created or hosted on Kick. No Kick account is connected to or required by the Service, and no Kick credentials are requested or stored. Highlight clips (Section 5) are a Twitch-only feature.</p>
+  <p><strong>Kick.</strong> The Service can also monitor public Kick channels you add, from the same public signals: the channel's public chat and the audio of its public broadcast. Kick offers no clip-creation interface, so a moment detected on Kick is saved only as a video file recorded from the live public broadcast under the paragraph above; no clip is created or hosted on Kick. Monitoring a Kick channel does not require a Kick account. You may sign in with a Kick account (Section 3); when you do, the Service keeps the Kick user id, username and avatar that Kick returns and does not keep the Kick access token. Highlight clips (Section 5) are a Twitch-only feature.</p>
   <p>The Service offers a free plan that does not expire and does not require a payment method, alongside paid plans. See Section 4.</p>
 
   <h2>2. Eligibility</h2>
   <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
 
   <h2>3. Accounts and Platform Authorization</h2>
-  <p>You sign in by authorizing the Service through your Twitch account via OAuth2. Twitch is the only way to sign in. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission), and, if you approve it on the sign-in screen, to read the email address on your Twitch account (the <code>user:read:email</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
+  <p>You sign in by authorizing the Service through your Twitch account or your Kick account via OAuth2; an account may hold both, and either may be connected later from the Account tab. Signing in with Kick asks Kick to confirm who you are; the Service keeps the Kick user id, username and avatar it returns and does not keep the Kick access token. Clips on Twitch channels require a connected Twitch account, because they are made under your own Twitch login. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission), and, if you approve it on the sign-in screen, to read the email address on your Twitch account (the <code>user:read:email</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
   <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Plans and Subscriptions</h2>
@@ -10978,7 +11114,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>The Service integrates with two third-party platforms: Twitch (authentication and clip creation) and Stripe (payments). Your use of those platforms is governed by their respective terms, including the <a href="https://www.twitch.tv/p/legal/terms-of-service/">Twitch Terms of Service</a>, the <a href="https://legal.twitch.com/legal/developer-agreement/">Twitch Developer Services Agreement</a>, and the <a href="https://stripe.com/legal/ssa">Stripe Services Agreement</a>. We are not responsible for the availability, accuracy, or practices of any third-party service.</p>
 
   <h2>9. Data and Privacy</h2>
-  <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), payment information (processed by Stripe — we do not store card details), clip metadata such as clip links and trigger scores, a short sample of public chat messages captured alongside each clip, the video files described in Section 1 and any video you upload to or export from the Clip Editor, and the tokens for any posting account you connect in the Scheduler. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
+  <p>We collect and process information necessary to operate the Service, including your Twitch account information and access tokens (stored in encrypted form), your Kick account identity if you sign in with Kick (no Kick token is kept), payment information (processed by Stripe — we do not store card details), clip metadata such as clip links and trigger scores, a short sample of public chat messages captured alongside each clip, the video files described in Section 1 and any video you upload to or export from the Clip Editor, and the tokens for any posting account you connect in the Scheduler. We do not sell your personal data to third parties. By using the Service you consent to this processing, as further described in our <a href="/privacy">Privacy Policy</a>.</p>
 
   <h2>10. Disclaimers</h2>
   <p>THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS.</p>
@@ -11035,7 +11171,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <h2>1. Information We Collect</h2>
   <p>We collect only what is necessary to operate the Service:</p>
   <ul>
-    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2; when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
+    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
     <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account in the Scheduler, the OAuth tokens that authorize the Service to upload clips you schedule to that account, and the account's public name. They are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
@@ -11050,7 +11186,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
     <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
-  <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. No Kick account can be connected to the Service — no Kick credentials are requested or stored. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
+  <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. Monitoring a Kick channel needs no Kick account. If you sign in with Kick we keep your Kick user ID, username and avatar URL (Section 1) and do not keep the Kick access token. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
 
   <h2>2. How We Use Your Information</h2>
   <ul>

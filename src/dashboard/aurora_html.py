@@ -2644,8 +2644,13 @@ function CullPanel({ clips, onDone }) {
    screen and neither tab said what it was for. Lifted verbatim so the
    suggestion dropdown keeps its exact focus/blur/escape behaviour. */
 function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRemove, onForce,
-                          selected, onSelect }) {
+                          selected, onSelect, me = null }) {
   const [ch, setCh] = useState('');
+  // An account that signed up with Kick has no Twitch login, and a Twitch
+  // clip is made under the user's own login, so the Twitch box says what to
+  // do instead of letting the add fail. Admins (password sign-in) are exempt,
+  // as the API is. Kick needs nothing beyond the account.
+  const needsTwitch = activePlatform === 'twitch' && !!(me && me.platforms && me.platforms.kick && !me.platforms.twitch && !me.is_admin);
   const [preset, setPreset] = useState('default');
   // Streamer suggestions: zero state = recently monitored + popular-now;
   // typing = partial-name search (debounced). Per platform: Helix on
@@ -2733,6 +2738,10 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
             would otherwise put the later rail on top). */}
         <div className="rd-rail glass" style={{flex:'0 0 auto',overflow:'visible',position:'relative',zIndex:5}}>
           <div className="rd-eyebrow">Add a stream</div>
+          {needsTwitch && <div className="ed-warn" style={{marginBottom:8}}>
+            Connect your Twitch account to clip Twitch channels: a Twitch clip is made under your own Twitch login.{' '}
+            <a href="/auth/twitch?intent=link" style={{color:'inherit',fontWeight:700}}>Connect Twitch</a>
+          </div>}
           <div className="rd-addrow">
             <div className="rd-suggwrap">
               <input className="rd-input" placeholder="search a streamer" value={ch}
@@ -3364,7 +3373,7 @@ function ChannelPerformance() {
 
    What was actually wrong is that the count sits at 12px in a toolbar. So the
    count is promoted below, and nothing is duplicated. */
-function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce }) {
+function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce, me = null }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
   useEffect(()=>{ if(!sel&&streamsArr.length>0) setSel(streamsArr[0].channel); },[streamsArr.length]);
@@ -3374,7 +3383,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   // user with nowhere to start.
   if(!active) return (
     <div className="rd-streams-layout">
-      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}/>
+      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}/>
       <div className="rd-detail">
         <div className="rd-grid-empty" style={{padding:'64px 0'}}>
           <div className="ic"><Icon name="radio" size={42}/></div>
@@ -3395,7 +3404,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status;
   return (
     <div className="rd-streams-layout">
-      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce}}
+      <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
         selected={active.channel} onSelect={setSel}/>
       <div className="rd-detail">
         <div className="rd-detail-head">
@@ -4125,11 +4134,12 @@ function AccountScreen({ me }) {
     : 'var(--fg-2)';
   const isSubscribed = sub==='active'||sub==='trialing';
 
-  const hasTwitch  = !!(me.twitch_login);
-  // Twitch is the only way in. Signing in with Kick was already disabled at the
-  // route before the Kick OAuth flow was removed altogether, so there is no
-  // longer a second answer to this.
-  const signedInWith = 'Twitch';
+  // Either-or sign-in (2026-09-16): an account holds a Twitch identity, a
+  // Kick identity, or both. /me says which; the rows below offer the other.
+  const plats      = me.platforms || {twitch: !!me.twitch_login, kick: !!me.kick_slug};
+  const hasTwitch  = !!plats.twitch;
+  const hasKick    = !!plats.kick;
+  const signedInWith = hasTwitch && hasKick ? 'Twitch and Kick' : hasKick ? 'Kick' : 'Twitch';
 
   const deleteAccount = async () => {
     setDeleting(true); setDelErr('');
@@ -4237,23 +4247,36 @@ function AccountScreen({ me }) {
             </div>
             {hasTwitch
               ? <span style={{fontSize:12,color:'#9146ff',fontWeight:600,flexShrink:0}}>✓ Connected</span>
-              : <a href="/auth/twitch" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}>Connect</a>}
+              : <a href="/auth/twitch?intent=link" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}
+                  title="Twitch clips are made under your own Twitch login">Connect</a>}
           </div>
+          {!hasTwitch && <div style={{fontSize:12,color:'var(--fg-3)',padding:'8px 0 0'}}>
+            Connect Twitch to clip Twitch channels: a Twitch clip is made under your own Twitch login.
+          </div>}
 
           {/* Kick row */}
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0 4px'}}>
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
             </span>
-            {/* No Connect button and no linked-account state, on purpose: Kick
-                channels are monitored from their public broadcast and chat, so
-                no Kick login is needed and none is stored — both legal pages
-                say so. Clips on Kick are files Highlightz captures itself. */}
+            {/* Kick sign-in (2026-09-16): identity only, no Kick token is
+                kept, and monitoring Kick channels never needed an account.
+                So "Connect" here is about signing in with Kick next time,
+                not about unlocking anything. */}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:12}}>Kick</div>
-              <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>No account needed. Switch to Kick and add a channel.</div>
+              {hasKick
+                ? <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>@{me.kick_slug || me.kick_username}</div>
+                : <div style={{fontSize:12,color:'var(--fg-3)',marginTop:4}}>
+                    {me.kick_signin ? 'Not connected. Kick channels work either way.' : 'No account needed. Switch to Kick and add a channel.'}
+                  </div>}
             </div>
-            <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Live</span>
+            {hasKick
+              ? <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>✓ Connected</span>
+              : me.kick_signin
+                ? <a href="/auth/kick?intent=link" className="rd-btn sm" style={{textDecoration:'none',flexShrink:0}}
+                    title="Sign in with Kick next time too">Connect</a>
+                : <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Live</span>}
           </div>
         </div>
 
@@ -8151,6 +8174,12 @@ function RdApp() {
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>{
       setMe(data);
+      // An account that signed up with Kick starts on Kick, unless it has
+      // already chosen a platform in this browser.
+      try{
+        if(data && data.platforms && data.platforms.kick && !data.platforms.twitch && !localStorage.getItem('hz_platform'))
+          switchPlatform('kick');
+      }catch{}
       // The broadcast covers the live case; this covers a tab opened after
       // the milestone was crossed, and any reconnect.
       if(data && data.review_prompt) setReviewAsk(p=>p||{clips:0});
@@ -8197,13 +8226,20 @@ function RdApp() {
     refetchAll();
     // Surface Kick OAuth results from redirect params
     const _params = new URLSearchParams(location.search);
-    if (_params.get('kick_linked')) {
-      flash('Kick account connected successfully!');
+    if (_params.get('linked')) {
+      // Back from /auth/<platform>?intent=link. /me is refetched by the
+      // identity_linked broadcast; this lands them on the Account tab.
+      const which = _params.get('linked')==='kick' ? 'Kick' : 'Twitch';
+      flash(which + ' connected to your account.');
       setRoute('account');
       history.replaceState(null,'',location.pathname);
-    } else if (_params.get('kick_error')) {
-      const detail = _params.get('kick_detail');
-      flash('Kick connection failed' + (detail ? ': ' + decodeURIComponent(detail) : ' — check server logs'));
+    } else if (_params.get('link_error')) {
+      const why = {twitch_taken:'That Twitch account already has its own Highlightz account.',
+                   kick_taken:'That Kick account already has its own Highlightz account.',
+                   kick:'Kick did not complete the sign-in. Try again.'}[_params.get('link_error')]
+                  || 'Could not connect that account.';
+      flash(why);
+      setRoute('account');
       history.replaceState(null,'',location.pathname);
     } else if (_params.get('connected')) {
       // Back from a YouTube/TikTok/Instagram consent screen. The connection
@@ -8435,6 +8471,13 @@ function RdApp() {
         }
         else if(msg.event==='autopilot_changed'){
           setAutopilot(a=>({...(a||{}), config: msg.config}));
+        }
+        else if(msg.event==='identity_linked'){
+          // A Twitch or Kick identity was attached to this account in another
+          // tab (the OAuth round trip lands wherever it started). /me carries
+          // the platforms map, so the Account rows and the add-stream gate
+          // follow without a reload.
+          fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
         }
         else if(msg.event==='publish_connections_changed'){
           // Sent on connect, disconnect, and when the poster finds a token
@@ -8708,7 +8751,7 @@ function RdApp() {
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
-  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip}}/>;
+  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;

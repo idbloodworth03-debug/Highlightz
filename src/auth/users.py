@@ -802,16 +802,98 @@ def get_by_kick_id(kick_id: str) -> dict | None:
     return next((u for u in _load() if u.get("kick_id") == kick_id), None)
 
 
-# ── Kick account linking: REMOVED 2026-08-27 ──────────────────────────────────
-# link_kick_to_user, upsert_kick_user, _store_refreshed_kick_tokens and
-# get_kick_token lived here and wrote `kick_access` / `kick_refresh` /
-# `kick_expires_at` onto the user record. Kick monitoring is switched off and
-# both legal pages state that no Kick credentials are requested or stored, so
-# the flow that collected them is gone rather than the sentence that promised
-# it would not. `get_by_kick_id` above is kept: it only reads an id.
-#
-# Existing records may still carry the encrypted fields. scripts/purge_kick_credentials.py
-# strips them; run it once on production after deploying.
+# ── Kick sign-in (2026-09-16) ─────────────────────────────────────────────────
+# Identity only. The Kick OAuth flow that lived here until 2026-08-27 wrote
+# kick_access / kick_refresh / kick_expires_at onto the record; this one keeps
+# the id, username, slug and avatar and NOTHING else — the token is used once
+# in the callback to ask Kick who signed in and is then dropped, because Kick
+# monitoring needs no user token. The legal pages describe exactly this, and
+# tests/test_kick_login.py pins that no kick_* token field is ever written.
+# scripts/purge_kick_credentials.py still strips the old fields from records
+# created under the 2026-06 flow.
+
+def upsert_kick_user(kick_id: str, slug: str, username: str, avatar_url: str = "") -> dict:
+    """Find or create a user by Kick id. Returns the public user dict."""
+    users = _load()
+    now = time.time()
+    existing = next((u for u in users if u.get("kick_id") == kick_id), None)
+    if existing:
+        existing["kick_slug"] = slug
+        existing["kick_username"] = username
+        if not existing.get("twitch_id"):
+            # A Kick-only account is named after its Kick user; a linked one
+            # keeps the Twitch name it signed up with.
+            existing["username"] = username or existing.get("username", "")
+            existing["avatar_url"] = avatar_url or existing.get("avatar_url", "")
+        _save(users)
+        return _public(existing)
+    user: dict = {
+        "id":                   secrets.token_urlsafe(16),
+        "username":             username or slug,
+        "password_hash":        None,
+        "salt":                 None,
+        "is_admin":             False,
+        "kick_id":              kick_id,
+        "kick_slug":            slug,
+        "kick_username":        username,
+        "avatar_url":           avatar_url,
+        "stripe_customer_id":   None,
+        "subscription_status":  "none",
+        "trial_ends_at":        0,
+        "grandfathered":        False,
+        "pre_card_cutover":     False,
+        "created_at":           now,
+    }
+    users.append(user)
+    _save(users)
+    return _public(user)
+
+
+def link_kick_identity(user_id: str, kick_id: str, slug: str, username: str,
+                       avatar_url: str = "") -> dict | None:
+    """Attach a Kick identity to a signed-in account. None when that Kick
+    user already belongs to a different account (the caller says so)."""
+    users = _load()
+    other = next((u for u in users if u.get("kick_id") == kick_id and u["id"] != user_id), None)
+    if other:
+        return None
+    user = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        return None
+    user["kick_id"] = kick_id
+    user["kick_slug"] = slug
+    user["kick_username"] = username
+    if not user.get("avatar_url") and avatar_url:
+        user["avatar_url"] = avatar_url
+    _save(users)
+    return _public(user)
+
+
+def link_twitch_identity(user_id: str, twitch_id: str, login: str, username: str,
+                         avatar_url: str = "", access_token: str = "",
+                         refresh_token: str = "", expires_in: int = 0) -> dict | None:
+    """Attach a Twitch identity (and its encrypted tokens, which Twitch clip
+    creation needs) to an account that signed up with Kick. None when that
+    Twitch user already has an account of its own."""
+    users = _load()
+    other = next((u for u in users if u.get("twitch_id") == twitch_id and u["id"] != user_id), None)
+    if other:
+        return None
+    user = next((u for u in users if u["id"] == user_id), None)
+    if not user:
+        return None
+    user["twitch_id"] = twitch_id
+    user["twitch_login"] = login
+    if username:
+        user["username"] = username
+    if avatar_url:
+        user["avatar_url"] = avatar_url
+    if access_token:
+        user["tw_access"] = _encrypt(access_token)
+        user["tw_refresh"] = _encrypt(refresh_token)
+        user["tw_expires_at"] = time.time() + max(int(expires_in) - 60, 0)
+    _save(users)
+    return _public(user)
 
 
 def ensure_admin_exists(admin_password: str) -> None:
