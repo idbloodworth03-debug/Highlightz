@@ -1598,6 +1598,25 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### Live trigger-score chart redesigned (2026-09-16, same day)
+
+Owner: "make the graph as a whole look nicer, it looks too generic." The
+chart now shows what the number means. `RdScoreChart({data, threshold,
+marks})`: the channel's **bar** (learned threshold × the Settings dial,
+computed in `StreamsScreen` exactly as `trigger/engine.py` does) is a
+dashed amber rule with a "bar N" pill at its left end; the part of the
+line **above the bar** is redrawn hot (amber, glow, tinted fill) through a
+clipPath; the **live head** is a glowing dot with a 1.8 s pulse ring
+(ambient loop, off under reduced motion); a **time axis** ticks every 10
+samples (−30s … now) with 25/50/75 labels; and a **"clip" marker** stands
+where a clip fired — the App keeps `clipMarks[channel]` (ms timestamps
+from `clip_ready`) and the chart maps them to slots by wall-clock seconds,
+one sample per second. The line is the brand gradient (#7c6bff →
+#c489e4 → #f943ff). The card head gains a state line ("Quiet / Building /
+Close to the bar / Over the bar · bar 68"; "Learning this channel" until
+a threshold exists). Height 150 → 180. `chart_shot.js` feeds the trace at
+one sample per second so the marker lands where it would in production.
+
 ### Live trigger-score chart smoothed (2026-09-16)
 
 Owner: "can we make this graph smoother." `RdScoreChart` now: (1) draws at

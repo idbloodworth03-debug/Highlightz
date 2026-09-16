@@ -782,7 +782,20 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
 .rd-chart-head .lbl{font-size:12px;font-weight:600;color:var(--fg-2)}
 .rd-chart-head .big{font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-.rd-chart{width:100%;height:150px;display:block}
+.rd-chart{width:100%;height:180px;display:block;overflow:visible}
+/* Chart furniture (2026-09-16): axis labels, the bar pill, clip markers, the
+   pulsing live head. The pulse is an ambient loop, so it keeps its own
+   duration rather than a token. */
+.rd-chart-t{font-family:var(--mono);font-size:12px;fill:var(--fg-3);opacity:.8}
+.rd-chart-t.hot{fill:#ffb347;opacity:1;font-weight:700}
+.rd-chart-t.clip{fill:var(--fg);opacity:.9;font-weight:700;font-size:12px}
+.rd-chart-pulse{transform-box:fill-box;transform-origin:center;animation:rd-pulse 1800ms ease-out infinite}
+@keyframes rd-pulse{0%{transform:scale(1);opacity:.9}100%{transform:scale(3.2);opacity:0}}
+.rd-chart-card{position:relative;overflow:hidden}
+.rd-chart-head>div{display:flex;flex-direction:column;gap:4px}
+.rd-chart-state{font-size:12px;color:var(--fg-3)}
+.rd-chart-state.hot{color:#ffb347;font-weight:700}
+@media(prefers-reduced-motion:reduce){.rd-chart-pulse{animation:none}}
 .rd-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .rd-metric{border-radius:15px;padding:16px}
 .rd-metric .k{font-size:12px;color:var(--fg-2);font-weight:500}
@@ -2002,8 +2015,13 @@ function rdMonotonePath(pts){
       (same idea as the score bar), so a new sample makes the line glide left
       rather than snap. Drawn with a monotone cubic, so it never overshoots. */
 const CHART_SLOTS = 40;
-function RdScoreChart({ data }) {
-  const h=150, pad=6;
+function RdScoreChart({ data, threshold = 0, marks = [] }) {
+  // Designed, not generic (owner, 2026-09-16): the chart shows the one thing
+  // the number means — where the score sits against THIS channel's bar. The
+  // bar is drawn across it, the line turns hot where it crosses, the live
+  // head glows, a time axis says how far back the window reaches, and a
+  // marker stands where a clip fired.
+  const h=180, pad=6, padB=22, padL=4;
   const svgRef = useRef(null);
   const [w, setW] = useState(600);
   useEffect(()=>{
@@ -2051,19 +2069,77 @@ function RdScoreChart({ data }) {
   },[data]);
 
   const vals = curRef.current;
-  const pts = vals.map((v,i)=>[pad+(i/(vals.length-1))*(w-2*pad), h-pad-(clamp(v)/100)*(h-2*pad)]);
+  const plotH = h - pad - padB;                       // top pad to the axis line
+  const yOf = v => pad + (1 - clamp(v)/100) * plotH;
+  const xOf = i => padL + (i/(vals.length-1)) * (w - padL - pad);
+  const pts = vals.map((v,i)=>[xOf(i), yOf(v)]);
   const line = rdMonotonePath(pts);
-  const area = line+` L ${(w-pad).toFixed(1)} ${h} L ${pad} ${h} Z`;
+  const base = pad + plotH;
+  const area = line+` L ${(w-pad).toFixed(1)} ${base} L ${padL} ${base} Z`;
   const last = pts[pts.length-1];
+  const thr = threshold > 0 ? clamp(threshold) : 0;
+  const yThr = thr ? yOf(thr) : null;
+  const over = thr ? (vals[vals.length-1] >= thr) : false;
+  // Clip markers: a clip fired at time t sits (now - t) seconds back; one
+  // sample per second, so that many slots from the right edge.
+  const now = Date.now();
+  const markSlots = (marks||[]).map(t => vals.length-1 - Math.round((now - t)/1000)).filter(s => s >= 0 && s < vals.length);
+  // Time axis: a tick every 10 slots, labelled from the right.
+  const ticks = []; for(let s=vals.length-1; s>=0; s-=10) ticks.push(s);
   return (
-    <svg ref={svgRef} className="rd-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stopColor="rgba(184,106,220,.5)"/><stop offset="1" stopColor="rgba(184,106,220,0)"/>
-      </linearGradient></defs>
-      {[25,50,75].map(y=><line key={y} x1="0" x2={w} y1={h-(y/100)*(h-2*pad)-pad} y2={h-(y/100)*(h-2*pad)-pad} stroke="rgba(255,255,255,.05)" strokeWidth="1"/>)}
+    <svg ref={svgRef} className={'rd-chart'+(over?' over':'')} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="rgba(184,106,220,.42)"/><stop offset="1" stopColor="rgba(184,106,220,0)"/>
+        </linearGradient>
+        <linearGradient id="cl" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#7c6bff"/><stop offset=".6" stopColor="#c489e4"/><stop offset="1" stopColor="#f943ff"/>
+        </linearGradient>
+        <linearGradient id="ch" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="rgba(255,138,76,.45)"/><stop offset="1" stopColor="rgba(255,138,76,0)"/>
+        </linearGradient>
+        <filter id="cglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+        {yThr!==null && <clipPath id="cabove"><rect x="0" y="0" width={w} height={Math.max(0, yThr)}/></clipPath>}
+      </defs>
+      {/* Grid: three faint rules with quiet labels, and the axis line. */}
+      {[25,50,75].map(v=><g key={v}>
+        <line x1={padL} x2={w-pad} y1={yOf(v)} y2={yOf(v)} stroke="rgba(255,255,255,.05)" strokeWidth="1"/>
+        <text x={padL+4} y={yOf(v)-4} className="rd-chart-t">{v}</text>
+      </g>)}
+      <line x1={padL} x2={w-pad} y1={base} y2={base} stroke="rgba(255,255,255,.10)" strokeWidth="1"/>
+      {ticks.map(s=><g key={s}>
+        <line x1={xOf(s)} x2={xOf(s)} y1={base} y2={base+4} stroke="rgba(255,255,255,.18)" strokeWidth="1"/>
+        <text x={xOf(s)} y={h-6} className="rd-chart-t" textAnchor={s===vals.length-1?'end':'middle'}>
+          {s===vals.length-1 ? 'now' : '−'+(vals.length-1-s)+'s'}
+        </text>
+      </g>)}
+      {/* The area and the line, in the brand gradient. */}
       <path d={area} fill="url(#cg)"/>
-      <path d={line} fill="none" stroke="#c489e4" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
-      <circle cx={last[0]} cy={last[1]} r="3.5" fill="#fff"/>
+      <path d={line} fill="none" stroke="url(#cl)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+      {/* The channel's bar, and the line turning hot above it. */}
+      {yThr!==null && <g>
+        <line x1={padL} x2={w-pad} y1={yThr} y2={yThr} stroke="rgba(255,138,76,.55)" strokeWidth="1" strokeDasharray="4 4"/>
+        <g clipPath="url(#cabove)">
+          <path d={area} fill="url(#ch)"/>
+          <path d={line} fill="none" stroke="#ff8a4c" strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" opacity=".35" filter="url(#cglow)"/>
+          <path d={line} fill="none" stroke="#ffb347" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+        </g>
+        {/* The label sits at the left end of the bar, away from the live head. */}
+        <g transform={`translate(${padL+4} ${yThr})`}>
+          <rect x="0" y="-10" width="58" height="20" rx="10" fill="rgba(20,2,28,.85)" stroke="rgba(255,138,76,.45)"/>
+          <text x="29" y="4" className="rd-chart-t hot" textAnchor="middle">bar {Math.round(thr)}</text>
+        </g>
+      </g>}
+      {/* Clip markers. */}
+      {markSlots.map((s,i)=><g key={'m'+i}>
+        <line x1={xOf(s)} x2={xOf(s)} y1={pad+8} y2={base} stroke="rgba(255,255,255,.22)" strokeWidth="1" strokeDasharray="2 3"/>
+        <rect x={xOf(s)-16} y={pad-2} width="32" height="16" rx="8" fill="rgba(255,255,255,.10)"/>
+        <text x={xOf(s)} y={pad+10} className="rd-chart-t clip" textAnchor="middle">clip</text>
+      </g>)}
+      {/* The live head: a soft glow, a pulse ring, the dot. */}
+      <circle cx={last[0]} cy={last[1]} r="12" fill={over?'rgba(255,179,71,.35)':'rgba(196,137,228,.35)'} filter="url(#cglow)"/>
+      <circle className="rd-chart-pulse" cx={last[0]} cy={last[1]} r="5" fill="none" stroke={over?'#ffb347':'#c489e4'} strokeWidth="1.5"/>
+      <circle cx={last[0]} cy={last[1]} r="4" fill="#fff"/>
     </svg>
   );
 }
@@ -3493,7 +3569,7 @@ function ChannelPerformance() {
 
    What was actually wrong is that the count sits at 12px in a toolbar. So the
    count is promoted below, and nothing is duplicated. */
-function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce, me = null }) {
+function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce, me = null, clipMarks = {} }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
   useEffect(()=>{ if(!sel&&streamsArr.length>0) setSel(streamsArr[0].channel); },[streamsArr.length]);
@@ -3537,12 +3613,26 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           <div className="sp"/>
           <button className="rd-btn ghost-force" onClick={()=>onForce(active.channel)}><Icon name="zap" size={14}/>Force clip</button>
         </div>
-        <div className="rd-card2 glass">
-          <div className="rd-chart-head">
-            <span className="lbl">Trigger score · live</span>
-            <span className="big" style={{color:scoreColor(sd.score)}}>{sd.score.toFixed(1)}</span>
-          </div>
-          <RdScoreChart data={hist}/>
+        <div className="rd-card2 glass rd-chart-card">
+          {(()=>{
+            // The bar the score has to cross: the learned threshold with the
+            // Settings dial applied, exactly as trigger/engine.py computes it.
+            const bar = p.trigger_threshold ? p.trigger_threshold * (1 - 0.08 * (p.sensitivity || 0)) : 0;
+            const ratio = bar ? sd.score / bar : 0;
+            const phrase = !bar ? 'learning this channel' : ratio >= 1 ? 'over the bar' : ratio >= .85 ? 'close to the bar' : ratio >= .5 ? 'building' : 'quiet';
+            return (
+              <div className="rd-chart-head">
+                <div>
+                  <span className="lbl">Trigger score · live</span>
+                  <span className={'rd-chart-state' + (ratio >= 1 ? ' hot' : '')}>{phrase[0].toUpperCase() + phrase.slice(1)}{bar ? ' · bar ' + Math.round(bar) : ''}</span>
+                </div>
+                <span className="big" style={{color:scoreColor(sd.score)}}>{sd.score.toFixed(1)}</span>
+              </div>
+            );
+          })()}
+          <RdScoreChart data={hist}
+            threshold={p.trigger_threshold ? p.trigger_threshold * (1 - 0.08 * (p.sensitivity || 0)) : 0}
+            marks={clipMarks[active.channel] || []}/>
         </div>
         <div className="rd-metrics">
           <div className="rd-metric glass"><div className="k">Threshold</div><div className="v">{p.trigger_threshold?p.trigger_threshold.toFixed(0):'—'}</div></div>
@@ -8301,6 +8391,8 @@ function RdApp() {
   const [scores, setScores] = useState({});
   const [profiles, setProfiles] = useState({});
   const [histories, setHistories] = useState({});
+  // When a clip fired, per channel (ms timestamps), for the chart's markers.
+  const [clipMarks, setClipMarks] = useState({});
   const [clips, setClips] = useState({});
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
   // The platform switch is a moment, not a repaint (owner, 2026-09-16: "the
@@ -8565,6 +8657,7 @@ function RdApp() {
         // missed. The toast is the only notice a user watching another screen
         // gets, so it says which of the two just happened.
         if(msg.event==='clip_ready'){setClips(p=>({...p,[msg.clip.id]:msg.clip}));
+          if(msg.clip && msg.clip.channel) setClipMarks(p=>({...p,[msg.clip.channel]:[...(p[msg.clip.channel]||[]).slice(-19), Date.now()]}));
           // Settings → "Notify me when a clip fires": a desktop notification
           // only when this tab is in the background (a visible tab already
           // shows the card), and only with permission already granted.
@@ -9021,7 +9114,7 @@ function RdApp() {
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
-  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me}}/>;
+  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
