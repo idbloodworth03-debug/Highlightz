@@ -153,6 +153,12 @@ PLAN_LIMITS: dict[str, dict] = {
 }
 
 PAID_PLANS = ("starter", "pro")
+# What a legacy ($15-era, single-price) subscriber actually pays. Their price
+# id predates the tiers and is not stored on the record, so the admin MRR
+# used to leave them out and call itself a floor. Owner (2026-09-16): count
+# them at $15 so the figure is the real MRR. Change here if Stripe says
+# otherwise — nothing else hard-codes it.
+LEGACY_PRICE = 15
 DEFAULT_PLAN = FREE_PLAN
 
 # The pending-clip cap for admins: effectively none.

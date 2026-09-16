@@ -179,21 +179,24 @@ def test_mrr_counts_only_money_that_actually_arrives(client):
     """Pro (25) + Starter (10). The trial reads as Pro and the admin reads as
     Pro, and neither of them pays anything."""
     d = _overview(client, counter=1)
-    assert d["mrr"] == 35, d["mrr"]
+    assert d["mrr"] == 50, d["mrr"]            # 25 + 10 + the legacy sub's 15
     assert d["users"]["paying"] == 3           # nova, kat and the legacy sub
     assert d["users"]["trialing"] == 1
     assert d["users"]["comped"] == 1, "the comped Starter is being counted as a customer"
 
 
-def test_a_legacy_subscriber_is_never_priced_at_the_tier_they_were_given(client):
+def test_a_legacy_subscriber_is_priced_at_the_legacy_rate_not_the_tier_they_were_given(client):
     """ENTITLEMENT is not PRICE. A $15-era subscriber is grandfathered to Pro so
-    they keep every feature, but they are not paying $25 and we do not hold
-    their real price locally. Billing them at the Pro price here would inflate
-    MRR by the difference on every one of them, silently and forever.
+    they keep every feature, but they are not paying $25. Until 2026-09-16
+    they were left out of MRR ("a floor"); the owner wants the real figure,
+    so they count at plans.LEGACY_PRICE — never at the Pro rate.
     """
+    from src.billing import plans
     d = _overview(client, counter=1)
-    assert d["mrr"] == 35, "the legacy subscriber is being priced at the Pro rate"
-    assert d["mrr_unknown"] == 1, "MRR does not admit it is a floor"
+    assert plans.LEGACY_PRICE == 15
+    assert d["mrr"] == 35 + plans.LEGACY_PRICE, "the legacy subscriber is not priced at $15"
+    assert d["mrr"] != 35 + 25, "the legacy subscriber is being priced at the Pro rate"
+    assert d["mrr_unknown"] == 1 and d["legacy_price"] == 15
     # They still count as a subscriber and still resolve to Pro for features.
     assert d["users"]["paying"] == 3
     assert d["users"]["by_plan"]["pro"] == 3
@@ -478,10 +481,9 @@ def test_the_paying_tile_breaks_down_only_the_people_paying(client):
     tier = u["paying_by_tier"]
     assert sum(tier.values()) == u["paying"] == 3, (tier, u["paying"])
     assert tier["pro"] == 1 and tier["starter"] == 1
-    # The $15-era subscriber is a subscriber whose price we do not hold, so
-    # they are counted but not priced — same reason MRR reports a floor.
+    # The $15-era subscriber is counted in their own tier, at LEGACY_PRICE.
     assert tier["legacy"] == 1
-    assert u["paying"] == 3 and _overview(client)["mrr"] == 35, "MRR drifted"
+    assert u["paying"] == 3 and _overview(client)["mrr"] == 35 + 15, "MRR drifted"
 
 
 def test_the_breakdown_still_works_with_nobody_paying(client, monkeypatch):

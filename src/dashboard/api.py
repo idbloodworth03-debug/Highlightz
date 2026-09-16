@@ -6008,12 +6008,9 @@ async def admin_overview(request: Request):
         if status == "active":
             # ENTITLEMENT is not PRICE. A $15-era subscriber has no stored plan
             # and is grandfathered to Pro so they keep every feature — but they
-            # are not paying $25, and billing them at the Pro price in this
-            # figure would silently inflate MRR by the difference on every one
-            # of them. We do not hold their price locally (Stripe does), so
-            # they are counted as subscribers and left out of the money, and
-            # `mrr_unknown` says how many are missing. MRR is a floor, and the
-            # panel labels it as one.
+            # are not paying $25, and billing them at the Pro price would
+            # inflate MRR by the difference on every one of them. They pay
+            # plans.LEGACY_PRICE (owner, 2026-09-16), and are counted at that.
             # A comped membership is not revenue. Since an admin can now grant
             # a specific tier, the stored plan is no longer proof of payment —
             # a Stripe customer is. Without one the account is a gift and is
@@ -6031,6 +6028,7 @@ async def admin_overview(request: Request):
                 mrr += price
                 paying_by_tier[stored] = paying_by_tier.get(stored, 0) + 1
             else:
+                mrr += plans.LEGACY_PRICE
                 legacy += 1
                 paying_by_tier["legacy"] += 1
 
@@ -6060,15 +6058,17 @@ async def admin_overview(request: Request):
             "segment": segment,
             # The tiers of the people in `paying`, so the Paying tile's
             # sub-line describes the tile's own number rather than the whole
-            # population. `legacy` are $15-era subscribers whose price we do
-            # not hold locally.
+            # population. `legacy` are $15-era subscribers, priced at
+            # plans.LEGACY_PRICE.
             "paying_by_tier": paying_by_tier,
             "new_7d": new_7d, "new_30d": new_30d,
         },
         "mrr": mrr,
-        # How many active subscribers we could not price locally. MRR is a
-        # floor, not a total, whenever this is non-zero.
+        # Legacy ($15-era) subscribers, counted in `mrr` at plans.LEGACY_PRICE.
+        # Kept under this name so the panel's script needs no new key; it
+        # no longer means "unpriced".
         "mrr_unknown": legacy,
+        "legacy_price": plans.LEGACY_PRICE,
         "clips": {
             # The lifetime counter — the same number the landing page shows, so
             # the two can never quote different totals.
@@ -11900,11 +11900,11 @@ async function loadOverview(){
   if(tier.starter) pt.push(n0(tier.starter) + ' Starter');
   if(tier.legacy)  pt.push(n0(tier.legacy) + ' legacy');
   set('ov-paying-s', pt.length ? pt.join(' · ') : 'no paid subscriptions yet');
-  // A legacy subscriber's price is not in our records, so MRR says so rather
-  // than pricing them at the tier they were grandfathered into.
-  set('ov-mrr', '$' + n0(d.mrr) + (d.mrr_unknown ? '+' : ''));
+  // Legacy ($15-era) subscribers are counted at their real price, so this
+  // is the whole figure; the sub-line says how many are on the old rate.
+  set('ov-mrr', '$' + n0(d.mrr));
   set('ov-mrr-s', d.mrr_unknown
-    ? 'per month · ' + n0(d.mrr_unknown) + ' legacy subscriber' + (d.mrr_unknown === 1 ? '' : 's') + ' not priced here'
+    ? 'per month · ' + n0(d.mrr_unknown) + ' legacy at $' + n0(d.legacy_price || 15)
     : 'per month, active subscriptions only');
   set('ov-clips', n0(c.lifetime));
   // The gap between lifetime and stored is the whole point of showing both.

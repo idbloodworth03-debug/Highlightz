@@ -228,7 +228,10 @@ switched off.
   Plumbing: `src/billing/plans.py` (PLAN_LIMITS + get_plan), price ids in
   settings (STRIPE_PRICE_ID_STARTER / STRIPE_PRICE_ID_PRO; legacy
   STRIPE_PRICE_ID = the $15 era, mapped to 'pro' — **existing subscribers
-  are grandfathered as Pro**). The webhook reads the subscription's price id
+  are grandfathered as Pro**). The admin MRR counts a legacy subscriber at
+  `plans.LEGACY_PRICE` ($15; owner, 2026-09-16 — it used to leave them out
+  and call the figure a floor). `mrr_unknown` in `/admin/overview` now just
+  means "how many are on the legacy rate". The webhook reads the subscription's price id
   (extract_price_id → plan_for_price) and stores `plan` on the user, so
   portal upgrades/downgrades take effect automatically. Enforcement is
   backend-side: add_stream limit, pending-clip eviction cap, 403 on
