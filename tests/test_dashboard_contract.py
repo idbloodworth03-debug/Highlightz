@@ -227,14 +227,26 @@ def test_the_dropzone_says_it_is_the_way_into_the_editor():
 
 def test_already_uploaded_clips_are_one_click_from_the_editor():
     """Without this the only visible route in is 'upload something', which is a
-    dead end for a user who already has clips here and wants to re-cut one."""
-    assert 'className="rd-picks"' in SRC, "no quick-pick row for existing clips"
-    picks = re.search(r'className="rd-picks">(.*?)</div>', SRC, re.S)
-    assert picks, "quick-pick row markup not found"
-    assert "setEditing(u)" in picks.group(1), \
-        "quick-pick chips do not open the editor"
-    assert "uploads.length>0 &&" in SRC, \
-        "quick-pick row must be hidden when there is nothing to pick"
+    dead end for a user who already has clips here and wants to re-cut one.
+    The route is the card's own Edit button (2026-09-16: the second list of
+    chips under the dropzone was clutter, so the grid is the only list)."""
+    screen = SRC[SRC.index("function UploadScreen("):SRC.index("function ScanActivity(")]
+    grid = re.search(r'className="rd-lib-grid">(.*?)\n\s*</div>\}', screen, re.S)
+    assert grid, "clip grid not found"
+    assert "onClick={()=>setEditing(u)}" in grid.group(1), \
+        "clip cards do not open the editor"
+    assert 'className="rd-picks"' not in screen, \
+        "the chip list is back: the grid is the one list of clips"
+
+
+def test_the_walkthrough_is_a_button_not_a_banner():
+    """Owner (2026-09-16): the three steps sit behind "How it works", not at
+    the top of every visit. The strip must be conditional on that toggle."""
+    screen = SRC[SRC.index("function UploadScreen("):SRC.index("function ScanActivity(")]
+    assert re.search(r"\{showHow && <div className=\"rd-howbox\">\s*<div className=\"rd-how\">", screen), \
+        "walkthrough strip is not behind the showHow toggle"
+    assert "setShowHow(v=>!v)" in screen, "no How it works button toggles it"
+    assert ">How it works" in screen or "How it works\n" in screen, "button is not labelled How it works"
 
 
 def _how_steps(component: str) -> list[tuple[str, str]]:
@@ -249,7 +261,8 @@ def _how_steps(component: str) -> list[tuple[str, str]]:
 
 def test_the_editor_tab_explains_the_flow_before_asking_for_a_file():
     """A dropzone alone doesn't tell anyone an editor exists, what it does, or
-    where the result goes. Three numbered steps state it once, up top."""
+    where the result goes. Three numbered steps state it, behind the
+    "How it works" button (see test_the_walkthrough_is_a_button_not_a_banner)."""
     steps = _how_steps("UploadScreen")
     assert [n for n, _ in steps] == ["1", "2", "3"], f"steps not 1-2-3: {steps}"
     titles = " ".join(t.lower() for _, t in steps)

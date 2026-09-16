@@ -1200,6 +1200,28 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
   background:var(--grad-soft);color:var(--acc);font-size:12px;font-weight:800}
 .rd-step .st{font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px}
 .rd-step .sb{font-size:12px;color:var(--fg-3);line-height:1.5}
+/* Clip Editor library: a header with two buttons, a drop strip, the clips. */
+.rd-lib-head{flex-wrap:wrap}
+.rd-lib-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.rd-lib-actions .rd-btn{display:inline-flex;align-items:center}
+.rd-btn.on{background:rgba(184,106,220,.16);color:var(--acc)}
+.rd-lib-admin{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--pending);
+  padding:8px 12px;border-radius:10px;border:1px solid rgba(255,138,76,.28);background:rgba(255,138,76,.08);
+  margin-bottom:16px}
+.rd-lib-admin code{font-family:monospace}
+.rd-howbox{position:relative;margin-bottom:16px}
+.rd-howbox-x{position:absolute;top:8px;right:8px;padding:4px 8px}
+.rd-howbox .rd-step:last-child{padding-right:48px}
+.rd-drop.slim{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 16px;
+  border-radius:12px;text-align:left}
+.rd-drop.slim .di{margin:0;display:flex}
+.rd-drop.slim .dt{margin:0;font-size:12px}
+.rd-drop.slim .ds{margin:0}
+@media(max-width:760px){.rd-drop.slim{flex-wrap:wrap;gap:4px}.rd-drop.slim .di{display:none}}
+.rd-lib-prog{margin-top:12px}
+.rd-lib-grid{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.rd-lib-foot{margin-top:16px;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--fg-3)}
+.rd-lib-foot .rd-quota{flex:1;margin:0;max-width:240px}
 .rd-picks{display:flex;gap:8px;flex-wrap:wrap}
 .rd-pick{display:inline-flex;align-items:center;gap:8px;max-width:220px;padding:8px 12px;
   border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);
@@ -7177,6 +7199,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   const [err, setErr]         = useState('');
   const fileRef = useRef(null);
   const [editing, setEditing] = useState(null);
+  const [showHow, setShowHow] = useState(false);
 
   const load = useCallback(()=>{
     // Don't call an endpoint that is deliberately 503ing: when only the import
@@ -7318,14 +7341,30 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
 
   const pct = quota && quota.limit ? Math.min(100, Math.round(quota.used/quota.limit*100)) : 0;
   const running = Object.entries(prog);
+  const hasClips = uploads.length>0;
+  const pickFile = ()=>fileRef.current&&fileRef.current.click();
 
+  // One screen, three things on it: a header with two buttons, a place to
+  // drop a file, and the clips. The walkthrough lives behind "How it works"
+  // (owner, 2026-09-16: "I dont want the tut on the top I want it to be a
+  // button to tell people if they need it").
   return (
     <div className="rd-scroll">
       <div className="rd-settings">
-        <div className="rd-section-title">
+        <div className="rd-section-title rd-lib-head">
           <h2>Clip Editor</h2>
-          {uploadsOn &&
-            <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'} in your library</span>}
+          {uploadsOn && hasClips &&
+            <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'}</span>}
+          <div className="rd-lib-actions">
+            <button className={'rd-btn'+(showHow?' on':'')} onClick={()=>setShowHow(v=>!v)}
+              aria-expanded={showHow} title="A three-step walkthrough">
+              <Icon name="book" size={14}/>&nbsp;How it works
+            </button>
+            {uploadsOn &&
+              <button className="rd-btn grad" onClick={pickFile}>
+                <Icon name="plus" size={14}/>&nbsp;Add a clip
+              </button>}
+          </div>
         </div>
 
         {/* Admins bypass the release flags to exercise features on prod. Say
@@ -7333,21 +7372,18 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             feature looks identical to a launched one, and that is how
             something ships by accident. */}
         {me && me.is_admin && me.features && !(me.features.uploads && me.features.clip_import) &&
-          <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:12,
-                       background:'rgba(255,138,76,.12)',border:'1px solid rgba(255,138,76,.32)',
-                       fontSize:12,color:'var(--pending)',fontWeight:600}}>
-            <Icon name="cog" size={15}/>
-            <span>Admin preview — parts of this screen are hidden from your users. Set{' '}
-              {!me.features.clip_import && <code style={{fontFamily:'monospace'}}>CLIP_IMPORT_ENABLED=true</code>}
+          <div className="rd-lib-admin">
+            <Icon name="cog" size={13}/>
+            <span>Admin preview: parts of this screen are hidden from your users. Set{' '}
+              {!me.features.clip_import && <code>CLIP_IMPORT_ENABLED=true</code>}
               {!me.features.clip_import && !me.features.uploads && ' and '}
-              {!me.features.uploads && <code style={{fontFamily:'monospace'}}>UPLOADS_ENABLED=true</code>}
+              {!me.features.uploads && <code>UPLOADS_ENABLED=true</code>}
               {' '}to launch.</span>
           </div>}
 
-        {/* The flow is not guessable from a dropzone alone: nothing on screen
-            says an editor exists, what it can do, or where the result goes.
-            Three steps, stated once, at the top. */}
-        <div className="rd-how">
+        {/* The flow, on demand: what the editor does and where the result goes. */}
+        {showHow && <div className="rd-howbox">
+          <div className="rd-how">
           {[['upload','1','Add a clip','Drop a file in, or pick one you already uploaded.'],
             ['film','2','Edit it','Trim, reframe for TikTok or Reels, add a caption.'],
             ['download','3','Export','Renders on your device and saves to your downloads.']
@@ -7360,53 +7396,29 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Import is complete on its own and ships independently of uploads. */}
-        {importOn && <TwitchImport/>}
+          </div>
+          <button className="rd-btn sm rd-howbox-x" onClick={()=>setShowHow(false)} title="Close">
+            <Icon name="x" size={13}/>
+          </button>
+        </div>}
 
         {uploadsOn && <>
-        <div className="rd-card glass">
-          <h3><span className="si"><Icon name="upload" size={15}/></span>Add clips</h3>
-          <div className="desc">
-            Drop a clip in and it opens in the editor — trim it, reframe it for
-            vertical, add a caption, export. MP4, MOV or WebM, up to{' '}
-            {quota?fmtBytes(quota.max_file):'300 MB'} each.
-          </div>
-
-          <div className={'rd-drop'+(over?' over':'')}
-            onClick={()=>fileRef.current&&fileRef.current.click()}
+          {/* Big when the library is empty (it is the only thing to do), a
+              slim strip once there are clips so the clips get the screen. */}
+          <div className={'rd-drop'+(hasClips?' slim':'')+(over?' over':'')}
+            onClick={pickFile}
             onDragOver={e=>{e.preventDefault();setOver(true);}}
             onDragLeave={()=>setOver(false)}
             onDrop={onDrop}>
-            <div className="di"><Icon name="upload" size={30}/></div>
+            <div className="di"><Icon name="upload" size={hasClips?18:30}/></div>
             <div className="dt">Drop a clip here to open the editor</div>
-            <div className="ds">or click to choose a file · MP4, MOV or WebM</div>
+            <div className="ds">or click to choose · MP4, MOV or WebM · up to {quota?fmtBytes(quota.max_file):'300 MB'}</div>
           </div>
           <input ref={fileRef} type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
             multiple style={{display:'none'}}
             onChange={e=>{ if(e.target.files?.length) send(e.target.files); e.target.value=''; }}/>
 
-          {/* Anything already uploaded is one click from the editor. Without
-              this the only visible route in is "upload something", which is a
-              dead end for a user who already has clips here and just wants to
-              re-cut one. */}
-          {uploads.length>0 && <div style={{marginTop:12}}>
-            <div className="ed-note" style={{marginBottom:8}}>
-              Or edit one you've already uploaded:
-            </div>
-            <div className="rd-picks">
-              {uploads.filter(u=>u.source!=='render').slice(0,8).map(u=>(
-                <button key={u.id} className="rd-pick" onClick={()=>setEditing(u)}
-                  title={'Edit ' + u.filename}>
-                  <Icon name="film" size={13}/>
-                  <span>{u.filename}</span>
-                </button>
-              ))}
-            </div>
-          </div>}
-
-          {running.length>0 && <div style={{marginTop:12}}>
+          {running.length>0 && <div className="rd-lib-prog">
             {running.map(([id,p])=>(
               <div className="rd-uprow" key={id}>
                 <div style={{fontSize:12,fontWeight:600,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
@@ -7420,45 +7432,37 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
 
           {err && <div style={{marginTop:12,fontSize:12,color:'var(--danger)'}}>{err}</div>}
 
-          {quota && <div style={{marginTop:16}}>
-            <div className={'rd-quota'+(pct>=90?' rd-quota-full':'')}><i style={{width:pct+'%'}}/></div>
-            <div style={{fontSize:12,color:'var(--fg-3)'}}>
-              {fmtBytes(quota.used)} of {fmtBytes(quota.limit)} used · {fmtBytes(quota.remaining)} free
-            </div>
-          </div>}
-        </div>
-
-        <div className="rd-card glass">
-          <h3><span className="si"><Icon name="film" size={15}/></span>Your clips</h3>
-          <div className="desc">Everything you've uploaded. Hit Edit on any of them to trim,
-            reframe and export — publishing straight to TikTok lands here next.</div>
-          {uploads.length===0
-            ? <div className="rd-grid-empty" style={{padding:'32px 0'}}>
-                <div className="ic"><Icon name="film" size={38}/></div>
-                <div className="big">No clips uploaded yet</div>
-                <div>Drop a clip above and the editor opens automatically.</div>
-              </div>
-            : <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:12}}>
-                {uploads.map(u=>(
-                  <div className="rd-up" key={u.id}>
-                    <video src={u.url} controls preload="metadata"/>
-                    <div className="ub">
-                      <div style={{minWidth:0,flex:1}}>
-                        <div className="un" title={u.filename}>{u.filename}</div>
-                        <div className="um">{fmtBytes(u.size)} · {u.kind.toUpperCase()}</div>
-                      </div>
-                      <button className="rd-btn sm" onClick={()=>setEditing(u)} title="Edit clip">
-                        <Icon name="film" size={13}/>&nbsp;Edit
-                      </button>
-                      <button className="rd-btn danger sm" onClick={()=>del(u.id)} title="Delete clip">
-                        <Icon name="trash" size={13}/>
-                      </button>
+          {/* Every clip is one click from the editor: the card's Edit button.
+              No second list, no chips, no card around the cards. */}
+          {hasClips &&
+            <div className="rd-lib-grid">
+              {uploads.map(u=>(
+                <div className="rd-up" key={u.id}>
+                  <video src={u.url} controls preload="metadata"/>
+                  <div className="ub">
+                    <div style={{minWidth:0,flex:1}}>
+                      <div className="un" title={u.filename}>{u.filename}</div>
+                      <div className="um">{fmtBytes(u.size)}{u.source==='render'?' · Autopilot':''}</div>
                     </div>
+                    <button className="rd-btn grad sm" onClick={()=>setEditing(u)} title="Open in the editor">
+                      Edit
+                    </button>
+                    <button className="rd-btn danger sm" onClick={()=>del(u.id)} title="Delete clip">
+                      <Icon name="trash" size={13}/>
+                    </button>
                   </div>
-                ))}
-              </div>}
-        </div>
+                </div>
+              ))}
+            </div>}
+
+          {quota && hasClips && <div className="rd-lib-foot">
+            <div className={'rd-quota'+(pct>=90?' rd-quota-full':'')}><i style={{width:pct+'%'}}/></div>
+            <span>{fmtBytes(quota.used)} of {fmtBytes(quota.limit)} used</span>
+          </div>}
         </>}
+
+        {/* Import is complete on its own and ships independently of uploads. */}
+        {importOn && <TwitchImport/>}
       </div>
       {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}
         schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))}/>}

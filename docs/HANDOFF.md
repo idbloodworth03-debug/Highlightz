@@ -1598,6 +1598,33 @@ Owner: "our editing preset models add sound effects and small transitions."
   sfxOut`; the **Effects** tab exposes them plus a volume. Pinned in
   `test_dashboard_contract.py`.
 
+### Editor library screen facelift (2026-09-16)
+
+Owner: "still way too cluttered. I dont want the tut on the top I want it
+to be a button… a complete facelift… less going on in general." The screen
+that opens on the Clip Editor tab (`UploadScreen`) is now three things:
+
+- **Header row:** title + count, then two buttons on the right. `How it
+  works` toggles the three-step strip (same `rd-how` markup, inside
+  `.rd-howbox` with a close X, state `showHow`, off by default). `Add a
+  clip` (gradient) opens the file picker.
+- **Drop strip:** `.rd-drop` big when the library is empty, `.rd-drop.slim`
+  (one line) once there are clips. The "Add clips" / "Your clips" cards,
+  their descriptions and the "Or edit one you've already uploaded" chip row
+  are gone; the grid (`.rd-lib-grid`) is the only list and each card's
+  gradient **Edit** button is the way into the editor. Autopilot renders
+  show "· Autopilot" under the name.
+- **Footer:** one quiet quota line (`.rd-lib-foot`), only when there are
+  clips. The admin preview banner stays (admins only, `.rd-lib-admin`); the
+  Twitch import card (`TwitchImport`, behind `CLIP_IMPORT_ENABLED`) now
+  sits BELOW the library instead of above the drop zone.
+
+Tests repointed: `test_already_uploaded_clips_are_one_click_from_the_editor`
+now checks the grid's Edit button and forbids `rd-picks`;
+`test_the_walkthrough_is_a_button_not_a_banner` pins the toggle. Verified
+in the Playwright harness (`scratchpad/ed/lib_shot.js`: desktop, phone,
+empty, walkthrough open).
+
 ## Announcements — one message in front of every user (2026-09-15)
 
 Owner: "a way to send out notifications for all users ... pop up in front
