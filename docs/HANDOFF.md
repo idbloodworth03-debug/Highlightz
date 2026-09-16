@@ -207,14 +207,14 @@ switched off.
   - Legal: ToS §1 and the Privacy Policy now describe Kick monitoring and
     file-only clips, still with "no Kick credentials are requested or
     stored" (the phrase `test_legal_pages_match_the_code` pins while there is
-    no `/auth/kick` route). **ADMIN-ONLY BETA** (owner, later that day:
-    "Kick dashboard is closed I need it open for admins"): `kickOpen =
-    me.is_admin` opens every tab for admins; everyone else keeps
-    `KICK_BLOCKED` and the "coming soon" screen, and `POST /streams`
-    answers 503 for a non-admin Kick channel (DB is the authority, as in
-    `_require_admin`). Flip to everyone by making `kickOpen` true and
-    dropping that 503 once a live channel has been captured on prod. Note
-    a deploy does not reload an open tab's JS — hard-refresh to see a new
+    no `/auth/kick` route). **OPEN TO EVERYONE since 2026-09-16** (owner:
+    "open kick to all users"; it was an admin-only beta for one day, after
+    "Kick dashboard is closed I need it open for admins"): `const kickOpen
+    = true` in the app, and `POST /streams` no longer checks admin for Kick
+    (the only Kick refusal left is `CLIP_CAPTURE_ENABLED` off). To close
+    Kick again: `kickOpen = !!(me && me.is_admin)` and put the 503 back in
+    `add_stream`; `KICK_BLOCKED` still lists the tabs that would close. A
+    deploy does not reload an open tab's JS — hard-refresh to see a new
     gate. The mechanism stays
     (`test_kick_blocked_nav_buttons_are_actually_disabled_not_just_dimmed`)
     for the next screen that has to close on Kick, and **Kick must never be
@@ -1947,8 +1947,10 @@ shipped. What the copy says now, and where:
 - **Twitch:** a real Twitch clip under your account through the official
   API, AND the video file, which the editor, Scheduler and Autopilot use.
   Files live on the storage timer (`RETENTION_DAYS`), same as before.
-- **Kick:** the file IS the clip (no clip API); admin-only beta, so the
-  landing page still does not sell it. `platform_url` is the clip's link.
+- **Kick:** the file IS the clip (no clip API); open to everyone since
+  2026-09-16 (see the Kick section above). The landing page's own sections
+  still lead with Twitch; the title, meta and llms copy say Twitch and
+  Kick. `platform_url` is the clip's link.
 - **Vertical reframe + captions, auto-posting:** the compare page rows
   (`compare_content.py`) flipped to True for Highlightz; a watermark note
   says exports carry none.
@@ -1966,8 +1968,8 @@ shipped. What the copy says now, and where:
   JSON-LD descriptions (SoftwareApplication in `LANDING_HTML`, WebSite in
   `_org_schema`), the llms-full lead and the llms.txt "Monitors…" bullet
   now say "Twitch and Kick" and mention the vertical editor and
-  auto-posting. Kick is still a closed beta in the product; llms.txt's
-  Notes say so. Sign-in copy stays Twitch (it is).
+  auto-posting. Kick opened to everyone the same day; llms.txt's Notes
+  say "open on every plan". Sign-in copy stays Twitch (it is).
 
 ## Queue-full policy: REFUSE THE NEW CLIP (changed 2026-08-03)
 

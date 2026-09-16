@@ -3859,16 +3859,8 @@ async def _auto_preset_for(channel: str) -> str:
 @app.post("/streams", status_code=201)
 async def add_stream(request: Request, req: StreamRequest):
     uid        = _current_user_id(request)
-    # Kick is an ADMIN-ONLY beta (owner, 2026-09-15: "I need it open for
-    # admins") until a live channel has been captured on prod. The DB is the
-    # authority on admin, as in _require_admin, not the session flag.
-    if req.platform == "kick":
-        from src.auth import users as _users
-        if not (_users.get_by_id(uid) or {}).get("is_admin"):
-            raise HTTPException(
-                status_code=503,
-                detail="Kick support is in an admin-only beta — coming to everyone soon.",
-            )
+    # Kick is open to every account (owner, 2026-09-16: "open kick to all
+    # users"; for the day after going live it was admins only).
     # Kick has no clip-creation API, so a Kick clip IS the file cut from the
     # live capture buffer. Without capture there is nothing to give the user,
     # so refuse the channel up front rather than monitor it for nothing.
@@ -6998,8 +6990,8 @@ no credits to run out.
 
 - Kick: channels are monitored from public chat and broadcast audio, and a detected
   moment is saved as a video file captured by Highlightz (Kick has no clip API, so
-  there is no Kick-hosted clip). Kick monitoring is in a closed beta today and is
-  not yet open to every account. Highlight clips are Twitch-only.
+  there is no Kick-hosted clip). Kick is open on every plan; sign-in is still
+  through Twitch. Highlight clips are Twitch-only.
 - Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
 
@@ -7042,8 +7034,7 @@ async def llms_full_txt():
       "from Twitch, is private to the account that made it and is what the Clip Editor "
       "reframes for vertical and the Scheduler posts to YouTube, TikTok and Instagram; "
       "Autopilot (Pro, off by default) does both for every clip you approve. "
-      "Kick channels are monitored the same way, in a closed beta; there the file is "
-      "the clip. "
+      "Kick channels are monitored the same way; there the file is the clip. "
       "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
     w("## The seven signals\n")

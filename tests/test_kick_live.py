@@ -199,19 +199,16 @@ def test_a_kick_clip_is_a_pending_file_only_record_pointing_at_the_channel(monke
     assert meta.to_dict()["platform_url"] == "https://kick.com/xqc", "the card's link never reaches the record"
 
 
-def test_adding_a_kick_channel_is_admin_only_needs_capture_and_then_works(app, monkeypatch):
+def test_adding_a_kick_channel_is_open_to_everyone_but_needs_capture(app, monkeypatch):
+    """Owner (2026-09-16): "open kick to all users." A plain, non-admin
+    account adds a Kick channel; the only refusal left is capture being off,
+    because without it a Kick clip has no file and so does not exist."""
     from config.settings import settings
-    u = app.onboard()
-    monkeypatch.setattr(settings, "clip_capture_enabled", True)
-    r = app.post("/streams", json={"channel": "xqc", "platform": "kick", "preset": "default"})
-    assert r.status_code == 503 and "admin" in r.json()["detail"].lower(), "a non-admin got Kick"
-    # Promote the same account; the gate reads the DB, not the session.
-    app.store.upsert_twitch_user(twitch_id="99001", login="newbie", username="newbie",
-                                 avatar_url="", access_token="at", refresh_token="rt",
-                                 expires_in=3600, is_admin=True)
+    app.onboard()
     monkeypatch.setattr(settings, "clip_capture_enabled", False)
     r = app.post("/streams", json={"channel": "xqc", "platform": "kick", "preset": "default"})
     assert r.status_code == 503 and "capture" in r.json()["detail"].lower()
+    assert "admin" not in r.json()["detail"].lower()
     monkeypatch.setattr(settings, "clip_capture_enabled", True)
     r = app.post("/streams", json={"channel": "xqc", "platform": "kick", "preset": "default"})
     assert r.status_code == 201, r.text
@@ -238,13 +235,15 @@ def test_a_manual_clip_on_kick_is_only_refused_while_capture_is_off():
 
 # ── the dashboard ────────────────────────────────────────────────────────────
 
-def test_kick_is_open_to_admins_and_closed_to_everyone_else():
-    """Owner: "Kick dashboard is closed I need it open for admins." An
-    admin-only beta until a live channel has been captured on prod: the
-    nav and the route dispatch both key on `kickOpen` (admin), and the API
-    refuses a non-admin Kick channel independently."""
+def test_kick_is_open_to_everyone_through_the_one_switch():
+    """Owner (2026-09-16): "open kick to all users." `kickOpen` is the single
+    switch the nav and the route dispatch both key on, so closing Kick again
+    is one line; the API no longer gates Kick on admin either."""
+    import inspect
+    from src.dashboard import api
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
-    assert "const kickOpen = !!(me && me.is_admin);" in h
+    assert "const kickOpen = true;" in h
+    assert "admin-only beta" not in inspect.getsource(api.add_stream)
     assert "activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)" in h
     assert "activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(n.id)" in h
     assert "const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];" in h

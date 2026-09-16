@@ -3706,12 +3706,12 @@ function TutorialScreen({ doc, onGo }){
 }
 
 const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
-// Tabs closed off on Kick FOR NON-ADMINS. Kick monitoring went live on
-// 2026-09-15 (chat + audio + viewers, clips cut from live capture — no
-// Kick-hosted clip, no Highlight clips) as an ADMIN-ONLY beta: the owner tests
-// it on prod first, everyone else keeps the "coming soon" screen. `kickOpen`
-// in the app is the switch (admins), and this list is what closes. Used by
-// BOTH the route dispatch and the nav, so a blocked tab is greyed out and
+// Tabs that close on Kick WHEN `kickOpen` (in the app) is false. Kick
+// monitoring went live on 2026-09-15 (chat + audio + viewers, clips cut from
+// live capture — no Kick-hosted clip, no Highlight clips) as an admin-only
+// beta and opened to everyone on 2026-09-16, so today nothing is blocked;
+// the list stays so Kick can be closed again with one flag. Used by BOTH
+// the route dispatch and the nav, so a blocked tab is greyed out and
 // unclickable rather than looking live and then dead-ending; Account,
 // Feedback, the platform switch and Sign out always stay live so Kick is
 // never a trap.
@@ -8613,11 +8613,11 @@ function RdApp() {
   const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review' : route;
 
   let screen;
-  // Kick is an admin-only beta: admins get every tab, everyone else the
-  // "coming soon" screen. KICK_BLOCKED is the single source of truth, shared
-  // with the nav below so a tab can never be clickable-but-dead (or
-  // greyed-out-but-working). The API refuses non-admin Kick channels too.
-  const kickOpen = !!(me && me.is_admin);
+  // Kick is open to everyone (owner, 2026-09-16: "open kick to all users";
+  // it was an admin-only beta from 2026-09-15). `kickOpen` stays as the one
+  // switch, shared with the nav below and with KICK_BLOCKED, so closing Kick
+  // again is a one-line change and a tab can never be clickable-but-dead.
+  const kickOpen = true;
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
