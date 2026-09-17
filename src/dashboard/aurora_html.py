@@ -1156,6 +1156,15 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .sc-acct button{all:unset;cursor:pointer;color:var(--fg-3);display:inline-flex;margin-left:4px}
 .sc-acct button:hover{color:var(--fg)}
 .sc-hint{font-size:12px;color:var(--fg-3);margin:8px 0 0}
+/* Admin posting-setup card: the callback URL and .env keys per platform. */
+.sc-setup{margin:12px 0 0;border:1px solid rgba(255,138,76,.28);background:rgba(255,138,76,.06);border-radius:12px;padding:8px 12px;font-size:12px;color:var(--fg-2)}
+.sc-setup summary{cursor:pointer;font-weight:700;color:var(--pending);list-style:none}
+.sc-setup summary::-webkit-details-marker{display:none}
+.sc-setup-row{display:flex;flex-direction:column;gap:4px;padding:12px 0 0;border-top:1px solid var(--hair);margin-top:12px}
+.sc-setup-row b{color:var(--fg)}
+.sc-setup-row code{font-family:monospace;font-size:12px;background:rgba(255,255,255,.06);padding:0 4px;border-radius:4px;word-break:break-all;margin-right:4px}
+.sc-setup-row .rd-btn{margin-left:8px;padding:4px 8px}
+.sc-setup-note{margin-top:12px;color:var(--fg-3)}
 .sc-sub{font-size:12px;color:var(--fg-3);line-height:1.5}
 .sc-sub a{color:var(--acc)}
 .sc-inbox{margin-top:12px;padding:12px 16px}
@@ -7137,6 +7146,23 @@ function AccountChips({ me, connections = [] }) {
       <p className="sc-hint">
         Connect an account and Highlightz posts your clips to it for you. Only the clips you choose it for, only while it is connected.
       </p>
+      {/* Admin-only setup card (2026-09-17): each platform that has no app
+          keys yet, with the exact callback URL its console needs and the
+          .env keys to fill. Derived server-side from PUBLIC_BASE_URL, so what
+          is shown here is what the server will actually send. */}
+      {me && me.is_admin && (connections||[]).some(c=>!c.configured) &&
+        <details className="sc-setup">
+          <summary>Set up posting: {(connections||[]).filter(c=>!c.configured).map(c=>c.label).join(', ')} not configured</summary>
+          {(connections||[]).filter(c=>!c.configured).map(c=>(
+            <div key={c.id} className="sc-setup-row">
+              <b>{c.label}</b>
+              <div>Callback URL to register: <code>{c.redirect_uri}</code>
+                <button className="rd-btn sm" onClick={()=>{ try{navigator.clipboard.writeText(c.redirect_uri);}catch{} }}>Copy</button></div>
+              <div>Then in <code>.env</code>: {(c.env_keys||[]).map(k=><code key={k}>{k}=…</code>)} and restart.</div>
+            </div>
+          ))}
+          <div className="sc-setup-note">Step-by-step for each console is in docs/HANDOFF.md under “Posting: platform setup”.</div>
+        </details>}
     </div>
   );
 }

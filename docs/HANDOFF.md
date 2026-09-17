@@ -1932,26 +1932,68 @@ for a few minutes. Each of those is now handled rather than avoided:
   call. The 1-hour short token is swapped for the 60-day one at connect and
   refreshed whenever under a week remains (`refreshes_without_refresh_token`).
 
-**Operator setup (once, per platform; a blank id = the Connect button says
-"Coming soon" to users and "add the app keys" to admins):**
-1. `PUBLIC_BASE_URL=https://highlightz.app` (default). Redirect URIs are
-   derived from it: `https://highlightz.app/publish/connect/{youtube,tiktok,
-   instagram}/callback` — register those three exact strings.
-2. Google Cloud console → APIs & Services → enable *YouTube Data API v3* →
-   Credentials → OAuth client (Web application) with the youtube callback →
-   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. OAuth consent screen: add
-   the two scopes; until it is verified, add testers there (100 max) and
-   expect the "unverified app" interstitial.
-3. TikTok for Developers → app → add *Login Kit* and *Content Posting API*
-   (Direct Post), scopes `user.info.basic`, `video.publish`, the tiktok
-   callback → `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`. Submit for
-   audit when ready; posts are private until then.
-4. Meta for Developers → app → *Instagram* product → "API setup with
-   Instagram login" → the instagram callback under *Business login
-   settings* → `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET`. Add Instagram
-   testers (Roles) until App Review grants
-   `instagram_business_content_publish`.
-5. Restart. `/publish/connections` reports `configured` per platform.
+**Posting: platform setup (owner, 2026-09-17: "we need to get youtube,
+tiktok and instagram all connected and working"). The code is complete
+and audited against the current APIs (YouTube Data v3 resumable upload
+with `access_type=offline&prompt=consent`; TikTok Content Posting v2
+creator_info → init → status; Instagram API with Instagram Login on
+graph.instagram.com v21 with the `instagram_business_*` scopes). What is
+missing is three app registrations, which only the operator can do. A
+blank id = the chip says "soon" to users; admins see a **Set up posting**
+card on the Scheduler with the exact callback URL and .env keys per
+platform (`/publish/connections` rows carry `redirect_uri` + `env_keys`).**
+
+0. `PUBLIC_BASE_URL=https://highlightz.app` must be right first: every
+   callback below derives from it. Callbacks:
+   `https://highlightz.app/publish/connect/youtube/callback`,
+   `.../tiktok/callback`, `.../instagram/callback` — register the exact
+   strings, https, no trailing slash.
+1. **YouTube** — console.cloud.google.com → a project → *APIs & Services →
+   Library* → enable **YouTube Data API v3** → *OAuth consent screen*:
+   External, app name/support email/logo, scopes
+   `youtube.upload` + `youtube.readonly` → *Credentials → Create → OAuth
+   client ID → Web application*, authorised redirect URI = the youtube
+   callback → `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+   **Publishing status matters:** in *Testing*, only listed test users
+   (≤100) can connect AND their refresh tokens die after 7 days (the card
+   would show "connection was revoked, connect again" weekly). Switch to
+   *In production* as soon as it works; `youtube.upload` is a sensitive
+   scope so Google shows an "unverified app" screen until verification
+   (submit it; the app still works meanwhile, users click Advanced →
+   continue). Quota: 10,000 units/day = 6 uploads/day across ALL users;
+   request the increase (*Quotas* page) once real users post.
+2. **TikTok** — developers.tiktok.com → *Manage apps → Connect an app*:
+   name, category, icon, ToS/Privacy URLs (`/tos`, `/privacy`) → add
+   products **Login Kit** and **Content Posting API** (Direct Post) →
+   Login Kit redirect URI = the tiktok callback → scopes `user.info.basic`,
+   `video.publish` → `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`.
+   Unaudited apps: only the app's listed test accounts can connect, and
+   every post is forced **SELF_ONLY** (private on the user's profile);
+   the schedule card says so. Submit for audit (they want a demo video of
+   the flow); after approval posts go out at the user's chosen privacy.
+   Also needs the domain verified under *URL properties* for the callback.
+3. **Instagram** — developers.facebook.com → *Create app → Other →
+   Business* → add product **Instagram** → *API setup with Instagram
+   business login* (NOT "with Facebook login") → *Business login settings*:
+   OAuth redirect URI = the instagram callback, scopes
+   `instagram_business_basic`, `instagram_business_content_publish` →
+   App ID / secret from *App settings → Basic* → `INSTAGRAM_APP_ID` /
+   `INSTAGRAM_APP_SECRET`. The connecting Instagram account must be
+   **Professional** (Business or Creator; the provider refuses a personal
+   one with a message). In *Development* mode only accounts added as
+   **Instagram Testers** (App roles; they accept the invite in Instagram →
+   Settings → Website permissions) can connect. Go *Live* + pass App
+   Review for `instagram_business_content_publish` to open it to everyone.
+   Instagram fetches the render from `/media/<signed token>`, so the site
+   must be reachable from Meta's crawlers (it is; nginx serves it public).
+4. Add the six keys to `/opt/highlightz/.env`, `systemctl restart
+   highlightz`, hard-refresh, and the "soon" chips become **Connect**.
+   Verify: `curl -s -b 'session=…' https://highlightz.app/publish/connections`
+   shows `"configured": true`; connect each account from the Scheduler
+   tab; schedule one export for a minute ahead (or "Post now") and watch
+   `journalctl -u highlightz -f | grep -i publish` for `publish_posted` or
+   the provider's error text. YouTube's first post costs 1,600 of the
+   10,000 daily units.
 
 **What exists now:**
 - `src/publish/connections.py` — one connection per user per platform,

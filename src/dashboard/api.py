@@ -5303,8 +5303,21 @@ def _connections_payload(uid: str) -> list[dict]:
     for p in providers.all_providers():
         c = mine.get(p.id)
         rows.append({"id": p.id, "label": p.label, "configured": p.configured(),
-                     "connected": c is not None, **(c.public() if c else {})})
+                     "connected": c is not None,
+                     # For the admin's setup card: the exact callback URL each
+                     # console must have (derived from PUBLIC_BASE_URL, so a
+                     # typo there breaks all three) and the .env keys to fill.
+                     "redirect_uri": providers.redirect_uri(p.id),
+                     "env_keys": _PUBLISH_ENV_KEYS.get(p.id, []),
+                     **(c.public() if c else {})})
     return rows
+
+
+_PUBLISH_ENV_KEYS = {
+    "youtube":   ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    "tiktok":    ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
+    "instagram": ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
+}
 
 
 @app.get("/publish/connections")

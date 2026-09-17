@@ -517,6 +517,29 @@ def test_connections_are_a_pro_matter_and_list_all_three_platforms(client):
     rows = r.json()["platforms"]
     assert [x["id"] for x in rows] == ["youtube", "tiktok", "instagram"]
     assert all(x["configured"] is False and x["connected"] is False for x in rows)
+    # The admin setup card (2026-09-17) needs the exact callback each console
+    # must have, and the .env keys — both derived server-side so the card can
+    # never show a URL the server would not send.
+    base = client.api.settings.public_base_url.rstrip("/")
+    for x in rows:
+        assert x["redirect_uri"] == f"{base}/publish/connect/{x['id']}/callback"
+    assert rows[0]["env_keys"] == ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+    assert rows[1]["env_keys"] == ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"]
+    assert rows[2]["env_keys"] == ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"]
+
+
+def test_the_scheduler_shows_admins_a_setup_card_for_unconfigured_platforms():
+    """Owner (2026-09-17): "we need to get youtube, tiktok and instagram all
+    connected." The code side is done; the missing half is three app
+    registrations. The card puts the callback URL and the .env keys in front
+    of the admin, in the app, so nothing has to be typed from memory."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    chips = h[h.index("function AccountChips("):h.index("function InboxTray(")]
+    assert 'className="sc-setup"' in chips
+    assert "me && me.is_admin && (connections||[]).some(c=>!c.configured)" in chips
+    assert "<code>{c.redirect_uri}</code>" in chips
+    assert "navigator.clipboard.writeText(c.redirect_uri)" in chips
+    assert "(c.env_keys||[]).map(" in chips
 
 
 def test_connect_says_so_when_the_operator_has_not_set_the_platform_up(client):
