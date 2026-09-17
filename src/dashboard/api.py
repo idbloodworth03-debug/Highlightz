@@ -146,6 +146,54 @@ _AUTH_PREFIXES = ("/auth/", "/billing/", "/i/")
 _OPEN_PREFIXES = _AUTH_PREFIXES + ("/media/",)
 _STATIC_PREFIX = "/static"
 
+# ── Domain-ownership proof for the posting consoles ──────────────────────────
+# TikTok will not accept a web redirect URI until the domain is verified under
+# URL properties, and Meta asks for the same on some review paths. Both offer
+# the same three methods, and all three now work here:
+#   file — drop the console's file in src/dashboard/static/verify/ and it is
+#          served at https://<host>/<that filename>, which is where both look
+#   meta — SITE_VERIFICATION_TAGS="name=content,name2=content2" puts the tags
+#          in the landing page's <head>
+#   DNS  — a TXT record at the registrar; nothing is needed from this code
+# Without the file door an unauthenticated fetch of a root path is bounced to
+# /login by AuthMiddleware, so the verifier sees a redirect and fails.
+_VERIFY_DIR = _STATIC_DIR / "verify"
+# One path segment, no slashes, no leading dot: a console's filename and
+# nothing that could climb out of the directory.
+_VERIFY_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_verify_cache: tuple[float, frozenset] = (0.0, frozenset())
+
+
+def _verify_names() -> frozenset:
+    """What is in static/verify, re-read at most once a minute — so dropping a
+    file in takes effect without a restart, and the check below costs a set
+    lookup rather than a stat on every unmatched request."""
+    global _verify_cache
+    now = time.time()
+    if now - _verify_cache[0] < 60:
+        return _verify_cache[1]
+    try:
+        names = frozenset(p.name for p in _VERIFY_DIR.iterdir()
+                          if p.is_file() and p.name != "README.md")
+    except OSError:
+        names = frozenset()
+    _verify_cache = (now, names)
+    return names
+
+
+def _verification_file(name: str):
+    """The path to serve for a root request, or None. Name-checked, listed,
+    and confirmed inside the directory before anything is opened."""
+    if not name or not _VERIFY_NAME.match(name) or name not in _verify_names():
+        return None
+    try:
+        p = (_VERIFY_DIR / name).resolve()
+        if not p.is_relative_to(_VERIFY_DIR.resolve()) or not p.is_file():
+            return None
+    except OSError:
+        return None
+    return p
+
 def _is_api_request(request: Request) -> bool:
     """Whether this is a script asking for data, not a person navigating.
 
@@ -183,7 +231,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if (path in _OPEN_PATHS or path == "/login"
                 or path.startswith(_STATIC_PREFIX)
                 or path.rstrip("/").lower() in _referral_paths()
-                or any(path.startswith(p) for p in _OPEN_PREFIXES)):
+                or any(path.startswith(p) for p in _OPEN_PREFIXES)
+                # A console's domain-ownership file, at the site root where
+                # TikTok and Meta look for it. Signed out, by definition: the
+                # verifier is a crawler with no session, and a 302 to /login
+                # reads to it as "this domain is not yours".
+                or _verification_file(path.lstrip("/")) is not None):
             return await call_next(request)
         if not request.session.get("auth"):
             # The root path is the public marketing landing page — let it through
@@ -6941,6 +6994,23 @@ def _fn_record(request: Request, step: str) -> None:
     request.session["_fn"] = j
 
 
+def _verification_tags() -> str:
+    """The <meta> proofs of domain ownership, from SITE_VERIFICATION_TAGS.
+
+    "name=content,name2=content2" — the shape both TikTok and Meta hand you.
+    Escaped because it is operator input landing in an attribute, and skipped
+    silently when malformed: a half-typed pair must not take the page down.
+    """
+    out = []
+    for pair in (settings.site_verification_tags or "").split(","):
+        name, _, content = pair.partition("=")
+        name, content = name.strip(), content.strip()
+        if name and content:
+            out.append('<meta name="' + html_escape(name, quote=True)
+                       + '" content="' + html_escape(content, quote=True) + '">')
+    return "\n".join(out)
+
+
 def render_landing(html: str | None = None) -> str:
     """Bake the live clip count into the landing HTML before serving it.
 
@@ -6955,6 +7025,11 @@ def render_landing(html: str | None = None) -> str:
     count. The client script still refreshes it live for humans.
     """
     html = LANDING_HTML if html is None else html
+
+    # Domain-ownership meta tags, if the operator chose that method over the
+    # file. Per request rather than baked in, so adding one is a restart
+    # rather than a redeploy.
+    html = html.replace("<!--VERIFY-->", _verification_tags(), 1)
 
     # THE FRAMES. Real clip previews from the curated showcase, or the
     # product's own screens where nothing is curated yet. Per request, so a
@@ -7611,6 +7686,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="description" content="Highlightz watches every Twitch and Kick channel you clip for — up to 10 at once — and catches the clip the moment something pops, then reframes it for vertical and posts it for you. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
+<!--VERIFY-->
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
@@ -14000,6 +14076,15 @@ async def referral_short_link(request: Request, slug: str):
 
 @app.get("/{slug}")
 async def referral_bare_link(request: Request, slug: str):
+    # A domain-ownership file for the posting consoles wins over the referral
+    # lookup: a verification filename is never a referral code, and this route
+    # is the only thing standing between the crawler and a 404.
+    f = _verification_file(slug)
+    if f is not None:
+        import mimetypes
+        return FileResponse(
+            f, media_type=mimetypes.guess_type(f.name)[0] or "text/plain",
+            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
     return _referral_redirect(request, slug)
 
 

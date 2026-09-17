@@ -327,6 +327,12 @@ class Settings(BaseSettings):
     # what /media/<signed token> is for.
     instagram_app_id: str = ""
     instagram_app_secret: str = ""
+    # Domain ownership, for the consoles that ask before they will take a
+    # redirect URI. Meta tag method: "name=content,name2=content2" — both
+    # TikTok and Meta hand you exactly that pair. The file method needs no
+    # setting (drop the file in src/dashboard/static/verify/), and a DNS TXT
+    # record needs nothing here at all.
+    site_verification_tags: str = ""
     # How long a signed /media link stays valid. Instagram fetches within
     # minutes of the container being created; an hour is generous.
     publish_media_ttl_s: int = 3600

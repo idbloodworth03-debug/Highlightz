@@ -1943,6 +1943,25 @@ blank id = the chip says "soon" to users; admins see a **Set up posting**
 card on the Scheduler with the exact callback URL and .env keys per
 platform (`/publish/connections` rows carry `redirect_uri` + `env_keys`).**
 
+0a. **Domain ownership** (2026-09-17). TikTok refuses a web redirect URI
+   until the domain is verified under *URL properties*; Meta asks on some
+   review paths. Three methods, any one is enough, and all three work:
+   - **file** — drop the console's file in `src/dashboard/static/verify/`
+     (on prod: `/opt/highlightz/src/dashboard/static/verify/`). It is served
+     at `https://highlightz.app/<filename>`. The listing refreshes once a
+     minute, so no restart. `AuthMiddleware` lets a listed filename through
+     unauthenticated — **this is the part that did not exist before**: a
+     signed-out request for a root path is bounced to `/login`, and a
+     verifier reads that 302 as "not your domain".
+   - **meta** — `SITE_VERIFICATION_TAGS="name=content,name2=content2"` in
+     `.env`, restart; rendered into the landing `<head>` by
+     `_verification_tags()` (escaped; a malformed pair is skipped, never
+     fatal).
+   - **DNS** — a TXT record at the registrar; nothing in this repo.
+   Keep the proof in place afterwards: both consoles re-check.
+   Tests: `tests/test_domain_verification.py`, including the traversal
+   attempts and that an unknown root path still behaves as before.
+
 0. `PUBLIC_BASE_URL=https://highlightz.app` must be right first: every
    callback below derives from it. Callbacks:
    `https://highlightz.app/publish/connect/youtube/callback`,
