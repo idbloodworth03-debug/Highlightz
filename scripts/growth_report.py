@@ -56,6 +56,26 @@ funnel = load("funnel.json", {})
 if isinstance(streams, dict):
     streams = list(streams.values())
 
+# stream_stats.jsonl is read ONCE, here, because two sections need it and it is
+# the only store that records decisions and misses. clips.json cannot answer
+# either question: rejecting deletes the record, and a moment that was never
+# caught never became a clip in the first place.
+dec = collections.Counter()                       # event -> count, all users
+ev_by_user = collections.defaultdict(collections.Counter)
+try:
+    with (ROOT / "stream_stats.jsonl").open() as fh:
+        for line in fh:
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            ev = row.get("event")
+            dec[ev] += 1
+            if row.get("user_id"):
+                ev_by_user[row["user_id"]][ev] += 1
+except OSError:
+    pass
+
 print("=" * 62)
 print("HIGHLIGHTZ GROWTH REPORT")
 print("=" * 62)
@@ -113,11 +133,57 @@ kept = sum(1 for u in real if approved_by_user.get(u['id']))
 print(f"  got a clip        {got:>4}  {pct(got, len(real))}")
 print(f"  kept a clip       {kept:>4}  {pct(kept, len(real))}")
 
+# ── why the free accounts are not converting ────────────────────────────────
+# "They don't convert" is three different problems wearing one label, and the
+# fix for each is the opposite of the fix for the others:
+#
+#   never opened checkout  -> they were never given a REASON. Nothing to do
+#                             with price. Either the product never delivered
+#                             (no clip) or it never ran out (no ceiling hit).
+#   opened and stopped     -> they wanted it and something stopped them:
+#                             price, the card form, or trust.
+#   got a clip but no push -> the product worked and still never asked.
+#
+# checkout_started_at (users.mark_checkout_started, first touch only) is what
+# separates the first two, and MISSED events in stream_stats.jsonl are what say
+# whether a free account ever hit its queue ceiling — the one moment where an
+# upgrade sells itself.
+free = [u for u in real if u.get("subscription_status") not in ("active", "trialing")]
+churned = [u for u in free if u.get("stripe_customer_id")]
+never_paid = [u for u in free if not u.get("stripe_customer_id")]
+opened = [u for u in never_paid if u.get("checkout_started_at")]
+cold = [u for u in never_paid if not u.get("checkout_started_at")]
+free_clipped = [u for u in never_paid if clips_by_user.get(u["id"])]
+free_missed = [u for u in never_paid if ev_by_user.get(u["id"], {}).get("missed")]
+cold_clipped = [u for u in cold if clips_by_user.get(u["id"])]
+
+print(f"\nWHY THE FREE ACCOUNTS ARE NOT CONVERTING ({len(free)} not paying)")
+print(f"  ever had a subscription     {len(churned):>4}   <- churn, not conversion")
+print(f"  never paid                  {len(never_paid):>4}")
+print(f"    opened checkout, stopped  {len(opened):>4}  {pct(len(opened), len(never_paid))}"
+      f"   <- price or card-form friction")
+print(f"    never opened checkout     {len(cold):>4}  {pct(len(cold), len(never_paid))}"
+      f"   <- never given a reason")
+print(f"  of the never-paid accounts:")
+print(f"    the product made a clip   {len(free_clipped):>4}  {pct(len(free_clipped), len(never_paid))}")
+print(f"    hit a full review queue   {len(free_missed):>4}  {pct(len(free_missed), len(never_paid))}"
+      f"   <- the only built-in upgrade trigger")
+print(f"    worked for them, never even opened checkout  {len(cold_clipped)}")
+
+# The one rate that says whether the problem is demand or the card form. A high
+# checkout->paid rate with few checkouts means nobody is being ASKED; a low one
+# means they are asking and leaving.
+ever_checkout = [u for u in real if u.get("checkout_started_at")]
+paid_after = [u for u in ever_checkout
+              if u.get("stripe_customer_id") or u.get("subscription_status") in ("active", "trialing")]
+print(f"  checkout -> paid            {pct(len(paid_after), len(ever_checkout))}"
+      f"  ({len(paid_after)} of {len(ever_checkout)} who ever opened it)")
+
 # ── the positioning question ────────────────────────────────────────────────
-# FROM CLIP HISTORY, NOT streams.json. Current registrations answer "who was
-# here in the last 8 hours" (the reaper removes the rest), which is far too
-# small a sample to decide who the product is for. Every channel that ever
-# produced a clip for an account is the real evidence.
+# FROM CLIP HISTORY, NOT streams.json. Registrations made before the idle
+# reaper was changed to pause instead of delete (2026-09-18) are simply gone,
+# so streams.json under-counts everyone who was here before that date. Every
+# channel that ever produced a clip for an account is the evidence that lasted.
 by_user_channels = collections.defaultdict(set)
 for c in clips:
     if c.get("user_id") and c.get("channel"):
@@ -160,16 +226,6 @@ print(f"  vod moments   {vod}   kick {kick}")
 # (reject_clip does `del _clips[clip_id]`), so everything judged and still
 # present is approved and the file would always report 100%. The decisions
 # themselves are in stream_stats.jsonl, which records both.
-dec = collections.Counter()
-try:
-    with (ROOT / "stream_stats.jsonl").open() as fh:
-        for line in fh:
-            try:
-                dec[json.loads(line).get("event")] += 1
-            except Exception:
-                pass
-except OSError:
-    pass
 judged = dec.get("approved", 0) + dec.get("rejected", 0)
 if judged:
     print(f"  keep rate     {pct(dec.get('approved', 0), judged)} "
@@ -178,8 +234,8 @@ else:
     print("  keep rate     no decisions recorded yet")
 
 # Channels that ever produced a clip, which is the honest activation number:
-# streams.json holds only what is registered RIGHT NOW, and the idle reaper
-# removes a user's channels after 8 hours with the dashboard closed.
+# streams.json holds only what is registered right now, and everything the old
+# idle reaper deleted before 2026-09-18 is not coming back.
 ever = {(c.get("user_id"), (c.get("channel") or "").lower()) for c in clips if c.get("user_id")}
 ever_users = {u for u, _ch in ever}
 print(f"  channels that ever produced a clip: {len(ever)}, across {len(ever_users)} accounts")
@@ -190,8 +246,11 @@ if clips_by_user:
 
 # ── monitored channels right now ────────────────────────────────────────────
 print(f"\nMONITORED CHANNELS ({len(streams)} registered RIGHT NOW)")
-print("  NB: the idle reaper REMOVES a user's channels after 8h with the")
-print("      dashboard closed, so this is 'who was here today', not 'who uses it'.")
+paused_now = sum(1 for s in streams if s.get("status") == "paused")
+print(f"  {paused_now} of them paused (owner away; they resume on the next visit)")
+print("  NB: before 2026-09-18 the idle reaper DELETED channels after 8h away,")
+print("      so this count is still recovering from that. Compare it with the")
+print("      'ever produced a clip' line above, not with signups.")
 plat = collections.Counter(s.get("platform") or "twitch" for s in streams)
 print("  " + ", ".join(f"{k} {v}" for k, v in plat.most_common()))
 live_cap = max(1, settings.max_concurrent_streams)

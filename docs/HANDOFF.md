@@ -1736,6 +1736,36 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Reading the conversion question (2026-09-18)
+
+Owner: "why are the free accounts not converting". `scripts/growth_report.py`
+gained a **WHY THE FREE ACCOUNTS ARE NOT CONVERTING** section rather than an
+answer being asserted, because "they don't convert" is three problems wearing
+one label and the fix for each contradicts the others:
+
+- **never opened checkout** — never given a reason. Not a price problem.
+- **opened checkout and stopped** — wanted it; price, card form or trust.
+- **ever had a subscription** — churn, which is not a conversion problem at all.
+
+The split is readable because `users.mark_checkout_started` stamps
+`checkout_started_at` on first touch (`src/dashboard/api.py:2499`), and
+`stripe_customer_id` is only ever written by the Stripe webhook, so its
+presence means a subscription really existed. The section also counts, among
+never-paid accounts, how many ever got a clip and how many ever hit a full
+review queue (`missed` events in `stream_stats.jsonl`) — the queue ceiling is
+the product's only built-in upgrade trigger, so "worked for them and never
+even opened checkout" is the number that says the product never asks.
+
+`stream_stats.jsonl` is now read once at the top of the script into a global
+counter plus a per-user one; the keep rate still comes from it for the reason
+already documented (rejection deletes the clip record).
+
+**Verified but not yet acted on:** the $10 Starter tier is effectively
+invisible inside the product. `aurora_html.py` mentions it twice (a next-plan
+message and a descriptive line in Account); every paywall gate says "Upgrade
+to Pro — $25/month". A free user who hits a ceiling is shown one price, and it
+is the highest one. Left as a finding, not a change, per the audit rule.
+
 ## Sign in with Kick, either-or with Twitch (2026-09-16)
 
 Owner: "make people able to sign up with kick now too, give them the option
