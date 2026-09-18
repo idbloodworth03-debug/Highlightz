@@ -321,6 +321,17 @@ class Settings(BaseSettings):
     # (SELF_ONLY); the card says so when that happens.
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
+    # HAS TIKTOK AUDITED THE APP? Off until they have, because an unaudited
+    # app may only post SELF_ONLY and asking for anything else makes
+    # video/init refuse the whole post with "Please review our integration
+    # guidelines" — measured on production 2026-09-18, where creator_info
+    # offered FOLLOWER_OF_CREATOR / MUTUAL_FOLLOW_FRIENDS / SELF_ONLY and the
+    # provider reached for the second. TikTok keeps offering levels the app
+    # cannot use, so the offer is not permission and this flag is the only
+    # thing that knows the difference. Turn it on (TIKTOK_AUDITED=true) the
+    # day the audit passes and posts go out at the most public level the
+    # creator allows; nothing else changes.
+    tiktok_audited: bool = False
     # Meta for Developers → "Instagram API with Instagram Login". The user's
     # Instagram must be a Professional (Business/Creator) account. Instagram
     # does not take bytes: it fetches the render from a public URL, which is

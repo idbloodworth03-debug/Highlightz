@@ -2,11 +2,22 @@
 
 The cost the owner accepted: until TikTok audits the app, every post it
 makes is forced to SELF_ONLY — the video lands on the user's profile as
-private, and they flip it public in the app. creator_info tells us which
-privacy levels the account is allowed, so the post carries the most public
-one on offer and the card says plainly when that was "private". Once the
-audit passes nothing here changes; PUBLIC_TO_EVERYONE simply starts
-appearing in the options.
+private, and they flip it public in the app. The card says so plainly.
+
+That used to be a hope rather than a rule. The code took the most public
+level creator_info offered, on the assumption that an unaudited app would
+only ever be offered SELF_ONLY. It is not: on production 2026-09-18
+creator_info offered FOLLOWER_OF_CREATOR, MUTUAL_FOLLOW_FRIENDS and
+SELF_ONLY, the provider asked for MUTUAL_FOLLOW_FRIENDS, and video/init
+refused the whole post with "Please review our integration guidelines".
+What creator_info lists is what the ACCOUNT permits; what the APP may ask
+for is a separate question that only `TIKTOK_AUDITED` answers. Set it the
+day the audit passes and posts go out at the most public level the creator
+allows.
+
+creator_info also reports the creator's own comment/duet/stitch switches,
+and post_info must not contradict them — asking to enable a duet on an
+account that has duets off is an invalid request, not a preference.
 
 Upload is chunked by TikTok's rules: one chunk for anything up to 64 MB,
 otherwise 32 MB chunks with the remainder folded into the last one, each
@@ -41,7 +52,13 @@ TITLE_MAX = 2200
 STATUS_POLL_S = 5.0
 STATUS_TRIES = 36                  # 3 minutes
 
-_PRIVACY_ORDER = ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR",
+# MOST PUBLIC FIRST, and both ends of that are load-bearing: the audited path
+# takes the first level on offer, the unaudited path walks it backwards for
+# the quietest. FOLLOWER_OF_CREATOR sits above MUTUAL_FOLLOW_FRIENDS because
+# a creator's followers are a superset of the followers who follow back —
+# they were the other way round, so "the most public level allowed" quietly
+# under-shared, and reversing for the quietest would have over-shared.
+_PRIVACY_ORDER = ("PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS",
                   "SELF_ONLY")
 
 
@@ -132,7 +149,19 @@ class TikTok:
         self._check(r, info, "TikTok would not say what this account may post")
         d = info.get("data") or {}
         options = d.get("privacy_level_options") or []
-        privacy = next((p for p in _PRIVACY_ORDER if p in options), options[0] if options else "SELF_ONLY")
+        # THE OFFER IS NOT PERMISSION. creator_info lists what the ACCOUNT
+        # allows, not what an unaudited APP may ask for, and the two are not
+        # the same: on production 2026-09-18 it offered FOLLOWER_OF_CREATOR,
+        # MUTUAL_FOLLOW_FRIENDS and SELF_ONLY, and asking for the second made
+        # video/init refuse the post outright. Until the audit passes, take
+        # the least public level on offer (SELF_ONLY is last in the order, so
+        # reversing picks it whenever it is available).
+        if settings.tiktok_audited:
+            privacy = next((p for p in _PRIVACY_ORDER if p in options),
+                           options[0] if options else "SELF_ONLY")
+        else:
+            privacy = next((p for p in reversed(_PRIVACY_ORDER) if p in options),
+                           "SELF_ONLY")
         max_s = float(d.get("max_video_post_duration_sec") or 0)
         if max_s and duration_s and duration_s > max_s:
             raise ProviderError(f"TikTok limits this account to {max_s:.0f}s videos; "
@@ -140,9 +169,16 @@ class TikTok:
 
         chunk, count = chunk_plan(size)
         r = await _http.request("POST", _INIT, headers=auth, json={
+            # THE CREATOR'S OWN SWITCHES, NOT OURS. creator_info reports what
+            # this account has turned off, and a post that tries to turn one
+            # back on is an invalid request. Hardcoding False here meant
+            # telling TikTok to enable duets and stitches for an account that
+            # had disabled both (production, 2026-09-18).
             "post_info": {"title": (caption or "")[:TITLE_MAX], "privacy_level": privacy,
-                          "disable_duet": False, "disable_comment": False,
-                          "disable_stitch": False, "video_cover_timestamp_ms": 1000},
+                          "disable_duet": bool(d.get("duet_disabled")),
+                          "disable_comment": bool(d.get("comment_disabled")),
+                          "disable_stitch": bool(d.get("stitch_disabled")),
+                          "video_cover_timestamp_ms": 1000},
             "source_info": {"source": "FILE_UPLOAD", "video_size": size,
                             "chunk_size": chunk, "total_chunk_count": count}})
         init = r.json() or {}

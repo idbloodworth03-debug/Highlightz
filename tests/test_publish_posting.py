@@ -393,6 +393,14 @@ def test_tiktok_posts_and_says_so_when_forced_private(tmp_path, monkeypatch):
 
 
 def test_tiktok_picks_public_when_the_audit_allows_it(tmp_path, monkeypatch):
+    """This name was aspirational until TIKTOK_AUDITED existed: the provider
+    took the most public level on offer whether or not the app could use it,
+    and video/init refused the post. The flag is now the thing that decides,
+    so the test finally sets the condition it is named after. Its twin —
+    unaudited, same offer, must still be SELF_ONLY — is in
+    tests/test_tiktok_privacy.py."""
+    from config.settings import settings
+    monkeypatch.setattr(settings, "tiktok_audited", True)
     f = tmp_path / "up9.mp4"; f.write_bytes(MP4)
     canned = Canned([
         (("POST", "creator_info/query"), _resp(200, {"data": {"privacy_level_options":

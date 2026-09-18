@@ -1736,6 +1736,64 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## TikTok: what creator_info offers is not what the app may ask for (2026-09-18)
+
+Setting the TikTok app up end to end found three bugs in our own provider,
+all on the same API response. Sandbox client key, real account, production
+server: OAuth completed, the Scheduler picked the item up, and `video/init`
+refused the post with "Please review our integration guidelines" — TikTok's
+generic message, naming nothing.
+
+`scripts/tiktok_probe.py` (read-only; creator_info is a query) got the
+answer in one call:
+
+    privacy_level_options : ['FOLLOWER_OF_CREATOR', 'MUTUAL_FOLLOW_FRIENDS', 'SELF_ONLY']
+    duet_disabled: True   stitch_disabled: True   comment_disabled: False
+    the provider would ask for : MUTUAL_FOLLOW_FRIENDS
+
+1. **The offer is not permission.** The provider took the most public level
+   in `privacy_level_options`, on the assumption that an unaudited app would
+   only ever be *offered* `SELF_ONLY`. It is not — that list describes the
+   ACCOUNT's settings. Asking for a level the unaudited APP may not use
+   kills the whole post. New setting `TIKTOK_AUDITED` (default **false**)
+   decides: off → the least public level on offer, which is `SELF_ONLY`; on
+   → the most public the creator allows. Set it the day the audit passes.
+   The file's docstring had always *claimed* posts were forced private; now
+   the code does it.
+2. **The creator's switches are not ours.** `post_info` hardcoded
+   `disable_duet: False` / `disable_stitch: False`, i.e. asked TikTok to
+   turn duets and stitches back ON for an account that had disabled both.
+   Now all three follow `creator_info`. Missing keys read as False, so a
+   sparse response cannot silently disable comments on every post.
+3. **`_PRIVACY_ORDER` had two levels backwards.** `MUTUAL_FOLLOW_FRIENDS`
+   sat above `FOLLOWER_OF_CREATOR`, but a creator's followers are a superset
+   of the followers who follow back. Both ends of that ordering are now
+   load-bearing — audited takes the front, unaudited walks it backwards — so
+   it under-shared when audited and would have over-shared when not.
+
+Pinned by `tests/test_tiktok_privacy.py` (11 tests, built on the exact
+production response). `test_tiktok_picks_public_when_the_audit_allows_it` in
+`test_publish_posting.py` was named for a condition the old code could not
+know; it now sets `TIKTOK_AUDITED` and means what it says.
+
+**Console setup that worked** (for when Instagram's turn comes, and for
+re-registration): app type **Other**; category Photo & Video; platform Web;
+domain verified by **DNS TXT at DigitalOcean** (Networking → Domains →
+highlightz.app, hostname `@`), which covers /tos, /privacy and the callback
+at once. Products: Login Kit + Content Posting API with **Direct Post** on.
+Scopes exactly `user.info.basic` and `video.publish` — add nothing from the
+"Add scopes" dialog, since every scope must be demonstrated in the demo
+video. Skip Content Posting API's "Verify domains" block: that is for
+`pull_by_url` and this provider sends `FILE_UPLOAD`.
+
+**The deadlock, and the way out.** The production app cannot be saved
+without a demo video, and the video cannot be recorded until the app works.
+A **sandbox** is the documented escape: it needs no review, holds its own
+config, and — the part that cost an hour — **its own client key**, prefixed
+`sb`. The production key is inert until the audit passes and fails with a
+bare `client_key` error that looks like a typo. Add your own handle under
+Sandbox → Target users first, or OAuth fails whatever the keys say.
+
 ## Reading the conversion question (2026-09-18)
 
 Owner: "why are the free accounts not converting". `scripts/growth_report.py`
