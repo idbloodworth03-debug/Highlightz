@@ -72,11 +72,18 @@ for s, n in by_status.most_common():
     print(f"  {s:<12} {n}")
 print(f"  paying       {len(paying)}  ({', '.join(f'{k} {v}' for k, v in by_plan.most_common()) or 'none'})")
 
-mrr = 0
-for u in paying:
+# TRIALS ARE NOT REVENUE. Counting them was overstating the number by
+# whatever the trialing accounts would pay if they convert, which is the one
+# thing nobody knows yet. Billed and trialing are reported apart.
+def _price(u):
     p = (u.get("plan") or "").lower()
-    mrr += 25 if p == "pro" else 10 if p == "starter" else 15   # legacy = 15
-print(f"  MRR          ${mrr}")
+    return 25 if p == "pro" else 10 if p == "starter" else 15   # no plan = legacy $15
+
+
+billed = [u for u in real if u.get("subscription_status") == "active"]
+trialing = [u for u in real if u.get("subscription_status") == "trialing"]
+print(f"  MRR billed   ${sum(_price(u) for u in billed)}  ({len(billed)} active)")
+print(f"  in trials    ${sum(_price(u) for u in trialing)}  ({len(trialing)} trialing, not yet cash)")
 
 # ── signup and activity over time ───────────────────────────────────────────
 def within(days, key):
@@ -107,10 +114,19 @@ print(f"  got a clip        {got:>4}  {pct(got, len(real))}")
 print(f"  kept a clip       {kept:>4}  {pct(kept, len(real))}")
 
 # ── the positioning question ────────────────────────────────────────────────
+# FROM CLIP HISTORY, NOT streams.json. Current registrations answer "who was
+# here in the last 8 hours" (the reaper removes the rest), which is far too
+# small a sample to decide who the product is for. Every channel that ever
+# produced a clip for an account is the real evidence.
+by_user_channels = collections.defaultdict(set)
+for c in clips:
+    if c.get("user_id") and c.get("channel"):
+        by_user_channels[c["user_id"]].add(c["channel"].lower())
+
 own, other, mixed, unknown = 0, 0, 0, 0
 for u in real:
     login = (u.get("twitch_login") or u.get("kick_slug") or "").lower()
-    mine = {(s.get("channel") or "").lower() for s in streams if s.get("user_id") == u["id"]}
+    mine = by_user_channels.get(u["id"]) or set()
     if not mine:
         continue
     if not login:
@@ -121,11 +137,15 @@ for u in real:
         mixed += 1
     else:
         other += 1
-print("\nWHO ARE THEY? (accounts that monitor at least one channel)")
+total_who = own + mixed + other + unknown
+print(f"\nWHO ARE THEY? ({total_who} accounts that ever got a clip)")
 print(f"  only their own channel      {own}")
 print(f"  their own + others          {mixed}")
 print(f"  only OTHER channels         {other}   <- clippers")
 print(f"  could not tell              {unknown}")
+if by_user_channels:
+    spread = sorted((len(v) for v in by_user_channels.values()), reverse=True)
+    print(f"  channels per account: max {spread[0]}, median {spread[len(spread)//2]}")
 
 # ── clips ───────────────────────────────────────────────────────────────────
 st = collections.Counter(c.get("status") or "?" for c in clips)
