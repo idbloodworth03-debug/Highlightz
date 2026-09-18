@@ -5723,7 +5723,14 @@ async def publish_schedule_post_now(request: Request, item_id: str):
     item = sched.get(item_id, uid)
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
-    if item.status == sched.POSTING:
+    # "Already posting" only if something in THIS process actually is. The
+    # status alone is a claim about a coroutine, and a claim outlives the
+    # coroutine across a restart — refusing on the status was what left a
+    # stranded item with no way back except editing JSON on the server.
+    # `_inflight` is the live truth and is empty after a restart by
+    # construction. Startup reclaims the rest; this covers the gap before
+    # that runs, and any future way an item is left claiming to post.
+    if item.status == sched.POSTING and item.id in poster._inflight:
         raise HTTPException(status_code=409, detail="Already posting.")
     item = sched.reset_for_retry(item_id, uid)
     if not poster.auto_platforms(item):
@@ -5746,6 +5753,16 @@ async def schedule_due_task() -> None:
     missed broadcast — restart, dropped socket — cannot lose a reminder.
     """
     from src.publish import schedule as sched, poster, connections as pub_conns
+    # BEFORE THE FIRST PASS, not inside it. A deploy kills every in-flight
+    # post but leaves its `posting` status on disk, and nothing downstream
+    # can recover that: the worker below only looks at pending and failed,
+    # and /retry refuses a posting item. The card pulses at 1 Hz forever and
+    # reads as the app buffering. Once, at startup, when nothing can be in
+    # flight to race with.
+    try:
+        sched.reclaim_posting_orphans()
+    except Exception as exc:                           # never block the worker
+        log.warning("schedule_reclaim_failed", error=str(exc))
     while True:
         try:
             await poster.post_due(broadcast)

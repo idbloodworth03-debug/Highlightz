@@ -1736,6 +1736,41 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## A restart used to strand a post forever (2026-09-18)
+
+Owner: "I am in the scheduler and it just starts to flash almost as if it is
+buffering." It was a card stuck in `posting`, and the state was
+unrecoverable by any path in the product.
+
+`posting` is a claim about a coroutine in THIS process. A deploy kills every
+one of them; the status is on disk and survives. After that:
+
+- `due_for_posting` returns only `pending` and `failed`, so the worker never
+  looked at the item again;
+- `/publish/schedule/{id}/post` — the Retry button — refused anything whose
+  status was `posting` with 409 "Already posting";
+- `.sc-chip.posting i {animation: scPulse 1s infinite}` blinked at 1 Hz
+  forever, which is what "flashing / buffering" was.
+
+Nothing short of editing `schedule.json` on the server could clear it. The
+deploy that triggered it landed inside TikTok's three-minute publish poll.
+
+- `sched.reclaim_posting_orphans()` runs once at the top of
+  `schedule_due_task`, **before** the first pass. At startup no post can be
+  in flight, so every `posting` row is orphaned by definition and there is
+  nothing to race. Each is marked failed and **retryable** — the bytes may
+  have reached the platform, so it says "we lost track", not "it failed" —
+  and a row that already reached `posted` is left alone, or the retry would
+  post the clip to that platform twice.
+- The retry endpoint now refuses only when `item.id in poster._inflight`,
+  the live truth, instead of trusting a stored claim that outlives the task.
+- No broadcast: there are no sockets at startup. Reconnecting tabs pick it
+  up via `refetchAll()`, which is exactly what that path exists for.
+
+Pinned by `tests/test_posting_orphans.py` (9 tests), including that the
+reclaim happens before `while True:` and that a half-posted item keeps its
+successful platform.
+
 ## TikTok: what creator_info offers is not what the app may ask for (2026-09-18)
 
 Setting the TikTok app up end to end found three bugs in our own provider,

@@ -301,6 +301,51 @@ def mark_result(item_id: str, user_id: str, platform: str, status: str, *,
     return item
 
 
+def reclaim_posting_orphans() -> list[Item]:
+    """Rescue items left mid-post by a restart. Call once at startup.
+
+    THE TRAP THIS EXISTS TO CLOSE. `posting` is a claim about a coroutine that
+    lives in this process, and a deploy kills every one of them — but the
+    status is on disk and survives. Afterwards the item is stranded in a way
+    nothing could undo: `due_for_posting` only returns pending and failed, so
+    the worker never looks at it again, and the Retry endpoint refuses a
+    `posting` item with 409 "Already posting". The card's chip pulses at 1 Hz
+    forever (.sc-chip.posting) and the user reads it as the app buffering.
+    Found exactly that way on 2026-09-18, after a deploy landed inside
+    TikTok's three-minute publish poll.
+
+    At startup no post CAN be in flight — the tasks died with the process — so
+    every `posting` row here is orphaned by definition and there is nothing to
+    race with. Marked failed and RETRYABLE: the bytes may well have reached
+    the platform, so this says "we lost track", not "it did not work", and
+    both the automatic retry and the Retry button take it from here.
+
+    No broadcast: there are no sockets yet. Reconnecting tabs pick the change
+    up through refetchAll(), which is what that path is for.
+    """
+    _load()
+    changed = []
+    for item in _items.values():
+        if item.status != POSTING:
+            continue
+        for p, r in item.results.items():
+            if r.get("status") == R_POSTING:
+                item.results[p] = {
+                    "status": R_FAILED, "at": time.time(), "retryable": True,
+                    "error": "The server restarted while this was posting, so "
+                             "we lost track of it. Check the account before "
+                             "retrying, in case it went out.",
+                }
+        states = {r.get("status") for r in item.results.values()}
+        item.status = (FAILED if R_FAILED in states else
+                       POSTED if states else PENDING)
+        changed.append(item)
+    if changed:
+        _save()
+        log.warning("schedule_posting_orphans_reclaimed", count=len(changed))
+    return changed
+
+
 def reset_for_retry(item_id: str, user_id: str) -> Item | None:
     """Forget the failures, keep the successes, and make the item pending
     again so the poster picks it up. A platform that already took the clip is
