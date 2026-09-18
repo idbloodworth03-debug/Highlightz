@@ -2197,7 +2197,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
   const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
-  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status;
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? 'paused · resumes when you return' : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   return (
     <div className="rd-stream">
@@ -3610,7 +3610,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
-  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status;
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? 'paused · resumes when you return' : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
@@ -8755,7 +8755,7 @@ function RdApp() {
           refetchAll();
           flash('Your account roles were updated.');
         }
-        else if(msg.event==='streams_paused_idle'){flash('Your streams were paused after 8 hours of inactivity. Restart them from the Live Streams tab.');}
+        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is
         // indistinguishable from a bug to the person it happens to.

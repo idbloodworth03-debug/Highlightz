@@ -300,6 +300,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.session["subscription_status"] = status
                 request.session["trial_ends_at"]       = trial_ends_at
                 _user_last_active[uid] = time.time()
+                # THEY ARE BACK. Channels the idle reaper paused come back
+                # with them, which is the entire point of pausing rather than
+                # deleting: "close the tab, shut the laptop" has to survive
+                # the night. Discarding from the set IS the lock — only the
+                # request that removes the uid starts the resume, so a burst
+                # of requests on page load cannot fire it twice.
+                if uid in _paused_users:
+                    _paused_users.discard(uid)
+                    asyncio.create_task(_resume_user_streams(uid))
         # NO BILLING GATE HERE ANY MORE. Everyone who signs in gets the
         # product; what differs is how much of it (src/billing/plans.py). This
         # used to redirect non-subscribers to /billing/paywall, which meant a
@@ -521,6 +530,14 @@ if _retired_fields_stripped:
         log.warning("retired_clip_fields_purge_failed", error=str(exc))
 
 _streams:      dict[str, dict]           = _load_streams()
+# Accounts holding at least one PAUSED channel, so "are they back?" on every
+# authenticated request is a set lookup rather than a scan of _streams.
+# Rebuilt from the store at startup: a restart must not strand a paused
+# channel forever, which is the failure mode the pause is here to end.
+_paused_users: set[str] = {
+    s.get("user_id", "") for s in _streams.values()
+    if s.get("status") == "paused" and s.get("user_id")
+}
 _feedback:     list                      = _load_feedback()
 _ws_clients:   dict[str, set[WebSocket]] = {}  # user_id -> set of WebSocket
 _data_lock = asyncio.Lock()
@@ -4295,8 +4312,92 @@ async def _enforce_stream_limit(uid: str) -> int:
     return len(removed)
 
 
+async def _pause_user_streams(uid: str) -> int:
+    """Idle: stop the workers, KEEP the channels. Returns how many paused.
+
+    THE BUG THIS REPLACES, because it cost more than every other bug in this
+    file put together. The idle reaper called _stop_user_streams_now, which
+    pops each record out of `_streams` — and `_streams` is BOTH the worker
+    registry and the user's saved channel list. Stopping the worker therefore
+    threw the configuration away with it. Anyone who closed the tab for eight
+    hours came back to an empty Live Streams tab and had to add every channel
+    again, while the FAQ promised them they could "close the tab, shut the
+    laptop". Measured on 2026-09-18: sixty accounts, twenty two of which had
+    produced real clips from forty five channels, had two channels registered
+    between them.
+
+    A paused record frees exactly what the reaper exists to free, the core and
+    the live slot, and keeps what it was never meant to take. The user's next
+    visit resumes them (_resume_user_streams).
+    """
+    paused = []
+    async with _data_lock:
+        for key, rec in _streams.items():
+            if not key.startswith(f"{uid}:") or rec.get("status") == "paused":
+                continue
+            rec["status"] = "paused"
+            rec["paused_at"] = time.time()
+            # The worker releases this on its way out too; doing it here means
+            # the slot is free the instant the decision is made, and the call
+            # is a discard so twice is harmless.
+            release_live_slot(key)
+            paused.append(rec)
+        if paused:
+            _save_streams()
+    if not paused:
+        return 0
+    _paused_users.add(uid)
+    log.info("streams_paused_idle", user=uid, count=len(paused))
+    for rec in paused:
+        if _publish_remove_stream:
+            try:
+                await _publish_remove_stream(rec["channel"], uid)
+            except Exception as exc:
+                log.warning("pause_stream_failed", channel=rec.get("channel"), error=str(exc))
+        # Realtime contract: a tab left open watches them go quiet.
+        await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
+    return len(paused)
+
+
+async def _resume_user_streams(uid: str) -> int:
+    """They are back: restart the channels the reaper paused.
+
+    Admission control is untouched — the worker still asks acquire_live_slot
+    before going live — so a wave of returning users queues on the box rather
+    than overrunning it, exactly as a wave of new channels always did.
+    """
+    resuming = []
+    async with _data_lock:
+        for key, rec in _streams.items():
+            if not key.startswith(f"{uid}:") or rec.get("status") != "paused":
+                continue
+            rec["status"] = "starting"
+            rec.pop("paused_at", None)
+            resuming.append(rec)
+        if resuming:
+            _save_streams()
+    _paused_users.discard(uid)
+    if not resuming:
+        return 0
+    log.info("streams_resumed_on_return", user=uid, count=len(resuming))
+    for rec in resuming:
+        if _publish_new_stream:
+            try:
+                await _publish_new_stream(rec["channel"], rec.get("platform", "twitch"),
+                                          rec.get("preset", "default"), uid)
+            except Exception as exc:
+                log.warning("resume_stream_failed", channel=rec.get("channel"), error=str(exc))
+        await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
+    return len(resuming)
+
+
 async def _stop_user_streams_now(uid: str) -> None:
-    """Immediately stop all stream workers for a user (no grace period)."""
+    """Immediately stop all stream workers for a user, and forget the channels.
+
+    For ACCESS ENDING (trial expired, admin revoke, account deleted), where
+    the channels should not come back on their own. Idle is not that: it uses
+    _pause_user_streams above.
+    """
     keys = [k for k in _streams if k.startswith(f"{uid}:")]
     if not keys:
         return
@@ -4571,10 +4672,13 @@ async def idle_stream_reaper() -> None:
                                 if s.get("user_id") == uid), default=now) or now
                 last_active = _user_last_active.get(uid, fallback)
                 if now - last_active > _IDLE_STREAM_TIMEOUT:
-                    log.info("idle_stream_reaper_stopping", user=uid,
+                    log.info("idle_stream_reaper_pausing", user=uid,
                              idle_minutes=round((now - last_active) / 60))
-                    await _stop_user_streams_now(uid)
-                    await broadcast({"event": "streams_paused_idle"}, user_id=uid)
+                    # PAUSE, never delete. See _pause_user_streams for what
+                    # deleting here cost. Already-paused users pause nothing
+                    # and get no second toast.
+                    if await _pause_user_streams(uid):
+                        await broadcast({"event": "streams_paused_idle"}, user_id=uid)
             # Persist the clock on the reaper's own tick, so a restart resumes
             # where it left off instead of granting everyone a fresh 8 hours.
             _save_activity()

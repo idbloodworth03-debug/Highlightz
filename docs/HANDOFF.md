@@ -1699,6 +1699,43 @@ the type scale, so `test_design_tokens` passes untouched. Checked in the
 harness (`scratchpad/ed/tut_shot.js`, which needs a signed session cookie
 to fetch `/tutorial/content`).
 
+## Idle PAUSES channels, it does not delete them (2026-09-18)
+
+**The most expensive bug this codebase has had.** `_streams` is both the
+worker registry and the user's saved channel list. The idle reaper freed
+the core by calling `_stop_user_streams_now`, which pops records out of
+it, so stopping a worker also threw away the configuration. Anyone who
+closed the tab for 8 hours came back to an empty Live Streams tab and had
+to add every channel again, while the FAQ promised "close the tab, shut
+the laptop". `scripts/growth_report.py` on prod, 2026-09-18: **60
+accounts, 2 channels registered between them**, while 22 accounts had
+produced clips from 45 channels historically and 712 clips sat unreviewed.
+Retention, not acquisition, was the business problem, and this was it.
+
+Now:
+- `_pause_user_streams(uid)` sets `status="paused"` + `paused_at`, calls
+  `release_live_slot`, stops the worker via `_publish_remove_stream`, and
+  broadcasts `stream_updated` per channel. The record stays. Returns the
+  count; already-paused users pause nothing and get no second toast.
+- `_resume_user_streams(uid)` flips paused back to `starting` and respawns
+  with the stored platform and preset. It does **not** take a live slot:
+  `stream_worker` still asks `acquire_live_slot` at go-live, so a wave of
+  returning users queues instead of overrunning the box.
+- `_paused_users: set[str]` makes the per-request check a set lookup, and
+  is rebuilt from `_streams` at import so a restart cannot strand anyone.
+- `AuthMiddleware` resumes on the next authenticated request from that
+  user. `discard()` before `create_task` is the lock: only the request
+  that removes the uid starts the resume, so a page load firing a dozen
+  requests cannot start a dozen resumes.
+- `_stop_user_streams_now` is unchanged and still DELETES. It is for
+  access ending: trial expiry, admin revoke, account deletion. Idle is not
+  that. Do not merge the two again.
+- Copy: the toast says the channels restart by themselves; both status
+  labels read "paused · resumes when you return".
+
+Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
+never mentions `_stop_user_streams_now` and that access loss still does.
+
 ## Sign in with Kick, either-or with Twitch (2026-09-16)
 
 Owner: "make people able to sign up with kick now too, give them the option
