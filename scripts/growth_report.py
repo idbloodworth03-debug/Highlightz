@@ -129,21 +129,49 @@ print(f"  could not tell              {unknown}")
 
 # ── clips ───────────────────────────────────────────────────────────────────
 st = collections.Counter(c.get("status") or "?" for c in clips)
-judged = st.get("approved", 0) + st.get("rejected", 0)
 vod = sum(1 for c in clips if c.get("is_vod_moment"))
 kick = sum(1 for c in clips if c.get("platform") == "kick")
 print(f"\nCLIPS ({len(clips)} held)")
 for s, n in st.most_common():
     print(f"  {s:<12} {n}")
-print(f"  keep rate     {pct(st.get('approved', 0), judged)} of {judged} judged")
 print(f"  vod moments   {vod}   kick {kick}")
+
+# THE KEEP RATE CANNOT COME FROM clips.json. Rejecting deletes the record
+# (reject_clip does `del _clips[clip_id]`), so everything judged and still
+# present is approved and the file would always report 100%. The decisions
+# themselves are in stream_stats.jsonl, which records both.
+dec = collections.Counter()
+try:
+    with (ROOT / "stream_stats.jsonl").open() as fh:
+        for line in fh:
+            try:
+                dec[json.loads(line).get("event")] += 1
+            except Exception:
+                pass
+except OSError:
+    pass
+judged = dec.get("approved", 0) + dec.get("rejected", 0)
+if judged:
+    print(f"  keep rate     {pct(dec.get('approved', 0), judged)} "
+          f"({dec.get('approved', 0)} kept, {dec.get('rejected', 0)} rejected, all time)")
+else:
+    print("  keep rate     no decisions recorded yet")
+
+# Channels that ever produced a clip, which is the honest activation number:
+# streams.json holds only what is registered RIGHT NOW, and the idle reaper
+# removes a user's channels after 8 hours with the dashboard closed.
+ever = {(c.get("user_id"), (c.get("channel") or "").lower()) for c in clips if c.get("user_id")}
+ever_users = {u for u, _ch in ever}
+print(f"  channels that ever produced a clip: {len(ever)}, across {len(ever_users)} accounts")
 
 if clips_by_user:
     top = clips_by_user.most_common(5)
     print("  clips per account (top 5): " + ", ".join(str(n) for _, n in top))
 
 # ── monitored channels right now ────────────────────────────────────────────
-print(f"\nMONITORED CHANNELS ({len(streams)} registered)")
+print(f"\nMONITORED CHANNELS ({len(streams)} registered RIGHT NOW)")
+print("  NB: the idle reaper REMOVES a user's channels after 8h with the")
+print("      dashboard closed, so this is 'who was here today', not 'who uses it'.")
 plat = collections.Counter(s.get("platform") or "twitch" for s in streams)
 print("  " + ", ".join(f"{k} {v}" for k, v in plat.most_common()))
 live_cap = max(1, settings.max_concurrent_streams)
