@@ -1736,6 +1736,41 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Clear and cull stay on one side of the switch (2026-09-19)
+
+Owner: "I need the clip clear to only clear clips on that specific platform
+(Kick or Twitch)."
+
+It was a real mismatch, not a preference. Clip Review only ever shows the
+active platform — `platformClips` filters the queue before the screen sees
+it — and the Clear queue button counts **that filtered set** for its own
+label. The endpoint did not: it removed every pending clip on the account.
+So a button reading "Clear 12 clips" deleted those twelve *and* a Kick queue
+the user could not see from the screen they pressed it on. An undo entry
+existed, which is not the point: a destructive action whose count disagrees
+with what it destroys should not need one.
+
+- `POST /clips/clear-pending?platform=twitch|kick`, and `platform` on
+  `BulkCullBody`. **Absent means every platform**, which is what account
+  deletion and any non-UI caller want; the dashboard always sends it.
+- `_clip_platform(clip)` reads a missing `platform` key as **twitch**. Clips
+  written before Kick existed have no such key, and everywhere else in the
+  file defaults the same way — reading it as `""` would make those clips
+  invisible to a Twitch clear and immortal in the queue.
+- `_clip_platform_filter` **refuses** an unknown platform with a 400. A typo
+  quietly matching nothing is indistinguishable from an empty queue, and the
+  user would just press it again.
+- `activePlatform` is threaded into `ReviewScreen` → `ClearQueueButton` and
+  `CullPanel`.
+
+**Cull was fixed alongside it, deliberately.** Same screen, same defect,
+same one-line shape. Shipping the clear fix and leaving its twin would have
+left a button on the same row that still crosses the switch.
+
+Pinned by `tests/test_clear_by_platform.py` (12 tests), including the
+missing-`platform` legacy clip, that approved clips and other users' clips
+are still untouchable, and that crowd suggestions still survive a cull.
+
 ## Every download is logged, and only downloads (2026-09-19)
 
 Owner: "make it so that we can see every clip that is downloaded."

@@ -2835,7 +2835,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
 }
 
 
-function CullPanel({ clips, onDone }) {
+function CullPanel({ clips, activePlatform = 'twitch', onDone }) {
   const [thresh, setThresh] = React.useState(50);
   const [busy, setBusy]     = React.useState(false);
   // The SAME set the endpoint acts on, or the preview is a lie about what the
@@ -2850,7 +2850,10 @@ function CullPanel({ clips, onDone }) {
   const run = async () => {
     if (!remove) return;
     setBusy(true);
-    await fetch('/clips/bulk-cull', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({min_score: thresh})});
+    // THE PLATFORM TRAVELS WITH IT. `clips` here is already the active
+    // platform's, so the preview count was right while the server culled
+    // both sides -- the number and the deletion disagreed.
+    await fetch('/clips/bulk-cull', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({min_score: thresh, platform: activePlatform})});
     setBusy(false);
     onDone();
   };
@@ -3092,7 +3095,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
   );
 }
 
-function ClearQueueButton({ pending }) {
+function ClearQueueButton({ pending, activePlatform = 'twitch' }) {
   // Two-step, not window.confirm: a native dialog is unstyleable, blocks the
   // whole tab, and reads as a browser warning rather than part of the app.
   // Arming inline also lets the count sit in the confirm text, which is the
@@ -3110,7 +3113,10 @@ function ClearQueueButton({ pending }) {
   const run = async () => {
     setBusy(true);
     try {
-      await fetch('/clips/clear-pending', {method:'POST'});
+      // Scoped to the side of the switch the user is looking at: `pending`
+      // counts only this platform, so clearing both made the button's own
+      // label a lie about what it deleted.
+      await fetch('/clips/clear-pending?platform=' + encodeURIComponent(activePlatform), {method:'POST'});
       // No local state surgery: the server broadcasts clip_removed per clip and
       // the existing handler drops each one, so every open tab converges the
       // same way. Mutating here as well would race that.
@@ -3306,7 +3312,7 @@ const REFUSAL_COPY = {
   },
 };
 
-function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, refusals, onDismissRefusal, onGoTutorial }) {
+function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, refusals, onDismissRefusal, onGoTutorial, activePlatform = 'twitch' }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
@@ -3476,10 +3482,10 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
                 <button className={'rd-btn sm'+(showCull?' active':'')} onClick={()=>setShowCull(v=>!v)} style={{background:showCull?'rgba(184,106,220,.18)':'rgba(255,255,255,.06)',border:'1px solid',borderColor:showCull?'var(--acc)':'var(--hair)',color:showCull?'var(--acc)':'var(--fg-2)'}}>
                   <Icon name="sparkles" size={13}/>Cull clips
                 </button>
-                {showCull && <CullPanel clips={clips} onDone={()=>setShowCull(false)}/>}
+                {showCull && <CullPanel clips={clips} activePlatform={activePlatform} onDone={()=>setShowCull(false)}/>}
               </div>
             )}
-            {pending > 0 && <ClearQueueButton pending={pending}/>}
+            {pending > 0 && <ClearQueueButton pending={pending} activePlatform={activePlatform}/>}
           </div>
         </div>
         {/* The status chips are gone with the statuses. All / Pending /
@@ -9241,7 +9247,7 @@ function RdApp() {
   const kickOpen = true;
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;

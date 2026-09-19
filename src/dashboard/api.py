@@ -3569,6 +3569,29 @@ async def reject_clip(request: Request, clip_id: str):
 
 class BulkCullBody(BaseModel):
     min_score: float = 50.0   # clips with score < this are removed
+    # Which side of the Twitch/Kick switch. None means both, for callers that
+    # are not the dashboard; the UI always sends the platform it is showing.
+    platform: str | None = None
+
+
+# A clip written before Kick existed has no `platform` key at all, and a
+# Twitch clip is the thing it defaults to everywhere else in this file
+# (_clip_out, the counters, the admin tables). Reading it as "" here would
+# make those clips invisible to a Twitch clear and immortal in the queue.
+def _clip_platform(clip: dict) -> str:
+    return (clip.get("platform") or "twitch").lower()
+
+
+def _clip_platform_filter(platform: str | None) -> str | None:
+    """Validate a platform filter. A typo has to be refused rather than
+    silently matching nothing: "clear-pending?platform=twich" quietly doing
+    nothing is indistinguishable from an empty queue."""
+    if platform is None or platform == "":
+        return None
+    p = platform.lower()
+    if p not in ("twitch", "kick"):
+        raise HTTPException(status_code=400, detail=f"Unknown platform '{platform}'.")
+    return p
 
 
 @app.delete("/clips/{clip_id}", status_code=204)
@@ -3596,8 +3619,19 @@ async def delete_clip_endpoint(request: Request, clip_id: str):
 
 
 @app.post("/clips/clear-pending")
-async def clear_pending_clips(request: Request):
+async def clear_pending_clips(request: Request, platform: str | None = None):
     """Empty the review queue without judging anything in it.
+
+    ONE PLATFORM AT A TIME. The dashboard has a Twitch/Kick switch and Clip
+    Review only ever shows the active side — `platformClips` in
+    aurora_html.py. The button's own label counts that filtered set, so
+    clearing everything meant a button reading "Clear 12 clips" deleting
+    those twelve AND a Kick queue the user could not see from that screen.
+    An undo existed, but a destructive action whose count disagrees with
+    what it destroys should not need one.
+
+    `platform` is optional and absent means every platform, which is what
+    account deletion and any non-UI caller want. The UI always sends it.
 
     WHY THIS IS NOT "REJECT ALL". Rejecting means "I watched this and it was
     bad": it raises the channel's trigger threshold, trims that clip's signal
@@ -3616,10 +3650,13 @@ async def clear_pending_clips(request: Request):
     button labelled "clear the queue" must never reach into it.
     """
     uid = _current_user_id(request)
+    plat = _clip_platform_filter(platform)
     removed: list[dict] = []
     async with _data_lock:
         for clip_id, clip in list(_clips.items()):
             if clip.get("user_id") != uid or clip.get("status") != "pending":
+                continue
+            if plat and _clip_platform(clip) != plat:
                 continue
             removed.append(_clips.pop(clip_id))
         if removed:
@@ -3677,6 +3714,10 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
     """
     uid = _current_user_id(request)
     min_score = max(0.0, min(100.0, body.min_score))
+    # ONE PLATFORM AT A TIME, for the same reason as clear-queue: this button
+    # sits on the same platform-filtered screen, so a cull that crossed the
+    # switch would delete Kick clips from a Twitch view.
+    plat = _clip_platform_filter(body.platform)
 
     to_remove = []
     async with _data_lock:
@@ -3684,6 +3725,8 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
             if clip.get("user_id") != uid or clip.get("status") != "pending":
                 continue
             if clip.get("suggested"):
+                continue
+            if plat and _clip_platform(clip) != plat:
                 continue
             score = float(clip.get("score") or clip.get("trigger_score", 0))  # VOD clips store 'score'; live clips store 'trigger_score'
             if score < min_score:
