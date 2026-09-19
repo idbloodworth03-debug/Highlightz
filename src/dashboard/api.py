@@ -3206,6 +3206,27 @@ async def send_clip_to_editor(request: Request, clip_id: str):
     uid = _current_user_id(request)
     _require_upload_access(uid)
 
+    return (await _clip_into_library(clip_id, uid)).public()
+
+
+async def _clip_into_library(clip_id: str, uid: str):
+    """A clip as a library upload, fetching its video first if need be.
+
+    SHARED BY TWO DOORS. "Edit" was the only way a clip could become an
+    upload, which quietly made the editor a toll gate on the Scheduler: a
+    clip you just wanted to post had to be opened in the editor and exported
+    first, for no reason except that this code lived behind that button
+    (owner, 2026-09-19: "I need the user to be able to upload any clip
+    regardless of it has been through the editor"). Scheduling now calls the
+    same function, so the two paths cannot drift on quota, on the fetch, or
+    on the idempotency below.
+
+    Raises HTTPException, because both callers are endpoints and every
+    failure here already had a sentence written for a person.
+    """
+    from src.uploads import library as upload_lib
+    from src.clips import fetch as clip_fetch
+
     clip = _clips.get(clip_id)
     if not clip or clip.get("user_id") != uid:
         raise HTTPException(status_code=404, detail="Clip not found")
@@ -3218,10 +3239,9 @@ async def send_clip_to_editor(request: Request, clip_id: str):
     if existing_id:
         existing = upload_lib.get(existing_id, uid)
         if existing:
-            return existing.public()
+            return existing
 
     from src.clips import files as clip_files
-    from src.clips import fetch as clip_fetch
     path = clip_files.path_for(clip_id)
     if not path or not path.is_file():
         # No file yet — get one from Twitch, INLINE. "Edit" should be one
@@ -3256,7 +3276,7 @@ async def send_clip_to_editor(request: Request, clip_id: str):
                   "Download it and check the file."
                   if exc.status == 400 else exc.message)
         raise HTTPException(status_code=exc.status, detail=detail)
-    return up.public()
+    return up
 
 
 async def _copy_clip_into_library(clip: dict, uid: str, path) -> "object":
@@ -5711,7 +5731,22 @@ async def publish_schedule_add(request: Request):
     _require_upload_access(uid)
 
     body = await request.json()
-    up = upload_lib.get(str(body.get("upload_id") or ""), uid)
+
+    # ANY CLIP, NOT JUST AN EXPORT. The Scheduler used to take an upload id
+    # and nothing else, and the only thing that made uploads out of clips was
+    # the editor's Edit button — so posting a clip you were happy with meant
+    # opening it in the editor and exporting it unchanged, for no reason
+    # except where the code lived (owner, 2026-09-19: "I need the user to be
+    # able to upload any clip regardless of it has been through the editor").
+    #
+    # `clip_id` takes the same road the editor does — `_clip_into_library`
+    # fetches the video if the clip has none, reuses an existing copy rather
+    # than spending the quota twice, and applies the same disk caps.
+    clip_id = str(body.get("clip_id") or "")
+    if clip_id:
+        up = await _clip_into_library(clip_id, uid)
+    else:
+        up = upload_lib.get(str(body.get("upload_id") or ""), uid)
     if not up:
         raise HTTPException(status_code=404, detail="Clip not found")
 

@@ -197,6 +197,62 @@ def test_the_approve_endpoint_and_the_file_hook_both_call_it():
 
 def test_the_edit_button_shares_the_copy_code_rather_than_duplicating_it():
     """One writer into the library from clips, so the caps, the link-back and
-    the broadcasts cannot drift between the button and the hook."""
-    assert "_copy_clip_into_library(" in inspect.getsource(api.send_clip_to_editor)
+    the broadcasts cannot drift between the button and the hook.
+
+    THREE DOORS NOW, not two. Scheduling any clip (2026-09-19) needed the same
+    fetch-then-copy the Edit button had, so that body moved into
+    `_clip_into_library` and Edit became a one-liner over it. The invariant is
+    unchanged and is in fact stronger: every route from a clip to an upload
+    still ends at `_copy_clip_into_library`."""
+    assert "_clip_into_library(clip_id, uid)" in inspect.getsource(api.send_clip_to_editor)
+    assert "_copy_clip_into_library(" in inspect.getsource(api._clip_into_library)
     assert "_copy_clip_into_library(" in inspect.getsource(api.library_copy_if_approved)
+
+
+def test_scheduling_a_clip_takes_the_same_road_as_editing_one():
+    """The Scheduler used to accept only an upload id, which made the editor a
+    toll gate on posting: a clip you were happy with had to be opened and
+    exported unchanged first. Sharing `_clip_into_library` is what keeps the
+    quota, the Twitch fetch and the reuse-an-existing-copy rule identical
+    whichever button the user pressed."""
+    src = inspect.getsource(api.publish_schedule_add)
+    assert 'body.get("clip_id")' in src
+    assert "_clip_into_library(clip_id, uid)" in src
+    # And an upload id still works, or the editor's own export path breaks.
+    assert 'body.get("upload_id")' in src
+
+
+# ── any clip into the Scheduler (2026-09-19) ─────────────────────────────────
+
+def test_the_scheduler_offers_clips_that_never_saw_the_editor():
+    """Owner: "I need the user to be able to upload any clip regardless of it
+    has been through the editor." The picker's eligibility rule is the whole
+    feature: a clip with a file, or one we can still fetch from Twitch."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    assert "function AddClipPicker(" in h
+    assert "c.file_state === 'ready' || c.fetchable" in h
+    assert "JSON.stringify({clip_id: c.id})" in h, "the picker still posts an upload id"
+
+
+def test_a_clip_already_in_the_queue_is_not_offered_twice():
+    """Adding it again would copy the same bytes a second time and leave two
+    cards in the queue that nothing distinguishes."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    assert "const queued = new Set((items || []).map(i => i.upload_id).filter(Boolean));" in h
+    assert "!(c.editor_upload_id && queued.has(c.editor_upload_id))" in h
+
+
+def test_the_button_is_outside_the_tray_that_hides_itself():
+    """InboxTray returns null when empty, and an empty queue is exactly when
+    somebody needs this button."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    screen = h[h.index("function ScheduleScreen("):h.index("function UploadScreen(")]
+    assert "sc-addrow" in screen
+    assert screen.index("sc-addrow") < screen.index("<InboxTray")
+
+
+def test_the_scheduler_is_given_every_clip_not_just_the_active_platform():
+    """Unlike Clip Review, the posting queue shows both platforms, so a picker
+    sitting above it that hid half the clips would be the odd one out."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as h
+    assert "<ScheduleScreen me={me} queue={queue} clips={clips}" in h

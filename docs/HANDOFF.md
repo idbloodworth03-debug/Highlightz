@@ -1736,6 +1736,43 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Any clip can be posted, editor or not (2026-09-19)
+
+Owner: "In the scheduler I need the user to be able to upload any clip
+regardless of it has been through the editor."
+
+`POST /publish/schedule` took an `upload_id` and nothing else, and the only
+thing that turned clips into uploads was the editor's Edit button. That made
+**the editor a toll gate on posting**: a clip you were already happy with
+had to be opened and exported unchanged before it could be scheduled, for no
+reason except where the code lived.
+
+- The Edit endpoint's body — fetch the video if the clip has none, reuse an
+  existing copy rather than spending the upload quota twice, apply the disk
+  caps — moved into **`_clip_into_library(clip_id, uid)`**. `send_clip_to_editor`
+  is now a one-liner over it.
+- `POST /publish/schedule` accepts **`clip_id`** as an alternative to
+  `upload_id` and calls the same helper, so the two doors cannot drift on
+  the quota, the Twitch fetch, or the idempotency.
+- **Add a clip** in the Scheduler opens `AddClipPicker`. Eligible = the clip
+  has a file (`file_state === 'ready'`) **or** we can still fetch it
+  (`fetchable`); an `expired` clip with no fetch is not offered, because it
+  cannot come back. A clip already in the queue is excluded, or adding it
+  would copy the same bytes twice and leave two indistinguishable cards.
+- The button sits **above** `InboxTray`, which returns null when empty — an
+  empty queue is exactly when somebody needs it.
+- The picker is **not** filtered by the Twitch/Kick switch, unlike Clip
+  Review: the queue below it already shows both platforms, so hiding half
+  the clips in a picker above it would be the odd one out.
+
+Verified in the Playwright harness with four fixture clips: 3 offered
+(two `ready`, one `fetchable`), the `expired` one correctly absent, and the
+Kick clip listed beside the Twitch ones.
+
+Pinned by `tests/test_clip_auto_library.py` (17 tests) — the eligibility
+rule, the already-queued exclusion, the button's position, and that every
+route from a clip to an upload still ends at `_copy_clip_into_library`.
+
 ## Clear and cull stay on one side of the switch (2026-09-19)
 
 Owner: "I need the clip clear to only clear clips on that specific platform

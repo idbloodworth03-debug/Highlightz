@@ -1255,6 +1255,12 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .wk-pick-row b{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wk-pick-row span{font-size:12px;color:var(--fg-3);flex-shrink:0}
 .wk-pick-empty{font-size:13px;color:var(--fg-3);line-height:1.5}
+.wk-pick-sub{font-size:13px;color:var(--fg-3);line-height:1.5}
+/* The way in for a clip that never went through the editor. Above the tray
+   rather than inside it: the tray hides itself when empty, and an empty
+   queue is exactly when this button is needed. */
+.sc-addrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.sc-addrow .sc-sub{font-size:13px;color:var(--fg-3)}
 .sc-state{font-size:12px;font-weight:800;color:var(--acc);flex-shrink:0}
 .sc-state.failed,.sc-state.missed{color:#f7a745}
 .sc-state.posted{color:#5ce0a8}
@@ -7360,6 +7366,87 @@ function WeekCalendar({ weekStart, onWeek, items, onOpen, onMove, onSlot }) {
   );
 }
 
+/* ANY CLIP, straight into the posting queue. The Scheduler used to be fed
+   only by the editor's export, which made the editor a toll gate: a clip you
+   were already happy with had to be opened and exported unchanged before it
+   could be posted (owner, 2026-09-19). The server takes the same road the
+   Edit button takes — it fetches the video if the clip has none and reuses an
+   existing copy rather than spending the upload quota twice.
+
+   Not filtered by the Twitch/Kick switch, unlike Clip Review: the queue below
+   already shows both platforms, so hiding half the clips in a picker sitting
+   above it would be the odd one out. */
+function AddClipPicker({ clips, items, onClose }) {
+  const [busy, setBusy] = useState('');
+  const [err, setErr]   = useState('');
+  const [q, setQ]       = useState('');
+
+  // Already in the queue, so offering it again would make a second copy of
+  // the same bytes and a second card that nothing distinguishes.
+  const queued = new Set((items || []).map(i => i.upload_id).filter(Boolean));
+  const all = Object.values(clips || {})
+    .filter(c => (c.file_state === 'ready' || c.fetchable)
+                 && !(c.editor_upload_id && queued.has(c.editor_upload_id)))
+    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  const needle = q.trim().toLowerCase();
+  const list = needle
+    ? all.filter(c => ((c.channel || '') + ' ' + (c.clip_title || c.stream_title || ''))
+                        .toLowerCase().indexOf(needle) >= 0)
+    : all;
+
+  const add = async (c) => {
+    setBusy(c.id); setErr('');
+    try {
+      const r = await fetch('/publish/schedule', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({clip_id: c.id})});
+      if (!r.ok) {
+        let d = 'Could not add that clip.';
+        try { d = (await r.json()).detail || d; } catch (e) {}
+        setErr(d); return;
+      }
+      // No local state surgery: the server broadcasts schedule_added and the
+      // existing handler drops it into the queue, so every open tab converges.
+      onClose();
+    } catch (e) { setErr('Could not reach the server.'); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <div>
+      <div className="wk-pick-bg" onClick={onClose}/>
+      <div className="wk-pick" role="dialog" aria-label="Add a clip to the queue">
+        <div>
+          <h4>Add a clip</h4>
+          <div className="wk-pick-sub">Anything Highlightz caught for you. It does not
+            need to go through the editor first.</div>
+        </div>
+        {all.length > 8 &&
+          <input className="ed-in" placeholder="Filter by channel or title"
+            value={q} onChange={e=>setQ(e.target.value)}/>}
+        {err && <div className="ed-warn">{err}</div>}
+        {list.length === 0
+          ? <div className="wk-pick-empty">
+              {all.length === 0
+                ? 'No clips with a video yet. Clips Highlightz captures live land here automatically.'
+                : 'No clips match that.'}
+            </div>
+          : <div className="wk-pick-list">
+              {list.map(c=>(
+                <button key={c.id} className="wk-pick-row" disabled={!!busy}
+                  onClick={()=>add(c)}>
+                  <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
+                  <span>{busy === c.id ? 'adding…'
+                        : (c.file_state === 'ready' ? 'ready' : 'fetch')}</span>
+                </button>
+              ))}
+            </div>}
+        <button className="rd-btn sm" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 /* Which clip goes in the slot that was just clicked. Only exports with no
    time yet are offered: a clip that is already on the calendar is moved by
    dragging it, and offering it here would silently take it off its day. */
@@ -7667,10 +7754,11 @@ function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }
   );
 }
 
-function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false }) {
+function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false }) {
   const [weekStart, setWeekStart] = useState(()=>weekStartOf(new Date()));
   const [openId, setOpenId] = useState(null);
   const [slotAt, setSlotAt] = useState(null);      // {day, slot} being filled
+  const [adding, setAdding] = useState(false);    // the any-clip picker
   const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
   const items = queue || [];
@@ -7741,11 +7829,22 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
           The Clip Editor is switched off, so nothing can reach the Scheduler yet.
         </div>}
 
+      {/* Always visible, unlike the tray below it, which hides when empty:
+          the tray is where exports land, and this is how anything else gets
+          in. A user with an empty queue is exactly who needs the button. */}
+      <div className="sc-addrow">
+        <button className="rd-btn sm grad" onClick={()=>setAdding(true)}>
+          <Icon name="plus" size={13}/>Add a clip
+        </button>
+        <span className="sc-sub">Post any clip Highlightz caught &mdash; no trip through the editor needed.</span>
+      </div>
+
       <InboxTray items={inbox} onOpen={it=>setOpenId(it.id)}/>
       <WeekCalendar weekStart={weekStart} onWeek={setWeekStart} items={scheduled}
         onOpen={it=>setOpenId(it.id)} onMove={move} onSlot={(day, slot)=>setSlotAt({day, slot})}/>
 
       <SlotPicker at={slotAt} items={inbox} onPick={fillSlot} onClose={()=>setSlotAt(null)}/>
+      {adding && <AddClipPicker clips={clips} items={items} onClose={()=>setAdding(false)}/>}
       {openItem && <ScheduleDrawer item={openItem} platforms={platforms} connections={connections}
         onClose={()=>setOpenId(null)} onDrop={drop}/>}
     </div>
@@ -9252,7 +9351,7 @@ function RdApp() {
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
-  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
+  else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} clips={clips} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
       autopilot={autopilot} onAutopilot={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))} captionsOn={captionsOn}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
