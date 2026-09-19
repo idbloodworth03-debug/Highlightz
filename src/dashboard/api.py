@@ -10482,10 +10482,15 @@ def _org_schema() -> str:
             "@id": SITE_ORIGIN + "/#website",
             "url": SITE_ORIGIN + "/",
             "name": "Highlightz",
+            # Structured data is what a search engine quotes back, so it
+            # follows the release flag like everything else. "Built in" while
+            # both tabs answer 503 is a claim we would be held to.
             "description": "Automatic Twitch and Kick clipping across every "
                            "channel you watch, using a transparent scoring "
                            "formula, with a vertical clip editor and "
-                           "auto-posting built in.",
+                           "auto-posting " + ("built in."
+                                              if settings.uploads_enabled
+                                              else "coming soon."),
             "inLanguage": "en",
             "publisher": {"@id": SITE_ORIGIN + "/#organization"}}
     blob = json.dumps({"@context": "https://schema.org",
@@ -10710,6 +10715,19 @@ def _bignums_html(total: int, kept: int | None, streamers: int) -> str:
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
 # Two tall columns, Starter and Pro, real limits and real prices. No badge, no
 # highlighted column. Free is the way in and is stated first, above them.
+def _released(key: str, limits: dict) -> str:
+    """A plan row's answer for a feature that is behind a release flag.
+
+    Three states, not two: "No" when the plan does not include it, "Soon"
+    when it does but the flag is down, "Yes" when it is really there. The
+    landing page is rebuilt at import, so flipping UPLOADS_ENABLED and
+    restarting moves every row at once.
+    """
+    if not limits.get(key):
+        return "No"
+    return "Yes" if settings.uploads_enabled else "Soon"
+
+
 def _pricing() -> str:
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
     free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
@@ -10728,9 +10746,14 @@ def _pricing() -> str:
             ("Highlight clips", str(limits["max_suggested"])),
             ("Clips kept per week", week(limits)),
             ("VOD Scanner", "Yes" if limits["vod"] else "No"),
-            ("Clip Editor", "Yes" if limits["uploads"] else "No"),
+            # SOON, NOT YES, while the release flag is down. A plan table is a
+            # promise about what you get for the money today: printing "Yes"
+            # for a tab that answers 503 is the one thing a pricing page must
+            # never do. The plan gate still decides WHO gets it, so a Free row
+            # stays "No" either way — soon is only offered where Yes would be.
+            ("Clip Editor", _released("uploads", limits)),
             # Same entitlement as the editor, on purpose: cut it, then post it.
-            ("Scheduler", "Yes" if limits["uploads"] else "No"),
+            ("Scheduler", _released("uploads", limits)),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
@@ -10807,26 +10830,51 @@ def _editor_section() -> str:
     ]
     post_body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
                         for h, p in post_cards)
+    # HELD BACK (owner, 2026-09-19: "close off the editor and schedule for
+    # now and say coming soon on the landing page"). The cards stay — they
+    # describe a real feature and they are what makes somebody want it — but
+    # every line that implies they can use it TODAY has to go, because with
+    # UPLOADS_ENABLED down the tab answers 503. So: the tag says Soon, the
+    # sub-heads say what it WILL do, and the button stops saying "open".
+    soon = not settings.uploads_enabled
+    tag = " &middot; Coming soon" if soon else " &middot; Pro"
+    edit_sub = ("Every clip Highlightz catches will be reframable for vertical, "
+                "titled and cut, right where it landed — in the browser, on your "
+                "machine, with nothing waiting on a render queue. It is built and "
+                "in testing; it opens to Pro accounts shortly."
+                if soon else
+                "Every clip Highlightz catches can be reframed for vertical, "
+                "titled and cut, right where it landed. In the browser, on your "
+                "machine, with nothing waiting on a render queue.")
+    post_sub = ("Connect your YouTube, TikTok and Instagram accounts once and the "
+                "Scheduler will post your clips to them for you, at the time you "
+                "set. In testing with the platforms now."
+                if soon else
+                "Connect your YouTube, TikTok and Instagram accounts once and "
+                "the Scheduler posts your clips to them for you, at the time you set.")
+    cta = ('<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Start free</a>'
+           "<span>Both arrive with Pro, alongside the VOD Scanner. Clipping works "
+           "today on every plan.</span></p>"
+           if soon else
+           '<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Open the editor</a>'
+           '<span>Both included with Pro, with the VOD Scanner.</span></p>')
     # A div, not a section: it sits inside the pricing section under the
     # plans, hairlined off the way the FAQ is, so the page keeps its eight.
     return (
         '<div class="edit" id="edit">'
-        '<p class="edit-tag">Clip Editor &middot; Pro</p>'
-        '<h2 class="disp l-h" id="edit-h">Then make it yours.</h2>'
-        '<p class="l-sub">Every clip Highlightz catches can be reframed for vertical, '
-        "titled and cut, right where it landed. In the browser, on your machine, "
-        "with nothing waiting on a render queue.</p>"
+        '<p class="edit-tag">Clip Editor' + tag + "</p>"
+        '<h2 class="disp l-h" id="edit-h">'
+        + ("Then make it yours." if not soon else "Then make it yours. Soon.") + "</h2>"
+        '<p class="l-sub">' + edit_sub + "</p>"
         '<div class="edit-grid">' + body + "</div>"
         '<div class="edit post" id="post">'
-        '<p class="edit-tag">Scheduler &middot; Pro</p>'
-        '<h2 class="disp l-h" id="post-h">Then post it.</h2>'
-        '<p class="l-sub">Connect your YouTube, TikTok and Instagram accounts once and '
-        "the Scheduler posts your clips to them for you, at the time you set.</p>"
+        '<p class="edit-tag">Scheduler' + tag + "</p>"
+        '<h2 class="disp l-h" id="post-h">'
+        + ("Then post it." if not soon else "Then post it. Soon.") + "</h2>"
+        '<p class="l-sub">' + post_sub + "</p>"
         '<div class="edit-grid">' + post_body + "</div>"
-        "</div>"
-        '<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Open the editor</a>'
-        '<span>Both included with Pro, with the VOD Scanner.</span></p>'
-        "</div>")
+        "</div>" + cta
+        + "</div>")
 
 
 def _tos_plans() -> str:
@@ -10969,7 +11017,13 @@ def _faq() -> str:
          "approvals until the week rolls over. Nothing already in your library is ever removed "
          "because of it."),
         ("What are the VOD Scanner, the Clip Editor and the Scheduler?",
-         "All three are Pro. The VOD Scanner runs the same scoring over a stream that has already ended, "
+         # The last two are behind UPLOADS_ENABLED. An FAQ that describes them
+         # in the present tense while the tab answers 503 is the same lie as a
+         # plan row saying Yes, so the answer opens by saying which is which.
+         ("All three are Pro. The VOD Scanner is live today; the Clip Editor and the "
+          "Scheduler are built and in testing, and open to Pro accounts shortly. "
+          if not settings.uploads_enabled else "All three are Pro. ") +
+         "The VOD Scanner runs the same scoring over a stream that has already ended, "
          "so a back catalogue nobody was watching live is still worth mining, and every hit links to "
          "its own timestamp in the VOD. The Clip Editor opens any clip you have caught with one "
          "press, reframes it for vertical with five templates, adds a title, transitions and a sound "
@@ -11015,6 +11069,24 @@ LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ-->", _faq(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--EDITOR-->", _editor_section(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--RAIL-->", _rail_html(), 1)
+
+# HELD BACK: the head. The plan rows, the editor block and the FAQ are all
+# built from functions that can read the flag, but the description and the
+# social cards are literal text in the page — and a share card is the first
+# thing most people read, often the ONLY thing. Promising a vertical editor
+# and auto-posting "built in" while both answer 503 is the claim that costs
+# the most trust, so it is rewritten here rather than left to the body copy
+# to walk back. Before _faq_schema, which reads the finished markup.
+if not settings.uploads_enabled:
+    for _was, _now in (
+        ("with a vertical editor and auto-posting built in",
+         "with a vertical editor and auto-posting coming soon"),
+        ("then reframes it for vertical and posts it for you",
+         "with vertical editing and auto-posting coming soon"),
+    ):
+        if _was not in LANDING_HTML:            # copy moved; say so rather than
+            log.warning("landing_soon_copy_missed", phrase=_was[:40])   # sell it
+        LANDING_HTML = LANDING_HTML.replace(_was, _now)
 
 # LAST, and that is the whole point. _faq_schema derives the FAQPage from the
 # FAQ's own markup so the two cannot disagree — but it can only read what is

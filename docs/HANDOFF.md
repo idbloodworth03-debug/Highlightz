@@ -1736,6 +1736,45 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Editor and Scheduler held back, and the page says so (2026-09-19)
+
+Owner: "close off the editor and schedule for now and say coming soon on the
+landing page."
+
+**Closing them is `.env`, not code.** `UPLOADS_ENABLED=false` +
+`systemctl restart highlightz`. `_require_upload_access` then answers 503
+for everyone but admins, and both tabs disappear from the dashboard
+(`uploadsOn` in `aurora_html.py`). That switch already existed.
+
+**The landing page was the work**, and every piece of it reads the same
+flag, so flipping `UPLOADS_ENABLED` back restores the marketing in one
+restart:
+
+- `_released(key, limits)` gives plan rows three states instead of two: No
+  (plan excludes it), **Soon** (plan includes it, flag down), Yes. Free
+  stays No either way — the flag says *when*, the plan says *who*.
+- `_editor_section()` tags both blocks "Coming soon", switches the
+  sub-heads to what they *will* do, and changes the button from "Open the
+  editor" to "Start free" with "Clipping works today on every plan".
+- The FAQ answer opens by separating the three: VOD Scanner live today,
+  editor and Scheduler in testing.
+- **The head**, which mattered most: `og:description`,
+  `twitter:description`, `<meta name=description>` and the WebSite JSON-LD
+  all said "auto-posting built in". A share card is the first thing most
+  people read and often the only thing, so those are rewritten at import
+  (with a `landing_soon_copy_missed` warning if the phrase ever moves).
+
+The feature cards stay. Held back is not deleted — the cards are what make
+somebody want it; only the claim that they can have it *today* had to go.
+
+Pinned by `tests/test_coming_soon.py` (9 tests), which builds the page with
+the flag **both** ways: a page that stays coy after launch is the same bug
+pointing the other direction.
+
+**Still describing both as live:** `compare_content.py`, `llms.txt` /
+`llms-full.txt`, and `plans.py`'s docstring. Out of scope for "the landing
+page" and not wired to the flag yet — sweep them if the hold lasts.
+
 ## The clip's tail is not the API's tail (2026-09-19)
 
 Owner: "why is twitch still being clipped for only 30 seconds and why is
