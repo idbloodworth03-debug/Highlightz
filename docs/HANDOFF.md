@@ -1736,6 +1736,53 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Meta's two required callbacks (2026-09-19)
+
+Prerequisite for the Instagram app, found before the console work rather
+than halfway through it: **"Instagram API with Instagram Login" will not let
+an app be configured without a Deauthorize callback and a Data Deletion
+Request URL**, and neither existed.
+
+    POST /instagram/deauthorize             they removed the app
+    POST /instagram/data-deletion           they asked for their data gone
+    GET  /instagram/data-deletion/status    the receipt Meta shows them
+
+- **The signature is the whole security model.** Each arrives as a
+  `signed_request`: `<base64url sig>.<base64url json>`, the sig being
+  HMAC-SHA256 of the *encoded* payload under the app secret. Without that
+  check, an open endpoint that disconnects an account by its Instagram id
+  would let anyone disconnect any connected account — Instagram ids are
+  public. An unverifiable request touches nothing and returns 400.
+- **Not under `/publish`.** `test_public_exposure` asserts nothing in
+  `_OPEN_PATHS` may start with `/publish`, `/clips`, `/me`, `/admin`… — those
+  prefixes are a signed-in user's own data, and an allowlisted path on one
+  is a hole the handler's own auth check would hide. The guard caught this
+  and it was right; the routes moved rather than the boundary.
+- **They are in `_OPEN_PATHS`.** Meta calls with no session, and a redirect
+  to `/login` reads to a machine as an endpoint that does not work — the same
+  lesson as TikTok's domain-verification file.
+- `connections.find_by_account(platform, account_id)` is new: every other
+  lookup starts from our own user id, and these callbacks know only
+  Instagram's.
+- Deleting is synchronous, so the status page has no progress to report. The
+  confirmation code is derived from the Instagram id, so asking twice gives
+  the same answer.
+
+**A bug worth remembering:** a bare `except Exception` in the verifier hid a
+missing `import base64` — every signature came back invalid, indistinguishable
+from a wrong app secret, and it would have been a long hunt against a live
+Meta app. It now catches `(ValueError, TypeError)` only, which covers every
+malformed input while letting a coding error through as a loud 500.
+
+Pinned by `tests/test_instagram_callbacks.py` (19 tests).
+
+**Still owner-side for Instagram:** register the Meta app, set the four URLs
+(redirect, deauthorize, data deletion, and the site), request
+`instagram_business_basic` + `instagram_business_content_publish`, and put
+`INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` in `.env`. The connecting
+account must be a **Professional** (Business or Creator) account — the
+provider refuses a personal one with that sentence.
+
 ## Any clip can be posted, editor or not (2026-09-19)
 
 Owner: "In the scheduler I need the user to be able to upload any clip

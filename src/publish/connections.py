@@ -164,3 +164,21 @@ def delete_all_for_user(user_id: str) -> int:
     if gone:
         _save()
     return len(gone)
+
+
+def find_by_account(platform: str, account_id: str) -> Connection | None:
+    """Whose connection is this, asked from the platform's side.
+
+    Every other lookup starts from our own user id, because every other
+    caller is a request that user made. Meta's deauthorize and data-deletion
+    callbacks are the exception: they are server-to-server pings that know
+    only the Instagram user id, and without this there is no way to act on
+    one — which is the whole of what Meta requires those endpoints to do.
+    """
+    _load()
+    if not account_id:
+        return None
+    for c in _conns.values():
+        if c.platform == platform and c.account_id == str(account_id):
+            return c
+    return None

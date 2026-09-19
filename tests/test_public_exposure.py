@@ -46,6 +46,11 @@ def test_only_the_intended_pages_answer_a_signed_out_visitor(anon):
         "/opt-out", "/opt-out/success", "/landing/stats", "/landing/showcase",
         "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/tutorial",
         "/compare", "/billing/paywall",
+        # Meta shows this to the person who asked for their data to be
+        # deleted, so it has to answer someone with no Highlightz account at
+        # all. It renders a confirmation code and nothing else; the two
+        # callbacks beside it are POST-only and so are not enumerated here.
+        "/instagram/data-deletion/status",
     }
     got = set()
     for r in api.app.routes:

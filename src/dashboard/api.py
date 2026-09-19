@@ -13,6 +13,9 @@ Endpoints:
 """
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -75,7 +78,16 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # A crawler-facing file behind a login is a crawler-facing
                   # file that does not exist. robots.txt and sitemap.xml are
                   # here for the same reason.
-                  "/compare", "/llms.txt", "/llms-full.txt"}
+                  "/compare", "/llms.txt", "/llms-full.txt",
+                  # Meta calls these server-to-server with no session, and the
+                  # app cannot be configured without them. A redirect to
+                  # /login reads to Meta as an endpoint that does not work —
+                  # the same way it read to TikTok's domain verifier. Their
+                  # security is the signed_request HMAC, checked in the
+                  # handlers, not the session.
+                  "/instagram/deauthorize",
+                  "/instagram/data-deletion",
+                  "/instagram/data-deletion/status"}
 # ── shared head tags for the secondary public pages ──────────────────────────
 
 SITE_ORIGIN = "https://highlightz.app"
@@ -5643,6 +5655,142 @@ async def publish_disconnect(request: Request, platform: str):
         await p.revoke(c)                   # best effort; the token is gone either way
     await broadcast({"event": "publish_connections_changed"}, user_id=uid)
     return Response(status_code=204)
+
+
+# ── Meta's two required callbacks ────────────────────────────────────────────
+#
+# NOT under /publish, where the rest of the posting routes live.
+# test_public_exposure asserts that nothing in _OPEN_PATHS may start with
+# /publish (or /clips, /me, /admin …) because those prefixes are a signed-in
+# user's own data, and an allowlisted path on one of them is a hole that the
+# handler's own auth check would hide. These belong to Meta, not to a user,
+# so they get their own surface.
+#
+# "Instagram API with Instagram Login" will not let an app be configured
+# without a Deauthorize callback and a Data Deletion Request URL, and Meta
+# calls both server-to-server with no session — see _OPEN_PREFIXES.
+#
+# THE SIGNATURE IS THE WHOLE SECURITY MODEL. Both arrive as a `signed_request`
+# holding an Instagram user id. An endpoint that acted on that id without
+# checking the HMAC would let anybody on the internet disconnect any account
+# whose Instagram id they could guess, and Instagram ids are public. So an
+# unverifiable request is refused and nothing is touched.
+
+
+def _meta_signed_request(raw: str) -> dict | None:
+    """Meta's `signed_request`, verified. None if it is not genuinely ours.
+
+    Format is `<base64url sig>.<base64url json>`, the signature being
+    HMAC-SHA256 of the *encoded* payload under the app secret. Both halves
+    are base64url without padding, which Python's decoder insists on, hence
+    the manual pad.
+    """
+    secret = settings.instagram_app_secret
+    if not secret or not raw or "." not in raw:
+        return None
+
+    def _b64(part: str) -> bytes:
+        return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+    try:
+        sig_part, payload_part = raw.split(".", 1)
+        expected = hmac.new(secret.encode(), payload_part.encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, _b64(sig_part)):
+            return None
+        data = json.loads(_b64(payload_part))
+    # ValueError ONLY, deliberately — it covers every way malformed input can
+    # fail here (binascii.Error, JSONDecodeError and UnicodeDecodeError are
+    # all subclasses) while letting a coding error through to a loud 500.
+    # A bare `except Exception` hid a missing `import base64` during
+    # development: every signature came back invalid, which is indistinguishable
+    # from Meta calling with a bad secret and would have been a long hunt on a
+    # live app.
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def _forget_instagram(account_id: str) -> str:
+    """Drop the Instagram connection for one Instagram user id. Returns the
+    Highlightz user id it belonged to, or "" if we held nothing — which is a
+    perfectly normal answer and still reports success, because "we have
+    nothing of theirs" is the state the caller is asking us to reach."""
+    from src.publish import connections as pub_conns
+    conn = pub_conns.find_by_account("instagram", str(account_id or ""))
+    if conn is None:
+        return ""
+    uid = conn.user_id
+    pub_conns.remove(uid, "instagram")
+    # Realtime contract: the Scheduler's account row goes back to "Connect"
+    # in every open tab rather than on the next load.
+    await broadcast({"event": "publish_connections_changed"}, user_id=uid)
+    log.info("instagram_disconnected_by_meta", user_id=uid, account_id=account_id)
+    return uid
+
+
+@app.post("/instagram/deauthorize")
+async def instagram_deauthorize(request: Request):
+    """Meta pings this when somebody removes Highlightz from their Instagram.
+
+    Their token is dead the moment they do that, so keeping the row would
+    only produce a failed post and an error on their card later.
+    """
+    form = await request.form()
+    payload = _meta_signed_request(str(form.get("signed_request") or ""))
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Bad signed_request.")
+    await _forget_instagram(str(payload.get("user_id") or ""))
+    return {"ok": True}
+
+
+@app.post("/instagram/data-deletion")
+async def instagram_data_deletion(request: Request):
+    """Meta's data-deletion request. Same removal, plus the receipt it wants.
+
+    Meta requires a JSON body carrying a status URL and a confirmation code,
+    and it shows that URL to the person who asked. The code is derived from
+    the Instagram id rather than stored: there is no deletion queue to track
+    because the deletion already happened before this returns — the only
+    thing we held was the token and the account name, and both are gone.
+    """
+    form = await request.form()
+    payload = _meta_signed_request(str(form.get("signed_request") or ""))
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Bad signed_request.")
+    account_id = str(payload.get("user_id") or "")
+    await _forget_instagram(account_id)
+    code = hashlib.sha256(f"ig:{account_id}".encode()).hexdigest()[:16]
+    base = settings.public_base_url.rstrip("/")
+    return {"url": f"{base}/instagram/data-deletion/status?code={code}",
+            "confirmation_code": code}
+
+
+@app.get("/instagram/data-deletion/status", response_class=HTMLResponse)
+async def instagram_data_deletion_status(code: str = ""):
+    """The page Meta sends the person to. It is plain and it is honest: the
+    deletion is synchronous, so there is no progress to report."""
+    # Stripped rather than escaped: this lands in HTML and the only legitimate
+    # value is our own hex digest, so anything else is not worth rendering.
+    safe = re.sub(r"[^A-Za-z0-9]", "", code)[:32]
+    body = ("<main class=\"wrap\"><h1>Instagram data deleted</h1>"
+            "<p>Highlightz has deleted everything it held for that Instagram "
+            "account: the access token and the account name. Nothing else about "
+            "an Instagram account is ever stored, and no video of yours sits on "
+            "Instagram's behalf \u2014 Instagram fetches a clip from a link that "
+            "expires.</p>")
+    if safe:
+        body += f"<p>Confirmation code: <code>{safe}</code></p>"
+    body += ("<p>Questions: <a href=\"mailto:business@highlightz.app\">"
+             "business@highlightz.app</a>. See our "
+             "<a href=\"/privacy\">Privacy Policy</a>.</p></main>")
+    return HTMLResponse(
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+        "<meta name=\"robots\" content=\"noindex\">"
+        "<title>Instagram data deleted \u2014 Highlightz</title>"
+        "<link rel=\"icon\" type=\"image/png\" href=\"/static/icon.png\">"
+        "<style>" + _LEGAL_STYLE + "</style></head><body>"
+        + _LEGAL_NAV + body + _LEGAL_FOOT + "</body></html>")
 
 
 @app.get("/media/{token}")
