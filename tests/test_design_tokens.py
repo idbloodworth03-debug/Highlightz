@@ -378,7 +378,11 @@ def test_no_prose_runs_past_the_readable_band():
     a width problem — not a word of copy changed."""
     c = css("landing")
     assert "--measure:52ch" in c.replace(" ", ""), "the measure token moved"
-    for sel in (".l-sub", ".num-lead", ".price-lead", ".price-tiny", ".score-line"):
+    # .num-lead was here until 2026-09-19. It styled "Join the N streamers
+    # who stopped scrubbing…", which the owner had removed — social proof
+    # naming a small number argues against itself. The selector went with the
+    # sentence, so asserting a measure on it would now pin dead CSS.
+    for sel in (".l-sub", ".price-lead", ".price-tiny", ".score-line"):
         rule = re.search(re.escape(sel) + r"\{([^}]*)\}", c)
         assert rule and "var(--measure)" in rule.group(1), f"{sel} lost its measure"
 

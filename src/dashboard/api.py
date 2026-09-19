@@ -7442,14 +7442,12 @@ def render_landing(html: str | None = None) -> str:
                 .replace("<!--FRAME_END-->", end, 1)
                 .replace("<!--SCRUB_FRAMES-->", scrub, 1)
                 .replace("<!--SHELF-->", _shelf_html(_frames("gallery")), 1))
-    try:
-        from src.auth import users as _users
-        streamers = len(_users._load())
-    except Exception:
-        streamers = 0
+    # No account count here any more: the only thing that read the whole user
+    # store on every landing render was the "Join the N streamers" line, and
+    # that line is gone.
     kept_now, _n = public_keep_rate()
     html = html.replace("<!--BIGNUMS-->",
-                        _bignums_html(get_clip_counter(), kept_now, streamers), 1)
+                        _bignums_html(get_clip_counter(), kept_now), 1)
 
     # The keep rate is baked in for the same reason and is independent of the
     # count: it can be publishable while the count is still zero (a fresh
@@ -8828,8 +8826,6 @@ LANDING_HTML = """<!DOCTYPE html>
      1440 with 39,581. */
   .numbers{background:#000;color:var(--ink-2);padding-top:var(--s-9);padding-bottom:var(--s-9);
     text-align:center}
-  .num-lead{margin:0 auto var(--s-8);font-size:clamp(18px,1.7vw,22px);line-height:1.4;
-    color:var(--white);max-width:var(--measure)}
   .bignums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-7) var(--s-8);
     justify-items:center;align-items:start}
   .bign{min-width:0;text-align:center}
@@ -10962,7 +10958,18 @@ def _shelf_html(frames: list[dict]) -> str:
     return "".join(out)
 
 
-def _bignums_html(total: int, kept: int | None, streamers: int) -> str:
+def _bignums_html(total: int, kept: int | None) -> str:
+    """The three figures under the cover.
+
+    NO LEAD LINE ABOVE THEM (owner, 2026-09-19: "get rid of this it is not
+    helping is rather it is hindering us"). It read "Join the 66 streamers
+    who stopped scrubbing eight-hour VODs…", and social proof that names a
+    small number argues against itself: a visitor deciding whether this is
+    worth trying is told, in the largest prose on the page, that 66 people
+    use it. The figures below stand on their own — clips captured, keep
+    rate, channels on Pro — and none of them depends on how many accounts
+    exist.
+    """
     from src.billing.plans import PLAN_LIMITS
     figs: list[tuple[str, str, str]] = []   # (number markup, caption, attrs)
     if total > 0:
@@ -10976,15 +10983,10 @@ def _bignums_html(total: int, kept: int | None, streamers: int) -> str:
     if len(figs) < 3:
         figs.append(("7", "live signals in every score", ' data-count="7"'))
     figs = figs[:3]
-    if streamers >= 50:
-        lead = ("Join the " + f"{streamers:,}" + " streamers who stopped scrubbing "
-                "eight-hour VODs for thirty seconds of gold.")
-    else:
-        lead = "Join the streamers who stopped scrubbing eight-hour VODs for thirty seconds of gold."
     cells = "".join('<div class="bign"><div class="bign-n"' + attrs + ">" + n
                     + '</div><div class="bign-k">' + cap + "</div></div>"
                     for n, cap, attrs in figs)
-    return '<p class="num-lead">' + lead + '</p><div class="bignums">' + cells + "</div>"
+    return '<div class="bignums">' + cells + "</div>"
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────

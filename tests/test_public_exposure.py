@@ -325,3 +325,26 @@ def test_the_howto_steps_match_the_steps_on_the_page():
     for step, sec in zip(data["step"], C.QUICKSTART):
         assert step["name"] == sec.title
         assert sec.id in step["url"]
+
+
+def test_the_landing_page_does_not_count_its_own_users_at_visitors():
+    """Owner, 2026-09-19: "get rid of this it is not helping is rather it is
+    hindering us."
+
+    The line read "Join the 66 streamers who stopped scrubbing eight-hour
+    VODs for thirty seconds of gold." Social proof that names a small number
+    argues against itself: somebody deciding whether to try this was told, in
+    the largest prose on the page, how few people use it.
+
+    Removing it also took out the only thing that read the whole user store
+    on every landing render."""
+    from src.dashboard.api import LANDING_HTML as html
+    import inspect
+    from src.dashboard import api
+    assert "stopped scrubbing" not in html
+    assert "num-lead" not in html, "the rule that styled it is still shipping"
+    # The figures under it stay — they do not depend on the account count.
+    assert "bignums" in html
+    src = inspect.getsource(api.render_landing)
+    assert "_users._load()" not in src, "the landing page still counts accounts"
+    assert "_bignums_html(get_clip_counter(), kept_now)" in src
