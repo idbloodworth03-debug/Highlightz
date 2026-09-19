@@ -1736,6 +1736,47 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## The Scheduler is a week of half hours (2026-09-19)
+
+Owner: "The scheduler layout is terrible. I need a simpler week calendar on
+the screen with time stamps almost like a teams calendar. I want 30 min
+intervals on each day and I want to be able to click in each 30 min time
+stamp and schedule a video to post."
+
+`MonthCalendar` + `DayList` are gone, replaced by `WeekCalendar` and
+`SlotPicker`. What was wrong with the month: a cell had room for three chips
+and no times, so "when today does this go out" needed a second card to
+answer, and scheduling meant opening a clip and typing into a datetime
+field. **The empty half-hour cell is the control now.**
+
+- 7 day columns, 48 rows of 30 minutes, times down a 64px gutter. Hour rows
+  carry a normal hairline, half-hour rows a fainter one and a dimmed label —
+  that contrast is what makes it readable instead of 48 identical stripes.
+- Click an empty cell → `SlotPicker` asks which exported clip goes there.
+  Only clips with no time yet are offered: one already on the calendar is
+  moved by dragging, and offering it here would silently take it off its
+  day. A cell that already holds a clip opens the clip instead.
+- Drag lands on the half hour it was dropped on. `SC_DEFAULT_HOUR` (the old
+  "a clip dropped on a day posts at 6 PM" guess) is deleted — every cell has
+  a real time under it, so there is nothing left to guess.
+- `slotTime(day, slot)` builds the instant from LOCAL calendar fields and
+  `slotOf(due_at)` inverts it. If those two ever disagree a clip renders in a
+  different slot from the one that posts it, so both are pinned by test.
+- `WK_SLOT_PX = 28` must match `.wk-cell{height:28px}`: the body is scrolled
+  to a slot by arithmetic rather than by measuring. The week opens on the
+  earliest thing scheduled, else 08:00, with an hour of padding above.
+- Cells are keyed `day#slot` into one map. 336 cells each running a filter
+  would re-render the whole grid every time one item moved.
+
+Two things the screenshot caught that the parse could not:
+`toLocaleDateString` with a partial options object does **not** drop the
+fields you leave out — asking for `{day, year}` printed "2026 (day: 19)", so
+the range is composed by hand. And three copy lines still said "drag onto a
+day".
+
+Pinned by three tests in `test_publish_posting.py`, including that
+`MonthCalendar`/`DayList`/`SC_DEFAULT_HOUR` do not come back.
+
 ## A restart used to strand a post forever (2026-09-18)
 
 Owner: "I am in the scheduler and it just starts to flash almost as if it is

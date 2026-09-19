@@ -673,25 +673,70 @@ def test_the_scheduler_ui_tells_posted_for_you_from_post_it_yourself():
     assert "never posts for you" not in html.lower()
 
 
-def test_the_scheduler_is_a_calendar():
-    """Owner: "add a real calendar for scheduling". A month grid, clips as
-    chips on their day, drag between days, a tray for exports with no time,
-    and the drawer for the exact time. Times are still epoch seconds on the
-    wire: a drop resolves the local day + hour to an instant in the browser."""
+def test_the_scheduler_is_a_week_of_half_hours():
+    """Owner, 2026-09-18: "I need a simpler week calendar on the screen with
+    time stamps almost like a teams calendar. I want 30 min intervals on each
+    day and I want to be able to click in each 30 min time stamp and schedule
+    a video to post."
+
+    What it replaced: a month grid (three chips per day, no times) plus a
+    separate day list to answer "when today", and scheduling meant opening a
+    clip and typing into a datetime field. The empty half-hour cell is the
+    control now.
+    """
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
-    for comp in ("MonthCalendar", "InboxTray", "DayList", "ScheduleDrawer", "AccountChips"):
+    for comp in ("WeekCalendar", "SlotPicker", "InboxTray", "ScheduleDrawer", "AccountChips"):
         assert f"function {comp}(" in html, f"{comp} missing"
-    cal = html[html.index("function MonthCalendar("):html.index("function DayList(")]
-    assert "onDrop={e=>dropOn(e, d)}" in cal and "draggable={canDrag}" in cal
-    assert "st !== 'posting' && st !== 'posted'" in cal, "a posted or mid-upload clip can be dragged"
+    assert "function MonthCalendar(" not in html and "function DayList(" not in html, \
+        "the month grid and day list are back alongside the week"
+
+    cal = html[html.index("function WeekCalendar("):html.index("function SlotPicker(")]
+    # 48 rows of 30 minutes, 7 day columns.
+    assert "length: WK_SLOTS" in cal and "i < 7" in cal
+    # Clicking an EMPTY cell schedules; a cell with a clip opens it instead,
+    # or the click would bury the clip under a picker.
+    assert "onClick={()=>{ if (!it) onSlot(d, s); }}" in cal
+    assert "e.stopPropagation(); onOpen(it);" in cal
+    assert "draggable={st !== 'posting' && st !== 'posted'}" in cal, \
+        "a posted or mid-upload clip can be dragged"
+
     screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
-    assert "<MonthCalendar" in screen and "<InboxTray" in screen and "<DayList" in screen
-    # A drop keeps the clip's time of day, or gives it the default hour; the
-    # instant is computed from LOCAL fields, never by string-concatenating UTC.
-    assert "had ? had.getHours() : SC_DEFAULT_HOUR" in screen
-    assert "Math.floor(t.getTime()/1000)" in screen
+    assert "<WeekCalendar" in screen and "<InboxTray" in screen and "<SlotPicker" in screen
+    # A drop lands on the half hour it was dropped on — no default hour to
+    # guess any more. The instant is built from LOCAL fields, never by
+    # string-concatenating UTC.
+    assert "SC_DEFAULT_HOUR" not in html, "the guessed default hour is back"
+    assert "const move = (id, d, slot) => at(id, slotTime(d, slot));" in screen
+    assert "Math.floor(when.getTime()/1000)" in screen
     # The open drawer is derived from the queue, so a socket update reaches it.
     assert "items.find(i=>i.id === openId)" in screen
+
+
+def test_the_half_hour_slots_are_real_times_not_just_stripes():
+    """The grid's whole claim is that a cell IS a time. slotTime builds it
+    from local calendar fields (so DST and zone come from the browser), and
+    slotOf maps an existing due_at back to the same cell — if those two
+    disagreed, a clip would render in a slot other than the one that posts
+    it."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "const WK_SLOT_MIN = 30;" in html
+    assert "const WK_SLOTS = (24 * 60) / WK_SLOT_MIN;" in html
+    assert "Math.floor(slot / 2), (slot % 2) * WK_SLOT_MIN" in html, "slotTime lost its minutes"
+    assert "d.getHours() * 2 + (d.getMinutes() >= WK_SLOT_MIN ? 1 : 0)" in html, \
+        "slotOf no longer inverts slotTime"
+    # The scroll position is computed from the row height, so the constant and
+    # the stylesheet must not drift apart.
+    assert "const WK_SLOT_PX = 28;" in html
+    assert ".wk-cell{height:28px" in html
+
+
+def test_the_slot_picker_only_offers_clips_that_have_no_time_yet():
+    """Offering an already-scheduled clip would silently move it off its own
+    day — the way to move one is to drag it."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
+    assert "<SlotPicker at={slotAt} items={inbox}" in screen
+    assert "const inbox = items.filter(i=>!i.due_at" in screen
 
 
 def test_the_scheduler_is_wired_for_realtime():

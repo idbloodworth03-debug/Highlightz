@@ -1183,20 +1183,35 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .sc-cal-nav{all:unset;box-sizing:border-box;cursor:pointer;width:32px;height:32px;border-radius:10px;display:grid;
   place-items:center;border:1px solid var(--hair);color:var(--fg-2);font-size:16px;line-height:1}
 .sc-cal-nav:hover{background:rgba(255,255,255,.06);color:var(--fg)}
-.sc-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-bottom:4px}
-.sc-dow span{font-size:12px;font-weight:700;color:var(--fg-3);text-align:center;text-transform:uppercase;letter-spacing:.06em}
-.sc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.sc-day{min-height:96px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.02);
-  padding:8px;display:flex;flex-direction:column;gap:4px;cursor:pointer;min-width:0;
-  transition:background var(--dur-fast),border-color var(--dur-fast)}
-.sc-day:hover{background:rgba(255,255,255,.04)}
-.sc-day.is-out{opacity:.35}
-.sc-day.is-today{border-color:rgba(184,106,220,.55)}
-.sc-day.is-sel{background:var(--grad-soft);border-color:rgba(184,106,220,.7)}
-.sc-day.is-over{background:rgba(184,106,220,.2);border-color:var(--acc)}
-.sc-day .n{font-size:12px;font-weight:700;color:var(--fg-2)}
-.sc-day.is-today .n{color:var(--acc)}
-.sc-day .chips{display:flex;flex-direction:column;gap:4px;min-width:0}
+/* The week grid. One column per day, one row per 30 minutes, and the row
+   heights are fixed (WK_SLOT_PX in the script must match .wk-cell height) so
+   the body can be scrolled to a slot by arithmetic instead of measuring. */
+.wk-dow{display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr));border-bottom:1px solid var(--hair-2)}
+.wk-dh{display:flex;flex-direction:column;align-items:center;padding:8px 0}
+.wk-dh b{font-size:12px;font-weight:700;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.wk-dh i{font-size:16px;font-weight:800;font-style:normal;color:var(--fg-2);line-height:1.3}
+.wk-dh.is-today i{color:var(--acc)}
+.wk-dh.is-today b{color:var(--acc)}
+.wk-body{max-height:520px;overflow:auto;overscroll-behavior:contain}
+.wk-row{display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr))}
+.wk-gut{font-size:12px;color:var(--fg-3);text-align:right;padding-right:8px;white-space:nowrap;
+  transform:translateY(-8px)}
+/* The half-hour line is quieter than the hour line, which is what makes the
+   grid readable at a glance instead of 48 identical stripes. */
+.wk-row.half .wk-gut{opacity:.45}
+.wk-cell{height:28px;position:relative;cursor:pointer;min-width:0;
+  border-top:1px solid var(--hair);border-left:1px solid var(--hair)}
+.wk-row.half .wk-cell{border-top-color:rgba(255,255,255,.03)}
+.wk-cell:hover{background:rgba(255,255,255,.05)}
+.wk-cell.is-today{background:rgba(184,106,220,.05)}
+.wk-cell.is-today:hover{background:rgba(184,106,220,.12)}
+.wk-cell.is-over{background:rgba(184,106,220,.22)}
+/* The affordance for the whole point of the grid: every empty slot is a
+   place a clip can go, and nothing else on the card says so. */
+.wk-cell.free:hover::after{content:'+';position:absolute;left:0;right:0;top:0;bottom:0;
+  display:grid;place-items:center;font-size:14px;font-weight:800;color:var(--acc);opacity:.7}
+.wk-cell .sc-chip{position:absolute;left:4px;right:4px;top:2px;bottom:2px;border-radius:8px}
+.wk-n{position:absolute;right:4px;bottom:2px;font-size:12px;font-weight:800;color:var(--fg-3)}
 .sc-chip{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.2;
   background:rgba(255,255,255,.06);border:1px solid transparent;min-width:0;cursor:pointer;transition:background var(--dur-fast)}
 .sc-chip:hover{background:rgba(255,255,255,.1)}
@@ -1209,21 +1224,34 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 @keyframes scPulse{0%,100%{opacity:1}50%{opacity:.25}}
 .sc-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sc-chip .t{color:var(--fg-3);flex-shrink:0}
-.sc-more{font-size:12px;color:var(--fg-3);padding:0 8px}
 @media(max-width:760px){
-  .sc-day{min-height:56px;padding:4px}
-  .sc-day .chips{flex-direction:row;flex-wrap:wrap}
-  .sc-chip span,.sc-chip .t,.sc-more{display:none}
+  /* The gutter shrinks and the chips lose their text, but the grid stays a
+     grid: a week of half-hours collapsed into a list is the layout this
+     replaced. */
+  .wk-dow,.wk-row{grid-template-columns:32px repeat(7,minmax(0,1fr))}
+  .wk-gut{font-size:12px;padding-right:4px}
+  .wk-row.half .wk-gut{display:none}
+  .sc-chip span,.sc-chip .t{display:none}
   .sc-chip{padding:4px}
 }
-.sc-daylist{margin-top:12px;padding:16px}
-.sc-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--hair);cursor:pointer}
-.sc-row:hover .name{color:var(--acc)}
-.sc-row .when{width:72px;flex-shrink:0;font-size:12px;font-weight:700;color:var(--acc)}
-.sc-row .name{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-row .st{font-size:12px;color:var(--fg-3);flex-shrink:0}
-.sc-row .st.failed,.sc-row .st.missed{color:#f7a745}
-.sc-row .st.posted{color:#5ce0a8}
+/* Clicking an empty slot asks which exported clip goes there. Centred rather
+   than anchored to the cell: a 28px cell has no room for a popover, and an
+   anchored one near the right edge or the bottom of the scroll would need
+   collision logic for nothing. */
+.wk-pick-bg{position:fixed;inset:0;z-index:150;background:rgba(4,4,8,.72)}
+.wk-pick{position:fixed;z-index:151;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(420px,92vw);max-height:80vh;display:flex;flex-direction:column;gap:12px;padding:16px;
+  border-radius:16px;border:1px solid var(--hair-2);background:rgba(16,14,22,.97);
+  box-shadow:0 24px 64px -24px rgba(0,0,0,.8)}
+.wk-pick h4{font-size:16px;font-weight:800;letter-spacing:-.02em;margin:0}
+.wk-pick .when{font-size:13px;color:var(--acc);font-weight:700}
+.wk-pick-list{overflow:auto;display:flex;flex-direction:column;gap:4px}
+.wk-pick-row{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:8px;
+  padding:8px;border-radius:12px;border:1px solid var(--hair);min-width:0}
+.wk-pick-row:hover{background:rgba(255,255,255,.06);border-color:var(--acc)}
+.wk-pick-row b{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-pick-row span{font-size:12px;color:var(--fg-3);flex-shrink:0}
+.wk-pick-empty{font-size:13px;color:var(--fg-3);line-height:1.5}
 .sc-state{font-size:12px;font-weight:800;color:var(--acc);flex-shrink:0}
 .sc-state.failed,.sc-state.missed{color:#f7a745}
 .sc-state.posted{color:#5ce0a8}
@@ -7094,12 +7122,32 @@ function ReviewPrompt({ clips, onClose }) {
 /* Calendar helpers. Days are keyed by LOCAL date ('YYYY-MM-DD') because the
    browser is the only place that knows the zone; due_at stays epoch seconds
    on the wire (see toLocalInput / the datetime-local handler). */
-const SC_DEFAULT_HOUR = 18;   // a clip dropped on a day with no time yet posts at 6 PM
+/* Half-hour slots, numbered 0..47 from midnight. The grid is the scheduler
+   now, so a clip always lands on a real time — there is no "dropped on a day
+   with no time" case left to invent a default hour for. */
+const WK_SLOT_MIN = 30;
+const WK_SLOTS = (24 * 60) / WK_SLOT_MIN;
+const WK_SLOT_PX = 28;        // must match .wk-cell height
+const WK_OPEN_SLOT = 16;      // 08:00 — where an empty week opens
+function weekStartOf(d) {
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  s.setDate(s.getDate() - s.getDay());
+  return s;
+}
+function slotOf(ts) {
+  const d = new Date(ts * 1000);
+  return d.getHours() * 2 + (d.getMinutes() >= WK_SLOT_MIN ? 1 : 0);
+}
+function slotTime(day, slot) {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+                  Math.floor(slot / 2), (slot % 2) * WK_SLOT_MIN);
+}
+const slotLabel = slot =>
+  slotTime(new Date(2000, 0, 1), slot).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
 function dayKey(d) {
   const p = n => String(n).padStart(2, '0');
   return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
 }
-function itemDay(it) { return it.due_at ? dayKey(new Date(it.due_at * 1000)) : ''; }
 function scState(it) {
   if (it.status === 'posting') return 'posting';
   if (it.status === 'posted' || it.status === 'skipped') return 'posted';
@@ -7175,11 +7223,11 @@ function InboxTray({ items, onOpen }) {
       <div className="sc-inbox-head">
         <Icon name="download" size={13}/>
         {items.length} exported, not scheduled yet
-        <span className="sc-sub">· drag onto a day, or open one to pick a time</span>
+        <span className="sc-sub">· drag one onto a time below, or click any empty slot</span>
       </div>
       <div className="sc-tray">
         {items.map(it=>(
-          <div key={it.id} className="sc-tile" draggable title="Drag onto a day"
+          <div key={it.id} className="sc-tile" draggable title="Drag onto a half hour in the week below"
             onDragStart={e=>{ e.dataTransfer.setData('text/plain', it.id); e.dataTransfer.effectAllowed = 'move'; }}
             onClick={()=>onOpen(it)}>
             <b>{it.filename}</b>
@@ -7193,100 +7241,148 @@ function InboxTray({ items, onOpen }) {
   );
 }
 
-/* A month. Six rows of seven, trimmed to five when the sixth is all next
-   month. A chip per scheduled clip, colored by state, draggable between days
-   unless it is mid-upload or already posted. */
-function MonthCalendar({ month, onMonth, items, selected, onSelect, onOpen, onMove }) {
+/* THE WEEK. One column per day, one row per half hour, times down the side —
+   the shape people already read in Outlook or Google Calendar. It replaced a
+   month grid plus a day list: the month had room for three chips a day and
+   no times at all, so "when today does this go out" needed a second card to
+   answer, and scheduling meant opening a clip and typing into a datetime
+   field. Here the empty slot IS the control — click 2:30 PM on Thursday and
+   pick a clip.
+
+   The 30-minute step is the schedule's resolution on purpose: it is enough
+   control to miss a rival's upload or hit an evening, and few enough rows
+   that a whole day fits in one scroll. */
+function WeekCalendar({ weekStart, onWeek, items, onOpen, onMove, onSlot }) {
   const [over, setOver] = useState('');
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const start = new Date(first); start.setDate(1 - first.getDay());
-  const cells = [];
-  for (let i = 0; i < 42; i++) { const d = new Date(start); d.setDate(start.getDate() + i); cells.push(d); }
-  const rows = cells[35].getMonth() === month.getMonth() ? cells : cells.slice(0, 35);
-  const byDay = {};
-  (items||[]).forEach(it=>{ const k = itemDay(it); if (k) (byDay[k] = byDay[k] || []).push(it); });
-  Object.values(byDay).forEach(l=>l.sort((a,b)=>a.due_at - b.due_at));
+  const body = useRef(null);
+
+  const days = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); days.push(d); }
+
+  // Keyed by day + slot so a cell is one lookup rather than a filter per cell
+  // (7 x 48 = 336 cells, and a filter in each is a re-render of the whole
+  // grid every time one item moves).
+  const byCell = {};
+  (items || []).forEach(it => {
+    if (!it.due_at) return;
+    const k = dayKey(new Date(it.due_at * 1000)) + '#' + slotOf(it.due_at);
+    (byCell[k] = byCell[k] || []).push(it);
+  });
+  Object.values(byCell).forEach(l => l.sort((a, b) => a.due_at - b.due_at));
+
   const todayKey = dayKey(new Date());
-  const shift = n => onMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
-  const today = () => { const n = new Date(); onMonth(new Date(n.getFullYear(), n.getMonth(), 1)); onSelect(todayKey); };
-  const dropOn = (e, d) => {
-    e.preventDefault(); setOver('');
-    const id = e.dataTransfer.getData('text/plain');
-    if (id) onMove(id, d);
-  };
+  const weekKeys = days.map(dayKey);
+
+  // Open where the week actually is, not at midnight: the earliest thing
+  // scheduled, else 08:00. An hour of padding above it so the first item is
+  // not flush against the header and reading as the top of the day.
+  useEffect(() => {
+    if (!body.current) return;
+    const mine = (items || []).filter(it => it.due_at && weekKeys.indexOf(dayKey(new Date(it.due_at * 1000))) >= 0);
+    const first = mine.length ? Math.min.apply(null, mine.map(it => slotOf(it.due_at))) : WK_OPEN_SLOT;
+    body.current.scrollTop = Math.max(0, first - 2) * WK_SLOT_PX;
+  }, [weekStart.getTime(), (items || []).length]);
+
+  const shift = n => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + n * 7); onWeek(d); };
+  // Composed by hand. toLocaleDateString with a partial options object does
+  // NOT drop the fields you left out — asking for {day, year} inside one week
+  // printed "2026 (day: 19)". Only the tail varies, so only the tail is asked
+  // for, and the month name still comes from the locale.
+  const last = days[6];
+  const md = d => d.toLocaleDateString([], {month:'short', day:'numeric'});
+  const range = md(weekStart) + ' – '
+              + (weekStart.getMonth() === last.getMonth() ? last.getDate() : md(last))
+              + ', ' + last.getFullYear();
+
   return (
     <div className="rd-card glass sc-cal">
       <div className="sc-cal-head">
-        <h3>{month.toLocaleDateString([], {month:'long', year:'numeric'})}</h3>
-        <button className="rd-btn sm" onClick={today}>Today</button>
-        <button className="sc-cal-nav" onClick={()=>shift(-1)} aria-label="Previous month">‹</button>
-        <button className="sc-cal-nav" onClick={()=>shift(1)} aria-label="Next month">›</button>
+        <h3>{range}</h3>
+        <button className="rd-btn sm" onClick={()=>onWeek(weekStartOf(new Date()))}>Today</button>
+        <button className="sc-cal-nav" onClick={()=>shift(-1)} aria-label="Previous week">‹</button>
+        <button className="sc-cal-nav" onClick={()=>shift(1)} aria-label="Next week">›</button>
       </div>
-      <div className="sc-dow">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><span key={d}>{d}</span>)}</div>
-      <div className="sc-grid">
-        {rows.map(d=>{
-          const k = dayKey(d);
-          const list = byDay[k] || [];
-          // State classes are prefixed: a bare `today` collides with the
-          // TodayHeader's global .today rule and pushes the day number right.
-          const cls = 'sc-day' + (d.getMonth() !== month.getMonth() ? ' is-out' : '')
-                    + (k === todayKey ? ' is-today' : '') + (k === selected ? ' is-sel' : '')
-                    + (over === k ? ' is-over' : '');
-          return (
-            <div key={k} className={cls} onClick={()=>onSelect(k)}
-              onDragOver={e=>{ e.preventDefault(); if (over !== k) setOver(k); }}
-              onDragLeave={()=>{ if (over === k) setOver(''); }}
-              onDrop={e=>dropOn(e, d)}>
-              <span className="n">{d.getDate()}</span>
-              <div className="chips">
-                {list.slice(0, 3).map(it=>{
-                  const st = scState(it);
-                  const canDrag = st !== 'posting' && st !== 'posted';
-                  return (
-                    <div key={it.id} className={'sc-chip ' + st} draggable={canDrag}
-                      title={it.filename + ' · ' + SC_LABEL[st]}
+
+      <div className="wk-dow">
+        <span className="wk-gut"/>
+        {days.map(d=>(
+          <span key={dayKey(d)} className={'wk-dh' + (dayKey(d) === todayKey ? ' is-today' : '')}>
+            <b>{d.toLocaleDateString([], {weekday:'short'})}</b><i>{d.getDate()}</i>
+          </span>
+        ))}
+      </div>
+
+      <div className="wk-body" ref={body}>
+        {Array.from({length: WK_SLOTS}, (_, s) => (
+          <div className={'wk-row' + (s % 2 ? ' half' : '')} key={s}>
+            <span className="wk-gut">{slotLabel(s)}</span>
+            {days.map(d=>{
+              const k = dayKey(d) + '#' + s;
+              const list = byCell[k] || [];
+              const it = list[0];
+              const st = it ? scState(it) : '';
+              const cls = 'wk-cell' + (dayKey(d) === todayKey ? ' is-today' : '')
+                        + (over === k ? ' is-over' : '') + (it ? '' : ' free');
+              return (
+                <div key={k} className={cls}
+                  title={it ? it.filename + ' · ' + SC_LABEL[st] : 'Schedule a clip at ' + slotLabel(s)}
+                  onClick={()=>{ if (!it) onSlot(d, s); }}
+                  onDragOver={e=>{ e.preventDefault(); if (over !== k) setOver(k); }}
+                  onDragLeave={()=>{ if (over === k) setOver(''); }}
+                  onDrop={e=>{ e.preventDefault(); setOver('');
+                    const id = e.dataTransfer.getData('text/plain');
+                    if (id) onMove(id, d, s); }}>
+                  {it && (
+                    <div className={'sc-chip ' + st}
+                      draggable={st !== 'posting' && st !== 'posted'}
                       onDragStart={e=>{ e.dataTransfer.setData('text/plain', it.id); e.dataTransfer.effectAllowed = 'move'; }}
                       onClick={e=>{ e.stopPropagation(); onOpen(it); }}>
-                      <i/><span className="t">{scTime(it.due_at)}</span><span>{it.filename}</span>
+                      <i/><span>{it.filename}</span>
                     </div>
-                  );
-                })}
-                {list.length > 3 && <div className="sc-more">+{list.length - 3} more</div>}
-              </div>
-            </div>
-          );
-        })}
+                  )}
+                  {list.length > 1 && <span className="wk-n">+{list.length - 1}</span>}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-/* The selected day, as a list. On a phone the calendar cells only have room
-   for dots, so this is where the names are; on a desktop it is the agenda. */
-function DayList({ day, items, onOpen }) {
-  const list = items.filter(it=>itemDay(it) === day).sort((a,b)=>a.due_at - b.due_at);
-  const d = new Date(day + 'T12:00');
+/* Which clip goes in the slot that was just clicked. Only exports with no
+   time yet are offered: a clip that is already on the calendar is moved by
+   dragging it, and offering it here would silently take it off its day. */
+function SlotPicker({ at, items, onPick, onClose }) {
+  if (!at) return null;
+  const when = slotTime(at.day, at.slot);
   return (
-    <div className="rd-card glass sc-daylist">
-      <div className="sc-inbox-head">
-        <Icon name="clock" size={13}/>{d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'})}
+    <div>
+      <div className="wk-pick-bg" onClick={onClose}/>
+      <div className="wk-pick" role="dialog" aria-label="Schedule a clip">
+        <div>
+          <h4>Schedule a clip</h4>
+          <div className="when">{when.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'})} at {slotLabel(at.slot)}</div>
+        </div>
+        {items.length === 0
+          ? <div className="wk-pick-empty">
+              Nothing waiting to be scheduled. Export a clip in the Clip Editor and it
+              lands here, ready to drop on a time.
+            </div>
+          : <div className="wk-pick-list">
+              {items.map(it=>(
+                <button key={it.id} className="wk-pick-row" onClick={()=>onPick(it, when)}>
+                  <b>{it.filename}</b>
+                  <span>{Math.round(it.duration_s||0)}s</span>
+                </button>
+              ))}
+            </div>}
+        <button className="rd-btn sm" onClick={onClose}>Cancel</button>
       </div>
-      {list.length === 0
-        ? <div className="sc-sub">Nothing scheduled. Drag a clip onto this day, or open one and pick a time.</div>
-        : list.map(it=>{
-            const st = scState(it);
-            return (
-              <div key={it.id} className="sc-row" onClick={()=>onOpen(it)}>
-                <span className="when">{scTime(it.due_at)}</span>
-                <span className="name">{it.filename}</span>
-                <span className={'st ' + st}>{SC_LABEL[st]}</span>
-              </div>
-            );
-          })}
     </div>
   );
 }
-
 /* One clip, in a drawer: caption, where it goes, when, and what happened.
    Everything saves as you go (PATCH on blur/change), and the drawer follows
    the item over the socket, so a post in progress updates in place. */
@@ -7563,9 +7659,9 @@ function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }
 }
 
 function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false }) {
-  const [month, setMonth] = useState(()=>{ const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
-  const [selected, setSelected] = useState(dayKey(new Date()));
+  const [weekStart, setWeekStart] = useState(()=>weekStartOf(new Date()));
   const [openId, setOpenId] = useState(null);
+  const [slotAt, setSlotAt] = useState(null);      // {day, slot} being filled
   const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
   const items = queue || [];
@@ -7575,19 +7671,18 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
   // updates the open drawer in place.
   const openItem = items.find(i=>i.id === openId) || null;
 
-  // A drop keeps the clip's time of day if it had one; a clip from the tray
-  // gets the default hour. Local wall clock, resolved to an instant here.
-  const move = async (id, d) => {
-    const it = items.find(i=>i.id === id);
-    if (!it) return;
-    const had = it.due_at ? new Date(it.due_at * 1000) : null;
-    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate(),
-                       had ? had.getHours() : SC_DEFAULT_HOUR, had ? had.getMinutes() : 0);
-    setSelected(dayKey(d));
+  // A drop lands on the half hour it was dropped on — the grid has a time
+  // under every cell, so there is no time of day to preserve and no default
+  // hour to guess. Local wall clock, resolved to an instant here; due_at is
+  // epoch seconds on the wire and the browser is the only thing that knows
+  // the user's zone.
+  const at = async (id, when) => {
     await fetch('/publish/schedule/'+id, {method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({due_at: Math.floor(t.getTime()/1000)})}).catch(()=>{});
+      body: JSON.stringify({due_at: Math.floor(when.getTime()/1000)})}).catch(()=>{});
   };
+  const move = (id, d, slot) => at(id, slotTime(d, slot));
+  const fillSlot = (it, when) => { setSlotAt(null); at(it.id, when); };
 
   // Plan gate mirrors the backend 403 with an upgrade card, the same shape
   // as the Clip Editor's. After every hook, so hook order stays stable.
@@ -7617,7 +7712,7 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
       {items.length === 0 && <div className="rd-how">
         {[['download','1','Export a clip','Anything you export in the Clip Editor lands here.'],
           ['chat','2','Write it once','One caption, reused for every platform. We check it fits before it goes out.'],
-          ['clock','3','Post it','Drop it on a day. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
+          ['clock','3','Post it','Click a half hour in the week, or drag a clip onto one. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
         ].map(([icon,n,title,body])=>(
           <div className="rd-step" key={n}>
             <span className="sn">{n}</span>
@@ -7638,10 +7733,10 @@ function ScheduleScreen({ me, queue = [], platforms = [], connections = [], uplo
         </div>}
 
       <InboxTray items={inbox} onOpen={it=>setOpenId(it.id)}/>
-      <MonthCalendar month={month} onMonth={setMonth} items={scheduled} selected={selected}
-        onSelect={setSelected} onOpen={it=>setOpenId(it.id)} onMove={move}/>
-      <DayList day={selected} items={scheduled} onOpen={it=>setOpenId(it.id)}/>
+      <WeekCalendar weekStart={weekStart} onWeek={setWeekStart} items={scheduled}
+        onOpen={it=>setOpenId(it.id)} onMove={move} onSlot={(day, slot)=>setSlotAt({day, slot})}/>
 
+      <SlotPicker at={slotAt} items={inbox} onPick={fillSlot} onClose={()=>setSlotAt(null)}/>
       {openItem && <ScheduleDrawer item={openItem} platforms={platforms} connections={connections}
         onClose={()=>setOpenId(null)} onDrop={drop}/>}
     </div>
