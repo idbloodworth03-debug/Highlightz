@@ -1,0 +1,245 @@
+"""The edit plan: what the finished video is, described before it is made.
+
+WHY A PLAN AND NOT A FUNCTION. `render.py` used to take a template name and
+do one fixed thing to one clip: a static crop, a title, a fade at each end.
+That is not an edit, and a clipper posting it is posting somebody else's
+video with a border on it.
+
+What the owner asked for (2026-09-19) is a real cut — around sixty seconds,
+sound effects, transitions throughout, framing that moves — and, eventually,
+a model deciding all of it. So the renderer is being split in two:
+
+    a BUILDER decides what the video should be  ->  EditPlan
+    the RENDERER turns that into one ffmpeg run
+
+This module is the plan and the deterministic builder. The renderer executes
+the plan and asks no questions about where it came from, so an LLM builder
+can be added later without touching the thing that makes video — and the
+deterministic builder stays as the fallback for when the model is slow,
+down, or not configured. A post is never missed because a model was busy.
+
+THE DURATION ARITHMETIC IS THE POINT, because "about sixty seconds" is a
+hard requirement and not a preference. `xfade` OVERLAPS its two inputs, so
+joining segments does not add their lengths:
+
+    total = sum(segment lengths) - (number of joins) x (transition duration)
+
+Three 22-second segments joined by 0.5s transitions is 66 - 1 = 65 seconds,
+not 66. Every length here is computed through `plan_duration` so the builder
+and the renderer cannot disagree about how long the file will be.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, asdict
+
+# The five the browser editor synthesizes (SFX in aurora_html.py). Server-side
+# they are pre-rendered WAVs mixed in; the names are shared so a plan means
+# the same thing in both places.
+SFX_KINDS = ("whoosh", "hit", "pop", "riser", "ding")
+
+# xfade transition names. Kept to ones that read as deliberate on vertical
+# video — a dissolve between two gameplay clips looks like a mistake, a wipe
+# or a slide reads as a cut somebody made.
+TRANSITIONS = ("fade", "slideleft", "slideright", "wipeleft", "circleopen", "dissolve")
+
+# How the picture moves inside a segment. Static framing is what makes a clip
+# look like a repost, so "none" exists only as an escape hatch.
+ZOOMS = ("none", "punch", "drift", "pull")
+
+TARGET_S = 60.0          # TikTok and Shorts both treat 60s as the ceiling
+TRANS_DUR = 0.5
+MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
+MAX_SEGMENTS = 4
+
+
+@dataclass
+class Segment:
+    """One shot: a window of one source file, and how the frame moves in it."""
+    src: str
+    start: float
+    end: float
+    zoom: str = "punch"
+    # Carried for the caption writer and for debugging a bad cut, never used
+    # by the renderer.
+    clip_id: str = ""
+    channel: str = ""
+
+    @property
+    def length(self) -> float:
+        return max(0.0, self.end - self.start)
+
+
+@dataclass
+class Sfx:
+    """A sound effect, timed against the FINISHED video rather than against
+    the segment it belongs to. The renderer mixes into one timeline, and a
+    cue expressed relative to a segment would have to be re-based every time
+    a transition length changed."""
+    at: float
+    kind: str = "whoosh"
+    gain: float = 0.6
+
+
+@dataclass
+class EditPlan:
+    segments: list[Segment] = field(default_factory=list)
+    sfx: list[Sfx] = field(default_factory=list)
+    transition: str = "slideleft"
+    trans_dur: float = TRANS_DUR
+    title: str = ""
+    captions: list = field(default_factory=list)
+    # What produced this plan: "formula" or "llm". Recorded so a bad edit can
+    # be traced to its author, and so the admin view can tell them apart.
+    source: str = "formula"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def plan_duration(plan: EditPlan) -> float:
+    """How long the rendered file will be. See the module docstring: xfade
+    overlaps, so joins SUBTRACT."""
+    if not plan.segments:
+        return 0.0
+    total = sum(s.length for s in plan.segments)
+    joins = len(plan.segments) - 1
+    return max(0.0, total - joins * plan.trans_dur)
+
+
+def valid(plan: EditPlan) -> tuple[bool, str]:
+    """Whether this plan can be rendered at all. Used on every plan including
+    one a model produced, because a hallucinated out-point past the end of the
+    file is an ffmpeg error at the end of a three-minute render."""
+    if not plan.segments:
+        return False, "no segments"
+    if len(plan.segments) > MAX_SEGMENTS:
+        return False, f"{len(plan.segments)} segments, max {MAX_SEGMENTS}"
+    for s in plan.segments:
+        # THE WINDOW BEFORE THE LENGTH, because `length` clamps at zero: an
+        # inside-out window (end before start) would otherwise be reported as
+        # "shorter than 6s" and send the reader looking at the wrong thing.
+        # These messages are read when a model produced the plan.
+        if s.start < 0 or s.end <= s.start:
+            return False, "segment window is inside out"
+        if s.length < MIN_SEGMENT_S:
+            return False, f"segment shorter than {MIN_SEGMENT_S}s"
+        if s.zoom not in ZOOMS:
+            return False, f"unknown zoom {s.zoom!r}"
+    if plan.transition not in TRANSITIONS:
+        return False, f"unknown transition {plan.transition!r}"
+    # A transition longer than the shot it joins would consume the whole shot.
+    if plan.trans_dur <= 0 or plan.trans_dur > MIN_SEGMENT_S / 2:
+        return False, "transition duration out of range"
+    for c in plan.sfx:
+        if c.kind not in SFX_KINDS:
+            return False, f"unknown sfx {c.kind!r}"
+        if c.at < 0 or c.at > plan_duration(plan):
+            return False, "sfx lands outside the video"
+    return True, ""
+
+
+# ── the deterministic builder ────────────────────────────────────────────────
+
+def _window(duration: float, want: float) -> tuple[float, float]:
+    """The best `want` seconds of a clip, without knowing what is in it.
+
+    THE ASSUMPTION, written down because an LLM builder will replace it: the
+    clip was cut as [trigger - pre_roll, trigger + post_roll] and the presets
+    put pre_roll above post_roll, so the moment itself sits around 55-65% of
+    the way in and the reaction follows it to the end. Keeping the TAIL is
+    therefore right far more often than keeping the head, which is mostly
+    lead-in nobody watches.
+
+    Three seconds of run-up before the moment, then everything after it.
+    """
+    if duration <= want:
+        return 0.0, duration
+    start = max(0.0, duration - want)
+    return start, duration
+
+
+def rank(clips: list[dict]) -> list[dict]:
+    """Highlights first, then by virality (owner, 2026-09-19).
+
+    A highlight is a moment a crowd of viewers clipped themselves, which is
+    the strongest signal in the product — stronger than any score the formula
+    produces, because it is other people voting. Within each group, virality
+    then trigger score, then newest.
+    """
+    def key(c: dict):
+        return (
+            0 if c.get("suggested") else 1,
+            -float(c.get("virality_score") or 0),
+            -float(c.get("score") or c.get("trigger_score") or 0),
+            -float(c.get("approved_at") or c.get("created_at") or 0),
+        )
+    return sorted(clips, key=key)
+
+
+def _sfx_for(plan: EditPlan) -> list[Sfx]:
+    """Sound on every cut, and a riser into the first one.
+
+    Timed against the finished video. The first segment's visible length is
+    its own length minus half the transition it runs into, so a cue placed at
+    a join has to be computed by walking the timeline rather than by summing
+    segment lengths — which is the bug this function exists to not have.
+    """
+    cues: list[Sfx] = []
+    if not plan.segments:
+        return cues
+    # The open: a riser landing on the first frame sells the cut before
+    # anything has happened yet.
+    cues.append(Sfx(at=0.0, kind="riser", gain=0.5))
+    t = 0.0
+    for i, seg in enumerate(plan.segments[:-1]):
+        t += seg.length - plan.trans_dur
+        # The cut itself: a whoosh under the transition, a hit on the landing.
+        cues.append(Sfx(at=max(0.0, t), kind="whoosh", gain=0.55))
+        cues.append(Sfx(at=max(0.0, t + plan.trans_dur), kind="hit", gain=0.5))
+    return cues
+
+
+def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
+          title: str = "", captions: list | None = None,
+          transition: str = "slideleft") -> EditPlan:
+    """An edit plan from the highest-ranked clips that have a file.
+
+    `clips` are candidate clip records; `sources` maps clip id to the path of
+    its video and its duration, `{clip_id: (path, duration_s)}` — the caller
+    owns the filesystem, this module stays testable without one.
+
+    It fills to `target_s` with as few segments as will reach it, because
+    every extra join costs a transition and a shot. One long clip that
+    already runs sixty seconds is a perfectly good edit and gets left alone.
+    """
+    ranked = [c for c in rank(clips) if c.get("id") in sources]
+    segments: list[Segment] = []
+    remaining = target_s
+
+    for c in ranked:
+        if len(segments) >= MAX_SEGMENTS or remaining < MIN_SEGMENT_S:
+            break
+        path, duration = sources[c["id"]]
+        if duration < MIN_SEGMENT_S:
+            continue
+        # Each join gives back trans_dur of runtime, so ask for that much more.
+        want = remaining + (TRANS_DUR if segments else 0.0)
+        start, end = _window(duration, min(want, duration))
+        seg_len = end - start
+        if seg_len < MIN_SEGMENT_S:
+            continue
+        segments.append(Segment(
+            src=str(path), start=round(start, 3), end=round(end, 3),
+            # The opener punches in to grab attention; later shots drift so
+            # the whole thing is not one repeated move.
+            zoom="punch" if not segments else ("drift" if len(segments) % 2 else "pull"),
+            clip_id=c.get("id", ""), channel=c.get("channel", ""),
+        ))
+        remaining = target_s - plan_duration(EditPlan(segments=segments,
+                                                     trans_dur=TRANS_DUR))
+
+    plan = EditPlan(segments=segments, transition=transition, trans_dur=TRANS_DUR,
+                    title=title, captions=list(captions or []), source="formula")
+    plan.sfx = _sfx_for(plan)
+    return plan
