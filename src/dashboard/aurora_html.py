@@ -1192,7 +1192,10 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .wk-dh i{font-size:16px;font-weight:800;font-style:normal;color:var(--fg-2);line-height:1.3}
 .wk-dh.is-today i{color:var(--acc)}
 .wk-dh.is-today b{color:var(--acc)}
-.wk-body{max-height:520px;overflow:auto;overscroll-behavior:contain}
+/* padding-top is not decoration: .wk-gut is shifted up 8px so each label
+   sits ON its gridline, and without room above, the midnight label is
+   shifted outside the scroll box and clipped in half. */
+.wk-body{max-height:520px;overflow:auto;overscroll-behavior:contain;padding-top:8px}
 .wk-row{display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr))}
 .wk-gut{font-size:12px;color:var(--fg-3);text-align:right;padding-right:8px;white-space:nowrap;
   transform:translateY(-8px)}
