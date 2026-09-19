@@ -782,3 +782,25 @@ def test_no_other_screen_was_left_on_the_class_with_no_rule():
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     assert ".rd-wrap{" not in html, "rd-wrap gained a rule; this test is now the wrong guard"
     assert 'className="rd-wrap"' not in html
+
+
+def test_the_calendar_is_a_flat_surface_not_a_glass_one():
+    """Owner: "I dont like the weird aura gradient going on inside the
+    scheduler."
+
+    `.glass` is redefined inside an `@supports` block LATER in the stylesheet
+    than `.sc-cal`, with a 165deg gradient border and a fill of `--panel` at
+    .035 alpha that lets `.rd-app`'s three background radials through. An
+    earlier `.sc-cal` rule loses that on source order however opaque it is,
+    which is why the opt-out has to live inside the same block.
+
+    On a small card that treatment is a rim light. Wrapped around a 650px
+    grid of times it is an aura sweeping over the half-hour lines."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    block = html[html.index("@supports (background:linear-gradient(#000,#000) padding-box)"):]
+    block = block[:block.index(".rd-modal{")]
+    assert ".sc-cal{" in block, "the calendar is back on the gradient border"
+    i = block.index(".glass{")
+    assert block.index(".sc-cal{") > i, "the opt-out sits before .glass and loses"
+    assert "background:var(--rd-bg-2)" in block
+    assert "box-shadow:none" in block

@@ -1177,7 +1177,15 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .sc-tile:active{cursor:grabbing}
 .sc-tile b{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sc-tile span{font-size:12px;color:var(--fg-3)}
-.sc-cal{margin-top:12px;padding:16px}
+/* FLAT, NOT GLASS. --panel is rgba(255,255,255,.035), so a .glass card is
+   almost entirely transparent and .rd-app's three background radials shine
+   straight through it. On a small card that reads as a tint; across a 650px
+   calendar it is an aura sweeping diagonally over the half-hour lines, which
+   is what the owner saw (2026-09-19). A grid of times is a data surface and
+   wants one flat colour behind it, so this card opts out: a solid background
+   and no backdrop blur, which the opaque fill made pointless work anyway. */
+.sc-cal{margin-top:12px;padding:16px;background:var(--rd-bg-2);
+  -webkit-backdrop-filter:none;backdrop-filter:none}
 .sc-cal-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
 .sc-cal-head h3{flex:1;font-size:16px;font-weight:800;letter-spacing:-.02em;margin:0}
 .sc-cal-nav{all:unset;box-sizing:border-box;cursor:pointer;width:32px;height:32px;border-radius:10px;display:grid;
@@ -1596,6 +1604,14 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
         rgba(255,255,255,.075) 30%,rgba(255,255,255,.06) 66%,
         color-mix(in srgb,var(--acc) 26%,transparent)) border-box;
     box-shadow:0 18px 44px -22px rgba(0,0,0,.6)}
+  /* THE CALENDAR OPTS OUT, and it has to be done here rather than only at
+     .sc-cal: this block redefines .glass further down the stylesheet, so an
+     earlier .sc-cal rule loses on source order however opaque it is. What it
+     is opting out of is a gradient BORDER (165deg, magenta through white to
+     purple) plus a fill of --panel at .035 alpha that lets .rd-app's radials
+     through. On a small card that is a rim light; wrapped around a 650px
+     grid of times it is the aura the owner asked to be rid of. */
+  .sc-cal{border-color:var(--hair);background:var(--rd-bg-2);box-shadow:none}
   .rd-modal{border-color:transparent;
     background:linear-gradient(rgba(16,14,22,.94),rgba(16,14,22,.94)) padding-box,
       linear-gradient(165deg,color-mix(in srgb,var(--acc-2) 45%,transparent),
