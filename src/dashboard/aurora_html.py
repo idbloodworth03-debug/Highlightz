@@ -386,6 +386,40 @@ button{font-family:inherit;cursor:pointer}
 .rd-learn{margin-top:8px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px}
 .rd-learnbar{flex:1;height:4px;border-radius:var(--r-pill);background:rgba(255,255,255,.08);overflow:hidden}
 .rd-learnbar>div{height:100%;background:var(--grad);border-radius:var(--r-pill);transition:transform var(--dur-slow) var(--ease)}
+/* CALIBRATION. The engine suppresses every trigger until the profile has
+   `calibration_target` velocity samples (60, one every 3s, so about three
+   minutes). A channel therefore sits there looking live and producing
+   nothing, and before this the card said so in the least helpful way
+   available: it printed "Calibrated" at ten samples, which is not the
+   engine's gate and told the user the opposite of what was happening.
+
+   The fill only moves every three seconds, which reads as frozen. The sweep
+   is what says "working" between those steps. */
+.rd-cal{margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:12px;font-weight:700;color:var(--acc)}
+.rd-cal .dot{width:8px;height:8px;border-radius:var(--r-pill);background:var(--acc);
+  flex-shrink:0;animation:calPulse 1.4s ease-in-out infinite}
+@keyframes calPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.65)}}
+.rd-calbar{position:relative;flex:1;min-width:96px;height:8px;border-radius:var(--r-pill);
+  background:rgba(255,255,255,.08);overflow:hidden}
+/* scaleX, not width: width is not a composited property, so animating it
+   relayouts the card every frame. The learn bar beside it already does this
+   and test_nothing_transitions_a_layout_property enforces it. */
+.rd-calbar>i{display:block;width:100%;height:100%;border-radius:var(--r-pill);
+  background:var(--grad);transform-origin:left center;
+  transition:transform var(--dur-slow) var(--ease)}
+.rd-calbar::after{content:'';position:absolute;left:0;top:0;bottom:0;width:38%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);
+  animation:calSweep 1.6s linear infinite}
+@keyframes calSweep{from{transform:translateX(-110%)}to{transform:translateX(330%)}}
+.rd-cal-n{color:var(--fg-3);font-weight:600;flex-shrink:0}
+.rd-cal-note{margin-top:4px;font-size:12px;font-weight:500;color:var(--fg-3);line-height:1.5}
+.rd-chip.cal{background:var(--grad-soft);color:var(--acc);border:1px solid rgba(184,106,220,.35)}
+@media(prefers-reduced-motion:reduce){
+  /* The bar still fills; only the two loops stop. Someone who asked for less
+     motion still needs to see that this is in progress. */
+  .rd-cal .dot,.rd-calbar::after{animation:none}
+}
 .rd-empty{text-align:center;color:var(--fg-3);font-size:12px;padding:32px 12px;line-height:1.6}
 .rd-empty .ic{color:var(--fg-3);display:flex;justify-content:center;margin-bottom:8px}
 .rd-main{min-height:0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
@@ -2246,6 +2280,17 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   const score = displayScore;
   const p = profile || {};
   const samples = p.velocity_samples||0;
+  // STRAIGHT FROM THE ENGINE'S GATE, not a number picked here. The profile
+  // carries is_calibrated (velocity_samples >= calibration_target) and the
+  // percentage, and the trigger refuses to fire on exactly that condition —
+  // so the card cannot claim a channel is ready while the engine is still
+  // holding every clip back. A channel with no profile yet is calibrating:
+  // it is about to start, and it certainly is not calibrated.
+  const calTarget = p.calibration_target || 60;
+  const calibrating = !p.is_calibrated;
+  const calPct = p.calibration_pct != null
+    ? p.calibration_pct
+    : Math.min(100, samples / calTarget * 100);
   // 'queued' means the channel IS live and every slot on the box is taken.
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
@@ -2262,6 +2307,8 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
             <span className="rd-chip">{s.preset}</span>
             <span style={{color:statusColor,fontWeight:600}}
                   title={s.status==='queued'?'This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.':''}>{statusLabel}</span>
+            {calibrating && s.status==='live' &&
+              <span className="rd-chip cal" title="Learning this channel's normal before it will clip anything">calibrating</span>}
           </div>
         </div>
         <div className="rd-stream-actions">
@@ -2314,11 +2361,29 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
             </div>
           </div>
         </div>
-        <div className="rd-learn" style={{color:samples>=10?'var(--live)':'var(--acc)'}}>
-          {samples>=10
-            ? <><Icon name="check" size={12}/>Calibrated · {samples} samples</>
-            : <><span>Learning {samples}/10</span><span className="rd-learnbar"><div style={{width:Math.min(100,samples*10)+'%'}}/></span></>}
-        </div>
+        {calibrating ? (
+          <div>
+            <div className="rd-cal">
+              <span className="dot"/>
+              {/* Percentage and count travel together: the row wraps on a
+                  narrow card, and split across two spans the "23/60" dropped
+                  onto a line of its own looking orphaned. */}
+              <span>Calibrating · {Math.round(calPct)}% <span className="rd-cal-n">{samples}/{calTarget}</span></span>
+              <span className="rd-calbar">
+                <i style={{transform:'scaleX(' + Math.max(.02, Math.min(1, calPct/100)) + ')'}}/>
+              </span>
+            </div>
+            <div className="rd-cal-note">
+              Learning what normal looks like here — chat pace, audio and viewers.
+              Nothing is clipped until it knows, so the first few minutes are quiet
+              on purpose.
+            </div>
+          </div>
+        ) : (
+          <div className="rd-learn" style={{color:'var(--live)'}}>
+            <Icon name="check" size={12}/>Calibrated · {samples} checks
+          </div>
+        )}
       </div>
     </div>
   );

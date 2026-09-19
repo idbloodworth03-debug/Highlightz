@@ -804,3 +804,51 @@ def test_the_calendar_is_a_flat_surface_not_a_glass_one():
     assert block.index(".sc-cal{") > i, "the opt-out sits before .glass and loses"
     assert "background:var(--rd-bg-2)" in block
     assert "box-shadow:none" in block
+
+
+def test_the_card_calls_a_channel_calibrated_on_the_engines_own_gate():
+    """THE BUG THIS REPLACED. The card printed "Calibrated · N samples" at ten
+    samples. The engine's gate is `velocity_samples >= calibration_target`,
+    which is 60 — so for the first fifty samples the card told the user the
+    channel was ready while the trigger was suppressing every clip.
+
+    Owner, 2026-09-19: "I need it to be known that the bot is calibrating it."
+    Both halves matter — an animation while it happens, and not lying about
+    when it is done."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    card = html[html.index("function RdStream("):html.index("/* THE AUDIENCE BADGE")]
+    assert "const calibrating = !p.is_calibrated;" in card
+    assert "p.calibration_target || 60" in card
+    assert "samples>=10" not in card, "the card invented its own calibration gate again"
+    # A channel with no profile yet is calibrating, not calibrated.
+    assert "p.calibration_pct != null" in card
+
+
+def test_calibration_is_visible_without_opening_anything():
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert "rd-chip cal" in html, "no calibrating chip in the status row"
+    assert "Calibrating · {Math.round(calPct)}%" in html
+    # And it says WHY there are no clips yet, which is the actual question.
+    assert "the first few minutes are quiet" in html.replace("\n", " ").replace("  ", " ")
+
+
+def test_the_calibration_bar_animates_without_relayout():
+    """The fill steps once every three seconds, which reads as frozen, so a
+    sweep runs across the track between steps. Both must be composited:
+    `width` relayouts the card every frame and test_nothing_transitions_a_
+    layout_property forbids it."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index(".rd-calbar>i{")
+    rule = html[i:html.index("}", i)]
+    assert "transform-origin:left" in rule and "transition:transform" in rule
+    assert "transition:width" not in rule
+    assert "@keyframes calSweep" in html and "@keyframes calPulse" in html
+
+
+def test_reduced_motion_stops_the_loops_but_keeps_the_progress():
+    """Someone who asked for less motion still has to be able to see that
+    calibration is under way — only the two infinite loops stop."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index(".rd-cal .dot,.rd-calbar::after{animation:none}")
+    before = html[:i]
+    assert before.rindex("@media(prefers-reduced-motion:reduce)") > before.rindex("@keyframes calSweep")

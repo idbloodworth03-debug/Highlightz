@@ -1736,6 +1736,46 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Calibration is visible, and the card stopped lying about it (2026-09-19)
+
+Owner: "When the clip bot first starts watching a stream it has to calibrate
+the averages first I want an animation for that so the user know it is
+happening."
+
+**What calibration actually is:** `TriggerEngine` suppresses *every* trigger
+while `not profile.is_calibrated`, i.e. until `velocity_samples >=
+calibration_target` (60). `_profile_update_loop` ticks every 3s during
+calibration (`PROFILE_UPDATE_INTERVAL_FAST`) and 30s after, so it is about
+**three minutes**, on a timer, regardless of how busy chat is.
+
+**The bug found on the way.** The card already had a "learning" row — and it
+printed `Calibrated · N samples` at **ten** samples. That is not the engine's
+gate. For the first fifty samples the card told the user the channel was
+ready while the trigger was holding back every clip, which is the worst
+possible version of this screen: it makes a working system look broken.
+
+The card now reads `is_calibrated`, `calibration_pct` and
+`calibration_target` straight off the profile — the same fields the gate
+uses, so the two cannot disagree. No profile yet counts as calibrating.
+
+- A `calibrating` chip in the status row, beside `live`.
+- A pulsing dot, `Calibrating · 38% 23/60`, and a progress bar.
+- A sweep travelling across the bar. The fill only steps once every three
+  seconds, which reads as frozen; the sweep is what says "working" between
+  steps.
+- A line saying **why**: nothing is clipped until it knows, so the first
+  few minutes are quiet on purpose. That is the actual question a user has.
+- Both animations are `transform`/`opacity` only —
+  `test_nothing_transitions_a_layout_property` caught a `transition:width`
+  on the fill and was right to. Under `prefers-reduced-motion` the two loops
+  stop but the bar still fills.
+
+No new data plumbing: `profile_updated` already carries the whole profile
+and already fires every 3s during calibration, so the bar moves live.
+
+Pinned by four tests in `test_publish_posting.py`, including one that fails
+if the card ever invents its own gate again.
+
 ## Meta's two required callbacks (2026-09-19)
 
 Prerequisite for the Instagram app, found before the console work rather
