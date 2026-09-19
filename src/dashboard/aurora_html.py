@@ -395,6 +395,16 @@ button{font-family:inherit;cursor:pointer}
 
    The fill only moves every three seconds, which reads as frozen. The sweep
    is what says "working" between those steps. */
+/* The banner. Tinted from the accent so it carries the platform's colour on
+   both Twitch and Kick, and bordered so it reads as its own block rather
+   than as a caption on the score below it. */
+.rd-calbox{margin-top:12px;padding:12px;border-radius:12px;background:var(--grad-soft);
+  border:1px solid var(--hair-2)}
+@supports (color:color-mix(in srgb,#000 50%,#fff)){
+  .rd-calbox{border-color:color-mix(in srgb,var(--acc) 28%,transparent)}
+}
+.rd-calbox .rd-cal{margin-top:0}
+.rd-calbox .rd-cal-note{margin-top:8px}
 .rd-cal{margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   font-size:12px;font-weight:700;color:var(--acc)}
 .rd-cal .dot{width:8px;height:8px;border-radius:var(--r-pill);background:var(--acc);
@@ -2324,6 +2334,30 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
           <button className="rd-x" onClick={()=>onRemove(s.channel)} title="Remove"><Icon name="x" size={14}/></button>
         </div>
       </div>
+      {/* ABOVE THE SCORE, not under the stats (owner, 2026-09-19: "make this
+          go to the top I need users to see this"). While a channel is
+          calibrating the trigger score is pinned at 0 and the card is
+          otherwise a wall of numbers that have not settled — this is the one
+          thing on it that explains the other twelve, so it goes first. */}
+      {calibrating &&
+        <div className="rd-calbox">
+          <div className="rd-cal">
+            <span className="dot"/>
+            {/* Percentage and count travel together: the row wraps on a
+                narrow card, and split across two spans the "23/60" dropped
+                onto a line of its own looking orphaned. */}
+            <span>Calibrating · {Math.round(calPct)}% <span className="rd-cal-n">{samples}/{calTarget}</span></span>
+            <span className="rd-calbar">
+              <i style={{transform:'scaleX(' + Math.max(.02, Math.min(1, calPct/100)) + ')'}}/>
+            </span>
+          </div>
+          <div className="rd-cal-note">
+            Learning what normal looks like here — chat pace, audio and viewers.
+            Nothing is clipped until it knows, so the first few minutes are quiet
+            on purpose.
+          </div>
+        </div>}
+
       <div className="rd-score">
         <div className="rd-score-top">
           <span className="lbl">Trigger score</span>
@@ -2369,29 +2403,12 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
             </div>
           </div>
         </div>
-        {calibrating ? (
-          <div>
-            <div className="rd-cal">
-              <span className="dot"/>
-              {/* Percentage and count travel together: the row wraps on a
-                  narrow card, and split across two spans the "23/60" dropped
-                  onto a line of its own looking orphaned. */}
-              <span>Calibrating · {Math.round(calPct)}% <span className="rd-cal-n">{samples}/{calTarget}</span></span>
-              <span className="rd-calbar">
-                <i style={{transform:'scaleX(' + Math.max(.02, Math.min(1, calPct/100)) + ')'}}/>
-              </span>
-            </div>
-            <div className="rd-cal-note">
-              Learning what normal looks like here — chat pace, audio and viewers.
-              Nothing is clipped until it knows, so the first few minutes are quiet
-              on purpose.
-            </div>
-          </div>
-        ) : (
+        {/* Only the finished state lives down here. While it is happening it
+            is a banner at the TOP of the card — see below the header. */}
+        {!calibrating &&
           <div className="rd-learn" style={{color:'var(--live)'}}>
             <Icon name="check" size={12}/>Calibrated · {samples} checks
-          </div>
-        )}
+          </div>}
       </div>
     </div>
   );

@@ -1759,6 +1759,13 @@ The card now reads `is_calibrated`, `calibration_pct` and
 uses, so the two cannot disagree. No profile yet counts as calibrating.
 
 - A `calibrating` chip in the status row, beside `live`.
+- **A banner directly under the header, above the trigger score** (owner:
+  "make this go to the top I need users to see this"). It started as a
+  footnote under the stats grid, which is the wrong place: while a channel
+  calibrates the score is pinned at 0 and the card is a wall of figures that
+  have not settled, and this is the one thing on it that explains the other
+  twelve. The finished state stays a quiet line at the bottom — "Calibrated"
+  is not news.
 - A pulsing dot, `Calibrating · 38% 23/60`, and a progress bar.
 - A sweep travelling across the bar. The fill only steps once every three
   seconds, which reads as frozen; the sweep is what says "working" between
@@ -1772,6 +1779,13 @@ uses, so the two cannot disagree. No profile yet counts as calibrating.
 
 No new data plumbing: `profile_updated` already carries the whole profile
 and already fires every 3s during calibration, so the bar moves live.
+
+**Kick works the same**, and was checked rather than assumed:
+`_profile_update_loop` is started in `_run_session` for every worker with no
+platform branch in it. The *styling* was not — the chip's border was a
+hardcoded Twitch purple, which on `.kick-theme` (where `--acc` becomes
+green) left green text in a purple outline. Every colour in this state now
+comes from a token, and a test fails on a literal.
 
 Pinned by four tests in `test_publish_posting.py`, including one that fails
 if the card ever invents its own gate again.

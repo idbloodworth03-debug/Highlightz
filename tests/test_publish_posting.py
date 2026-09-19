@@ -893,3 +893,21 @@ def test_the_profile_loop_is_not_gated_on_platform():
     assert "platform" not in src[line_start:i]
     loop = inspect.getsource(stream_worker.StreamWorker._profile_update_loop)
     assert "platform" not in loop, "the profile loop grew a platform branch"
+
+
+def test_the_calibration_banner_is_above_the_numbers_it_explains():
+    """Owner: "make this go to the top I need users to see this."
+
+    It was a footnote under the stats grid. While a channel calibrates the
+    trigger score is pinned at 0 and the card is otherwise a wall of figures
+    that have not settled — the banner is the one thing on it that explains
+    the other twelve, so it comes first. The finished state stays a quiet
+    line at the bottom, because "Calibrated" is not news."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    card = html[html.index("function RdStream("):html.index("/* THE AUDIENCE BADGE")]
+    banner = card.index("rd-calbox")
+    score = card.index('<div className="rd-score">')
+    grid = card.index('<div className="rd-pgrid">')
+    assert banner < score < grid, "the calibration banner sank back down the card"
+    # And the two states do not both render.
+    assert "{!calibrating &&" in card
