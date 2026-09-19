@@ -1509,6 +1509,10 @@ async def delete_account(request: Request):
     _reviews.delete_all_for_user(uid)
     from src.stats import stream_stats as _ss_purge
     _ss_purge.delete_all_for_user(uid)
+    # The download log too. An erasure that left a per-account trail of what
+    # somebody took and when would not be an erasure.
+    from src.stats import downloads as _dl_purge
+    _dl_purge.delete_all_for_user(uid)
 
     user_store.delete(uid)
     request.session.clear()
@@ -3106,6 +3110,22 @@ async def get_clip_file(request: Request, clip_id: str, download: int = 0):
     raw = f"{clip.get('channel', 'clip')}-{clip.get('clip_title') or clip.get('stream_title') or 'highlight'}"
     safe = re.sub(r"[^A-Za-z0-9 ._-]", "", raw)[:80].strip() or "highlight"
     disposition = "attachment" if download else "inline"
+
+    # THE DOWNLOAD BUTTON ONLY. This same endpoint serves the file inline to
+    # play a clip on its card, and logging that would bury the thing the log
+    # exists for under one line per press of play.
+    if download:
+        from src.stats import downloads as dl_log
+        try:
+            dl_log.record(clip, uid, path.stat().st_size)
+        except Exception:                       # never fail a file over telemetry
+            log.warning("download_log_failed", clip_id=clip_id)
+        # NO BROADCAST. The admin console is its own page with no socket, so
+        # an event here would have no handler anywhere — which is the same as
+        # not sending it, except it looks like realtime wiring to the next
+        # person reading. The panel re-reads whenever the tab is opened or the
+        # window regains focus, which is what keeps it current.
+
     return FileResponse(
         path, media_type="video/mp4",
         headers={"Content-Disposition": f'{disposition}; filename="{safe}.mp4"',
@@ -6382,6 +6402,35 @@ async def admin_ack_clip_refusal(channel: str, request: Request):
     user_store.set_refusal_dismissed(_current_user_id(request), channel,
                                      time.time(), scope="admin")
     return {"ok": True}
+
+
+@app.get("/admin/downloads")
+async def admin_downloads(request: Request, limit: int = 200):
+    """Every clip file that has left the server, newest first.
+
+    Owner, 2026-09-19: "make it so that we can see every clip that is
+    downloaded". Only the Download button is logged — the same endpoint
+    serves a clip inline to play it on its card, and one row per press of
+    play would bury the thing this exists to show.
+
+    The account is resolved to a name here rather than in the browser: the
+    admin user table is a separate fetch, and a log of raw uuids is a log
+    nobody reads. Nothing about the video itself is exposed — this says a
+    download happened, and an admin still cannot open another account's file.
+    """
+    _require_admin(request)
+    from src.stats import downloads as dl_log
+    from src.auth import users as user_store
+    who = {}
+    for u in user_store._load():
+        who[u["id"]] = (u.get("twitch_login") or u.get("kick_slug")
+                        or u.get("username") or u["id"][:8])
+    rows = []
+    for r in dl_log.recent(limit):
+        row = dict(r)
+        row["user"] = who.get(r.get("user_id"), "(deleted account)")
+        rows.append(row)
+    return {"rows": rows, "totals": dl_log.totals()}
 
 
 @app.get("/admin/overview")
@@ -12111,6 +12160,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="funnel">Funnel<span class="c" id="tc-funnel"></span></button>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
+    <button class="tab" data-tab="downloads">Downloads<span class="c" id="tc-downloads"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
   </div>
@@ -12223,6 +12273,21 @@ ADMIN_HTML = """<!DOCTYPE html>
     </p>
     <div class="toolbar"><input class="field" id="cr-filter" placeholder="Filter by channel or user"></div>
     <div class="tw"><div id="cr-wrap" class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <!-- ── DOWNLOADS ── Every clip file that has left the server. Only the
+       Download button is logged: the same endpoint serves a clip inline to
+       play it on its card, and a row per press of play would bury this. -->
+  <div class="panel" id="panel-downloads">
+    <div class="block-head"><h2>Downloads</h2><span class="c" id="dl-c"></span></div>
+    <p class="lede">
+      Every clip file that has left the server, newest first &mdash; who took it,
+      from which channel, and how big it was. This is the clearest signal of
+      what the product is actually worth to somebody: a clip they went and kept.
+      Nothing here opens anyone else&rsquo;s video.
+    </p>
+    <div class="toolbar"><input class="field" id="dl-filter" placeholder="Filter by account, channel or title"></div>
+    <div class="tw"><div id="dl-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
   <!-- ── REVIEWS ── -->
@@ -12346,6 +12411,80 @@ document.getElementById('tabs').addEventListener('click', e => {
   // running eleven workers; a panel nobody looked at should cost nothing.
   if(b.dataset.tab === 'funnel' && !FUNNEL_LOADED) loadFunnel();
   if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();
+  if(b.dataset.tab === 'downloads') loadDownloads();
+});
+
+// ── downloads ───────────────────────────────────────────────────────────────
+// Every clip file that has left the server. Lazy on first open like the other
+// heavy panels, then re-read on every open and on window focus. This page has
+// no WebSocket, so that is what keeps it current -- and it is the honest
+// version: emitting an event no page listens for would look like realtime
+// wiring to the next reader while changing nothing.
+let DL_LOADED = false, DL_ROWS = [], DL_Q = '';
+
+async function loadDownloads(){
+  DL_LOADED = true;
+  let d;
+  try { d = await api('/admin/downloads'); }
+  catch(e){ document.getElementById('dl-wrap').textContent = 'Could not load.'; return; }
+  DL_ROWS = (d && d.rows) || [];
+  const t = (d && d.totals) || {};
+  // DISTINCT CLIPS, not events, next to the event count: the same clip pulled
+  // three times is one clip somebody wanted, and showing only the total would
+  // read a single user re-downloading as demand.
+  document.getElementById('dl-c').textContent =
+    n0(t.events) + ' download' + (t.events===1?'':'s') + ' · ' + n0(t.clips)
+    + ' clips · ' + n0(t.users) + ' accounts · ' + dlSize(t.bytes)
+    + ' · ' + n0(t.last_24h) + ' in the last 24h';
+  renderDownloads();
+}
+
+function dlSize(b){
+  b = Number(b) || 0;
+  if(b >= 1073741824) return (b/1073741824).toFixed(1) + ' GB';
+  if(b >= 1048576) return Math.round(b/1048576) + ' MB';
+  if(b >= 1024) return Math.round(b/1024) + ' KB';
+  return b ? b + ' B' : '—';
+}
+
+function renderDownloads(){
+  const wrap = document.getElementById('dl-wrap');
+  const q = DL_Q.trim().toLowerCase();
+  const rows = q ? DL_ROWS.filter(function(r){
+    return ((r.user||'') + ' ' + (r.channel||'') + ' ' + (r.title||'')).toLowerCase().indexOf(q) >= 0;
+  }) : DL_ROWS;
+  if(!rows.length){
+    wrap.className = '';
+    wrap.innerHTML = '<p class="sub">' + (DL_ROWS.length
+      ? 'No downloads match that.'
+      : 'Nothing downloaded yet. A row appears here the moment somebody presses Download on a clip.')
+      + '</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>When</th><th>Account</th><th>Channel</th>'
+    + '<th>Clip</th><th>Size</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr>'
+      + '<td>' + (r.ts ? new Date(r.ts*1000).toLocaleString() : '—') + '</td>'
+      + '<td><b>' + esc(r.user) + '</b></td>'
+      + '<td>' + esc(r.channel) + (r.platform === 'kick' ? ' <span class="sub">kick</span>' : '')
+      + (r.vod ? ' <span class="sub">vod</span>' : '') + '</td>'
+      + '<td>' + esc(r.title || '—') + '</td>'
+      + '<td>' + dlSize(r.size) + '</td></tr>';
+  });
+  wrap.className = '';
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+document.getElementById('dl-filter').addEventListener('input', function(e){
+  DL_Q = e.target.value; renderDownloads();
+});
+
+// Coming back to a tab left open on this panel re-reads it. Without this the
+// operator is looking at whatever was true when they wandered off.
+window.addEventListener('focus', function(){
+  const panel = document.getElementById('panel-downloads');
+  if(DL_LOADED && panel && panel.classList.contains('on')) loadDownloads();
 });
 
 // ── announcements ─────────────────────────────────────────

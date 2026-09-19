@@ -1736,6 +1736,48 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## Every download is logged, and only downloads (2026-09-19)
+
+Owner: "make it so that we can see every clip that is downloaded."
+
+`src/stats/downloads.py` is an append-only JSONL, one line per download —
+deliberately an event log, not a tally like `clip_refusals` next door. "Show
+me every clip that was downloaded" is not answered by a count of 400.
+
+**The distinction that had to be right.** `GET /clips/{id}/file` serves the
+same file two ways: inline for the player behind every clip card, and as an
+attachment for the Download button. Only `?download=1` is logged. Logging
+both would put a row in the panel every time anybody pressed play and bury
+the thing being asked for. The editor's library copy never touches this
+endpoint at all — that is a server-side copy and no file leaves the box.
+
+**The privacy line does not move.** The log records THAT a download
+happened: account, channel, clip title, size, time. No IP, no user agent, no
+path, no token. `_require_admin` guards the view and the file endpoint still
+checks ownership, so an admin gains nothing they could use to open somebody
+else's video — the Privacy Policy's promise stands. Account deletion calls
+`delete_all_for_user`, because an erasure that left a per-account trail of
+what somebody took and when would not be one.
+
+Bounded at `_MAX_LINES` (50k, ~6 MB), pruned newest-first on read. A log
+nobody trims is a disk-full incident with a date on it.
+
+**Admin → Downloads tab.** Newest first, with a filter, and a summary that
+separates events from DISTINCT clips: the same clip pulled three times is
+one clip somebody wanted, and conflating them reads a single user
+re-downloading as demand.
+
+**No broadcast, on purpose.** The admin console is its own page with no
+WebSocket, so an event would have no handler anywhere — the same as not
+sending it, except it looks like realtime wiring to the next reader. The
+panel re-reads on every tab open and on window focus instead.
+
+Pinned by `tests/test_download_log.py` (16 tests), including that the inline
+player is not logged, that telemetry can never fail the download, that
+pruning keeps the newest, and that no dead event is emitted. The admin page
+is plain JS in a Python string with no bundler, so it was syntax-checked
+with `node --check` the way `aurora_html` is checked with Babel.
+
 ## Editor and Scheduler held back, and the page says so (2026-09-19)
 
 Owner: "close off the editor and schedule for now and say coming soon on the
