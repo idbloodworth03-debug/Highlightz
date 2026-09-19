@@ -141,13 +141,23 @@ class ClipProcessor:
         if not settings.clip_capture_enabled:
             raise RuntimeError(
                 "Kick clips need live capture (CLIP_CAPTURE_ENABLED) — Kick has no clip API.")
-        # Same tail wait as Twitch: the worker's cut waits for post_roll too,
-        # and announcing the record before the moment is over would show a
-        # clip whose end has not happened yet.
-        if job.post_roll > 0:
-            await asyncio.sleep(min(job.post_roll, 55))
+        # NO WAIT HERE, deliberately. There is no API call to time — Kick has
+        # no clip endpoint — so the only thing a sleep bought was not showing
+        # a card before the moment had finished.
+        #
+        # That is not worth what it costs. run_clip_processor handles jobs
+        # SERIALLY and drops any that reach 90s old, so every second spent
+        # sleeping here is a second every queued moment ages. At the old
+        # 4-second tail that was invisible; at the preset's real tail (22-32s)
+        # three Kick clips in a row would push the third past the stale
+        # cutoff and report it to the user as a missed moment.
+        #
+        # The gap it leaves is one the product already handles: the record
+        # exists with no file for as long as the cut takes, exactly like a
+        # Twitch clip waiting on its fetch, and `clip_file_ready` fills it in.
+        tail = job.clip_post_roll or job.post_roll
         meta.platform_url = f"https://kick.com/{channel}"
-        meta.duration_seconds = float(job.pre_roll + job.post_roll)
+        meta.duration_seconds = float(job.pre_roll + tail)
         meta.status = "pending"
         log.info("kick_clip_ready", clip_id=meta.id, channel=channel,
                  note="file-only; cut by the stream worker from live capture")

@@ -440,7 +440,11 @@ class TriggerEngine:
             score=peak,
             signals=signals,
             pre_roll=rules.pre_roll + lag_offset,
+            # TAIL_SECS times the Twitch API CALL; rules.post_roll is how much
+            # of the aftermath our own cut keeps. Passing TAIL_SECS as both
+            # made every captured clip end 4s after the moment.
             post_roll=TAIL_SECS,
+            clip_post_roll=rules.post_roll,
             virality_score=self._compute_virality_score(signals),
             clip_title=self._generate_clip_title(signals),
         )

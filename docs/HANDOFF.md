@@ -1736,6 +1736,50 @@ Now:
 Pinned by `tests/test_idle_pause.py` (10 tests), including that the reaper
 never mentions `_stop_user_streams_now` and that access loss still does.
 
+## The clip's tail is not the API's tail (2026-09-19)
+
+Owner: "why is twitch still being clipped for only 30 seconds and why is
+kick only 20-30 seconds". Two different questions, and only the second is
+ours.
+
+**Twitch's 30s is Twitch's.** A Twitch clip comes from Create Clip
+(`POST /helix/clips`), which takes a broadcaster and no length. Twitch
+decides, returns `duration`, and that is what clips.twitch.tv plays. There
+is no knob. Production, 730 clips: min 4.9s, median 30.0s, max 60.0s.
+
+**Kick's short clips were our bug.** `post_roll` meant two unrelated things:
+
+- how long to WAIT before calling Create Clip. It must stay small
+  (`TAIL_SECS`, 4s) because Twitch captures the window ENDING at the call;
+  waiting longer pushes the moment off the front of what Twitch keeps.
+- how much of the AFTERMATH our own cut keeps. The presets ask 22-32s.
+
+`engine.py` passed `TAIL_SECS` as both, so every captured clip — Kick, and
+the downloadable file behind a Twitch clip — ended four seconds after the
+moment. Production, 104 Kick clips: median 24s, min 14.0s, max 70.0s. The
+arithmetic matches on the nose: `variety` 10+4 = 14, `small`/`irl` 20+4 =
+24, the manual force-clip path 60+10 = 70.
+
+`clip_post_roll` now carries the cut's tail on `TriggerEvent` and `ClipJob`,
+while `post_roll` keeps timing the Twitch call. **0 means "fall back to
+post_roll"**, which is what the manual force-clip path in `main.py` still
+does. Clips go from pre+4 to the preset's full 35-66s.
+
+**The trap avoided on the way.** The first version made `_process_kick`
+sleep out the real tail before announcing, as it already did for 4s. But
+`run_clip_processor` handles jobs SERIALLY and drops any that reach 90s old,
+so a 32s sleep would age every queued moment behind it — three Kick clips in
+a row and the third is reported to the user as a missed moment. The sleep is
+gone entirely: Kick has no API call to time, and a record with no file yet
+is a state the product already has (`clip_file_ready` fills it, same as a
+Twitch clip waiting on its fetch).
+
+`scripts/clip_lengths.py` is the read-only probe that found it: preset
+table, capture settings, what each record claims, and ffprobe on the real
+files. Pinned by `tests/test_clip_tail.py` (18 tests), including that the
+Twitch call keeps its small wait, that the longest preset window still fits
+the 180s buffer, and that `_process_kick` never sleeps again.
+
 ## The Scheduler is a week of half hours (2026-09-19)
 
 Owner: "The scheduler layout is terrible. I need a simpler week calendar on

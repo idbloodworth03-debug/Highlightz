@@ -636,6 +636,7 @@ class StreamWorker:
             game=info.game if info else "",
             pre_roll=event.pre_roll,
             post_roll=event.post_roll,
+            clip_post_roll=event.clip_post_roll,
             virality_score=event.virality_score,
             clip_title=event.clip_title,
             user_id=self._config.user_id,
@@ -654,8 +655,8 @@ class StreamWorker:
         # spent here is a second of the moment lost on their side.
         if self._recorder is not None:
             task = asyncio.create_task(
-                self._cut_local_file(job.clip_id, time.time(),
-                                     event.pre_roll, event.post_roll),
+                self._cut_local_file(job.clip_id, time.time(), event.pre_roll,
+                                     event.clip_post_roll or event.post_roll),
                 name=f"cut-{job.clip_id[:8]}")
             self._cut_tasks.add(task)
             task.add_done_callback(self._cut_tasks.discard)

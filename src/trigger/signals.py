@@ -70,6 +70,23 @@ class TriggerEvent:
     signals: list[Signal]
     timestamp: float = field(default_factory=time.time)
     pre_roll: int = 30
+    # TWO DIFFERENT THINGS, AND THEY USED TO SHARE ONE FIELD.
+    #
+    # post_roll is how long to WAIT before asking Twitch for a clip. It must
+    # stay small (TAIL_SECS, 4s): Twitch's Create Clip captures the window
+    # ENDING at the moment of the call, so waiting longer pushes the moment
+    # off the front of what Twitch keeps.
+    #
+    # clip_post_roll is how much of the AFTERMATH the cut keeps in our own
+    # file — the reaction, the replay, chat losing it. The presets set it
+    # between 22s and 32s by content type.
+    #
+    # The cut used post_roll for both, so every captured clip ended 4 seconds
+    # after the moment: measured on production 2026-09-19, Kick clips ran a
+    # median of 24s against presets asking for 35-66s (variety 10+4=14s was
+    # the shortest, exactly the observed minimum). 0 means "fall back to
+    # post_roll", which is what a manually forced clip still does.
     post_roll: int = 10
+    clip_post_roll: int = 0
     virality_score: float = 0.0
     clip_title: str = ""

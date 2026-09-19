@@ -32,7 +32,11 @@ class ClipJob:
     stream_title: str = ""
     game: str = ""
     pre_roll: int = 30
+    # post_roll times the Twitch API call; clip_post_roll is how much of the
+    # aftermath our own cut keeps. See TriggerEvent for why they are separate.
+    # 0 means "use post_roll" — the manual force-clip path sets only post_roll.
     post_roll: int = 10
+    clip_post_roll: int = 0
     clip_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     virality_score: float = 0.0
     clip_title: str = ""
@@ -110,6 +114,11 @@ class JobQueue:
             return None
         if not (0 <= job.post_roll <= 120):
             log.warning("job_queue_bad_post_roll", post_roll=job.post_roll)
+            return None
+        # Same bound as post_roll. The cut reads this one, and a wild value
+        # would ask the recorder for a window its buffer cannot hold.
+        if not (0 <= job.clip_post_roll <= 120):
+            log.warning("job_queue_bad_clip_post_roll", clip_post_roll=job.clip_post_roll)
             return None
         if not isinstance(job.chat_snapshot, list) or not all(isinstance(m, str) for m in job.chat_snapshot):
             log.warning("job_queue_bad_chat_snapshot")
