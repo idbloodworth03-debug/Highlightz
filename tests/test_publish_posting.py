@@ -745,3 +745,40 @@ def test_the_scheduler_is_wired_for_realtime():
     assert "refetchConnections();" in html[html.index("const refetchAll"):html.index("const wsBootstrapped")]
     assert "_params.get('connected')" in html and "_params.get('connect_error')" in html
     assert "connections={connections}" in html
+
+
+def test_the_scheduler_screen_can_actually_scroll():
+    """THE BUG: ScheduleScreen was the only screen rooted on `rd-wrap`, which
+    matches NO rule in the stylesheet. `.rd-screen` is a fixed-height flex
+    column with overflow:hidden, so a screen that brings no scroller of its
+    own simply has its overflow clipped and unreachable.
+
+    It went unnoticed because the month grid fit inside the viewport. The
+    taller week grid did not — measured on 2026-09-19, 1178px of content in
+    an 832px box, with the bottom of the page impossible to reach.
+
+    Every other screen uses `.rd-scroll{flex:1;overflow-y:auto;min-height:0}`
+    and this one now does too."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
+    assert 'className="rd-wrap"' not in screen, "the Scheduler is back on a class with no CSS"
+    # Both roots: the Pro gate returns early and needs one too.
+    assert screen.count('className="rd-scroll"') == 2
+    assert ".rd-scroll{flex:1;overflow-y:auto;min-height:0" in html
+
+
+def test_the_week_grid_hands_the_scroll_back_when_it_runs_out():
+    """`overscroll-behavior:contain` on a 520px grid filling most of an 830px
+    screen traps the wheel: a pointer resting over the calendar could not
+    reach anything below it."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index(".wk-body{")
+    assert "overscroll-behavior" not in html[i:i + 160]
+
+
+def test_no_other_screen_was_left_on_the_class_with_no_rule():
+    """If `rd-wrap` styles nothing, any screen still using it has the same
+    clipped-and-unreachable bug waiting."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    assert ".rd-wrap{" not in html, "rd-wrap gained a rule; this test is now the wrong guard"
+    assert 'className="rd-wrap"' not in html

@@ -1195,7 +1195,7 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 /* padding-top is not decoration: .wk-gut is shifted up 8px so each label
    sits ON its gridline, and without room above, the midnight label is
    shifted outside the scroll box and clipped in half. */
-.wk-body{max-height:520px;overflow:auto;overscroll-behavior:contain;padding-top:8px}
+.wk-body{max-height:520px;overflow:auto;padding-top:8px}
 .wk-row{display:grid;grid-template-columns:64px repeat(7,minmax(0,1fr))}
 .wk-gut{font-size:12px;color:var(--fg-3);text-align:right;padding-right:8px;white-space:nowrap;
   transform:translateY(-8px)}
@@ -7785,7 +7785,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
   // as the Clip Editor's. After every hook, so hook order stays stable.
   if (me && me.plan_limits && !me.plan_limits.uploads && !me.is_admin) {
     return (
-      <div className="rd-wrap">
+      <div className="rd-scroll">
         <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
           <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="clock" size={40}/></div>
           <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Scheduler is a Pro feature</h3>
@@ -7803,7 +7803,15 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
   }
 
   return (
-    <div className="rd-wrap">
+    // rd-scroll, NOT rd-wrap. `.rd-screen` is a fixed-height flex column with
+    // overflow:hidden, so every screen brings its own scroller —
+    // `.rd-scroll{flex:1;overflow-y:auto;min-height:0}` is the one they all
+    // use. This screen was the only one on `rd-wrap`, which matches no rule
+    // in the stylesheet at all, so it could never scroll. The month grid fit
+    // inside the viewport and hid it; the taller week grid did not, and the
+    // bottom of the Scheduler became unreachable (measured 2026-09-19: 1178px
+    // of content in an 832px box).
+    <div className="rd-scroll">
       {/* First run only: the three steps say where clips come from and what
           to do with them. Once there is a clip the calendar says it. */}
       {items.length === 0 && <div className="rd-how">
