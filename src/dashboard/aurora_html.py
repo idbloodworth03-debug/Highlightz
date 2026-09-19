@@ -414,7 +414,15 @@ button{font-family:inherit;cursor:pointer}
 @keyframes calSweep{from{transform:translateX(-110%)}to{transform:translateX(330%)}}
 .rd-cal-n{color:var(--fg-3);font-weight:600;flex-shrink:0}
 .rd-cal-note{margin-top:4px;font-size:12px;font-weight:500;color:var(--fg-3);line-height:1.5}
-.rd-chip.cal{background:var(--grad-soft);color:var(--acc);border:1px solid rgba(184,106,220,.35)}
+/* THE BORDER FOLLOWS THE THEME, which a hardcoded rgba did not. .kick-theme
+   overrides --acc and --grad-soft, so on Kick the first version of this chip
+   was green text on a green wash inside a Twitch-purple outline. The plain
+   hairline is the fallback for browsers without color-mix; the @supports
+   below tints it from whichever accent is in force. */
+.rd-chip.cal{background:var(--grad-soft);color:var(--acc);border:1px solid var(--hair-2)}
+@supports (color:color-mix(in srgb,#000 50%,#fff)){
+  .rd-chip.cal{border-color:color-mix(in srgb,var(--acc) 35%,transparent)}
+}
 @media(prefers-reduced-motion:reduce){
   /* The bar still fills; only the two loops stop. Someone who asked for less
      motion still needs to see that this is in progress. */

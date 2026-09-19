@@ -852,3 +852,44 @@ def test_reduced_motion_stops_the_loops_but_keeps_the_progress():
     i = html.index(".rd-cal .dot,.rd-calbar::after{animation:none}")
     before = html[:i]
     assert before.rindex("@media(prefers-reduced-motion:reduce)") > before.rindex("@keyframes calSweep")
+
+
+def test_calibration_looks_right_on_kick_too():
+    """Owner: "I need it to work on Kick as well."
+
+    The engine half already did — `_profile_update_loop` is started in
+    `_run_session` for every worker regardless of platform, so a Kick channel
+    calibrates exactly like a Twitch one and `profile_updated` carries it.
+
+    The STYLING half did not. `.kick-theme` overrides --acc and --grad-soft,
+    so a hardcoded rgba border left the chip as green text on a green wash
+    inside a Twitch-purple outline. Everything that colours this state has to
+    come from a token, or it is only themed on one platform."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    i = html.index(".rd-chip.cal{")
+    rule = html[i:html.index("}", i)]
+    assert "rgba(184,106,220" not in rule, "the calibrating chip is hardcoded Twitch purple"
+    assert "var(--acc)" in rule and "var(--grad-soft)" in rule
+    # The accent-tinted border is behind the same color-mix guard the rest of
+    # the stylesheet uses, with a plain hairline as the fallback.
+    assert "border:1px solid var(--hair-2)" in rule
+    assert "color-mix(in srgb,var(--acc) 35%,transparent)" in html
+    # And the moving parts take the accent too.
+    dot = html[html.index(".rd-cal .dot{"):]
+    assert "background:var(--acc)" in dot[:dot.index("}")]
+    bar = html[html.index(".rd-calbar>i{"):]
+    assert "background:var(--grad)" in bar[:bar.index("}")]
+
+
+def test_the_profile_loop_is_not_gated_on_platform():
+    """If this ever grows a Twitch-only branch, Kick channels would sit at 0%
+    for ever while the card insisted they were calibrating."""
+    import inspect
+    from src.ingestion import stream_worker
+    src = inspect.getsource(stream_worker.StreamWorker._run_session)
+    i = src.index("_profile_update_loop()")
+    # The task is created unconditionally, not inside a platform check.
+    line_start = src.rindex("\n", 0, i)
+    assert "platform" not in src[line_start:i]
+    loop = inspect.getsource(stream_worker.StreamWorker._profile_update_loop)
+    assert "platform" not in loop, "the profile loop grew a platform branch"
