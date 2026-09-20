@@ -121,13 +121,24 @@ never = sum(1 for u in real if not u.get("last_login_at"))
 print(f"  never since   {never}")
 
 # ── activation: did the product ever do anything for them? ──────────────────
-with_stream = {s.get("user_id") for s in streams if s.get("user_id")}
 clips_by_user = collections.Counter(c.get("user_id") for c in clips if c.get("user_id"))
 approved_by_user = collections.Counter(
     c.get("user_id") for c in clips if c.get("user_id") and c.get("status") == "approved")
 
+# EVER, not right now. This line used to read streams.json, which holds only
+# what is registered at this second — so on 2026-09-19 it reported "added a
+# channel: 3 (5%)" directly above "got a clip: 16 (26%)", which is impossible
+# and says the measure is wrong rather than the product. The reaper deleted
+# channels for months and idle ones are paused today, so the honest question
+# is who ever had one, and a clip is proof they did.
+ever_ch = {c.get("user_id") for c in clips if c.get("user_id")}
+ever_ch |= {s.get("user_id") for s in streams if s.get("user_id")}
+real_ids = {u["id"] for u in real}
+added = len(ever_ch & real_ids)
+now_ch = len({s.get("user_id") for s in streams if s.get("user_id")} & real_ids)
+
 print(f"\nACTIVATION (of {len(real)} real accounts)")
-print(f"  added a channel   {len(with_stream & {u['id'] for u in real}):>4}  {pct(len(with_stream & {u['id'] for u in real}), len(real))}")
+print(f"  added a channel   {added:>4}  {pct(added, len(real))}   (ever; {now_ch} have one registered right now)")
 got = sum(1 for u in real if clips_by_user.get(u['id']))
 kept = sum(1 for u in real if approved_by_user.get(u['id']))
 print(f"  got a clip        {got:>4}  {pct(got, len(real))}")
