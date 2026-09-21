@@ -992,6 +992,38 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-ann h3{margin:0;font-size:20px;font-weight:800;letter-spacing:-.01em}
 .rd-ann-body{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--fg-2);max-height:50vh;overflow:auto}
 .rd-ann .rd-btn{align-self:flex-end}
+/* Onboarding: the two questions, asked once after Twitch is attached. Shares
+   the announcement backdrop so it lands in front of everything. */
+.rd-onb{width:min(620px,100%);padding:24px;border-radius:20px;display:flex;flex-direction:column;gap:12px}
+.rd-onb h3{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
+.rd-onb .sub{font-size:14px;line-height:1.55;color:var(--fg-2)}
+.rd-onb-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+.rd-onb-card{text-align:left;padding:16px;border-radius:16px;cursor:pointer;
+  background:rgba(255,255,255,.04);border:1px solid var(--line);color:inherit;
+  display:flex;flex-direction:column;gap:4px;
+  transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
+.rd-onb-card:hover{background:rgba(255,255,255,.07)}
+/* The selected state has to READ. A 1px border swap and a 12% tint did not:
+   rendered in the harness, the chosen card was nearly indistinguishable from
+   the other one, on the single most important choice in the flow. The ring
+   doubles the edge without moving the layout (a 2px border would reflow the
+   text by a pixel), and the title takes the accent as a second signal. */
+.rd-onb-card.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,transparent);
+  box-shadow:0 0 0 1px var(--acc)}
+.rd-onb-card.on .t{color:var(--acc)}
+.rd-onb-card .t{font-size:15px;font-weight:700}
+.rd-onb-card .d{font-size:13px;line-height:1.5;color:var(--fg-2)}
+.rd-onb-goals{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.rd-onb-goal{padding:8px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;
+  background:rgba(255,255,255,.04);border:1px solid var(--line);color:inherit;
+  transition:border-color var(--dur-fast) var(--ease),background var(--dur-fast) var(--ease)}
+.rd-onb-goal:hover{background:rgba(255,255,255,.08)}
+.rd-onb-goal.on{border-color:var(--acc);color:var(--acc);
+  background:color-mix(in srgb,var(--acc) 20%,transparent);box-shadow:0 0 0 1px var(--acc)}
+.rd-onb-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px}
+.rd-onb-step{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-3)}
+.rd-onb-err{font-size:13px;color:var(--bad)}
+@media (max-width:620px){.rd-onb-cards{grid-template-columns:1fr}}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 /* The editor is a flex column so the side panel can scroll on its own while
@@ -2676,6 +2708,98 @@ function usePlayerOpen(open) {
       if(_hzPlayers === 0) document.body.classList.remove('hz-player');
     };
   }, [open]);
+}
+
+// The two onboarding questions, asked once after a Twitch account is
+// attached. Only the first one changes anything: it sets the Autopilot mode,
+// and a clipper's posts are filled to sixty seconds from several clips where
+// a streamer's are one clip from their own stream. The second is for the
+// owner's knowledge and is entirely optional — hence Skip.
+//
+// NOTHING HERE GATES CLIPS. Highlights keep arriving for every Twitch user
+// whatever is answered, and whether or not it is ever answered; a modal that
+// could switch somebody's clips off would be a bad modal to show.
+const ONB_GOALS = [
+  ['more_clips',   'More clips'],
+  ['automation',   'Clips edited and posted for me'],
+  ['better_edits', 'Edits that look professional'],
+  ['save_time',    'Spend less time editing'],
+  ['grow_channel', 'Grow my own channel'],
+  ['earn_money',   'Make money posting clips'],
+];
+
+function OnboardingModal({ onDone }) {
+  const [step, setStep]   = useState(1);
+  const [useCase, setUse] = useState('');
+  const [goals, setGoals] = useState([]);
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState('');
+
+  const toggleGoal = g => setGoals(p => p.includes(g) ? p.filter(x=>x!==g) : [...p, g]);
+
+  const save = async () => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/onboarding', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ use_case: useCase, goals }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not save');
+      const d = await r.json();
+      onDone(d.prefs || null);
+    } catch (e) {
+      // Left on screen with the error rather than closed: a failed save that
+      // dismissed itself would look like it worked and the answer would be
+      // lost. The modal reappears next session anyway, but not silently.
+      setErr(String(e.message || e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-onb-title">
+      <div className="rd-onb glass">
+        <div className="rd-ann-k"><Icon name="sparkles" size={13}/>One quick thing</div>
+        {step === 1 ? <>
+          <h3 id="rd-onb-title">What are you here for?</h3>
+          <div className="sub">This sets how your clips get edited. You can change it later in Settings.</div>
+          <div className="rd-onb-cards">
+            <button className={'rd-onb-card'+(useCase==='clipper'?' on':'')}
+              onClick={()=>setUse('clipper')} aria-pressed={useCase==='clipper'}>
+              <span className="t">Clipping other streamers</span>
+              <span className="d">Posts are built to a full 60 seconds, stitched from your best clips.</span>
+            </button>
+            <button className={'rd-onb-card'+(useCase==='streamer'?' on':'')}
+              onClick={()=>setUse('streamer')} aria-pressed={useCase==='streamer'}>
+              <span className="t">Promoting my own channel</span>
+              <span className="d">One moment from your stream per post, at whatever length it runs.</span>
+            </button>
+          </div>
+          <div className="rd-onb-foot">
+            <span className="rd-onb-step">Step 1 of 2</span>
+            <button className="rd-btn grad" disabled={!useCase} onClick={()=>setStep(2)}>Continue</button>
+          </div>
+        </> : <>
+          <h3 id="rd-onb-title">What do you want out of it?</h3>
+          <div className="sub">Pick any that fit. This one is just so we know what to build next — it does not change anything about your account.</div>
+          <div className="rd-onb-goals">
+            {ONB_GOALS.map(([key,label]) => (
+              <button key={key} className={'rd-onb-goal'+(goals.includes(key)?' on':'')}
+                onClick={()=>toggleGoal(key)} aria-pressed={goals.includes(key)}>{label}</button>
+            ))}
+          </div>
+          {err && <div className="rd-onb-err">{err}</div>}
+          <div className="rd-onb-foot">
+            <span className="rd-onb-step">Step 2 of 2</span>
+            <div style={{display:'flex',gap:8}}>
+              <button className="rd-btn" disabled={busy} onClick={()=>{ setGoals([]); save(); }}>Skip</button>
+              <button className="rd-btn grad" disabled={busy} onClick={save}>{busy?'Saving…':'Finish'}</button>
+            </div>
+          </div>
+        </>}
+      </div>
+    </div>
+  );
 }
 
 // An announcement from the operator. In FRONT of everything — above the clip
@@ -8804,6 +8928,13 @@ function RdApp() {
   // Announcements from the operator, in front of everything until dismissed.
   // Server-filtered: only the ones this account has not closed arrive here.
   const [announcements, setAnnouncements] = useState([]);
+  // Ask the onboarding questions once, and only after Twitch is attached —
+  // the flow is "connect Twitch, then tell us what you are here for", and
+  // before that there is nothing to configure. Derived from /me rather than
+  // held in its own state, so it is already correct after a reconnect:
+  // refetchAll re-reads /me, and prefs_changed carries the full prefs.
+  const needsOnboarding = !!(me && me.user_id && me.platforms && me.platforms.twitch
+                             && me.prefs && !me.prefs.onboarded_at);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -9559,6 +9690,8 @@ function RdApp() {
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
       {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
+      {needsOnboarding && <OnboardingModal
+        onDone={p=>setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}))}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>

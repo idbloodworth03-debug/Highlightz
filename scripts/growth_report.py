@@ -144,6 +144,50 @@ kept = sum(1 for u in real if approved_by_user.get(u['id']))
 print(f"  got a clip        {got:>4}  {pct(got, len(real))}")
 print(f"  kept a clip       {kept:>4}  {pct(kept, len(real))}")
 
+# ── what people say they are here for ───────────────────────────────────────
+# From the onboarding questions (src/dashboard/api.py, POST /onboarding).
+# `use_case` is the only one that changes anything — it sets the Autopilot
+# mode. `goals` changes nothing and exists exactly for this section: the
+# owner asked for it "just for my own knowledge".
+#
+# AGGREGATE ONLY, like the rest of this report: counts, never a name, an
+# email or a channel. And answered-vs-asked is kept separate from the split,
+# because a split computed over the people who bothered to answer is not a
+# split of your users.
+prefs_by_user = {u["id"]: (u.get("prefs") or {}) for u in real}
+answered = [p for p in prefs_by_user.values() if p.get("onboarded_at")]
+
+print(f"\nWHAT THEY SAY THEY ARE HERE FOR (of {len(real)} real accounts)")
+print(f"  answered the questions {len(answered):>4}  {pct(len(answered), len(real))}")
+if not answered:
+    print("  (nobody has been asked yet — the modal shipped 2026-09-21 and")
+    print("   only appears once a Twitch account is attached)")
+else:
+    for uc in ("clipper", "streamer"):
+        n = sum(1 for p in answered if p.get("use_case") == uc)
+        print(f"    {uc:<22} {n:>4}  {pct(n, len(answered))}  of those who answered")
+
+    # Multi-select, so these sum to more than 100% on purpose.
+    goal_labels = {
+        "more_clips":   "more clips",
+        "automation":   "clips edited + posted for me",
+        "better_edits": "edits that look professional",
+        "save_time":    "spend less time editing",
+        "grow_channel": "grow my own channel",
+        "earn_money":   "make money posting clips",
+    }
+    counts = {g: 0 for g in goal_labels}
+    for p in answered:
+        for g in (p.get("goals") or []):
+            if g in counts:
+                counts[g] += 1
+    said_any = sum(1 for p in answered if p.get("goals"))
+    print(f"  named at least one goal {said_any:>3}  {pct(said_any, len(answered))}"
+          f"  (the goals step is skippable)")
+    for g, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        print(f"    {goal_labels[g]:<30} {n:>4}  {pct(n, len(answered))}")
+
+
 # ── why the free accounts are not converting ────────────────────────────────
 # "They don't convert" is three different problems wearing one label, and the
 # fix for each is the opposite of the fix for the others:

@@ -4321,6 +4321,62 @@ async def put_prefs(request: Request):
     return prefs
 
 
+@app.post("/onboarding")
+async def post_onboarding(request: Request):
+    """The two questions asked once, after a Twitch account is attached.
+
+    WHAT EACH ANSWER DOES, because only one of them does anything:
+
+      use_case  clipper or streamer. This is behaviour. It sets the
+                Autopilot mode, and `plan.limits_for` then fills a clipper's
+                post to sixty seconds from up to four clips where a
+                streamer's is one clip from their own stream, whatever
+                length it is (owner, 2026-09-21).
+      goals     "just for my own knowledge". NOTHING in the product branches
+                on this. It is counted in aggregate by
+                scripts/growth_report.py and read nowhere else.
+
+    WHAT IT DOES NOT DO: it does not gate clips. Highlights reach every
+    Twitch user on every plan regardless of what is answered here, or of
+    whether it is answered at all — that is asserted in
+    tests/test_onboarding.py, because a question that could silently switch
+    off somebody's clips would be a bad question to ask.
+
+    Both changes broadcast, so a second tab follows without a refresh.
+    """
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+
+    use_case = str(body.get("use_case") or "").lower()
+    if use_case not in user_store.USE_CASES:
+        raise HTTPException(status_code=400,
+                            detail=f"use_case must be one of {list(user_store.USE_CASES)}")
+
+    prefs = user_store.set_prefs(uid, {
+        "use_case": use_case,
+        "goals": body.get("goals") or [],
+        # Stamped here rather than by the client: this is what makes the
+        # modal stop appearing, so a clock-skewed browser must not own it.
+        "onboarded_at": time.time(),
+    })
+    await broadcast({"event": "prefs_changed", "prefs": prefs}, user_id=uid)
+
+    # The answer only means something if it reaches the thing that edits.
+    cfg = user_store.set_autopilot(uid, {**user_store.autopilot_for(uid),
+                                         "mode": use_case})
+    await broadcast({"event": "autopilot_changed", "config": cfg}, user_id=uid)
+
+    log.info("onboarding_completed", user_id=uid, use_case=use_case,
+             goals=prefs.get("goals"))
+    return {"prefs": prefs, "autopilot": cfg}
+
+
 @app.delete("/streams/{channel}", status_code=204)
 async def remove_stream(request: Request, channel: str):
     uid        = _current_user_id(request)

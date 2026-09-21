@@ -414,6 +414,29 @@ def test_the_welcome_modal_is_gone_entirely():
     assert "<WelcomeOverlay" not in d, "it is being rendered again"
 
 
+def test_the_onboarding_modal_asks_rather_than_explains():
+    """OnboardingModal (2026-09-21) is NOT the welcome overlay coming back,
+    and this test is here to keep the difference real.
+
+    What was deleted was a document: ~250 words of explanation a new account
+    had to dismiss before it could do anything. What replaced it asks two
+    questions — the first one sets how their videos get cut, the second is
+    skippable — and the whole thing is a few clicks.
+
+    The failure mode is drift: a sentence of context added here, a reassuring
+    paragraph there, and in six months it is the thing that was deleted. So
+    the budget is pinned. Prose only, since the option labels are answers
+    rather than reading.
+    """
+    d = _dash()
+    body = d[d.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    prose = re.findall(r'className="sub">([^<]+)<', body)
+    words = sum(len(p.split()) for p in prose)
+    assert words <= 70, f"the onboarding modal is up to {words} words of prose"
+    assert "<ol" not in body and "Step 1." not in body, "numbered steps are back"
+
+
 def test_first_run_does_one_thing():
     """One input, one button, one line saying what happens next."""
     d = _dash()

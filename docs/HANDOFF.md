@@ -1670,6 +1670,45 @@ step. Score badges are 44px. Spacing stays on the scale (a 44px margin
 tripped the token test; it is 48). Checked in the harness
 (`scratchpad/ed/vod_shot.js`: empty, a done job with moments, phone).
 
+## Onboarding: two questions, once, after Twitch (2026-09-21)
+
+Owner: "during the onboarding after a user attaches their twitch I want them
+to ask what they want to use the site for be it for clipping or promoting
+their own channel… I want them to also ask what they want in their clips just
+for my own knowledge."
+
+**Only one of the two answers changes anything.** `use_case` (clipper /
+streamer) sets the Autopilot `mode`, and `plan.limits_for` then fills a
+clipper's post to sixty seconds from up to four clips where a streamer's is
+one clip from their own stream. `goals` is a fixed six-word vocabulary that
+**nothing in the product branches on** — it exists to be counted, and the
+only place it is read is the WHAT THEY SAY THEY ARE HERE FOR section of
+`scripts/growth_report.py` (aggregate only, like the rest of that report).
+
+Stored in `prefs` (`use_case`, `goals`, `onboarded_at`), so it rides the
+existing `/prefs` plumbing and the `prefs_changed` broadcast. `POST
+/onboarding` writes both the prefs and the Autopilot config and broadcasts
+**both** events, because it changes two things a tab can see.
+
+**THE GUARDRAIL:** "I still want the highlight clips to come through though
+for Twitch for every user." Nothing in the clip path reads any of these
+fields, and `tests/test_onboarding.py` asserts that by reading the trigger,
+queue, plans and ingestion modules and failing if the strings appear. An
+account that never answers keeps working: `limits_for("")` is a clipper, and
+the modal can be ignored forever.
+
+**It is NOT the welcome overlay coming back.** That was deleted on purpose —
+~250 words and five numbered steps blocking the product behind a document —
+and `test_the_welcome_modal_is_gone_entirely` still guards it. The new one
+asks rather than explains, and a second test pins its prose at 70 words so it
+cannot drift back into the thing that was removed.
+
+**Checked in the browser, not just in tests**
+(`scratchpad/ed/onb_shot.js`): both steps, a selection, and phone width. The
+first render found a real bug — a 1px border swap and a 12% tint made the
+chosen card nearly indistinguishable from the other one, on the single most
+important choice in the flow. It now takes a ring and an accent title.
+
 ## The auto-edit is a PLAN, and the model is one of two builders (2026-09-19/21)
 
 Owner (2026-09-19): "I really just want to build out the auto editing part…

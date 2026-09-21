@@ -470,7 +470,33 @@ PREF_DEFAULTS = {
     "auto_editor":    True,        # approved clips copy into the Clip Editor
     "notify_clips":   False,       # browser notification when a clip lands
     "reduce_motion":  False,       # skip the sweep and the wake animation
+    # ── onboarding (asked once, after Twitch is attached) ────────────────
+    # What they are here for. This is the only answer that CHANGES anything:
+    # it sets the Autopilot mode, and a clipper's posts are filled to sixty
+    # seconds from several clips where a streamer's are one clip from their
+    # own stream (src/autopilot/plan.py, limits_for).
+    "use_case":       "",          # "" until asked; then clipper | streamer
+    # What they want out of it. Asked for the owner's knowledge and NOTHING
+    # else — nothing in the product branches on this, and it is reported
+    # only in aggregate by scripts/growth_report.py. Kept as a fixed
+    # vocabulary rather than free text so it can be counted.
+    "goals":          [],
+    "onboarded_at":   0.0,         # 0 means the questions have not been asked
 }
+
+# Why they are here. Deliberately two, because it is the only onboarding
+# answer that changes behaviour and a third would be a third code path.
+USE_CASES = ("clipper", "streamer")
+
+# What they want out of it (owner, 2026-09-21: "just for my own knowledge").
+GOALS = (
+    "more_clips",     # more clips, more often
+    "automation",     # clips arrive, get edited and posted with no work
+    "better_edits",   # clips that look professionally edited
+    "save_time",      # spend less time editing
+    "grow_channel",   # grow my own channel
+    "earn_money",     # make money posting clips
+)
 
 
 def normalize_prefs(raw: dict | None) -> dict:
@@ -481,6 +507,21 @@ def normalize_prefs(raw: dict | None) -> dict:
     for k in ("auto_editor", "notify_clips", "reduce_motion"):
         if k in raw:
             out[k] = bool(raw[k])
+    uc = str(raw.get("use_case", "") or "").lower()
+    out["use_case"] = uc if uc in USE_CASES else ""
+    # Order-preserving and de-duplicated, so a count of these is a count of
+    # people rather than a count of clicks.
+    goals, seen = [], set()
+    for g in (raw.get("goals") or []) if isinstance(raw.get("goals"), list) else []:
+        g = str(g or "").lower()
+        if g in GOALS and g not in seen:
+            seen.add(g)
+            goals.append(g)
+    out["goals"] = goals
+    try:
+        out["onboarded_at"] = max(0.0, float(raw.get("onboarded_at", 0) or 0))
+    except (TypeError, ValueError):
+        out["onboarded_at"] = 0.0
     return out
 
 

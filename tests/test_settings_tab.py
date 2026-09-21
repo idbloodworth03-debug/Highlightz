@@ -118,13 +118,19 @@ def test_the_engine_moves_the_bar_by_eight_percent_a_step_and_not_at_zero():
 # ── account preferences ──────────────────────────────────────────────────────
 
 def test_prefs_have_defaults_and_partial_updates_merge(client):
+    from src.auth.users import PREF_DEFAULTS
     d = client.get("/prefs").json()
-    assert d == {"default_preset": "default", "auto_editor": True, "notify_clips": False, "reduce_motion": False}
+    # Against the defaults rather than a literal: a new pref is a normal
+    # thing to add, and this test is about MERGING, not about the roster.
+    assert d == PREF_DEFAULTS
     r = client.put("/prefs", json={"default_preset": "chess", "junk": 1})
     assert r.status_code == 200
     assert r.json()["default_preset"] == "chess" and "junk" not in r.json()
     r = client.put("/prefs", json={"auto_editor": False})
-    assert r.json() == {"default_preset": "chess", "auto_editor": False, "notify_clips": False, "reduce_motion": False}
+    # One key changed, one key kept from the previous call, the rest default:
+    # that is the whole contract of a partial update.
+    assert r.json() == {**PREF_DEFAULTS, "default_preset": "chess",
+                        "auto_editor": False}
     assert ("prefs_changed", "u1") in [(e, u) for e, u, _ in client.sent]
     assert client.get("/me").json()["prefs"]["default_preset"] == "chess"
     assert client.put("/prefs", json={"default_preset": "turbo"}).json()["default_preset"] == "default"
