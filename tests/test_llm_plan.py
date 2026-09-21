@@ -97,7 +97,7 @@ def stub(monkeypatch):
     monkeypatch.setitem(sys.modules, "anthropic", mod)
 
     from config.settings import settings
-    monkeypatch.setattr(settings, "autopilot_llm", True, raising=False)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic", raising=False)
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-test", raising=False)
     monkeypatch.setattr(settings, "llm_model", "claude-opus-5", raising=False)
     monkeypatch.setattr(settings, "llm_timeout_s", 5.0, raising=False)
@@ -110,7 +110,7 @@ def test_a_segment_naming_a_path_instead_of_a_clip_is_dropped():
     """The schema asks for a clip id and this resolves the path itself. If a
     returned string were ever used as a path, a model could name any file on
     the box and ffmpeg would read it."""
-    plan, notes = L._coerce(answer(segments=[
+    plan, notes = L.coerce(answer(segments=[
         {"clip_id": "/etc/passwd", "start": 0, "end": 30, "zoom": "punch", "why": ""},
         {"clip_id": "c0", "start": 0, "end": 30, "zoom": "punch", "why": ""}]),
         sources(), clips(), target_s=60.0)
@@ -119,7 +119,7 @@ def test_a_segment_naming_a_path_instead_of_a_clip_is_dropped():
 
 
 def test_every_source_comes_from_the_caller_not_the_answer():
-    plan, _ = L._coerce(answer(), sources(), clips(), target_s=60.0)
+    plan, _ = L.coerce(answer(), sources(), clips(), target_s=60.0)
     assert {s.src for s in plan.segments} <= {p for p, _d in sources().values()}
 
 
@@ -129,21 +129,21 @@ def test_an_out_point_past_the_end_of_the_file_is_pulled_back():
     """ffmpeg does not fail on this — it renders a short segment and the
     xfade offsets computed from the plan are then wrong for the rest of the
     video. It has to be caught here."""
-    plan, _ = L._coerce(answer(segments=[
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": "c0", "start": 10.0, "end": 900.0, "zoom": "punch", "why": ""}]),
         sources(duration=40.0), clips(), target_s=60.0)
     assert plan.segments[0].end == 40.0
 
 
 def test_a_negative_in_point_becomes_zero():
-    plan, _ = L._coerce(answer(segments=[
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": "c0", "start": -12.0, "end": 30.0, "zoom": "punch", "why": ""}]),
         sources(), clips(), target_s=60.0)
     assert plan.segments[0].start == 0.0
 
 
 def test_an_inside_out_window_is_opened_rather_than_rendered():
-    plan, _ = L._coerce(answer(segments=[
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": "c0", "start": 30.0, "end": 12.0, "zoom": "punch", "why": ""}]),
         sources(), clips(), target_s=60.0)
     seg = plan.segments[0]
@@ -152,7 +152,7 @@ def test_an_inside_out_window_is_opened_rather_than_rendered():
 
 
 def test_a_start_too_close_to_the_end_still_leaves_a_renderable_shot():
-    plan, _ = L._coerce(answer(segments=[
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": "c0", "start": 39.0, "end": 40.0, "zoom": "punch", "why": ""}]),
         sources(duration=40.0), clips(), target_s=60.0)
     assert plan.segments[0].length >= P.MIN_SEGMENT_S
@@ -161,7 +161,7 @@ def test_a_start_too_close_to_the_end_still_leaves_a_renderable_shot():
 def test_the_cut_never_runs_longer_than_the_target():
     """Four 40-second segments is 158.5s of finished video. TikTok would
     take it; the owner asked for sixty."""
-    plan, notes = L._coerce(answer(segments=[
+    plan, notes = L.coerce(answer(segments=[
         {"clip_id": f"c{i}", "start": 0.0, "end": 40.0, "zoom": "punch", "why": ""}
         for i in range(3)]), sources(), clips(), target_s=60.0)
     assert P.plan_duration(plan) <= 60.0 + 0.01
@@ -169,7 +169,7 @@ def test_the_cut_never_runs_longer_than_the_target():
 
 
 def test_a_clip_shorter_than_a_shot_is_skipped():
-    plan, _ = L._coerce(answer(segments=[
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": "c0", "start": 0.0, "end": 4.0, "zoom": "punch", "why": ""},
         {"clip_id": "c1", "start": 0.0, "end": 30.0, "zoom": "drift", "why": ""}]),
         {"c0": ("/clips/c0.mp4", 4.0), "c1": ("/clips/c1.mp4", 40.0)},
@@ -178,7 +178,7 @@ def test_a_clip_shorter_than_a_shot_is_skipped():
 
 
 def test_an_invented_zoom_or_transition_falls_back_to_a_real_one():
-    plan, notes = L._coerce(answer(transition="starwipe", segments=[
+    plan, notes = L.coerce(answer(transition="starwipe", segments=[
         {"clip_id": "c0", "start": 0, "end": 30, "zoom": "kenburns", "why": ""}]),
         sources(), clips(), target_s=60.0)
     assert plan.transition in P.TRANSITIONS
@@ -187,7 +187,7 @@ def test_an_invented_zoom_or_transition_falls_back_to_a_real_one():
 
 
 def test_a_cue_past_the_end_of_the_video_is_dropped():
-    plan, notes = L._coerce(answer(sfx=[{"at": 400.0, "kind": "hit", "gain": 0.5},
+    plan, notes = L.coerce(answer(sfx=[{"at": 400.0, "kind": "hit", "gain": 0.5},
                                         {"at": 1.0, "kind": "pop", "gain": 0.5}]),
                             sources(), clips(), target_s=60.0)
     assert [c.kind for c in plan.sfx] == ["pop"]
@@ -195,7 +195,7 @@ def test_a_cue_past_the_end_of_the_video_is_dropped():
 
 
 def test_a_cue_loud_enough_to_bury_the_speech_is_turned_down():
-    plan, _ = L._coerce(answer(sfx=[{"at": 1.0, "kind": "hit", "gain": 9.0}]),
+    plan, _ = L.coerce(answer(sfx=[{"at": 1.0, "kind": "hit", "gain": 9.0}]),
                         sources(), clips(), target_s=60.0)
     assert plan.sfx[0].gain <= 0.9
 
@@ -203,7 +203,7 @@ def test_a_cue_loud_enough_to_bury_the_speech_is_turned_down():
 def test_a_silent_answer_gets_the_formulas_sound_rather_than_none():
     """Silence is the single thing this whole feature exists to fix — the
     old renderer posted clips with no sound design at all."""
-    plan, notes = L._coerce(answer(sfx=[]), sources(), clips(), target_s=60.0)
+    plan, notes = L.coerce(answer(sfx=[]), sources(), clips(), target_s=60.0)
     assert plan.sfx and any(c.kind == "riser" for c in plan.sfx)
     assert any("fell back" in n for n in notes)
 
@@ -212,7 +212,7 @@ def test_anything_it_produces_is_a_plan_the_renderer_accepts():
     for over in ({}, {"sfx": []}, {"transition": "nope"},
                  {"segments": [{"clip_id": "c0", "start": 39.9, "end": 40.0,
                                 "zoom": "none", "why": ""}]}):
-        plan, _ = L._coerce(answer(**over), sources(), clips(), target_s=60.0)
+        plan, _ = L.coerce(answer(**over), sources(), clips(), target_s=60.0)
         ok, why = P.valid(plan)
         assert ok, f"{over} -> {why}"
 
@@ -220,7 +220,7 @@ def test_anything_it_produces_is_a_plan_the_renderer_accepts():
 def test_the_plan_says_the_model_made_it():
     """The admin view and any later complaint about a bad cut both need to
     know which builder produced it."""
-    plan, _ = L._coerce(answer(), sources(), clips(), target_s=60.0)
+    plan, _ = L.coerce(answer(), sources(), clips(), target_s=60.0)
     assert plan.source == "llm"
     assert P.build(clips(), sources()).source == "formula"
 
@@ -308,7 +308,8 @@ def test_the_prompt_does_not_explain_how_highlights_are_found():
 @pytest.mark.asyncio
 async def test_without_a_key_it_is_the_formula_and_nothing_is_sent(monkeypatch):
     from config.settings import settings
-    monkeypatch.setattr(settings, "autopilot_llm", False, raising=False)
+    monkeypatch.setattr(settings, "llm_provider", "none", raising=False)
+    monkeypatch.setattr(settings, "anthropic_api_key", "", raising=False)
     plan, meta = await L.build(clips(), sources())
     assert plan.source == "formula" and meta["source"] == "formula"
     assert P.valid(plan)[0]

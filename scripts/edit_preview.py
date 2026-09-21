@@ -63,9 +63,9 @@ async def main() -> int:
     ap.add_argument("--user", default="", help="limit to one account id")
     ap.add_argument("--out", default="/tmp/highlightz-edit-preview.mp4")
     ap.add_argument("--llm", action="store_true",
-                    help="let the model build the plan instead of the formula "
-                         "(needs `pip install anthropic` + ANTHROPIC_API_KEY; "
-                         "falls back to the formula and says why if it cannot)")
+                    help="let the configured model build the plan instead of "
+                         "the formula (LLM_PROVIDER=ollama|anthropic; falls "
+                         "back to the formula and says why if it cannot)")
     args = ap.parse_args()
 
     print("=" * 66)
@@ -106,13 +106,19 @@ async def main() -> int:
     meta: dict = {}
     if args.llm:
         # --llm goes through the same call Autopilot would make, including the
-        # fallback: if the key or the package is missing this prints the
-        # reason and renders the formula's plan rather than stopping.
-        from src.autopilot import llm_plan as L
-        print(f"\nLLM: configured={L.configured()}  model={settings.llm_model}")
-        plan, meta = await L.build(pool, sources)
+        # fallback: if the provider is unreachable or unconfigured this prints
+        # the reason and renders the formula's plan rather than stopping.
+        from src.autopilot import builder
+        st = builder.status()
+        print(f"\nLLM: provider={st['provider']}  configured={st['configured']}"
+              f"  target={st['detail']}")
+        if st["warning"]:
+            print(f"     WARNING: {st['warning']}")
+        plan, meta = await builder.build(pool, sources)
         if meta.get("reason"):
             print(f"     fell back to the formula — {meta['reason']}")
+        if meta.get("took"):
+            print(f"     model took {meta['took']}s")
         for note in meta.get("notes") or []:
             print(f"     note: {note}")
     else:

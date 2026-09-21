@@ -259,26 +259,51 @@ class Settings(BaseSettings):
     captions_initial_prompt: str = ("Live Twitch stream. A streamer reacts and "
                                     "commentates over gameplay, with chat.")
 
-    # THE MODEL THAT DECIDES THE EDIT (src/autopilot/llm_plan.py).
+    # WHO DECIDES THE EDIT (src/autopilot/builder.py).
     #
-    # Off by default for two reasons and both of them matter. It sends clip
-    # metadata and, where they exist, transcripts to Anthropic — a third
-    # party the Privacy Policy has to name before a single clip goes out that
-    # way (it does now, Section 3). And it costs money per clip, which the
-    # deterministic builder in plan.py does not; that builder stays the
-    # fallback for every failure, so turning this off is always safe and
-    # never loses a post.
+    #   none        the deterministic formula in plan.py. The default.
+    #   ollama      a model you host yourself. Free per clip; you own the box.
+    #   anthropic   Claude. Costs per clip; nothing to host.
     #
-    # Deploys do not run `pip install`, so the `anthropic` package can be
-    # missing on a box whose .env has the key. `llm_plan.configured()`
-    # checks for both and falls back quietly rather than crashing a render.
-    #   venv/bin/pip install anthropic   then   AUTOPILOT_LLM=true
-    autopilot_llm: bool = False
+    # Every provider falls back to the formula on every failure, so no value
+    # of this can lose a post — the worst case is the video the product made
+    # yesterday. Default "none" because both model paths cost something real:
+    # anthropic costs money per clip, ollama costs a machine.
+    llm_provider: str = "none"
+
+    # ANTHROPIC. Sends clip metadata and, where they exist, transcripts to a
+    # third party — which the Privacy Policy has to name before a single clip
+    # goes out that way (it does, Section 3). Deploys do not run
+    # `pip install`, so the package can be missing on a box whose .env has
+    # the key; `llm_plan.configured()` checks for both.
+    #   venv/bin/pip install anthropic   then   LLM_PROVIDER=anthropic
     anthropic_api_key: str = ""
     llm_model: str = "claude-opus-5"
     # A clip that waits four minutes for a plan is a clip that missed its
     # slot. Past this the formula takes over and the post still goes out.
     llm_timeout_s: float = 90.0
+
+    # OLLAMA. Needs no key and no new package — httpx is already installed —
+    # just a reachable Ollama and a model that is pulled on it.
+    #
+    # NOT ON THE DROPLET. Prod measured 2 vCPU / 3.8 GiB / NO SWAP
+    # (2026-09-21), 3.0 GiB available at idle and less once channels go live.
+    # A 3B model at 4-bit is ~2 GB of weights before its KV cache, and with
+    # no swap an over-allocation is not slow, it is the OOM killer taking the
+    # biggest process — the server. Point this at your desktop or a box you
+    # rent; `ollama_plan.warn_if_local()` says so if it points here, and
+    # `scripts/ollama_check.py` does the arithmetic against the real machine.
+    #
+    # Ollama binds to 127.0.0.1 by default, so a desktop serving the droplet
+    # needs OLLAMA_HOST=0.0.0.0 set on THAT machine — and it has no auth of
+    # its own, so put it behind a tunnel or a firewall rule rather than on
+    # the open internet.
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1:8b"
+    # Local inference on modest hardware is slow, and a cold call also pays
+    # to load the weights from disk, so this is far longer than the hosted
+    # path's. It is still a ceiling: past it the formula takes over.
+    ollama_timeout_s: float = 180.0
 
     # App behaviour
     log_level: str = "INFO"

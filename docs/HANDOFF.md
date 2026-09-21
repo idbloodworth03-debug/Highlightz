@@ -1741,13 +1741,60 @@ Stripe, and says what is sent (details + transcript) and what is not (the
 video, the email, the account). That line went in with the feature, not
 after it. The brief carries no path and no account identifier — asserted.
 
-**Switching it on, in this order:**
+**TWO PROVIDERS, one switch** (`LLM_PROVIDER` in `.env`, added 2026-09-21
+when the owner asked for Ollama — "I want to use that llm since it is free
+and good"). `src/autopilot/builder.py` dispatches; nothing downstream knows
+which ran:
 
-    venv/bin/pip install anthropic          # deploys do NOT run pip install
-    ANTHROPIC_API_KEY=sk-…  AUTOPILOT_LLM=true   in /opt/highlightz/.env
+    LLM_PROVIDER=none        the formula. The default, and always safe.
+    LLM_PROVIDER=ollama      a model you host. Free per clip; you own the box.
+    LLM_PROVIDER=anthropic   Claude. Costs per clip; nothing to host.
 
-Off by default. `llm_plan.configured()` checks the flag, the key AND that the
+`llm_common.py` holds everything provider-neutral — the brief, the schema,
+the clamps, the fallback — so a provider is just an HTTP call returning a
+dict, and there is one place that remembers an out-point must be clamped to
+the real file. `builder.status()` reports what is configured without ever
+printing a key.
+
+    Anthropic:  venv/bin/pip install anthropic   # deploys do NOT run pip install
+                ANTHROPIC_API_KEY=sk-…  LLM_PROVIDER=anthropic
+    Ollama:     OLLAMA_BASE_URL=http://<the-machine>:11434
+                OLLAMA_MODEL=llama3.1:8b  LLM_PROVIDER=ollama
+
+Ollama needs no key and NO new package — it goes over httpx, which is
+already installed. `configured()` on the Anthropic side also checks the
 package imports, because a box can easily have the key and not the package.
+
+**OLLAMA MUST NOT RUN ON THE DROPLET, and the code says so rather than
+trusting anyone to remember.** Prod is 2 vCPU / 3.8 GiB / **no swap**, 3.0
+GiB available at idle and less once channels go live. A 3B model at 4-bit is
+~2 GB of weights before its KV cache; with no swap an over-allocation is not
+a slowdown, it is the OOM killer taking the biggest process — the server
+running the whole product. The LIVE ceiling is derived from the core count
+too, so inference on those cores makes `cores x 6 = 12` a lie.
+`ollama_plan.warn_if_local()` fires whenever `OLLAMA_BASE_URL` resolves to
+localhost, `builder.status()` carries that warning, and:
+
+    venv/bin/python scripts/ollama_check.py          # add --ask to time a real call
+
+reads `/proc/meminfo` on whatever box it runs on, asks Ollama what models it
+has, and does the subtraction out loud — including the case that "fits right
+now" at idle and dies when a stream goes live. Run it ON PROD; run it in the
+dev container and it truthfully reports the dev container's 15.7 GiB, which
+is not the number that matters.
+
+Two Ollama gotchas that cost an afternoon if you meet them cold: it binds to
+127.0.0.1 by default, so a desktop serving the droplet needs
+`OLLAMA_HOST=0.0.0.0 ollama serve`; and it has no auth of its own, so it
+belongs behind a tunnel or a firewall rule, never open to the internet.
+
+**A small model fails differently.** Ollama constrains the decoder with the
+schema, so the SHAPE comes back right — but semantic constraints (segment
+length, the join arithmetic, not inventing events) are followed far worse
+than by a large model. Every violation is clamped, not rejected, and every
+clamp is appended to `meta["notes"]`. Long notes on every clip is the signal
+that the model is not good enough for this job; that is the number to watch,
+not the vibe of one output.
 
 **STILL NOT WIRED INTO AUTOPILOT, deliberately.** `runner.py` still calls the
 old `render.py`. The blocker is evidence, not code: ffmpeg is not installed
