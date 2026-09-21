@@ -640,3 +640,40 @@ def test_the_fallback_sits_before_the_generic_stack():
     c = css("landing").replace(" ", "")
     stack = re.search(r"--sans:([^;]+);", c).group(1)
     assert stack.index("'SoraFallback'") < stack.index("system-ui")
+
+
+def test_a_button_row_sizes_to_its_labels_rather_than_splitting_evenly():
+    """THE BUG (2026-09-21, reported with a screenshot): the "Open on Twitch"
+    button in a library card had its last characters sliced off.
+
+    `.rd-clip-actions .rd-btn{flex:1}` is shorthand for `1 1 0%` — a
+    flex-basis of ZERO. Every button in the row therefore got an identical
+    share of the width regardless of its label, so an icon-only Download
+    button and "Open on Twitch" were allotted the same space. `.rd-btn` is
+    white-space:nowrap, so the long label ran out through the card's
+    overflow:hidden. Measured in the harness at 1280px: the button was given
+    118px and needed 127px.
+
+    An `auto` basis fixes it twice over — each button starts at its content
+    width, and a row that genuinely cannot fit now triggers the flex-wrap on
+    the container, which at a zero basis could never fire because no item was
+    ever "too wide".
+    """
+    c = css("dashboard").replace(" ", "")
+    rule = re.search(r"\.rd-clip-actions\.rd-btn\{([^}]*)\}", c)
+    assert rule, ".rd-clip-actions .rd-btn rule is gone"
+    body = rule.group(1)
+    assert "flex:11auto" in body, (
+        f"the action row is back to an equal-share basis ({body!r}); long "
+        "labels will be clipped again")
+    assert not re.search(r"flex:1(?:[;}]|$)", body), "flex:1 means 1 1 0%"
+
+
+def test_the_buttons_that_must_not_stretch_still_opt_out():
+    """Icon-only buttons carry flex:'0 0 auto' inline. That is what keeps a
+    trash icon from being as wide as a sentence."""
+    d = _dash()
+    row = d[d.index('className="rd-clip-actions"'):]
+    row = row[:row.index("</div>")]
+    assert row.count("flex:'0 0 auto'") >= 2, \
+        "the icon-only buttons lost their opt-out and will stretch"

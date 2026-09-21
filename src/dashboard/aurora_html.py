@@ -732,7 +732,18 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
   border:1px solid var(--hair)}
 .rd-dl-note b{color:var(--fg)}
 .rd-clip-actions{display:flex;gap:8px;margin-top:auto;padding-top:12px;flex-wrap:wrap}
-.rd-clip-actions .rd-btn{flex:1}
+/* `flex:1 1 auto`, NOT `flex:1`. The shorthand `flex:1` means `1 1 0%` — a
+   flex-basis of ZERO — so every button in the row got an identical share of
+   the width no matter what was written on it. An icon-only Download button
+   and "Open on Twitch" were allotted the same space, and since .rd-btn is
+   white-space:nowrap the longer label simply ran out through the card's
+   overflow:hidden and lost its last characters.
+   With an `auto` basis each button starts at its content width and shares
+   only the LEFTOVER space, and — the part that actually saves it — a row
+   that cannot fit now triggers the flex-wrap above, because items finally
+   have a real width to be too wide with. At a zero basis nothing is ever too
+   wide, so the wrap never fired and clipping was the only outcome. */
+.rd-clip-actions .rd-btn{flex:1 1 auto}
 .rd-resolved{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:4px 0;flex-wrap:wrap}
 .rd-grid-empty{grid-column:1/-1;text-align:center;padding:64px 0;color:var(--fg-3)}
 .rd-grid-empty .ic{display:flex;justify-content:center;margin-bottom:16px;color:var(--fg-3)}
