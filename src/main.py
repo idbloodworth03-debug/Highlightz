@@ -481,7 +481,12 @@ async def sweep_dead_clips_task() -> None:
             # cap with every new cut skipped. Second, not first, so the free
             # deletions (expired, orphaned) happen before anything still in use
             # is considered.
-            swept += clip_files.trim_to_cap()
+            # Approved clips evict LAST. Passed explicitly here because this
+            # loop already has the records in hand; the cut-path callers let
+            # trim_to_cap look the set up itself.
+            approved = {c["id"] for c in dashboard_api._clips.values()
+                        if c.get("id") and c.get("status") == "approved"}
+            swept += clip_files.trim_to_cap(keep_ids=approved)
             if swept:
                 log.info("clip_file_sweep_done", removed=swept)
         except asyncio.CancelledError:

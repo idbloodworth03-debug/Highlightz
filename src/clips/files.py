@@ -225,8 +225,35 @@ _TRIM_TARGET = 0.9
 _TRIM_MIN_AGE_S = 3600.0
 
 
-def trim_to_cap() -> int:
-    """Delete the oldest files until the store is back under the cap.
+def protected_ids() -> frozenset:
+    """Clip ids a user has approved — the ones the trim evicts last.
+
+    A LAYERING NOTE, because this is a low-level store reaching upward. The
+    clip RECORDS live in the dashboard's in-memory map; this module owns only
+    the files. Rather than make every caller remember to pass the set — the
+    cut path has two call sites and forgetting one would silently restore the
+    bug — the lookup lives here, lazily imported the way the rest of this
+    codebase does it.
+
+    Any failure returns an empty set, which is exactly the old behaviour:
+    evict by age alone. A trim that cannot enumerate records must still be
+    able to free space, or a full store stops the product making clips.
+    """
+    try:
+        from src.dashboard import api as dashboard_api
+        return frozenset(c["id"] for c in dashboard_api._clips.values()
+                         if c.get("id") and c.get("status") == "approved")
+    except Exception:                       # noqa: BLE001 - see docstring
+        return frozenset()
+
+
+def trim_to_cap(keep_ids: set | None = None) -> int:
+    """Delete files until the store is back under the cap — UNREVIEWED FIRST.
+
+    `keep_ids` are clip ids to evict LAST (approved ones, by default — see
+    `protected_ids`). They are not exempt: if freeing every evictable pending
+    file still leaves the store over target, approved files go too, because a
+    cap that cannot be enforced stops the product making clips at all.
 
     WHY THIS EXISTS. `clip_file_max_total_mb` was a WALL: at the cap
     `headroom_ok` returned False and every subsequent cut was skipped, while
@@ -265,20 +292,66 @@ def trim_to_cap() -> int:
     target = cap * _TRIM_TARGET
     youngest_evictable = time.time() - _TRIM_MIN_AGE_S
     removed = 0
-    for mtime, size, p in sorted(entries):          # oldest first
+
+    # APPROVED CLIPS GO LAST, and this is the whole point of `keep_ids`.
+    #
+    # THE BUG THIS FIXES, measured on production 2026-09-21: 140 approved
+    # clips, ZERO with a file, while 581 pending clips still had theirs. The
+    # sort was `sorted(entries)` — oldest mtime first, with no idea whether
+    # anybody had approved anything. Approving does not rewrite the file, so
+    # an approved clip keeps the mtime it was cut at and ages like any other,
+    # while 2,324 unreviewed clips crowd the same 15 GB. The store's real
+    # horizon on that box was TWENTY-ONE HOURS, not the configured 30 days.
+    #
+    # So the strongest signal a user gives — "I want this one" — made their
+    # file MORE likely to be deleted, and the clip they kept had no Download
+    # button by the time they came back for it.
+    #
+    # Approved files are not exempt, they are last. The `not in keep` key
+    # sorts unreviewed clips out first, oldest of those first; approved ones
+    # are only touched if evicting every evictable pending file still leaves
+    # the store over its target. That ordering cannot wedge the store the way
+    # a hard exemption could — the cap is still a cap, and a box full of
+    # approved clips still makes room for new cuts rather than refusing them.
+    # None means "work it out" — so the two cut-path callers get the
+    # protection without having to remember. An explicit empty set means
+    # "protect nothing", which is what the tests pass.
+    keep = protected_ids() if keep_ids is None else keep_ids
+    def _order(entry):
+        mtime, _size, path = entry
+        # `in keep`, NOT `not in`: False sorts before True, so an unprotected
+        # file must evaluate False. Writing this the other way round evicts
+        # approved clips FIRST — the exact bug being fixed, restored. The
+        # test above it is what caught that on the first run.
+        return (path.stem in keep, mtime)          # pending first, then oldest
+
+    for mtime, size, p in sorted(entries, key=_order):
         if total <= target:
             break
         if mtime > youngest_evictable:
-            # Sorted by age, so everything left is younger still. Stop rather
-            # than continue: there is nothing further this can legally free.
-            break
+            # NOT a break any more. The list is no longer sorted by age alone,
+            # so a too-young file here says nothing about the ones after it —
+            # the next entry may be an approved file from last week. Skipping
+            # is what keeps the guard correct under the new order; breaking
+            # would stop the trim at the first recent pending clip and leave
+            # the store over cap with plenty it was allowed to free.
+            continue
         try:
             p.unlink()
         except OSError:
             continue
         total -= size
         removed += 1
-        log.info("clip_file_swept", clip_id=p.stem, reason="over_cap")
+        # Say WHICH kind went. An approved file being evicted means the store
+        # is so full that protecting it was not possible, which is a different
+        # and much louder problem than routine housekeeping.
+        was_kept = p.stem in keep
+        log.info("clip_file_swept", clip_id=p.stem,
+                 reason="over_cap_approved" if was_kept else "over_cap")
+        if was_kept:
+            log.warning("clip_file_swept_approved", clip_id=p.stem,
+                        detail="store over cap with no evictable pending files "
+                               "left; a clip somebody kept has lost its video")
     if removed:
         _forget_scan()
         log.info("clip_file_store_trimmed", removed=removed,

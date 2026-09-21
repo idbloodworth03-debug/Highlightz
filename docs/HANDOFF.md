@@ -1670,6 +1670,62 @@ step. Score badges are 44px. Spacing stays on the scale (a 44px margin
 tripped the token test; it is 48). Checked in the harness
 (`scratchpad/ed/vod_shot.js`: empty, a done job with moments, phone).
 
+## Approving a clip made its video MORE likely to be deleted (2026-09-21)
+
+Found while trying to run `scripts/edit_preview.py` on prod, which stopped
+with "No approved clips with a file". Measured there:
+
+    clips.json          2,461 records      files on disk   674
+    approved              140              WITH a file       0
+    pending             2,324              WITH a file     581
+    store            12,198 MB of 15,360 MB cap
+    age ceiling          30 days
+    REAL horizon         21.5 HOURS
+
+**The 30-day setting is fiction.** `files.oldest_mtime()`'s docstring already
+warned about this — "what actually decides how long a file survives is the
+size cap and how fast clips arrive" — but nobody had put a number on it. At
+21 hours, and with a review queue of 2,324 unreviewed clips crowding the same
+15 GB, approved clips had no chance: approving does not rewrite the file, so
+an approved clip keeps the mtime it was CUT at and ages like everything else,
+while `trim_to_cap` sorted by `mtime` alone and took the oldest.
+
+So the strongest signal a user gives — "I want this one" — made their video
+more likely to be deleted, and the clip they kept had no Download button by
+the time they came back for it. 0 of 140 is not a tail case.
+
+**THE FIX: unreviewed first, approved last.** `trim_to_cap(keep_ids=...)`
+sorts on `(stem in keep, mtime)`. Approved files are **not exempt** — if
+freeing every evictable pending file still leaves the store over target they
+go too, because a cap that cannot be enforced stops the product making clips
+at all, which is the wall this trim was written to remove in the first place.
+Evicting one logs `clip_file_swept_approved` at WARNING, because it means the
+store is so full that protecting it failed.
+
+Two things in that change are load-bearing and easy to undo by accident:
+
+* **`(stem in keep, mtime)`, never `not in`.** False sorts first, so an
+  unprotected file has to evaluate False. I wrote it backwards on the first
+  attempt and it evicted approved clips FIRST — the exact bug, restored. The
+  test caught it on the first run.
+* **The age guard is a `continue`, not a `break`.** Entries are no longer
+  sorted by age alone, so a too-young file says nothing about what follows
+  it; breaking there stopped the trim at the first recent pending clip and
+  left the store over cap with plenty it was allowed to free.
+
+`protected_ids()` looks the set up itself (lazy import, empty set on any
+failure) so the two CUT-PATH callers — `fetch.py` and `stream_worker.py`,
+which is where most eviction happens — get the protection without passing
+anything. `main.py`'s sweep passes it explicitly since it already holds the
+records. Nine tests in `test_clip_download_offer.py`.
+
+**STILL OPEN, and worth a decision.** The ToS says a saved file "lives under
+your account only, for up to 30 days". "Up to" makes that technically true at
+21 hours, but a reader takes it to mean days. Either the cap/disk goes up or
+that sentence should say what actually happens. And the real fix for the
+horizon is upstream: 2,324 unreviewed clips is the queue nobody is clearing,
+not a storage problem.
+
 ## /compare and /llms.txt stopped claiming what is held back (2026-09-21)
 
 The Clip Editor and the Scheduler are built and behind `UPLOADS_ENABLED`,

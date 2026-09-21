@@ -531,3 +531,111 @@ def test_a_failed_fetch_has_a_handler_that_puts_the_button_back():
     branch = SRC[i:i + 400]
     assert "setFileState(msg.clip_id, 'missed')" in branch
     assert "flash(" in branch
+
+
+# ── approved clips are evicted LAST ─────────────────────────────────────────
+#
+# THE BUG, measured on production 2026-09-21: 140 approved clips, ZERO with a
+# file, while 581 pending clips still had theirs. The trim sorted by mtime
+# alone, approving does not rewrite the file, and 2,324 unreviewed clips were
+# crowding the same 15 GB — so the store's real horizon was 21 HOURS against a
+# configured 30 days, and the clips people had explicitly kept were the first
+# to go. The strongest signal a user gives made their video more likely to be
+# deleted.
+
+def test_an_unreviewed_clip_is_evicted_before_an_older_approved_one(tmp_path, monkeypatch):
+    """The ordering, stated at its sharpest: age alone would take the approved
+    file first, because it is older. It must not."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    _put(root, "kept", mb=5, age_s=86400 * 20)      # approved, and OLDEST
+    for i in range(6):
+        _put(root, f"new{i}", mb=1, age_s=86400 * (6 - i))
+    assert clip_files.headroom_ok() is False
+    clip_files.trim_to_cap(keep_ids={"kept"})
+    assert (root / "kept.mp4").exists(), "the approved clip was evicted first"
+    assert not (root / "new0.mp4").exists(), "no pending file was freed"
+
+
+def test_approved_files_still_go_when_nothing_else_can_free_the_space(tmp_path, monkeypatch):
+    """Not exempt, just last. A cap that cannot be enforced stops the product
+    making clips at all, which is worse than losing one kept file."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=4)
+    for i in range(6):
+        _put(root, f"kept{i}", mb=1, age_s=86400 * (6 - i))
+    keep = {f"kept{i}" for i in range(6)}
+    assert clip_files.trim_to_cap(keep_ids=keep) > 0
+    assert clip_files.headroom_ok() is True
+    assert not (root / "kept0.mp4").exists(), "the oldest approved file survived"
+    assert (root / "kept5.mp4").exists(), "the newest approved file went first"
+
+
+def test_a_recent_pending_file_no_longer_stops_the_trim_early(tmp_path, monkeypatch):
+    """THE `break` THAT BECAME A `continue`. Entries are no longer sorted by
+    age alone, so a too-young file says nothing about what follows it — the
+    next one may be an approved file from last week. Breaking there left the
+    store over cap with plenty it was allowed to free."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=6)
+    _put(root, "fresh", mb=1, age_s=60)             # pending, too young to evict
+    for i in range(8):
+        _put(root, f"kept{i}", mb=1, age_s=86400 * (8 - i))
+    keep = {f"kept{i}" for i in range(8)}
+    assert clip_files.trim_to_cap(keep_ids=keep) > 0
+    assert (root / "fresh.mp4").exists(), "a file minutes old was evicted"
+    assert clip_files.headroom_ok() is True, "the trim stopped at the young file"
+
+
+def test_a_file_minutes_old_is_still_never_evicted(tmp_path, monkeypatch):
+    """The age guard has to survive the reordering: deleting a clip that
+    landed minutes ago to store the next one trades a certain loss for a
+    speculative gain."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=4)
+    for i in range(5):
+        _put(root, f"new{i}", mb=1, age_s=60)
+    assert clip_files.trim_to_cap(keep_ids={"new0"}) == 0
+    assert len(list(root.glob("*.mp4"))) == 5
+
+
+def test_protecting_nothing_is_the_old_behaviour(tmp_path, monkeypatch):
+    """An explicit empty set means "no favourites" — oldest first, as before.
+    Distinct from None, which means "look up who approved what"."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    for i in range(10):
+        _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
+    clip_files.trim_to_cap(keep_ids=frozenset())
+    assert not (root / "c0.mp4").exists()
+    assert (root / "c9.mp4").exists()
+
+
+def test_the_cut_path_gets_the_protection_without_passing_anything(tmp_path, monkeypatch):
+    """fetch.py and stream_worker.py call trim_to_cap() bare, and between them
+    they are where most eviction happens. If the default did not look the set
+    up, the fix would be live only in the once-an-hour sweep."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    monkeypatch.setattr(clip_files, "protected_ids", lambda: frozenset({"kept"}))
+    _put(root, "kept", mb=5, age_s=86400 * 20)
+    for i in range(6):
+        _put(root, f"new{i}", mb=1, age_s=86400 * (6 - i))
+    clip_files.trim_to_cap()                         # no argument at all
+    assert (root / "kept.mp4").exists()
+
+
+def test_a_broken_lookup_degrades_to_evicting_by_age(tmp_path, monkeypatch):
+    """A trim that cannot enumerate records must still free space, or a full
+    store stops the product making clips. `protected_ids` swallows its own
+    errors and returns an empty set — the old, age-only behaviour."""
+    clip_files, root = _store(tmp_path, monkeypatch, cap_mb=10)
+    from src.dashboard import api as dashboard_api
+
+    class _Broken:
+        def values(self):
+            raise RuntimeError("clip store unreadable")
+
+    monkeypatch.setattr(dashboard_api, "_clips", _Broken())
+    assert clip_files.protected_ids() == frozenset(), \
+        "a failed lookup must not propagate out of the trim"
+
+    for i in range(10):
+        _put(root, f"c{i}", mb=1, age_s=86400 * (10 - i))
+    assert clip_files.trim_to_cap() > 0, "a broken lookup stopped the trim"
+    assert clip_files.headroom_ok() is True
+    assert not (root / "c0.mp4").exists(), "it did not fall back to oldest-first"
