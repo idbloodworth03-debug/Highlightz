@@ -455,3 +455,71 @@ def test_the_admin_tab_explains_which_answer_changes_anything():
     panel = panel[:panel.index("</div>\n\n  <!--")] if "</div>\n\n  <!--" in panel else panel[:4000]
     assert "Autopilot mode" in panel
     assert "sixty seconds" in panel or "60 seconds" in panel
+
+
+# ── telling the user what the answer does ───────────────────────────────────
+#
+# Owner (2026-09-21): "Make a notification that these answers will help the
+# bot with providing accurate expectations." The questions are compulsory
+# now, so somebody who was just made to answer two of them should see the
+# product change rather than only the modal disappear.
+
+def test_choosing_shows_what_will_happen_before_they_commit():
+    """The expectation appears on the card the moment a use case is picked,
+    not only after saving — the answer should visibly do something while it
+    can still be changed."""
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert "Posts will run a full 60 seconds" in body
+    assert "Posts will run as long as the moment does" in body
+
+
+def test_finishing_says_what_the_bot_will_now_do():
+    page = _page()
+    assert "const ONB_EXPECT" in page
+    for uc in user_store.USE_CASES:
+        assert uc + ":" in page.split("const ONB_EXPECT")[1][:400], \
+            f"no expectation message for {uc}"
+    assert "if (expect) flash(expect);" in page, "the message is never shown"
+
+
+def test_the_expectation_matches_what_the_builder_actually_does():
+    """The copy promises a clipper a full 60 seconds and a streamer their own
+    length. If limits_for stopped doing that, this message would become a
+    lie told to every new account."""
+    from src.autopilot import plan as P
+    clips = [{"id": f"c{i}", "channel": "n"} for i in range(4)]
+    sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
+    clipper = P.build(clips, sources, mode="clipper")
+    streamer = P.build(clips, sources, mode="streamer")
+    assert P.plan_duration(clipper) == pytest.approx(60.0, abs=1.0), \
+        "the clipper message promises 60 seconds"
+    assert len(streamer.segments) == 1, \
+        "the streamer message promises one moment per video"
+
+
+def test_no_copy_claims_the_goals_change_what_the_bot_does():
+    """THE HONESTY CONSTRAINT. use_case really does steer the edit. `goals`
+    steer NOTHING — they are product research — and this test exists because
+    the easy way to make a compulsory question feel worth answering is to
+    imply it tunes something it does not touch.
+
+    If goals are ever wired into the builder, delete this test rather than
+    working around it.
+    """
+    from src.autopilot import llm_common, plan
+    for mod in (plan, llm_common):
+        import inspect
+        assert '"goals"' not in inspect.getsource(mod), \
+            f"{mod.__name__} now reads goals — the copy may tell the truth now"
+
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    # The goals step's own prose must not promise the bot anything.
+    step2 = body[body.index("What do you want out of it?"):]
+    step2 = step2[:step2.index("rd-onb-foot")]
+    for claim in ("the bot", "your clips will", "we will edit"):
+        assert claim.lower() not in step2.lower(), \
+            f"the goals step claims {claim!r}, which is not true"

@@ -1719,6 +1719,24 @@ coverage. The SERVER stays permissive — it still accepts an empty `goals`
 list — because a server that required one would lock out any stale tab that
 posted without it, and the requirement is a UX one, not a security one.
 
+**IT TELLS THE USER WHAT THE ANSWER DID** (owner: "make a notification that
+these answers will help the bot with providing accurate expectations"). Two
+touches, both on `use_case`: the expectation appears on the card the moment
+a card is picked ("Posts will run a full 60 seconds"), and finishing raises a
+toast saying what the bot will now do. The questions are compulsory, so
+somebody made to answer two of them should see the product change rather
+than only the modal disappear.
+
+**Both messages are about `use_case` ONLY, and that is deliberate.**
+`use_case` really does steer the edit — `limits_for` reads the Autopilot mode
+and a clipper's post is stitched to sixty seconds where a streamer's is one
+clip. **`goals` steer nothing.** The easy way to make a compulsory question
+feel worth answering is to imply it tunes something it does not touch, so
+`test_no_copy_claims_the_goals_change_what_the_bot_does` fails if the goals
+step's prose ever says "the bot", and a second test fails if the promised
+sixty seconds stops being what the builder produces. If goals are ever wired
+into the builder, delete that test rather than working around it.
+
 **Tracked in the admin portal**: an Onboarding tab (`GET /admin/onboarding`,
 `_require_admin`) with the clipper/streamer split, the goal counts, and a row
 per account showing what they answered and the Autopilot mode it produced.

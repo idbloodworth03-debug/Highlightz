@@ -2722,6 +2722,20 @@ function usePlayerOpen(open) {
 // NOTHING HERE GATES CLIPS. Highlights keep arriving for every Twitch user
 // whatever is answered, and whether or not it is ever answered; a modal that
 // could switch somebody's clips off would be a bad modal to show.
+// What the bot will actually do with the answer, in the words a user would
+// use. Shown as a toast the moment it is saved, so somebody who was just
+// made to answer two questions sees what they bought with them.
+//
+// IT HAS TO BE TRUE. `use_case` really does set this — plan.limits_for reads
+// the Autopilot mode and a clipper's post is stitched to sixty seconds where
+// a streamer's is one clip. The GOALS change nothing, so no message here
+// claims they do; saying otherwise would be telling users the survey tunes
+// something it does not touch.
+const ONB_EXPECT = {
+  clipper:  'Saved. The bot will build your posts to a full 60 seconds from your best clips.',
+  streamer: 'Saved. The bot will post one moment from your stream per video, at its own length.',
+};
+
 const ONB_GOALS = [
   ['more_clips',   'More clips'],
   ['automation',   'Clips edited and posted for me'],
@@ -2777,7 +2791,7 @@ function OnboardingModal({ onDone, preview = false }) {
       });
       if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not save');
       const d = await r.json();
-      onDone(d.prefs || null);
+      onDone(d.prefs || null, ONB_EXPECT[useCase] || '');
     } catch (e) {
       // Left on screen with the error rather than closed: a failed save that
       // dismissed itself would look like it worked and the answer would be
@@ -2813,7 +2827,7 @@ function OnboardingModal({ onDone, preview = false }) {
           {preview ? 'Preview — nothing is saved' : 'One quick thing'}</div>
         {step === 1 ? <>
           <h3 id="rd-onb-title">What are you here for?</h3>
-          <div className="sub">This sets how your clips get edited. You can change it later in Settings.</div>
+          <div className="sub">This tells the bot what to build for you — how your posts are cut and how long they run. Change it later in Settings.</div>
           <div className="rd-onb-cards">
             <button className={'rd-onb-card'+(useCase==='clipper'?' on':'')}
               onClick={()=>setUse('clipper')} aria-pressed={useCase==='clipper'}>
@@ -2827,7 +2841,12 @@ function OnboardingModal({ onDone, preview = false }) {
             </button>
           </div>
           <div className="rd-onb-foot">
-            <span className="rd-onb-step">Step 1 of 2</span>
+            {/* The expectation, the moment they choose — so the answer is
+                visibly doing something before they commit to it. */}
+            <span className="rd-onb-step">{useCase
+              ? (useCase === 'clipper' ? 'Posts will run a full 60 seconds'
+                                       : 'Posts will run as long as the moment does')
+              : 'Step 1 of 2'}</span>
             <button className="rd-btn grad" disabled={!useCase} onClick={()=>setStep(2)}>Continue</button>
           </div>
         </> : <>
@@ -9746,7 +9765,13 @@ function RdApp() {
       <RdToast msg={toast}/>
       {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
       {needsOnboarding && <OnboardingModal preview={onbPreview}
-        onDone={p=>setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}))}/>}
+        onDone={(p, expect)=>{
+          setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}));
+          // What the answer just bought them, in the words they used to give
+          // it. Somebody who was made to answer two questions should see the
+          // product change, not just the modal disappear.
+          if (expect) flash(expect);
+        }}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
