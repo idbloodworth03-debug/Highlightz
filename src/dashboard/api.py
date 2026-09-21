@@ -7740,15 +7740,40 @@ async def llms_txt():
     sig = ", ".join(t.lower() for t in _signal_titles().values()) or (
         "chat erupts, loud reaction, chat calls for the clip, viewers flood in, "
         "emotions run high, silence then chaos, chat speaks as one")
+    # The Clip Editor, the Scheduler and Autopilot are built and held behind
+    # UPLOADS_ENABLED. A model reading this file will repeat whatever it says
+    # to somebody asking what to use, so while the flag is down it has to say
+    # "coming" rather than "does" — a crawler quoting a feature nobody can
+    # reach is a wrong answer the product cannot correct.
+    live = bool(settings.uploads_enabled)
+    _pitch = (
+        "so the clip can be downloaded and taken anywhere. Reframing for "
+        "vertical (Clip Editor) and posting to YouTube, TikTok and Instagram "
+        "(Scheduler, and Autopilot with nobody in the loop) are built and in "
+        "testing, not yet open to accounts."
+        if not live else
+        "so the clip can be downloaded, reframed for vertical in the Clip "
+        "Editor, and posted to YouTube, TikTok and Instagram from the "
+        "Scheduler (or by Autopilot, with no one in the loop).")
+    _pro_extra = (
+        f"{keeps(pro)}, plus the VOD Scanner. The Clip Editor, the Scheduler "
+        f"and Autopilot are built and in testing — not yet open to accounts, "
+        f"and not part of what Pro buys today."
+        if not live else
+        f"{keeps(pro)}, plus the VOD Scanner, the Clip Editor (reframe any "
+        f"caught clip for vertical, title it, add transitions and a sound, "
+        f"export it frame by frame in the browser), the Scheduler (post "
+        f"exported clips to the YouTube, TikTok and Instagram accounts you "
+        f"connect, at a time you set) and Autopilot (every clip you approve is "
+        f"rendered vertical and queued to those accounts on a schedule you "
+        f"choose, with nobody in the loop).")
     return f"""# Highlightz
 
 > Highlightz watches live Twitch and Kick streams and catches the clip
 > itself, the moment something happens. It monitors the live broadcast, scores
 > every second, and when a moment fires it makes a real Twitch clip through
-> Twitch's official Clips API AND keeps the video file, so the clip can be
-> downloaded, reframed for vertical in the Clip Editor, and posted to YouTube,
-> TikTok and Instagram from the Scheduler (or by Autopilot, with no one in the
-> loop). Not AI: a readable formula, and every clip shows which signal fired.
+> Twitch's official Clips API AND keeps the video file, {_pitch}
+> Not AI: a readable formula, and every clip shows which signal fired.
 
 The full public copy — every FAQ answer, the walkthrough, the plans and the
 comparison — is at https://highlightz.app/llms-full.txt.
@@ -7801,12 +7826,7 @@ and editors who follow several channels at once and cannot watch them all.
   {keeps(st)}.
 - Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
-  {keeps(pro)}, plus the VOD Scanner, the Clip Editor (reframe any caught
-  clip for vertical, title it, add transitions and a sound, export it frame by
-  frame in the browser), the Scheduler (post exported clips to the YouTube,
-  TikTok and Instagram accounts you connect, at a time you set) and Autopilot
-  (every clip you approve is rendered vertical and queued to those accounts on
-  a schedule you choose, with nobody in the loop).
+  {_pro_extra}
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -7882,6 +7902,11 @@ async def llms_full_txt():
       "the score crosses it creates a real Twitch clip through the official Clips API "
       "and keeps the video file. Every clip lands in a review queue first. Twitch makes "
       "and hosts the Twitch clip; the file, recorded from the live broadcast or fetched "
+      "from Twitch, is private to the account that made it. It is what the Clip Editor "
+      "reframes for vertical and what the Scheduler posts to YouTube, TikTok and "
+      "Instagram, with Autopilot (Pro, off by default) doing both for every clip you "
+      "approve — all three built and in testing, not yet open to accounts. "
+      if not settings.uploads_enabled else
       "from Twitch, is private to the account that made it and is what the Clip Editor "
       "reframes for vertical and the Scheduler posts to YouTube, TikTok and Instagram; "
       "Autopilot (Pro, off by default) does both for every clip you approve. "
@@ -7902,9 +7927,9 @@ async def llms_full_txt():
     w(f"| Highlight clips | {f['max_suggested']} | {st['max_suggested']} | {pro['max_suggested']} |")
     w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
     w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
-    w(f"| Clip Editor | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
-    w(f"| Scheduler | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
-    w(f"| Autopilot | {'Yes' if f['uploads'] else 'No'} | {'Yes' if st['uploads'] else 'No'} | {'Yes' if pro['uploads'] else 'No'} |")
+    w(f"| Clip Editor | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
+    w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
+    w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
     w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")

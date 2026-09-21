@@ -147,6 +147,31 @@ _FREE_STREAMS = "One" if _free_limit("max_streams") == 1 else str(_free_limit("m
 _FREE_QUEUE = _free_limit("max_pending")
 
 
+def _shipped() -> bool:
+    """Whether the Clip Editor and the Scheduler are actually released.
+
+    THE PROBLEM THIS FIXES (2026-09-21). Both are built and both are behind
+    UPLOADS_ENABLED, which is down — the landing page says "Soon" for them,
+    the dashboard hides them, and this page went on describing them in the
+    present tense as things a reader could go and use. A comparison page
+    claiming a feature the product will not hand over is the single worst
+    place in the site to be wrong: the reader who signs up to get it is the
+    reader who asks for a refund.
+
+    Owner wanted the pitch kept — "I dont want it released yet but I want
+    the talks about it" — so nothing here is deleted. The rows say Soon and
+    the prose says what is coming rather than what is here, and both flip to
+    the present tense on the deploy that sets UPLOADS_ENABLED=true.
+    """
+    from config.settings import settings
+    return bool(settings.uploads_enabled)
+
+
+# The matrix renders a string verbatim (compare_html._cell), so an unreleased
+# row reads "Soon" where a released one gets a tick.
+_SOON = True if _shipped() else "Soon"
+
+
 # ── the argument ─────────────────────────────────────────────────────────────
 
 HERO_TITLE = "Highlightz vs Opus Clip vs Eklipse"
@@ -227,13 +252,23 @@ FEATURES = (
      "to auto-clip premium titles, and $18.99 per human edit."),
 
     ("Vertical reframing and auto-captions",
-     True, True, True,
+     _SOON, True, True,
+     "Theirs today; ours shortly. The Clip Editor is built and in testing — "
+     "five vertical templates, transitions, a title and burned-in captions, "
+     "rendered frame by frame in the browser from the clip Highlightz already "
+     "caught. It is not open to accounts yet, so this row is not a tick."
+     if not _shipped() else
      "All three. Ours is the Clip Editor: five vertical templates, transitions, "
      "a title and burned-in captions, rendered frame by frame in the browser "
      "from the clip Highlightz already caught."),
 
     ("Auto-posts to TikTok, Shorts and Reels",
-     True, True, True,
+     _SOON, True, True,
+     "Theirs today; ours shortly. The Scheduler is built and in testing — "
+     "connect YouTube, TikTok or Instagram and it posts at the time you set, "
+     "with Autopilot cutting and queueing every clip you approve. Not open to "
+     "accounts yet, so this row is not a tick either."
+     if not _shipped() else
      "All three. Ours is the Scheduler: connect YouTube, TikTok or Instagram "
      "and it posts at the time you set; Autopilot cuts and queues every clip "
      "you approve by itself."),
@@ -373,10 +408,18 @@ FAQ = (
      "Highlightz there is no meter: the plan buys channels, and a channel is "
      "watched for every second it is live."),
     ("Can I use Highlightz alongside them?",
-     "You can, and fewer people need to than a year ago. We catch the moment "
-     "live, keep the file, reframe it for vertical in the Clip Editor and post "
-     "it from the Scheduler. Where they still win is general video: a podcast "
-     "export or a long upload is their job, not ours."),
+     ("Yes, and today that is the honest answer for a lot of people. We catch "
+      "the moment live and keep the file; reframing it for vertical and "
+      "posting it are the Clip Editor and the Scheduler, which are built and "
+      "in testing but not open to accounts yet. Until they are, bring your "
+      "own editor for that last step. Where the others will still win after "
+      "that is general video: a podcast export or a long upload is their job, "
+      "not ours.")
+     if not _shipped() else
+     ("You can, and fewer people need to than a year ago. We catch the moment "
+      "live, keep the file, reframe it for vertical in the Clip Editor and "
+      "post it from the Scheduler. Where they still win is general video: a "
+      "podcast export or a long upload is their job, not ours.")),
     ("Do you re-upload or re-host my video?",
      "Not publicly, ever. The Twitch clip stays a Twitch clip. The file we keep "
      "is private to the account that caught it and is deleted with the clip; "

@@ -1670,6 +1670,34 @@ step. Score badges are 44px. Spacing stays on the scale (a 44px margin
 tripped the token test; it is 48). Checked in the harness
 (`scratchpad/ed/vod_shot.js`: empty, a done job with moments, phone).
 
+## /compare and /llms.txt stopped claiming what is held back (2026-09-21)
+
+The Clip Editor and the Scheduler are built and behind `UPLOADS_ENABLED`,
+which is down. The landing page honoured that (`_released()` → No / Soon /
+Yes) and the dashboard hid them — **/compare and /llms.txt did not**. Both
+described them in the present tense as things a reader could go and use, and
+`/llms-full.txt`'s plan table printed **Yes** for Pro because it read
+`PLAN_LIMITS["uploads"]` rather than the release flag.
+
+That is the worst pair of surfaces to be wrong on. A comparison page sells
+the feature to somebody who then signs up to get it; `/llms.txt` is read by
+models that repeat the claim to people who never visit the site.
+
+Owner: "I dont want it released yet but I want the talks about it" — so
+**nothing was deleted**. `compare_content._shipped()` reads the flag,
+`_SOON` renders as `"Soon"` in the matrix (compare_html's `_cell` already
+prints a string verbatim), and the notes and the "use it alongside them" FAQ
+switch between a future-tense and a present-tense version. `/llms.txt`'s
+pitch and Pro line do the same, and the `/llms-full.txt` table now uses the
+existing `_released()` helper. Every one of them flips back on the deploy
+that sets `UPLOADS_ENABLED=true`.
+
+Copy is computed at IMPORT time, like the landing page, so the flag needs a
+restart — not a reload — to take effect. `tests/test_compare.py` renders both
+states in a subprocess for that reason, and asserts both directions: Soon
+while held back, a tick once shipped, and the rows still present either way
+so the pitch is not lost with the overclaim.
+
 ## Onboarding: two questions, once, after Twitch (2026-09-21)
 
 Owner: "during the onboarding after a user attaches their twitch I want them

@@ -259,3 +259,99 @@ def test_the_page_shares_the_landing_page_s_bar_and_footer():
     assert '<span class="fl">&copy; 2026 ANTI Technology LLC</span>' in LANDING_HTML
     assert 'rel="preload" href="/static/fonts/sora-var.woff2"' in html, \
         "the display face is used above the fold but not preloaded"
+
+
+# ── held-back features are never advertised as available ────────────────────
+#
+# THE BUG THIS EXISTS TO PREVENT (found 2026-09-21). The Clip Editor and the
+# Scheduler were built, then held behind UPLOADS_ENABLED. The landing page
+# and the dashboard both honoured the flag. /compare and /llms.txt did not —
+# they went on describing both in the present tense as things a reader could
+# go and use, for weeks.
+#
+# A comparison page is the worst surface in the site to be wrong on: the
+# reader who signs up to get the feature is the reader who asks for a refund.
+# /llms.txt is arguably worse, because a model that reads it repeats the
+# claim to people who never visit the site at all.
+#
+# The owner's instruction was to keep the pitch and drop the claim — "I dont
+# want it released yet but I want the talks about it" — so these tests check
+# for the CLAIM, not for the mention.
+
+import os
+import subprocess
+import sys
+
+
+def _render_with_flag(flag: str, snippet: str) -> str:
+    """Import the public-copy modules fresh with UPLOADS_ENABLED=flag.
+
+    A subprocess because both modules compute their copy at import time (the
+    same way the landing page is built once and rebuilt on restart), so the
+    flag cannot be flipped inside a running interpreter.
+    """
+    env = dict(os.environ, UPLOADS_ENABLED=flag)
+    out = subprocess.run([sys.executable, "-c", snippet], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    return out.stdout
+
+
+_MATRIX = """
+from src.dashboard import compare_content as C
+for f in C.FEATURES:
+    print(repr(f[1]), '|', f[0])
+"""
+
+_LLMS = """
+import asyncio
+from src.dashboard import api
+t = asyncio.run(api.llms_full_txt())
+print(t.body.decode() if hasattr(t, 'body') else str(t))
+"""
+
+
+def test_compare_marks_the_editor_and_scheduler_soon_while_they_are_held_back():
+    rows = _render_with_flag("false", _MATRIX)
+    for feature in ("Vertical reframing and auto-captions",
+                    "Auto-posts to TikTok, Shorts and Reels"):
+        line = next(l for l in rows.splitlines() if l.endswith(feature))
+        assert line.startswith("'Soon'"), \
+            f"/compare still ticks {feature!r} while UPLOADS_ENABLED is off: {line}"
+
+
+def test_compare_ticks_them_once_they_really_ship():
+    """The other half: the caveat has to disappear on release, or the page
+    undersells a feature that is live."""
+    rows = _render_with_flag("true", _MATRIX)
+    for feature in ("Vertical reframing and auto-captions",
+                    "Auto-posts to TikTok, Shorts and Reels"):
+        line = next(l for l in rows.splitlines() if l.endswith(feature))
+        assert line.startswith("True"), \
+            f"/compare does not tick {feature!r} even when released: {line}"
+
+
+def test_compare_still_talks_about_them_while_they_are_held_back():
+    """Owner: keep the pitch, drop the claim. A row that vanished would lose
+    the argument as well as the overclaim."""
+    from src.dashboard import compare_content as C
+    body = " ".join(str(x) for f in C.FEATURES for x in f)
+    assert "Clip Editor" in body and "Scheduler" in body
+
+
+def test_the_plan_table_in_llms_full_never_says_yes_before_release():
+    """It read PLAN_LIMITS["uploads"] and printed Yes — so Pro was advertised
+    a feature Pro does not currently get. _released() is the three-state
+    answer the landing page already used."""
+    txt = _render_with_flag("false", _LLMS)
+    for feature in ("Clip Editor", "Scheduler", "Autopilot"):
+        row = next(l for l in txt.splitlines() if l.startswith(f"| {feature} |"))
+        assert "Yes" not in row, f"/llms-full.txt advertises {feature}: {row}"
+        assert "Soon" in row, f"/llms-full.txt dropped {feature} entirely: {row}"
+
+
+def test_the_plan_table_says_yes_once_released():
+    txt = _render_with_flag("true", _LLMS)
+    for feature in ("Clip Editor", "Scheduler", "Autopilot"):
+        row = next(l for l in txt.splitlines() if l.startswith(f"| {feature} |"))
+        assert "Yes" in row, f"/llms-full.txt hides a released {feature}: {row}"
