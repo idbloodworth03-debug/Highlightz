@@ -1703,6 +1703,21 @@ and `test_the_welcome_modal_is_gone_entirely` still guards it. The new one
 asks rather than explains, and a second test pins its prose at 70 words so it
 cannot drift back into the thing that was removed.
 
+**`GET /onboarding` is the admin preview** (owner: "so I can test it out and
+see how it looks… go through it and tinker"). The real modal appears exactly
+once per account, which makes it the kind of screen nobody can look at twice
+without editing the database. The route is `_require_admin` and serves the
+SAME dashboard page — the app notices the path and opens the modal whatever
+the account has already answered. It is the real component, not a copy; a
+mock-up would drift from the real screen within a week.
+
+**Nothing is saved from the preview.** `save()` short-circuits before the
+fetch, Finish shows the JSON it would have posted plus what that use_case
+means for the edit, and Start over goes round again — so the flow can be
+walked repeatedly without moving the admin's own Autopilot mode each lap.
+Verified in the harness: zero POSTs across a full walk. The POST on the same
+path is the real save and is untouched.
+
 **Checked in the browser, not just in tests**
 (`scratchpad/ed/onb_shot.js`): both steps, a selection, and phone width. The
 first render found a real bug — a 1px border swap and a 12% tint made the

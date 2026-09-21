@@ -4321,6 +4321,32 @@ async def put_prefs(request: Request):
     return prefs
 
 
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_preview(request: Request):
+    """The onboarding flow on demand, for looking at it. ADMIN ONLY.
+
+    Owner (2026-09-21): "add a new /onboarding so I can test it out and see
+    how it looks… I just want to be able to go through it and tinker."
+
+    The real modal only appears once — Twitch attached, `onboarded_at` still
+    0 — which makes it exactly the kind of screen nobody can look at twice
+    without editing the database. This serves the SAME dashboard page; the
+    app notices the path and opens the modal regardless of whether the
+    questions have been answered.
+
+    It is the REAL component, not a copy. A mock-up of an onboarding screen
+    drifts from the onboarding screen within a week, and then looking at it
+    tells you nothing.
+
+    NOTHING IS SAVED from here. Finishing prints the JSON it would have
+    posted and offers Start over, so the flow can be walked as many times as
+    you like without moving your own account's Autopilot mode each lap. The
+    POST on this same path is the real thing and is unaffected.
+    """
+    _require_admin(request)
+    return HTMLResponse(content=DASHBOARD_HTML)
+
+
 @app.post("/onboarding")
 async def post_onboarding(request: Request):
     """The two questions asked once, after a Twitch account is attached.

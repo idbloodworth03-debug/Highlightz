@@ -256,3 +256,76 @@ def test_the_flag_is_derived_rather_than_stored():
     the deploy that drops every socket at once."""
     page = _page()
     assert "useState" not in page.split("const needsOnboarding")[1].split(";")[0]
+
+
+# ── the admin preview (GET /onboarding) ─────────────────────────────────────
+#
+# Owner: "add a new /onboarding so I can test it out and see how it looks…
+# I just want to be able to go through it and tinker with it." The real modal
+# appears exactly once per account, which makes it the kind of screen nobody
+# can look at twice without editing the database.
+
+def test_the_preview_is_admin_only():
+    """It serves the dashboard HTML. Everything else on that page is already
+    behind the auth gate, but the route still checks admin against the DB
+    rather than trusting the session."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.onboarding_preview)
+    assert "_require_admin(request)" in src
+
+
+def test_the_preview_is_not_in_the_open_set():
+    from src.dashboard import api
+    assert "/onboarding" not in api._OPEN_PATHS
+    assert not any("/onboarding".startswith(p) for p in api._OPEN_PREFIXES)
+
+
+def test_the_get_preview_and_the_post_are_different_things():
+    """Same path, two methods. The POST is the real save and is untouched by
+    the preview existing."""
+    from src.dashboard import api
+    methods = {}
+    for r in api.app.routes:
+        if getattr(r, "path", "") == "/onboarding":
+            methods.update({m: r.endpoint.__name__ for m in (r.methods or set())})
+    assert methods.get("GET") == "onboarding_preview"
+    assert methods.get("POST") == "post_onboarding"
+
+
+def test_the_preview_serves_the_real_page_not_a_copy():
+    """A mock-up of an onboarding screen drifts from the onboarding screen
+    within a week, and then looking at it tells you nothing."""
+    import inspect
+    from src.dashboard import api
+    assert "DASHBOARD_HTML" in inspect.getsource(api.onboarding_preview)
+
+
+def test_the_preview_saves_nothing():
+    """Tinkering must not move the admin's own Autopilot mode every lap."""
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert "if (preview) { setStep(3); return; }" in body, \
+        "preview does not short-circuit before the POST"
+    # The short-circuit has to come BEFORE the fetch, or it saves anyway.
+    assert body.index("if (preview)") < body.index("method: 'POST'")
+
+
+def test_the_preview_can_be_walked_more_than_once():
+    page = _page()
+    assert "const restart =" in page and ">Start over<" in page
+
+
+def test_the_preview_opens_the_modal_whatever_the_account_answered():
+    page = _page()
+    assert "location.pathname === '/onboarding'" in page
+    assert "onbPreview ||" in page, "the preview does not override the once-only gate"
+
+
+def test_the_preview_says_it_is_a_preview():
+    """So a screenshot of it is never mistaken for the real flow, and so it
+    is obvious nothing was written."""
+    page = _page()
+    assert "Preview — nothing is saved" in page
+    assert "Preview — nothing was saved" in page

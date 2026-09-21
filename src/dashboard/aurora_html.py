@@ -1023,6 +1023,9 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .rd-onb-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px}
 .rd-onb-step{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-3)}
 .rd-onb-err{font-size:13px;color:var(--bad)}
+.rd-onb-pre{margin:0;padding:16px;border-radius:12px;background:rgba(0,0,0,.35);
+  border:1px solid var(--line);font-family:var(--mono);font-size:13px;line-height:1.6;
+  color:var(--fg-2);overflow:auto;max-height:40vh}
 @media (max-width:620px){.rd-onb-cards{grid-template-columns:1fr}}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
@@ -2728,7 +2731,7 @@ const ONB_GOALS = [
   ['earn_money',   'Make money posting clips'],
 ];
 
-function OnboardingModal({ onDone }) {
+function OnboardingModal({ onDone, preview = false }) {
   const [step, setStep]   = useState(1);
   const [useCase, setUse] = useState('');
   const [goals, setGoals] = useState([]);
@@ -2736,8 +2739,13 @@ function OnboardingModal({ onDone }) {
   const [err, setErr]     = useState('');
 
   const toggleGoal = g => setGoals(p => p.includes(g) ? p.filter(x=>x!==g) : [...p, g]);
+  const restart = () => { setStep(1); setUse(''); setGoals([]); setErr(''); setBusy(false); };
 
   const save = async () => {
+    // Admin preview (GET /onboarding): show what WOULD be sent and offer
+    // another lap. Saving here would move the admin's own Autopilot mode
+    // every time they looked at their own onboarding screen.
+    if (preview) { setStep(3); return; }
     setBusy(true); setErr('');
     try {
       const r = await fetch('/onboarding', {
@@ -2756,10 +2764,30 @@ function OnboardingModal({ onDone }) {
     }
   };
 
+  if (step === 3) {
+    return (
+      <div className="rd-ann-bg" role="dialog" aria-modal="true">
+        <div className="rd-onb glass">
+          <div className="rd-ann-k"><Icon name="sliders" size={13}/>Preview — nothing was saved</div>
+          <h3>This is what a real answer would send</h3>
+          <div className="sub">POST /onboarding, which sets the Autopilot mode from use_case and stores goals for the growth report.</div>
+          <pre className="rd-onb-pre">{JSON.stringify({ use_case: useCase, goals }, null, 2)}</pre>
+          <div className="rd-onb-foot">
+            <span className="rd-onb-step">{useCase === 'clipper'
+              ? 'Clipper: posts filled to 60s from up to 4 clips'
+              : 'Streamer: one clip, whatever length it runs'}</span>
+            <button className="rd-btn grad" onClick={restart}>Start over</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-onb-title">
       <div className="rd-onb glass">
-        <div className="rd-ann-k"><Icon name="sparkles" size={13}/>One quick thing</div>
+        <div className="rd-ann-k"><Icon name={preview?'sliders':'sparkles'} size={13}/>
+          {preview ? 'Preview — nothing is saved' : 'One quick thing'}</div>
         {step === 1 ? <>
           <h3 id="rd-onb-title">What are you here for?</h3>
           <div className="sub">This sets how your clips get edited. You can change it later in Settings.</div>
@@ -8933,8 +8961,12 @@ function RdApp() {
   // before that there is nothing to configure. Derived from /me rather than
   // held in its own state, so it is already correct after a reconnect:
   // refetchAll re-reads /me, and prefs_changed carries the full prefs.
-  const needsOnboarding = !!(me && me.user_id && me.platforms && me.platforms.twitch
-                             && me.prefs && !me.prefs.onboarded_at);
+  // GET /onboarding is the admin preview: same page, same component, modal
+  // forced open whatever the account has already answered. Admin-only at the
+  // route, so a non-admin never gets this HTML in the first place.
+  const onbPreview = typeof location !== 'undefined' && location.pathname === '/onboarding';
+  const needsOnboarding = onbPreview || !!(me && me.user_id && me.platforms && me.platforms.twitch
+                                           && me.prefs && !me.prefs.onboarded_at);
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -9690,7 +9722,7 @@ function RdApp() {
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
       {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
-      {needsOnboarding && <OnboardingModal
+      {needsOnboarding && <OnboardingModal preview={onbPreview}
         onDone={p=>setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}))}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip}
