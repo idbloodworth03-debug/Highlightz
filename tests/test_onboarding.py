@@ -238,10 +238,55 @@ def test_the_modal_offers_both_use_cases_and_the_whole_goal_vocabulary():
         assert f"'{goal}'" in page, f"{goal} is not offered in the modal"
 
 
-def test_the_goals_step_can_be_skipped():
-    """It is for the owner's knowledge, not the user's benefit — making it
-    compulsory would tax every signup for a question that changes nothing."""
-    assert ">Skip<" in _page()
+def test_the_questions_cannot_be_skipped():
+    """Owner, 2026-09-21: "make it so that users cannot skip it." The goals
+    step used to carry a Skip; it does not any more, and Finish stays
+    disabled until at least one is picked.
+
+    THE COST, recorded because it is real: somebody who does not want to
+    answer now picks something at random to get through, so the goal counts
+    carry noise they did not before. That was the owner's call to make.
+    """
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert ">Skip<" not in body, "the Skip button is back"
+    assert "disabled={busy || !goals.length}" in body, "Finish does not require a goal"
+    assert "disabled={!useCase}" in body, "Continue does not require a use case"
+
+
+def test_there_is_no_way_to_dismiss_the_modal():
+    """No close button, no Escape, and a backdrop click does nothing. All
+    three, because any one of them is a way out."""
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert "rd-modal-close" not in body and "onClose" not in body
+    assert "'Escape'" not in body
+    # The backdrop carries no click handler, unlike ClipModal's.
+    head = body[body.index('className="rd-ann-bg"'):]
+    assert "onClick" not in head[:head.index(">")]
+
+
+def test_the_keyboard_cannot_tab_out_of_it():
+    """The backdrop stops the mouse. Without a focus trap a keyboard user
+    tabs straight through to the app behind it — a way out, and an
+    accessibility bug for everyone who is not trying to escape."""
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert "e.key !== 'Tab'" in body
+    assert "preventDefault()" in body
+    assert "box.current.contains(document.activeElement)" in body
+
+
+def test_the_admin_preview_is_not_a_gate():
+    """The trap exists to stop users leaving the questions. Trapping the
+    admin inside a preview of them would be a bug."""
+    page = _page()
+    body = page[page.index("function OnboardingModal("):]
+    body = body[:body.index("\nfunction ")]
+    assert "if (preview) return;" in body
 
 
 def test_a_failed_save_leaves_the_modal_open():
@@ -329,3 +374,84 @@ def test_the_preview_says_it_is_a_preview():
     page = _page()
     assert "Preview — nothing is saved" in page
     assert "Preview — nothing was saved" in page
+
+
+# ── tracking it in the admin portal ─────────────────────────────────────────
+
+def _admin_html() -> str:
+    from src.dashboard.api import ADMIN_HTML
+    return ADMIN_HTML
+
+
+def test_the_admin_endpoint_is_admin_only():
+    import inspect
+    from src.dashboard import api
+    assert "_require_admin(request)" in inspect.getsource(api.admin_onboarding)
+
+
+def test_asked_and_answered_are_reported_separately():
+    """A completion rate over EVERY account would mostly be measuring how
+    many people have connected Twitch — nobody without it has seen the
+    questions. Conflating the two hides which problem you have."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.admin_onboarding)
+    assert '"asked"' in src and '"answered"' in src
+    assert "twitch_id" in src, "asked is not gated on having reached the modal"
+    assert "/ asked" in src, "completion is not measured against asked"
+
+
+def test_completion_does_not_divide_by_zero_on_a_fresh_install():
+    import inspect
+    from src.dashboard import api
+    assert "if asked else 0.0" in inspect.getsource(api.admin_onboarding)
+
+
+def test_the_admin_payload_carries_both_the_split_and_the_goals():
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.admin_onboarding)
+    assert '"use_cases"' in src and '"goals"' in src
+    assert "USE_CASES" in src and "GOALS" in src, \
+        "the buckets are not built from the stored vocabulary"
+
+
+def test_the_admin_rows_say_what_the_answer_actually_did():
+    """"clipper" means nothing without knowing plan.py. The resolved
+    Autopilot mode is what makes the row readable."""
+    import inspect
+    from src.dashboard import api
+    assert '"mode"' in inspect.getsource(api.admin_onboarding)
+
+
+def test_the_admin_page_has_an_onboarding_tab_wired_to_a_panel():
+    """A tab with no panel switches to a blank screen; a panel with no
+    loader shows Loading for ever."""
+    html = _admin_html()
+    assert 'data-tab="onboarding"' in html
+    assert 'id="panel-onboarding"' in html
+    assert "if(b.dataset.tab === 'onboarding') loadOnboarding();" in html
+    assert "async function loadOnboarding()" in html
+
+
+def test_the_admin_tab_reads_the_real_endpoint():
+    assert "api('/admin/onboarding')" in _admin_html()
+
+
+def test_the_admin_tab_labels_the_goals_in_english():
+    """The stored vocabulary is snake_case keys. A table of `earn_money` is
+    a table nobody reads."""
+    html = _admin_html()
+    assert "OB_GOAL_LABELS" in html
+    for goal in user_store.GOALS:
+        assert goal + ":" in html, f"{goal} has no label in the admin table"
+
+
+def test_the_admin_tab_explains_which_answer_changes_anything():
+    """Whoever reads this panel in six months needs to know that the split
+    drives the edit and the goals drive nothing."""
+    html = _admin_html()
+    panel = html[html.index('id="panel-onboarding"'):]
+    panel = panel[:panel.index("</div>\n\n  <!--")] if "</div>\n\n  <!--" in panel else panel[:4000]
+    assert "Autopilot mode" in panel
+    assert "sixty seconds" in panel or "60 seconds" in panel

@@ -1703,6 +1703,33 @@ and `test_the_welcome_modal_is_gone_entirely` still guards it. The new one
 asks rather than explains, and a second test pins its prose at 70 words so it
 cannot drift back into the thing that was removed.
 
+**IT CANNOT BE SKIPPED** (owner, 2026-09-21: "make it so that users cannot
+skip it"). Every way out is closed and each one is pinned by a test: no close
+button, no Escape handler, a backdrop with no click handler, Continue
+disabled until a use_case is chosen, **the Skip on the goals step removed**
+and Finish disabled until at least one goal is picked, and a **focus trap**,
+because the backdrop stops a mouse but a keyboard tabs straight through to
+the app behind it. The trap is off in the admin preview — trapping the owner
+inside a preview would be a bug.
+
+THE COST, recorded rather than discovered later: somebody who does not want
+to answer now picks a goal at random to get through, so the goal counts carry
+noise they did not when Skip existed. That was a deliberate trade for
+coverage. The SERVER stays permissive — it still accepts an empty `goals`
+list — because a server that required one would lock out any stale tab that
+posted without it, and the requirement is a UX one, not a security one.
+
+**Tracked in the admin portal**: an Onboarding tab (`GET /admin/onboarding`,
+`_require_admin`) with the clipper/streamer split, the goal counts, and a row
+per account showing what they answered and the Autopilot mode it produced.
+
+**ASKED AND ANSWERED ARE SEPARATE NUMBERS, deliberately.** `asked` counts
+accounts that have connected Twitch — nobody else has ever seen the modal —
+and completion is measured against that. A rate over every account would
+mostly be reporting how many people connected Twitch, which is a different
+problem with a different fix. Goal counts sum to more than `answered`
+because it is multi-select; the panel says so on screen.
+
 **`GET /onboarding` is the admin preview** (owner: "so I can test it out and
 see how it looks… go through it and tinker"). The real modal appears exactly
 once per account, which makes it the kind of screen nobody can look at twice

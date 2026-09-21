@@ -2740,6 +2740,29 @@ function OnboardingModal({ onDone, preview = false }) {
 
   const toggleGoal = g => setGoals(p => p.includes(g) ? p.filter(x=>x!==g) : [...p, g]);
   const restart = () => { setStep(1); setUse(''); setGoals([]); setErr(''); setBusy(false); };
+  const box = useRef(null);
+
+  // THE QUESTIONS CANNOT BE SKIPPED (owner, 2026-09-21). The backdrop already
+  // covers the page and has no close, so the mouse cannot get past it — but a
+  // keyboard could Tab straight through to the app behind, which is both a way
+  // out and an accessibility bug. Focus starts inside and Tab cycles within.
+  // Escape is deliberately not handled: there is nothing to escape to.
+  useEffect(() => {
+    if (preview) return;                 // the admin preview is not a gate
+    const el = box.current;
+    if (el) { const f = el.querySelector('button'); if (f) f.focus(); }
+    const onKey = e => {
+      if (e.key !== 'Tab' || !box.current) return;
+      const items = box.current.querySelectorAll('button:not([disabled])');
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!box.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [preview, step]);
 
   const save = async () => {
     // Admin preview (GET /onboarding): show what WOULD be sent and offer
@@ -2785,7 +2808,7 @@ function OnboardingModal({ onDone, preview = false }) {
 
   return (
     <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-onb-title">
-      <div className="rd-onb glass">
+      <div className="rd-onb glass" ref={box}>
         <div className="rd-ann-k"><Icon name={preview?'sliders':'sparkles'} size={13}/>
           {preview ? 'Preview — nothing is saved' : 'One quick thing'}</div>
         {step === 1 ? <>
@@ -2809,7 +2832,7 @@ function OnboardingModal({ onDone, preview = false }) {
           </div>
         </> : <>
           <h3 id="rd-onb-title">What do you want out of it?</h3>
-          <div className="sub">Pick any that fit. This one is just so we know what to build next — it does not change anything about your account.</div>
+          <div className="sub">Pick everything that fits. This tells us what to build next.</div>
           <div className="rd-onb-goals">
             {ONB_GOALS.map(([key,label]) => (
               <button key={key} className={'rd-onb-goal'+(goals.includes(key)?' on':'')}
@@ -2818,11 +2841,11 @@ function OnboardingModal({ onDone, preview = false }) {
           </div>
           {err && <div className="rd-onb-err">{err}</div>}
           <div className="rd-onb-foot">
-            <span className="rd-onb-step">Step 2 of 2</span>
-            <div style={{display:'flex',gap:8}}>
-              <button className="rd-btn" disabled={busy} onClick={()=>{ setGoals([]); save(); }}>Skip</button>
-              <button className="rd-btn grad" disabled={busy} onClick={save}>{busy?'Saving…':'Finish'}</button>
-            </div>
+            <span className="rd-onb-step">{goals.length
+              ? 'Step 2 of 2'
+              : 'Pick at least one'}</span>
+            <button className="rd-btn grad" disabled={busy || !goals.length} onClick={save}>
+              {busy?'Saving…':'Finish'}</button>
           </div>
         </>}
       </div>

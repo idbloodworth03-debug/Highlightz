@@ -6359,6 +6359,73 @@ async def admin_funnel(request: Request, days: int = 30):
     return funnel.totals(days=max(1, min(days, 180)))
 
 
+@app.get("/admin/onboarding")
+async def admin_onboarding(request: Request):
+    """Who answered the onboarding questions, and what they said.
+
+    Owner (2026-09-21): "I need this trackable in the admin portal."
+
+    TWO NUMBERS THAT MUST NOT BE CONFLATED, which is why they are separate
+    fields rather than one percentage:
+
+      asked     accounts that have reached the questions at all — Twitch
+                attached. An account with no Twitch has never seen the modal
+                and is not a person who declined to answer.
+      answered  accounts that finished it.
+
+    A completion rate over everyone would read as terrible while actually
+    measuring how many people have connected Twitch, which is a different
+    problem with a different fix.
+
+    `goals` counts sum to more than `answered` on purpose: it is a
+    multi-select.
+    """
+    _require_admin(request)
+    from src.auth import users as user_store
+    users = user_store.get_all()
+    rows, use_cases = [], {uc: 0 for uc in user_store.USE_CASES}
+    goals = {g: 0 for g in user_store.GOALS}
+    asked = answered = 0
+
+    for u in users:
+        prefs = user_store.normalize_prefs(u.get("prefs"))
+        has_twitch = bool(u.get("twitch_id"))
+        if has_twitch:
+            asked += 1
+        at = prefs.get("onboarded_at") or 0
+        if not at:
+            continue
+        answered += 1
+        if prefs.get("use_case") in use_cases:
+            use_cases[prefs["use_case"]] += 1
+        for g in prefs.get("goals") or []:
+            if g in goals:
+                goals[g] += 1
+        rows.append({
+            "user": u.get("username") or u.get("id", ""),
+            "use_case": prefs.get("use_case") or "",
+            "goals": prefs.get("goals") or [],
+            "at": at,
+            # What the answer actually did, so the table is readable without
+            # knowing what "clipper" means in plan.py.
+            "mode": (user_store.autopilot_for(u["id"]) or {}).get("mode", ""),
+        })
+
+    rows.sort(key=lambda r: -float(r["at"] or 0))
+    return {
+        "rows": rows,
+        "totals": {
+            "accounts": len(users),
+            "asked": asked,
+            "answered": answered,
+            "use_cases": use_cases,
+            "goals": goals,
+            # Of the people who got the chance, not of everybody.
+            "completion_pct": round(100.0 * answered / asked, 1) if asked else 0.0,
+        },
+    }
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     try:
@@ -12472,6 +12539,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
     <button class="tab" data-tab="downloads">Downloads<span class="c" id="tc-downloads"></span></button>
+    <button class="tab" data-tab="onboarding">Onboarding<span class="c" id="tc-onboarding"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
   </div>
@@ -12601,6 +12669,28 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="tw"><div id="dl-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
+  <!-- ── ONBOARDING ── -->
+  <div class="panel" id="panel-onboarding">
+    <div class="block-head"><h2>Onboarding</h2><span class="c" id="ob-c"></span></div>
+    <p class="lede">
+      What people say they are here for. <b>Clipper or streamer is the only
+      answer that changes anything</b> &mdash; it sets the Autopilot mode, so a
+      clipper&rsquo;s posts are filled to sixty seconds from several clips and a
+      streamer&rsquo;s is one clip from their own stream. The goals are for
+      knowing what to build next and change nothing.
+    </p>
+    <p class="sub">
+      <b>Asked</b> counts accounts that have connected Twitch &mdash; nobody
+      else has ever seen the questions. Completion is measured against that,
+      not against everyone, or the number would really be reporting how many
+      people connected Twitch. Goals are multi-select, so they sum to more
+      than the number of people.
+    </p>
+    <div id="ob-stats"></div>
+    <div class="toolbar"><input class="field" id="ob-filter" placeholder="Filter by account, answer or goal"></div>
+    <div class="tw"><div id="ob-wrap" class="loading">Loading&hellip;</div></div>
+  </div>
+
   <!-- ── REVIEWS ── -->
   <div class="panel" id="panel-notify">
     <h2>Announce to everyone</h2>
@@ -12723,7 +12813,75 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'funnel' && !FUNNEL_LOADED) loadFunnel();
   if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();
   if(b.dataset.tab === 'downloads') loadDownloads();
+  if(b.dataset.tab === 'onboarding') loadOnboarding();
 });
+
+// ── onboarding ──────────────────────────────────────────────────────────────
+// What people said they are here for. Re-read on every open like Downloads,
+// for the same reason: this page has no WebSocket.
+const OB_GOAL_LABELS = {
+  more_clips: 'more clips',
+  automation: 'clips edited + posted for me',
+  better_edits: 'edits that look professional',
+  save_time: 'spend less time editing',
+  grow_channel: 'grow my own channel',
+  earn_money: 'make money posting clips'
+};
+let OB_ROWS = [], OB_Q = '';
+
+async function loadOnboarding(){
+  let d;
+  try { d = await api('/admin/onboarding'); }
+  catch(e){ document.getElementById('ob-wrap').textContent = 'Could not load.'; return; }
+  OB_ROWS = (d && d.rows) || [];
+  const t = (d && d.totals) || {}, uc = t.use_cases || {}, g = t.goals || {};
+  document.getElementById('ob-c').textContent =
+    n0(t.answered) + ' answered of ' + n0(t.asked) + ' asked · ' + (t.completion_pct || 0) + '%';
+
+  // The split first, then the goals, each as a share of the people who
+  // answered rather than of everybody.
+  const pc = v => t.answered ? Math.round(100 * v / t.answered) + '%' : '—';
+  let html = '<div class="tw"><table><thead><tr><th>Here for</th><th>Accounts</th><th>Share</th></tr></thead><tbody>';
+  html += '<tr><td>Clipping other streamers</td><td class="num">' + n0(uc.clipper||0) + '</td><td class="num">' + pc(uc.clipper||0) + '</td></tr>';
+  html += '<tr><td>Promoting their own channel</td><td class="num">' + n0(uc.streamer||0) + '</td><td class="num">' + pc(uc.streamer||0) + '</td></tr>';
+  html += '</tbody></table></div>';
+  const goals = Object.keys(OB_GOAL_LABELS).map(k => [k, g[k] || 0]).sort((a,b) => b[1] - a[1]);
+  html += '<div class="tw" style="margin-top:var(--s-4)"><table><thead><tr><th>What they want</th><th>Accounts</th><th>Share</th></tr></thead><tbody>';
+  goals.forEach(function(row){
+    html += '<tr><td>' + OB_GOAL_LABELS[row[0]] + '</td><td class="num">' + n0(row[1]) + '</td><td class="num">' + pc(row[1]) + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('ob-stats').innerHTML = html;
+  renderOnboarding();
+}
+
+function renderOnboarding(){
+  const wrap = document.getElementById('ob-wrap');
+  const q = OB_Q.trim().toLowerCase();
+  const rows = q ? OB_ROWS.filter(function(r){
+    return ((r.user||'') + ' ' + (r.use_case||'') + ' ' + (r.goals||[]).join(' ')).toLowerCase().indexOf(q) >= 0;
+  }) : OB_ROWS;
+  if(!rows.length){
+    wrap.className = '';
+    wrap.innerHTML = '<p class="sub">' + (OB_ROWS.length
+      ? 'Nobody matches that.'
+      : 'Nobody has answered yet. A row appears the moment somebody finishes the questions.')
+      + '</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>When</th><th>Account</th><th>Here for</th>'
+           + '<th>Autopilot mode</th><th>Wants</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    const goals = (r.goals||[]).map(function(k){ return OB_GOAL_LABELS[k] || k; }).join(', ');
+    html += '<tr><td>' + (r.at ? new Date(r.at*1000).toLocaleString() : '—') + '</td>'
+          + '<td><b>' + esc(r.user) + '</b></td>'
+          + '<td>' + (r.use_case === 'clipper' ? 'Clipper' : r.use_case === 'streamer' ? 'Streamer' : '—') + '</td>'
+          + '<td class="num">' + esc(r.mode || '—') + '</td>'
+          + '<td>' + (goals ? esc(goals) : '<span class="sub">none given</span>') + '</td></tr>';
+  });
+  wrap.className = '';
+  wrap.innerHTML = html + '</tbody></table>';
+}
 
 // ── downloads ───────────────────────────────────────────────────────────────
 // Every clip file that has left the server. Lazy on first open like the other
@@ -12789,6 +12947,10 @@ function renderDownloads(){
 
 document.getElementById('dl-filter').addEventListener('input', function(e){
   DL_Q = e.target.value; renderDownloads();
+});
+
+document.getElementById('ob-filter').addEventListener('input', function(e){
+  OB_Q = e.target.value; renderOnboarding();
 });
 
 // Coming back to a tab left open on this panel re-reads it. Without this the
