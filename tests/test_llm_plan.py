@@ -70,6 +70,10 @@ class _FakeAPIError(Exception):
     pass
 
 
+class _FakeBadRequest(_FakeAPIError):
+    pass
+
+
 @pytest.fixture
 def stub(monkeypatch):
     """Install a fake `anthropic` and turn the feature on.
@@ -78,7 +82,13 @@ def stub(monkeypatch):
     `raise_` is what it raises instead, and `seen` collects the kwargs so a
     test can assert what was actually sent.
     """
-    box = {"reply": None, "raise_": None, "seen": {}}
+    box = {"reply": None, "raise_": None, "seen": {},
+           "caps_raise": None, "caps_asked": [], "max_tokens": 128000,
+           # Opus-shaped by default: adaptive thinking, effort, structured out.
+           "caps": {"structured_outputs": {"supported": True},
+                    "effort": {"supported": True, "medium": {"supported": True}},
+                    "thinking": {"supported": True,
+                                 "types": {"adaptive": {"supported": True}}}}}
 
     class _Messages:
         async def create(self, **kw):
@@ -87,13 +97,23 @@ def stub(monkeypatch):
                 raise box["raise_"]
             return box["reply"]
 
+    class _Models:
+        async def retrieve(self, model):
+            if box["caps_raise"] is not None:
+                raise box["caps_raise"]
+            box["caps_asked"].append(model)
+            return types.SimpleNamespace(id=model, max_tokens=box["max_tokens"],
+                                         capabilities=box["caps"])
+
     class _Client:
         def __init__(self, **_kw):
             self.messages = _Messages()
+            self.models = _Models()
 
     mod = types.ModuleType("anthropic")
     mod.AsyncAnthropic = _Client
     mod.APIError = _FakeAPIError
+    mod.BadRequestError = _FakeBadRequest
     monkeypatch.setitem(sys.modules, "anthropic", mod)
 
     from config.settings import settings
@@ -101,6 +121,7 @@ def stub(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-test", raising=False)
     monkeypatch.setattr(settings, "llm_model", "claude-opus-5", raising=False)
     monkeypatch.setattr(settings, "llm_timeout_s", 5.0, raising=False)
+    L._CAPS.clear()
     return box
 
 
@@ -418,3 +439,110 @@ async def test_the_user_turn_is_the_brief_and_only_the_brief(stub):
     await L.build(clips(), sources())
     sent = json.loads(stub["seen"]["messages"][0]["content"])
     assert sent == L.brief(clips(), sources(), None)
+
+
+# ── the request is shaped to the MODEL, not to one model ────────────────────
+#
+# These exist because of a real bug. The builder sent thinking:{"adaptive"}
+# and output_config.effort unconditionally, and Haiku 4.5 — the model
+# recommended as the cheap option, five times cheaper per token — takes
+# neither: adaptive thinking and GA effort are 4.6-and-later. Every call
+# would have 400'd, and because every failure falls back to the formula, the
+# symptom would have been no symptom at all. Switching LLM_MODEL to save
+# money would have silently turned the feature off.
+
+@pytest.mark.asyncio
+async def test_a_model_without_adaptive_thinking_is_not_sent_it(stub):
+    """Haiku 4.5's shape: structured output and nothing else."""
+    stub["caps"] = {"structured_outputs": {"supported": True},
+                    "effort": {"supported": False},
+                    "thinking": {"supported": False,
+                                 "types": {"adaptive": {"supported": False}}}}
+    stub["reply"] = _Resp(answer())
+    _plan, meta = await L.build(clips(), sources())
+    assert meta["source"] == "llm", "a cheaper model must still work"
+    assert "thinking" not in stub["seen"]
+    assert "effort" not in stub["seen"].get("output_config", {})
+    assert stub["seen"]["output_config"]["format"]["type"] == "json_schema"
+
+
+@pytest.mark.asyncio
+async def test_a_model_with_adaptive_thinking_still_gets_it(stub):
+    stub["reply"] = _Resp(answer())
+    await L.build(clips(), sources())
+    assert stub["seen"]["thinking"] == {"type": "adaptive"}
+    assert stub["seen"]["output_config"]["effort"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_budget_tokens_is_never_sent_to_anything(stub):
+    """It is a 400 on the current models. There is no configuration of this
+    builder that should produce it."""
+    for caps in ({"thinking": {"types": {"adaptive": {"supported": False}}}},
+                 {"thinking": {"types": {"adaptive": {"supported": True}}}}):
+        stub["caps"], stub["reply"] = caps, _Resp(answer())
+        L._CAPS.clear()
+        await L.build(clips(), sources())
+        assert "budget_tokens" not in json.dumps(stub["seen"].get("thinking") or {})
+
+
+@pytest.mark.asyncio
+async def test_an_effort_level_the_model_lacks_is_not_sent(stub):
+    """`max` errors on Haiku 4.5 and Sonnet 4.5. The level is checked, not
+    just whether effort exists at all."""
+    stub["caps"] = {"structured_outputs": {"supported": True},
+                    "effort": {"supported": True, "medium": {"supported": False}}}
+    stub["reply"] = _Resp(answer())
+    await L.build(clips(), sources())
+    assert "effort" not in stub["seen"].get("output_config", {})
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_respects_a_models_lower_ceiling(stub):
+    """Haiku 4.5 caps output at 64K where the Opus models take 128K."""
+    stub["max_tokens"], stub["reply"] = 4000, _Resp(answer())
+    await L.build(clips(), sources())
+    assert stub["seen"]["max_tokens"] == 4000
+
+
+@pytest.mark.asyncio
+async def test_a_failed_capability_lookup_sends_the_conservative_request(stub):
+    """The lookup is best-effort. If it cannot be done, send the shape that
+    works everywhere rather than losing the post."""
+    stub["caps_raise"] = RuntimeError("models endpoint unavailable")
+    stub["reply"] = _Resp(answer())
+    _plan, meta = await L.build(clips(), sources())
+    assert meta["source"] == "llm"
+    assert "thinking" not in stub["seen"]
+    assert "effort" not in stub["seen"].get("output_config", {})
+
+
+@pytest.mark.asyncio
+async def test_capabilities_are_asked_once_per_model_not_once_per_clip(stub):
+    """This is a metadata call on the path of every clip. Asking each time
+    would add a round trip to every post for information that never changes."""
+    stub["reply"] = _Resp(answer())
+    for _ in range(3):
+        await L.build(clips(), sources())
+    assert stub["caps_asked"] == ["claude-opus-5"]
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_request_names_the_model_in_the_reason(stub):
+    """A 400 means we built a bad request, so every clip fails identically.
+    "API error" would send somebody looking at the network; the model name
+    is the thing that changed."""
+    stub["raise_"] = _FakeBadRequest("unexpected parameter: thinking")
+    _plan, meta = await L.build(clips(), sources())
+    assert meta["source"] == "formula"
+    assert "claude-opus-5" in meta["reason"] and "rejected" in meta["reason"]
+
+
+def test_a_missing_capability_tree_is_read_as_unsupported(stub):
+    """Never send a parameter on the strength of a dict that did not say
+    yes — that is exactly how the original bug shipped."""
+    assert L._supports({}, "thinking", "types", "adaptive") is False
+    assert L._supports({"thinking": None}, "thinking", "types") is False
+    assert L._supports({"thinking": {"types": {}}}, "thinking", "types", "adaptive") is False
+    assert L._supports({"a": {"supported": True}}, "a") is True
+    assert L._supports({"a": {"supported": False}}, "a") is False

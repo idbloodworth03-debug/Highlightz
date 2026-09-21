@@ -278,6 +278,16 @@ class Settings(BaseSettings):
     # the key; `llm_plan.configured()` checks for both.
     #   venv/bin/pip install anthropic   then   LLM_PROVIDER=anthropic
     anthropic_api_key: str = ""
+    # claude-opus-5 is $5/$25 per million tokens in/out; claude-haiku-4-5 is
+    # $1/$5 — five times cheaper on both halves, for a job that is choosing a
+    # window and writing two lines of copy. Try Haiku before paying for Opus.
+    #
+    # Models differ in what they ACCEPT, not just in price: adaptive thinking
+    # and `effort` are 4.6-and-later features and 400 on older ones. The
+    # builder asks the Models API what this model takes and shapes the
+    # request to match (`llm_plan._capabilities`), so changing this line is
+    # safe — but check `scripts/edit_preview.py --llm` after you do, because
+    # a rejected request falls back to the formula rather than erroring.
     llm_model: str = "claude-opus-5"
     # A clip that waits four minutes for a plan is a clip that missed its
     # slot. Past this the formula takes over and the post still goes out.
