@@ -12,15 +12,31 @@ everyone; captions are admin-only. Do not restate these from memory —
 getting it wrong once already meant telling the owner a live feature was
 switched off.
 
-## Production environment (facts, verified 2026-07-10)
+## Production environment (facts, hardware re-verified 2026-09-21)
 
-- Prod runs at `/opt/highlightz` on a DigitalOcean droplet (1vCPU/2GB,
-  IP 137.184.24.121). Operator is **root** — never use sudo in commands.
-- Deploy: `cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/magical-feynman-7Sp19 && systemctl restart highlightz`
+- Prod runs at `/opt/highlightz` on a DigitalOcean droplet, IP
+  137.184.24.121. Operator is **root** — never use sudo in commands.
+- **2 vCPU / 3.8 GiB RAM / NO SWAP**, measured on the box 2026-09-21
+  (`nproc`, `free -h`). This block said 1vCPU/2GB until then, which was the
+  pre-resize size and had been wrong since Aug 2026 — the droplet's
+  HOSTNAME is still `ubuntu-s-1vcpu-2gb-nyc1` because DigitalOcean keeps the
+  original name through a resize, so the hostname is not evidence of the
+  size. Run `nproc && free -h` before believing any number here.
+  - At idle with zero channels live: 846 MiB used, **3.0 GiB available**.
+    That is the BEST case — each live channel spawns streamlink plus an
+    ffmpeg audio meter, and Whisper loads lazily on the first caption job.
+  - **Swap is 0.** Nothing degrades gracefully here: an allocation that
+    exceeds available RAM does not get slow, it gets the OOM killer, which
+    picks the biggest process — the Python server running the whole product.
+  - The LIVE ceiling is derived from the core count (cores x 6 = 12), so
+    anything else that eats those cores makes that ceiling a lie.
+- Deploy: `cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && systemctl restart highlightz`
   - **Deploys never run `pip install`** — adding a dependency to
     requirements.txt requires a manual `venv/bin/pip install -r
     requirements.txt` on the droplet, or prod crash-loops on ImportError.
-- Working branch: `claude/magical-feynman-7Sp19` (push here, never elsewhere).
+- Working branch: `claude/handoff-context-n4badl` (push here, never
+  elsewhere). This line said `claude/magical-feynman-7Sp19` until
+  2026-09-21; deploying that branch would have reset prod to stale code.
 - Prod Python: `/opt/highlightz/venv/bin/python`.
 - **Service runs as the unprivileged `highlightz` user** under the hardened
   unit (`deploy/highlightz.service`: ProtectSystem=strict, NoNewPrivileges,
