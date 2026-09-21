@@ -31,7 +31,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.autopilot.plan import EditPlan, Segment, plan_duration, segment_starts
+from src.autopilot.plan import (SPLIT_TOP, EditPlan, Facecam, Segment,
+                                plan_duration, segment_starts)
 
 FPS = 30
 W, H = 1080, 1920
@@ -88,6 +89,74 @@ def _zoom_expr(zoom: str, length_s: float) -> str:
     return f"min(1.0+{per:.5f}*on,{ZOOM_MAX:.3f})"
 
 
+# The camera panel, as a fraction of the frame. Same number as the browser's
+# SPLIT_TOP, and imported from plan.py so it cannot drift from it.
+TOP_H = int(H * SPLIT_TOP)          # 768
+BOT_H = H - TOP_H                   # 1152
+# How wide the camera sits in the `corner` layout, and its margin.
+CORNER_W = int(W * 0.42)
+CORNER_PAD = 28
+
+
+def _cam_crop(cam: Facecam, pane_w: int, pane_h: int) -> str:
+    """A crop that takes the camera window out of the source.
+
+    EXPRESSED IN iw/ih, not in pixels, so the graph never has to know the
+    file's resolution — no probe, and a 720p clip and a 1080p clip give the
+    same picture.
+
+    This is the browser's arithmetic (aurora_html.py, the `split` branch)
+    written as ffmpeg expressions:
+
+        rw = iw / zoom                      the window's width
+        rh = rw * (pane_h / pane_w)         matched to the panel's shape
+        if rh > ih: rh = ih, rw = ih / A    can't be taller than the source
+
+    The conditional collapses into `min`, because rw is whichever of the two
+    is smaller — that is the same branch, without a branch.
+    """
+    aspect = pane_h / float(pane_w)
+    zoom = max(1.0, float(cam.zoom))
+    rw = f"min(iw/{zoom:.4f},ih/{aspect:.6f})"
+    # x/y clamp the window inside the frame, so an offset that would hang off
+    # the edge slides back rather than producing a black margin.
+    return (f"crop=w='{rw}':h='{rw}*{aspect:.6f}':"
+            f"x='max(0,min(iw-ow,(0.5+{cam.off_x:.4f})*iw-ow/2))':"
+            f"y='max(0,min(ih-oh,(0.5+{cam.off_y:.4f})*ih-oh/2))'")
+
+
+def _stack(i: int, cam: Facecam) -> str:
+    """Camera across the top, gameplay under it — the streamer-clip standard.
+
+    Three copies of the source: a blurred backdrop so no panel is ever a hard
+    black bar, the camera window filling the top exactly, and the WHOLE
+    gameplay frame contained in the bottom. Contained, not cropped: the
+    bottom panel is 1080x1152 and a 16:9 frame fits it at full width with
+    room to spare, so cropping there would throw away sides for nothing.
+    """
+    return (
+        f"[{i}:v]split=3[bg{i}][cam{i}][game{i}];"
+        f"[bg{i}]scale={W}:{H}:force_original_aspect_ratio=increase,"
+        f"crop={W}:{H},boxblur=24:6[bgb{i}];"
+        f"[cam{i}]{_cam_crop(cam, W, TOP_H)},scale={W}:{TOP_H}[camf{i}];"
+        f"[game{i}]scale={W}:{BOT_H}:force_original_aspect_ratio=decrease[gamef{i}];"
+        f"[bgb{i}][camf{i}]overlay=0:0[st{i}];"
+        f"[st{i}][gamef{i}]overlay=(W-w)/2:{TOP_H}+({BOT_H}-h)/2[fit{i}]"
+    )
+
+
+def _corner(i: int, cam: Facecam) -> str:
+    """Gameplay fills the frame, the camera blown up over its top-left."""
+    return (
+        f"[{i}:v]split=2[bg{i}][cam{i}];"
+        f"[bg{i}]scale={W}:{H}:force_original_aspect_ratio=increase,"
+        f"crop={W}:{H}[bgf{i}];"
+        f"[cam{i}]{_cam_crop(cam, CORNER_W, int(CORNER_W * 0.75))},"
+        f"scale={CORNER_W}:-2[camf{i}];"
+        f"[bgf{i}][camf{i}]overlay={CORNER_PAD}:{CORNER_PAD}[fit{i}]"
+    )
+
+
 def _fit(i: int, framing: str) -> str:
     """Source into a 1080x1920 frame, ending on a label this can zoom.
 
@@ -108,11 +177,26 @@ def _fit(i: int, framing: str) -> str:
             f"crop={W}:{H}[fit{i}]")
 
 
+def _compose(i: int, seg: Segment) -> str:
+    """One segment's source into a full 1080x1920 frame, ending on [fit{i}].
+
+    A camera layout wins over the plain framing, because `stack` already
+    decides what happens to the whole frame — there is no "blur, stacked".
+    `valid()` refuses a camera layout with no camera position, so by the
+    time this runs `seg.facecam` is really there.
+    """
+    if seg.layout == "stack" and seg.facecam:
+        return _stack(i, seg.facecam)
+    if seg.layout == "corner" and seg.facecam:
+        return _corner(i, seg.facecam)
+    return _fit(i, seg.framing)
+
+
 def _video_chain(i: int, seg: Segment) -> str:
     """One segment's picture: fit it to the frame, then move in it."""
     z = _zoom_expr(seg.zoom, seg.length)
     return (
-        f"{_fit(i, seg.framing)};"
+        f"{_compose(i, seg)};"
         f"[fit{i}]"
         f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"s={W}x{H}:fps={FPS},"

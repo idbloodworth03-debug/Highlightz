@@ -125,7 +125,8 @@ async def tags() -> list[dict]:
 
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
-                target_s: float = P.TARGET_S) -> tuple[P.EditPlan, dict]:
+                target_s: float = P.TARGET_S, mode: str = "clipper",
+                facecams: dict | None = None) -> tuple[P.EditPlan, dict]:
     """An EditPlan from your own model, or the formula's if anything goes wrong.
 
     The contract is identical to llm_plan.build — same arguments, same
@@ -133,11 +134,13 @@ async def build(clips: list[dict], sources: dict, *,
     downstream should be able to tell which one ran.
     """
     if not configured():
-        return formula(clips, sources, "Ollama not configured", target_s=target_s)
+        return formula(clips, sources, "Ollama not configured", target_s=target_s, mode=mode,
+                       facecams=facecams)
     if not any(c.get("id") in sources for c in clips):
-        return formula(clips, sources, "no clip has a file", target_s=target_s)
+        return formula(clips, sources, "no clip has a file", target_s=target_s, mode=mode,
+                       facecams=facecams)
 
-    payload = brief(clips, sources, transcripts)
+    payload = brief(clips, sources, transcripts, facecams)
     body = {
         "model": settings.ollama_model,
         "messages": [{"role": "system", "content": SYSTEM},
@@ -162,7 +165,8 @@ async def build(clips: list[dict], sources: dict, *,
                     model=settings.ollama_model)
         return formula(clips, sources,
                        f"Ollama did not answer in {settings.ollama_timeout_s:.0f}s",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
     except httpx.HTTPStatusError as exc:
         # A 404 here almost always means the model is not pulled, which is a
         # much more useful thing to say than the status code.
@@ -173,15 +177,18 @@ async def build(clips: list[dict], sources: dict, *,
                       + (f" (installed: {', '.join(filter(None, installed))})"
                          if installed else ""))
         log.warning("ollama_http_error", error=detail)
-        return formula(clips, sources, f"Ollama error: {detail}", target_s=target_s)
+        return formula(clips, sources, f"Ollama error: {detail}", target_s=target_s, mode=mode,
+                       facecams=facecams)
     except httpx.HTTPError as exc:
         log.warning("ollama_unreachable", error=str(exc)[:200], url=base_url())
         return formula(clips, sources,
                        f"Ollama unreachable at {base_url()}: {str(exc)[:80]}",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
     except (json.JSONDecodeError, ValueError) as exc:
         return formula(clips, sources, f"Ollama sent no JSON: {str(exc)[:80]}",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     try:
         text = (envelope.get("message") or {}).get("content") or ""
@@ -193,13 +200,16 @@ async def build(clips: list[dict], sources: dict, *,
         # a schema it does not understand and free-runs instead.
         log.warning("ollama_unreadable", error=str(exc)[:200])
         return formula(clips, sources, "Ollama returned nothing readable",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
 
-    plan, notes = coerce(data, sources, clips, target_s=target_s)
+    plan, notes = coerce(data, sources, clips, target_s=target_s,
+                         mode=mode, facecams=facecams)
     ok, why = P.valid(plan)
     if not ok:
         log.warning("ollama_plan_invalid", reason=why, notes=notes)
-        return formula(clips, sources, f"plan invalid: {why}", target_s=target_s)
+        return formula(clips, sources, f"plan invalid: {why}", target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     took = round(time.time() - t0, 2)
     log.info("llm_plan_built", provider="ollama", model=settings.ollama_model,

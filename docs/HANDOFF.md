@@ -1794,6 +1794,8 @@ needs a thumbnail and a caption for the video"):
 
 | the ask | where it lives |
 |---|---|
+| the face cam | `Segment.layout` + `Segment.facecam` |
+| clipper = 60s, streamer = whatever | `plan.limits_for(mode)` |
 | templates | `Segment.framing` — `fill` or `blur`, per shot |
 | auto captions | `EditPlan.captions`, written from the transcript |
 | transitions | `EditPlan.transition`, one xfade name |
@@ -1807,6 +1809,49 @@ drawn, so the real choice left is **fill** (crop to fill, biggest picture,
 the sides are gone) vs **blur** (whole frame over a blurred blow-up, nothing
 lost, picture smaller). Blur is the right answer when what matters is at the
 edge of a 16:9 shot — a killfeed, a scoreboard, a second player.
+
+**THE CAMERA (2026-09-21).** Owner: "Putting the face cam in the right spot"
+— named as the most important part, and the thing that separates an edited
+clip from a cropped one. A 16:9 source has the camera in a corner, and a
+9:16 centre crop throws it away entirely.
+
+`Segment.layout` is `none`, `stack` (camera across the top, gameplay under
+it — what the browser editor calls "Cam + game") or `corner` (gameplay full
+frame, camera blown up over it). `Segment.facecam` is WHERE the camera is,
+as `Facecam(off_x, off_y, zoom)` — **not a box, and deliberately the same
+three numbers `aurora_html.py` already uses**, so a position a user drags in
+the editor can be stored once per channel and replayed by the server with
+no conversion to get wrong. `SPLIT_TOP` is 0.4 in both, imported from
+plan.py so it cannot drift.
+
+The crop is written in `iw`/`ih` expressions rather than pixels, so the
+graph never probes a file and a 720p clip renders the same as a 1080p one.
+The browser's `if (rh > vh)` clamp collapses into a `min()` — same branch,
+without a branch.
+
+**THE RULE THAT PROTECTS A STRANGER'S FACE:** `valid()` refuses any camera
+layout on a segment with no `facecam`, and `coerce()` drops the layout (not
+the plan) when the model asks for one on a channel that has no recorded
+position. Without that, the crop lands wherever the default offset points —
+a patch of gameplay — and the finished video presents it to viewers as the
+streamer's face, on every clip from that channel, with no error anywhere.
+The model is told only `has_camera: true/false` per candidate; the position
+itself is never sent, because it is a fact about the channel rather than a
+judgement.
+
+**STILL TO DO for the camera: storage and a UI.** `build()` and `coerce()`
+take `facecams={channel: Facecam}` and the caller owns it — there is no
+per-channel store yet, so today every channel is `has_camera: false` and
+every layout is `none`. The editor already has the drag-to-place control;
+what is missing is saving that position against the channel and passing the
+map in. That is the next piece of work on this feature.
+
+**CLIPPER vs STREAMER** is one question — do you stitch? `plan.limits_for()`
+gives a clipper 60s from up to four clips and a streamer one clip at
+whatever length it is (still capped at 60). The mode is on the Autopilot
+config (`mode`, default `clipper`) and is carried through every fallback,
+because a streamer whose model call timed out must not get three of
+somebody's clips welded together.
 
 **CAPTION TIMING IS THE TRAP, and it is why `plan.segment_starts` exists.**
 The renderer shows a caption with `enable=between(t,…)`, where `t` is the

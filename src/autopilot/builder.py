@@ -60,7 +60,8 @@ def status() -> dict:
 
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
-                target_s: float = P.TARGET_S):
+                target_s: float = P.TARGET_S, mode: str = "clipper",
+                facecams: dict | None = None):
     """The edit plan for these clips, from whichever builder is configured.
 
     Returns (EditPlan, meta) exactly as each provider does, so a caller that
@@ -68,7 +69,8 @@ async def build(clips: list[dict], sources: dict, *,
     """
     name = provider()
     if name == "none":
-        return formula(clips, sources, "LLM_PROVIDER=none", target_s=target_s)
+        return formula(clips, sources, "LLM_PROVIDER=none", target_s=target_s,
+                       mode=mode, facecams=facecams)
 
     if name == "ollama":
         from src.autopilot import ollama_plan as impl
@@ -76,7 +78,8 @@ async def build(clips: list[dict], sources: dict, *,
         from src.autopilot import llm_plan as impl
 
     plan, meta = await impl.build(clips, sources, transcripts=transcripts,
-                                  target_s=target_s)
+                                  target_s=target_s, mode=mode,
+                                  facecams=facecams)
     if meta.get("source") == "formula" and meta.get("reason"):
         # Logged once, here, so a provider quietly failing on every clip is
         # visible in one place rather than in three different modules' logs.

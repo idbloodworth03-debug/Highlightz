@@ -42,9 +42,11 @@ SCHEMA = {
                     "end": {"type": "number"},
                     "zoom": {"type": "string", "enum": list(P.ZOOMS)},
                     "framing": {"type": "string", "enum": list(P.FRAMINGS)},
+                    "layout": {"type": "string", "enum": list(P.LAYOUTS)},
                     "why": {"type": "string"},
                 },
-                "required": ["clip_id", "start", "end", "zoom", "framing", "why"],
+                "required": ["clip_id", "start", "end", "zoom", "framing",
+                             "layout", "why"],
                 "additionalProperties": False,
             },
         },
@@ -116,6 +118,12 @@ WHERE TO CUT
 - With a transcript: start a few seconds before the line that sets the moment up, end on the reaction, and cut dead air.
 - Without one: the clip was cut around the moment with more lead-in than tail, so the moment sits roughly 55-65% of the way in. Keep the back half.
 
+THE CAMERA (per segment). A candidate marked `has_camera: true` has a known camera position on the source, so you may use a camera layout on it. On one marked false you MUST use "none" — there is no camera position, and anything else would crop a piece of gameplay and present it as somebody's face.
+- stack: camera across the top, gameplay under it. The streamer-clip standard. Use it whenever there is a camera and the moment is about the person — a reaction, a shout, a laugh. This is what makes a clip look edited rather than cropped.
+- corner: gameplay fills the frame with the camera blown up over the top-left. Use it when the gameplay is the moment and the face is the garnish.
+- none: no camera treatment. The only option without a camera, and the right one even with a camera when nothing about the moment is the person.
+A camera layout replaces the framing choice below, so do not expect blur and stack together.
+
 FRAMING (per segment — the source is 16:9 and the post is 9:16)
 - fill: crop to fill the frame. The biggest picture, and the default. What is outside a tall slice of the MIDDLE is gone.
 - blur: the whole frame, letterboxed over a blurred blow-up of itself. Nothing is lost, the picture is smaller. Use it when what matters sits at the edge of the shot — a killfeed, a scoreboard, a second player, anything the transcript implies is off to one side.
@@ -149,13 +157,21 @@ Write for a viewer who has never heard of this streamer. Never invent something 
 
 
 def formula(clips: list[dict], sources: dict, why: str,
-            *, target_s: float = P.TARGET_S) -> tuple[P.EditPlan, dict]:
+            *, target_s: float = P.TARGET_S, mode: str = "clipper",
+            facecams: dict | None = None) -> tuple[P.EditPlan, dict]:
     """The deterministic plan, with the reason the model did not supply one.
 
     Every failure path in every provider ends here. A post is never missed
     because a model was slow, down, or not configured.
+
+    `mode` and `facecams` are carried through rather than defaulted, because
+    a fallback that forgot them would quietly change the product: a streamer
+    whose model call timed out would get three of somebody's clips welded
+    together, and a channel with a known camera would lose its stacked
+    layout on exactly the posts where something already went wrong.
     """
-    return (P.build(clips, sources, target_s=target_s),
+    return (P.build(clips, sources, target_s=target_s, mode=mode,
+                    facecams=facecams),
             {"source": "formula", "reason": why, "copy": {}, "notes": []})
 
 
@@ -180,7 +196,8 @@ def _lines(transcript: list | None) -> list:
     return out
 
 
-def brief(clips: list[dict], sources: dict, transcripts: dict | None = None) -> dict:
+def brief(clips: list[dict], sources: dict, transcripts: dict | None = None,
+          facecams: dict | None = None) -> dict:
     """What the model is told, as plain data so a test can read it.
 
     Ranked the way the product ranks things, and capped — a model given
@@ -191,6 +208,7 @@ def brief(clips: list[dict], sources: dict, transcripts: dict | None = None) -> 
     this dict holds is what leaves the box.
     """
     transcripts = transcripts or {}
+    facecams = facecams or {}
     out = []
     for c in P.rank(clips):
         cid = c.get("id")
@@ -205,6 +223,11 @@ def brief(clips: list[dict], sources: dict, transcripts: dict | None = None) -> 
             "game": c.get("game") or c.get("category") or "",
             "highlight": bool(c.get("suggested")),
             "virality": round(float(c.get("virality_score") or 0), 1),
+            # Whether a camera layout is even available for this channel.
+            # The position itself is never sent: it is a fact about the
+            # channel, not a judgement, and the model does not need it to
+            # decide whether the moment is about the person.
+            "has_camera": (c.get("channel") or "") in facecams,
         }
         lines = _lines(transcripts.get(cid))
         if lines:
@@ -219,7 +242,8 @@ def brief(clips: list[dict], sources: dict, transcripts: dict | None = None) -> 
 # ── the model's answer, made safe ────────────────────────────────────────────
 
 def coerce(data: dict, sources: dict, clips: list[dict],
-           *, target_s: float = P.TARGET_S) -> tuple[P.EditPlan, list[str]]:
+           *, target_s: float = P.TARGET_S, mode: str = "clipper",
+           facecams: dict | None = None) -> tuple[P.EditPlan, list[str]]:
     """The model's JSON as an EditPlan that cannot hurt anything.
 
     THE ONE RULE: the model names a clip id, never a path. This resolves the
@@ -234,10 +258,12 @@ def coerce(data: dict, sources: dict, clips: list[dict],
     """
     notes: list[str] = []
     by_id = {c.get("id"): c for c in clips}
+    facecams = facecams or {}
+    _target, max_segments = P.limits_for(mode)
     segments: list[P.Segment] = []
     budget = target_s
 
-    for raw in (data.get("segments") or [])[:P.MAX_SEGMENTS]:
+    for raw in (data.get("segments") or [])[:max_segments]:
         if not isinstance(raw, dict):
             notes.append("segment was not an object")
             continue
@@ -273,10 +299,19 @@ def coerce(data: dict, sources: dict, clips: list[dict],
 
         zoom = raw.get("zoom") if raw.get("zoom") in P.ZOOMS else "punch"
         framing = raw.get("framing") if raw.get("framing") in P.FRAMINGS else "fill"
+        channel = by_id.get(cid, {}).get("channel") or ""
+        cam = facecams.get(channel)
+        layout = raw.get("layout") if raw.get("layout") in P.LAYOUTS else "none"
+        if layout != "none" and cam is None:
+            # It asked for a camera on a channel with no camera position.
+            # Refusing the layout rather than the plan: the cut is still
+            # good, it just gets framed instead of stacked.
+            notes.append(f"{layout!r} asked for on {channel!r}, which has no camera")
+            layout = "none"
         segments.append(P.Segment(
             src=str(path), start=round(start, 3), end=round(end, 3), zoom=zoom,
-            framing=framing, clip_id=cid,
-            channel=(by_id.get(cid, {}).get("channel") or "")))
+            framing=framing, layout=layout, facecam=cam if layout != "none" else None,
+            clip_id=cid, channel=channel))
         budget = target_s - P.plan_duration(
             P.EditPlan(segments=segments, trans_dur=P.TRANS_DUR))
 

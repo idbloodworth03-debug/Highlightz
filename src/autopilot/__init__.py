@@ -28,6 +28,11 @@ from datetime import datetime, timedelta, timezone
 
 TEMPLATES = ("full", "blur", "punch", "hook")
 TIMINGS = ("now", "spaced", "daily")
+# Clipper or streamer — the one question is whether clips get stitched.
+# See plan.limits_for(): a clipper fills to 60s from up to four clips, a
+# streamer posts one clip edited well. Owner: "I need it to be a minute long
+# for clippers. Streamers it does not really matter for."
+MODES = ("clipper", "streamer")
 PLATFORMS = ("youtube", "tiktok", "instagram")
 CAPTION_MAX = 2200
 TITLE_MAX = 60
@@ -35,6 +40,7 @@ TITLE_MAX = 60
 DEFAULT = {
     "enabled": False,
     "template": "full",
+    "mode": "clipper",
     "platforms": [],
     "timing": "spaced",
     "spacing_h": 4,            # for "spaced"
@@ -53,6 +59,7 @@ def normalize(raw: dict | None) -> dict:
     cfg = dict(DEFAULT)
     cfg["enabled"] = bool(raw.get("enabled", False))
     cfg["template"] = raw.get("template") if raw.get("template") in TEMPLATES else DEFAULT["template"]
+    cfg["mode"] = raw.get("mode") if raw.get("mode") in MODES else DEFAULT["mode"]
     cfg["platforms"] = [p for p in (raw.get("platforms") or []) if p in PLATFORMS][:3]
     cfg["timing"] = raw.get("timing") if raw.get("timing") in TIMINGS else DEFAULT["timing"]
     try:

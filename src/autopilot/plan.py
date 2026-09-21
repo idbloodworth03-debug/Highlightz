@@ -58,10 +58,51 @@ ZOOMS = ("none", "punch", "drift", "pull")
 #         Nothing is lost; the picture is smaller.
 FRAMINGS = ("fill", "blur")
 
+# What to do with the streamer's camera. The source is one 16:9 frame with a
+# camera box somewhere in it; these are the ways that becomes a 9:16 post.
+#   none    the camera is not treated specially. Whatever a crop keeps, it
+#           keeps — usually nothing, because cameras sit in corners.
+#   stack   camera across the top, gameplay under it. The streamer-clip
+#           standard, and the same thing the browser editor calls "Cam +
+#           game". SPLIT_TOP there is 0.4, and it is 0.4 here.
+#   corner  gameplay fills the frame, camera blown up over it.
+LAYOUTS = ("none", "stack", "corner")
+SPLIT_TOP = 0.4          # must match SPLIT_TOP in aurora_html.py
+
+# Clipper or streamer, which is one question — do you stitch? (owner,
+# 2026-09-21: "I need it to be a minute long for clippers. Streamers it does
+# not really matter for.")
+#   clipper   fill to 60s, stitching up to MAX_SEGMENTS clips together.
+#             A clipper is making content, and the length is the format.
+#   streamer  one clip, edited well, whatever length it is. A streamer
+#             posting their own moment does not want it welded to two others.
+MODES = ("clipper", "streamer")
+
 TARGET_S = 60.0          # TikTok and Shorts both treat 60s as the ceiling
 TRANS_DUR = 0.5
 MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
 MAX_SEGMENTS = 4
+
+
+@dataclass
+class Facecam:
+    """Where the camera is in the source, as the browser editor already says it.
+
+    NOT a box. `aurora_html.py`'s split layout parameterises the camera
+    window as an OFFSET FROM CENTRE plus a tightness, and these are the same
+    three numbers with the same meanings — so a position a user dragged in
+    the editor can be stored once and reused by the server verbatim, with no
+    conversion to get wrong.
+
+    off_x/off_y are fractions of the source frame away from its centre, so
+    (0, 0) is the middle and (-0.38, 0.32) is down and to the left, where a
+    camera usually sits. `zoom` is how tight the window is: 2.4 keeps about
+    a 40% wide slice. All three are resolution-independent, which is why the
+    filtergraph can be built without probing the file.
+    """
+    off_x: float = 0.0
+    off_y: float = 0.0
+    zoom: float = 2.4
 
 
 @dataclass
@@ -72,6 +113,11 @@ class Segment:
     end: float
     zoom: str = "punch"
     framing: str = "fill"
+    layout: str = "none"
+    # Where this channel's camera is. None means nobody ever said, and that
+    # is exactly why `valid` refuses a camera layout without one: guessing
+    # would crop a piece of gameplay and present it as somebody's face.
+    facecam: Facecam | None = None
     # Carried for the caption writer and for debugging a bad cut, never used
     # by the renderer.
     clip_id: str = ""
@@ -189,6 +235,14 @@ def valid(plan: EditPlan) -> tuple[bool, str]:
             return False, f"unknown zoom {s.zoom!r}"
         if s.framing not in FRAMINGS:
             return False, f"unknown framing {s.framing!r}"
+        if s.layout not in LAYOUTS:
+            return False, f"unknown layout {s.layout!r}"
+        # THE RULE THAT MATTERS: a camera layout needs a camera position.
+        # Without one the crop would take whatever happens to be at the
+        # default offset — a patch of gameplay, shown to a viewer as the
+        # streamer's face, on every clip from that channel.
+        if s.layout != "none" and s.facecam is None:
+            return False, f"layout {s.layout!r} with no facecam position"
     if plan.transition not in TRANSITIONS:
         return False, f"unknown transition {plan.transition!r}"
     # A transition longer than the shot it joins would consume the whole shot.
@@ -267,9 +321,24 @@ def _sfx_for(plan: EditPlan) -> list[Sfx]:
     return cues
 
 
+def limits_for(mode: str) -> tuple[float, int]:
+    """(target seconds, how many clips may be stitched) for a mode.
+
+    The whole clipper/streamer difference is here. A clipper is making
+    content and sixty seconds is the format, so stitch up to four. A
+    streamer is posting their own moment and does not want it welded to two
+    others, so one clip, at whatever length it is — TARGET_S still caps it,
+    because nothing posts longer than a minute.
+    """
+    if mode == "streamer":
+        return TARGET_S, 1
+    return TARGET_S, MAX_SEGMENTS
+
+
 def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
           title: str = "", captions: list | None = None,
-          transition: str = "slideleft") -> EditPlan:
+          transition: str = "slideleft", mode: str = "clipper",
+          facecams: dict | None = None) -> EditPlan:
     """An edit plan from the highest-ranked clips that have a file.
 
     `clips` are candidate clip records; `sources` maps clip id to the path of
@@ -281,11 +350,13 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
     already runs sixty seconds is a perfectly good edit and gets left alone.
     """
     ranked = [c for c in rank(clips) if c.get("id") in sources]
+    facecams = facecams or {}
+    _target, max_segments = limits_for(mode)
     segments: list[Segment] = []
     remaining = target_s
 
     for c in ranked:
-        if len(segments) >= MAX_SEGMENTS or remaining < MIN_SEGMENT_S:
+        if len(segments) >= max_segments or remaining < MIN_SEGMENT_S:
             break
         path, duration = sources[c["id"]]
         if duration < MIN_SEGMENT_S:
@@ -296,12 +367,18 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
         seg_len = end - start
         if seg_len < MIN_SEGMENT_S:
             continue
+        channel = c.get("channel", "")
+        cam = facecams.get(channel)
         segments.append(Segment(
             src=str(path), start=round(start, 3), end=round(end, 3),
             # The opener punches in to grab attention; later shots drift so
             # the whole thing is not one repeated move.
             zoom="punch" if not segments else ("drift" if len(segments) % 2 else "pull"),
-            clip_id=c.get("id", ""), channel=c.get("channel", ""),
+            # The formula stacks whenever it knows where the camera is: a
+            # clip with a visible streamer reads as edited, and a 16:9 crop
+            # that cuts the camera off reads as a repost.
+            layout="stack" if cam else "none", facecam=cam,
+            clip_id=c.get("id", ""), channel=channel,
         ))
         remaining = target_s - plan_duration(EditPlan(segments=segments,
                                                      trans_dur=TRANS_DUR))

@@ -141,20 +141,23 @@ def configured() -> bool:
 
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
-                target_s: float = P.TARGET_S) -> tuple[P.EditPlan, dict]:
+                target_s: float = P.TARGET_S, mode: str = "clipper",
+                facecams: dict | None = None) -> tuple[P.EditPlan, dict]:
     """An EditPlan from Claude, or the formula's if anything goes wrong.
 
     Returns (plan, meta). `meta["source"]` is "llm" or "formula" and
     `meta["reason"]` says why when it is the latter.
     """
     if not configured():
-        return formula(clips, sources, "Anthropic not configured", target_s=target_s)
+        return formula(clips, sources, "Anthropic not configured", target_s=target_s, mode=mode,
+                       facecams=facecams)
     if not any(c.get("id") in sources for c in clips):
-        return formula(clips, sources, "no clip has a file", target_s=target_s)
+        return formula(clips, sources, "no clip has a file", target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     import anthropic
 
-    payload = brief(clips, sources, transcripts)
+    payload = brief(clips, sources, transcripts, facecams)
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     model = settings.llm_model
     t0 = time.time()
@@ -168,7 +171,8 @@ async def build(clips: list[dict], sources: dict, *,
         log.warning("llm_plan_timeout", seconds=settings.llm_timeout_s)
         return formula(clips, sources,
                        f"model did not answer in {settings.llm_timeout_s:.0f}s",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
     except anthropic.BadRequestError as exc:
         # Said separately from the rest because it means WE built a bad
         # request — a parameter this model does not take, or a model id that
@@ -177,17 +181,20 @@ async def build(clips: list[dict], sources: dict, *,
         log.warning("llm_plan_bad_request", model=model, error=str(exc)[:300])
         return formula(clips, sources,
                        f"{model} rejected the request: {str(exc)[:120]}",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
     except anthropic.APIError as exc:
         # Covers connection, status and rate-limit errors alike; every one of
         # them means the same thing here, which is: use the formula.
         log.warning("llm_plan_api_error", error=str(exc)[:300])
         return formula(clips, sources, f"API error: {str(exc)[:120]}",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     if resp.stop_reason == "refusal":
         log.warning("llm_plan_refused")
-        return formula(clips, sources, "model declined the clip", target_s=target_s)
+        return formula(clips, sources, "model declined the clip", target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     try:
         text = next(b.text for b in resp.content if b.type == "text")
@@ -195,13 +202,16 @@ async def build(clips: list[dict], sources: dict, *,
     except (StopIteration, AttributeError, json.JSONDecodeError) as exc:
         log.warning("llm_plan_unreadable", error=str(exc)[:200])
         return formula(clips, sources, "model returned nothing readable",
-                       target_s=target_s)
+                       target_s=target_s, mode=mode,
+                       facecams=facecams)
 
-    plan, notes = coerce(data, sources, clips, target_s=target_s)
+    plan, notes = coerce(data, sources, clips, target_s=target_s,
+                         mode=mode, facecams=facecams)
     ok, why = P.valid(plan)
     if not ok:
         log.warning("llm_plan_invalid", reason=why, notes=notes)
-        return formula(clips, sources, f"plan invalid: {why}", target_s=target_s)
+        return formula(clips, sources, f"plan invalid: {why}", target_s=target_s, mode=mode,
+                       facecams=facecams)
 
     usage = getattr(resp, "usage", None)
     log.info("llm_plan_built", provider="anthropic", model=model,
