@@ -3478,7 +3478,8 @@ suggestions turn out to be a Pro-shaped feature.
 ## Queued nice-to-haves
 
 Discord webhook notifications on clip_ready (top retention idea), edit_url
-"Extend to 60s" button, per-promo-code signup tracking in admin, first-run
-onboarding flow, "trial ending soon" notice for admin-granted trials,
+"Extend to 60s" button, per-promo-code signup tracking in admin,
+~~first-run onboarding flow~~ (shipped 2026-09-21, see "Onboarding: two
+questions" above), "trial ending soon" notice for admin-granted trials,
 streamer partnership (clips-first DM, free Pro + custom code + $5/paid
 signup; target a 300–1,000 viewer streamer).
