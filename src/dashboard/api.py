@@ -11852,6 +11852,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <ul>
     <li><strong>Twitch</strong> — for authentication and for creating clips on your behalf. Governed by Twitch's Privacy Notice.</li>
     <li><strong>Stripe</strong> — for payment processing. Governed by Stripe's Privacy Policy.</li>
+    <li><strong>Anthropic</strong> — where you switch on the automatic editor, to decide how a clip is cut and to write its caption. We send the clip's details (the channel, the stream title, the game, how long it is) and, if you have auto-captions switched on, the transcript of what was said. We never send the video file itself, your email address, or your account details. Governed by Anthropic's Privacy Policy.</li>
   </ul>
   <p>We may disclose your information if required by law, regulation, or valid legal process.</p>
 

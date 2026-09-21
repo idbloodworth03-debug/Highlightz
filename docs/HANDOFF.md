@@ -1654,6 +1654,98 @@ step. Score badges are 44px. Spacing stays on the scale (a 44px margin
 tripped the token test; it is 48). Checked in the harness
 (`scratchpad/ed/vod_shot.js`: empty, a done job with moments, phone).
 
+## The auto-edit is a PLAN, and the model is one of two builders (2026-09-19/21)
+
+Owner (2026-09-19): "I really just want to build out the auto editing part…
+we might have to add an llm to be the brains of the operation", and the brief
+was specific — 60 seconds, sound effects and transitions throughout, framing
+that moves, good enough that "you can call it your content now and monetize
+off of the crp on TikTok". Then (2026-09-21): "I want to get the LLM added to
+the site to help with the auto pilot workflow."
+
+**The shape, and why it is two pieces.** `render.py` took a template name and
+did one fixed thing to one clip — a static crop, a title, fades. That is not
+an edit. It is now split:
+
+    a BUILDER decides what the video should be   ->  EditPlan
+    the RENDERER turns that into one ffmpeg run
+
+- `src/autopilot/plan.py` — the `EditPlan` contract (`Segment`, `Sfx`,
+  transition, title, captions, `source`), `valid()`, and the **deterministic
+  builder**. Highlights first, then virality; keeps the TAIL of a clip
+  because the presets put more pre-roll than post-roll, so the moment sits
+  55–65% in.
+- `src/autopilot/graph.py` — the whole ffmpeg command. Knows nothing about
+  where a plan came from.
+- `src/autopilot/sfx.py` — the five effects the browser editor synthesizes,
+  generated once into WAVs and mixed in. The server reproduced none of them
+  before, so every automatic edit went out silent.
+- `src/autopilot/llm_plan.py` — the **model builder** (added 2026-09-21).
+
+**The arithmetic that is not a preference.** `xfade` OVERLAPS, so joins
+SUBTRACT: `total = sum(lengths) - joins × trans_dur`. Three 22s segments at
+0.5s is 65s, not 66. Everything goes through `plan_duration()` so the builder
+and the renderer cannot disagree, `_offsets()` computes each join once for
+video, audio and sound alike, and the system prompt states the rule outright
+("two 30s segments make 59.5s") because a model told to "add up to 60"
+returns a plan half a second short every time.
+
+**What the model can actually see**, which is the design constraint: it
+cannot watch the video. It gets the channel, stream title, game, duration,
+whether the moment was flagged as a highlight, the virality score, and — when
+`CAPTIONS_ENABLED=true` — the Whisper transcript with timestamps. The
+transcript is the only thing on that list that says what HAPPENS, so the trim
+is markedly better with captions on and a positional guess without them.
+
+**What it is not allowed to decide.** It never sees or returns a file path —
+it returns a clip id and `llm_plan` resolves the path from `sources`. A model
+that could name a path could name `/etc/passwd` and ffmpeg would read it.
+Every number comes back clamped to the real duration of the real file:
+out-points past the end are pulled back, inside-out windows are opened,
+over-long cuts are trimmed to the 60s target, invented zooms/transitions/sfx
+fall back to real ones, cues outside the video are dropped, gain is capped at
+0.9 so an effect cannot bury the speech, and an answer with no cues at all
+gets the formula's.
+
+**Every failure lands on the formula.** No key, no package, a timeout, an API
+error, a refusal, unreadable JSON, or a plan that fails `valid()` → the
+deterministic plan, with a reason in `meta["reason"]`. A post is never missed
+because a model was busy. That is asserted once per failure mode in
+`tests/test_llm_plan.py` (36 tests, none of which call the API).
+
+**Call shape** (`claude-opus-5`): adaptive thinking — `budget_tokens` is a
+400 on this model — structured output via `output_config.format` with a
+json_schema whose enums are generated from `plan.py`'s own tuples, so the
+schema cannot offer a transition the renderer does not have. No assistant
+prefill. `max_tokens=8000`, effort `medium`, 90s timeout.
+
+**Privacy.** This sends clip metadata and transcripts to a third party, so
+the Privacy Policy Section 3 now names **Anthropic** alongside Twitch and
+Stripe, and says what is sent (details + transcript) and what is not (the
+video, the email, the account). That line went in with the feature, not
+after it. The brief carries no path and no account identifier — asserted.
+
+**Switching it on, in this order:**
+
+    venv/bin/pip install anthropic          # deploys do NOT run pip install
+    ANTHROPIC_API_KEY=sk-…  AUTOPILOT_LLM=true   in /opt/highlightz/.env
+
+Off by default. `llm_plan.configured()` checks the flag, the key AND that the
+package imports, because a box can easily have the key and not the package.
+
+**STILL NOT WIRED INTO AUTOPILOT, deliberately.** `runner.py` still calls the
+old `render.py`. The blocker is evidence, not code: ffmpeg is not installed
+in the dev container, so `graph.py` is written blind and asserted as a
+string. Run this on PROD first and paste the output back:
+
+    cd /opt/highlightz && venv/bin/python scripts/edit_preview.py
+
+It builds a plan from real approved clips, generates the sound effects, runs
+the real command and reports the duration, size and streams — touching
+nothing a user can see and posting nothing. `--dry-run` prints the plan and
+the command instead. Only after a clean render does the wiring follow, and
+the owner's choice was to **keep human approval** before anything posts.
+
 ## Settings tab does things (2026-09-16)
 
 Owner: "This settings tab basically does nothing." It was a read-only grid

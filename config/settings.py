@@ -259,6 +259,27 @@ class Settings(BaseSettings):
     captions_initial_prompt: str = ("Live Twitch stream. A streamer reacts and "
                                     "commentates over gameplay, with chat.")
 
+    # THE MODEL THAT DECIDES THE EDIT (src/autopilot/llm_plan.py).
+    #
+    # Off by default for two reasons and both of them matter. It sends clip
+    # metadata and, where they exist, transcripts to Anthropic — a third
+    # party the Privacy Policy has to name before a single clip goes out that
+    # way (it does now, Section 3). And it costs money per clip, which the
+    # deterministic builder in plan.py does not; that builder stays the
+    # fallback for every failure, so turning this off is always safe and
+    # never loses a post.
+    #
+    # Deploys do not run `pip install`, so the `anthropic` package can be
+    # missing on a box whose .env has the key. `llm_plan.configured()`
+    # checks for both and falls back quietly rather than crashing a render.
+    #   venv/bin/pip install anthropic   then   AUTOPILOT_LLM=true
+    autopilot_llm: bool = False
+    anthropic_api_key: str = ""
+    llm_model: str = "claude-opus-5"
+    # A clip that waits four minutes for a plan is a clip that missed its
+    # slot. Past this the formula takes over and the post still goes out.
+    llm_timeout_s: float = 90.0
+
     # App behaviour
     log_level: str = "INFO"
     # Bind address for the dashboard server. Nginx proxies via localhost, so

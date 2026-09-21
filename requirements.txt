@@ -36,6 +36,14 @@ itsdangerous
 # droplet before setting CAPTIONS_ENABLED=true.
 faster-whisper
 
+# The model that decides the auto-edit (src/autopilot/llm_plan.py). Like
+# faster-whisper above, it is NOT imported at startup — only inside the
+# builder, after settings say it is configured — so a box without it installed
+# boots and clips normally and every edit falls back to the formula in
+# plan.py. Deploys do not run pip install: `venv/bin/pip install anthropic` on
+# the droplet before setting AUTOPILOT_LLM=true.
+anthropic
+
 # Utilities
 pydantic
 pydantic-settings

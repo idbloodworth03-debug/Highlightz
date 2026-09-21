@@ -62,6 +62,10 @@ async def main() -> int:
                     help="print the plan and the command, run neither")
     ap.add_argument("--user", default="", help="limit to one account id")
     ap.add_argument("--out", default="/tmp/highlightz-edit-preview.mp4")
+    ap.add_argument("--llm", action="store_true",
+                    help="let the model build the plan instead of the formula "
+                         "(needs `pip install anthropic` + ANTHROPIC_API_KEY; "
+                         "falls back to the formula and says why if it cannot)")
     args = ap.parse_args()
 
     print("=" * 66)
@@ -99,7 +103,20 @@ async def main() -> int:
     if not sources:
         return 1
 
-    plan = P.build(pool, sources, title="")
+    meta: dict = {}
+    if args.llm:
+        # --llm goes through the same call Autopilot would make, including the
+        # fallback: if the key or the package is missing this prints the
+        # reason and renders the formula's plan rather than stopping.
+        from src.autopilot import llm_plan as L
+        print(f"\nLLM: configured={L.configured()}  model={settings.llm_model}")
+        plan, meta = await L.build(pool, sources)
+        if meta.get("reason"):
+            print(f"     fell back to the formula — {meta['reason']}")
+        for note in meta.get("notes") or []:
+            print(f"     note: {note}")
+    else:
+        plan = P.build(pool, sources, title="")
     ok, why = P.valid(plan)
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
@@ -109,6 +126,11 @@ async def main() -> int:
           f"   joins: {max(0, len(plan.segments)-1)}")
     print(f"  sound: " + ", ".join(f"{c.kind}@{c.at:.1f}s" for c in plan.sfx))
     print(f"  PREDICTED DURATION: {P.plan_duration(plan):.2f}s")
+    copy = meta.get("copy") or {}
+    if copy:
+        print(f"  title   : {copy.get('title') or '(none)'}")
+        print(f"  caption : {copy.get('caption') or '(none)'}")
+        print(f"  hashtags: {' '.join('#' + t for t in copy.get('hashtags') or [])}")
     if not ok:
         return 1
 
