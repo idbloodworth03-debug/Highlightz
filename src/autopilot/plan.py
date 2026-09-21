@@ -47,6 +47,17 @@ TRANSITIONS = ("fade", "slideleft", "slideright", "wipeleft", "circleopen", "dis
 # look like a repost, so "none" exists only as an escape hatch.
 ZOOMS = ("none", "punch", "drift", "pull")
 
+# How 16:9 source is fitted into a 9:16 frame — what render.py called a
+# "template". Of its four, only these two are really different: `punch` is now
+# the per-segment zoom above, and `hook` differed only in how the title was
+# drawn. What is left is the actual decision:
+#   fill  crop to fill the frame. Biggest picture, but the sides are GONE —
+#         wrong when the thing that matters is at the edge (a killfeed, a
+#         scoreboard, a second player).
+#   blur  the whole frame, letterboxed over a blurred blow-up of itself.
+#         Nothing is lost; the picture is smaller.
+FRAMINGS = ("fill", "blur")
+
 TARGET_S = 60.0          # TikTok and Shorts both treat 60s as the ceiling
 TRANS_DUR = 0.5
 MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
@@ -60,6 +71,7 @@ class Segment:
     start: float
     end: float
     zoom: str = "punch"
+    framing: str = "fill"
     # Carried for the caption writer and for debugging a bad cut, never used
     # by the renderer.
     clip_id: str = ""
@@ -88,7 +100,16 @@ class EditPlan:
     transition: str = "slideleft"
     trans_dur: float = TRANS_DUR
     title: str = ""
+    # [{start, end, text}] in FINISHED-TIMELINE seconds, which is what the
+    # renderer's `enable=between(t,...)` measures. A cue written against the
+    # source clip it came from would drift by one transition per join, so
+    # anything expressed in source time is converted through
+    # `timeline_time()` before it lands here.
     captions: list = field(default_factory=list)
+    # The cover frame, in finished-timeline seconds. -1 means nobody chose,
+    # so the caller picks; `thumb_text` is burned on if a font exists.
+    thumb_at: float = -1.0
+    thumb_text: str = ""
     # What produced this plan: "formula" or "llm". Recorded so a bad edit can
     # be traced to its author, and so the admin view can tell them apart.
     source: str = "formula"
@@ -105,6 +126,46 @@ def plan_duration(plan: EditPlan) -> float:
     total = sum(s.length for s in plan.segments)
     joins = len(plan.segments) - 1
     return max(0.0, total - joins * plan.trans_dur)
+
+
+def segment_starts(plan: EditPlan) -> list[float]:
+    """Where each segment begins on the FINISHED timeline.
+
+    Segment 0 starts at 0. Every one after it starts where its transition
+    begins, which is one transition earlier than the raw sum of the lengths
+    before it — because xfade OVERLAPS:
+
+        start_k = sum(L0..L(k-1)) - k * d
+
+    Three 22s segments at 0.5s give [0, 21.5, 43.0], and the last ends at
+    65.0, which is `plan_duration`. graph.py's join offsets are this list
+    without its first entry, and captions in source time are converted with
+    `timeline_time`. ONE piece of arithmetic, used by all three — three
+    copies is three chances to be one transition out.
+    """
+    out: list[float] = []
+    running = 0.0
+    for k, seg in enumerate(plan.segments):
+        out.append(round(running - k * plan.trans_dur, 3))
+        running += seg.length
+    return out
+
+
+def timeline_time(plan: EditPlan, seg_index: int, source_t: float) -> float:
+    """A moment inside a source clip, as a moment in the finished video.
+
+    `source_t` is measured in the ORIGINAL file (the same clock as
+    `Segment.start`), because that is the clock a transcript is written in.
+    Returns -1 for a time outside the segment's own window: a caption for a
+    line that was trimmed out has nowhere to go, and placing it anyway would
+    put words on screen over a different moment.
+    """
+    if not (0 <= seg_index < len(plan.segments)):
+        return -1.0
+    seg = plan.segments[seg_index]
+    if source_t < seg.start or source_t > seg.end:
+        return -1.0
+    return round(segment_starts(plan)[seg_index] + (source_t - seg.start), 3)
 
 
 def valid(plan: EditPlan) -> tuple[bool, str]:
@@ -126,16 +187,22 @@ def valid(plan: EditPlan) -> tuple[bool, str]:
             return False, f"segment shorter than {MIN_SEGMENT_S}s"
         if s.zoom not in ZOOMS:
             return False, f"unknown zoom {s.zoom!r}"
+        if s.framing not in FRAMINGS:
+            return False, f"unknown framing {s.framing!r}"
     if plan.transition not in TRANSITIONS:
         return False, f"unknown transition {plan.transition!r}"
     # A transition longer than the shot it joins would consume the whole shot.
     if plan.trans_dur <= 0 or plan.trans_dur > MIN_SEGMENT_S / 2:
         return False, "transition duration out of range"
+    total = plan_duration(plan)
     for c in plan.sfx:
         if c.kind not in SFX_KINDS:
             return False, f"unknown sfx {c.kind!r}"
-        if c.at < 0 or c.at > plan_duration(plan):
+        if c.at < 0 or c.at > total:
             return False, "sfx lands outside the video"
+    # -1 is "nobody chose"; anything else has to be a frame that exists.
+    if plan.thumb_at > total:
+        return False, "thumbnail lands outside the video"
     return True, ""
 
 

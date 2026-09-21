@@ -1788,6 +1788,50 @@ Two Ollama gotchas that cost an afternoon if you meet them cold: it binds to
 `OLLAMA_HOST=0.0.0.0 ollama serve`; and it has no auth of its own, so it
 belongs behind a tunnel or a firewall rule, never open to the internet.
 
+**WHAT THE MODEL DECIDES** (owner, 2026-09-21: "pick out the right templates
+for each video, provide auto captions, transitions, sound effects, it also
+needs a thumbnail and a caption for the video"):
+
+| the ask | where it lives |
+|---|---|
+| templates | `Segment.framing` — `fill` or `blur`, per shot |
+| auto captions | `EditPlan.captions`, written from the transcript |
+| transitions | `EditPlan.transition`, one xfade name |
+| sound effects | `EditPlan.sfx`, cues on the finished timeline |
+| thumbnail | `thumb_at` / `thumb_text`, a frame of the finished video |
+| caption for the post | `meta["copy"]` — caption + hashtags, not burnt in |
+
+`render.py` had four templates; only two were ever different framings.
+`punch` is now the per-segment zoom and `hook` only changed how the title was
+drawn, so the real choice left is **fill** (crop to fill, biggest picture,
+the sides are gone) vs **blur** (whole frame over a blurred blow-up, nothing
+lost, picture smaller). Blur is the right answer when what matters is at the
+edge of a 16:9 shot — a killfeed, a scoreboard, a second player.
+
+**CAPTION TIMING IS THE TRAP, and it is why `plan.segment_starts` exists.**
+The renderer shows a caption with `enable=between(t,…)`, where `t` is the
+FINISHED video's clock. The transcript the model reads is in the source
+clip's clock. Those differ by one transition per join, because xfade
+overlaps — so a cue left unconverted is right on the first shot and one more
+transition wrong on every shot after it: words over the wrong moment, no
+error anywhere, and worse the further into the video you watch. The model
+therefore returns captions and the thumbnail in SOURCE time against a
+`clip_id`, exactly as it does segments, and `llm_common._captions_onto_timeline`
+converts them through `plan.timeline_time`. `graph._offsets` is now
+`segment_starts()[1:]` rather than its own copy of the arithmetic — one
+implementation, used by the joins, the captions and the cover alike.
+
+A caption whose line was trimmed out is dropped; one that merely runs past
+the cut is clamped (the line IS on screen — dropping it whole loses a caption
+the viewer needed); and a clip used as two segments matches on the WINDOW as
+well as the id, or every cue would land on whichever copy came first.
+
+The cover frame is grabbed from the RENDER'S OWN OUTPUT, not from a source
+clip, so it shows the framing, the zoom and the burnt-in title the viewer
+will actually see. A plan that names no moment gets one a little way in —
+frame zero is mid-fade-from-black, and a black rectangle is worse than no
+cover.
+
 **A small model fails differently.** Ollama constrains the decoder with the
 schema, so the SHAPE comes back right — but semantic constraints (segment
 length, the join arithmetic, not inventing events) are followed far worse

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.autopilot.plan import EditPlan, Segment, plan_duration
+from src.autopilot.plan import EditPlan, Segment, plan_duration, segment_starts
 
 FPS = 30
 W, H = 1080, 1920
@@ -57,13 +57,13 @@ def _offsets(plan: EditPlan) -> list[float]:
     Join k happens once every shot before it has played, minus the transitions
     already spent: offset_k = sum(L0..Lk) - (k+1) * d. For one join that is
     simply L0 - d, which is the case worth holding in your head.
+
+    This is exactly where each segment AFTER the first begins, so it is
+    `plan.segment_starts` without its leading zero rather than a second
+    implementation — captions convert source time through the same list, and
+    two copies of this would be two chances to be one transition out.
     """
-    out: list[float] = []
-    running = 0.0
-    for k, seg in enumerate(plan.segments[:-1]):
-        running += seg.length
-        out.append(round(running - (k + 1) * plan.trans_dur, 3))
-    return out
+    return segment_starts(plan)[1:]
 
 
 def _zoom_expr(zoom: str, length_s: float) -> str:
@@ -88,13 +88,32 @@ def _zoom_expr(zoom: str, length_s: float) -> str:
     return f"min(1.0+{per:.5f}*on,{ZOOM_MAX:.3f})"
 
 
+def _fit(i: int, framing: str) -> str:
+    """Source into a 1080x1920 frame, ending on a label this can zoom.
+
+    `fill` crops to fill — the biggest picture, at the cost of everything
+    outside a 9:16 slice of the middle. `blur` keeps the whole frame over a
+    blurred, cropped blow-up of itself, which is what to use when the thing
+    that matters is at the edge of a 16:9 shot.
+    """
+    if framing == "blur":
+        return (
+            f"[{i}:v]split=2[bg{i}][fg{i}];"
+            f"[bg{i}]scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{H},boxblur=24:6[bgb{i}];"
+            f"[fg{i}]scale={W}:-2[fgs{i}];"
+            f"[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2[fit{i}]"
+        )
+    return (f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{H}[fit{i}]")
+
+
 def _video_chain(i: int, seg: Segment) -> str:
-    """One segment's picture: fill the vertical frame, then move in it."""
+    """One segment's picture: fit it to the frame, then move in it."""
     z = _zoom_expr(seg.zoom, seg.length)
     return (
-        f"[{i}:v]"
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
+        f"{_fit(i, seg.framing)};"
+        f"[fit{i}]"
         f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"s={W}x{H}:fps={FPS},"
         f"setsar=1,format=yuv420p[v{i}]"
@@ -205,6 +224,47 @@ def build_command(plan: EditPlan, dst: Path, sfx_paths: dict,
         str(dst),
     ]
     return args
+
+
+def thumb_time(plan: EditPlan) -> float:
+    """When to grab the cover frame.
+
+    A plan that named a moment gets it. One that did not gets a point a
+    little way into the opening shot — far enough in to be past the fade
+    from black, which is the frame you do NOT want representing the video.
+    """
+    total = plan_duration(plan)
+    if 0.0 <= plan.thumb_at <= total:
+        return plan.thumb_at
+    return round(min(1.5, total / 4.0), 3) if total > 0 else 0.0
+
+
+def build_thumbnail_command(plan: EditPlan, video: Path, dst: Path,
+                            *, font: str = "") -> list[str]:
+    """One frame out of the FINISHED video, as the cover image.
+
+    Taken from the render's own output rather than from a source clip, so
+    the thumbnail shows the framing, the zoom and the burnt-in title that
+    the viewer will actually see. Grabbing it from the source instead is how
+    you end up with a cover that looks nothing like the video.
+
+    `thumb_text` is drawn big when a font exists — a cover frame is read at
+    the size of a phone tile, so it is larger than the video's own title and
+    sits in the middle rather than the top.
+    """
+    at = thumb_time(plan)
+    chain = [f"scale={W}:{H}:force_original_aspect_ratio=increase", f"crop={W}:{H}"]
+    if font and plan.thumb_text:
+        chain.append(
+            f"drawtext=fontfile={font}:text='{_esc(plan.thumb_text)}':"
+            f"fontcolor=white:fontsize=96:box=1:boxcolor=black@0.5:boxborderw=24:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2")
+    return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            # -ss before -i seeks; one frame out, at high quality because a
+            # cover image is re-encoded by every platform that receives it.
+            "-ss", f"{at:.3f}", "-i", str(video),
+            "-vf", ",".join(chain), "-frames:v", "1", "-q:v", "2",
+            str(dst)]
 
 
 def _drop_missing_sfx(plan: EditPlan, sfx_paths: dict) -> EditPlan:

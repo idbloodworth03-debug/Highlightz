@@ -41,13 +41,42 @@ SCHEMA = {
                     "start": {"type": "number"},
                     "end": {"type": "number"},
                     "zoom": {"type": "string", "enum": list(P.ZOOMS)},
+                    "framing": {"type": "string", "enum": list(P.FRAMINGS)},
                     "why": {"type": "string"},
                 },
-                "required": ["clip_id", "start", "end", "zoom", "why"],
+                "required": ["clip_id", "start", "end", "zoom", "framing", "why"],
                 "additionalProperties": False,
             },
         },
         "transition": {"type": "string", "enum": list(P.TRANSITIONS)},
+        # Burnt-in subtitles. Timed in SOURCE seconds against the clip they
+        # belong to, because that is the clock the transcript the model is
+        # reading uses. `coerce` converts them to the finished timeline.
+        "captions": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "clip_id": {"type": "string"},
+                    "start": {"type": "number"},
+                    "end": {"type": "number"},
+                    "text": {"type": "string"},
+                },
+                "required": ["clip_id", "start", "end", "text"],
+                "additionalProperties": False,
+            },
+        },
+        "thumbnail": {
+            "type": "object",
+            "properties": {
+                "clip_id": {"type": "string"},
+                "at": {"type": "number"},
+                "text": {"type": "string"},
+            },
+            "required": ["clip_id", "at", "text"],
+            "additionalProperties": False,
+        },
         "sfx": {
             "type": "array",
             "maxItems": 12,
@@ -66,7 +95,8 @@ SCHEMA = {
         "caption": {"type": "string"},
         "hashtags": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
     },
-    "required": ["segments", "transition", "sfx", "title", "caption", "hashtags"],
+    "required": ["segments", "transition", "captions", "thumbnail", "sfx",
+                 "title", "caption", "hashtags"],
     "additionalProperties": False,
 }
 
@@ -86,10 +116,24 @@ WHERE TO CUT
 - With a transcript: start a few seconds before the line that sets the moment up, end on the reaction, and cut dead air.
 - Without one: the clip was cut around the moment with more lead-in than tail, so the moment sits roughly 55-65% of the way in. Keep the back half.
 
+FRAMING (per segment — the source is 16:9 and the post is 9:16)
+- fill: crop to fill the frame. The biggest picture, and the default. What is outside a tall slice of the MIDDLE is gone.
+- blur: the whole frame, letterboxed over a blurred blow-up of itself. Nothing is lost, the picture is smaller. Use it when what matters sits at the edge of the shot — a killfeed, a scoreboard, a second player, anything the transcript implies is off to one side.
+
 MOVEMENT
 - punch: lands zoomed in and settles. Use it on the opening shot.
 - drift / pull: a slow move across the shot. Use them on later shots so the whole thing is not one repeated move.
 - none: only when movement would hurt, e.g. on-screen text the viewer has to read.
+
+CAPTIONS (burnt onto the video — most of these are watched on mute)
+- Only when you were given a transcript. Never invent a line; if there is no transcript, return an empty list.
+- Do NOT transcribe verbatim. Break what was said into SHORT on-screen phrases — three to six words each, the way a caption pops on a clip, not a subtitle track.
+- Timed in seconds against THAT CLIP'S OWN FILE, the same clock as `start` and `end`, using the transcript's timings. A cue outside the window you kept is dropped, so do not caption a line you trimmed out.
+- Cover the moment itself and the reaction. Silence, filler and dead air get nothing.
+
+THUMBNAIL (the cover frame)
+- `clip_id` and `at` name a moment in that clip's own file, inside a window you kept. Pick the peak — the frame that makes somebody stop scrolling, not the first frame.
+- `text` is three or four huge words across the middle, or empty. It is read at the size of a phone tile. It is not the title again.
 
 SOUND
 - whoosh under each transition, hit on the landing right after it, riser into the open, pop and ding as accents on a punchline or a number appearing.
@@ -228,9 +272,11 @@ def coerce(data: dict, sources: dict, clips: list[dict],
             notes.append("trimmed a segment to the target length")
 
         zoom = raw.get("zoom") if raw.get("zoom") in P.ZOOMS else "punch"
+        framing = raw.get("framing") if raw.get("framing") in P.FRAMINGS else "fill"
         segments.append(P.Segment(
             src=str(path), start=round(start, 3), end=round(end, 3), zoom=zoom,
-            clip_id=cid, channel=(by_id.get(cid, {}).get("channel") or "")))
+            framing=framing, clip_id=cid,
+            channel=(by_id.get(cid, {}).get("channel") or "")))
         budget = target_s - P.plan_duration(
             P.EditPlan(segments=segments, trans_dur=P.TRANS_DUR))
 
@@ -268,7 +314,84 @@ def coerce(data: dict, sources: dict, clips: list[dict],
         # Silence is the one outcome this whole feature exists to avoid.
         plan.sfx = P._sfx_for(plan)
         notes.append("no usable cues, fell back to the formula's")
+
+    plan.captions = _captions_onto_timeline(data, plan, notes)
+    _thumbnail_onto_timeline(data, plan, notes)
     return plan, notes
+
+
+def _segment_for(plan: P.EditPlan, clip_id: str, source_t: float) -> int:
+    """Which segment shows that moment of that clip, or -1.
+
+    Matched on the WINDOW as well as the id, because one clip can appear as
+    two segments — a plan that opens and closes on the same clip is a normal
+    thing to want, and matching on the id alone would put every caption on
+    whichever one happened to come first.
+    """
+    for i, seg in enumerate(plan.segments):
+        if seg.clip_id == clip_id and seg.start <= source_t <= seg.end:
+            return i
+    return -1
+
+
+def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
+    """Caption cues in source time, converted to where they actually land.
+
+    THE BUG THIS EXISTS TO NOT HAVE: the renderer shows a caption with
+    `enable=between(t,...)`, where `t` is the finished video's clock. A cue
+    left in source time would be right on the first segment and wrong by one
+    transition more on each one after it — words appearing over the wrong
+    moment, getting worse down the video. `plan.timeline_time` does the
+    conversion, from the same arithmetic the joins use.
+    """
+    out = []
+    for raw in (data.get("captions") or [])[:40]:
+        if not isinstance(raw, dict):
+            continue
+        text = str(raw.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            src_start = float(raw.get("start"))
+            src_end = float(raw.get("end"))
+        except (TypeError, ValueError):
+            notes.append("caption with no usable timing")
+            continue
+        cid = str(raw.get("clip_id") or "")
+        idx = _segment_for(plan, cid, src_start)
+        if idx < 0:
+            # Almost always a line the model captioned out of a part of the
+            # clip it chose not to keep.
+            notes.append("dropped a caption outside every kept window")
+            continue
+        start = P.timeline_time(plan, idx, src_start)
+        # The out-point is clamped into the same segment: a cue whose end ran
+        # past the cut would otherwise be dropped whole, losing the caption
+        # for a line that IS on screen.
+        end = P.timeline_time(plan, idx, min(src_end, plan.segments[idx].end))
+        if start < 0 or end < 0 or end <= start:
+            notes.append("dropped a caption with an inside-out window")
+            continue
+        out.append({"start": start, "end": end, "text": text[:120]})
+    return out
+
+
+def _thumbnail_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> None:
+    """The cover frame, likewise converted. Left at -1 if it cannot be
+    placed, which the renderer reads as "pick one for me"."""
+    raw = data.get("thumbnail")
+    if not isinstance(raw, dict):
+        return
+    plan.thumb_text = str(raw.get("text") or "").strip()[:40]
+    try:
+        source_t = float(raw.get("at"))
+    except (TypeError, ValueError):
+        return
+    idx = _segment_for(plan, str(raw.get("clip_id") or ""), source_t)
+    if idx < 0:
+        notes.append("thumbnail moment is not in the cut; picking one")
+        return
+    plan.thumb_at = P.timeline_time(plan, idx, source_t)
 
 
 def copy_for(data: dict, plan: P.EditPlan) -> dict:

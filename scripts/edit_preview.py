@@ -114,7 +114,21 @@ async def main() -> int:
               f"  target={st['detail']}")
         if st["warning"]:
             print(f"     WARNING: {st['warning']}")
-        plan, meta = await builder.build(pool, sources)
+        # The transcript is the only input that says what HAPPENS, and it is
+        # what captions are written from. Cached ones only — this script must
+        # not kick off a Whisper pass on the box that is watching streams.
+        transcripts = {}
+        for cid in sources:
+            try:
+                from src.captions import transcribe as cap
+                payload = cap.load(clip_files.path_for(cid))
+                if payload:
+                    transcripts[cid] = payload.get("segments") or []
+            except Exception:
+                pass
+        print(f"     transcripts available for {len(transcripts)} of {len(sources)}"
+              + ("" if transcripts else "  (no captions will be written)"))
+        plan, meta = await builder.build(pool, sources, transcripts=transcripts)
         if meta.get("reason"):
             print(f"     fell back to the formula — {meta['reason']}")
         if meta.get("took"):
@@ -127,11 +141,19 @@ async def main() -> int:
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
         print(f"  {i+1}. {seg.channel or '?':<16} {seg.start:6.2f}–{seg.end:6.2f}s"
-              f"  ({seg.length:5.2f}s)  zoom={seg.zoom}")
+              f"  ({seg.length:5.2f}s)  zoom={seg.zoom}  framing={seg.framing}")
     print(f"  transition: {plan.transition} @ {plan.trans_dur}s"
           f"   joins: {max(0, len(plan.segments)-1)}")
     print(f"  sound: " + ", ".join(f"{c.kind}@{c.at:.1f}s" for c in plan.sfx))
     print(f"  PREDICTED DURATION: {P.plan_duration(plan):.2f}s")
+    print(f"  captions: {len(plan.captions)}")
+    for cue in plan.captions[:6]:
+        print(f"      {cue['start']:6.2f}–{cue['end']:6.2f}s  {cue['text']!r}")
+    if len(plan.captions) > 6:
+        print(f"      … and {len(plan.captions) - 6} more")
+    print(f"  cover   : {G.thumb_time(plan):.2f}s"
+          + (f"  text={plan.thumb_text!r}" if plan.thumb_text else "  (no text)")
+          + ("" if plan.thumb_at >= 0 else "   <- auto-picked, the plan chose none"))
     copy = meta.get("copy") or {}
     if copy:
         print(f"  title   : {copy.get('title') or '(none)'}")
@@ -155,9 +177,15 @@ async def main() -> int:
     cmd = G.build_command(plan, pathlib.Path(args.out), paths, font=font)
     print(f"\nFONT: {font or '(none — title and captions skipped)'}")
 
+    thumb_dst = pathlib.Path(args.out).with_suffix(".jpg")
+    thumb_cmd = G.build_thumbnail_command(plan, pathlib.Path(args.out),
+                                          thumb_dst, font=font)
+
     if args.dry_run:
         print("\nCOMMAND\n")
         print(" ".join(repr(a) if " " in a or ";" in a else a for a in cmd))
+        print("\nTHUMBNAIL COMMAND\n")
+        print(" ".join(repr(a) if " " in a or ";" in a else a for a in thumb_cmd))
         return 0
 
     print(f"\nRENDERING to {args.out} …")
@@ -184,7 +212,20 @@ async def main() -> int:
             print(f"  video    : {st.get('codec_name')} {st.get('width')}x{st.get('height')}")
         elif st.get("codec_type") == "audio":
             print(f"  audio    : {st.get('codec_name')}")
+    # The cover comes out of the finished file, so it runs after the render
+    # and a failure here costs the thumbnail, not the video.
+    tproc = await asyncio.create_subprocess_exec(
+        *thumb_cmd, stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE)
+    _o, terr = await tproc.communicate()
+    if tproc.returncode == 0 and thumb_dst.exists():
+        print(f"  cover    : {thumb_dst}  ({thumb_dst.stat().st_size // 1024} KB"
+              f" at {G.thumb_time(plan):.2f}s)")
+    else:
+        print(f"  cover    : FAILED — {(terr or b'').decode()[-400:]}")
+
     print(f"\nWatch it:  scp root@$(hostname):{args.out} .")
+    print(f"See cover: scp root@$(hostname):{thumb_dst} .")
     return 0
 
 
