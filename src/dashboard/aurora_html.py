@@ -227,10 +227,14 @@ button{font-family:inherit;cursor:pointer}
 .glass{background:var(--panel);border:1px solid var(--hair);-webkit-backdrop-filter:blur(22px) saturate(140%);backdrop-filter:blur(22px) saturate(140%)}
 .rd-header{display:flex;align-items:center;gap:16px;padding:0 24px;border-bottom:1px solid var(--hair);
   background:rgba(10,10,14,.55);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px);z-index:5}
-.rd-live{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--live);
-  background:var(--live-soft);padding:4px 12px;border-radius:var(--r-pill);border:1px solid rgba(46,224,138,.25)}
-.rd-live .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:ping 2s infinite}
-@keyframes ping{0%{box-shadow:0 0 0 0 rgba(46,224,138,.5)}70%{box-shadow:0 0 0 7px rgba(46,224,138,0)}100%{box-shadow:0 0 0 0 rgba(46,224,138,0)}}
+/* Hardcoded to the Highlightz brand purple (the --acc default), not var(--acc)
+   itself: .kick-theme reassigns --acc to Kick's brand green, and this badge
+   is a fixed brand mark that must stay purple on both platforms, the same
+   way the --live green it replaced was constant across platforms. */
+.rd-live{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#c489e4;
+  background:rgba(196,137,228,.14);padding:4px 12px;border-radius:var(--r-pill);border:1px solid rgba(196,137,228,.35)}
+.rd-live .dot{width:7px;height:7px;border-radius:50%;background:#c489e4;animation:ping 2s infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(196,137,228,.5)}70%{box-shadow:0 0 0 7px rgba(196,137,228,0)}100%{box-shadow:0 0 0 0 rgba(196,137,228,0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .rd-search{flex:1;max-width:420px;position:relative}
 .rd-search input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-pill);
