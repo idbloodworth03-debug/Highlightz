@@ -193,7 +193,18 @@ def _compose(i: int, seg: Segment) -> str:
 
 
 def _video_chain(i: int, seg: Segment) -> str:
-    """One segment's picture: fit it to the frame, then move in it."""
+    """One segment's picture: fit it to the frame, then move in it.
+
+    A STATIC SHOT SKIPS zoompan ENTIRELY rather than running it with z='1'.
+    Measured on production 2026-09-22: a single-segment 60s render was
+    OOM-killed asking for 3.1 GB on an otherwise idle 3.8 GB box — ffmpeg
+    alone, nothing else competing. zoompan is the filter in this chain with
+    a reputation for exactly that, and running it to do nothing was pure
+    cost. `zoom="none"` is now genuinely free.
+    """
+    if seg.zoom == "none":
+        return (f"{_compose(i, seg)};"
+                f"[fit{i}]setsar=1,format=yuv420p[v{i}]")
     z = _zoom_expr(seg.zoom, seg.length)
     return (
         f"{_compose(i, seg)};"

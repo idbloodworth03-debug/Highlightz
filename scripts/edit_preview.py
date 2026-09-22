@@ -61,6 +61,12 @@ async def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan and the command, run neither")
     ap.add_argument("--user", default="", help="limit to one account id (prefix ok)")
+    ap.add_argument("--no-motion", action="store_true",
+                    help="render every shot statically — skips the zoompan "
+                         "filter. On prod 2026-09-22 a 60s render was "
+                         "OOM-killed asking for 3.1 GB on an idle 3.8 GB box, "
+                         "and zoompan is the suspect. Use this to get a "
+                         "watchable file and to confirm the diagnosis.")
     ap.add_argument("--any-status", action="store_true",
                     help="render from ANY clip that has a file, not just "
                          "approved ones. Autopilot only ever edits approved "
@@ -179,6 +185,10 @@ async def main() -> int:
             print(f"     note: {note}")
     else:
         plan = P.build(pool, sources, title="")
+    if args.no_motion:
+        for seg in plan.segments:
+            seg.zoom = "none"
+        print("\n--no-motion: every shot is static, zoompan is not in the graph")
     ok, why = P.valid(plan)
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
