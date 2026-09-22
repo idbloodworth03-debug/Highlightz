@@ -6380,7 +6380,10 @@ async def admin_edit_preview(request: Request, ext: str = ".mp4"):
     _require_admin(request)
     if ext not in (".mp4", ".jpg"):
         raise HTTPException(status_code=404, detail="Not found")
-    path = Path(f"/tmp/highlightz-edit-preview{ext}")
+    # The app's storage directory, not /tmp: the unit is hardened and gets a
+    # PRIVATE /tmp, so anything the preview script writes to the real /tmp is
+    # in a different namespace from this process and 404s here.
+    path = Path(settings.local_storage_path) / f"edit-preview{ext}"
     if not path.is_file():
         raise HTTPException(
             status_code=404,

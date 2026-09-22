@@ -541,9 +541,12 @@ def test_the_edit_preview_viewer_is_not_a_file_server():
     from src.dashboard import api
     src = inspect.getsource(api.admin_edit_preview)
     assert 'ext not in (".mp4", ".jpg")' in src, "the extension is not allow-listed"
-    assert "/tmp/highlightz-edit-preview" in src, "the path is not fixed in code"
-    # The only interpolation into the path is the checked extension.
-    assert src.count("Path(f\"") == 1
+    # The directory comes from settings and the filename is a literal; the
+    # only thing interpolated is the extension, which was allow-listed above.
+    assert 'local_storage_path) / f"edit-preview{ext}"' in src, \
+        "the path is no longer built in code from a fixed name"
+    assert "request." not in src.split("_require_admin")[1], \
+        "something from the request reaches the path"
 
 
 def test_the_edit_preview_viewer_is_behind_the_login():

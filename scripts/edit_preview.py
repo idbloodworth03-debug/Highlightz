@@ -73,7 +73,12 @@ async def main() -> int:
                          "clips, so this is not what production does — it is "
                          "here because proving the renderer works should not "
                          "require going and clicking Approve first.")
-    ap.add_argument("--out", default="/tmp/highlightz-edit-preview.mp4")
+    # NOT /tmp. The service unit is hardened and systemd gives such units a
+    # PRIVATE /tmp, so a file this script writes to the real /tmp is invisible
+    # to the running server — which is how /admin/edit-preview.mp4 404'd on a
+    # render that had just succeeded. The app's own storage directory is the
+    # one place both the script and the server agree about.
+    ap.add_argument("--out", default=str(ROOT / "edit-preview.mp4"))
     ap.add_argument("--llm", action="store_true",
                     help="let the configured model build the plan instead of "
                          "the formula (LLM_PROVIDER=ollama|anthropic; falls "
