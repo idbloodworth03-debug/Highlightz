@@ -6359,6 +6359,41 @@ async def admin_funnel(request: Request, days: int = 30):
     return funnel.totals(days=max(1, min(days, 180)))
 
 
+@app.get("/admin/edit-preview{ext}")
+async def admin_edit_preview(request: Request, ext: str = ".mp4"):
+    """Watch what `scripts/edit_preview.py` just rendered, from the browser.
+
+    Owner (2026-09-22), after being told to scp from a laptop: "what do you
+    mean my own laptop". Fair. The render lands in /tmp on the server and the
+    operator is in an SSH session, so the file may as well be on the moon.
+    Tuning an edit means watching it, changing one thing and watching again —
+    that loop cannot have a file transfer in the middle of it.
+
+    ADMIN ONLY, and deliberately NOT a general file server: the path is fixed
+    in this module, the extension is checked against a two-item list, and
+    nothing the caller sends reaches the filesystem. It serves one of two
+    known paths or 404s.
+
+    It is a diagnostic, not a product surface. The file is whatever the last
+    preview run produced — it can be stale, or absent, and the 404 says so.
+    """
+    _require_admin(request)
+    if ext not in (".mp4", ".jpg"):
+        raise HTTPException(status_code=404, detail="Not found")
+    path = Path(f"/tmp/highlightz-edit-preview{ext}")
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No preview rendered yet. On the server: "
+                   "venv/bin/python scripts/edit_preview.py --any-status")
+    return FileResponse(
+        path,
+        media_type="video/mp4" if ext == ".mp4" else "image/jpeg",
+        # inline, so the browser plays it rather than downloading it.
+        headers={"Content-Disposition": f"inline; filename=edit-preview{ext}",
+                 "Cache-Control": "no-store"})
+
+
 @app.get("/admin/onboarding")
 async def admin_onboarding(request: Request):
     """Who answered the onboarding questions, and what they said.

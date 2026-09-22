@@ -523,3 +523,38 @@ def test_no_copy_claims_the_goals_change_what_the_bot_does():
     for claim in ("the bot", "your clips will", "we will edit"):
         assert claim.lower() not in step2.lower(), \
             f"the goals step claims {claim!r}, which is not true"
+
+
+# ── the admin edit-preview viewer ───────────────────────────────────────────
+
+def test_the_edit_preview_viewer_is_admin_only():
+    import inspect
+    from src.dashboard import api
+    assert "_require_admin(request)" in inspect.getsource(api.admin_edit_preview)
+
+
+def test_the_edit_preview_viewer_is_not_a_file_server():
+    """It serves ONE of two fixed paths. Nothing the caller sends is allowed
+    to reach the filesystem — the extension is checked against a list and the
+    path is built in the module, so `..%2f` and friends have nowhere to go."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.admin_edit_preview)
+    assert 'ext not in (".mp4", ".jpg")' in src, "the extension is not allow-listed"
+    assert "/tmp/highlightz-edit-preview" in src, "the path is not fixed in code"
+    # The only interpolation into the path is the checked extension.
+    assert src.count("Path(f\"") == 1
+
+
+def test_the_edit_preview_viewer_is_behind_the_login():
+    from src.dashboard import api
+    assert "/admin/edit-preview" not in api._OPEN_PATHS
+    assert not any("/admin/edit-preview".startswith(p) for p in api._OPEN_PREFIXES)
+
+
+def test_a_missing_preview_says_how_to_make_one():
+    """A bare 404 on a diagnostic is a dead end; the command is the fix."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.admin_edit_preview)
+    assert "edit_preview.py" in src
