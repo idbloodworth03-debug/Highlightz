@@ -42,12 +42,20 @@ class RenderError(RuntimeError):
 
 
 def _esc(text: str) -> str:
-    """Escape for a drawtext `text=` value inside a filter graph. Order
-    matters: the backslash first, then the characters that end a value."""
-    out = text.replace("\\", "\\\\")
-    for ch in ("'", ":", ",", ";", "[", "]", "%"):
-        out = out.replace(ch, "\\" + ch)
-    return out
+    """Escape text for a drawtext `text='...'` value.
+
+    See graph.py's `_esc` for the full explanation: inside ffmpeg's '...'
+    quoting, a backslash does nothing at all — it is literal, same as
+    everything else in there — so the only character that needs handling
+    is the quote itself, via close/escape/reopen: 'A'\\''B' is A'B. The
+    previous version backslash-escaped `:,;[]%` too, which (doing nothing
+    inside the quotes) put a literal backslash into the rendered text
+    instead of escaping anything, and for the quote specifically closed
+    the string early and handed the rest of the filtergraph to ffmpeg as
+    bare syntax — "Filter not found", reproduced live 2026-09-22 by
+    graph.py's identical copy of this function on a real transcript.
+    """
+    return text.replace("'", "'\\''")
 
 
 def font_path() -> str:
@@ -90,9 +98,14 @@ def video_filter(template: str, *, title: str = "", captions: list | None = None
             s, e, t = float(cue[0]), float(cue[1]), str(cue[2]).strip()
             if not t or e <= s:
                 continue
+            # Unescaped commas: this is also inside '...' quoting (see
+            # `_drawtext`), where they are already literal. The `\,` this
+            # used to have was the same broken assumption `_esc` had, just
+            # inline — it would have hit ffmpeg's timeline expression
+            # parser as a literal backslash and failed to parse `between`.
             chain.append(_drawtext(font, t.upper() if len(t) < 40 else t, 58,
                                    "h*0.78-text_h/2", box=True,
-                                   enable=f"between(t\\,{s:.2f}\\,{e:.2f})"))
+                                   enable=f"between(t,{s:.2f},{e:.2f})"))
     chain.append(f"fade=t=in:st=0:d={FADE_S}")
     if duration and duration > FADE_S * 3:
         chain.append(f"fade=t=out:st={duration - FADE_S:.2f}:d={FADE_S}")

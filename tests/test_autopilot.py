@@ -97,8 +97,8 @@ def test_title_and_captions_are_drawtext_with_escaping_and_timing():
     vf = ap_render.video_filter("hook", title="He's back: 100%", font="/f.ttf",
                                 captions=[(0, 1.5, "hello, world"), (2, 1, "bad cue"), (3, 4, "")],
                                 duration=10)
-    assert "text='He\\'s back\\: 100\\%'" in vf and "fontsize=76" in vf and "box=1" in vf
-    assert "text='HELLO\\, WORLD'" in vf and "enable='between(t\\,0.00\\,1.50)'" in vf
+    assert "text='He'\\''s back: 100%'" in vf and "fontsize=76" in vf and "box=1" in vf
+    assert "text='HELLO, WORLD'" in vf and "enable='between(t,0.00,1.50)'" in vf
     assert vf.count("drawtext=") == 2, "a bad or empty cue was drawn"
     assert "fade=t=in:st=0:d=0.4" in vf and "fade=t=out:st=9.60:d=0.4" in vf
     # A plain title on another template is outlined, not boxed, and smaller.

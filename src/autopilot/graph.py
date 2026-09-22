@@ -44,12 +44,34 @@ PUNCH_SETTLE_S = 0.8
 
 
 def _esc(text: str) -> str:
-    """Escape for a drawtext `text=` value. Same order as render.py: the
-    backslash first, then the characters that end a value."""
-    out = text.replace("\\", "\\\\")
-    for ch in ("'", ":", ",", ";", "[", "]", "%"):
-        out = out.replace(ch, "\\" + ch)
-    return out
+    """Escape text for a drawtext `text='...'` value.
+
+    THE BUG THIS EXISTS TO NOT HAVE (found live, 2026-09-22, on the first
+    real transcript with an apostrophe in it — "I think I'm not" — which
+    made ffmpeg exit with "Filter not found"). ffmpeg's own quoting rule
+    (ffmpeg-utils(1), "Quoting and escaping") is that everything inside
+    '...' is taken completely literally, INCLUDING a backslash — there is
+    no escape mechanism inside a quoted string, only outside one. The one
+    documented way to put a literal quote inside a quoted string is to
+    close the quoting, escape the quote at the top level (where backslash
+    *is* special), and reopen: 'A'\\''B' is the string A'B.
+
+    So a backslash placed in front of a quote INSIDE the quotes, as the
+    previous version of this function did, does not escape anything: it
+    is a literal backslash character, and the quote right after it still
+    closes the string. Everything past that point — the rest of this
+    drawtext call and every filter after it — gets handed to ffmpeg as
+    bare, unquoted syntax, which is exactly the "Filter not found" this
+    produced.
+
+    The same reasoning is why nothing else needs escaping in here. A
+    colon, comma, semicolon, bracket or percent sign inside the quotes is
+    already literal — ffmpeg's outer parser never looks at it. The old
+    code backslash-escaped those too, which (backslash doing nothing in
+    here) would have put a literal backslash into the caption on screen
+    the first time one showed up, rather than actually escaping it.
+    """
+    return text.replace("'", "'\\''")
 
 
 def _offsets(plan: EditPlan) -> list[float]:

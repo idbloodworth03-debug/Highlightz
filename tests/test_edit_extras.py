@@ -367,7 +367,7 @@ def test_cover_text_is_only_drawn_when_a_font_exists():
 def test_cover_text_is_escaped_like_every_other_drawtext():
     p = three()
     p.thumb_text = "it's 100%"
-    assert "it\\'s 100\\%" in cover_vf(p, font="/f/x.ttf")
+    assert "it'\\''s 100%" in cover_vf(p, font="/f/x.ttf")
 
 
 def test_cover_text_is_bigger_than_the_videos_own_title():

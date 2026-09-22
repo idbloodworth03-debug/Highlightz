@@ -185,10 +185,32 @@ def test_titles_and_captions_only_appear_when_a_font_exists():
 
 
 def test_text_that_would_break_the_graph_is_escaped():
+    """Only the quote needs escaping (close/escape/reopen) — everything
+    else inside '...' is already literal to ffmpeg's own parser. See
+    graph.py's `_esc` docstring for why the old backslash-before-everything
+    version was actually broken, not just redundant."""
     p = three()
     p.title = "it's 100%: [wild], really"
     g = G.build_filtergraph(p, font="/f/x.ttf")[0]
-    assert "it\\'s 100\\%\\: \\[wild\\]\\, really" in g
+    assert "it'\\''s 100%: [wild], really" in g
+
+
+def test_a_caption_with_an_apostrophe_does_not_swallow_the_rest_of_the_graph():
+    """Regression, reproduced live 2026-09-22 on a real transcript ("I
+    think I'm not"): the old `_esc` backslash-escaped the quote, which
+    does nothing inside ffmpeg's '...' quoting — the quote closed the
+    string right there, and ffmpeg parsed everything after it as bare
+    filter syntax and failed with "Filter not found". A caption AFTER the
+    apostrophe one has to come out correctly quoted for this to be fixed,
+    not just the apostrophe caption itself.
+    """
+    p = three()
+    p.captions = [{"start": 1.0, "end": 2.0, "text": "I'm not sure"},
+                 {"start": 3.0, "end": 4.0, "text": "next line"}]
+    g = G.build_filtergraph(p, font="/f/x.ttf")[0]
+    assert "text='I'\\''m not sure'" in g
+    assert "text='next line'" in g
+    assert g.count("drawtext=") == 2
 
 
 def test_a_caption_missing_its_timing_is_skipped_not_crashed():
