@@ -67,6 +67,17 @@ async def main() -> int:
                          "OOM-killed asking for 3.1 GB on an idle 3.8 GB box, "
                          "and zoompan is the suspect. Use this to get a "
                          "watchable file and to confirm the diagnosis.")
+    ap.add_argument("--stack", action="store_true",
+                    help="facecam across the top, gameplay under it. Needs "
+                         "--cam to say where the camera is in the source.")
+    ap.add_argument("--cam", default="-0.33,0.32,2.4",
+                    help="where the camera sits, as OFFX,OFFY,ZOOM. Offsets "
+                         "are fractions of the frame away from its CENTRE, so "
+                         "-0.33,0.32 is down and to the left (the usual Twitch "
+                         "corner) and 0,0 is dead centre. ZOOM is how tight "
+                         "the window is: 2.4 keeps about a 42%% wide slice. "
+                         "Same three numbers the browser editor uses, so a "
+                         "position found here transfers to it.")
     ap.add_argument("--any-status", action="store_true",
                     help="render from ANY clip that has a file, not just "
                          "approved ones. Autopilot only ever edits approved "
@@ -194,6 +205,22 @@ async def main() -> int:
         for seg in plan.segments:
             seg.zoom = "none"
         print("\n--no-motion: every shot is static, zoompan is not in the graph")
+    if args.stack:
+        try:
+            ox, oy, cz = (float(x) for x in args.cam.split(","))
+        except ValueError:
+            print(f"--cam wants OFFX,OFFY,ZOOM (got {args.cam!r})")
+            return 1
+        cam = P.Facecam(off_x=ox, off_y=oy, zoom=cz)
+        for seg in plan.segments:
+            seg.layout = "stack"
+            seg.facecam = cam
+        print(f"--stack: camera at off_x={ox} off_y={oy} zoom={cz}"
+              f"   (top {int(P.SPLIT_TOP * 100)}% of the frame)")
+        print("   too much gameplay in the top panel? raise zoom."
+              "   wrong corner? flip the signs:")
+        print("   bottom-left -0.33,0.32   bottom-right 0.33,0.32"
+              "   top-left -0.33,-0.32   top-right 0.33,-0.32")
     ok, why = P.valid(plan)
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
