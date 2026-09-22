@@ -1,13 +1,20 @@
 # Session handoff — project state & hard-won knowledge
 
 Read this before making changes. `CLAUDE.md` has the binding engineering
-rules; this file is the context behind them. Last updated: **2026-08-02**
-(Clip Editor + auto-captions; prod audit).
+rules; this file is the context behind them. Last updated: **2026-09-22**
+(auto-edit formula now letterboxes + captions + sfx; a drawtext escaping
+bug that took the site down; see the two newest sections at the very
+bottom for what actually happened today — read those FIRST if you are
+new to this handoff).
 
-**Prod release flags as of 2026-08-02 (read from `.env`, not assumed):**
-`UPLOADS_ENABLED=true`, `CLIP_IMPORT_ENABLED=true`, `CAPTIONS_ENABLED` unset.
-So the Clip Editor is LIVE for Pro users and clip import is live for
-everyone; captions are admin-only. Do not restate these from memory —
+**Prod release flags as of 2026-09-22 (read from `.env`, not assumed):**
+`UPLOADS_ENABLED=true`, `CLIP_IMPORT_ENABLED=true`, `CAPTIONS_ENABLED=true`
+(flipped on 2026-09-22 — see "Formula-path captions" below; it was unset
+from 2026-08-02 until then). So the Clip Editor is live for Pro users,
+clip import is live for everyone, and the Whisper caption pipeline is now
+reachable — but a real Autopilot post only gets captions if the account's
+own `autopilot.captions` toggle is ALSO on (default off; see "The
+auto-edit is a PLAN" below). Do not restate any of this from memory —
 `grep -E "ENABLED" /opt/highlightz/.env` is the only authority, and
 getting it wrong once already meant telling the owner a live feature was
 switched off.
@@ -1993,6 +2000,42 @@ the sides are gone) vs **blur** (whole frame over a blurred blow-up, nothing
 lost, picture smaller). Blur is the right answer when what matters is at the
 edge of a 16:9 shot — a killfeed, a scoreboard, a second player.
 
+**BLUR IS NOW THE FORMULA'S DEFAULT ON EVERY SEGMENT (2026-09-22).** Owner,
+having watched the first real render with `fill`: "I only see half of the
+clip… I would rather just have it the entire clip with the blurr on the top
+and the bottom." `plan.build()` now hardcodes `framing="blur"`; `fill` is
+still a real, tested value a model (or `--fill` on the preview script) can
+choose, it just is not what the deterministic builder picks any more. This
+is a product decision made having watched a real render, not a bug — do not
+"fix" it back to fill without the same conversation.
+
+**FORMULA-PATH CAPTIONS AND A FOURTH SOUND (2026-09-22).** Two more gaps
+closed, same day as the blur decision, owner: "can we add captions to this
+as well and add other sounds":
+- `llm_common.captions_for_plan(plan, transcripts)` is the deterministic
+  counterpart to what the model path already did — same timeline conversion
+  (`_place_captions`, factored out of what was `_captions_onto_timeline`),
+  fed Whisper's own cues instead of a model's. `scripts/edit_preview.py`
+  grows `--captions` (opt-in: an uncached clip gets transcribed on the spot,
+  which briefly uses the box's one CPU core, so it is not automatic).
+- `plan._sfx_for()` now adds a `ding` a beat before the last frame — the
+  palette was only ever using three of the five `SFX_KINDS` (riser, whoosh,
+  hit); `pop` is still unused by anything automatic, reachable only via a
+  model's own `sfx` choices.
+- **This is the first time captions actually rendered on real prod content**,
+  because `CAPTIONS_ENABLED` had been unset since 2026-08-02. Turning it on
+  is what surfaced the drawtext escaping bug two sections below — read that
+  one before touching `_esc()` in either `graph.py` or `render.py` again.
+
+**`scripts/edit_preview.py` now has real flags**, all opt-in and composable:
+`--no-motion` (skip zoompan, the OOM suspect), `--fill` (crop instead of the
+formula's blur, for comparison), `--stack --cam OFFX,OFFY,ZOOM` (facecam
+layout without a stored position), `--captions` (transcribe/burn in),
+`--llm` (the model builder instead of the formula), `--any-status`, `--user
+<prefix>`, `--dry-run` (prints the plan and the ffmpeg command, runs
+neither — paste this back if a render fails rather than guessing at the
+graph blind).
+
 **THE CAMERA (2026-09-21).** Owner: "Putting the face cam in the right spot"
 — named as the most important part, and the thing that separates an edited
 clip from a cropped one. A 16:9 source has the camera in a corner, and a
@@ -2068,18 +2111,28 @@ clamp is appended to `meta["notes"]`. Long notes on every clip is the signal
 that the model is not good enough for this job; that is the number to watch,
 not the vibe of one output.
 
-**STILL NOT WIRED INTO AUTOPILOT, deliberately.** `runner.py` still calls the
-old `render.py`. The blocker is evidence, not code: ffmpeg is not installed
-in the dev container, so `graph.py` is written blind and asserted as a
-string. Run this on PROD first and paste the output back:
+**STILL NOT WIRED INTO AUTOPILOT, deliberately — still true as of 2026-09-22,
+after blur/captions/sfx all landed above.** `runner.py` still calls the old
+`render.py` for every real post. Nothing a real user's Autopilot renders
+today uses `plan.py`/`graph.py` at all — blur framing, the stacked facecam
+layout, the sound palette and formula captions are all proven out in
+`scripts/edit_preview.py` and NONE of it is live. **This is the single
+easiest thing to get wrong about this codebase right now**: reading the
+sections above and assuming a real post already looks like the preview is
+exactly backwards. The blocker is evidence, not code: ffmpeg is not
+installed in the dev container, so `graph.py` is written blind and asserted
+as a string. Run this on PROD first and paste the output back:
 
-    cd /opt/highlightz && venv/bin/python scripts/edit_preview.py
+    cd /opt/highlightz && venv/bin/python scripts/edit_preview.py --any-status --no-motion --captions --user <prefix>
 
-It builds a plan from real approved clips, generates the sound effects, runs
-the real command and reports the duration, size and streams — touching
-nothing a user can see and posting nothing. `--dry-run` prints the plan and
-the command instead. Only after a clean render does the wiring follow, and
-the owner's choice was to **keep human approval** before anything posts.
+It builds a plan from real clips (approved-only unless `--any-status`),
+transcribes/generates the sound effects, runs the real command and reports
+the duration, size and streams — touching nothing a user can see and
+posting nothing. `--dry-run` prints the plan and the ffmpeg command instead
+of running either, which is what to paste back if a render fails rather
+than guessing at the graph blind. Only after a clean render does the wiring
+into `runner.py` follow, and the owner's choice was to **keep human
+approval** before anything posts.
 
 ## Settings tab does things (2026-09-16)
 
@@ -3566,4 +3619,99 @@ Discord webhook notifications on clip_ready (top retention idea), edit_url
 ~~first-run onboarding flow~~ (shipped 2026-09-21, see "Onboarding: two
 questions" above), "trial ending soon" notice for admin-granted trials,
 streamer partnership (clips-first DM, free Pro + custom code + $5/paid
-signup; target a 300–1,000 viewer streamer).
+signup; target a 300–1,000 viewer streamer). Caption styling (54px in a
+box at 78% height is a plain default; the browser Clip Editor already has
+an established look — white text, `#F7A745` amber on the active word,
+outline+shadow, word-pop — worth matching rather than inventing a second
+style) and audio normalisation (no `loudnorm`, no ducking under speech)
+are both still open on the server renderer.
+
+## A backslash does nothing inside ffmpeg's `'...'` quoting (2026-09-22)
+
+Reproduced live, on prod, on the first real transcript that had an
+apostrophe in it ("I think I'm not"): ffmpeg exited 8, "Filter not found".
+
+`graph.py`'s and `render.py`'s `_esc()` both backslash-escaped a quote
+character before wrapping the text in `text='...'`. That does not work.
+ffmpeg's own quoting rule (`ffmpeg-utils(1)`, "Quoting and escaping") is
+that everything inside `'...'` is taken **completely literally, backslash
+included** — there is no escape mechanism inside a quoted string, only
+outside one. So `\'` inside the quotes is not an escaped quote; it's a
+literal backslash immediately followed by a quote that still closes the
+string right there. Everything after that point in the caption's own text
+got handed to ffmpeg as bare, unquoted filter syntax — every `drawtext=`
+call after the apostrophe, garbled into "Filter not found".
+
+**Why nothing had ever hit this before:** every render before 2026-09-22
+either had no captions (`CAPTIONS_ENABLED` was unset from 2026-08-02 until
+that day) or no title with a quote in it. It took a real transcript to
+find it — this is exactly the kind of thing that cannot be caught by
+`build_filtergraph` tests alone unless the test happens to use text with a
+quote in it, which the pre-existing ones didn't.
+
+**The same bug, quieter, in everything else `_esc` "escaped".** A colon,
+comma, semicolon, bracket or percent sign inside `'...'` is already
+literal to ffmpeg's parser — none of it needed escaping. Backslash-
+escaping it anyway didn't crash anything, but since backslash does
+nothing in that context either, the first caption with a comma in it
+("Yeah, cuz bro, this") would have rendered with a literal backslash on
+screen ("Yeah\, cuz bro\, this") instead of a clean comma. `render.py`'s
+caption `enable=` clause had the identical mistake baked directly into an
+f-string (`between(t\\,{s},{e})`), which would have corrupted the
+timeline expression the same way the moment a per-account caption toggle
+was ever turned on.
+
+**The fix, and the one rule to keep:** the only documented way to put a
+literal quote inside a quoted ffmpeg string is to close the quoting,
+escape the quote at the top level (where backslash *is* special), and
+reopen: `'A'\''B'` is the string `A'B`. `_esc()` in both files now does
+only that — `text.replace("'", "'\\''")` — and nothing else needs any
+escaping at all inside `'...'`. **If you ever feel the urge to
+backslash-escape a character before putting it inside `text='...'`,
+stop — it does nothing, or it breaks the render, and either way it is not
+what you meant.** Regression test:
+`tests/test_edit_graph.py::test_a_caption_with_an_apostrophe_does_not_swallow_the_rest_of_the_graph`.
+
+## Prod went down from an external change, recovered by the standard revert (2026-09-22)
+
+A colleague connected their own Claude session to this GitHub repo and
+made a change that broke the live site. What the change was does not
+matter for this entry — the owner's instruction was "the change does not
+matter I just need the site reverted back to its normal functionality" —
+what matters is the recovery, because it is the standing answer to this
+exact situation happening again:
+
+    cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && systemctl restart highlightz
+
+This is **safe to run any time something on prod looks broken and you
+cannot yet explain why**, without further diagnosis first, because
+`.gitignore` keeps `.env`, `/clips/` (all user data — clips, `users.json`,
+profiles, everything `local_storage_path` owns) and `venv/` out of git
+entirely. A hard reset can only ever touch tracked source code; it cannot
+lose a secret, a user's video, or the database-of-JSON-files this product
+runs on. It moves prod's working tree to exactly the tip of
+`claude/handoff-context-n4badl` on GitHub — the same branch this whole
+handoff assumes prod always deploys from — discarding any other change to
+a tracked file, wherever that change came from. Confirmed recovered by a
+clean `systemctl status` (no crash loop, no traceback) and the worker log
+resuming normal per-channel activity (`profile_loaded`, `stream_found`,
+`trigger_score`, `audio_meter_receiving_audio`) within seconds of the
+restart.
+
+**If a reset to this branch does NOT fix it**, the damage is outside
+git's reach — a bad `.env` edit, a broken venv/dependency, a corrupted
+data file, or the box/service itself in a bad state — and needs `systemctl
+status --no-pager -l` plus `journalctl -u highlightz -n 100 --no-pager`
+read for an actual traceback rather than another blind reset.
+
+**For anyone else touching this repo, including another Claude session**:
+this project has exactly one branch prod ever deploys from —
+`claude/handoff-context-n4badl` — and the deploy command above is the only
+sanctioned way code reaches prod. There is no PR-and-merge step in the
+loop; a change lands by being pushed to that branch after the full test
+suite is green, the same way every entry in this file describes. A tool
+that defaults to opening a PR against `main`, or that has its own idea of
+where to push, will not reach prod the way it expects to, and — as today
+showed — a change made without reading this file first can reach prod in
+a way nobody here intended. `main` is stale (two commits, from before this
+project's real history) and is not what anything reads.
