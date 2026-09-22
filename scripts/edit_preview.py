@@ -105,11 +105,33 @@ async def main() -> int:
                 print("    venv/bin/python scripts/edit_preview.py --any-status")
         return 1
 
-    # Everything from ONE account, or the edit would stitch two people's
-    # libraries together.
-    uid = pool[0].get("user_id")
-    pool = [c for c in pool if c.get("user_id") == uid][:12]
-    print(f"\n{len(pool)} clips with a file for account {str(uid)[:10]}…"
+    # ONE account, and NEVER a silently chosen one.
+    #
+    # This used to be `pool[0].get("user_id")` — whichever clip happened to
+    # come first in clips.json. Run on production it picked a stranger's
+    # account and started rendering their video, which is the one thing this
+    # script must not do: the Privacy Policy says a clip's file is available
+    # only to the account it belongs to, and "the operator was only
+    # previewing" is not an exception anybody agreed to.
+    #
+    # So: one account, fine. More than one, and it asks. A tool that touches
+    # user video does not get to guess whose.
+    accounts = {}
+    for c in pool:
+        accounts.setdefault(str(c.get("user_id", "")), []).append(c)
+    if len(accounts) > 1:
+        print(f"\n{len(accounts)} accounts have clips with a file. Name one "
+              f"with --user (a prefix is enough):\n")
+        for u, cs in sorted(accounts.items(), key=lambda kv: -len(kv[1])):
+            chans = sorted({c.get("channel", "?") for c in cs})[:4]
+            print(f"   --user {u[:12]:<14} {len(cs):>4} clips   {', '.join(chans)}")
+        print("\nRendering somebody else's clips is not something this script "
+              "will do by accident.")
+        return 1
+
+    uid, pool = next(iter(accounts.items()))
+    pool = pool[:12]
+    print(f"\n{len(pool)} clips with a file for account {uid[:10]}…"
           f"  (statuses: {', '.join(want)})")
 
     sources = {}
