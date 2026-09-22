@@ -339,8 +339,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   header { background: #1f1f23; border-bottom: 1px solid #2d2d35; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
   header h1 { font-size: 18px; font-weight: 700; color: #bf94ff; }
   .badge { background: #26262c; border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #adadb8; }
-  .badge.live { background: #1a3a2a; color: #00c853; }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #00c853; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+  .badge.live { background: #2a1a45; color: #c9a3ff; box-shadow: inset 0 0 0 1px #bf94ff55; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #bf94ff; box-shadow: 0 0 6px #bf94ffaa; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
   main { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 57px); }
