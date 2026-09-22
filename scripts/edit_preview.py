@@ -60,7 +60,13 @@ async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan and the command, run neither")
-    ap.add_argument("--user", default="", help="limit to one account id")
+    ap.add_argument("--user", default="", help="limit to one account id (prefix ok)")
+    ap.add_argument("--any-status", action="store_true",
+                    help="render from ANY clip that has a file, not just "
+                         "approved ones. Autopilot only ever edits approved "
+                         "clips, so this is not what production does — it is "
+                         "here because proving the renderer works should not "
+                         "require going and clicking Approve first.")
     ap.add_argument("--out", default="/tmp/highlightz-edit-preview.mp4")
     ap.add_argument("--llm", action="store_true",
                     help="let the configured model build the plan instead of "
@@ -79,18 +85,32 @@ async def main() -> int:
         return 1
 
     have = clip_files.existing_ids()
+    want = ("approved", "pending") if args.any_status else ("approved",)
+    # startswith, not ==. A user id printed for a human is usually truncated,
+    # and an exact match against a truncated id silently returns nothing —
+    # which reads as "you have no clips" rather than "your filter is wrong".
+    def _mine(c):
+        return not args.user or str(c.get("user_id", "")).startswith(args.user)
+
     pool = [c for c in clips
-            if c.get("status") == "approved" and c.get("id") in have
-            and (not args.user or c.get("user_id") == args.user)]
+            if c.get("status") in want and c.get("id") in have and _mine(c)]
     if not pool:
-        print("No approved clips with a file. Approve one first, or pass --user.")
+        print(f"No {' or '.join(want)} clips with a file.")
+        if not args.any_status:
+            n = sum(1 for c in clips if c.get("status") == "pending"
+                    and c.get("id") in have and _mine(c))
+            if n:
+                print(f"\n{n} PENDING clips do have a file. To render one now "
+                      f"without approving anything:")
+                print("    venv/bin/python scripts/edit_preview.py --any-status")
         return 1
 
     # Everything from ONE account, or the edit would stitch two people's
     # libraries together.
-    uid = args.user or pool[0].get("user_id")
+    uid = pool[0].get("user_id")
     pool = [c for c in pool if c.get("user_id") == uid][:12]
-    print(f"\n{len(pool)} approved clips with a file for that account")
+    print(f"\n{len(pool)} clips with a file for account {str(uid)[:10]}…"
+          f"  (statuses: {', '.join(want)})")
 
     sources = {}
     for c in pool:
