@@ -67,6 +67,12 @@ async def main() -> int:
                          "OOM-killed asking for 3.1 GB on an idle 3.8 GB box, "
                          "and zoompan is the suspect. Use this to get a "
                          "watchable file and to confirm the diagnosis.")
+    ap.add_argument("--fill", action="store_true",
+                    help="crop to fill the frame instead of the blurred "
+                         "letterbox the formula now uses. Bigger picture, but "
+                         "everything outside a tall slice of the middle is "
+                         "gone — which on a 16:9 gameplay clip is the camera "
+                         "and half the HUD.")
     ap.add_argument("--stack", action="store_true",
                     help="facecam across the top, gameplay under it. Needs "
                          "--cam to say where the camera is in the source.")
@@ -205,6 +211,10 @@ async def main() -> int:
         for seg in plan.segments:
             seg.zoom = "none"
         print("\n--no-motion: every shot is static, zoompan is not in the graph")
+    if args.fill:
+        for seg in plan.segments:
+            seg.framing = "fill"
+        print("\n--fill: cropping to fill, no blurred letterbox")
     if args.stack:
         try:
             ox, oy, cz = (float(x) for x in args.cam.split(","))

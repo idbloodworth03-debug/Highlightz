@@ -118,13 +118,30 @@ def test_an_unknown_framing_is_rejected_by_the_plan():
     assert not ok and "framing" in why
 
 
-def test_the_formula_still_produces_a_valid_plan_with_the_new_fields():
+def test_the_formula_letterboxes_rather_than_cropping():
+    """Owner, 2026-09-22, after watching the first real render: "I only see
+    half of the clip… I would rather just have it the entire clip with the
+    blurr on the top and the bottom."
+
+    Cropping a 16:9 stream to fill a 9:16 frame keeps a tall slice of the
+    middle and loses the camera and most of the HUD with it. Blur keeps the
+    whole frame at the cost of a smaller picture, and that is the trade the
+    owner picked having seen both.
+    """
     clips = [{"id": f"c{i}", "suggested": i == 0, "channel": "novafps"}
              for i in range(3)]
     sources = {f"c{i}": (f"/tmp/c{i}.mp4", 24.0) for i in range(3)}
     p = P.build(clips, sources)
     assert P.valid(p)[0]
-    assert all(s.framing == "fill" for s in p.segments)
+    assert all(s.framing == "blur" for s in p.segments)
+    g = G.build_filtergraph(p)[0]
+    assert "boxblur" in g, "the blurred backdrop is not in the graph"
+
+
+def test_fill_is_still_reachable_for_a_plan_that_wants_it():
+    """The model can still choose it per shot, and the preview has --fill."""
+    p = P.EditPlan(segments=[seg(framing="fill")])
+    assert "boxblur" not in G.build_filtergraph(p)[0]
 
 
 # ── captions, converted from source time ────────────────────────────────────

@@ -374,6 +374,17 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
             # The opener punches in to grab attention; later shots drift so
             # the whole thing is not one repeated move.
             zoom="punch" if not segments else ("drift" if len(segments) % 2 else "pull"),
+            # BLUR, not fill (owner, 2026-09-22, having watched the first real
+            # render): "I only see half of the clip… I would rather just have
+            # it the entire clip with the blurr on the top and the bottom."
+            #
+            # A 16:9 stream cropped to fill a 9:16 frame keeps a tall slice of
+            # the MIDDLE and throws the rest away — which on a gameplay clip
+            # means the camera, the killfeed and half the scoreboard are gone.
+            # Blur keeps the whole frame at full width over a blurred blow-up
+            # of itself, so nothing is lost. The picture is smaller; that is
+            # the trade, and it is the one the owner chose after seeing both.
+            framing="blur",
             # The formula stacks whenever it knows where the camera is: a
             # clip with a visible streamer reads as edited, and a 16:9 crop
             # that cuts the camera off reads as a repost.
