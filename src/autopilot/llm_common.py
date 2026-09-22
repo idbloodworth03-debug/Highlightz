@@ -369,7 +369,7 @@ def _segment_for(plan: P.EditPlan, clip_id: str, source_t: float) -> int:
     return -1
 
 
-def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
+def _place_captions(raw_list: list, plan: P.EditPlan, notes: list) -> list:
     """Caption cues in source time, converted to where they actually land.
 
     THE BUG THIS EXISTS TO NOT HAVE: the renderer shows a caption with
@@ -378,9 +378,13 @@ def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
     transition more on each one after it — words appearing over the wrong
     moment, getting worse down the video. `plan.timeline_time` does the
     conversion, from the same arithmetic the joins use.
+
+    Shared by both builders: `coerce` (below) feeds it a model's own
+    captions, `captions_for_plan` feeds it Whisper's. Same clock, same
+    clamps, so a clip captions identically whichever one cut it.
     """
     out = []
-    for raw in (data.get("captions") or [])[:40]:
+    for raw in raw_list:
         if not isinstance(raw, dict):
             continue
         text = str(raw.get("text") or "").strip()
@@ -395,8 +399,8 @@ def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
         cid = str(raw.get("clip_id") or "")
         idx = _segment_for(plan, cid, src_start)
         if idx < 0:
-            # Almost always a line the model captioned out of a part of the
-            # clip it chose not to keep.
+            # Almost always a line captioned out of a part of the clip that
+            # was not kept.
             notes.append("dropped a caption outside every kept window")
             continue
         start = P.timeline_time(plan, idx, src_start)
@@ -408,6 +412,32 @@ def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
             notes.append("dropped a caption with an inside-out window")
             continue
         out.append({"start": start, "end": end, "text": text[:120]})
+    return out
+
+
+def _captions_onto_timeline(data: dict, plan: P.EditPlan, notes: list) -> list:
+    return _place_captions((data.get("captions") or [])[:40], plan, notes)
+
+
+def captions_for_plan(plan: P.EditPlan, transcripts: dict) -> list:
+    """Whisper's own cues placed on a plan the FORMULA built, not a model.
+
+    `transcripts` is {clip_id: [{"start","end","text"}, ...]} in each
+    clip's own source clock — exactly the shape `src.captions.transcribe`
+    already returns, and the same one `_lines()` above reads. This is the
+    deterministic counterpart to what `coerce()` does with a model's
+    captions: same conversion through `_place_captions`, so a clip's
+    captions read the same whether the formula or a model cut it.
+
+    Unmatched or out-of-window cues are dropped silently — there is no
+    model call here to leave a note against, and a caption for a line that
+    got trimmed out is exactly as wrong here as it is there.
+    """
+    raw = [{"clip_id": cid, "start": seg.get("start"), "end": seg.get("end"),
+           "text": seg.get("text")}
+           for cid, segs in (transcripts or {}).items() for seg in (segs or [])]
+    out = _place_captions(raw, plan, [])
+    out.sort(key=lambda c: c["start"])
     return out
 
 

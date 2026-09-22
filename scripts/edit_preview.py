@@ -100,6 +100,13 @@ async def main() -> int:
                     help="let the configured model build the plan instead of "
                          "the formula (LLM_PROVIDER=ollama|anthropic; falls "
                          "back to the formula and says why if it cannot)")
+    ap.add_argument("--captions", action="store_true",
+                    help="burn in real captions from the server's Whisper "
+                         "pass. Cached ones load instantly; an uncached clip "
+                         "gets transcribed here, which briefly uses the box's "
+                         "one CPU core — that is why this is opt-in rather "
+                         "than automatic. Skipped if the plan already has "
+                         "captions (an --llm run that wrote its own).")
     args = ap.parse_args()
 
     print("=" * 66)
@@ -215,6 +222,31 @@ async def main() -> int:
         for seg in plan.segments:
             seg.framing = "fill"
         print("\n--fill: cropping to fill, no blurred letterbox")
+    if args.captions and not plan.captions:
+        if not settings.captions_enabled:
+            print("\n--captions: settings.captions_enabled is off, skipping")
+        else:
+            from src.captions import transcribe as cap
+            from src.autopilot import llm_common
+            used = {s.clip_id for s in plan.segments if s.clip_id}
+            print(f"\n--captions: transcribing {len(used)} clip(s) "
+                  "(cached ones load instantly)")
+            transcripts: dict = {}
+            for cid in used:
+                path = sources.get(cid, (None, 0))[0]
+                if not path:
+                    continue
+                try:
+                    payload = cap.load(path)
+                    if payload is None:
+                        print(f"     {cid}: not cached, transcribing now…")
+                        payload = await cap.transcribe(path)
+                        cap.save(path, payload)
+                    transcripts[cid] = payload.get("segments") or []
+                except Exception as exc:
+                    print(f"     {cid}: transcription failed — {exc}")
+            plan.captions = llm_common.captions_for_plan(plan, transcripts)
+            print(f"     placed {len(plan.captions)} caption cue(s) on the timeline")
     if args.stack:
         try:
             ox, oy, cz = (float(x) for x in args.cam.split(","))

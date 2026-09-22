@@ -299,7 +299,8 @@ def rank(clips: list[dict]) -> list[dict]:
 
 
 def _sfx_for(plan: EditPlan) -> list[Sfx]:
-    """Sound on every cut, and a riser into the first one.
+    """Sound on every cut, a riser into the first one, and a ding on the way
+    out — the whole five-kind palette (SFX_KINDS), not just three of them.
 
     Timed against the finished video. The first segment's visible length is
     its own length minus half the transition it runs into, so a cue placed at
@@ -318,6 +319,13 @@ def _sfx_for(plan: EditPlan) -> list[Sfx]:
         # The cut itself: a whoosh under the transition, a hit on the landing.
         cues.append(Sfx(at=max(0.0, t), kind="whoosh", gain=0.55))
         cues.append(Sfx(at=max(0.0, t + plan.trans_dur), kind="hit", gain=0.5))
+    # The close: a ding a beat before the last frame caps the video off,
+    # the way a notification or a "nailed it" sting would. `ding` rings for
+    # 0.7s (sfx.py's own recipe), so it lands well inside the video rather
+    # than getting clipped by the 0.4s fade-out at the very end.
+    total = plan_duration(plan)
+    if total > 1.0:
+        cues.append(Sfx(at=round(max(0.0, total - 0.6), 3), kind="ding", gain=0.4))
     return cues
 
 

@@ -243,6 +243,56 @@ def test_the_converted_captions_are_what_the_renderer_draws():
     assert "between(t,25.50,27.50)" in g
 
 
+# ── captions the FORMULA places, from real Whisper transcripts ──────────────
+#
+# Owner, 2026-09-22, having watched a render with no captions: "can we add
+# captions to this as well". A model call is not required for a burnt-in
+# caption — Whisper already produced its own timed cues in `transcribe.py`.
+# `captions_for_plan` is the deterministic counterpart to `coerce`'s caption
+# handling above: same `_place_captions`, same clock, no model in the loop.
+
+def test_formula_captions_use_the_same_timeline_conversion_as_the_llms():
+    plan = three()
+    transcripts = {"c1": [{"start": 4.0, "end": 6.0, "text": "no"}]}
+    out = C.captions_for_plan(plan, transcripts)
+    assert out == [{"start": 25.5, "end": 27.5, "text": "no"}]
+
+
+def test_formula_captions_from_several_clips_land_in_timeline_order():
+    plan = three()
+    transcripts = {
+        "c2": [{"start": 2.0, "end": 3.0, "text": "third"}],
+        "c0": [{"start": 1.0, "end": 2.0, "text": "first"}],
+    }
+    out = C.captions_for_plan(plan, transcripts)
+    assert [c["text"] for c in out] == ["first", "third"]
+    assert out[0]["start"] < out[1]["start"]
+
+
+def test_formula_captions_drop_a_line_outside_every_kept_window():
+    plan = three()
+    transcripts = {"c0": [{"start": 35.0, "end": 37.0, "text": "cut out"}]}
+    assert C.captions_for_plan(plan, transcripts) == []
+
+
+def test_formula_captions_skip_an_unknown_clip_id():
+    plan = three()
+    transcripts = {"not-in-the-cut": [{"start": 1.0, "end": 2.0, "text": "no"}]}
+    assert C.captions_for_plan(plan, transcripts) == []
+
+
+def test_no_transcripts_means_no_formula_captions_either():
+    assert C.captions_for_plan(three(), {}) == []
+
+
+def test_formula_captions_feed_the_renderer_the_same_way_the_llms_do():
+    plan = three()
+    plan.captions = C.captions_for_plan(plan, {"c0": [{"start": 1.0, "end": 2.0,
+                                                        "text": "hi there"}]})
+    g = G.build_filtergraph(plan, font="/f/x.ttf")[0]
+    assert "hi there" in g
+
+
 # ── the cover frame ─────────────────────────────────────────────────────────
 
 def test_the_thumbnail_moment_is_converted_like_a_caption():

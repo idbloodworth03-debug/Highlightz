@@ -138,6 +138,20 @@ def test_every_cut_gets_sound_and_the_open_gets_a_riser():
     assert kinds.count("hit") == joins
 
 
+def test_the_close_gets_a_ding_so_the_palette_is_not_just_three_sounds():
+    """riser/whoosh/hit leaves pop and ding in SFX_KINDS unused by anything
+    the formula produces. One ding near the end uses a fourth."""
+    clips = [clip(f"c{i}") for i in range(3)]
+    sources = {f"c{i}": (f"/tmp/c{i}.mp4", 22.0) for i in range(3)}
+    p = P.build(clips, sources)
+    dings = [c for c in p.sfx if c.kind == "ding"]
+    assert len(dings) == 1
+    assert 0 < dings[0].at < P.plan_duration(p)
+    # Lands before the graph's 0.4s fade-out starts, so the fade does not
+    # swallow the sting.
+    assert dings[0].at <= P.plan_duration(p) - 0.4
+
+
 def test_sound_is_timed_against_the_finished_video_not_the_segment():
     """A cue placed by summing segment lengths lands late by one transition
     per join, which drifts further with every cut."""
