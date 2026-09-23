@@ -72,6 +72,54 @@ def strip_stats(path, *, start: float, seconds: float, band: bool) -> list[tuple
     return [(start + r["t"], r.get("YAVG"), r.get("UAVG"), r.get("VAVG")) for r in rows]
 
 
+def green_scan(path, *, start: float, seconds: float, cols: int = 270,
+               w: int = 1080, h: int = 1920, fps: int = 30) -> list[tuple]:
+    """Every frame, every pixel of the right `cols` columns: where is green?
+
+    The strip averages above can miss a 1-2px line (averaged away over 4
+    columns) or a line in the blurred bands above and below the picture, and
+    4 samples a second can step over a few frames. This reads raw RGB and
+    counts pixels whose green clearly beats both red and blue. Returns
+    (t, green_pixel_count, x_min, x_max, y_min, y_max) per frame with any.
+    Pure Python on purpose: the box's venv has no numpy or Pillow.
+    """
+    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{seconds:.3f}",
+           "-i", str(path), "-vf", f"crop={cols}:{h}:{w - cols}:0",
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, timeout=600).stdout
+    except Exception as exc:
+        print(f"   (scan failed: {exc})")
+        return []
+    size = cols * h * 3
+    out = []
+    for i in range(len(raw) // size):
+        frame = raw[i * size:(i + 1) * size]
+        r, g, b = frame[0::3], frame[1::3], frame[2::3]
+        n = 0
+        x0 = y0 = 10 ** 9
+        x1 = y1 = -1
+        for k, (rr, gg, bb) in enumerate(zip(r, g, b)):
+            if gg > 60 and gg > rr + 30 and gg > bb + 30:
+                n += 1
+                y, x = divmod(k, cols)
+                x0, x1 = min(x0, x), max(x1, x)
+                y0, y1 = min(y0, y), max(y1, y)
+        if n >= 20:
+            out.append((start + i / fps, n, w - cols + x0, w - cols + x1, y0, y1))
+    return out
+
+
+def show_scan(title: str, rows: list[tuple], frames: int) -> None:
+    print(f"\n{title}")
+    if not rows:
+        print(f"   no green in any of {frames} frames")
+        return
+    print("     t    green px   columns       rows")
+    for t, n, x0, x1, y0, y1 in rows:
+        print(f"  {t:6.3f}  {n:8d}   x {x0:4d}-{x1:4d}   y {y0:4d}-{y1:4d}")
+
+
 def show(title: str, rows: list[tuple]) -> None:
     print(f"\n{title}")
     if not rows:
@@ -128,6 +176,18 @@ def main() -> int:
     if out.exists():
         show("RENDER (edit-preview.mp4), right edge of the picture, first 10s",
              strip_stats(out, start=0.0, seconds=10.0, band=True))
+        print("\nscanning every frame, pixel by pixel (about a minute)…")
+        show_scan("RENDER, right quarter, EVERY frame of the first 1.5s",
+                  green_scan(out, start=0.0, seconds=1.5), 45)
+        if args.hook:
+            try:
+                a, b = (float(x) for x in args.hook.replace(",", "-").split("-"))
+                join = (b - a) - 0.5          # where the hook slides into the clip
+                show_scan(f"RENDER, right quarter, every frame around the hook's "
+                          f"slide ({join:.1f}s)",
+                          green_scan(out, start=max(0.0, join - 0.25), seconds=1.0), 30)
+            except ValueError:
+                pass
     else:
         print("\nno edit-preview.mp4 — render one first")
     print("\nPaste everything above back.")
