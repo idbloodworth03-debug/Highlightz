@@ -88,13 +88,13 @@ def video_filter(template: str, *, title: str = "", captions: list | None = None
         # Its `enable=between(t,...)` carries plain commas: that value is
         # inside '...' quoting, where they are already literal — see `_esc`.
         from src.autopilot.graph import caption_filters
-        n = 0
+        drawn = 0
         for cue in captions[:MAX_CAPTION_CUES]:
             s, e, t = float(cue[0]), float(cue[1]), str(cue[2]).strip()
             if not t or e <= s:
                 continue
-            chain.append(caption_filters(font, t, s, e, n))
-            n += 1
+            chain.append(caption_filters(font, t, s, e, drawn))
+            drawn += 1
     chain.append(f"fade=t=in:st=0:d={FADE_S}")
     if duration and duration > FADE_S * 3:
         chain.append(f"fade=t=out:st={duration - FADE_S:.2f}:d={FADE_S}")

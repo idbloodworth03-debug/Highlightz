@@ -405,7 +405,10 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                 f"drawtext=fontfile={_esc(font)}:expansion=none:text={_esc(plan.title)}:"
                 f"fontcolor=white:fontsize=76:box=1:boxcolor=black@0.45:boxborderw=18:"
                 f"x=(w-text_w)/2:y=h*0.12-text_h/2")
-        n = 0
+        # NOT `n`: that name is the segment count, and the sound effects below
+        # address their inputs as n + j. Reusing it here as the caption counter
+        # sent them to input 34 on a six-input command (prod, 2026-09-23).
+        drawn = 0
         for cue in plan.captions[:120]:
             try:
                 start, end = float(cue["start"]), float(cue["end"])
@@ -414,8 +417,8 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                 continue
             if not text:
                 continue
-            chain.append(caption_filters(font, text, start, end, n))
-            n += 1
+            chain.append(caption_filters(font, text, start, end, drawn))
+            drawn += 1
         if chain:
             parts.append(f"[{vlab}]" + ",".join(chain) + "[vtxt]")
             vlab = "vtxt"

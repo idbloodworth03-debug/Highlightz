@@ -3663,8 +3663,10 @@ literally; `'...'` takes everything literally up to the next quote
 - **2026-09-23**, the first fix, `text='I'\''M GONNA'` (close, escape,
   reopen): fine for pass 1, but it handed pass 2 a bare `'`, which opened a
   quote that swallowed every option after it — and a `:` in any caption hit
-  pass 2 unescaped: "No option name near …", ffmpeg's EINVAL, "Error
-  initializing complex filters: Invalid argument".
+  pass 2 unescaped: "No option name near …", ffmpeg's EINVAL. The same prod
+  run ALSO had the input-index bug below (`[34:a]` is in its graph), and its
+  "Invalid argument" may have been either one — the script cut off the line
+  that said which. Both were real; both are fixed.
 
 **The fix** (`graph._esc`, now the only copy — `render.py` imports it): no
 quotes around the text; escape for pass 2 (`\ ' :`), then escape that for
@@ -3682,6 +3684,16 @@ cover, in `graph.py` and `render.py`) is run through it with a list of hostile
 strings — apostrophes, colons, commas, brackets, `%`, backslashes — and must
 come out as the original text with every option intact. **If you touch
 drawtext, assert through `ffparse`, never against a literal string.**
+
+**The sound effects read input 34 of a six-input command (2026-09-23).**
+With escaping fixed, the next prod render failed with "Invalid file index 34
+in filtergraph description". The caption loop added for the new caption look
+reused the name `n` as its counter, and `n` was already the segment count the
+sound effects are addressed by (`[n + j:a]`) — so after 34 captions they
+pointed past the end of the inputs. No test combined captions WITH sound
+effects. `test_every_input_the_graph_reads_is_one_the_command_opens` now
+builds the command with 0, 1 and 34 captions plus effects and checks every
+`[k:a]`/`[k:v]` against the actual number of `-i` inputs.
 
 `scripts/edit_preview.py` also used to print the raw tail of ffmpeg's stderr,
 which is mostly ffmpeg echoing the whole graph back — the line naming the

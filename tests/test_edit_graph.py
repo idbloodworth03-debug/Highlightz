@@ -152,6 +152,26 @@ def test_the_sound_files_come_after_every_segment():
     assert "[3:a]adelay" in g
 
 
+@pytest.mark.parametrize("n_captions", [0, 1, 34])
+def test_every_input_the_graph_reads_is_one_the_command_opens(n_captions):
+    """Regression, prod 2026-09-23: "Invalid file index 34 in filtergraph
+    description". The caption loop reused the name `n` as its counter, so
+    after 34 captions the sound effects were addressed as inputs 34+ in a
+    command that opened six files. No test combined captions WITH sound
+    effects — this one does, and checks every `[k:a]` / `[k:v]` against the
+    real number of -i inputs rather than any one expected index."""
+    p = three()
+    p.sfx = [P.Sfx(at=0.0, kind="riser"), P.Sfx(at=21.5, kind="whoosh")]
+    p.captions = [{"start": i + 0.1, "end": i + 0.9, "text": f"cue {i}"}
+                  for i in range(n_captions)]
+    args = G.build_command(p, "/tmp/out.mp4", SFX, font="/f/x.ttf")
+    opened = args.count("-i")
+    graph = args[args.index("-filter_complex") + 1]
+    read = {int(k) for k in re.findall(r"\[(\d+):[av]\]", graph)}
+    assert read and max(read) < opened, f"reads inputs {sorted(read)}, opens {opened}"
+    assert read == set(range(opened)), "an input is opened but never used, or the reverse"
+
+
 def test_a_missing_sound_file_drops_the_cue_rather_than_the_post():
     p = three()
     p.sfx = [P.Sfx(at=0.0, kind="riser"), P.Sfx(at=21.5, kind="whoosh")]
