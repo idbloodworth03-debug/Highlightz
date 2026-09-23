@@ -45,7 +45,7 @@ def test_only_the_intended_pages_answer_a_signed_out_visitor(anon):
         "/", "/login", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
         "/opt-out", "/opt-out/success", "/landing/stats", "/landing/showcase",
         "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/tutorial",
-        "/compare", "/billing/paywall",
+        "/compare", "/billing/paywall", "/blog",
         # Meta shows this to the person who asked for their data to be
         # deleted, so it has to answer someone with no Highlightz account at
         # all. It renders a confirmation code and nothing else; the two

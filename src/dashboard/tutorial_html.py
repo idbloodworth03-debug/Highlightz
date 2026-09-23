@@ -247,8 +247,9 @@ _CSS = """
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-link.on{color:var(--ink)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-  /* 940, the landing page's number: the bar needs 818px with its links shown. */
-  @media(max-width:940px){
+  /* 1000, the landing page's number: the bar needs ~990px with its links
+     shown since the Blog tab joined it. */
+  @media(max-width:1000px){
     .nav-links{display:none}
   }
 
@@ -674,6 +675,7 @@ def render() -> str:
     <a href="/#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link on" aria-current="page">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
+    <a href="/blog" class="nav-link">Blog</a>
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -755,7 +757,7 @@ def render() -> str:
 
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 

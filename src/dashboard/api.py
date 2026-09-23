@@ -70,6 +70,8 @@ app = FastAPI(title="Highlightz Dashboard", version="1.0.0")
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+from src.dashboard.blog_content import paths as _blog_paths  # noqa: E402
+
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
 _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
@@ -79,6 +81,11 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # file that does not exist. robots.txt and sitemap.xml are
                   # here for the same reason.
                   "/compare", "/llms.txt", "/llms-full.txt",
+                  # The blog: the index and each article, listed by
+                  # blog_content.paths() so this set, the router and the
+                  # sitemap read one list. Exact paths, not a /blog prefix —
+                  # an unknown slug is not a page.
+                  *_blog_paths(),
                   # Meta calls these server-to-server with no session, and the
                   # app cannot be configured without them. A redirect to
                   # /login reads to Meta as an endpoint that does not work —
@@ -7364,6 +7371,28 @@ async def compare_page():
     return HTMLResponse(render())
 
 
+@app.get("/blog", response_class=HTMLResponse)
+async def blog_index():
+    """The blog: guides to making money clipping. Public and indexed.
+
+    MUST STAY ABOVE `@app.get("/{slug}")`, like /compare — the catch-all
+    matches any single-segment path and FastAPI resolves in declaration order.
+    """
+    from src.dashboard.blog_html import render_index
+    return HTMLResponse(render_index())
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+async def blog_article(slug: str):
+    """One article. Only the slugs in blog_content exist; anything else is the
+    site's 404, never an empty article."""
+    from src.dashboard.blog_html import render_article
+    html = render_article(slug)
+    if html is None:
+        raise HTTPException(status_code=404)
+    return HTMLResponse(html)
+
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: Exception):
     if request.headers.get("accept", "").startswith("application/json"):
@@ -7888,6 +7917,9 @@ no credits to run out.
   screen works.
 - [Comparison](https://highlightz.app/compare): Highlightz vs Opus Clip vs
   Eklipse on price, credits and features.
+- [Blog](https://highlightz.app/blog): guides to making money clipping — the
+  five main clipping marketplaces and their requirements, TikTok Creator
+  Rewards, YouTube Shorts, and finding streamer campaigns. Dated and sourced.
 - [Terms of Service](https://highlightz.app/tos)
 - [Privacy Policy](https://highlightz.app/privacy)
 - [Cookie Policy](https://highlightz.app/cookies)
@@ -8046,6 +8078,8 @@ _PAGE_SOURCE = {
     "/opt-out":  "src/dashboard/api.py",
     "/tutorial": "src/dashboard/tutorial_content.py",
     "/compare":  "src/dashboard/compare_content.py",
+    **{p: "src/dashboard/blog_content.py"
+       for p in _blog_paths()},
 }
 
 
@@ -8069,7 +8103,8 @@ def _page_lastmod(path: str) -> str:
 
 @app.get("/sitemap.xml")
 async def sitemap_xml():
-    pages = ["/", "/tutorial", "/compare", "/tos", "/privacy", "/cookies", "/opt-out"]
+    pages = (["/", "/tutorial", "/compare"] + list(_blog_paths())
+             + ["/tos", "/privacy", "/cookies", "/opt-out"])
     urls = ""
     for p in pages:
         mod = _page_lastmod(p)
@@ -8471,7 +8506,7 @@ LANDING_HTML = """<!DOCTYPE html>
     /* The sticky bar's height, which anchor targets subtract so a jump to
        #pricing does not land the heading underneath it, and which slide 2
        subtracts so nav + hero come to exactly one screen. This is only the
-       FALLBACK: the links wrap in a band around 940px and the bar grows, so a
+       FALLBACK: the links wrap in a band around 1000px and the bar grows, so a
        hardcoded number is wrong across a 200px stretch. The real value is
        measured and written here at runtime — see the nav-height block near the
        end of the body. */
@@ -8539,10 +8574,11 @@ LANDING_HTML = """<!DOCTYPE html>
     transition:color var(--dur-fast),background var(--dur-fast)}
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-  /* 940, not 700: measured, the bar needs 818px with its links shown, so
-     anything from ~820 to 940 pushed Get started off a tablet's right edge.
+  /* 1000, not 700: measured, the bar needs ~990px with its links shown
+     (it was 818px, then 940, before the Blog tab was added), so anything
+     narrower pushed Get started off a tablet's right edge.
      The tutorial page's copy of this bar uses the same number on purpose. */
-  @media(max-width:940px){ .nav-links{display:none} }
+  @media(max-width:1000px){ .nav-links{display:none} }
   @media(max-width:700px){
     .nav{padding:12px 16px 16px;gap:8px}
     .nav-logo span{display:none}
@@ -9422,6 +9458,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
+    <a href="/blog" class="nav-link">Blog</a>
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -9684,7 +9721,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 <script>
@@ -10866,7 +10903,7 @@ LANDING_HTML = """<!DOCTYPE html>
 /* ── The nav's real height ────────────────────────────────────────────────
    Anchor targets clear the bar by subtracting --nav-h, and slide 2 subtracts
    it so nav + hero come to exactly one screen. The bar is not one fixed
-   height: its links wrap in a band around 940px and it grows, so the CSS
+   height: its links wrap in a band around 1000px and it grows, so the CSS
    fallback is wrong across a couple of hundred pixels of width. Measure it
    and write the real number back.
 
@@ -11868,7 +11905,7 @@ _LEGAL_STYLE = """
   .footer nav{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-4)}
   .footer a:hover{color:var(--ink)}
   .footer .fl{margin-left:auto;white-space:nowrap}
-  @media(max-width:940px){ .nav-links{display:none} }
+  @media(max-width:1000px){ .nav-links{display:none} }
   @media(max-width:700px){ .nav-logo span{display:none} .footer .fl{margin-left:0} }
   @media(prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
 """
@@ -11883,6 +11920,7 @@ _LEGAL_NAV = """<nav class="nav">
     <a href="/#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
+    <a href="/blog" class="nav-link">Blog</a>
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -11892,7 +11930,7 @@ _LEGAL_NAV = """<nav class="nav">
 
 _LEGAL_FOOT = """<footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>"""
 

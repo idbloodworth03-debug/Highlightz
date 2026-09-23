@@ -24,7 +24,10 @@ from fastapi.testclient import TestClient
 
 from src.dashboard.api import app
 
-PUBLIC = ["/", "/tutorial", "/compare", "/tos", "/privacy", "/cookies", "/opt-out"]
+from src.dashboard.blog_content import paths as _blog_paths
+
+PUBLIC = (["/", "/tutorial", "/compare"] + list(_blog_paths())
+          + ["/tos", "/privacy", "/cookies", "/opt-out"])
 
 client = TestClient(app)
 

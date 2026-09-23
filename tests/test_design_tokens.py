@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-PAGES = ("landing", "dashboard", "tutorial", "compare")
+PAGES = ("landing", "dashboard", "tutorial", "compare", "blog")
 SCALE = {0, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128}
 SPACE_PROPS = r"(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left))?"
 
@@ -17,9 +17,10 @@ SPACE_PROPS = r"(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom
 def css(page: str) -> str:
     from src.dashboard.api import LANDING_HTML
     from src.dashboard.aurora_html import DASHBOARD_HTML
-    from src.dashboard import tutorial_html, compare_html
+    from src.dashboard import tutorial_html, compare_html, blog_html
     html = {"landing": LANDING_HTML, "dashboard": DASHBOARD_HTML,
-            "tutorial": tutorial_html.render(), "compare": compare_html.render()}[page]
+            "tutorial": tutorial_html.render(), "compare": compare_html.render(),
+            "blog": blog_html.render_article("clipping-platforms")}[page]
     return "\n".join(re.findall(r"<style>(.*?)</style>", html, re.S))
 
 

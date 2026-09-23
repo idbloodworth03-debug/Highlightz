@@ -361,6 +361,7 @@ def render() -> str:
     <a href="/#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link on" aria-current="page">Compare</a>
+    <a href="/blog" class="nav-link">Blog</a>
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -439,7 +440,7 @@ def render() -> str:
 
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 

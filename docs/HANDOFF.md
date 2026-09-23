@@ -17,7 +17,11 @@ own `autopilot.captions` toggle is ALSO on (default off; see "The
 auto-edit is a PLAN" below). Do not restate any of this from memory —
 `grep -E "ENABLED" /opt/highlightz/.env` is the only authority, and
 getting it wrong once already meant telling the owner a live feature was
-switched off.
+switched off. **(2026-09-23: this line conflicts with the 2026-09-21
+section "/compare and /llms.txt stopped claiming what is held back", which
+says `UPLOADS_ENABLED` was down, and nobody has re-read prod since. Run the
+grep before relying on either. Every public page — /compare, /llms.txt,
+/blog — reads the flag itself, so their copy follows prod whichever it is.)**
 
 ## Production environment (facts, hardware re-verified 2026-09-21)
 
@@ -3779,3 +3783,68 @@ where to push, will not reach prod the way it expects to, and — as today
 showed — a change made without reading this file first can reach prod in
 a way nobody here intended. `main` is stale (two commits, from before this
 project's real history) and is not what anything reads.
+
+
+## /blog — making money clipping (2026-09-23)
+
+Owner: "make a new tab on the landing page that is called blog … cover
+everything related to making money while clipping … Take the top 5
+clipping platforms … how highlightz can benefit the users … professional,
+accurate and follows all the themes on the landing page … add pictures
+and the logos … add in the different requirements for each … I need it to
+be transparent for the user."
+
+**Where it lives.** `src/dashboard/blog_content.py` holds every claim
+(the /compare split); `blog_html.py` only lays it out, on
+`tutorial_html.BASE_CSS`. Routes `/blog` and `/blog/{slug}` sit above the
+`/{slug}` catch-all. `blog_content.paths()` is the one list the router
+allowlist (`_OPEN_PATHS`), `_PAGE_SOURCE`, the sitemap and the tests read,
+so adding an article is adding an `Article` — nothing else. An unknown slug
+is a 404, not an empty page. "Blog" is on every copy of the bar and the
+footer (landing, legal shell, /tutorial, /compare, /blog) and in /llms.txt.
+
+**Pages.** Index + five articles: how clippers make money (overview and
+a pay-per-1,000 chart), the five platforms, TikTok Creator Rewards,
+YouTube/Shorts, finding streamer campaigns. The five platforms are Whop
+Content Rewards (fit Strong), Vyro (Limited), Vues (Limited), Ssemble Clip
+Rewards (Good), Clipify (Strong). "Fit" is how much Highlightz helps —
+Limited where campaigns are mostly pre-recorded videos or brand briefs,
+because Highlightz watches live streams.
+
+**The transparency rules, all enforced in `tests/test_blog.py`:** every
+platform answers the same eight `REQ_FIELDS` in the same order; an answer
+no reachable source states is `NOT_PUBLISHED` and renders as a visible
+"Not published" tag, never guessed; every profile and article shows its
+sources and the date checked (`CHECKED_ON`); outbound links are
+`rel="nofollow noopener"` and none are affiliate links; plan channel counts
+come from `PLAN_LIMITS`; the editor/scheduler line follows
+`compare_content._shipped()`; nothing describes how Highlight clips are
+found.
+
+**Sources.** The dev proxy blocks nearly every platform's site, so the
+figures were gathered through search on 2026-09-23 — platforms' own pages
+where their text was retrievable, independent guides otherwise. Several
+2026 "best clipping platforms" guides are written by a competitor ranking
+itself first; no figure rests on one of those alone. **Re-check the
+rates and terms before any big push**; bump `CHECKED_ON` when you do.
+
+**Logos — OPEN, needs the owner.** The dev box could not download any
+brand's logo, and hand-drawing a company's mark is how a page ends up
+showing a wrong one. Each platform shows a lettered tile until its official
+file (from the brand's press kit) is put at
+`src/dashboard/static/blog/logos/<slug>.svg|.png|.webp` — slugs `whop`,
+`vyro`, `vues`, `ssemble`, `clipify`. The renderer picks it up on the next
+restart; no code change. Pictures are real product screens already on the
+landing page (`static/landing/tour-*.webp`) plus the HTML range chart.
+
+**The bar got a tab wider.** With "Blog" the landing bar needs ~990px, so
+its collapse point moved 940 → 1000 on the landing page, the legal shell
+and `tutorial_html` (which /compare and /blog inherit);
+`test_audit_fixes` holds the two copies equal. The pre-existing band where
+the links wrap to two lines just above the collapse point is unchanged in
+size (now ~1000–1120px, was ~940–1065px); the page's `--nav-h` measurement
+absorbs it, as before.
+
+Static page, no user state: nothing to broadcast, nothing for
+`refetchAll()`. Pages are rendered per request, but the plan counts and the
+release flag are read from settings, so deploy with the usual restart.
