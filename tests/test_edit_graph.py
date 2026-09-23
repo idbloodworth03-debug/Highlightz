@@ -482,4 +482,4 @@ def test_a_plan_the_builder_produced_renders_to_a_command():
     assert ok, why
     args = G.build_command(p, "/tmp/out.mp4", SFX, font="/f/x.ttf")
     assert args[0] == "ffmpeg" and args[-1] == "/tmp/out.mp4"
-    assert P.plan_duration(p) == pytest.approx(60.0, abs=1.0)
+    assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=1.0)

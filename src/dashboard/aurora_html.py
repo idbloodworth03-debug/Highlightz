@@ -2730,7 +2730,7 @@ function usePlayerOpen(open) {
 
 // The two onboarding questions, asked once after a Twitch account is
 // attached. Only the first one changes anything: it sets the Autopilot mode,
-// and a clipper's posts are filled to sixty seconds from several clips where
+// and a clipper's posts are filled to just over a minute from several clips where
 // a streamer's are one clip from their own stream. The second is for the
 // owner's knowledge and is entirely optional — hence Skip.
 //
@@ -2742,12 +2742,12 @@ function usePlayerOpen(open) {
 // made to answer two questions sees what they bought with them.
 //
 // IT HAS TO BE TRUE. `use_case` really does set this — plan.limits_for reads
-// the Autopilot mode and a clipper's post is stitched to sixty seconds where
+// the Autopilot mode and a clipper's post is stitched to just over a minute where
 // a streamer's is one clip. The GOALS change nothing, so no message here
 // claims they do; saying otherwise would be telling users the survey tunes
 // something it does not touch.
 const ONB_EXPECT = {
-  clipper:  'Saved. The bot will build your posts to a full 60 seconds from your best clips.',
+  clipper:  'Saved. The bot will build your posts to just over a minute from your best clips.',
   streamer: 'Saved. The bot will post one moment from your stream per video, at its own length.',
 };
 
@@ -2847,7 +2847,7 @@ function OnboardingModal({ onDone, preview = false }) {
             <button className={'rd-onb-card'+(useCase==='clipper'?' on':'')}
               onClick={()=>setUse('clipper')} aria-pressed={useCase==='clipper'}>
               <span className="t">Clipping other streamers</span>
-              <span className="d">Posts are built to a full 60 seconds, stitched from your best clips.</span>
+              <span className="d">Posts run just over a minute, stitched from your best clips.</span>
             </button>
             <button className={'rd-onb-card'+(useCase==='streamer'?' on':'')}
               onClick={()=>setUse('streamer')} aria-pressed={useCase==='streamer'}>
@@ -2859,7 +2859,7 @@ function OnboardingModal({ onDone, preview = false }) {
             {/* The expectation, the moment they choose — so the answer is
                 visibly doing something before they commit to it. */}
             <span className="rd-onb-step">{useCase
-              ? (useCase === 'clipper' ? 'Posts will run a full 60 seconds'
+              ? (useCase === 'clipper' ? 'Posts will run just over a minute'
                                        : 'Posts will run as long as the moment does')
               : 'Step 1 of 2'}</span>
             <button className="rd-btn grad" disabled={!useCase} onClick={()=>setStep(2)}>Continue</button>

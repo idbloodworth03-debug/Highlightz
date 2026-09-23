@@ -94,7 +94,7 @@ def test_a_clipper_gets_sixty_seconds_and_a_streamer_gets_their_own_clip():
     clipper = P.build(clips, sources, mode="clipper")
     streamer = P.build(clips, sources, mode="streamer")
     assert len(clipper.segments) > 1
-    assert P.plan_duration(clipper) == pytest.approx(60.0, abs=1.0)
+    assert P.plan_duration(clipper) == pytest.approx(P.TARGET_S, abs=1.0)
     assert len(streamer.segments) == 1
 
 
@@ -454,7 +454,7 @@ def test_the_admin_tab_explains_which_answer_changes_anything():
     panel = html[html.index('id="panel-onboarding"'):]
     panel = panel[:panel.index("</div>\n\n  <!--")] if "</div>\n\n  <!--" in panel else panel[:4000]
     assert "Autopilot mode" in panel
-    assert "sixty seconds" in panel or "60 seconds" in panel
+    assert "just over a minute" in panel
 
 
 # ── telling the user what the answer does ───────────────────────────────────
@@ -471,7 +471,7 @@ def test_choosing_shows_what_will_happen_before_they_commit():
     page = _page()
     body = page[page.index("function OnboardingModal("):]
     body = body[:body.index("\nfunction ")]
-    assert "Posts will run a full 60 seconds" in body
+    assert "Posts will run just over a minute" in body
     assert "Posts will run as long as the moment does" in body
 
 
@@ -485,16 +485,17 @@ def test_finishing_says_what_the_bot_will_now_do():
 
 
 def test_the_expectation_matches_what_the_builder_actually_does():
-    """The copy promises a clipper a full 60 seconds and a streamer their own
-    length. If limits_for stopped doing that, this message would become a
-    lie told to every new account."""
+    """The copy promises a clipper just over a minute and a streamer their
+    own length. If the builder stopped doing that, this message would become
+    a lie told to every new account."""
     from src.autopilot import plan as P
     clips = [{"id": f"c{i}", "channel": "n"} for i in range(4)]
     sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
     clipper = P.build(clips, sources, mode="clipper")
     streamer = P.build(clips, sources, mode="streamer")
-    assert P.plan_duration(clipper) == pytest.approx(60.0, abs=1.0), \
-        "the clipper message promises 60 seconds"
+    length = P.plan_duration(clipper)
+    assert 60.0 < length <= 65.0, \
+        f"the clipper message promises just over a minute, got {length:.2f}s"
     assert len(streamer.segments) == 1, \
         "the streamer message promises one moment per video"
 

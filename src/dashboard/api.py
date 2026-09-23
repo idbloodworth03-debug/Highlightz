@@ -4355,7 +4355,7 @@ async def post_onboarding(request: Request):
 
       use_case  clipper or streamer. This is behaviour. It sets the
                 Autopilot mode, and `plan.limits_for` then fills a clipper's
-                post to sixty seconds from up to four clips where a
+                post to just over a minute (plan.TARGET_S) from up to four clips where a
                 streamer's is one clip from their own stream, whatever
                 length it is (owner, 2026-09-21).
       goals     "just for my own knowledge". NOTHING in the product branches
@@ -12738,7 +12738,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <p class="lede">
       What people say they are here for. <b>Clipper or streamer is the only
       answer that changes anything</b> &mdash; it sets the Autopilot mode, so a
-      clipper&rsquo;s posts are filled to sixty seconds from several clips and a
+      clipper&rsquo;s posts are filled to just over a minute from several clips and a
       streamer&rsquo;s is one clip from their own stream. The goals are for
       knowing what to build next and change nothing.
     </p>

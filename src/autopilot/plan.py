@@ -72,13 +72,25 @@ SPLIT_TOP = 0.4          # must match SPLIT_TOP in aurora_html.py
 # Clipper or streamer, which is one question — do you stitch? (owner,
 # 2026-09-21: "I need it to be a minute long for clippers. Streamers it does
 # not really matter for.")
-#   clipper   fill to 60s, stitching up to MAX_SEGMENTS clips together.
+#   clipper   fill to TARGET_S (just over a minute), stitching up to
+#             MAX_SEGMENTS clips together.
 #             A clipper is making content, and the length is the format.
 #   streamer  one clip, edited well, whatever length it is. A streamer
 #             posting their own moment does not want it welded to two others.
 MODES = ("clipper", "streamer")
 
-TARGET_S = 60.0          # TikTok and Shorts both treat 60s as the ceiling
+# JUST OVER A MINUTE, not 60 (owner, 2026-09-23). TikTok's Creator Rewards
+# pays only for videos LONGER than one minute, and a 60.00s video is not
+# longer than one minute — so every formula video missed the line by
+# nothing. 62 leaves two seconds so frame timing and container rounding
+# cannot push a finished file back to 59.9x, while staying "about a minute"
+# ("do not make clips too long either"). Length is necessary for Creator
+# Rewards, not sufficient: originality is judged separately.
+TARGET_S = 62.0
+# TikTok pays only for videos LONGER than 60s. How it rounds a 60.4s file is
+# not something to find out on a user's account, so the builder treats
+# anything under 61s as not over the line.
+SAFELY_OVER_S = 61.0
 TRANS_DUR = 0.5
 MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
 MAX_SEGMENTS = 4
@@ -374,13 +386,23 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
     remaining = target_s
 
     for c in ranked:
-        if len(segments) >= max_segments or remaining < MIN_SEGMENT_S:
+        if len(segments) >= max_segments:
+            break
+        # Stop once the rest would be a shot too short to survive a
+        # transition — UNLESS that leaves the video at or under a minute. Two
+        # 30s clips used whole are 59.5s, 2.5s short of the target: too little
+        # for a shot, but TikTok pays nothing for it. Then one more shot of
+        # MIN_SEGMENT_S goes on, which lands between 61.5 and 66.5s: over the
+        # line, and still about a minute.
+        so_far = plan_duration(EditPlan(segments=segments, trans_dur=TRANS_DUR))
+        if remaining < MIN_SEGMENT_S and (not segments or so_far >= SAFELY_OVER_S):
             break
         path, duration = sources[c["id"]]
         if duration < MIN_SEGMENT_S:
             continue
-        # Each join gives back trans_dur of runtime, so ask for that much more.
-        want = remaining + (TRANS_DUR if segments else 0.0)
+        # Each join gives back trans_dur of runtime, so ask for that much more
+        # — and never less than a whole shot.
+        want = max(remaining + (TRANS_DUR if segments else 0.0), MIN_SEGMENT_S)
         start, end = _window(duration, min(want, duration))
         seg_len = end - start
         if seg_len < MIN_SEGMENT_S:

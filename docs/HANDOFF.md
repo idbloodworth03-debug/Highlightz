@@ -1985,7 +1985,7 @@ needs a thumbnail and a caption for the video"):
 | the ask | where it lives |
 |---|---|
 | the face cam | `Segment.layout` + `Segment.facecam` |
-| clipper = 60s, streamer = whatever | `plan.limits_for(mode)` |
+| clipper = just over a minute (62s), streamer = whatever | `plan.limits_for(mode)`, `plan.TARGET_S` |
 | templates | `Segment.framing` — `fill` or `blur`, per shot |
 | auto captions | `EditPlan.captions`, written from the transcript |
 | transitions | `EditPlan.transition`, one xfade name |
@@ -2025,6 +2025,20 @@ as well and add other sounds":
   because `CAPTIONS_ENABLED` had been unset since 2026-08-02. Turning it on
   is what surfaced the drawtext escaping bugs — read "drawtext escaping:
   ffmpeg parses a filtergraph TWICE" near the bottom before touching `_esc()`.
+
+**JUST OVER A MINUTE, NOT 60 (2026-09-23).** TikTok's Creator Rewards pays
+only for videos LONGER than one minute, and the formula made exactly 60.00s
+— every one of them a second short of being paid. `TARGET_S` is now 62
+(owner: fix it "but do not make clips too long either"), and the builder no
+longer stops at 59.5s when two whole clips fall 2.5s short of the target:
+if the video would be under `SAFELY_OVER_S` (61 — how TikTok rounds 60.4s
+is not something to learn on a user's account) and another clip exists, one
+more minimum-length shot goes on, landing at 61.5–66.5s. When the footage
+simply cannot reach a minute (two 30s clips; a single short clip; a
+streamer's one moment), the builder leaves it short rather than stretching
+anything. Onboarding copy says "just over a minute" and never mentions
+Creator Rewards: length is necessary for it, not sufficient — originality is
+judged per video, and 5+ ineligible videos in 30 days can cost the account.
 
 **ONE MOVE, ONE SOUND (2026-09-23) — the owner's decision, having heard
 the alternatives.** A version with a different transition on every cut

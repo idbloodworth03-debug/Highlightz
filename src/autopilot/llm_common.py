@@ -108,7 +108,7 @@ SYSTEM = f"""You are the editor for Highlightz, which turns moments from live st
 You are given candidate clips with their metadata and, where available, a transcript with timestamps. You cannot see the video. Decide what the finished cut is and return it as JSON.
 
 THE CUT
-- Aim for {int(P.TARGET_S)} seconds of finished video. Joins OVERLAP: the finished length is the sum of the segment lengths minus (number of joins) x {P.TRANS_DUR} seconds. Two 30s segments make {2 * 30 - P.TRANS_DUR:.1f}s, not 60.
+- Aim for {int(P.TARGET_S)} seconds of finished video — TikTok only pays for videos LONGER than one minute, so never finish at or under 60. Joins OVERLAP: the finished length is the sum of the segment lengths minus (number of joins) x {P.TRANS_DUR} seconds. Two 30s segments make {2 * 30 - P.TRANS_DUR:.1f}s, not 60.
 - At most {P.MAX_SEGMENTS} segments. No segment shorter than {int(P.MIN_SEGMENT_S)} seconds — a transition would eat it.
 - Fewer, longer segments beat more, shorter ones. One clip that already carries 60 good seconds is a finished video; do not cut it up to look busy.
 - Order them so the strongest moment is FIRST. The first two seconds decide whether the video is watched at all.

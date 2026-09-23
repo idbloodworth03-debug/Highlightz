@@ -195,7 +195,7 @@ def test_a_clipper_gets_a_minute_out_of_several_clips():
     sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
     p = P.build(clips, sources, mode="clipper")
     assert len(p.segments) > 1
-    assert P.plan_duration(p) == pytest.approx(60.0, abs=1.0)
+    assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=1.0)
 
 
 def test_a_streamer_gets_one_clip_left_alone():

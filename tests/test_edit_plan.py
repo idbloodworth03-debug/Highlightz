@@ -49,12 +49,15 @@ def test_an_empty_plan_is_zero_not_a_crash():
     assert P.plan_duration(P.EditPlan()) == 0.0
 
 
-def test_the_builder_lands_close_to_sixty_seconds():
-    """The requirement is a number, so this is the test that matters most."""
+def test_the_builder_lands_just_over_a_minute():
+    """The requirement is a number, so this is the test that matters most.
+    Four 30s clips: two used whole are 59.5s — 2.5s short of the target, too
+    little for a shot, and not paid by TikTok. It used to stop there; now a
+    third, minimum-length shot takes it over the line."""
     clips = [clip(f"c{i}", virality=90 - i) for i in range(4)]
     sources = {f"c{i}": (f"/tmp/c{i}.mp4", 30.0) for i in range(4)}
     p = P.build(clips, sources)
-    assert P.plan_duration(p) == pytest.approx(60.0, abs=0.75)
+    assert P.SAFELY_OVER_S <= P.plan_duration(p) <= 66.5
     ok, why = P.valid(p)
     assert ok, why
 
@@ -64,7 +67,7 @@ def test_one_long_clip_is_left_whole():
     into three pieces to have joins would be decoration for its own sake."""
     p = P.build([clip("c1")], {"c1": ("/tmp/c1.mp4", 62.0)})
     assert len(p.segments) == 1
-    assert P.plan_duration(p) == pytest.approx(60.0, abs=0.1)
+    assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=0.1)
 
 
 def test_short_clips_are_assembled_until_the_target_is_reached():
@@ -72,7 +75,7 @@ def test_short_clips_are_assembled_until_the_target_is_reached():
     sources = {f"c{i}": (f"/tmp/c{i}.mp4", 18.0) for i in range(4)}
     p = P.build(clips, sources)
     assert len(p.segments) >= 3, "one 18s clip was posted as a 60s edit"
-    assert P.plan_duration(p) <= 60.5
+    assert P.plan_duration(p) <= P.TARGET_S + 0.5
 
 
 def test_it_never_exceeds_the_segment_ceiling():
@@ -126,6 +129,26 @@ def test_the_builder_takes_the_ranked_order():
 
 
 # ── what makes it look edited ────────────────────────────────────────────────
+
+def test_a_clipper_video_is_longer_than_a_minute_but_not_by_much():
+    """TikTok's Creator Rewards pays only for videos LONGER than one minute;
+    60.00s is not. Owner, 2026-09-23: fix that, "but do not make clips too
+    long either"."""
+    assert P.SAFELY_OVER_S <= P.TARGET_S <= 65.0
+    for n, dur in ((1, 90.0), (2, 36.0), (4, 18.0), (4, 30.0), (3, 30.0), (2, 59.9)):
+        clips = [clip(f"c{i}") for i in range(n)]
+        p = P.build(clips, {f"c{i}": (f"/tmp/c{i}.mp4", dur) for i in range(n)})
+        assert P.SAFELY_OVER_S <= P.plan_duration(p) <= 66.5, f"{n} clips of {dur}s"
+        assert P.valid(p)[0]
+
+
+def test_when_the_footage_cannot_reach_a_minute_the_builder_does_not_pretend():
+    """Two 30s clips are 59.5s at most. Nothing to add; it stays as it is
+    rather than stretching or looping anything."""
+    clips = [clip("a"), clip("b")]
+    p = P.build(clips, {"a": ("/tmp/a.mp4", 30.0), "b": ("/tmp/b.mp4", 30.0)})
+    assert P.plan_duration(p) == pytest.approx(59.5) and len(p.segments) == 2
+
 
 def test_the_formula_slides_in_and_out_with_a_whoosh_and_slides_every_cut():
     """Owner, 2026-09-23: "one at the beginning like it sliding into frame
