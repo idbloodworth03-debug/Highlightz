@@ -313,3 +313,15 @@ def test_the_hook_is_read_against_the_part_of_the_clip_that_plays():
     reaches."""
     p = hooked(175.0, 182.0, 600.0)
     assert not p.hook
+
+
+def test_the_formula_never_zooms():
+    """Owner, 2026-09-23, on the first hook render: a green line at the
+    start, "zoomed in … you cant see the whole screen", and "the quality
+    dropped". All three were zoompan — a zoom crops the blur frame's whole
+    picture, upscales it, and on 4:2:0 video leaves a green edge line while
+    it moves. Every formula shot is static, hooked or not."""
+    from src.autopilot import graph as G
+    for p in (hooked(), P.build([clip("c1")], {"c1": ("/tmp/c1.mp4", 40.0)})):
+        assert {s.zoom for s in p.segments} == {"none"}
+        assert "zoompan" not in G.build_filtergraph(p)[0]

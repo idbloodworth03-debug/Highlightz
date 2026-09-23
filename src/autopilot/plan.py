@@ -453,9 +453,22 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
     channel = c.get("channel", "")
     cam = facecams.get(channel)
 
-    def shot(start: float, end: float, zoom: str) -> Segment:
+    def shot(start: float, end: float) -> Segment:
         return Segment(
-            src=str(path), start=round(start, 3), end=round(end, 3), zoom=zoom,
+            src=str(path), start=round(start, 3), end=round(end, 3),
+            # STATIC (owner, 2026-09-23, having watched the first hook
+            # render: "there's a green line at the beginning and also it
+            # looks like it is zoomed in … you cant see the whole screen and
+            # the quality dropped"). All three were the zoom:
+            #   - a zoom on a blur frame crops the whole-frame picture blur
+            #     exists to keep — `drift` ended the clip at 1.2x;
+            #   - zooming 1.2x upscales the picture, which softens it;
+            #   - zoompan crops at odd pixel offsets while it moves, and on
+            #     4:2:0 video that leaves a green line at the frame edge —
+            #     the hook's `punch` did exactly that for its first 0.8s.
+            # zoompan was also the suspect in the out-of-memory kills on this
+            # box. The slides and the whoosh are the motion now.
+            zoom="none",
             # BLUR, not fill (owner, 2026-09-22, having watched the first real
             # render): "I only see half of the clip… I would rather just have
             # it the entire clip with the blurr on the top and the bottom."
@@ -477,12 +490,8 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
     hook = hook_window(c, main_end)
     segments: list[Segment] = []
     if hook:
-        # The opener punches in to grab attention; the clip after it drifts,
-        # so the two shots are not one repeated move.
-        segments.append(shot(hook[0], hook[1], "punch"))
-        segments.append(shot(0.0, main_end, "drift"))
-    else:
-        segments.append(shot(0.0, main_end, "punch"))
+        segments.append(shot(hook[0], hook[1]))
+    segments.append(shot(0.0, main_end))
 
     # The video slides in at the start and out at the end, and the hook
     # slides across to the clip — the same move and the same whoosh

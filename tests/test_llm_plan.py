@@ -589,3 +589,12 @@ async def test_a_clip_without_a_hook_still_goes_to_the_model(monkeypatch):
     monkeypatch.setattr(llm_plan, "build", fake)
     await builder.build([{"id": "c0", "channel": "n"}], {"c0": ("/clips/c0.mp4", 40.0)})
     assert seen.get("called")
+
+
+def test_a_model_asking_for_a_zoom_gets_a_static_shot():
+    """Same reason as the formula: a zoom crops, softens, and green-lines
+    the edge. The model is told so, and a model that asks anyway is noted."""
+    plan, notes = L.coerce(answer(), sources(), clips(), target_s=60.0)
+    assert {s.zoom for s in plan.segments} == {"none"}
+    assert any("zoom is not used" in n for n in notes)
+    assert 'Always "none"' in L.SYSTEM

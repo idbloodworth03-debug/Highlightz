@@ -127,9 +127,7 @@ FRAMING (per segment — the source is 16:9 and the post is 9:16)
 - blur: the whole frame, letterboxed over a blurred blow-up of itself. Nothing is lost, the picture is smaller. Use it when what matters sits at the edge of the shot — a killfeed, a scoreboard, a second player, anything the transcript implies is off to one side.
 
 MOVEMENT
-- punch: lands zoomed in and settles. Use it on the opening shot.
-- drift / pull: a slow move across the shot. Use them on later shots so the whole thing is not one repeated move.
-- none: only when movement would hurt, e.g. on-screen text the viewer has to read.
+- Always "none". The picture does not zoom: the video slides in and out, and that is the motion.
 
 CAPTIONS (burnt onto the video — most of these are watched on mute)
 - Only when you were given a transcript. Never invent a line; if there is no transcript, return an empty list.
@@ -303,7 +301,12 @@ def coerce(data: dict, sources: dict, clips: list[dict],
             end = start + room
             notes.append("trimmed a segment to the target length")
 
-        zoom = raw.get("zoom") if raw.get("zoom") in P.ZOOMS else "punch"
+        # Always static, whatever the model asked for (owner, 2026-09-23):
+        # a zoom crops the picture, softens it, and on 4:2:0 video leaves a
+        # green line at the edge while it moves. See plan.build.
+        if raw.get("zoom") not in (None, "none"):
+            notes.append("zoom is not used; the shot is static")
+        zoom = "none"
         framing = raw.get("framing") if raw.get("framing") in P.FRAMINGS else "fill"
         channel = by_id.get(cid, {}).get("channel") or ""
         cam = facecams.get(channel)

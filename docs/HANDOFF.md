@@ -3929,3 +3929,21 @@ most of these videos are not eligible for TikTok Creator Rewards, which pays
 only for videos longer than one minute; and a replayed segment of the same
 clip is not what TikTok's originality rule means by "adds new ideas" — it
 will not by itself make a clip count as original.
+
+**NO ZOOM (2026-09-23, same day, after the first hook render on prod).**
+Owner: "there's a green line at the beginning and also it looks like it is
+zoomed in for some reason you cant see the whole screen and the quality
+dropped." Traced to `zoompan`, all three:
+- the hook change had given the clip `drift`, which zooms to 1.2x across
+  the whole clip — on a blur frame that crops the sides blur exists to keep;
+- a 1.2x zoom is a 20% upscale, i.e. softer;
+- zoompan crops at odd offsets while moving, which on 4:2:0 video leaves a
+  green line at the frame edge — the hook's `punch` did that for 0.8s.
+Every formula shot is now `zoom="none"`, and `coerce` forces "none" on a
+model's shots too (prompt says so; a request for one is noted). zoompan is
+out of the graph entirely for these plans, which also removes the filter
+suspected in the OOM kill (exit -9) on the same render. The zoom machinery
+in graph.py is still there and tested; nothing picks it. If a green line is
+still there after this, it is NOT zoompan — the next suspect is the fast
+seek (`-ss` before `-i`) landing mid-GOP in a capture file, since the hook
+is now the first thing played and it starts mid-clip.
