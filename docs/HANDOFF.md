@@ -2027,8 +2027,35 @@ as well and add other sounds":
   is what surfaced the drawtext escaping bugs — read "drawtext escaping:
   ffmpeg parses a filtergraph TWICE" near the bottom before touching `_esc()`.
 
+**DIFFERENT TRANSITIONS AND PUNCH-INS (2026-09-23).** Owner, after the first
+captioned render: "what about the sound effects and different transitions".
+That render had two long shots (36s + 24s) — ONE cut, so one transition and
+four sounds in sixty seconds. The formula still picks the fewest clips that
+fill 60s (not changed without the owner); what changed is what happens
+around and inside the shots:
+- **Every cut its own transition.** `EditPlan.transitions` (one per join;
+  empty = `transition` for every join, which is what a model's plan and every
+  older plan mean — `plan.transition_at()` is the one place that decides).
+  The formula rotates `FORMULA_TRANSITIONS`: slideleft, fadewhite (a flash),
+  slideup (reads as a swipe on a vertical feed), circleopen, smoothleft,
+  wipeleft — all xfade names since ffmpeg 4.3. Where the rotation STARTS is
+  seeded from the first clip's id (summed bytes, not `hash()`, which Python
+  salts per process), so different videos do not all open on the same cut
+  while the same clips always make the same edit.
+- **Sound matched to the cut** (`plan._cut_sound`): slides/wipes a whoosh
+  and a hit on landing; the flash a riser timed to ARRIVE on its peak (the
+  riser WAV builds for 0.85s, so it starts 0.85s early) plus a hit; the
+  circle a pop.
+- **Punch-ins inside long shots** (`Segment.punches`, shot-local seconds):
+  a static 1.15x zoom of the whole frame held 2.5s, every 6s, never within
+  1.5s of a shot's end, each with a pop. A static scale + centre-crop laid
+  over the normal frame via `enable` — deliberately NOT zoompan, which is
+  what OOM-killed a render on prod. The prod-shaped plan goes from 0
+  punch-ins and 4 sounds to 8 and 12. `--no-punch` on the preview turns
+  them off for comparison.
+
 **`scripts/edit_preview.py` now has real flags**, all opt-in and composable:
-`--no-motion` (skip zoompan, the OOM suspect), `--fill` (crop instead of the
+`--no-motion` (skip zoompan, the OOM suspect), `--no-punch` (no punch-ins), `--fill` (crop instead of the
 formula's blur, for comparison), `--stack --cam OFFX,OFFY,ZOOM` (facecam
 layout without a stored position), `--captions` (transcribe/burn in),
 `--llm` (the model builder instead of the formula), `--any-status`, `--user

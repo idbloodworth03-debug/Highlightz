@@ -152,6 +152,33 @@ def test_the_sound_files_come_after_every_segment():
     assert "[3:a]adelay" in g
 
 
+def test_each_join_uses_its_own_transition():
+    p = three()
+    p.transitions = ["fadewhite", "slideup"]
+    g = G.build_filtergraph(p)[0]
+    assert "xfade=transition=fadewhite:" in g and "xfade=transition=slideup:" in g
+    assert g.index("fadewhite") < g.index("slideup"), "the transitions are in the wrong order"
+
+
+def test_a_punch_in_is_a_static_zoom_switched_on_by_time():
+    """Not zoompan — that is what OOM-killed a render on prod. A scale of
+    the composed frame, centre-cropped back, laid over only while punched."""
+    p = P.EditPlan(segments=[seg(0, 20, zoom="none")])
+    p.segments[0].punches = [(3.0, 5.5), (9.0, 11.5)]
+    g = G.build_filtergraph(p)[0]
+    assert "zoompan" not in g
+    assert f"scale={round(G.W * P.PUNCH_SCALE / 2) * 2}:-2,crop={G.W}:{G.H}" in g
+    [(_, opts)] = [f for f in F.split_graph(g) if f[0] == "overlay" and "enable" in f[1]]
+    # What the overlay's options are after ffmpeg's first parse pass: the
+    # quotes protected the commas, and both windows are in the sum.
+    assert opts.endswith("enable=between(t,3.00,5.50)+between(t,9.00,11.50)")
+
+
+def test_a_shot_without_punches_is_unchanged():
+    g = G.build_filtergraph(P.EditPlan(segments=[seg(0, 20, zoom="none")]))[0]
+    assert "overlay=0:0" not in g and "[fitp0]" not in g
+
+
 @pytest.mark.parametrize("n_captions", [0, 1, 34])
 def test_every_input_the_graph_reads_is_one_the_command_opens(n_captions):
     """Regression, prod 2026-09-23: "Invalid file index 34 in filtergraph

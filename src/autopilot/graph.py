@@ -32,8 +32,8 @@ from __future__ import annotations
 from itertools import combinations
 from pathlib import Path
 
-from src.autopilot.plan import (SPLIT_TOP, EditPlan, Facecam, Segment,
-                                plan_duration, segment_starts)
+from src.autopilot.plan import (PUNCH_SCALE, SPLIT_TOP, EditPlan, Facecam, Segment,
+                                plan_duration, segment_starts, transition_at)
 
 FPS = 30
 W, H = 1080, 1920
@@ -346,6 +346,25 @@ def _compose(i: int, seg: Segment) -> str:
     return _fit(i, seg.framing)
 
 
+def _punch(i: int, seg: Segment) -> tuple[str, str]:
+    """(graph text, label to carry on from) for a shot's punch-ins.
+
+    The whole composed frame is scaled up by PUNCH_SCALE and centre-cropped
+    back to 1080x1920, and laid over the normal frame only inside the punch
+    windows (`enable`, in shot-local time — each input is trimmed by seeking,
+    so `t` starts at 0 here). Static: no zoompan, which is what OOM-killed a
+    render on prod. The scale runs on every frame whether or not it is shown;
+    that is CPU, bounded, and far cheaper than zoompan's memory.
+    """
+    if not seg.punches:
+        return "", f"fit{i}"
+    when = "+".join(f"between(t,{float(a):.2f},{float(b):.2f})" for a, b in seg.punches)
+    pw = round(W * PUNCH_SCALE / 2) * 2
+    return (f"[fit{i}]split=2[pa{i}][pb{i}];"
+            f"[pb{i}]scale={pw}:-2,crop={W}:{H}[pz{i}];"
+            f"[pa{i}][pz{i}]overlay=0:0:enable='{when}'[fitp{i}];"), f"fitp{i}"
+
+
 def _video_chain(i: int, seg: Segment) -> str:
     """One segment's picture: fit it to the frame, then move in it.
 
@@ -356,13 +375,14 @@ def _video_chain(i: int, seg: Segment) -> str:
     a reputation for exactly that, and running it to do nothing was pure
     cost. `zoom="none"` is now genuinely free.
     """
+    punch, src = _punch(i, seg)
     if seg.zoom == "none":
-        return (f"{_compose(i, seg)};"
-                f"[fit{i}]setsar=1,format=yuv420p[v{i}]")
+        return (f"{_compose(i, seg)};{punch}"
+                f"[{src}]setsar=1,format=yuv420p[v{i}]")
     z = _zoom_expr(seg.zoom, seg.length)
     return (
-        f"{_compose(i, seg)};"
-        f"[fit{i}]"
+        f"{_compose(i, seg)};{punch}"
+        f"[{src}]"
         f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"s={W}x{H}:fps={FPS},"
         f"setsar=1,format=yuv420p[v{i}]"
@@ -385,7 +405,7 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
     vlab = "v0"
     for k in range(1, n):
         out = f"x{k}"
-        parts.append(f"[{vlab}][v{k}]xfade=transition={plan.transition}:"
+        parts.append(f"[{vlab}][v{k}]xfade=transition={transition_at(plan, k - 1)}:"
                      f"duration={d}:offset={offs[k - 1]}[{out}]")
         vlab = out
 
