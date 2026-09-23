@@ -164,14 +164,15 @@ def test_the_video_slides_in_from_black_at_the_start():
     g = G.build_filtergraph(sliding())[0]
     assert f"color=c=black:s={G.W}x{G.H}:r={G.FPS}:d=0.5" in g
     assert "[slb0][vtxt]" not in g                     # no captions here
-    assert "xfade=transition=slideleft:duration=0.5:offset=0[slin]" in g
+    assert f"xfade=transition=slideleft:duration=0.5:offset={-G.XFADE_LEAD:.4f}[slin]" in g
 
 
 def test_the_video_slides_out_to_black_at_the_end_without_changing_its_length():
     p = sliding()
     g = G.build_filtergraph(p)[0]
     total = P.plan_duration(p)
-    assert f"[slin][slb1]xfade=transition=slideleft:duration=0.5:offset={total - 0.5:.3f}[slout]" in g
+    assert (f"[slin][slb1]xfade=transition=slideleft:duration=0.5:"
+            f"offset={total - 0.5 - G.XFADE_LEAD:.4f}[slout]") in g
     args = G.build_command(p, "/tmp/o.mp4", SFX)
     assert args[args.index("-t", args.index("-filter_complex")) + 1] == f"{total:.3f}"
 
@@ -490,3 +491,43 @@ def test_a_plan_the_builder_produced_renders_to_a_command():
     args = G.build_command(p, "/tmp/out.mp4", SFX, font="/f/x.ttf")
     assert args[0] == "ffmpeg" and args[-1] == "/tmp/out.mp4"
     assert len(p.segments) == 1 and P.plan_duration(p) == pytest.approx(24.0)
+
+
+
+# ── the green column (prod, 2026-09-23) ─────────────────────────────────────
+
+def _xfade_first_z(offset: float, duration: float, fps: int = G.FPS,
+                   width: int = G.W) -> int:
+    """What ffmpeg's xfade computes for the slide on its FIRST transition
+    frame, done the way vf_xfade.c does it: the transition starts at the
+    first frame whose pts >= offset, progress = 1 - (pts - offset) / d, and
+    z = (int)(-progress * width), truncated toward zero like C."""
+    k = 0
+    while k / fps < offset - 1e-9:
+        k += 1
+    progress = min(1.0, max(0.0, 1.0 - (k / fps - offset) / duration))
+    return int(-progress * width)
+
+
+def test_no_slide_ever_reads_past_the_end_of_a_row():
+    """Owner's screenshot, 2026-09-23: a green line down the first frame.
+    In xfade's slide transitions, a first frame with progress exactly 1
+    gives z == -width, and column 0 then reads xf0[width] — one past the
+    row, into padding, which is green. Every xfade offset in the graph is
+    checked against ffmpeg's own arithmetic."""
+    for p in (sliding(), P.build([{"id": "a", "channel": "x",
+                                   "hook": {"start": 18.0, "end": 26.0}}],
+                                 {"a": ("/x/a.mp4", 35.0)})):
+        g = G.build_filtergraph(p)[0]
+        offsets = [float(o) for o in re.findall(r"xfade=[^;]*?offset=(-?[\d.]+)", g)]
+        assert len(offsets) == len(p.segments) - 1 + p.slide_in + p.slide_out
+        for off in offsets:
+            assert _xfade_first_z(off, p.trans_dur) > -G.W, \
+                f"the slide at {off} reads one past the end of the row"
+
+
+def test_the_old_on_the_frame_offsets_were_the_bug():
+    """The same check on an offset that lands on a frame fails, which is
+    what makes the test above mean something."""
+    assert _xfade_first_z(0.0, 0.5) == -G.W
+    assert _xfade_first_z(7.5, 0.5) == -G.W

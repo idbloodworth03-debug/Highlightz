@@ -206,6 +206,25 @@ def caption_filters(font: str, text: str, start: float, end: float, n: int) -> s
     return ",".join(out)
 
 
+# HALF A FRAME EARLY, every xfade (owner, 2026-09-23: a green line down the
+# picture on the first frame). ffmpeg's xfade slide transitions compute
+#     z  = -progress * width;   zz = zx % width + width * (zx < 0)
+# and on a transition's FIRST frame progress is exactly 1, so z == -width
+# and column 0 reads xf0[width] — one past the end of the row, into
+# uninitialised padding, which on YUV is green. Same code in ffmpeg 4.4,
+# 6.1 (prod) and 7.1. progress is exactly 1 only when the offset lands ON a
+# frame; starting half a frame before it means the first transition frame
+# is already 1/60s in and no column ever reads past the row. The incoming
+# stream is still placed at the same frame, so nothing moves: not the
+# length, not the captions, not the sound.
+XFADE_LEAD = 0.5 / FPS
+
+
+def _xoff(t: float) -> str:
+    """An xfade offset, half a frame early — see XFADE_LEAD."""
+    return f"{t - XFADE_LEAD:.4f}"
+
+
 def _offsets(plan: EditPlan) -> list[float]:
     """Where each join sits on the finished timeline.
 
@@ -389,7 +408,7 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
     for k in range(1, n):
         out = f"x{k}"
         parts.append(f"[{vlab}][v{k}]xfade=transition={plan.transition}:"
-                     f"duration={d}:offset={offs[k - 1]}[{out}]")
+                     f"duration={d}:offset={_xoff(offs[k - 1])}[{out}]")
         vlab = out
 
     alab = "0:a"
@@ -452,12 +471,13 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
     black = f"color=c=black:s={W}x{H}:r={FPS}:d={d},format=yuv420p,setsar=1"
     if plan.slide_in:
         parts.append(f"{black}[slb0]")
-        parts.append(f"[slb0][{vlab}]xfade=transition=slideleft:duration={d}:offset=0[slin]")
+        parts.append(f"[slb0][{vlab}]xfade=transition=slideleft:duration={d}:"
+                     f"offset={_xoff(0.0)}[slin]")
         vlab = "slin"
     if plan.slide_out:
         parts.append(f"{black}[slb1]")
         parts.append(f"[{vlab}][slb1]xfade=transition=slideleft:duration={d}:"
-                     f"offset={max(0.0, total - d):.3f}[slout]")
+                     f"offset={_xoff(max(0.0, total - d))}[slout]")
         vlab = "slout"
     ends = []
     if not plan.slide_in:

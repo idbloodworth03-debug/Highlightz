@@ -3947,3 +3947,20 @@ in graph.py is still there and tested; nothing picks it. If a green line is
 still there after this, it is NOT zoompan — the next suspect is the fast
 seek (`-ss` before `-i`) landing mid-GOP in a capture file, since the hook
 is now the first thing played and it starts mid-clip.
+
+**THE GREEN LINE WAS AN FFMPEG BUG, NOT THE ZOOM (2026-09-23).** Removing
+zoompan did not fix it; `scripts/edge_check.py` showed the source (1280x720,
+Main, yuv420p) and the picture band's right edge clean, and the owner's
+screenshot put the line at the LEFT edge of the very first frame (0:00,
+otherwise black). Cause, confirmed in vf_xfade.c for 4.4, 6.1 (prod:
+6.1.1-3ubuntu5) and 7.1: the slide transitions compute
+`z = -progress * width; zz = zx % width + width * (zx < 0)`, and on a
+transition's first frame progress is exactly 1 when the offset lands on a
+frame, so z == -width and column 0 reads `xf0[width]` — one past the row,
+into padding, which is green on YUV. It hit the first frame of every slide
+(0s, the hook's join, the slide-out). Fix: every xfade offset starts HALF A
+FRAME early (`graph.XFADE_LEAD`), so the first transition frame is already
+1/60s in; the incoming stream is still placed on the same frame, so the
+length, captions and sound do not move. `test_no_slide_ever_reads_past_the_
+end_of_a_row` replays xfade's own frame arithmetic on every offset in the
+graph. Do not "tidy" the offsets back to round numbers.
