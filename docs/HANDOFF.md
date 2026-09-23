@@ -3964,3 +3964,35 @@ FRAME early (`graph.XFADE_LEAD`), so the first transition frame is already
 length, captions and sound do not move. `test_no_slide_ever_reads_past_the_
 end_of_a_row` replays xfade's own frame arithmetic on every offset in the
 graph. Do not "tidy" the offsets back to round numbers.
+
+**IN THE APP FOR ADMINS (2026-09-23).** Owner: "I like the changes I want
+this to be implemented to the admins right now so we can test it out.
+Remember that we need that option to add the intro hook bait thing also."
+- **Clip window → "Auto-edit · admin test" panel** (`AutoEditPanel` in
+  aurora_html.py; admins only, clips with a file only). Its own small
+  player of the clip file: play to the moment, "Hook starts here", pick
+  5-10s, Preview, Save hook (or Remove hook). "Make auto-edit" renders into
+  the LIBRARY and posts nothing; the finished 9:16 plays in the panel with
+  a Download link.
+- **Endpoints** (api.py, both admin-only AND owner-only — rendering a clip
+  reads its file, and the Privacy Policy keeps that to the owning account):
+  `POST /clips/{id}/hook` {start,end} | {clear:true}, validated 5-10s and
+  inside the clip; `POST /clips/{id}/auto-edit` → 202, then
+  `clip.auto_edit.status` rendering → ready {upload_id, seconds, hook,
+  captions} | failed {error}. Every step broadcasts `clip_updated` (already
+  handled for cards and the open window) plus `upload_added` on success.
+  One render per clip (`_auto_edit_running`); a render cut off by a
+  restart is marked failed at load (`_load_clips`), never left "rendering".
+- **`src/autopilot/auto_edit.py`** is the preview script's pipeline as a
+  function: ffprobe the real length → `builder.build` (hook honoured) →
+  captions → `graph.build_command` → ffmpeg under render.py's shared
+  one-render `_slot`. Timeout scales with the video (10x real time; 228s
+  was measured for a 42.5s edit, so the flat 300s would kill a 70s one).
+  Exit -9 is reported as out of memory.
+- **Admins' Autopilot now renders this edit** (`runner.process_clip`,
+  `auto_edit.uses_new_edit`); a hook saved before approving is used.
+  Everyone else still gets `render.py`, untouched. To release it to Pro,
+  widen `uses_new_edit` and the two `_own_clip_for_admin` gates — and put
+  the realtime/panel copy through the same review as any public surface.
+- Not verified with real ffmpeg in this container; the first in-app render
+  on prod is the check. Watch `journalctl -u highlightz | grep auto_edit`.

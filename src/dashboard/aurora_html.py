@@ -2907,6 +2907,121 @@ function AnnouncementModal({ a, onSeen }) {
   );
 }
 
+// ── Auto-edit, admins only while it is tested (owner, 2026-09-23) ────────
+// "I want this to be implemented to the admins right now so we can test it
+// out … we need that option to add the intro hook bait thing also."
+//
+// Two things, on the clip's own file:
+//   THE HOOK  play the clip, press "Hook starts here" at the moment, pick 5-10
+//             seconds, save. The edit opens on those seconds, slides across
+//             and plays the clip from its start. Optional — no hook is the
+//             clip alone, sliding in and out.
+//   THE EDIT  "Make auto-edit" renders it into the library and posts nothing.
+//
+// LIVE BOTH WAYS: saving a hook and each render step arrive as clip_updated,
+// which App already applies to the card and to this window — this component
+// keeps no copy of either, it re-reads `clip`.
+function AutoEditPanel({ clip }) {
+  const vref = useRef(null);
+  const hook = clip.hook || null;
+  const dur = clip.duration_seconds || 0;
+  const [start, setStart] = useState(hook ? hook.start : null);
+  const [len, setLen] = useState(hook ? Math.round((hook.end - hook.start) * 2) / 2 : 8);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  // A hook saved from another tab, or cleared, lands here as a new clip.hook.
+  useEffect(()=>{
+    const h = clip.hook;
+    setStart(h ? h.start : null);
+    setLen(h ? Math.round((h.end - h.start) * 2) / 2 : 8);
+    setErr('');
+  }, [clip.id, hook ? hook.start : -1, hook ? hook.end : -1]);
+  const end = start == null ? null : (dur ? Math.min(start + len, dur) : start + len);
+  const dirty = start != null && (!hook || Math.abs(hook.start - start) > 0.05 || Math.abs(hook.end - end) > 0.05);
+  const fmt = x => (Math.round(x * 10) / 10).toFixed(1) + 's';
+  const fromPlayer = () => {
+    const v = vref.current; if (!v) return;
+    let t = v.currentTime;
+    if (dur && t + len > dur) t = Math.max(0, dur - len);
+    setStart(Math.round(t * 10) / 10);
+  };
+  const preview = () => {
+    const v = vref.current; if (!v || start == null) return;
+    const stopAt = start + len;
+    const onT = () => { if (v.currentTime >= stopAt) { v.pause(); v.removeEventListener('timeupdate', onT); } };
+    v.addEventListener('timeupdate', onT);
+    v.currentTime = start; v.play();
+  };
+  const post = async (url, body) => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {})});
+      if (!r.ok) { const j = await r.json().catch(()=>({})); setErr(j.detail || ('Failed (' + r.status + ')')); }
+    } catch (e) { setErr('Could not reach the server.'); }
+    setBusy(false);
+  };
+  const ae = clip.auto_edit || {};
+  const rendering = ae.status === 'rendering';
+  return (
+    <div style={{marginTop:24,paddingTop:16,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      <div className="rd-eyebrow" style={{marginBottom:12}}>Auto-edit · admin test</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:16}}>
+        <div>
+          <video ref={vref} src={'/clips/' + clip.id + '/file'} controls playsInline preload="metadata"
+            style={{width:'100%',aspectRatio:'16/9',background:'#000',borderRadius:8,display:'block'}}/>
+          <div style={{fontSize:12,color:'var(--fg-3)',marginTop:8,lineHeight:1.5}}>
+            Play to the hype or the controversial moment, then press <b style={{color:'var(--fg)'}}>Hook starts here</b>.
+            The edit opens on it, slides across, then plays the clip from the start.
+          </div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <button className="rd-btn sm" disabled={busy || rendering} onClick={fromPlayer}>
+            <Icon name="zap" size={13}/>Hook starts here</button>
+          <label style={{fontSize:12,color:'var(--fg-2)',display:'flex',alignItems:'center',gap:8}}>
+            Length
+            <input type="range" min="5" max="10" step="0.5" value={len} disabled={busy || rendering}
+              onChange={e=>setLen(parseFloat(e.target.value))} style={{flex:1}}/>
+            <span style={{fontVariantNumeric:'tabular-nums',minWidth:36,textAlign:'right'}}>{fmt(len)}</span>
+          </label>
+          <div style={{fontSize:14,color:'var(--fg)',fontVariantNumeric:'tabular-nums'}}>
+            {start == null
+              ? <span style={{color:'var(--fg-3)'}}>No hook — the edit is the clip alone.</span>
+              : <>Hook {fmt(start)} – {fmt(end)}{dirty ? <span style={{color:'var(--pending)'}}> · not saved</span> : hook ? <span style={{color:'var(--fg-3)'}}> · saved</span> : null}</>}
+          </div>
+          {start != null && <div style={{display:'flex',gap:8}}>
+            <button className="rd-btn sm" disabled={busy} onClick={preview} style={{flex:1,justifyContent:'center'}}>
+              <Icon name="play" size={13}/>Preview</button>
+            {dirty && <button className="rd-btn grad sm" disabled={busy || rendering} style={{flex:1,justifyContent:'center'}}
+              onClick={()=>post('/clips/' + clip.id + '/hook', {start: start, end: end})}>Save hook</button>}
+            {hook && !dirty && <button className="rd-btn sm" disabled={busy || rendering} style={{flex:1,justifyContent:'center'}}
+              onClick={()=>post('/clips/' + clip.id + '/hook', {clear: true})}>Remove hook</button>}
+          </div>}
+          <button className="rd-btn grad sm" disabled={busy || rendering || dirty}
+            title={dirty ? 'Save the hook first' : ''}
+            style={{marginTop:4,justifyContent:'center'}}
+            onClick={()=>post('/clips/' + clip.id + '/auto-edit', {captions: true})}>
+            <Icon name="sparkles" size={13}/>{rendering ? 'Rendering…' : ae.status === 'ready' ? 'Make it again' : 'Make auto-edit'}</button>
+          {err && <div className="rd-dl-note" style={{color:'var(--danger)'}}>{err}</div>}
+          {rendering && <div className="rd-dl-note"><b>Rendering on the server.</b> A few minutes —
+            started {new Date(ae.at * 1000).toLocaleTimeString()}. It lands here and in your library on its own.</div>}
+          {ae.status === 'failed' && <div className="rd-dl-note"><b>That render failed.</b> {ae.error || ''}</div>}
+        </div>
+      </div>
+      {ae.status === 'ready' && ae.upload_id && <div style={{marginTop:16,display:'flex',gap:16,alignItems:'flex-start',flexWrap:'wrap'}}>
+        <video key={ae.upload_id} src={'/uploads/' + ae.upload_id + '/file'} controls playsInline preload="metadata"
+          style={{width:220,aspectRatio:'9/16',background:'#000',borderRadius:8,display:'block'}}/>
+        <div style={{fontSize:12,color:'var(--fg-2)',lineHeight:1.6,flex:1,minWidth:160}}>
+          <div style={{color:'var(--fg)',fontWeight:600,marginBottom:4}}>Your auto-edit</div>
+          {ae.seconds ? <div>{ae.seconds}s{ae.hook ? ', opening on the hook' : ', no hook'}{ae.captions ? ', ' + ae.captions + ' captions' : ''}.</div> : null}
+          <div>Saved to your library — nothing was posted.</div>
+          <a href={'/uploads/' + ae.upload_id + '/file'} download className="rd-btn sm"
+            style={{textDecoration:'none',marginTop:8,display:'inline-flex'}}><Icon name="download" size={13}/>Download</a>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
 function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featured, onFeature }) {
   // Retry counter for the Twitch iframe. Declared BEFORE the null-clip early
   // return: hooks must run on every render or React errors when the modal
@@ -3146,6 +3261,7 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
                 </button>}
             </div>
           </div>
+          {isAdmin && clip.has_file && <AutoEditPanel clip={clip}/>}
         </div>
       </div>
     </div>

@@ -34,6 +34,11 @@ from src.autopilot import render as ap_render
 
 log = structlog.get_logger(__name__)
 
+
+def _plan_seconds(plan) -> float:
+    from src.autopilot.plan import plan_duration
+    return round(plan_duration(plan), 2)
+
 _inflight: set[str] = set()
 # Clips approved this long ago or less are eligible for the bulk "run now".
 RUN_NOW_WINDOW_S = 7 * 24 * 3600
@@ -69,6 +74,29 @@ async def _captions_for(path: Path) -> list:
         return []
 
 
+def render_name(clip: dict) -> str:
+    return _safe_name(f"{clip.get('channel', 'clip')}-{clip.get('clip_title') or clip.get('stream_title') or 'highlight'}") + "-9x16.mp4"
+
+
+async def save_render(uid: str, clip: dict, dst: Path):
+    """Move a finished render into the user's library, then delete the
+    working copy either way. Shared by Autopilot and the admin test button,
+    so both land a render in the same place with the same name."""
+    from src.uploads import library as upload_lib
+
+    async def _chunks():
+        with dst.open("rb") as fh:
+            while True:
+                b = fh.read(1024 * 1024)
+                if not b:
+                    break
+                yield b
+    try:
+        return await upload_lib.save_stream(uid, render_name(clip), _chunks(), source="render")
+    finally:
+        dst.unlink(missing_ok=True)
+
+
 async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) -> dict:
     """Render, save, schedule. Returns the clip's autopilot record."""
     from src.dashboard import api
@@ -94,27 +122,25 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
         await mark({"status": "rendering", "at": time.time()})
 
         duration = float(clip.get("duration_seconds") or 0.0)
-        captions = []
-        if cfg.get("captions") and settings.captions_enabled:
-            captions = await _captions_for(src)
         out_dir = Path(settings.local_storage_path) / "autopilot"
         dst = out_dir / f"{cid}.mp4"
-        await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip),
-                               captions=captions, duration=duration)
+        from src.auth import users as user_store
+        from src.autopilot import auto_edit
+        if auto_edit.uses_new_edit(user_store.get_by_id(uid)):
+            # ADMINS: the plan-based edit (blur frame, slides + whoosh, the
+            # user's hook if they picked one), owner 2026-09-23: "implemented
+            # to the admins right now so we can test it out".
+            plan = await auto_edit.make(clip, dst, captions=bool(cfg.get("captions")),
+                                        mode=cfg.get("mode") or "clipper")
+            duration = _plan_seconds(plan)
+        else:
+            captions = []
+            if cfg.get("captions") and settings.captions_enabled:
+                captions = await _captions_for(src)
+            await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip),
+                                   captions=captions, duration=duration)
 
-        name = _safe_name(f"{clip.get('channel', 'clip')}-{clip.get('clip_title') or clip.get('stream_title') or 'highlight'}") + "-9x16.mp4"
-
-        async def _chunks():
-            with dst.open("rb") as fh:
-                while True:
-                    b = fh.read(1024 * 1024)
-                    if not b:
-                        break
-                    yield b
-        try:
-            up = await upload_lib.save_stream(uid, name, _chunks(), source="render")
-        finally:
-            dst.unlink(missing_ok=True)
+        up = await save_render(uid, clip, dst)
 
         platforms = [p for p in cfg["platforms"] if p in connected]
         due = next_due(cfg, time.time(), sched.last_due_from(uid, "autopilot"))

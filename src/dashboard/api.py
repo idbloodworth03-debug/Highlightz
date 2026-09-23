@@ -491,6 +491,12 @@ def _load_clips() -> dict:
             if field in c:
                 del c[field]
                 _retired_fields_stripped += 1
+        # An auto-edit that was rendering when the process stopped (a deploy
+        # restarts it) will never finish; left as "rendering" the card would
+        # say so forever. Say what happened and let the button run again.
+        if (c.get("auto_edit") or {}).get("status") == "rendering":
+            c["auto_edit"] = {"status": "failed", "at": time.time(),
+                              "error": "Interrupted by a server restart. Make it again."}
     return {c["id"]: c for c in rows}
 
 
@@ -3150,6 +3156,119 @@ async def get_clip_file(request: Request, clip_id: str, download: int = 0):
         headers={"Content-Disposition": f'{disposition}; filename="{safe}.mp4"',
                  "X-Content-Type-Options": "nosniff"},
     )
+
+
+# ── Auto-edit, admins only while it is tested (owner, 2026-09-23) ────────────
+#
+# "I like the changes I want this to be implemented to the admins right now so
+# we can test it out. Remember that we need that option to add the intro hook
+# bait thing also." Two endpoints:
+#
+#   POST /clips/{id}/hook        pick (or clear) the 5-10s the video opens on
+#   POST /clips/{id}/auto-edit   render the plan-based edit into the library,
+#                                posting nothing
+#
+# Both are the owner's own clip only, admin or not: the Privacy Policy keeps a
+# clip's file to the account it belongs to, and rendering one IS reading it.
+# Both broadcast `clip_updated`, which the open tab already applies to the card
+# and to an open clip window, so a hook saved or an edit finished shows up live.
+
+_auto_edit_running: set[str] = set()
+
+
+def _own_clip_for_admin(request: Request, clip_id: str) -> tuple[str, dict]:
+    _require_admin(request)
+    uid = _current_user_id(request)
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return uid, clip
+
+
+@app.post("/clips/{clip_id}/hook")
+async def set_clip_hook(request: Request, clip_id: str):
+    """Save the hook — the 5-10 seconds of this clip the edit opens on — or
+    clear it with {"clear": true}. Seconds are the clip's own."""
+    from src.autopilot import plan as P
+    uid, clip = _own_clip_for_admin(request, clip_id)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if body.get("clear"):
+        clip.pop("hook", None)
+    else:
+        try:
+            start, end = float(body["start"]), float(body["end"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Send the hook's start and end in seconds.")
+        if start < 0 or not (P.HOOK_MIN_S - 1e-6 <= end - start <= P.HOOK_MAX_S + 1e-6):
+            raise HTTPException(status_code=400, detail=(
+                f"The hook has to be {P.HOOK_MIN_S:g} to {P.HOOK_MAX_S:g} seconds long."))
+        dur = float(clip.get("duration_seconds") or 0.0)
+        if dur and end > dur + 0.5:
+            raise HTTPException(status_code=400, detail="The hook runs past the end of the clip.")
+        clip["hook"] = {"start": round(start, 2), "end": round(end, 2)}
+    _save_clips()
+    out = _clip_out(clip)
+    await broadcast({"event": "clip_updated", "clip": out}, user_id=uid)
+    return out
+
+
+@app.post("/clips/{clip_id}/auto-edit", status_code=202)
+async def start_auto_edit(request: Request, clip_id: str):
+    """Render this clip's auto-edit (with its hook, if it has one) into the
+    library. Nothing is scheduled or posted. Progress arrives as
+    `clip_updated` with `clip.auto_edit.status` rendering -> ready | failed."""
+    from src.clips import files as clip_files
+    uid, clip = _own_clip_for_admin(request, clip_id)
+    path = clip_files.path_for(clip_id)
+    if not path or not path.is_file():
+        raise HTTPException(status_code=409, detail="This clip has no video file to edit.")
+    if clip_id in _auto_edit_running:
+        raise HTTPException(status_code=409, detail="This clip is already rendering.")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    captions = bool(body.get("captions", True))
+    _auto_edit_running.add(clip_id)
+    clip["auto_edit"] = {"status": "rendering", "at": time.time(), "hook": bool(clip.get("hook"))}
+    _save_clips()
+    await broadcast({"event": "clip_updated", "clip": _clip_out(clip)}, user_id=uid)
+    from src.autopilot import runner as ap_runner
+    ap_runner.kick(_run_auto_edit(clip_id, uid, captions))
+    return {"ok": True}
+
+
+async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
+    from src.autopilot import auto_edit, runner
+    from src.autopilot.render import RenderError
+    from src.autopilot.plan import plan_duration
+    from src.uploads import library as upload_lib
+    clip = _clips.get(clip_id)
+    try:
+        if not clip:
+            return
+        dst = Path(settings.local_storage_path) / "autoedit" / f"{clip_id}.mp4"
+        plan = await auto_edit.make(clip, dst, captions=captions)
+        up = await runner.save_render(uid, clip, dst)
+        await broadcast({"event": "upload_added", "upload": up.public(),
+                         "quota": upload_lib.quota(uid)}, user_id=uid)
+        clip["auto_edit"] = {"status": "ready", "at": time.time(), "upload_id": up.id,
+                             "seconds": round(plan_duration(plan), 1), "hook": plan.hook,
+                             "captions": len(plan.captions)}
+    except RenderError as exc:
+        clip["auto_edit"] = {"status": "failed", "at": time.time(), "error": exc.args[0]}
+    except Exception as exc:                    # never leave the card on "rendering"
+        log.exception("auto_edit_crashed", clip_id=clip_id)
+        clip["auto_edit"] = {"status": "failed", "at": time.time(),
+                             "error": f"Unexpected error: {exc}"[:200]}
+    finally:
+        _auto_edit_running.discard(clip_id)
+        if clip:
+            _save_clips()
+            await broadcast({"event": "clip_updated", "clip": _clip_out(clip)}, user_id=uid)
 
 
 @app.post("/clips/{clip_id}/fetch", status_code=202)
