@@ -152,31 +152,70 @@ def test_the_sound_files_come_after_every_segment():
     assert "[3:a]adelay" in g
 
 
-def test_each_join_uses_its_own_transition():
+# ── slide in, slide out (owner, 2026-09-23) ─────────────────────────────────
+
+def sliding():
     p = three()
-    p.transitions = ["fadewhite", "slideup"]
+    p.slide_in = p.slide_out = True
+    return p
+
+
+def test_the_video_slides_in_from_black_at_the_start():
+    g = G.build_filtergraph(sliding())[0]
+    assert f"color=c=black:s={G.W}x{G.H}:r={G.FPS}:d=0.5" in g
+    assert "[slb0][vtxt]" not in g                     # no captions here
+    assert "xfade=transition=slideleft:duration=0.5:offset=0[slin]" in g
+
+
+def test_the_video_slides_out_to_black_at_the_end_without_changing_its_length():
+    p = sliding()
     g = G.build_filtergraph(p)[0]
-    assert "xfade=transition=fadewhite:" in g and "xfade=transition=slideup:" in g
-    assert g.index("fadewhite") < g.index("slideup"), "the transitions are in the wrong order"
+    total = P.plan_duration(p)
+    assert f"[slin][slb1]xfade=transition=slideleft:duration=0.5:offset={total - 0.5:.3f}[slout]" in g
+    args = G.build_command(p, "/tmp/o.mp4", SFX)
+    assert args[args.index("-t", args.index("-filter_complex")) + 1] == f"{total:.3f}"
 
 
-def test_a_punch_in_is_a_static_zoom_switched_on_by_time():
-    """Not zoompan — that is what OOM-killed a render on prod. A scale of
-    the composed frame, centre-cropped back, laid over only while punched."""
-    p = P.EditPlan(segments=[seg(0, 20, zoom="none")])
-    p.segments[0].punches = [(3.0, 5.5), (9.0, 11.5)]
+def test_a_slide_replaces_the_fade_at_its_end_and_only_there():
+    assert "fade=t=in" not in G.build_filtergraph(sliding())[0]
+    assert "fade=t=out" not in G.build_filtergraph(sliding())[0]
+    p = three()
+    p.slide_in = True
     g = G.build_filtergraph(p)[0]
-    assert "zoompan" not in g
-    assert f"scale={round(G.W * P.PUNCH_SCALE / 2) * 2}:-2,crop={G.W}:{G.H}" in g
-    [(_, opts)] = [f for f in F.split_graph(g) if f[0] == "overlay" and "enable" in f[1]]
-    # What the overlay's options are after ffmpeg's first parse pass: the
-    # quotes protected the commas, and both windows are in the sum.
-    assert opts.endswith("enable=between(t,3.00,5.50)+between(t,9.00,11.50)")
+    assert "fade=t=in" not in g and "fade=t=out" in g
 
 
-def test_a_shot_without_punches_is_unchanged():
-    g = G.build_filtergraph(P.EditPlan(segments=[seg(0, 20, zoom="none")]))[0]
-    assert "overlay=0:0" not in g and "[fitp0]" not in g
+def test_the_captions_ride_in_and_out_with_the_picture():
+    """Drawn BEFORE the slides, so words are not left hanging over black."""
+    p = sliding()
+    p.captions = [{"start": 0.1, "end": 1.0, "text": "here we go"}]
+    g = G.build_filtergraph(p, font="/f/x.ttf")[0]
+    assert g.index("drawtext") < g.index("[slb0][vtxt]xfade")
+
+
+def test_every_shot_runs_at_the_output_frame_rate():
+    """xfade refuses inputs at different frame rates, and the slides push
+    against a 30fps black frame while captures are often 60fps."""
+    p = sliding()
+    p.segments[1].zoom = "none"
+    g = G.build_filtergraph(p)[0]
+    for i, s in enumerate(p.segments):
+        chain = g[g.index(f"[{i}:v]"):g.index(f"[v{i}]")]
+        assert f"fps={G.FPS}" in chain, f"shot {i} ({s.zoom}) keeps its source rate"
+
+
+def test_a_formula_plan_renders_to_a_whole_command():
+    """End to end: slides, a cut, sound and captions together — every input
+    opened is read, every label mapped is produced."""
+    clips = [{"id": "a", "channel": "x"}, {"id": "b", "channel": "x"}]
+    p = P.build(clips, {"a": ("/x/a.mp4", 36.22), "b": ("/x/b.mp4", 67.02)})
+    p.captions = [{"start": i + 0.1, "end": i + 0.9, "text": f"cue {i}"} for i in range(20)]
+    args = G.build_command(p, "/tmp/o.mp4", SFX, font="/f/x.ttf")
+    g = args[args.index("-filter_complex") + 1]
+    read = {int(k) for k in re.findall(r"\[(\d+):[av]\]", g)}
+    assert read == set(range(args.count("-i")))
+    assert g.count("xfade=") == 3, "a slide in, one cut, a slide out"
+    assert [c.kind for c in p.sfx] == ["whoosh"] * 3
 
 
 @pytest.mark.parametrize("n_captions", [0, 1, 34])

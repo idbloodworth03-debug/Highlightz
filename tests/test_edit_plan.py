@@ -127,119 +127,35 @@ def test_the_builder_takes_the_ranked_order():
 
 # ── what makes it look edited ────────────────────────────────────────────────
 
-def test_every_cut_gets_sound_and_the_open_gets_a_riser():
-    """Not "a whoosh and a hit per cut" any more — the flash gets a riser and
-    a hit, the circle a pop — but every cut has sound ON it."""
-    clips = [clip(f"c{i}") for i in range(4)]
-    sources = {f"c{i}": (f"/tmp/c{i}.mp4", 18.0) for i in range(4)}
-    p = P.build(clips, sources)
-    assert p.sfx[0].kind == "riser" and p.sfx[0].at == 0.0, "the open has no sound"
-    joins = P.segment_starts(p)[1:]
-    assert len(joins) == 3
-    for start in joins:
-        t = start - p.trans_dur                     # where the transition begins
-        near = [c for c in p.sfx if t - 0.9 <= c.at <= t + p.trans_dur]
-        assert near, f"the cut at {t:.2f}s is silent"
-
-
-# ── different transitions (owner, 2026-09-23) ───────────────────────────────
-
-def four_clip_plan(first="c0", **kw):
-    ids = [first] + [f"c{i}" for i in range(1, 4)]
-    clips = [clip(i) for i in ids]
-    return P.build(clips, {i: (f"/tmp/{i}.mp4", 18.0) for i in ids}, **kw)
-
-
-def test_every_cut_gets_its_own_transition():
-    p = four_clip_plan()
-    assert len(p.transitions) == 3 and len(set(p.transitions)) == 3
-    assert set(p.transitions) <= set(P.FORMULA_TRANSITIONS) <= set(P.TRANSITIONS)
-    assert P.valid(p)[0]
-
-
-def test_the_same_clips_always_make_the_same_edit():
-    assert four_clip_plan().transitions == four_clip_plan().transitions
-
-
-def test_different_videos_do_not_all_open_on_the_same_transition():
-    """Most formula videos have one or two cuts, so the FIRST transition is
-    usually the only one a viewer sees."""
-    openers = {four_clip_plan(first=f"clip-{n}").transitions[0] for n in range(12)}
-    assert len(openers) >= 3
-
-
-def test_a_named_transition_is_used_for_every_cut():
-    p = four_clip_plan(transition="fade")
-    assert p.transitions == ["fade", "fade", "fade"] and p.transition == "fade"
-
-
-def test_a_model_plan_with_one_transition_still_means_every_cut():
-    p = P.EditPlan(segments=[seg(0, 20), seg(0, 20), seg(0, 20)], transition="wipeleft")
-    assert [P.transition_at(p, k) for k in range(2)] == ["wipeleft", "wipeleft"]
-
-
-def test_the_flash_gets_a_riser_that_arrives_on_it():
-    """sfx.py's riser builds for 0.85s and stops dead, so it has to START
-    0.85s before the flash's peak to land on it."""
-    cues = P._cut_sound("fadewhite", 20.0, 0.5)
-    riser = next(c for c in cues if c.kind == "riser")
-    hit = next(c for c in cues if c.kind == "hit")
-    assert riser.at + 0.85 == pytest.approx(20.25) == hit.at
-
-
-def test_a_transition_list_that_does_not_match_the_joins_is_refused():
-    p = P.EditPlan(segments=[seg(0, 20), seg(0, 20)], transitions=["fade", "fade"])
-    assert not P.valid(p)[0]
-    p = P.EditPlan(segments=[seg(0, 20), seg(0, 20)], transitions=["explode"])
-    assert not P.valid(p)[0]
-
-
-# ── punch-ins inside a long shot ────────────────────────────────────────────
-
-def test_a_long_shot_punches_in_every_few_seconds_and_never_near_its_ends():
-    wins = P.punches_for(36.22)
-    assert wins == [(3.0, 5.5), (9.0, 11.5), (15.0, 17.5), (21.0, 23.5), (27.0, 29.5)]
-    assert all(b <= 36.22 - P.PUNCH_EDGE_S for _a, b in wins), "a punch would hit the transition"
-
-
-def test_a_short_shot_does_not_punch():
-    assert P.punches_for(P.MIN_SEGMENT_S) == []
-
-
-def test_every_punch_in_is_heard():
-    p = four_clip_plan()
-    starts = P.segment_starts(p)
-    pops = {round(c.at, 2) for c in p.sfx if c.kind == "pop"}
-    for s0, s in zip(starts, p.segments):
-        for a, _b in s.punches:
-            assert round(s0 + a, 2) in pops
-
-
-def test_every_sound_lands_inside_the_video():
-    p = four_clip_plan()
-    total = P.plan_duration(p)
-    assert all(0 <= c.at <= total for c in p.sfx)
-
-
-@pytest.mark.parametrize("punches", [[(5, 4)], [(1, 3), (2, 4)], [(10, 25)], [(-1, 2)], ["x"]])
-def test_a_bad_punch_window_is_refused(punches):
-    s = seg(0, 20)
-    s.punches = punches
-    assert not P.valid(P.EditPlan(segments=[s]))[0]
-
-
-def test_the_close_gets_a_ding_so_the_palette_is_not_just_three_sounds():
-    """riser/whoosh/hit leaves pop and ding in SFX_KINDS unused by anything
-    the formula produces. One ding near the end uses a fourth."""
+def test_the_formula_slides_in_and_out_with_a_whoosh_and_slides_every_cut():
+    """Owner, 2026-09-23: "one at the beginning like it sliding into frame
+    with a whoosh sound and then one at the end with it sliding out and the
+    same sound. Also if other clips are combined make them do the same
+    thing." One move, one sound, nothing else."""
     clips = [clip(f"c{i}") for i in range(3)]
     sources = {f"c{i}": (f"/tmp/c{i}.mp4", 22.0) for i in range(3)}
     p = P.build(clips, sources)
-    dings = [c for c in p.sfx if c.kind == "ding"]
-    assert len(dings) == 1
-    assert 0 < dings[0].at < P.plan_duration(p)
-    # Lands before the graph's 0.4s fade-out starts, so the fade does not
-    # swallow the sting.
-    assert dings[0].at <= P.plan_duration(p) - 0.4
+    assert p.slide_in and p.slide_out and p.transition == "slideleft"
+    total, d = P.plan_duration(p), p.trans_dur
+    # Where each cut's transition BEGINS — the same list the graph's xfade
+    # offsets are (graph._offsets is segment_starts()[1:]).
+    cut_starts = P.segment_starts(p)[1:]
+    assert {c.kind for c in p.sfx} == {"whoosh"}, "only the whoosh"
+    assert [c.at for c in p.sfx] == pytest.approx([0.0, *cut_starts, total - d])
+    assert len({c.gain for c in p.sfx}) == 1, "the same sound, not a louder one somewhere"
+
+
+def test_a_plan_that_does_not_slide_only_whooshes_its_cuts():
+    """A model plan that opts out keeps the old fades and gets no open/close
+    whoosh — the flags are what decide, not the builder's name."""
+    p = P.EditPlan(segments=[seg(0, 20), seg(0, 20)], trans_dur=0.5)
+    assert [(c.kind, c.at) for c in P._sfx_for(p)] == [("whoosh", 19.5)]
+
+
+def test_too_short_to_slide_in_and_out_is_refused():
+    p = P.EditPlan(segments=[seg(0, 0.9)], slide_in=True, slide_out=True)
+    ok, why = P.valid(p)
+    assert not ok
 
 
 def test_sound_is_timed_against_the_finished_video_not_the_segment():

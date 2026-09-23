@@ -2018,44 +2018,39 @@ as well and add other sounds":
   fed Whisper's own cues instead of a model's. `scripts/edit_preview.py`
   grows `--captions` (opt-in: an uncached clip gets transcribed on the spot,
   which briefly uses the box's one CPU core, so it is not automatic).
-- `plan._sfx_for()` now adds a `ding` a beat before the last frame — the
-  palette was only ever using three of the five `SFX_KINDS` (riser, whoosh,
-  hit); `pop` is still unused by anything automatic, reachable only via a
-  model's own `sfx` choices.
+- ~~`plan._sfx_for()` now adds a `ding` a beat before the last frame~~ —
+  gone the next day with the rest of the sound design; see "ONE MOVE, ONE
+  SOUND" below.
 - **This is the first time captions actually rendered on real prod content**,
   because `CAPTIONS_ENABLED` had been unset since 2026-08-02. Turning it on
   is what surfaced the drawtext escaping bugs — read "drawtext escaping:
   ffmpeg parses a filtergraph TWICE" near the bottom before touching `_esc()`.
 
-**DIFFERENT TRANSITIONS AND PUNCH-INS (2026-09-23).** Owner, after the first
-captioned render: "what about the sound effects and different transitions".
-That render had two long shots (36s + 24s) — ONE cut, so one transition and
-four sounds in sixty seconds. The formula still picks the fewest clips that
-fill 60s (not changed without the owner); what changed is what happens
-around and inside the shots:
-- **Every cut its own transition.** `EditPlan.transitions` (one per join;
-  empty = `transition` for every join, which is what a model's plan and every
-  older plan mean — `plan.transition_at()` is the one place that decides).
-  The formula rotates `FORMULA_TRANSITIONS`: slideleft, fadewhite (a flash),
-  slideup (reads as a swipe on a vertical feed), circleopen, smoothleft,
-  wipeleft — all xfade names since ffmpeg 4.3. Where the rotation STARTS is
-  seeded from the first clip's id (summed bytes, not `hash()`, which Python
-  salts per process), so different videos do not all open on the same cut
-  while the same clips always make the same edit.
-- **Sound matched to the cut** (`plan._cut_sound`): slides/wipes a whoosh
-  and a hit on landing; the flash a riser timed to ARRIVE on its peak (the
-  riser WAV builds for 0.85s, so it starts 0.85s early) plus a hit; the
-  circle a pop.
-- **Punch-ins inside long shots** (`Segment.punches`, shot-local seconds):
-  a static 1.15x zoom of the whole frame held 2.5s, every 6s, never within
-  1.5s of a shot's end, each with a pop. A static scale + centre-crop laid
-  over the normal frame via `enable` — deliberately NOT zoompan, which is
-  what OOM-killed a render on prod. The prod-shaped plan goes from 0
-  punch-ins and 4 sounds to 8 and 12. `--no-punch` on the preview turns
-  them off for comparison.
+**ONE MOVE, ONE SOUND (2026-09-23) — the owner's decision, having heard
+the alternatives.** A version with a different transition on every cut
+(flash, slide-up, circle…), a sound matched to each, and punch-in zooms with
+a pop every six seconds was built and pushed (2ae5f25) and rejected: "all of
+the continuous transitions and sounds are not going to work." It was
+reverted. What the owner asked for instead, and what the formula now does:
+
+    the open    the video slides into frame from the right   + whoosh
+    each cut    the clip slides out left as the next slides in + whoosh
+    the close   the video slides out to the left              + whoosh
+
+and NO other sound — no riser, hits, pops or ding. `EditPlan.slide_in` /
+`slide_out` switch the open and close; the renderer does each as an xfade
+`slideleft` (a push) against half a second of black, applied after the
+captions so the words ride with the picture, and neither changes the length.
+Every shot is now forced to 30fps, because xfade refuses mismatched frame
+rates and captures are often 60 — that also fixes a latent failure joining a
+30fps clip to a 60fps one. The model builder gets the same open and close
+(`coerce` sets both flags) and its prompt now says not to add a riser or a
+ding, so switching a model on does not bring back what was turned down. **Do
+not reintroduce rotating transitions, punch-ins or accent sounds without the
+owner.**
 
 **`scripts/edit_preview.py` now has real flags**, all opt-in and composable:
-`--no-motion` (skip zoompan, the OOM suspect), `--no-punch` (no punch-ins), `--fill` (crop instead of the
+`--no-motion` (skip zoompan, the OOM suspect), `--fill` (crop instead of the
 formula's blur, for comparison), `--stack --cam OFFX,OFFY,ZOOM` (facecam
 layout without a stored position), `--captions` (transcribe/burn in),
 `--llm` (the model builder instead of the formula), `--any-status`, `--user

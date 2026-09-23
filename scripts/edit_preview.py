@@ -67,9 +67,6 @@ async def main() -> int:
                          "OOM-killed asking for 3.1 GB on an idle 3.8 GB box, "
                          "and zoompan is the suspect. Use this to get a "
                          "watchable file and to confirm the diagnosis.")
-    ap.add_argument("--no-punch", action="store_true",
-                    help="no punch-in zooms inside a shot (and none of their "
-                         "pops), to compare against the formula's default")
     ap.add_argument("--fill", action="store_true",
                     help="crop to fill the frame instead of the blurred "
                          "letterbox the formula now uses. Bigger picture, but "
@@ -225,12 +222,6 @@ async def main() -> int:
         for seg in plan.segments:
             seg.framing = "fill"
         print("\n--fill: cropping to fill, no blurred letterbox")
-    if args.no_punch:
-        for seg in plan.segments:
-            seg.punches = []
-        if plan.source == "formula":
-            plan.sfx = P._sfx_for(plan)
-        print("\n--no-punch: no punch-in zooms, no pops")
     if args.captions and not plan.captions:
         if not settings.captions_enabled:
             print("\n--captions: settings.captions_enabled is off, skipping")
@@ -276,11 +267,11 @@ async def main() -> int:
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
         print(f"  {i+1}. {seg.channel or '?':<16} {seg.start:6.2f}–{seg.end:6.2f}s"
-              f"  ({seg.length:5.2f}s)  zoom={seg.zoom}  framing={seg.framing}"
-              f"  punch-ins={len(seg.punches)}")
-    joins = max(0, len(plan.segments) - 1)
-    print(f"  transitions: " + (", ".join(P.transition_at(plan, k) for k in range(joins))
-                                or "(one shot, no cuts)") + f"  @ {plan.trans_dur}s")
+              f"  ({seg.length:5.2f}s)  zoom={seg.zoom}  framing={seg.framing}")
+    print(f"  transition: {plan.transition} @ {plan.trans_dur}s"
+          f"   joins: {max(0, len(plan.segments)-1)}")
+    print(f"  open/close: {'slides in' if plan.slide_in else 'fades in'}"
+          f" / {'slides out' if plan.slide_out else 'fades out'}")
     print(f"  sound: " + ", ".join(f"{c.kind}@{c.at:.1f}s" for c in plan.sfx))
     print(f"  PREDICTED DURATION: {P.plan_duration(plan):.2f}s")
     print(f"  captions: {len(plan.captions)}")

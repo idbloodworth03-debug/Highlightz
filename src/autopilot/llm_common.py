@@ -144,7 +144,8 @@ THUMBNAIL (the cover frame)
 - `text` is three or four huge words across the middle, or empty. It is read at the size of a phone tile. It is not the title again.
 
 SOUND
-- whoosh under each transition, hit on the landing right after it, riser into the open, pop and ding as accents on a punchline or a number appearing.
+- The video slides in at the start and out at the end, each with a whoosh — that is added for you; do not add a riser at the open or a ding at the close.
+- A whoosh under each transition. Anything else only on a real punchline, and rarely: the owner found a sound on every beat too much. An empty list is a good answer.
 - `at` is seconds on the FINISHED timeline, not inside a segment. Join k lands at (sum of the lengths of the segments up to and including k) - (k+1) x the transition duration.
 - gain is 0.4-0.7. Louder than that and it buries the speech.
 
@@ -320,8 +321,11 @@ def coerce(data: dict, sources: dict, clips: list[dict],
         notes.append(f"unknown transition {transition!r}")
         transition = "slideleft"
 
+    # The house open and close, same as the formula's (owner, 2026-09-23),
+    # so switching the model on does not bring back a look the owner turned
+    # down — and so a one-clip plan whose model sent no cues is not silent.
     plan = P.EditPlan(segments=segments, transition=transition,
-                      trans_dur=P.TRANS_DUR,
+                      trans_dur=P.TRANS_DUR, slide_in=True, slide_out=True,
                       title=str(data.get("title") or "")[:60].strip(),
                       source="llm")
 

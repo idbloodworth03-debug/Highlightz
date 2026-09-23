@@ -225,8 +225,17 @@ def test_a_silent_answer_gets_the_formulas_sound_rather_than_none():
     """Silence is the single thing this whole feature exists to fix — the
     old renderer posted clips with no sound design at all."""
     plan, notes = L.coerce(answer(sfx=[]), sources(), clips(), target_s=60.0)
-    assert plan.sfx and any(c.kind == "riser" for c in plan.sfx)
+    assert plan.slide_in and plan.slide_out
+    assert [c.at for c in plan.sfx if c.kind == "whoosh"][0] == 0.0, "the open is silent"
     assert any("fell back" in n for n in notes)
+
+
+def test_a_one_clip_model_plan_with_no_cues_is_still_not_silent():
+    """No cuts means no transition whoosh; the slide in and out still sound."""
+    one = [{"clip_id": "c0", "start": 0.0, "end": 30.0, "zoom": "none",
+            "framing": "blur", "layout": "none", "why": ""}]
+    plan, _ = L.coerce(answer(sfx=[], segments=one), sources(), clips(), target_s=60.0)
+    assert len(plan.segments) == 1 and len(plan.sfx) == 2
 
 
 def test_anything_it_produces_is_a_plan_the_renderer_accepts():

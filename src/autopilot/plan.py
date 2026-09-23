@@ -41,16 +41,7 @@ SFX_KINDS = ("whoosh", "hit", "pop", "riser", "ding")
 # xfade transition names. Kept to ones that read as deliberate on vertical
 # video — a dissolve between two gameplay clips looks like a mistake, a wipe
 # or a slide reads as a cut somebody made.
-TRANSITIONS = ("fade", "slideleft", "slideright", "wipeleft", "circleopen", "dissolve",
-               "fadewhite", "slideup", "smoothleft")
-
-# The order the formula rotates through, one per cut (owner, 2026-09-23: "what
-# about the sound effects and different transitions" — a render had ONE cut,
-# so one transition and one whoosh in sixty seconds). All six are xfade names
-# since ffmpeg 4.3, the release xfade itself arrived in. `slideup` reads as a
-# swipe to the next video on a vertical feed; `fadewhite` is a flash.
-FORMULA_TRANSITIONS = ("slideleft", "fadewhite", "slideup", "circleopen",
-                       "smoothleft", "wipeleft")
+TRANSITIONS = ("fade", "slideleft", "slideright", "wipeleft", "circleopen", "dissolve")
 
 # How the picture moves inside a segment. Static framing is what makes a clip
 # look like a repost, so "none" exists only as an escape hatch.
@@ -91,17 +82,7 @@ TARGET_S = 60.0          # TikTok and Shorts both treat 60s as the ceiling
 TRANS_DUR = 0.5
 MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
 MAX_SEGMENTS = 4
-
-# PUNCH-INS: a static 1.15x zoom held for a beat, then back — the zoom cut
-# every short-form editor uses so a long shot does not sit still. Static on
-# purpose: the MOVING zoom (zoompan) was OOM-killed on prod at 3.1 GB, and a
-# scale+overlay switched on by `enable` costs CPU, not memory. Kept clear of
-# the ends of a shot so a punch never collides with a transition.
-PUNCH_SCALE = 1.15
-PUNCH_FIRST_S = 3.0      # first punch this far into a shot
-PUNCH_EVERY_S = 6.0      # then one every this often
-PUNCH_HOLD_S = 2.5       # held this long
-PUNCH_EDGE_S = 1.5       # never within this of a shot's end
+WHOOSH_GAIN = 0.6
 
 
 @dataclass
@@ -142,10 +123,6 @@ class Segment:
     # by the renderer.
     clip_id: str = ""
     channel: str = ""
-    # [(start, end)] in seconds FROM THE START OF THIS SHOT, where the frame is
-    # punched in. Shot-local, not source time: the renderer's `t` inside one
-    # segment's chain starts at 0, because each input is trimmed by seeking.
-    punches: list = field(default_factory=list)
 
     @property
     def length(self) -> float:
@@ -168,11 +145,15 @@ class EditPlan:
     segments: list[Segment] = field(default_factory=list)
     sfx: list[Sfx] = field(default_factory=list)
     transition: str = "slideleft"
-    # One name per join, when the cuts differ. Empty means every join uses
-    # `transition` — which is what a model's plan does, and every plan did
-    # before 2026-09-23. `transition_at` is the one place that decides.
-    transitions: list = field(default_factory=list)
     trans_dur: float = TRANS_DUR
+    # The open and the close (owner, 2026-09-23: "one at the beginning like it
+    # sliding into frame with a whoosh sound and then one at the end with it
+    # sliding out and the same sound"). slide_in: the first frame slides in
+    # from the right over black; slide_out: the last slides off to the left.
+    # Both take `trans_dur` and neither changes the video's length. Off by
+    # default, so a model's plan (and every older plan) keeps its fades.
+    slide_in: bool = False
+    slide_out: bool = False
     title: str = ""
     # [{start, end, text}] in FINISHED-TIMELINE seconds, which is what the
     # renderer's `enable=between(t,...)` measures. A cue written against the
@@ -242,26 +223,6 @@ def timeline_time(plan: EditPlan, seg_index: int, source_t: float) -> float:
     return round(segment_starts(plan)[seg_index] + (source_t - seg.start), 3)
 
 
-def transition_at(plan: EditPlan, k: int) -> str:
-    """The transition for join k (0 = between shots 0 and 1). The renderer
-    and the sound design both ask here, so they cannot disagree about which
-    cut is the flash."""
-    if 0 <= k < len(plan.transitions):
-        return plan.transitions[k]
-    return plan.transition
-
-
-def punches_for(length: float) -> list[tuple[float, float]]:
-    """Where a shot of `length` seconds punches in, shot-local. A 36s shot
-    gets five; one under ~7s gets none."""
-    out: list[tuple[float, float]] = []
-    t = PUNCH_FIRST_S
-    while t + PUNCH_HOLD_S <= length - PUNCH_EDGE_S:
-        out.append((round(t, 2), round(t + PUNCH_HOLD_S, 2)))
-        t += PUNCH_EVERY_S
-    return out
-
-
 def valid(plan: EditPlan) -> tuple[bool, str]:
     """Whether this plan can be rendered at all. Used on every plan including
     one a model produced, because a hallucinated out-point past the end of the
@@ -291,27 +252,14 @@ def valid(plan: EditPlan) -> tuple[bool, str]:
         # streamer's face, on every clip from that channel.
         if s.layout != "none" and s.facecam is None:
             return False, f"layout {s.layout!r} with no facecam position"
-        prev = 0.0
-        for win in s.punches:
-            try:
-                a, b = float(win[0]), float(win[1])
-            except (TypeError, ValueError, IndexError):
-                return False, "punch window is not (start, end)"
-            if a < prev or b <= a or b > s.length:
-                return False, "punch window outside its shot, or overlapping"
-            prev = b
     if plan.transition not in TRANSITIONS:
         return False, f"unknown transition {plan.transition!r}"
-    if plan.transitions:
-        if len(plan.transitions) != len(plan.segments) - 1:
-            return False, "one transition per join, or none"
-        for name in plan.transitions:
-            if name not in TRANSITIONS:
-                return False, f"unknown transition {name!r}"
     # A transition longer than the shot it joins would consume the whole shot.
     if plan.trans_dur <= 0 or plan.trans_dur > MIN_SEGMENT_S / 2:
         return False, "transition duration out of range"
     total = plan_duration(plan)
+    if (plan.slide_in or plan.slide_out) and total <= 2 * plan.trans_dur:
+        return False, "too short to slide in and out"
     for c in plan.sfx:
         if c.kind not in SFX_KINDS:
             return False, f"unknown sfx {c.kind!r}"
@@ -361,59 +309,33 @@ def rank(clips: list[dict]) -> list[dict]:
     return sorted(clips, key=key)
 
 
-def _cut_sound(name: str, t: float, d: float) -> list[Sfx]:
-    """The sound for one transition that starts at `t` and lasts `d`.
-
-    Matched to what the picture does, so the flash does not sound like the
-    slide: a movement gets a whoosh under it and a hit where it lands; the
-    flash gets a riser that ARRIVES on it (sfx.py's riser builds for 0.85s
-    and stops dead, so it starts 0.85s before the peak) and a hit on the
-    peak; the circle opening gets a pop as it opens.
-    """
-    if name == "fadewhite":
-        peak = t + d / 2
-        return [Sfx(at=round(max(0.0, peak - 0.85), 3), kind="riser", gain=0.45),
-                Sfx(at=round(max(0.0, peak), 3), kind="hit", gain=0.6)]
-    if name == "circleopen":
-        return [Sfx(at=round(max(0.0, t), 3), kind="pop", gain=0.5),
-                Sfx(at=round(max(0.0, t), 3), kind="whoosh", gain=0.4)]
-    if name in ("fade", "dissolve"):
-        return [Sfx(at=round(max(0.0, t), 3), kind="whoosh", gain=0.4)]
-    return [Sfx(at=round(max(0.0, t), 3), kind="whoosh", gain=0.55),
-            Sfx(at=round(max(0.0, t + d), 3), kind="hit", gain=0.5)]
-
-
 def _sfx_for(plan: EditPlan) -> list[Sfx]:
-    """Sound on every cut, a riser into the first one, and a ding on the way
-    out — the whole five-kind palette (SFX_KINDS), not just three of them.
+    """One sound, the same whoosh, wherever the picture slides — and nowhere
+    else (owner, 2026-09-23: a riser, hits, pops, a ding and a different
+    transition on every cut were "not going to work"):
 
-    Timed against the finished video. The first segment's visible length is
-    its own length minus half the transition it runs into, so a cue placed at
-    a join has to be computed by walking the timeline rather than by summing
-    segment lengths — which is the bug this function exists to not have.
+        the open    as the first frame slides in       (if slide_in)
+        each cut    as one clip slides out and the next slides in
+        the close   as the last frame slides out       (if slide_out)
+
+    Timed against the finished video. A cut's whoosh sits where its
+    transition STARTS, which is found by walking the timeline — summing
+    segment lengths instead puts every cut one transition late, the bug this
+    function exists to not have.
     """
     cues: list[Sfx] = []
     if not plan.segments:
         return cues
-    # The open: a riser landing on the first frame sells the cut before
-    # anything has happened yet.
-    cues.append(Sfx(at=0.0, kind="riser", gain=0.5))
     d = plan.trans_dur
+    if plan.slide_in:
+        cues.append(Sfx(at=0.0, kind="whoosh", gain=WHOOSH_GAIN))
     t = 0.0
-    for k, seg in enumerate(plan.segments[:-1]):
+    for seg in plan.segments[:-1]:
         t += seg.length - d
-        cues += _cut_sound(transition_at(plan, k), t, d)
-    # A pop on every punch-in, so the zoom cut is heard as well as seen.
-    for start, seg in zip(segment_starts(plan), plan.segments):
-        for a, _b in seg.punches:
-            cues.append(Sfx(at=round(start + float(a), 3), kind="pop", gain=0.45))
-    # The close: a ding a beat before the last frame caps the video off,
-    # the way a notification or a "nailed it" sting would. `ding` rings for
-    # 0.7s (sfx.py's own recipe), so it lands well inside the video rather
-    # than getting clipped by the 0.4s fade-out at the very end.
-    total = plan_duration(plan)
-    if total > 1.0:
-        cues.append(Sfx(at=round(max(0.0, total - 0.6), 3), kind="ding", gain=0.4))
+        cues.append(Sfx(at=round(max(0.0, t), 3), kind="whoosh", gain=WHOOSH_GAIN))
+    if plan.slide_out:
+        total = plan_duration(plan)
+        cues.append(Sfx(at=round(max(0.0, total - d), 3), kind="whoosh", gain=WHOOSH_GAIN))
     return cues
 
 
@@ -433,7 +355,7 @@ def limits_for(mode: str) -> tuple[float, int]:
 
 def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
           title: str = "", captions: list | None = None,
-          transition: str | None = None, mode: str = "clipper",
+          transition: str = "slideleft", mode: str = "clipper",
           facecams: dict | None = None) -> EditPlan:
     """An edit plan from the highest-ranked clips that have a file.
 
@@ -490,23 +412,13 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
         remaining = target_s - plan_duration(EditPlan(segments=segments,
                                                      trans_dur=TRANS_DUR))
 
-    # Every cut its own transition, rotating, unless the caller named one —
-    # then every cut is that one, as before 2026-09-23.
-    # Where the rotation STARTS depends on which clips these are, so two
-    # videos do not both open on the same slide — most formula videos have
-    # one or two cuts, and a rotation that always starts at `slideleft` would
-    # make every post's first (often only) cut identical. Summed bytes, not
-    # hash(): Python salts str hashes per process, and the same clips must
-    # give the same edit on every run.
-    joins = max(0, len(segments) - 1)
-    first = segments[0].clip_id if segments else ""
-    off = sum(first.encode()) % len(FORMULA_TRANSITIONS)
-    names = ([transition] * joins if transition else
-             [FORMULA_TRANSITIONS[(off + k) % len(FORMULA_TRANSITIONS)] for k in range(joins)])
-    for seg in segments:
-        seg.punches = punches_for(seg.length)
-    plan = EditPlan(segments=segments, transition=(names[0] if names else (transition or "slideleft")),
-                    transitions=names, trans_dur=TRANS_DUR,
+    # Every cut is a slide, and the video slides in at the start and out at
+    # the end — the same move and the same whoosh throughout (owner,
+    # 2026-09-23). `slideleft` in xfade is a push: the outgoing clip leaves to
+    # the left as the next enters from the right, so the whole video moves
+    # one way, like a feed.
+    plan = EditPlan(segments=segments, transition=transition, trans_dur=TRANS_DUR,
+                    slide_in=True, slide_out=True,
                     title=title, captions=list(captions or []), source="formula")
     plan.sfx = _sfx_for(plan)
     return plan

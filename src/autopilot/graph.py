@@ -32,8 +32,8 @@ from __future__ import annotations
 from itertools import combinations
 from pathlib import Path
 
-from src.autopilot.plan import (PUNCH_SCALE, SPLIT_TOP, EditPlan, Facecam, Segment,
-                                plan_duration, segment_starts, transition_at)
+from src.autopilot.plan import (SPLIT_TOP, EditPlan, Facecam, Segment,
+                                plan_duration, segment_starts)
 
 FPS = 30
 W, H = 1080, 1920
@@ -346,25 +346,6 @@ def _compose(i: int, seg: Segment) -> str:
     return _fit(i, seg.framing)
 
 
-def _punch(i: int, seg: Segment) -> tuple[str, str]:
-    """(graph text, label to carry on from) for a shot's punch-ins.
-
-    The whole composed frame is scaled up by PUNCH_SCALE and centre-cropped
-    back to 1080x1920, and laid over the normal frame only inside the punch
-    windows (`enable`, in shot-local time — each input is trimmed by seeking,
-    so `t` starts at 0 here). Static: no zoompan, which is what OOM-killed a
-    render on prod. The scale runs on every frame whether or not it is shown;
-    that is CPU, bounded, and far cheaper than zoompan's memory.
-    """
-    if not seg.punches:
-        return "", f"fit{i}"
-    when = "+".join(f"between(t,{float(a):.2f},{float(b):.2f})" for a, b in seg.punches)
-    pw = round(W * PUNCH_SCALE / 2) * 2
-    return (f"[fit{i}]split=2[pa{i}][pb{i}];"
-            f"[pb{i}]scale={pw}:-2,crop={W}:{H}[pz{i}];"
-            f"[pa{i}][pz{i}]overlay=0:0:enable='{when}'[fitp{i}];"), f"fitp{i}"
-
-
 def _video_chain(i: int, seg: Segment) -> str:
     """One segment's picture: fit it to the frame, then move in it.
 
@@ -375,14 +356,16 @@ def _video_chain(i: int, seg: Segment) -> str:
     a reputation for exactly that, and running it to do nothing was pure
     cost. `zoom="none"` is now genuinely free.
     """
-    punch, src = _punch(i, seg)
+    # fps: xfade refuses two inputs at different frame rates, and the slides
+    # push against a 30fps black frame — captures are often 60. zoompan
+    # already sets its own fps below; a static shot has to be told.
     if seg.zoom == "none":
-        return (f"{_compose(i, seg)};{punch}"
-                f"[{src}]setsar=1,format=yuv420p[v{i}]")
+        return (f"{_compose(i, seg)};"
+                f"[fit{i}]fps={FPS},setsar=1,format=yuv420p[v{i}]")
     z = _zoom_expr(seg.zoom, seg.length)
     return (
-        f"{_compose(i, seg)};{punch}"
-        f"[{src}]"
+        f"{_compose(i, seg)};"
+        f"[fit{i}]"
         f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"s={W}x{H}:fps={FPS},"
         f"setsar=1,format=yuv420p[v{i}]"
@@ -405,7 +388,7 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
     vlab = "v0"
     for k in range(1, n):
         out = f"x{k}"
-        parts.append(f"[{vlab}][v{k}]xfade=transition={transition_at(plan, k - 1)}:"
+        parts.append(f"[{vlab}][v{k}]xfade=transition={plan.transition}:"
                      f"duration={d}:offset={offs[k - 1]}[{out}]")
         vlab = out
 
@@ -457,10 +440,31 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                      f"amix=inputs={len(plan.sfx) + 1}:normalize=0:dropout_transition=0[aout]")
         alab = "aout"
 
-    # A short fade at each end so the post does not start or stop on a jolt.
+    # ── the open and the close ──────────────────────────────────────────────
+    # A slide is an xfade `slideleft` (a push) against half a second of black:
+    # in, the black leaves to the left as the video arrives from the right;
+    # out, the video leaves to the left and black follows it. Applied AFTER
+    # the captions, so the words ride in and out with the picture. xfade
+    # overlaps its inputs, and the black is exactly one transition long, so
+    # neither changes the video's length. Where a slide replaces it, the
+    # fade at that end goes: fading while sliding just darkens the move.
     total = plan_duration(plan)
-    parts.append(f"[{vlab}]fade=t=in:st=0:d=0.3,"
-                 f"fade=t=out:st={max(0.0, total - 0.4):.2f}:d=0.4[vout]")
+    black = f"color=c=black:s={W}x{H}:r={FPS}:d={d},format=yuv420p,setsar=1"
+    if plan.slide_in:
+        parts.append(f"{black}[slb0]")
+        parts.append(f"[slb0][{vlab}]xfade=transition=slideleft:duration={d}:offset=0[slin]")
+        vlab = "slin"
+    if plan.slide_out:
+        parts.append(f"{black}[slb1]")
+        parts.append(f"[{vlab}][slb1]xfade=transition=slideleft:duration={d}:"
+                     f"offset={max(0.0, total - d):.3f}[slout]")
+        vlab = "slout"
+    ends = []
+    if not plan.slide_in:
+        ends.append("fade=t=in:st=0:d=0.3")
+    if not plan.slide_out:
+        ends.append(f"fade=t=out:st={max(0.0, total - 0.4):.2f}:d=0.4")
+    parts.append(f"[{vlab}]{','.join(ends) or 'null'}[vout]")
     return ";".join(parts), "vout", alab
 
 
