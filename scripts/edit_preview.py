@@ -146,6 +146,14 @@ async def main() -> int:
 
     pool = [c for c in clips
             if c.get("status") in want and c.get("id") in have and _mine(c)]
+    if not pool and args.user and not any(
+            str(c.get("user_id", "")).startswith(args.user) for c in clips):
+        # Say the FILTER matched nobody, not "you have no clips" — a
+        # placeholder typed literally (2026-09-23: `--user YOURPREFIX`) read
+        # as an empty account.
+        print(f"--user {args.user!r} matches no account. Run without --user "
+              "to list the accounts, and use the start of one of those ids.")
+        return 1
     if not pool:
         print(f"No {' or '.join(want)} clips with a file.")
         if not args.any_status:
