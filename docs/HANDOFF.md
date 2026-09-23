@@ -3619,12 +3619,22 @@ Discord webhook notifications on clip_ready (top retention idea), edit_url
 ~~first-run onboarding flow~~ (shipped 2026-09-21, see "Onboarding: two
 questions" above), "trial ending soon" notice for admin-granted trials,
 streamer partnership (clips-first DM, free Pro + custom code + $5/paid
-signup; target a 300–1,000 viewer streamer). Caption styling (54px in a
-box at 78% height is a plain default; the browser Clip Editor already has
-an established look — white text, `#F7A745` amber on the active word,
-outline+shadow, word-pop — worth matching rather than inventing a second
-style) and audio normalisation (no `loudnorm`, no ducking under speech)
-are both still open on the server renderer.
+signup; target a 300–1,000 viewer streamer). Audio normalisation (no
+`loudnorm`, no ducking under speech) is still open on the server renderer.
+
+**Caption styling — done 2026-09-23** (owner: "bland black and white").
+`graph.caption_filters()` is the one caption look, used by BOTH renderers
+(`graph.py` and the live `render.py`): uppercase DejaVu Sans Bold at 88–100px,
+black outline + drop shadow instead of a plate, every other cue in the
+editor's amber (`CAP_ACCENT`, pinned equal by a test), wrapped onto up to
+three centred lines rather than shrunk. drawtext does not wrap and does not
+complain when a line runs off the frame, so sizes come from a per-character
+width table measured from the real font; `tests/test_edit_graph.py` measures
+every line of a real transcript with Pillow to prove they fit — an earlier
+"average width" version failed that test on "WOW WOW WOW WOW". Still not
+possible with drawtext: the editor's active-WORD highlight (one drawtext is
+one colour). That needs the `ass` filter (libass) — check the box has it
+with `ffmpeg -hide_banner -filters | grep -w ass` before building on it.
 
 ## A backslash does nothing inside ffmpeg's `'...'` quoting (2026-09-22)
 

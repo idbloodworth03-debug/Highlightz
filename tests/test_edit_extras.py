@@ -239,7 +239,7 @@ def test_the_converted_captions_are_what_the_renderer_draws():
     """End to end: the shape coerce produces is the shape the graph reads."""
     plan, _ = coerced([{"clip_id": "c1", "start": 4.0, "end": 6.0, "text": "no way"}])
     g = G.build_filtergraph(plan, font="/f/x.ttf")[0]
-    assert "no way" in g
+    assert "NO WAY" in g
     assert "between(t,25.50,27.50)" in g
 
 
@@ -290,7 +290,7 @@ def test_formula_captions_feed_the_renderer_the_same_way_the_llms_do():
     plan.captions = C.captions_for_plan(plan, {"c0": [{"start": 1.0, "end": 2.0,
                                                         "text": "hi there"}]})
     g = G.build_filtergraph(plan, font="/f/x.ttf")[0]
-    assert "hi there" in g
+    assert "HI THERE" in g
 
 
 # ── the cover frame ─────────────────────────────────────────────────────────

@@ -94,18 +94,19 @@ def video_filter(template: str, *, title: str = "", captions: list | None = None
         chain.append(_drawtext(font, title, 76 if template == "hook" else 64,
                                f"h*0.12-text_h/2", box=template == "hook"))
     if font and captions:
+        # The caption look lives in graph.py, shared, so a real Autopilot
+        # post and the new auto-edit burn in the same captions (owner,
+        # 2026-09-23: the old boxed 58px ones were "bland black and white").
+        # Its `enable=between(t,...)` carries plain commas: that value is
+        # inside '...' quoting, where they are already literal — see `_esc`.
+        from src.autopilot.graph import caption_filters
+        n = 0
         for cue in captions[:MAX_CAPTION_CUES]:
             s, e, t = float(cue[0]), float(cue[1]), str(cue[2]).strip()
             if not t or e <= s:
                 continue
-            # Unescaped commas: this is also inside '...' quoting (see
-            # `_drawtext`), where they are already literal. The `\,` this
-            # used to have was the same broken assumption `_esc` had, just
-            # inline — it would have hit ffmpeg's timeline expression
-            # parser as a literal backslash and failed to parse `between`.
-            chain.append(_drawtext(font, t.upper() if len(t) < 40 else t, 58,
-                                   "h*0.78-text_h/2", box=True,
-                                   enable=f"between(t,{s:.2f},{e:.2f})"))
+            chain.append(caption_filters(font, t, s, e, n))
+            n += 1
     chain.append(f"fade=t=in:st=0:d={FADE_S}")
     if duration and duration > FADE_S * 3:
         chain.append(f"fade=t=out:st={duration - FADE_S:.2f}:d={FADE_S}")

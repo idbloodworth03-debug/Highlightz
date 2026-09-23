@@ -13,6 +13,10 @@ check the things that are wrong SILENTLY rather than loudly:
   * zoompan with d != 1 — renders a slideshow, not a moving frame.
 """
 
+import os
+import re
+from pathlib import Path
+
 import pytest
 
 from src.autopilot import graph as G
@@ -208,9 +212,112 @@ def test_a_caption_with_an_apostrophe_does_not_swallow_the_rest_of_the_graph():
     p.captions = [{"start": 1.0, "end": 2.0, "text": "I'm not sure"},
                  {"start": 3.0, "end": 4.0, "text": "next line"}]
     g = G.build_filtergraph(p, font="/f/x.ttf")[0]
-    assert "text='I'\\''m not sure'" in g
-    assert "text='next line'" in g
+    assert "text='I'\\''M NOT SURE'" in g
+    assert "text='NEXT LINE'" in g
     assert g.count("drawtext=") == 2
+
+
+# ── the caption look ────────────────────────────────────────────────────────
+# Owner, 2026-09-23: the boxed 54px captions were "bland black and white".
+
+# Lines from the real prod transcript of 2026-09-22 (a jynxzi clip), plus the
+# long sentence-level cue Whisper falls back to when it has no word timings.
+REAL_LINES = [
+    "Yeah, cuz bro, this", "is so wrong.", "Yeah, maybe this is",
+    "It's definitely counting the", "last game for sure.", "You know, I think",
+    "Highlight said this is", "fair fair fair fair.", "just keep waiting till",
+    "we have leaderboard?", "What do you mean", "she was hard bro?",
+    "What the fuck?", "What stream are you", "It's right just being", "sure",
+    "WOW WOW WOW WOW", "MMMM WWWW",
+    "Okay so what we are going to do now is wait for the leaderboard to update before we queue",
+]
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _style(g: str, text: str) -> str:
+    """The option string of the drawtext that draws `text`."""
+    s = g[g.index(f"text='{text}'"):]
+    return s[:s.index("enable=")]
+
+
+def test_captions_are_outlined_and_big_not_a_small_black_plate():
+    p = three()
+    p.captions = [{"start": 1.0, "end": 2.0, "text": "no way"}]
+    style = _style(G.build_filtergraph(p, font="/f/x.ttf")[0], "NO WAY")
+    assert "box=1" not in style, "the black plate is back"
+    assert "borderw=" in style and "shadowcolor=" in style
+    assert int(re.search(r"fontsize=(\d+)", style).group(1)) >= 72
+
+
+def test_every_other_caption_is_the_accent_colour():
+    p = three()
+    p.captions = [{"start": i, "end": i + 0.9, "text": f"cue {i}"} for i in range(1, 5)]
+    g = G.build_filtergraph(p, font="/f/x.ttf")[0]
+    assert re.findall(r"text='CUE \d':fontcolor=([^:]+):", g) == \
+        ["white", "0xF7A745", "white", "0xF7A745"]
+
+
+def test_the_accent_is_the_browser_editors_own():
+    """One product, one amber: the server's must be CAP_ACCENT from the
+    editor, or a clip captioned in one place and posted from the other
+    looks like two different apps made it."""
+    src = Path(__file__).resolve().parent.parent / "src/dashboard/aurora_html.py"
+    hexcode = re.search(r"const CAP_ACCENT = '#([0-9A-Fa-f]{6})'", src.read_text()).group(1)
+    assert G.CAPTION_COLOURS[1] == "0x" + hexcode.upper()
+
+
+def test_a_long_cue_wraps_onto_two_centred_lines_instead_of_shrinking():
+    """On one line this is 52px. Wrapped it is two lines at 100."""
+    lines, size = G.caption_layout("IT'S DEFINITELY COUNTING THE")
+    assert lines == ["IT'S DEFINITELY", "COUNTING THE"]
+    assert size >= G.CAPTION_SPLIT_BELOW
+    f = G.caption_filters("/f/x.ttf", "It's definitely counting the", 1.0, 2.0, 0)
+    assert f.count("drawtext=") == 2
+    assert f.count("enable='between(t,1.00,2.00)'") == 2, "the lines are on different clocks"
+    assert f.count("x=(w-text_w)/2") == 2, "each line must centre on its own width"
+    offs = [int(x) for x in re.findall(r"y=h\*0\.78\+\((-?\d+)\)", f)]
+    assert offs[0] == -offs[1] != 0, "the two lines are not centred on the caption line"
+
+
+def test_when_nothing_reaches_the_threshold_the_biggest_layout_wins():
+    """Regression: the first version tried a third line on a two-word cue,
+    got the one-line layout back (there is no third word to wrap), and
+    returned THAT — throwing away the two-line layout that was bigger."""
+    lines, size = G.caption_layout("SUPERCALIFRAGILISTIC EXPIALIDOCIOUSNESS")
+    assert lines == ["SUPERCALIFRAGILISTIC", "EXPIALIDOCIOUSNESS"]
+    assert size > G._caption_px("SUPERCALIFRAGILISTIC EXPIALIDOCIOUSNESS")
+
+
+def test_a_short_punchy_cue_stays_on_one_line():
+    assert G.caption_layout("WHAT THE FUCK?")[0] == ["WHAT THE FUCK?"]
+    assert G.caption_layout("SURE") == (["SURE"], G.CAPTION_MAX_PX)
+
+
+def test_every_real_line_stays_inside_the_frame_at_the_size_it_gets():
+    """drawtext does not wrap and does not complain — a line too wide just
+    runs off both edges. CAPTION_ADVANCE is an estimate (Pillow is test-only,
+    prod may not have it), so this measures the real thing: every real line,
+    at the size and wrap `caption_layout` picks, in the font prod uses,
+    outline included."""
+    ImageFont = pytest.importorskip("PIL.ImageFont")
+    if not os.path.exists(FONT):
+        pytest.skip("DejaVu Sans Bold is not installed here")
+    for raw in REAL_LINES:
+        shown = raw.upper() if len(raw) < 40 else raw
+        lines, size = G.caption_layout(shown)
+        face = ImageFont.truetype(FONT, size)
+        for ln in lines:
+            width = face.getlength(ln) + 2 * max(3, round(size * 0.1))
+            assert width <= G.W, f"{ln!r} at {size}px is {width:.0f}px on a {G.W}px frame"
+
+
+def test_the_live_renderer_burns_in_the_same_captions():
+    """render.py is what real Autopilot posts still go through. It draws its
+    captions with the same helper, so there is one caption look, not two."""
+    from src.autopilot import render as R
+    vf = R.video_filter("full", captions=[(0, 1.5, "no way")], font="/f.ttf")
+    assert G.caption_filters("/f.ttf", "no way", 0, 1.5, 0) in vf
+    assert "box=1" not in vf
 
 
 def test_a_caption_missing_its_timing_is_skipped_not_crashed():

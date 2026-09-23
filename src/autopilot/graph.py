@@ -29,6 +29,7 @@ start" is three places to get it wrong by one transition.
 
 from __future__ import annotations
 
+from itertools import combinations
 from pathlib import Path
 
 from src.autopilot.plan import (SPLIT_TOP, EditPlan, Facecam, Segment,
@@ -41,6 +42,57 @@ W, H = 1080, 1920
 # move, a 1.6x punch reads as a mistake and softens the picture.
 ZOOM_MAX = 1.20
 PUNCH_SETTLE_S = 0.8
+
+# ── burnt-in captions ────────────────────────────────────────────────────────
+# Owner, 2026-09-23: the boxed 54px white-on-black captions were "bland black
+# and white". The look now is the browser Clip Editor's (`drawCaption` in
+# aurora_html.py) as far as drawtext can take it: big uppercase type, a black
+# outline and a soft drop shadow instead of a plate, and the editor's amber
+# accent (CAP_ACCENT, #F7A745) on every other cue so the captions have a
+# pulse instead of sitting there.
+#
+# What drawtext CANNOT do is the editor's active-word highlight: one drawtext
+# is one colour, and laying a second one over a single word needs the pixel
+# widths of the words before it. That needs libass (the `ass` filter), not a
+# cleverer drawtext.
+CAPTION_COLOURS = ("white", "0xF7A745")
+CAPTION_Y = 0.78            # centre of the block — the editor's default, and
+                            # with blur framing it sits in the blurred band,
+                            # below the picture rather than over the gameplay
+CAPTION_MAX_PX = 100        # the editor's default is 0.055 x 1920 = 105
+CAPTION_SPLIT_BELOW = 88    # one line smaller than this: wrap instead. The
+                            # editor never shrinks a caption, it wraps at one
+                            # size; this keeps every cue within ~12% of that
+                            # instead of jumping between 72 and 100
+CAPTION_MAX_LINES = 3
+CAPTION_FLOOR_PX = 24
+CAPTION_WIDTH = W * 0.86    # the share of the frame the editor wraps at
+
+# How wide each character is, in thousandths of the font size, in DejaVu Sans
+# Bold — the font on the box (`FONT:` in edit_preview's output). drawtext
+# does NOT wrap: a line sized past the frame just runs off both edges, with
+# no error, so these numbers are the only thing keeping a caption on screen.
+#
+# A TABLE, NOT AN AVERAGE. The first version used one average width per
+# character (0.75, the widest line of a real transcript) and a test that
+# measured real lines caught "WOW WOW WOW WOW" running 1104px on a 1080px
+# frame: W is 1.10 of the font size, `I` is 0.37, and a line of wide letters
+# is ordinary stream chat. Summing real advances is an upper bound on the
+# drawn width (kerning only ever tightens a line), so a line that fits here
+# fits on screen. Measured with Pillow at 1000px — Pillow is test-only
+# (requirements.txt), so the numbers are baked in rather than measured on
+# the box. Anything outside printable ASCII counts as a full em: accented
+# letters come out a little small rather than off the edge.
+_ADVANCE_CHARS = "".join(chr(c) for c in range(32, 127))
+_ADVANCE_MILLI = (
+    348, 456, 521, 838, 696, 1002, 872, 306, 457, 457, 523, 838, 380, 415, 380,
+    365, 696, 696, 696, 696, 696, 696, 696, 696, 696, 696, 400, 400, 838, 838,
+    838, 580, 1000, 774, 762, 734, 830, 683, 683, 821, 837, 372, 372, 775, 637,
+    995, 837, 850, 733, 850, 770, 720, 682, 812, 774, 1103, 771, 724, 725, 457,
+    365, 457, 838, 500, 500, 675, 716, 593, 716, 678, 435, 716, 712, 343, 343,
+    665, 343, 1042, 712, 687, 716, 716, 493, 595, 478, 712, 652, 924, 645, 652,
+    582, 712, 365, 712, 838)
+CAPTION_ADVANCE = dict(zip(_ADVANCE_CHARS, (m / 1000 for m in _ADVANCE_MILLI)))
 
 
 def _esc(text: str) -> str:
@@ -72,6 +124,79 @@ def _esc(text: str) -> str:
     the first time one showed up, rather than actually escaping it.
     """
     return text.replace("'", "'\\''")
+
+
+def _ems(line: str) -> float:
+    """How wide `line` is, in multiples of the font size."""
+    return sum(CAPTION_ADVANCE.get(ch, 1.0) for ch in line)
+
+
+def _caption_px(line: str) -> int:
+    """The biggest font size at which `line` stays inside CAPTION_WIDTH."""
+    return int(CAPTION_WIDTH / max(_ems(line), 0.5))
+
+
+def _split(words: list[str], k: int) -> list[str]:
+    """`words` as `k` lines, balanced so the widest line is as narrow as it
+    can be — the widest line is what sets the font size. Balanced on real
+    width, not character count: "WWW" is wider than "IIIIII"."""
+    if k <= 1 or len(words) < k:
+        return [" ".join(words)]
+    best: list[str] = []
+    for cuts in combinations(range(1, len(words)), k - 1):
+        edges = (0, *cuts, len(words))
+        lines = [" ".join(words[a:b]) for a, b in zip(edges, edges[1:])]
+        if not best or max(map(_ems, lines)) < max(map(_ems, best)):
+            best = lines
+    return best
+
+
+def caption_layout(text: str) -> tuple[list[str], int]:
+    """(lines, font size) for one cue: the fewest lines that let it be big.
+
+    "WHAT THE FUCK?" stays one line at 94px rather than being broken up for
+    a few more pixels; "IT'S DEFINITELY COUNTING THE" becomes two lines at
+    100px instead of one at 52. If no number of lines reaches
+    CAPTION_SPLIT_BELOW, the biggest layout found wins — never one that is
+    smaller just because it came last.
+    """
+    words = text.split()
+    best: tuple[list[str], int] = ([], 0)
+    for k in range(1, min(CAPTION_MAX_LINES, len(words)) + 1):
+        lines = _split(words, k)
+        size = min(CAPTION_MAX_PX, min(_caption_px(ln) for ln in lines))
+        if size > best[1]:
+            best = (lines, size)
+        if size >= CAPTION_SPLIT_BELOW:
+            break
+    lines, size = best
+    return lines, (max(CAPTION_FLOOR_PX, size) if lines else 0)
+
+
+def caption_filters(font: str, text: str, start: float, end: float, n: int) -> str:
+    """One caption cue as drawtext filters, one per line, ready to join into
+    a filter chain. `n` is the cue's position in the video, which picks its
+    colour. Shared by this graph and render.py so there is one caption look.
+
+    Each line is its own drawtext centred on its own `text_w`, which is how a
+    two-line cue gets both lines centred without drawtext's `text_align`
+    (ffmpeg 6.1+; not something to assume about the box).
+    """
+    shown = text.strip()
+    shown = shown.upper() if len(shown) < 40 else shown
+    lines, size = caption_layout(shown)
+    colour = CAPTION_COLOURS[n % len(CAPTION_COLOURS)]
+    out = []
+    for i, line in enumerate(lines):
+        off = (i - (len(lines) - 1) / 2) * size * 1.2
+        out.append(
+            f"drawtext=fontfile={font}:text='{_esc(line)}':"
+            f"fontcolor={colour}:fontsize={size}:"
+            f"borderw={max(3, round(size * 0.1))}:bordercolor=black@0.95:"
+            f"shadowcolor=black@0.5:shadowx=0:shadowy={max(2, round(size * 0.06))}:"
+            f"x=(w-text_w)/2:y=h*{CAPTION_Y}+({off:.0f})-text_h/2:"
+            f"enable='between(t,{start:.2f},{end:.2f})'")
+    return ",".join(out)
 
 
 def _offsets(plan: EditPlan) -> list[float]:
@@ -273,19 +398,17 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                 f"drawtext=fontfile={font}:text='{_esc(plan.title)}':"
                 f"fontcolor=white:fontsize=76:box=1:boxcolor=black@0.45:boxborderw=18:"
                 f"x=(w-text_w)/2:y=h*0.12-text_h/2")
+        n = 0
         for cue in plan.captions[:120]:
             try:
                 start, end = float(cue["start"]), float(cue["end"])
-                text = _esc(str(cue.get("text") or ""))
+                text = str(cue.get("text") or "").strip()
             except (KeyError, TypeError, ValueError):
                 continue
             if not text:
                 continue
-            chain.append(
-                f"drawtext=fontfile={font}:text='{text}':"
-                f"fontcolor=white:fontsize=54:box=1:boxcolor=black@0.5:boxborderw=14:"
-                f"x=(w-text_w)/2:y=h*0.78:"
-                f"enable='between(t,{start:.2f},{end:.2f})'")
+            chain.append(caption_filters(font, text, start, end, n))
+            n += 1
         if chain:
             parts.append(f"[{vlab}]" + ",".join(chain) + "[vtxt]")
             vlab = "vtxt"
