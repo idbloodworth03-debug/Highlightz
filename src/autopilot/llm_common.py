@@ -108,10 +108,8 @@ SYSTEM = f"""You are the editor for Highlightz, which turns moments from live st
 You are given candidate clips with their metadata and, where available, a transcript with timestamps. You cannot see the video. Decide what the finished cut is and return it as JSON.
 
 THE CUT
-- Aim for {int(P.TARGET_S)} seconds of finished video — TikTok only pays for videos LONGER than one minute, so never finish at or under 60. Joins OVERLAP: the finished length is the sum of the segment lengths minus (number of joins) x {P.TRANS_DUR} seconds. Two 30s segments make {2 * 30 - P.TRANS_DUR:.1f}s, not 60.
-- At most {P.MAX_SEGMENTS} segments. No segment shorter than {int(P.MIN_SEGMENT_S)} seconds — a transition would eat it.
-- Fewer, longer segments beat more, shorter ones. One clip that already carries 60 good seconds is a finished video; do not cut it up to look busy.
-- Order them so the strongest moment is FIRST. The first two seconds decide whether the video is watched at all.
+- ONE segment, from ONE clip. Never join clips together — the video is one moment, edited well.
+- Keep the clip whole unless its opening is dead air; trimming the lead-in is the only cut worth making. No segment shorter than {int(P.MIN_SEGMENT_S)} seconds.
 - `start` and `end` are seconds inside that clip's own file. Never exceed the duration you were given.
 
 WHERE TO CUT
@@ -264,7 +262,14 @@ def coerce(data: dict, sources: dict, clips: list[dict],
     segments: list[P.Segment] = []
     budget = target_s
 
-    for raw in (data.get("segments") or [])[:max_segments]:
+    # Walk the model's segments until `max_segments` USABLE ones are found,
+    # rather than slicing the first `max_segments` off the list: with a
+    # one-clip limit, slicing first means one bad entry (a path where a clip
+    # id belongs, a clip too short to use) empties the whole plan even when
+    # the model's next choice was fine.
+    for raw in (data.get("segments") or [])[:P.MAX_SEGMENTS * 2]:
+        if len(segments) >= max_segments:
+            break
         if not isinstance(raw, dict):
             notes.append("segment was not an object")
             continue
@@ -360,17 +365,38 @@ def coerce(data: dict, sources: dict, clips: list[dict],
 
 
 def _segment_for(plan: P.EditPlan, clip_id: str, source_t: float) -> int:
-    """Which segment shows that moment of that clip, or -1.
+    """The first segment that shows that moment of that clip, or -1.
 
     Matched on the WINDOW as well as the id, because one clip can appear as
-    two segments — a plan that opens and closes on the same clip is a normal
-    thing to want, and matching on the id alone would put every caption on
-    whichever one happened to come first.
+    two segments. Used for the cover frame, where the first showing is the
+    right one; captions use `_segments_showing`, because a moment can be on
+    screen twice.
     """
     for i, seg in enumerate(plan.segments):
         if seg.clip_id == clip_id and seg.start <= source_t <= seg.end:
             return i
     return -1
+
+
+# A caption clipped by a cut to less than this is a flicker, not a caption.
+_MIN_CUE_S = 0.3
+
+
+def _segments_showing(plan: P.EditPlan, clip_id: str,
+                      src_start: float, src_end: float) -> list[int]:
+    """Every segment on which any of [src_start, src_end] of that clip is
+    on screen.
+
+    EVERY, not the first, because of the hook: it replays part of the clip
+    before the clip plays from the start, so the same line is on screen
+    twice — and matching only the first would caption the hook and leave
+    the line bare when the clip reaches it. OVERLAP, not containment of the
+    start, because a hook picked mid-sentence begins after the line did;
+    that line is still on screen and still needs its words.
+    """
+    return [i for i, seg in enumerate(plan.segments)
+            if seg.clip_id == clip_id
+            and min(src_end, seg.end) - max(src_start, seg.start) >= _MIN_CUE_S]
 
 
 def _place_captions(raw_list: list, plan: P.EditPlan, notes: list) -> list:
@@ -401,21 +427,25 @@ def _place_captions(raw_list: list, plan: P.EditPlan, notes: list) -> list:
             notes.append("caption with no usable timing")
             continue
         cid = str(raw.get("clip_id") or "")
-        idx = _segment_for(plan, cid, src_start)
-        if idx < 0:
+        if src_end <= src_start:
+            notes.append("dropped a caption with an inside-out window")
+            continue
+        showing = _segments_showing(plan, cid, src_start, src_end)
+        if not showing:
             # Almost always a line captioned out of a part of the clip that
             # was not kept.
             notes.append("dropped a caption outside every kept window")
             continue
-        start = P.timeline_time(plan, idx, src_start)
-        # The out-point is clamped into the same segment: a cue whose end ran
-        # past the cut would otherwise be dropped whole, losing the caption
-        # for a line that IS on screen.
-        end = P.timeline_time(plan, idx, min(src_end, plan.segments[idx].end))
-        if start < 0 or end < 0 or end <= start:
-            notes.append("dropped a caption with an inside-out window")
-            continue
-        out.append({"start": start, "end": end, "text": text[:120]})
+        for idx in showing:
+            seg = plan.segments[idx]
+            # Both ends clamped into the segment: a cue that ran past a cut
+            # (or began before it) would otherwise be dropped whole, losing
+            # the caption for a line that IS on screen.
+            start = P.timeline_time(plan, idx, max(src_start, seg.start))
+            end = P.timeline_time(plan, idx, min(src_end, seg.end))
+            if start < 0 or end < 0 or end <= start:
+                continue
+            out.append({"start": start, "end": end, "text": text[:120]})
     return out
 
 

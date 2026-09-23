@@ -179,14 +179,14 @@ def test_a_start_too_close_to_the_end_still_leaves_a_renderable_shot():
     assert plan.segments[0].length >= P.MIN_SEGMENT_S
 
 
-def test_the_cut_never_runs_longer_than_the_target():
-    """Four 40-second segments is 158.5s of finished video. TikTok would
-    take it; the owner asked for sixty."""
-    plan, notes = L.coerce(answer(segments=[
+def test_the_model_can_only_cut_one_clip():
+    """Owner, 2026-09-23: "keep it only to one clip". A model that returns
+    three clips gets its first usable one."""
+    plan, _ = L.coerce(answer(segments=[
         {"clip_id": f"c{i}", "start": 0.0, "end": 40.0, "zoom": "punch", "why": ""}
         for i in range(3)]), sources(), clips(), target_s=60.0)
-    assert P.plan_duration(plan) <= 60.0 + 0.01
-    assert any("trimmed" in n or "not fit" in n for n in notes)
+    assert [s.clip_id for s in plan.segments] == ["c0"]
+    assert P.plan_duration(plan) <= 40.0 + 0.01
 
 
 def test_a_clip_shorter_than_a_shot_is_skipped():
@@ -317,12 +317,12 @@ def test_the_schema_refuses_anything_it_did_not_ask_for():
     assert L.SCHEMA["properties"]["segments"]["items"]["additionalProperties"] is False
 
 
-def test_the_prompt_states_that_joins_subtract():
-    """The one arithmetic fact a builder cannot get wrong: xfade overlaps, so
-    two 30s segments make 59.5s. A model told to 'add up to 60' returns a
-    plan that is half a second short every single time."""
-    assert "OVERLAP" in L.SYSTEM
-    assert "59.5" in L.SYSTEM
+def test_the_prompt_asks_for_one_clip_and_no_length():
+    """The model is told the rule the builder enforces: one segment from one
+    clip. Telling it to reach a minute would be telling it to stitch."""
+    assert "ONE segment, from ONE clip" in L.SYSTEM
+    assert "Never join clips" in L.SYSTEM
+    assert "59.5" not in L.SYSTEM and "LONGER than one minute" not in L.SYSTEM
 
 
 def test_the_prompt_does_not_explain_how_highlights_are_found():
@@ -415,7 +415,7 @@ async def test_a_good_answer_becomes_a_renderable_plan_with_copy(stub):
     plan, meta = await L.build(clips(), sources())
     assert meta["source"] == "llm" and plan.source == "llm"
     assert P.valid(plan)[0]
-    assert 55.0 <= P.plan_duration(plan) <= 60.0
+    assert len(plan.segments) == 1 and P.plan_duration(plan) == pytest.approx(30.0)
     assert meta["copy"]["title"] == "he did not see it coming"
     assert meta["copy"]["hashtags"] == ["apexlegends", "novafps", "clips"]
 
@@ -555,3 +555,37 @@ def test_a_missing_capability_tree_is_read_as_unsupported(stub):
     assert L._supports({"thinking": {"types": {}}}, "thinking", "types", "adaptive") is False
     assert L._supports({"a": {"supported": True}}, "a") is True
     assert L._supports({"a": {"supported": False}}, "a") is False
+
+
+# ── the user's hook beats the model (owner, 2026-09-23) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_a_clip_with_a_hook_is_cut_by_the_formula_not_the_model(monkeypatch):
+    """The user watched the clip and chose what it opens on; a model reading
+    metadata cannot see the video. With a model configured, a hooked clip
+    still renders exactly the hook that was picked — and nothing is sent."""
+    from src.autopilot import builder, llm_plan
+    monkeypatch.setattr(builder, "provider", lambda: "anthropic")
+
+    async def boom(*a, **k):
+        raise AssertionError("the model was asked to cut a clip the user already cut")
+    monkeypatch.setattr(llm_plan, "build", boom)
+
+    c = {"id": "c0", "channel": "novafps", "hook": {"start": 12.0, "end": 20.0}}
+    plan, meta = await builder.build([c], {"c0": ("/clips/c0.mp4", 40.0)})
+    assert plan.hook and (plan.segments[0].start, plan.segments[0].end) == (12.0, 20.0)
+    assert meta["source"] == "formula" and meta["reason"] == "the user picked a hook"
+
+
+@pytest.mark.asyncio
+async def test_a_clip_without_a_hook_still_goes_to_the_model(monkeypatch):
+    from src.autopilot import builder, llm_plan
+    monkeypatch.setattr(builder, "provider", lambda: "anthropic")
+    seen = {}
+
+    async def fake(clips, sources, **k):
+        seen["called"] = True
+        return P.build(clips, sources), {"source": "llm", "reason": "", "copy": {}, "notes": []}
+    monkeypatch.setattr(llm_plan, "build", fake)
+    await builder.build([{"id": "c0", "channel": "n"}], {"c0": ("/clips/c0.mp4", 40.0)})
+    assert seen.get("called")

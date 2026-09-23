@@ -2729,10 +2729,10 @@ function usePlayerOpen(open) {
 }
 
 // The two onboarding questions, asked once after a Twitch account is
-// attached. Only the first one changes anything: it sets the Autopilot mode,
-// and a clipper's posts are filled to just over a minute from several clips where
-// a streamer's are one clip from their own stream. The second is for the
-// owner's knowledge and is entirely optional — hence Skip.
+// attached. The first sets the Autopilot mode. Since 2026-09-23 both modes
+// post ONE clip per video (owner: "keep it only to one clip"), so it no
+// longer changes the cut, and nothing here says it does. The second is for
+// the owner's knowledge and is entirely optional — hence Skip.
 //
 // NOTHING HERE GATES CLIPS. Highlights keep arriving for every Twitch user
 // whatever is answered, and whether or not it is ever answered; a modal that
@@ -2741,14 +2741,14 @@ function usePlayerOpen(open) {
 // use. Shown as a toast the moment it is saved, so somebody who was just
 // made to answer two questions sees what they bought with them.
 //
-// IT HAS TO BE TRUE. `use_case` really does set this — plan.limits_for reads
-// the Autopilot mode and a clipper's post is stitched to just over a minute where
-// a streamer's is one clip. The GOALS change nothing, so no message here
+// IT HAS TO BE TRUE. plan.build makes every post from ONE clip, played
+// whole, whichever mode is saved — so both messages say exactly that, and
+// neither promises a length. The GOALS change nothing, so no message here
 // claims they do; saying otherwise would be telling users the survey tunes
 // something it does not touch.
 const ONB_EXPECT = {
-  clipper:  'Saved. The bot will build your posts to just over a minute from your best clips.',
-  streamer: 'Saved. The bot will post one moment from your stream per video, at its own length.',
+  clipper:  'Saved. Each post will be one of your best clips, edited vertical.',
+  streamer: 'Saved. Each post will be one moment from your stream, edited vertical.',
 };
 
 const ONB_GOALS = [
@@ -2842,26 +2842,23 @@ function OnboardingModal({ onDone, preview = false }) {
           {preview ? 'Preview — nothing is saved' : 'One quick thing'}</div>
         {step === 1 ? <>
           <h3 id="rd-onb-title">What are you here for?</h3>
-          <div className="sub">This tells the bot what to build for you — how your posts are cut and how long they run. Change it later in Settings.</div>
+          <div className="sub">This tells us how you use Highlightz. Change it later in Settings.</div>
           <div className="rd-onb-cards">
             <button className={'rd-onb-card'+(useCase==='clipper'?' on':'')}
               onClick={()=>setUse('clipper')} aria-pressed={useCase==='clipper'}>
               <span className="t">Clipping other streamers</span>
-              <span className="d">Posts run just over a minute, stitched from your best clips.</span>
+              <span className="d">Clips of the streamers you follow, one clip per post.</span>
             </button>
             <button className={'rd-onb-card'+(useCase==='streamer'?' on':'')}
               onClick={()=>setUse('streamer')} aria-pressed={useCase==='streamer'}>
               <span className="t">Promoting my own channel</span>
-              <span className="d">One moment from your stream per post, at whatever length it runs.</span>
+              <span className="d">Moments from your own stream, one per post.</span>
             </button>
           </div>
           <div className="rd-onb-foot">
             {/* The expectation, the moment they choose — so the answer is
                 visibly doing something before they commit to it. */}
-            <span className="rd-onb-step">{useCase
-              ? (useCase === 'clipper' ? 'Posts will run just over a minute'
-                                       : 'Posts will run as long as the moment does')
-              : 'Step 1 of 2'}</span>
+            <span className="rd-onb-step">{useCase ? 'One clip per post' : 'Step 1 of 2'}</span>
             <button className="rd-btn grad" disabled={!useCase} onClick={()=>setStep(2)}>Continue</button>
           </div>
         </> : <>

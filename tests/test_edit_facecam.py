@@ -181,21 +181,18 @@ def test_a_camera_layout_wins_over_the_framing_choice():
 
 # ── clipper vs streamer ─────────────────────────────────────────────────────
 
-def test_a_clipper_stitches_and_a_streamer_does_not():
-    assert P.limits_for("clipper") == (P.TARGET_S, P.MAX_SEGMENTS)
-    assert P.limits_for("streamer") == (P.TARGET_S, 1)
+def test_every_mode_posts_one_clip():
+    """Owner, 2026-09-23: "keep it only to one clip" — clipper and streamer
+    alike."""
+    assert P.limits_for("clipper") == P.limits_for("streamer") == (P.TARGET_S, 1)
+    clips = [{"id": f"c{i}", "channel": "novafps"} for i in range(4)]
+    sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
+    for mode in P.MODES:
+        assert len(P.build(clips, sources, mode=mode).segments) == 1, mode
 
 
 def test_an_unknown_mode_is_treated_as_a_clipper():
     assert P.limits_for("") == P.limits_for("clipper")
-
-
-def test_a_clipper_gets_a_minute_out_of_several_clips():
-    clips = [{"id": f"c{i}", "channel": "novafps"} for i in range(4)]
-    sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
-    p = P.build(clips, sources, mode="clipper")
-    assert len(p.segments) > 1
-    assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=1.0)
 
 
 def test_a_streamer_gets_one_clip_left_alone():
@@ -205,12 +202,6 @@ def test_a_streamer_gets_one_clip_left_alone():
     assert len(p.segments) == 1
     assert P.plan_duration(p) == pytest.approx(25.0)
     assert P.valid(p)[0]
-
-
-def test_a_streamers_single_clip_is_still_capped_at_a_minute():
-    p = P.build([{"id": "c0", "channel": "n"}], {"c0": ("/t/0.mp4", 300.0)},
-                mode="streamer")
-    assert P.plan_duration(p) <= P.TARGET_S
 
 
 def test_the_mode_survives_a_fallback():

@@ -49,33 +49,12 @@ def test_an_empty_plan_is_zero_not_a_crash():
     assert P.plan_duration(P.EditPlan()) == 0.0
 
 
-def test_the_builder_lands_just_over_a_minute():
-    """The requirement is a number, so this is the test that matters most.
-    Four 30s clips: two used whole are 59.5s — 2.5s short of the target, too
-    little for a shot, and not paid by TikTok. It used to stop there; now a
-    third, minimum-length shot takes it over the line."""
-    clips = [clip(f"c{i}", virality=90 - i) for i in range(4)]
-    sources = {f"c{i}": (f"/tmp/c{i}.mp4", 30.0) for i in range(4)}
-    p = P.build(clips, sources)
-    assert P.SAFELY_OVER_S <= P.plan_duration(p) <= 66.5
-    ok, why = P.valid(p)
-    assert ok, why
-
-
 def test_one_long_clip_is_left_whole():
     """A clip that already runs a minute is a perfectly good edit. Cutting it
     into three pieces to have joins would be decoration for its own sake."""
     p = P.build([clip("c1")], {"c1": ("/tmp/c1.mp4", 62.0)})
     assert len(p.segments) == 1
     assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=0.1)
-
-
-def test_short_clips_are_assembled_until_the_target_is_reached():
-    clips = [clip(f"c{i}") for i in range(4)]
-    sources = {f"c{i}": (f"/tmp/c{i}.mp4", 18.0) for i in range(4)}
-    p = P.build(clips, sources)
-    assert len(p.segments) >= 3, "one 18s clip was posted as a 60s edit"
-    assert P.plan_duration(p) <= P.TARGET_S + 0.5
 
 
 def test_it_never_exceeds_the_segment_ceiling():
@@ -130,26 +109,6 @@ def test_the_builder_takes_the_ranked_order():
 
 # ── what makes it look edited ────────────────────────────────────────────────
 
-def test_a_clipper_video_is_longer_than_a_minute_but_not_by_much():
-    """TikTok's Creator Rewards pays only for videos LONGER than one minute;
-    60.00s is not. Owner, 2026-09-23: fix that, "but do not make clips too
-    long either"."""
-    assert P.SAFELY_OVER_S <= P.TARGET_S <= 65.0
-    for n, dur in ((1, 90.0), (2, 36.0), (4, 18.0), (4, 30.0), (3, 30.0), (2, 59.9)):
-        clips = [clip(f"c{i}") for i in range(n)]
-        p = P.build(clips, {f"c{i}": (f"/tmp/c{i}.mp4", dur) for i in range(n)})
-        assert P.SAFELY_OVER_S <= P.plan_duration(p) <= 66.5, f"{n} clips of {dur}s"
-        assert P.valid(p)[0]
-
-
-def test_when_the_footage_cannot_reach_a_minute_the_builder_does_not_pretend():
-    """Two 30s clips are 59.5s at most. Nothing to add; it stays as it is
-    rather than stretching or looping anything."""
-    clips = [clip("a"), clip("b")]
-    p = P.build(clips, {"a": ("/tmp/a.mp4", 30.0), "b": ("/tmp/b.mp4", 30.0)})
-    assert P.plan_duration(p) == pytest.approx(59.5) and len(p.segments) == 2
-
-
 def test_the_formula_slides_in_and_out_with_a_whoosh_and_slides_every_cut():
     """Owner, 2026-09-23: "one at the beginning like it sliding into frame
     with a whoosh sound and then one at the end with it sliding out and the
@@ -189,25 +148,6 @@ def test_sound_is_timed_against_the_finished_video_not_the_segment():
     cuts = [c.at for c in p.sfx if c.kind == "whoosh"]
     assert cuts == pytest.approx([19.5, 39.0])
     assert max(c.at for c in p.sfx) <= P.plan_duration(p)
-
-
-def test_the_framing_moves_and_does_not_repeat_the_same_move():
-    clips = [clip(f"c{i}") for i in range(3)]
-    sources = {f"c{i}": (f"/tmp/c{i}.mp4", 22.0) for i in range(3)}
-    p = P.build(clips, sources)
-    zooms = [s.zoom for s in p.segments]
-    assert zooms[0] == "punch", "the opener does not grab"
-    assert "none" not in zooms, "a static crop is what this exists to stop being"
-    assert len(set(zooms)) > 1, "the same move on every shot"
-
-
-def test_the_window_keeps_the_payoff_not_the_lead_in():
-    """The clip was cut as [trigger - pre_roll, trigger + post_roll] and the
-    presets put pre above post, so the moment is late in the file and the
-    front is run-up."""
-    start, end = P._window(40.0, 20.0)
-    assert end == 40.0
-    assert start == pytest.approx(20.0)
 
 
 # ── validation, because the next builder is a language model ─────────────────
@@ -264,3 +204,112 @@ def test_a_plan_round_trips_through_json():
     d = json.loads(json.dumps(p.to_dict()))
     assert d["segments"][0]["clip_id"] == "c1"
     assert d["source"] == "formula"
+
+
+# ── one clip, and the hook (owner, 2026-09-23) ──────────────────────────────
+#
+# "we basically make the user pick out a 5-10 second part of the clip that is
+# either a hype moment or a controversial part … duplicate that 5-10 second
+# part, put it at the beginning, roll the original clip from the start again.
+# Make the same swoosh slide in transition for this part as well and instead
+# of combining clips just keep it only to one clip."
+
+def hooked(start=20.0, end=28.0, dur=40.0):
+    c = clip("c1")
+    c["hook"] = {"start": start, "end": end}
+    return P.build([c], {"c1": ("/tmp/c1.mp4", dur)})
+
+
+def test_the_builder_never_combines_clips():
+    clips = [clip(f"c{i}", virality=90 - i) for i in range(4)]
+    for dur in (18.0, 30.0, 59.9):
+        p = P.build(clips, {f"c{i}": (f"/tmp/c{i}.mp4", dur) for i in range(4)})
+        assert len({s.clip_id for s in p.segments}) == 1, f"{dur}s clips were stitched"
+        assert len(p.segments) == 1 and not p.hook
+
+
+def test_the_clip_plays_whole_from_its_start():
+    p = P.build([clip("c1")], {"c1": ("/tmp/c1.mp4", 37.5)})
+    assert (p.segments[0].start, p.segments[0].end) == (0.0, 37.5)
+    assert P.plan_duration(p) == pytest.approx(37.5)
+
+
+def test_a_long_upload_stops_short_of_three_minutes():
+    """YouTube Shorts takes up to three minutes; nothing else caps it."""
+    p = P.build([clip("c1")], {"c1": ("/tmp/c1.mp4", 600.0)})
+    assert P.plan_duration(p) == pytest.approx(P.MAX_MAIN_S) and P.MAX_MAIN_S < 180
+
+
+def test_the_hook_opens_the_video_then_the_clip_plays_from_the_start():
+    p = hooked(20.0, 28.0, 40.0)
+    assert p.hook and P.valid(p)[0]
+    hook, main = p.segments
+    assert (hook.start, hook.end) == (20.0, 28.0)
+    assert (main.start, main.end) == (0.0, 40.0)
+    assert hook.src == main.src and hook.clip_id == main.clip_id == "c1"
+    # One join, which overlaps: 8 + 40 - 0.5.
+    assert P.plan_duration(p) == pytest.approx(47.5)
+
+
+def test_the_hook_slides_across_with_the_same_whoosh():
+    """Slide in on the hook, slide + whoosh into the clip, slide out."""
+    p = hooked(20.0, 28.0, 40.0)
+    assert p.slide_in and p.slide_out and p.transition == "slideleft"
+    assert [(c.kind, c.at) for c in p.sfx] == [
+        ("whoosh", 0.0), ("whoosh", 7.5), ("whoosh", pytest.approx(47.0))]
+
+
+@pytest.mark.parametrize("start,end", [
+    (20.0, 24.0),     # 4s: too short to be a moment
+    (20.0, 31.0),     # 11s: longer than bait
+    (35.0, 43.0),     # runs off the end of a 40s clip
+    (-1.0, 6.0),      # before the start
+    (28.0, 20.0),     # inside out
+])
+def test_an_unusable_hook_is_ignored_and_the_clip_still_gets_its_edit(start, end):
+    p = hooked(start, end, 40.0)
+    assert not p.hook and len(p.segments) == 1 and P.valid(p)[0]
+
+
+def test_a_garbled_hook_is_ignored_not_crashed():
+    for raw in ("12-20", {"start": "x", "end": 20}, {"start": 3}, None, [5, 10]):
+        c = clip("c1")
+        c["hook"] = raw
+        p = P.build([c], {"c1": ("/tmp/c1.mp4", 40.0)})
+        assert not p.hook and len(p.segments) == 1
+
+
+@pytest.mark.parametrize("length", [5.0, 10.0])
+def test_the_hook_bounds_are_inclusive(length):
+    p = hooked(10.0, 10.0 + length, 40.0)
+    assert p.hook and P.valid(p)[0]
+
+
+def test_only_the_hook_may_be_shorter_than_a_shot():
+    """A five-second hook is fine; a five-second ordinary shot is still one a
+    transition would eat."""
+    assert P.valid(hooked(10.0, 15.0))[0]
+    assert not P.valid(P.EditPlan(segments=[seg(0, 5.0), seg(0, 30.0)]))[0]
+
+
+def test_a_plan_cannot_claim_a_hook_it_does_not_have():
+    good = hooked()
+    for broken, why in (
+        (dict(segments=good.segments[:1]), "hook and one clip"),
+        (dict(segments=[good.segments[0], P.Segment(src="/tmp/other.mp4",
+                                                     start=0, end=40)]), "not from the clip"),
+        (dict(segments=[P.Segment(src="/tmp/c1.mp4", start=0, end=12),
+                        good.segments[1]]), "5-10s"),
+        (dict(segments=[P.Segment(src="/tmp/c1.mp4", start=30, end=38),
+                        P.Segment(src="/tmp/c1.mp4", start=0, end=25)]), "outside"),
+    ):
+        p = P.EditPlan(hook=True, trans_dur=0.5, **broken)
+        ok, msg = P.valid(p)
+        assert not ok and why in msg, (why, msg)
+
+
+def test_the_hook_is_read_against_the_part_of_the_clip_that_plays():
+    """A hook past MAX_MAIN_S would be a preview of footage the video never
+    reaches."""
+    p = hooked(175.0, 182.0, 600.0)
+    assert not p.hook

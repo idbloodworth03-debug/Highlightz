@@ -207,14 +207,21 @@ def test_every_shot_runs_at_the_output_frame_rate():
 def test_a_formula_plan_renders_to_a_whole_command():
     """End to end: slides, a cut, sound and captions together — every input
     opened is read, every label mapped is produced."""
-    clips = [{"id": "a", "channel": "x"}, {"id": "b", "channel": "x"}]
+    clips = [{"id": "a", "channel": "x", "hook": {"start": 20.0, "end": 27.5}},
+             {"id": "b", "channel": "x"}]
     p = P.build(clips, {"a": ("/x/a.mp4", 36.22), "b": ("/x/b.mp4", 67.02)})
+    assert p.hook, "the hook opens the video"
     p.captions = [{"start": i + 0.1, "end": i + 0.9, "text": f"cue {i}"} for i in range(20)]
     args = G.build_command(p, "/tmp/o.mp4", SFX, font="/f/x.ttf")
     g = args[args.index("-filter_complex") + 1]
     read = {int(k) for k in re.findall(r"\[(\d+):[av]\]", g)}
     assert read == set(range(args.count("-i")))
-    assert g.count("xfade=") == 3, "a slide in, one cut, a slide out"
+    assert g.count("xfade=") == 3, "a slide in, the hook's slide, a slide out"
+    # The hook and the clip are both the same file, each opened at its own
+    # in-point.
+    assert args.count("/x/a.mp4") == 2 and "/x/b.mp4" not in args
+    assert ["-ss", "20.000", "-t", "7.500", "-i", "/x/a.mp4"] == \
+        args[args.index("20.000") - 1:args.index("20.000") + 5]
     assert [c.kind for c in p.sfx] == ["whoosh"] * 3
 
 
@@ -482,4 +489,4 @@ def test_a_plan_the_builder_produced_renders_to_a_command():
     assert ok, why
     args = G.build_command(p, "/tmp/out.mp4", SFX, font="/f/x.ttf")
     assert args[0] == "ffmpeg" and args[-1] == "/tmp/out.mp4"
-    assert P.plan_duration(p) == pytest.approx(P.TARGET_S, abs=1.0)
+    assert len(p.segments) == 1 and P.plan_duration(p) == pytest.approx(24.0)

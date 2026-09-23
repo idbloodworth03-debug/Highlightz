@@ -2030,7 +2030,9 @@ as well and add other sounds":
   is what surfaced the drawtext escaping bugs — read "drawtext escaping:
   ffmpeg parses a filtergraph TWICE" near the bottom before touching `_esc()`.
 
-**JUST OVER A MINUTE, NOT 60 (2026-09-23).** TikTok's Creator Rewards pays
+**~~JUST OVER A MINUTE, NOT 60~~ — SUPERSEDED the same day by "ONE CLIP,
+AND THE HOOK" at the bottom of this file. The builder no longer stitches, so
+nothing below about reaching 62s applies to it.** (2026-09-23) TikTok's Creator Rewards pays
 only for videos LONGER than one minute, and the formula made exactly 60.00s
 — every one of them a second short of being paid. `TARGET_S` is now 62
 (owner: fix it "but do not make clips too long either"), and the builder no
@@ -3863,3 +3865,67 @@ so each line was four broken pieces (owner: "the lines are wonky"). The
 rows now carry no vertical padding and the track stretches to the row, so
 the lines are continuous; on a phone the chart drops gridlines (labels sit
 above each bar there) and keeps axis ticks.
+
+
+## ONE CLIP, AND THE HOOK (2026-09-23) — owner's decision
+
+Owner: "We keep the same concept we have with the general format but the one
+thing we change is we add one manual step. We basically make the user pick
+out a 5-10 second part of the clip that is either a hype moment or a
+controversial part of the clip that we roll in the beginning of the clip as
+a bait… duplicate that 5-10 second part, put it at the beginning, roll the
+original clip from the start again. Make the same swoosh slide in transition
+for this part as well and instead of combining clips just keep it only to
+one clip."
+
+**What the formula makes now** (`plan.build`):
+
+    with a hook:   [slide in] HOOK 5-10s [slide + whoosh] WHOLE CLIP from 0 [slide out]
+    without:       [slide in] WHOLE CLIP from 0 [slide out]
+
+- **One clip, every mode.** `limits_for()` returns 1 for clipper and streamer.
+  Stitching up to four clips to reach 62s is gone, and so is `_window` (the
+  "keep the tail" trimmer): the clip plays whole, capped only at `MAX_MAIN_S`
+  (170s, under Shorts' three minutes). `TARGET_S` still exists but no longer
+  trims anything.
+- **The hook is stored on the clip** as `clip["hook"] = {"start", "end"}` in
+  the clip's own seconds. `plan.hook_window()` reads it and returns None for
+  anything unusable (outside 5-10s, off the end, garbled); the clip still
+  gets its edit without the opener.
+- **`EditPlan.hook`** marks segment 0 as the hook. `valid()` holds the shape
+  to exactly [hook, clip], same file, hook inside what the clip shows, 5-10s.
+  The hook is the one segment allowed under `MIN_SEGMENT_S`.
+- **Captions land on every copy of a line** (`llm_common._segments_showing`):
+  a line inside the hook is captioned when the hook plays AND when the clip
+  reaches it. Matching only the first copy — the old `_segment_for` — would
+  have left the words off at the payoff. Cues are placed by overlap and
+  clamped, so a hook picked mid-sentence still shows that line; a sliver
+  under 0.3s at a cut is not flashed up.
+- **A hook beats the model.** `builder.build` sends a hooked clip to the
+  formula (`meta.reason = "the user picked a hook"`) without calling any
+  provider: the user watched the clip, the model cannot. The model path is
+  told "ONE segment, from ONE clip" and `coerce` walks to its first USABLE
+  segment rather than slicing, so one bad entry cannot empty the plan.
+- **Onboarding copy** no longer promises "just over a minute, stitched from
+  your best clips" — both cards now say one clip per post, and nothing says
+  the clipper/streamer answer changes the cut, because it no longer does.
+
+**Try it on prod** (touches nothing a user sees):
+
+    venv/bin/python scripts/edit_preview.py --list
+    venv/bin/python scripts/edit_preview.py --clip <id> --hook 18-26 --captions
+
+**NOT BUILT YET — the manual step itself.** There is no UI for a user to
+pick a hook and no endpoint that stores one; today a hook exists only via
+`--hook` on the preview script. And real Autopilot posts still go through
+the old `render.py` (see "STILL NOT WIRED INTO AUTOPILOT" above), so none of
+this reaches a user's post until `runner.py` calls the builder. Both are
+waiting on the owner: where the picker lives, and whether Autopilot waits
+for a hook or posts without one.
+
+**Two facts the owner was told, once, when this shipped:** one clip plus a
+hook is usually under a minute (a 30s clip with an 8s hook is 37.5s), so
+most of these videos are not eligible for TikTok Creator Rewards, which pays
+only for videos longer than one minute; and a replayed segment of the same
+clip is not what TikTok's originality rule means by "adds new ideas" — it
+will not by itself make a clip count as original.

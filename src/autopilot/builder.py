@@ -71,6 +71,14 @@ async def build(clips: list[dict], sources: dict, *,
     if name == "none":
         return formula(clips, sources, "LLM_PROVIDER=none", target_s=target_s,
                        mode=mode, facecams=facecams)
+    # A HOOK IS THE USER'S CUT. They watched the clip and chose the five to
+    # ten seconds it should open on; a model reading metadata cannot see the
+    # video and has nothing better to offer on that decision. So a clip with
+    # a hook is cut by the formula, which renders exactly what they picked.
+    top = next((c for c in P.rank(clips) if c.get("id") in sources), None)
+    if top and P.hook_window(top, float(sources[top["id"]][1])):
+        return formula(clips, sources, "the user picked a hook",
+                       target_s=target_s, mode=mode, facecams=facecams)
 
     if name == "ollama":
         from src.autopilot import ollama_plan as impl

@@ -87,15 +87,14 @@ def test_the_use_cases_are_exactly_the_edit_modes():
     assert set(user_store.USE_CASES) == set(P.MODES)
 
 
-def test_a_clipper_gets_sixty_seconds_and_a_streamer_gets_their_own_clip():
+def test_both_modes_post_one_clip():
+    """Owner, 2026-09-23: "keep it only to one clip". Until then a clipper's
+    post was stitched to just over a minute; now neither mode stitches."""
     from src.autopilot import plan as P
     clips = [{"id": f"c{i}", "channel": "novafps"} for i in range(4)]
     sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
-    clipper = P.build(clips, sources, mode="clipper")
-    streamer = P.build(clips, sources, mode="streamer")
-    assert len(clipper.segments) > 1
-    assert P.plan_duration(clipper) == pytest.approx(P.TARGET_S, abs=1.0)
-    assert len(streamer.segments) == 1
+    for mode in P.MODES:
+        assert len(P.build(clips, sources, mode=mode).segments) == 1, mode
 
 
 def test_the_autopilot_config_takes_the_same_words():
@@ -448,13 +447,16 @@ def test_the_admin_tab_labels_the_goals_in_english():
 
 
 def test_the_admin_tab_explains_which_answer_changes_anything():
-    """Whoever reads this panel in six months needs to know that the split
-    drives the edit and the goals drive nothing."""
+    """Whoever reads this panel in six months needs to know what each answer
+    does: the split sets the Autopilot mode — which, since every post became
+    one clip (2026-09-23), no longer changes the cut — and the goals drive
+    nothing."""
     html = _admin_html()
     panel = html[html.index('id="panel-onboarding"'):]
     panel = panel[:panel.index("</div>\n\n  <!--")] if "</div>\n\n  <!--" in panel else panel[:4000]
     assert "Autopilot mode" in panel
-    assert "just over a minute" in panel
+    assert "one clip per video" in panel
+    assert "just over a minute" not in panel
 
 
 # ── telling the user what the answer does ───────────────────────────────────
@@ -471,8 +473,8 @@ def test_choosing_shows_what_will_happen_before_they_commit():
     page = _page()
     body = page[page.index("function OnboardingModal("):]
     body = body[:body.index("\nfunction ")]
-    assert "Posts will run just over a minute" in body
-    assert "Posts will run as long as the moment does" in body
+    assert "One clip per post" in body
+    assert "just over a minute" not in body
 
 
 def test_finishing_says_what_the_bot_will_now_do():
@@ -485,19 +487,20 @@ def test_finishing_says_what_the_bot_will_now_do():
 
 
 def test_the_expectation_matches_what_the_builder_actually_does():
-    """The copy promises a clipper just over a minute and a streamer their
-    own length. If the builder stopped doing that, this message would become
-    a lie told to every new account."""
+    """The copy promises one clip per post and promises no length. If the
+    builder started stitching again, or the copy started promising a minute,
+    this message would become a lie told to every new account."""
     from src.autopilot import plan as P
     clips = [{"id": f"c{i}", "channel": "n"} for i in range(4)]
     sources = {f"c{i}": (f"/t/{i}.mp4", 25.0) for i in range(4)}
-    clipper = P.build(clips, sources, mode="clipper")
-    streamer = P.build(clips, sources, mode="streamer")
-    length = P.plan_duration(clipper)
-    assert 60.0 < length <= 65.0, \
-        f"the clipper message promises just over a minute, got {length:.2f}s"
-    assert len(streamer.segments) == 1, \
-        "the streamer message promises one moment per video"
+    for mode in P.MODES:
+        assert len(P.build(clips, sources, mode=mode).segments) == 1, mode
+    page = _page()
+    body = page[page.index("const ONB_EXPECT"):]
+    body = body[:body.index("};")] + page[page.index("function OnboardingModal("):][:6000]
+    for promise in ("minute", "stitched", "from your best clips", "how long they run"):
+        assert promise not in body, f"onboarding still promises {promise!r}"
+    assert "One clip per post" in page
 
 
 def test_no_copy_claims_the_goals_change_what_the_bot_does():

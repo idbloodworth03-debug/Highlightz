@@ -270,7 +270,7 @@ async def test_a_good_answer_becomes_a_renderable_plan_with_copy(ollama):
     assert meta["source"] == "llm" and meta["provider"] == "ollama"
     assert plan.source == "llm"
     assert P.valid(plan)[0]
-    assert 55.0 <= P.plan_duration(plan) <= 60.0
+    assert len(plan.segments) == 1
     assert meta["copy"]["title"] == "he did not see it coming"
     assert meta["copy"]["hashtags"] == ["apexlegends", "novafps"]
 

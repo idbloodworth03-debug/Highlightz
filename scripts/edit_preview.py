@@ -14,6 +14,12 @@ writes one file into /tmp and prints where. Nothing is posted.
 
 --dry-run prints the plan and the ffmpeg command without running either,
 which is what to paste back if the render fails.
+
+THE HOOK (owner, 2026-09-23): the video opens on 5-10 seconds of the clip
+the user picked, slides across, then plays the clip from its start. Try it:
+
+    venv/bin/python scripts/edit_preview.py --list                  # clips + lengths
+    venv/bin/python scripts/edit_preview.py --clip 3f2a --hook 18-26
 """
 import argparse
 import asyncio
@@ -107,6 +113,17 @@ async def main() -> int:
                          "one CPU core — that is why this is opt-in rather "
                          "than automatic. Skipped if the plan already has "
                          "captions (an --llm run that wrote its own).")
+    ap.add_argument("--list", action="store_true",
+                    help="list the clips this would choose from, with their "
+                         "lengths, and stop — to find a --clip and a --hook")
+    ap.add_argument("--clip", default="",
+                    help="render this clip (id, prefix ok) rather than the "
+                         "top-ranked one")
+    ap.add_argument("--hook", default="",
+                    help="open on this part of the clip, as START-END in the "
+                         "clip's own seconds (e.g. 18-26). 5 to 10 seconds. "
+                         "The video plays it first, slides across, then plays "
+                         "the clip from its start.")
     args = ap.parse_args()
 
     print("=" * 66)
@@ -165,6 +182,12 @@ async def main() -> int:
         return 1
 
     uid, pool = next(iter(accounts.items()))
+    if args.clip:
+        pool = [c for c in pool if str(c.get("id", "")).startswith(args.clip)]
+        if len(pool) != 1:
+            print(f"--clip {args.clip!r} matches {len(pool)} clips; "
+                  "run --list and give a longer prefix")
+            return 1
     pool = pool[:12]
     print(f"\n{len(pool)} clips with a file for account {uid[:10]}…"
           f"  (statuses: {', '.join(want)})")
@@ -179,6 +202,31 @@ async def main() -> int:
     print(f"{len(sources)} of them probed cleanly")
     if not sources:
         return 1
+    if args.list:
+        print()
+        for c in P.rank(pool):
+            if c["id"] in sources:
+                print(f"  --clip {c['id'][:10]:<12} {sources[c['id']][1]:6.1f}s"
+                      f"  {c.get('channel', '?'):<16} {(c.get('title') or '')[:40]}")
+        return 0
+    chosen = next(c for c in P.rank(pool) if c["id"] in sources)
+    print(f"clip: {chosen['id'][:10]}  {chosen.get('channel', '?')}"
+          f"  {sources[chosen['id']][1]:.1f}s")
+    if args.hook:
+        try:
+            hs, he = (float(x) for x in args.hook.replace(",", "-").split("-"))
+        except ValueError:
+            print(f"--hook wants START-END in seconds, e.g. 18-26 (got {args.hook!r})")
+            return 1
+        # A copy: this script never writes a hook back onto a real clip.
+        chosen = dict(chosen, hook={"start": hs, "end": he})
+        pool = [chosen if c["id"] == chosen["id"] else c for c in pool]
+        dur = min(float(sources[chosen["id"]][1]), P.MAX_MAIN_S)
+        if not P.hook_window(chosen, dur):
+            print(f"--hook {hs:g}-{he:g} is not usable on a {dur:.1f}s clip: it "
+                  f"must be {P.HOOK_MIN_S:g}-{P.HOOK_MAX_S:g}s long and inside "
+                  "the clip")
+            return 1
 
     meta: dict = {}
     if args.llm:
@@ -266,7 +314,9 @@ async def main() -> int:
     ok, why = P.valid(plan)
     print(f"\nPLAN  ({plan.source}) — valid: {ok}{'' if ok else '  — ' + why}")
     for i, seg in enumerate(plan.segments):
-        print(f"  {i+1}. {seg.channel or '?':<16} {seg.start:6.2f}–{seg.end:6.2f}s"
+        role = ("HOOK " if plan.hook and i == 0 else
+                "CLIP " if plan.hook else "")
+        print(f"  {i+1}. {role}{seg.channel or '?':<16} {seg.start:6.2f}–{seg.end:6.2f}s"
               f"  ({seg.length:5.2f}s)  zoom={seg.zoom}  framing={seg.framing}")
     print(f"  transition: {plan.transition} @ {plan.trans_dur}s"
           f"   joins: {max(0, len(plan.segments)-1)}")

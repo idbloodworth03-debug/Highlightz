@@ -69,14 +69,10 @@ FRAMINGS = ("fill", "blur")
 LAYOUTS = ("none", "stack", "corner")
 SPLIT_TOP = 0.4          # must match SPLIT_TOP in aurora_html.py
 
-# Clipper or streamer, which is one question — do you stitch? (owner,
-# 2026-09-21: "I need it to be a minute long for clippers. Streamers it does
-# not really matter for.")
-#   clipper   fill to TARGET_S (just over a minute), stitching up to
-#             MAX_SEGMENTS clips together.
-#             A clipper is making content, and the length is the format.
-#   streamer  one clip, edited well, whatever length it is. A streamer
-#             posting their own moment does not want it welded to two others.
+# Clipper or streamer. Both are ONE clip now (owner, 2026-09-23: "instead of
+# combining clips just keep it only to one clip"); the modes are kept because
+# onboarding stores one and the Autopilot config carries it, and a later
+# difference between them has somewhere to live.
 MODES = ("clipper", "streamer")
 
 # JUST OVER A MINUTE, not 60 (owner, 2026-09-23). TikTok's Creator Rewards
@@ -93,8 +89,28 @@ TARGET_S = 62.0
 SAFELY_OVER_S = 61.0
 TRANS_DUR = 0.5
 MIN_SEGMENT_S = 6.0      # shorter than this and a transition eats the shot
+# The absolute ceiling `valid()` enforces on ANY plan, a model's included.
+# The builders use far fewer: one clip, plus the hook when there is one.
 MAX_SEGMENTS = 4
 WHOOSH_GAIN = 0.6
+
+# THE HOOK (owner, 2026-09-23). The user picks 5-10 seconds of the clip — the
+# hype moment or the controversial line — and the video OPENS on it as bait,
+# slides across to the clip playing from its own start, and slides out at
+# the end:
+#
+#     [slide in] HOOK (5-10s) [slide + whoosh] WHOLE CLIP from 0 [slide out]
+#
+# It is the one manual step in an otherwise automatic edit: nothing reading
+# metadata can tell which five seconds are the moment, and the person who
+# approved the clip can. A hook is the only segment allowed under
+# MIN_SEGMENT_S, because it is the only one chosen by a human for its length.
+HOOK_MIN_S = 5.0
+HOOK_MAX_S = 10.0
+# The clip after the hook plays whole, from its start. Capped only so a long
+# upload cannot turn into a video past YouTube Shorts' three minutes; stream
+# clips are about a minute and never reach it.
+MAX_MAIN_S = 170.0
 
 
 @dataclass
@@ -166,6 +182,11 @@ class EditPlan:
     # default, so a model's plan (and every older plan) keeps its fades.
     slide_in: bool = False
     slide_out: bool = False
+    # Segment 0 is the HOOK: a 5-10s replay of part of segment 1, shown first
+    # as bait before segment 1 plays the clip from its start. `valid()` holds
+    # the shape to exactly that, so a plan cannot claim a hook it does not
+    # have.
+    hook: bool = False
     title: str = ""
     # [{start, end, text}] in FINISHED-TIMELINE seconds, which is what the
     # renderer's `enable=between(t,...)` measures. A cue written against the
@@ -243,14 +264,20 @@ def valid(plan: EditPlan) -> tuple[bool, str]:
         return False, "no segments"
     if len(plan.segments) > MAX_SEGMENTS:
         return False, f"{len(plan.segments)} segments, max {MAX_SEGMENTS}"
-    for s in plan.segments:
+    if plan.hook:
+        ok, why = _hook_shape(plan)
+        if not ok:
+            return False, why
+    for k, s in enumerate(plan.segments):
         # THE WINDOW BEFORE THE LENGTH, because `length` clamps at zero: an
         # inside-out window (end before start) would otherwise be reported as
         # "shorter than 6s" and send the reader looking at the wrong thing.
         # These messages are read when a model produced the plan.
         if s.start < 0 or s.end <= s.start:
             return False, "segment window is inside out"
-        if s.length < MIN_SEGMENT_S:
+        # The hook is the one shot a person chose the length of; it has its
+        # own bounds, checked in _hook_shape.
+        if s.length < MIN_SEGMENT_S and not (plan.hook and k == 0):
             return False, f"segment shorter than {MIN_SEGMENT_S}s"
         if s.zoom not in ZOOMS:
             return False, f"unknown zoom {s.zoom!r}"
@@ -283,25 +310,51 @@ def valid(plan: EditPlan) -> tuple[bool, str]:
     return True, ""
 
 
-# ── the deterministic builder ────────────────────────────────────────────────
+def _hook_shape(plan: EditPlan) -> tuple[bool, str]:
+    """A hooked plan is exactly: the hook, then the clip it was taken from.
 
-def _window(duration: float, want: float) -> tuple[float, float]:
-    """The best `want` seconds of a clip, without knowing what is in it.
+    The hook has to be a window of THE SAME FILE the second segment plays,
+    inside what that segment shows — it is a preview of this clip, and a
+    "hook" from some other clip would promise a moment the video never
+    delivers."""
+    if len(plan.segments) != 2:
+        return False, "a hooked plan is the hook and one clip"
+    hook, main = plan.segments
+    if hook.src != main.src:
+        return False, "the hook is not from the clip it opens"
+    if not (HOOK_MIN_S - 1e-6 <= hook.length <= HOOK_MAX_S + 1e-6):
+        return False, f"hook must be {HOOK_MIN_S:g}-{HOOK_MAX_S:g}s"
+    if hook.start < main.start - 1e-6 or hook.end > main.end + 1e-6:
+        return False, "the hook is outside the part of the clip that plays"
+    return True, ""
 
-    THE ASSUMPTION, written down because an LLM builder will replace it: the
-    clip was cut as [trigger - pre_roll, trigger + post_roll] and the presets
-    put pre_roll above post_roll, so the moment itself sits around 55-65% of
-    the way in and the reaction follows it to the end. Keeping the TAIL is
-    therefore right far more often than keeping the head, which is mostly
-    lead-in nobody watches.
 
-    Three seconds of run-up before the moment, then everything after it.
+def hook_window(clip: dict, duration: float) -> tuple[float, float] | None:
+    """The user's hook for this clip, as a window that can be rendered, or
+    None.
+
+    Stored on the clip as {"hook": {"start": s, "end": e}} in the clip's own
+    seconds. Anything unusable — missing, non-numeric, off the end of the
+    file, or outside 5-10s — is None rather than an error: the clip still
+    gets its edit, just without the opener.
     """
-    if duration <= want:
-        return 0.0, duration
-    start = max(0.0, duration - want)
-    return start, duration
+    raw = clip.get("hook")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        start = float(raw.get("start"))
+        end = float(raw.get("end"))
+    except (TypeError, ValueError):
+        return None
+    if start < 0 or end > duration + 0.05 or end <= start:
+        return None
+    end = min(end, duration)
+    if not (HOOK_MIN_S - 1e-6 <= end - start <= HOOK_MAX_S + 1e-6):
+        return None
+    return round(start, 3), round(end, 3)
 
+
+# ── the deterministic builder ────────────────────────────────────────────────
 
 def rank(clips: list[dict]) -> list[dict]:
     """Highlights first, then by virality (owner, 2026-09-19).
@@ -352,68 +405,57 @@ def _sfx_for(plan: EditPlan) -> list[Sfx]:
 
 
 def limits_for(mode: str) -> tuple[float, int]:
-    """(target seconds, how many clips may be stitched) for a mode.
+    """(target seconds, how many clips may be used) for a mode.
 
-    The whole clipper/streamer difference is here. A clipper is making
-    content and sixty seconds is the format, so stitch up to four. A
-    streamer is posting their own moment and does not want it welded to two
-    others, so one clip, at whatever length it is — TARGET_S still caps it,
-    because nothing posts longer than a minute.
+    ONE CLIP for every mode (owner, 2026-09-23: "instead of combining clips
+    just keep it only to one clip"). Stitching up to four clips to reach
+    just over a minute was the rule until that day; the hook replaced it as
+    the thing that makes the edit more than a repost. Kept as a function of
+    the mode so a future difference has one place to go.
     """
-    if mode == "streamer":
-        return TARGET_S, 1
-    return TARGET_S, MAX_SEGMENTS
+    return TARGET_S, 1
 
 
 def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
           title: str = "", captions: list | None = None,
           transition: str = "slideleft", mode: str = "clipper",
           facecams: dict | None = None) -> EditPlan:
-    """An edit plan from the highest-ranked clips that have a file.
+    """The edit plan for the highest-ranked clip that has a file.
 
     `clips` are candidate clip records; `sources` maps clip id to the path of
     its video and its duration, `{clip_id: (path, duration_s)}` — the caller
     owns the filesystem, this module stays testable without one.
 
-    It fills to `target_s` with as few segments as will reach it, because
-    every extra join costs a transition and a shot. One long clip that
-    already runs sixty seconds is a perfectly good edit and gets left alone.
-    """
-    ranked = [c for c in rank(clips) if c.get("id") in sources]
-    facecams = facecams or {}
-    _target, max_segments = limits_for(mode)
-    segments: list[Segment] = []
-    remaining = target_s
+    ONE CLIP (owner, 2026-09-23), played whole from its start. If the user
+    picked a hook on it (`clip["hook"]`, see `hook_window`), the video opens
+    on that 5-10s first and slides across to the clip:
 
-    for c in ranked:
-        if len(segments) >= max_segments:
-            break
-        # Stop once the rest would be a shot too short to survive a
-        # transition — UNLESS that leaves the video at or under a minute. Two
-        # 30s clips used whole are 59.5s, 2.5s short of the target: too little
-        # for a shot, but TikTok pays nothing for it. Then one more shot of
-        # MIN_SEGMENT_S goes on, which lands between 61.5 and 66.5s: over the
-        # line, and still about a minute.
-        so_far = plan_duration(EditPlan(segments=segments, trans_dur=TRANS_DUR))
-        if remaining < MIN_SEGMENT_S and (not segments or so_far >= SAFELY_OVER_S):
-            break
+        [slide in] HOOK [slide + whoosh] CLIP from 0 [slide out]
+
+    Without a hook it is the clip alone, sliding in and out. `target_s` no
+    longer trims anything — the clip is as long as it is — and is kept in
+    the signature so every caller, and both model builders, still pass the
+    same arguments.
+    """
+    facecams = facecams or {}
+    for c in rank(clips):
+        if c.get("id") not in sources:
+            continue
         path, duration = sources[c["id"]]
+        duration = float(duration)
         if duration < MIN_SEGMENT_S:
             continue
-        # Each join gives back trans_dur of runtime, so ask for that much more
-        # — and never less than a whole shot.
-        want = max(remaining + (TRANS_DUR if segments else 0.0), MIN_SEGMENT_S)
-        start, end = _window(duration, min(want, duration))
-        seg_len = end - start
-        if seg_len < MIN_SEGMENT_S:
-            continue
-        channel = c.get("channel", "")
-        cam = facecams.get(channel)
-        segments.append(Segment(
-            src=str(path), start=round(start, 3), end=round(end, 3),
-            # The opener punches in to grab attention; later shots drift so
-            # the whole thing is not one repeated move.
-            zoom="punch" if not segments else ("drift" if len(segments) % 2 else "pull"),
+        break
+    else:
+        return EditPlan(segments=[], transition=transition, title=title,
+                        captions=list(captions or []), source="formula")
+
+    channel = c.get("channel", "")
+    cam = facecams.get(channel)
+
+    def shot(start: float, end: float, zoom: str) -> Segment:
+        return Segment(
+            src=str(path), start=round(start, 3), end=round(end, 3), zoom=zoom,
             # BLUR, not fill (owner, 2026-09-22, having watched the first real
             # render): "I only see half of the clip… I would rather just have
             # it the entire clip with the blurr on the top and the bottom."
@@ -422,25 +464,33 @@ def build(clips: list[dict], sources: dict, *, target_s: float = TARGET_S,
             # the MIDDLE and throws the rest away — which on a gameplay clip
             # means the camera, the killfeed and half the scoreboard are gone.
             # Blur keeps the whole frame at full width over a blurred blow-up
-            # of itself, so nothing is lost. The picture is smaller; that is
-            # the trade, and it is the one the owner chose after seeing both.
+            # of itself, so nothing is lost.
             framing="blur",
             # The formula stacks whenever it knows where the camera is: a
             # clip with a visible streamer reads as edited, and a 16:9 crop
             # that cuts the camera off reads as a repost.
             layout="stack" if cam else "none", facecam=cam,
             clip_id=c.get("id", ""), channel=channel,
-        ))
-        remaining = target_s - plan_duration(EditPlan(segments=segments,
-                                                     trans_dur=TRANS_DUR))
+        )
 
-    # Every cut is a slide, and the video slides in at the start and out at
-    # the end — the same move and the same whoosh throughout (owner,
-    # 2026-09-23). `slideleft` in xfade is a push: the outgoing clip leaves to
-    # the left as the next enters from the right, so the whole video moves
-    # one way, like a feed.
+    main_end = min(duration, MAX_MAIN_S)
+    hook = hook_window(c, main_end)
+    segments: list[Segment] = []
+    if hook:
+        # The opener punches in to grab attention; the clip after it drifts,
+        # so the two shots are not one repeated move.
+        segments.append(shot(hook[0], hook[1], "punch"))
+        segments.append(shot(0.0, main_end, "drift"))
+    else:
+        segments.append(shot(0.0, main_end, "punch"))
+
+    # The video slides in at the start and out at the end, and the hook
+    # slides across to the clip — the same move and the same whoosh
+    # throughout (owner, 2026-09-23). `slideleft` in xfade is a push: the
+    # outgoing shot leaves to the left as the next enters from the right, so
+    # the whole video moves one way, like a feed.
     plan = EditPlan(segments=segments, transition=transition, trans_dur=TRANS_DUR,
-                    slide_in=True, slide_out=True,
+                    slide_in=True, slide_out=True, hook=bool(hook),
                     title=title, captions=list(captions or []), source="formula")
     plan.sfx = _sfx_for(plan)
     return plan

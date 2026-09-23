@@ -471,10 +471,9 @@ PREF_DEFAULTS = {
     "notify_clips":   False,       # browser notification when a clip lands
     "reduce_motion":  False,       # skip the sweep and the wake animation
     # ── onboarding (asked once, after Twitch is attached) ────────────────
-    # What they are here for. This is the only answer that CHANGES anything:
-    # it sets the Autopilot mode, and a clipper's posts are filled to sixty
-    # seconds from several clips where a streamer's are one clip from their
-    # own stream (src/autopilot/plan.py, limits_for).
+    # What they are here for. Sets the Autopilot mode. Both modes post one
+    # clip per video since 2026-09-23, so it does not change the cut today
+    # (src/autopilot/plan.py, limits_for).
     "use_case":       "",          # "" until asked; then clipper | streamer
     # What they want out of it. Asked for the owner's knowledge and NOTHING
     # else — nothing in the product branches on this, and it is reported

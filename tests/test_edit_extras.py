@@ -167,12 +167,28 @@ def test_a_caption_on_the_first_shot_keeps_its_time():
     assert plan.captions == [{"start": 4.0, "end": 6.0, "text": "oh"}]
 
 
+def hook_plan():
+    """c0 opens on its 20-28s as the hook, then plays 0-40s. The clip's
+    copy starts at 7.5s on the finished clock, because the join overlaps."""
+    c = {"id": "c0", "channel": "novafps", "hook": {"start": 20.0, "end": 28.0}}
+    plan = P.build([c], {"c0": ("/tmp/0.mp4", 40.0)})
+    assert plan.hook
+    return plan
+
+
+def placed(cues):
+    plan = hook_plan()
+    plan.captions = C._place_captions(
+        [dict(clip_id="c0", **c) for c in cues], plan, [])
+    return plan
+
+
 def test_a_caption_on_a_later_shot_is_moved_onto_the_finished_clock():
-    """4s into the second clip is 25.5s into the video, because the join
-    overlapped half a second. Left at 4.0 it would appear during the FIRST
-    shot instead — the failure with no error message."""
-    plan, _ = coerced([{"clip_id": "c1", "start": 4.0, "end": 6.0, "text": "no"}])
-    assert plan.captions == [{"start": 25.5, "end": 27.5, "text": "no"}]
+    """4s into the clip is 11.5s into the video: the 8s hook, less the half
+    second the join overlapped. Left at 4.0 it would appear during the hook
+    instead — the failure with no error message."""
+    plan = placed([{"start": 4.0, "end": 6.0, "text": "no"}])
+    assert plan.captions == [{"start": 11.5, "end": 13.5, "text": "no"}]
 
 
 def test_every_caption_lands_inside_the_finished_video():
@@ -204,17 +220,34 @@ def test_a_caption_for_a_clip_that_is_not_in_the_cut_is_dropped():
     assert plan.captions == []
 
 
-def test_captions_follow_the_right_copy_of_a_repeated_clip():
-    """A plan that opens and closes on the same clip is normal. Matching on
-    the id alone would put both cues on the first appearance."""
-    plan, _ = coerced(
-        [{"clip_id": "c0", "start": 26.0, "end": 28.0, "text": "later"}],
-        segments=[{"clip_id": "c0", "start": 0.0, "end": 22.0, "zoom": "punch",
-                   "framing": "fill", "why": ""},
-                  {"clip_id": "c0", "start": 25.0, "end": 40.0, "zoom": "drift",
-                   "framing": "fill", "why": ""}])
-    # Second segment starts at 21.5; 26.0 is 1s into its 25.0 in-point.
-    assert plan.captions[0]["start"] == 22.5
+def test_a_line_in_the_hook_is_captioned_both_times_it_is_on_screen():
+    """The hook replays part of the clip, so its line is on screen twice.
+    Matching only the first copy would leave the words off when the clip
+    reaches the moment the viewer was promised."""
+    plan = placed([{"start": 22.0, "end": 24.0, "text": "no way"}])
+    assert plan.captions == [{"start": 2.0, "end": 4.0, "text": "no way"},
+                             {"start": 29.5, "end": 31.5, "text": "no way"}]
+
+
+def test_a_hook_picked_mid_sentence_still_shows_that_line():
+    """The line began before the hook's in-point; its words are still on
+    screen when the video opens, so they are clamped to the hook's start
+    rather than dropped."""
+    plan = placed([{"start": 18.5, "end": 21.0, "text": "watch this"}])
+    assert plan.captions[0] == {"start": 0.0, "end": 1.0, "text": "watch this"}
+    assert plan.captions[1] == {"start": 26.0, "end": 28.5, "text": "watch this"}
+
+
+def test_a_line_outside_the_hook_is_captioned_once():
+    plan = placed([{"start": 2.0, "end": 3.0, "text": "hi"}])
+    assert len(plan.captions) == 1
+
+
+def test_a_sliver_of_a_line_at_a_cut_is_not_flashed_up():
+    """A cue with only 0.2s inside the hook would be a flicker; it shows
+    in full where the clip plays it instead."""
+    plan = placed([{"start": 27.8, "end": 30.0, "text": "tail"}])
+    assert [c["start"] for c in plan.captions] == [35.3]
 
 
 def test_a_caption_with_no_timing_is_skipped_not_crashed():
@@ -236,11 +269,12 @@ def test_no_transcript_means_no_captions_rather_than_invented_ones():
 
 
 def test_the_converted_captions_are_what_the_renderer_draws():
-    """End to end: the shape coerce produces is the shape the graph reads."""
-    plan, _ = coerced([{"clip_id": "c1", "start": 4.0, "end": 6.0, "text": "no way"}])
+    """End to end: the shape the captions are placed in is the shape the
+    graph reads — both copies of a line in the hook are drawn."""
+    plan = placed([{"start": 22.0, "end": 24.0, "text": "no way"}])
     g = G.build_filtergraph(plan, font="/f/x.ttf")[0]
     assert "NO WAY" in g
-    assert "between(t,25.50,27.50)" in g
+    assert "between(t,2.00,4.00)" in g and "between(t,29.50,31.50)" in g
 
 
 # ── captions the FORMULA places, from real Whisper transcripts ──────────────

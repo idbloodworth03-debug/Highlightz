@@ -28,10 +28,9 @@ from datetime import datetime, timedelta, timezone
 
 TEMPLATES = ("full", "blur", "punch", "hook")
 TIMINGS = ("now", "spaced", "daily")
-# Clipper or streamer — the one question is whether clips get stitched.
-# See plan.limits_for(): a clipper fills to 60s from up to four clips, a
-# streamer posts one clip edited well. Owner: "I need it to be a minute long
-# for clippers. Streamers it does not really matter for."
+# Clipper or streamer. Both post ONE clip per video since 2026-09-23 (owner:
+# "instead of combining clips just keep it only to one clip"); see
+# plan.limits_for(), where a future difference between them would go.
 MODES = ("clipper", "streamer")
 PLATFORMS = ("youtube", "tiktok", "instagram")
 CAPTION_MAX = 2200
