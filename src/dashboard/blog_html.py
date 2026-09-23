@@ -194,20 +194,33 @@ _CSS = BASE_CSS + """
   .chart-t{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
     color:var(--paper-ink-3)}
   .bars{margin-top:var(--s-4)}
-  .brow{display:grid;grid-template-columns:200px minmax(0,1fr) 112px;column-gap:var(--s-4);align-items:center;
-    padding:var(--s-2) 0}
-  .brow .bl{font-size:15px;line-height:1.3;color:var(--paper-ink)}
-  .brow .bt{position:relative;height:32px;border-right:1px solid var(--paper-hair);
-    background:linear-gradient(to right,var(--paper-hair) 1px,transparent 1px) 0 0/33.3333% 100% repeat-x}
+  /* The gridlines are drawn by each row's track, so the rows carry NO
+     vertical padding and the track stretches to the full row height:
+     that is what makes the four segments of each line meet as one
+     unbroken rule, whatever height a row's label wraps to. The label and
+     the value take the breathing room instead. The axis row repeats the
+     same background as short ticks, so each line ends on its dollar
+     figure. */
+  .brow,.baxis{display:grid;grid-template-columns:200px minmax(0,1fr) 112px;column-gap:var(--s-4)}
+  .brow{align-items:stretch}
+  .brow .bl{align-self:center;padding:var(--s-3) 0;font-size:15px;line-height:1.3;color:var(--paper-ink)}
+  .brow .bt,.baxis .ax{position:relative;border-left:1px solid var(--paper-hair);border-right:1px solid var(--paper-hair);
+    background:linear-gradient(to right,transparent calc(33.3333% - 1px),var(--paper-hair) calc(33.3333% - 1px),
+      var(--paper-hair) 33.3333%,transparent 33.3333%,transparent calc(66.6667% - 1px),var(--paper-hair) calc(66.6667% - 1px),
+      var(--paper-hair) 66.6667%,transparent 66.6667%) no-repeat}
+  .brow .bt{min-height:48px}
   .brow .bv{position:absolute;top:50%;height:12px;min-width:4px;transform:translateY(-50%);background:var(--paper-ink);
     border-radius:4px;cursor:default}
   .brow .bv:hover{background:#26252B;outline:2px solid var(--ember);outline-offset:2px}
-  .brow .bn{font-family:var(--mono);font-weight:600;font-size:14px;color:var(--paper-ink);white-space:nowrap;
-    font-variant-numeric:tabular-nums}
-  .baxis{display:grid;grid-template-columns:200px minmax(0,1fr) 112px;column-gap:var(--s-4);padding-top:var(--s-1)}
-  .baxis .ax{position:relative;height:16px}
-  .baxis .ax span{position:absolute;top:0;transform:translateX(-50%);font-family:var(--mono);font-size:12px;
-    color:var(--paper-ink-3);font-variant-numeric:tabular-nums}
+  .brow .bn{align-self:center;padding:var(--s-3) 0;font-family:var(--mono);font-weight:600;font-size:14px;
+    color:var(--paper-ink);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .baxis .ax{height:32px;background-size:100% 8px;border-left:0;border-right:0}
+  /* The two end lines, as 8px ticks like the middle two. */
+  .baxis .ax::before,.baxis .ax::after{content:"";position:absolute;top:0;width:1px;height:8px;background:var(--paper-hair)}
+  .baxis .ax::before{left:0}
+  .baxis .ax::after{right:0}
+  .baxis .ax span{position:absolute;top:12px;transform:translateX(-50%);font-family:var(--mono);font-size:12px;
+    line-height:1.5;color:var(--paper-ink-3);font-variant-numeric:tabular-nums}
   .baxis .ax span:first-child{transform:none}
   .baxis .ax span:last-child{transform:translateX(-100%)}
   .chart details{margin-top:var(--s-4)}
@@ -262,9 +275,13 @@ _CSS = BASE_CSS + """
     .gl{flex-direction:row;flex-wrap:wrap;align-items:center}
     .gl b{flex:1 1 auto}
     .gl span.d{flex-basis:100%}
-    .brow{grid-template-columns:minmax(0,1fr) 96px;row-gap:var(--s-1)}
-    .brow .bl{grid-column:1 / -1}
-    .baxis{grid-template-columns:minmax(0,1fr) 96px}
+    /* On a phone the label sits on its own line above the bar, so a
+       gridline could only be drawn in broken pieces. There are none here:
+       every bar carries its figure, and the axis keeps its ticks. */
+    .brow,.baxis{grid-template-columns:minmax(0,1fr) 96px}
+    .brow .bl{grid-column:1 / -1;padding:var(--s-3) 0 0}
+    .brow .bt{min-height:32px;background:none;border-color:transparent}
+    .brow .bn{padding:0}
     .baxis > span:first-child{display:none}
   }
 """

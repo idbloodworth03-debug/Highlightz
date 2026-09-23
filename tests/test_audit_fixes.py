@@ -328,3 +328,24 @@ def test_the_feedback_screen_removes_both_listeners():
     i = h.index("const loadThreads = useCallback")
     body = h[i:h.index("const [category", i)]
     assert body.count("addEventListener") == body.count("removeEventListener") == 2
+
+
+def test_every_copy_of_the_bar_grows_the_same_on_wide_screens():
+    """Owner, 2026-09-23: the bar and its type were too small on a wide
+    screen. At 1360px and up every copy — landing, legal shell, and the
+    tutorial sheet /compare and /blog inherit — switches to the larger size
+    at the same width with the same rules. It needs ~1320px at that size, so
+    it must not switch on any narrower screen."""
+    from src.dashboard.tutorial_html import _CSS
+    from src.dashboard.api import LANDING_HTML, TOS_HTML
+
+    def wide(css):
+        m = re.search(r"@media\(min-width:(\d+)px\)\{(.*?)\n  \}", css, re.S)
+        assert m, "this copy of the bar has no wide-screen size"
+        return int(m.group(1)), re.sub(r"\s+", "", m.group(2))
+
+    copies = {"landing": wide(LANDING_HTML), "legal": wide(TOS_HTML), "tutorial": wide(_CSS)}
+    assert len(set(copies.values())) == 1, f"the copies of the bar disagree: {copies}"
+    bp, rules = copies["landing"]
+    assert bp >= 1340, f"the large bar switches on at {bp}px but needs ~1320px"
+    assert ".nav-link{font-size:15px" in rules

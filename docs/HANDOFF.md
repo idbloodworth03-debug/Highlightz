@@ -3848,3 +3848,18 @@ absorbs it, as before.
 Static page, no user state: nothing to broadcast, nothing for
 `refetchAll()`. Pages are rendered per request, but the plan counts and the
 release flag are read from settings, so deploy with the usual restart.
+
+**Bar size on wide screens (2026-09-23, owner: "I want all of this to be
+bigger … and the fonts bigger as well").** At `min-width:1360px` every
+copy of the bar (landing, legal shell, `tutorial_html` → /compare, /blog)
+switches to a larger size: 28px logo, 16px wordmark, 15px links (were
+12px), 16px button with 12/24 padding. At that size it needs ~1320px, so
+below 1360 it keeps the old size. Measured on all five page types at 1359,
+1360, 1440, 1892: one line, no overflow. `test_audit_fixes` holds the
+three copies identical.
+
+**The pay chart's gridlines** were drawn per row with row padding between,
+so each line was four broken pieces (owner: "the lines are wonky"). The
+rows now carry no vertical padding and the track stretches to the row, so
+the lines are continuous; on a phone the chart drops gridlines (labels sit
+above each bar there) and keeps axis ticks.

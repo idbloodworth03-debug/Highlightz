@@ -247,6 +247,21 @@ _CSS = """
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-link.on{color:var(--ink)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  /* Wide screens: the bar at reading size. Below 1360px the bar above is
+     already as wide as the room allows (the links collapse at 1000), so the
+     larger size only applies where it fits on one line. `.nav .nav-right
+     .btn` rather than `.nav .btn`: that rule comes later in the sheet and
+     would otherwise win. */
+  @media(min-width:1360px){
+    .nav{padding:16px 32px 24px;gap:24px}
+    .nav-logo{gap:12px}
+    .nav-logo img{height:28px}
+    .nav-logo span{font-size:16px}
+    .nav-links{gap:4px;margin-left:16px}
+    .nav-link{font-size:15px;padding:8px 12px}
+    .nav-right{gap:12px}
+    .nav .nav-right .btn{font-size:16px;padding:12px 24px}
+  }
   /* 1000, the landing page's number: the bar needs ~990px with its links
      shown since the Blog tab joined it. */
   @media(max-width:1000px){
