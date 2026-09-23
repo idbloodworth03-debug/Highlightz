@@ -21,6 +21,7 @@ import pytest
 
 from src.autopilot import graph as G
 from src.autopilot import plan as P
+from tests import ffparse as F
 
 
 def seg(start=0.0, end=20.0, src="/tmp/a.mp4", zoom="punch"):
@@ -188,33 +189,71 @@ def test_titles_and_captions_only_appear_when_a_font_exists():
     assert "INSANE 1v5" in g
 
 
-def test_text_that_would_break_the_graph_is_escaped():
-    """Only the quote needs escaping (close/escape/reopen) — everything
-    else inside '...' is already literal to ffmpeg's own parser. See
-    graph.py's `_esc` docstring for why the old backslash-before-everything
-    version was actually broken, not just redundant."""
-    p = three()
-    p.title = "it's 100%: [wild], really"
-    g = G.build_filtergraph(p, font="/f/x.ttf")[0]
-    assert "it'\\''s 100%: [wild], really" in g
+# ── escaping, checked against what ffmpeg will actually parse ───────────────
+# Two live failures in two days, both on an apostrophe, both from escaping for
+# one of ffmpeg's two parse passes. Both of those fixes had a test that pinned
+# the exact string the fix produced — and both passed, because a test that
+# pins an output only proves the code does what the author believed. These
+# instead run the graph through tests/ffparse.py, a port of both parsers.
+
+NASTY = [
+    "I'm not sure", "it's 100%: [wild], really", "one, two; three",
+    "'quoted'", "ends with '", "back\\slash", "a:b:c", "  padded  ",
+    "What the fuck?", "50% off, don't [miss] it; ok: go",
+]
 
 
-def test_a_caption_with_an_apostrophe_does_not_swallow_the_rest_of_the_graph():
-    """Regression, reproduced live 2026-09-22 on a real transcript ("I
-    think I'm not"): the old `_esc` backslash-escaped the quote, which
-    does nothing inside ffmpeg's '...' quoting — the quote closed the
-    string right there, and ffmpeg parsed everything after it as bare
-    filter syntax and failed with "Filter not found". A caption AFTER the
-    apostrophe one has to come out correctly quoted for this to be fixed,
-    not just the apostrophe caption itself.
-    """
+def test_the_escaping_is_ffmpegs_own_worked_example():
+    """ffmpeg-filters(1), "Notes on filtergraph escaping", character for
+    character."""
+    assert G._esc("this is a 'string': may contain one, or more, special characters") \
+        == r"this is a \\\'string\\\'\\: may contain one\, or more\, special characters"
+
+
+def test_the_parser_port_reads_the_docs_example_the_way_the_docs_say():
+    """The port is only evidence if it agrees with ffmpeg on ffmpeg's own
+    example."""
+    g = r"drawtext=text=this is a \\\'string\\\'\\: may contain one\, or more\, special characters"
+    assert F.drawtexts(g) == [{"text": "this is a 'string': may contain one, or more, special characters"}]
+
+
+def test_the_parser_port_catches_the_2026_09_23_failure():
+    """The exact drawtext prod choked on. The port reproduces what went
+    wrong: the apostrophe opened a quote in the second pass and every
+    option after it became caption text."""
+    prod = ("drawtext=fontfile=/f.ttf:text='I'\\''M GONNA':fontcolor=0xF7A745:"
+            "fontsize=100:enable='between(t,53.69,54.23)'")
+    [d] = F.drawtexts(prod)
+    assert sorted(d) == ["fontfile", "text"]
+    assert "fontcolor=" in d["text"]
+
+
+@pytest.mark.parametrize("text", NASTY)
+def test_every_caption_reaches_ffmpeg_as_itself_with_all_its_options(text):
     p = three()
-    p.captions = [{"start": 1.0, "end": 2.0, "text": "I'm not sure"},
-                 {"start": 3.0, "end": 4.0, "text": "next line"}]
-    g = G.build_filtergraph(p, font="/f/x.ttf")[0]
-    assert "text='I'\\''M NOT SURE'" in g
-    assert "text='NEXT LINE'" in g
-    assert g.count("drawtext=") == 2
+    p.captions = [{"start": 1.0, "end": 2.0, "text": text},
+                  {"start": 3.0, "end": 4.0, "text": "next line"}]
+    parsed = F.drawtexts(G.build_filtergraph(p, font="/f/x.ttf")[0])
+    shown = text.strip().upper()
+    lines, _ = G.caption_layout(shown)
+    assert [d["text"] for d in parsed] == lines + ["NEXT LINE"], \
+        "a caption was garbled, or swallowed the one after it"
+    for d in parsed:
+        assert d["expansion"] == "none", "a % in speech would be read as a directive"
+        assert {"fontcolor", "fontsize", "borderw", "x", "y", "enable"} <= set(d)
+    assert parsed[0]["enable"] == "between(t,1.00,2.00)"
+
+
+@pytest.mark.parametrize("text", NASTY)
+def test_titles_and_covers_reach_ffmpeg_as_themselves(text):
+    p = three()
+    p.title = text
+    p.thumb_text = text
+    [title] = F.drawtexts(G.build_filtergraph(p, font="/f/x.ttf")[0])
+    assert title["text"] == text.strip()
+    cmd = G.build_thumbnail_command(p, Path("/tmp/v.mp4"), Path("/tmp/c.jpg"), font="/f/x.ttf")
+    [cover] = F.drawtexts(cmd[cmd.index("-vf") + 1])
+    assert cover["text"] == text.strip() and cover["expansion"] == "none"
 
 
 # ── the caption look ────────────────────────────────────────────────────────
@@ -234,26 +273,21 @@ REAL_LINES = [
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def _style(g: str, text: str) -> str:
-    """The option string of the drawtext that draws `text`."""
-    s = g[g.index(f"text='{text}'"):]
-    return s[:s.index("enable=")]
-
-
 def test_captions_are_outlined_and_big_not_a_small_black_plate():
     p = three()
     p.captions = [{"start": 1.0, "end": 2.0, "text": "no way"}]
-    style = _style(G.build_filtergraph(p, font="/f/x.ttf")[0], "NO WAY")
-    assert "box=1" not in style, "the black plate is back"
-    assert "borderw=" in style and "shadowcolor=" in style
-    assert int(re.search(r"fontsize=(\d+)", style).group(1)) >= 72
+    [d] = F.drawtexts(G.build_filtergraph(p, font="/f/x.ttf")[0])
+    assert d["text"] == "NO WAY"
+    assert "box" not in d, "the black plate is back"
+    assert "borderw" in d and "shadowcolor" in d
+    assert int(d["fontsize"]) >= 72
 
 
 def test_every_other_caption_is_the_accent_colour():
     p = three()
     p.captions = [{"start": i, "end": i + 0.9, "text": f"cue {i}"} for i in range(1, 5)]
     g = G.build_filtergraph(p, font="/f/x.ttf")[0]
-    assert re.findall(r"text='CUE \d':fontcolor=([^:]+):", g) == \
+    assert [d["fontcolor"] for d in F.drawtexts(g)] == \
         ["white", "0xF7A745", "white", "0xF7A745"]
 
 

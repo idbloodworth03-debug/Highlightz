@@ -2024,8 +2024,8 @@ as well and add other sounds":
   model's own `sfx` choices.
 - **This is the first time captions actually rendered on real prod content**,
   because `CAPTIONS_ENABLED` had been unset since 2026-08-02. Turning it on
-  is what surfaced the drawtext escaping bug two sections below — read that
-  one before touching `_esc()` in either `graph.py` or `render.py` again.
+  is what surfaced the drawtext escaping bugs — read "drawtext escaping:
+  ffmpeg parses a filtergraph TWICE" near the bottom before touching `_esc()`.
 
 **`scripts/edit_preview.py` now has real flags**, all opt-in and composable:
 `--no-motion` (skip zoompan, the OOM suspect), `--fill` (crop instead of the
@@ -3636,51 +3636,57 @@ possible with drawtext: the editor's active-WORD highlight (one drawtext is
 one colour). That needs the `ass` filter (libass) — check the box has it
 with `ffmpeg -hide_banner -filters | grep -w ass` before building on it.
 
-## A backslash does nothing inside ffmpeg's `'...'` quoting (2026-09-22)
+## drawtext escaping: ffmpeg parses a filtergraph TWICE (2026-09-22/23)
 
-Reproduced live, on prod, on the first real transcript that had an
-apostrophe in it ("I think I'm not"): ffmpeg exited 8, "Filter not found".
+**Two live render failures in two days, both on a caption with an
+apostrophe, both from escaping for only one of ffmpeg's two parse passes.**
+The entry that stood here on 2026-09-22 described the first fix as correct
+and claimed escaping `:` and `,` had never been needed. Both claims were
+wrong; this replaces it.
 
-`graph.py`'s and `render.py`'s `_esc()` both backslash-escaped a quote
-character before wrapping the text in `text='...'`. That does not work.
-ffmpeg's own quoting rule (`ffmpeg-utils(1)`, "Quoting and escaping") is
-that everything inside `'...'` is taken **completely literally, backslash
-included** — there is no escape mechanism inside a quoted string, only
-outside one. So `\'` inside the quotes is not an escaped quote; it's a
-literal backslash immediately followed by a quote that still closes the
-string right there. Everything after that point in the caption's own text
-got handed to ffmpeg as bare, unquoted filter syntax — every `drawtext=`
-call after the apostrophe, garbled into "Filter not found".
+A filtergraph is read twice, and each pass consumes one layer of quotes and
+backslashes (`ffmpeg-filters(1)`, "Notes on filtergraph escaping"):
 
-**Why nothing had ever hit this before:** every render before 2026-09-22
-either had no captions (`CAPTIONS_ENABLED` was unset from 2026-08-02 until
-that day) or no title with a quote in it. It took a real transcript to
-find it — this is exactly the kind of thing that cannot be caught by
-`build_filtergraph` tests alone unless the test happens to use text with a
-quote in it, which the pre-existing ones didn't.
+  1. the graph parser cuts out each filter's options — up to an unescaped
+     `[ ] , ;`
+  2. the filter's option parser cuts those into key=value pairs — up to an
+     unescaped `:`
 
-**The same bug, quieter, in everything else `_esc` "escaped".** A colon,
-comma, semicolon, bracket or percent sign inside `'...'` is already
-literal to ffmpeg's parser — none of it needed escaping. Backslash-
-escaping it anyway didn't crash anything, but since backslash does
-nothing in that context either, the first caption with a comma in it
-("Yeah, cuz bro, this") would have rendered with a literal backslash on
-screen ("Yeah\, cuz bro\, this") instead of a clean comma. `render.py`'s
-caption `enable=` clause had the identical mistake baked directly into an
-f-string (`between(t\\,{s},{e})`), which would have corrupted the
-timeline expression the same way the moment a per-account caption toggle
-was ever turned on.
+Both use `av_get_token`: outside quotes a backslash takes the next character
+literally; `'...'` takes everything literally up to the next quote
+(backslash included) and the quotes are dropped.
 
-**The fix, and the one rule to keep:** the only documented way to put a
-literal quote inside a quoted ffmpeg string is to close the quoting,
-escape the quote at the top level (where backslash *is* special), and
-reopen: `'A'\''B'` is the string `A'B`. `_esc()` in both files now does
-only that — `text.replace("'", "'\\''")` — and nothing else needs any
-escaping at all inside `'...'`. **If you ever feel the urge to
-backslash-escape a character before putting it inside `text='...'`,
-stop — it does nothing, or it breaks the render, and either way it is not
-what you meant.** Regression test:
-`tests/test_edit_graph.py::test_a_caption_with_an_apostrophe_does_not_swallow_the_rest_of_the_graph`.
+- **2026-09-22**, original code, `text='It\'s …'`: inside pass 1's quotes the
+  backslash is literal, the quote closed early, the rest of the graph was
+  garbage — "Filter not found". (Its `\:` and `\,` escapes WERE right: they
+  pass through pass 1's quotes and are consumed by pass 2.)
+- **2026-09-23**, the first fix, `text='I'\''M GONNA'` (close, escape,
+  reopen): fine for pass 1, but it handed pass 2 a bare `'`, which opened a
+  quote that swallowed every option after it — and a `:` in any caption hit
+  pass 2 unescaped: "No option name near …", ffmpeg's EINVAL, "Error
+  initializing complex filters: Invalid argument".
+
+**The fix** (`graph._esc`, now the only copy — `render.py` imports it): no
+quotes around the text; escape for pass 2 (`\ ' :`), then escape that for
+pass 1 (`\ ' [ ] , ;`). It reproduces the docs' worked example character for
+character. `%` and `\` in speech are drawtext's own expansion layer and are
+switched off with `expansion=none` rather than escaped.
+
+**How it is tested now, and why that matters.** Both wrong fixes shipped with
+a passing test, because each test pinned the exact string the fix produced —
+which only proves the code does what its author believed. `tests/ffparse.py`
+is a line-for-line port of both parsers (`av_get_token`, `get_key`); it reads
+the docs' example exactly as the docs say, and reproduces BOTH prod failures
+from the old code. Every drawtext the renderers build (captions, title,
+cover, in `graph.py` and `render.py`) is run through it with a list of hostile
+strings — apostrophes, colons, commas, brackets, `%`, backslashes — and must
+come out as the original text with every option intact. **If you touch
+drawtext, assert through `ffparse`, never against a literal string.**
+
+`scripts/edit_preview.py` also used to print the raw tail of ffmpeg's stderr,
+which is mostly ffmpeg echoing the whole graph back — the line naming the
+cause had scrolled off. It now prints the last 40 lines, each cut to 300
+characters.
 
 ## Prod went down from an external change, recovered by the standard revert (2026-09-22)
 

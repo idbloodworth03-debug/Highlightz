@@ -96,34 +96,41 @@ CAPTION_ADVANCE = dict(zip(_ADVANCE_CHARS, (m / 1000 for m in _ADVANCE_MILLI)))
 
 
 def _esc(text: str) -> str:
-    """Escape text for a drawtext `text='...'` value.
+    """Escape `text` for an UNQUOTED `drawtext=...:text=<here>:...`.
 
-    THE BUG THIS EXISTS TO NOT HAVE (found live, 2026-09-22, on the first
-    real transcript with an apostrophe in it — "I think I'm not" — which
-    made ffmpeg exit with "Filter not found"). ffmpeg's own quoting rule
-    (ffmpeg-utils(1), "Quoting and escaping") is that everything inside
-    '...' is taken completely literally, INCLUDING a backslash — there is
-    no escape mechanism inside a quoted string, only outside one. The one
-    documented way to put a literal quote inside a quoted string is to
-    close the quoting, escape the quote at the top level (where backslash
-    *is* special), and reopen: 'A'\\''B' is the string A'B.
+    A filtergraph is parsed TWICE, and each pass consumes one layer of
+    quotes and backslashes (ffmpeg-filters(1), "Notes on filtergraph
+    escaping"):
 
-    So a backslash placed in front of a quote INSIDE the quotes, as the
-    previous version of this function did, does not escape anything: it
-    is a literal backslash character, and the quote right after it still
-    closes the string. Everything past that point — the rest of this
-    drawtext call and every filter after it — gets handed to ffmpeg as
-    bare, unquoted syntax, which is exactly the "Filter not found" this
-    produced.
+      1. the graph parser cuts out each filter's options, stopping at an
+         unescaped [ ] , ;
+      2. the filter's option parser cuts those into key=value pairs,
+         stopping at an unescaped :
 
-    The same reasoning is why nothing else needs escaping in here. A
-    colon, comma, semicolon, bracket or percent sign inside the quotes is
-    already literal — ffmpeg's outer parser never looks at it. The old
-    code backslash-escaped those too, which (backslash doing nothing in
-    here) would have put a literal backslash into the caption on screen
-    the first time one showed up, rather than actually escaping it.
+    So the text is escaped for pass 2 first (\\ ' :), then that result is
+    escaped again for pass 1 (\\ ' [ ] , ;). This reproduces the docs' own
+    worked example character for character — pinned in
+    tests/test_edit_graph.py, which also runs every drawtext this module
+    builds through `tests/ffparse.py`, a port of both parsers.
+
+    TWO LIVE FAILURES, BOTH ON AN APOSTROPHE, BOTH FROM HANDLING ONE PASS:
+      2026-09-22  `text='It\\'s ...'` — inside pass 1's quotes a backslash
+                  is literal, so the quote closed early and the rest of the
+                  graph became garbage: "Filter not found".
+      2026-09-23  `text='I'\\''M GONNA'` (close, escape, reopen) survived
+                  pass 1, but handed pass 2 a bare `'` — which opened a
+                  quote that swallowed every option after it: colour, size,
+                  position and timing all became caption text. "Error
+                  initializing complex filters: Invalid argument".
+    The note that shipped with the first fix also claimed escaping `:` and
+    `,` had been pointless — it was not; those escapes were aimed at pass 2.
+
+    `%` and a backslash are the third layer, drawtext's own text expansion,
+    and are switched off with `expansion=none` rather than escaped: a
+    caption is speech, never a template.
     """
-    return text.replace("'", "'\\''")
+    once = "".join("\\" + c if c in "\\':" else c for c in text)
+    return "".join("\\" + c if c in "\\'[],;" else c for c in once)
 
 
 def _ems(line: str) -> float:
@@ -190,7 +197,7 @@ def caption_filters(font: str, text: str, start: float, end: float, n: int) -> s
     for i, line in enumerate(lines):
         off = (i - (len(lines) - 1) / 2) * size * 1.2
         out.append(
-            f"drawtext=fontfile={font}:text='{_esc(line)}':"
+            f"drawtext=fontfile={_esc(font)}:expansion=none:text={_esc(line)}:"
             f"fontcolor={colour}:fontsize={size}:"
             f"borderw={max(3, round(size * 0.1))}:bordercolor=black@0.95:"
             f"shadowcolor=black@0.5:shadowx=0:shadowy={max(2, round(size * 0.06))}:"
@@ -395,7 +402,7 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
         chain = []
         if plan.title:
             chain.append(
-                f"drawtext=fontfile={font}:text='{_esc(plan.title)}':"
+                f"drawtext=fontfile={_esc(font)}:expansion=none:text={_esc(plan.title)}:"
                 f"fontcolor=white:fontsize=76:box=1:boxcolor=black@0.45:boxborderw=18:"
                 f"x=(w-text_w)/2:y=h*0.12-text_h/2")
         n = 0
@@ -496,7 +503,7 @@ def build_thumbnail_command(plan: EditPlan, video: Path, dst: Path,
     chain = [f"scale={W}:{H}:force_original_aspect_ratio=increase", f"crop={W}:{H}"]
     if font and plan.thumb_text:
         chain.append(
-            f"drawtext=fontfile={font}:text='{_esc(plan.thumb_text)}':"
+            f"drawtext=fontfile={_esc(font)}:expansion=none:text={_esc(plan.thumb_text)}:"
             f"fontcolor=white:fontsize=96:box=1:boxcolor=black@0.5:boxborderw=24:"
             f"x=(w-text_w)/2:y=(h-text_h)/2")
     return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",

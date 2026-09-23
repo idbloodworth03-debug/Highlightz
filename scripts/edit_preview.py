@@ -323,8 +323,15 @@ async def main() -> int:
 
     if proc.returncode != 0:
         print(f"\nFFMPEG FAILED after {took:.1f}s (exit {proc.returncode})\n")
-        print((err or b"").decode()[-3000:])
-        print("\nRe-run with --dry-run and paste the command back.")
+        # Line by line, each cut short. ffmpeg echoes the whole filter graph
+        # (tens of KB) inside its error, and printing the raw tail showed
+        # only that echo — the line naming the actual cause had scrolled off
+        # (2026-09-23). The cause is the short `[Parsed_... @ 0x...]` line.
+        for line in (err or b"").decode(errors="replace").splitlines()[-40:]:
+            if len(line) > 300:
+                line = line[:300] + f" …[{len(line) - 300} more chars]"
+            print("  " + line)
+        print("\nPaste everything above back.")
         return 1
 
     info = probe(args.out)

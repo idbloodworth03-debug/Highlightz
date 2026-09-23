@@ -29,6 +29,9 @@ from pathlib import Path
 import structlog
 
 from config.settings import settings
+# ONE escaping function for both renderers. This module had its own copy,
+# and the two copies were wrong together twice — see graph._esc.
+from src.autopilot.graph import _esc
 
 log = structlog.get_logger(__name__)
 
@@ -41,30 +44,15 @@ class RenderError(RuntimeError):
     """Safe to show the user."""
 
 
-def _esc(text: str) -> str:
-    """Escape text for a drawtext `text='...'` value.
-
-    See graph.py's `_esc` for the full explanation: inside ffmpeg's '...'
-    quoting, a backslash does nothing at all — it is literal, same as
-    everything else in there — so the only character that needs handling
-    is the quote itself, via close/escape/reopen: 'A'\\''B' is A'B. The
-    previous version backslash-escaped `:,;[]%` too, which (doing nothing
-    inside the quotes) put a literal backslash into the rendered text
-    instead of escaping anything, and for the quote specifically closed
-    the string early and handed the rest of the filtergraph to ffmpeg as
-    bare syntax — "Filter not found", reproduced live 2026-09-22 by
-    graph.py's identical copy of this function on a real transcript.
-    """
-    return text.replace("'", "'\\''")
-
-
 def font_path() -> str:
     f = settings.autopilot_font
     return f if f and os.path.exists(f) else ""
 
 
 def _drawtext(font: str, text: str, size: int, y: str, box: bool, enable: str = "") -> str:
-    parts = [f"fontfile={font}", f"text='{_esc(text)}'", f"fontsize={size}",
+    # Unquoted and escaped for both parse passes; expansion=none so a `%` in a
+    # title is drawn, not read as a drawtext directive. See graph._esc.
+    parts = [f"fontfile={_esc(font)}", "expansion=none", f"text={_esc(text)}", f"fontsize={size}",
              "fontcolor=white", "x=(w-text_w)/2", f"y={y}"]
     if box:
         parts += ["box=1", "boxcolor=black@0.55", "boxborderw=18"]
