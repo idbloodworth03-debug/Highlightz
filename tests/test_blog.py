@@ -235,3 +235,15 @@ def test_every_h2_is_in_the_display_voice_outside_the_article_body():
         body = re.sub(r'<div class="art-body">.*?</main>', "", html, flags=re.S)
         assert body.count('<h2 class="disp">') == body.count("<h2 "), \
             "an h2 is set outside the display voice"
+
+
+def test_the_platform_tiles_fit_their_columns():
+    """Owner, 2026-09-23 ("this is messed up"): in the article's five-up row
+    the full fit badge overflowed into the next tile, and the prose link
+    underline drew a stray rule under every tile. The tile carries the
+    short badge, and tiles are exempt from the prose underline."""
+    html = H.render_article("clipping-platforms")
+    tiles = re.search(r'<div class="glance">(.*?)</div><section', html, re.S).group(1)
+    assert 'class="fk"' not in tiles, "a tile carries the full-width badge again"
+    assert tiles.count('<span class="fit-l">Highlightz fit</span>') == len(B.PLATFORMS)
+    assert ".art-body a.gl,.art-body a.gl:hover{border-bottom:0}" in html

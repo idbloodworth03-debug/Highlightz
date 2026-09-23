@@ -100,6 +100,15 @@ _CSS = BASE_CSS + """
   .gl b{font-family:var(--sans);font-weight:800;font-size:18px;letter-spacing:-.02em;line-height:1.2;color:var(--paper-ink)}
   .gl span.d{font-size:14px;line-height:1.5;color:var(--paper-ink-2)}
   .gl:hover b{text-decoration:underline;text-underline-offset:4px}
+  /* In a tile the fit is a label over a one-word badge. The full
+     "Highlightz fit Strong" badge is ~200px and a tile in the article's
+     five-up row is ~155px, so it ran into the tile beside it. */
+  .glfit{display:flex;flex-direction:column;align-items:flex-start;gap:var(--s-1)}
+  .glfit .fit-l{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--paper-ink-3)}
+  /* The article's text-link underline is for links in prose, not for a
+     whole tile that happens to be an <a>. */
+  .art-body a.gl,.art-body a.gl:hover{border-bottom:0}
 
   /* Logos: the official file in a white tile, or a lettered tile that is
      plainly not a logo. Same box either way so the rows line up. */
@@ -275,6 +284,9 @@ _CSS = BASE_CSS + """
     .gl{flex-direction:row;flex-wrap:wrap;align-items:center}
     .gl b{flex:1 1 auto}
     .gl span.d{flex-basis:100%}
+    /* Its own line in every tile, label beside badge — otherwise it sat
+       right of a short name and under a long one. */
+    .gl .glfit{flex-basis:100%;flex-direction:row;align-items:center;gap:var(--s-3)}
     /* On a phone the label sits on its own line above the bar, so a
        gridline could only be drawn in broken pieces. There are none here:
        every bar carries its figure, and the axis keeps its ticks. */
@@ -339,6 +351,12 @@ def _fit(fit: str) -> str:
             + escape(fit) + "</span>")
 
 
+def _fit_short(fit: str) -> str:
+    """The tile version: the words above, the rating alone in the badge."""
+    return ('<span class="glfit"><span class="fit-l">Highlightz fit</span>'
+            '<span class="fit ' + fit.lower() + '">' + escape(fit) + "</span></span>")
+
+
 def _answer(value: str) -> str:
     if value == B.NOT_PUBLISHED:
         return '<span class="np">Not published</span>'
@@ -381,7 +399,7 @@ def _glance(href_base: str) -> str:
     return '<div class="glance">' + "".join(
         '<a class="gl' + (" strong" if p.fit == "Strong" else "") + '" href="'
         + escape(href_base + "#" + p.slug) + '">' + _logo(p)
-        + "<b>" + escape(p.name) + "</b>" + _fit(p.fit)
+        + "<b>" + escape(p.name) + "</b>" + _fit_short(p.fit)
         + '<span class="d">' + escape(p.summary.split(". ")[0].rstrip(".")) + ".</span></a>"
         for p in B.PLATFORMS) + "</div>"
 
