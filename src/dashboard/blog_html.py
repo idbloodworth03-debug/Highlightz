@@ -59,6 +59,19 @@ _CSS = BASE_CSS + """
     text-transform:uppercase;color:rgba(255,255,255,.62)}
   .blog-hero .meta a{color:var(--white);border-bottom:1px solid rgba(255,255,255,.35)}
 
+  /* Back to the index: at the top of every article, and again where the
+     reading ends, so nobody has to scroll up or hunt for the bar (which
+     hides its links on a phone) to get back to the list. */
+  .back{display:inline-flex;align-items:center;gap:var(--s-2);padding:var(--s-2) 0;
+    font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    color:rgba(255,255,255,.72);transition:color var(--dur-fast)}
+  .back .ar{display:inline-block;font-size:16px;line-height:1;transition:transform var(--dur-fast) var(--ease)}
+  .back:hover{color:var(--white)}
+  .back:hover .ar{transform:translateX(-4px)}
+  .blog-hero .back{margin-bottom:var(--s-5)}
+  .art-body > .back{margin-top:var(--s-7);color:var(--paper-ink-2);border:0}
+  .art-body > .back:hover{color:var(--paper-ink)}
+
   .blog-sec{padding:var(--s-9) 0 0}
   .blog-sec.end{padding-bottom:var(--s-9)}
   .blog-sec > .wrap > .k{color:var(--paper-ink-3)}
@@ -559,6 +572,11 @@ _TAIL = """
 </html>"""
 
 
+def _back() -> str:
+    return ('<a class="back" href="/blog"><span class="ar" aria-hidden="true">&larr;</span>'
+            "All guides</a>")
+
+
 def _post_rows(articles) -> str:
     out = []
     for i, a in enumerate(articles, start=1):
@@ -640,7 +658,8 @@ def render_article(slug: str) -> str | None:
         + """
 <header class="blog-hero">
   <div class="wrap">
-    <div class="k"><a href="/blog">Blog</a> &middot; """ + escape(a.kicker) + """</div>
+    """ + _back() + """
+    <div class="k">""" + escape(a.kicker) + """</div>
     <h1 class="disp">""" + escape(a.title) + """</h1>
     <p class="lead">""" + escape(a.lead) + """</p>
     <div class="meta">Checked """ + escape(B.CHECKED_ON) + " &middot; " + str(len(a.sources))
@@ -651,7 +670,7 @@ def render_article(slug: str) -> str | None:
 <main class="art">
   <div class="wrap">
     <div class="art-body">
-      """ + "".join(_block(b) for b in a.blocks) + """
+      """ + "".join(_block(b) for b in a.blocks) + _back() + """
     </div>
   </div>
 </main>

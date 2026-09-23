@@ -65,6 +65,23 @@ def test_the_blog_is_a_tab_on_every_public_bar_and_footer():
     assert '<a href="/blog" class="nav-link on" aria-current="page">Blog</a>' in H.render_index()
 
 
+@pytest.mark.parametrize("slug", [a.slug for a in B.ARTICLES])
+def test_every_article_has_a_way_back_to_the_blog(slug):
+    """Owner, 2026-09-23: a reader who opened a guide had no way back to the
+    list. The bar's Blog tab hides below 1000px, so the article carries its
+    own back link — at the top, and again where the reading ends."""
+    html = H.render_article(slug)
+    back = '<a class="back" href="/blog">'
+    assert html.count(back) == 2, "the back link is missing from the top or the end"
+    top = html.index(back)
+    assert html.index('<header class="blog-hero">') < top < html.index("<h1 "), \
+        "the first back link is not above the title"
+    end = html.index(back, top + 1)
+    assert html.index('<div class="art-body">') < end < html.index("</main>"), \
+        "the second back link is not at the end of the article"
+    assert 'class="back"' not in H.render_index(), "the index links back to itself"
+
+
 def test_the_llm_brief_lists_the_blog():
     assert "https://highlightz.app/blog" in anon.get("/llms.txt").text
 
