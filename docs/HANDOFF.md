@@ -4042,3 +4042,20 @@ drawImage as black. The old code also filled black first and drew after a
   now puts its video ON the page (invisible) and skips any tile whose frame
   has not decoded (`readyState < 2`) instead of painting it black.
 - Not run with real ffmpeg here; the first editor open on prod is the check.
+
+**PICKING THE HOOK IS DONE ON THE TIMELINE (2026-09-24).** Owner: "I need it
+easier for the person to pick out the hook it is way too confusing right
+now." The side-panel form (toggle, play to the moment, "Hook starts here",
+length slider) is gone. Now:
+- Choosing **Auto Edit** resets the trim to the whole video (the template
+  ignores trim; Set start/Set end and the trim handles are hidden) and puts a
+  pink **HOOK** box on the filmstrip, pre-placed around 60% in
+  (`hookDefault`) — where a caught moment usually sits — so leaving it alone
+  is already a sensible hook.
+- Drag the box onto the moment (the preview follows its first frame); drag
+  its right edge for the length (clamped 5-10s); letting go PLAYS the hook
+  (`playHook`, stopped by `hookStop` in the draw loop).
+- The side panel is two choices — **Start with a hook** / **Just the clip**
+  — two numbered steps, a Play hook button and 5s / 8s / 10s.
+Tested in Chromium on a real 58s MP4: placed at 30.8s, dragged to 13.6s
+(played on release), stretched to 10s, 5s button, Just the clip removes it.

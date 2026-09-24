@@ -406,3 +406,23 @@ def test_the_editor_follows_the_job_live_and_after_a_reconnect():
     assert "TEMPLATES.filter(t => !t.server).map(" in ed, "Auto Edit also in the ordinary grid"
     assert "ed-tpl-feat" in ed and ".ed-tpl-feat{" in page, "Auto Edit is not the featured card"
     assert "autoEditOn={!!(me && me.is_admin)}" in page
+
+
+def test_the_hook_is_picked_on_the_timeline_not_with_a_form():
+    """Owner, 2026-09-24: "I need it easier for the person to pick out the
+    hook it is way too confusing right now." The hook is a pink box on the
+    filmstrip: drag it, drag its edge for the length, it plays on release,
+    and it lands pre-placed so leaving it alone is a real choice."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    tl = page[page.index("function EdTimeline("):page.index("function ClipEditor(")]
+    assert 'className="ed-hook" data-h="hook"' in tl and 'data-h="hooklen"' in tl
+    assert "onHookDone()" in tl, "letting go of the box does not play the hook"
+    assert "Math.max(5, Math.min(10," in tl, "the edge can stretch the hook past 5-10s"
+    a = page.index("function ClipEditor(")
+    ed = page[a:page.index("/* ── Scheduler", a)]
+    assert "hookDefault(hookLen, dur)" in ed, "the box does not land pre-placed"
+    assert "whole={tpl === 'auto'}" in ed, "trim handles still shown for Auto Edit"
+    assert "{tpl !== 'auto' && <span className=\"ed-cut\">" in ed, "Set start/Set end still shown"
+    side = page[page.index("function AutoEditSide("):page.index("function capWrap(")]
+    assert "Start with a hook" in side and "Just the clip" in side
+    assert "Hook starts here" not in side and 'type="range"' not in side, "the old form is back"

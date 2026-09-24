@@ -1122,6 +1122,30 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-hd i::after{content:'';position:absolute;top:50%;left:50%;width:2px;height:16px;transform:translate(-50%,-50%);background:rgba(0,0,0,.55);border-radius:1px}
 .ed-ph{position:absolute;top:0;bottom:0;width:16px;margin-left:-8px;z-index:3;cursor:ew-resize;display:grid;place-items:center}
 .ed-ph b{display:block;width:2px;height:100%;background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
+/* THE HOOK, on the strip (owner, 2026-09-24: "I need it easier for the
+   person to pick out the hook it is way too confusing right now"). A pink box
+   over the thumbnails: drag it onto the moment, drag its right edge for the
+   length. It lands pre-placed, so the default is already a sensible choice. */
+.ed-hook{position:absolute;top:0;bottom:0;z-index:2;cursor:grab;box-sizing:border-box;border-radius:8px;
+  border:3px solid #f943ff;background:rgba(249,67,255,.22);
+  box-shadow:0 0 0 1px rgba(0,0,0,.45),0 0 18px rgba(249,67,255,.7)}
+.ed-hook:active{cursor:grabbing}
+.ed-hook b{position:absolute;top:4px;left:4px;font-size:12px;font-weight:800;letter-spacing:.06em;line-height:1.5;
+  padding:0 8px;border-radius:999px;background:var(--grad);color:#fff;pointer-events:none;white-space:nowrap}
+.ed-hook i{position:absolute;top:0;bottom:0;right:-4px;width:12px;cursor:ew-resize;display:grid;place-items:center}
+.ed-hook i::after{content:'';width:4px;height:24px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.ed-choice{display:grid;gap:8px}
+.ed-ch{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:12px;border-radius:12px;
+  border:1px solid var(--hair);background:rgba(255,255,255,.04);color:var(--fg-2);cursor:pointer}
+.ed-ch b{font-size:14px;color:#fff}
+.ed-ch span{font-size:12px;line-height:1.4}
+.ed-ch.on{background:var(--grad-soft);border-color:rgba(249,67,255,.6);box-shadow:0 0 0 1px rgba(249,67,255,.25)}
+.ed-ch:disabled{opacity:.5;cursor:default}
+.ed-steps{display:grid;gap:8px;margin-top:12px}
+.ed-stepl{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;color:var(--fg-2)}
+.ed-stepl .n{flex:none;width:20px;height:20px;border-radius:50%;background:var(--grad);color:#fff;font-weight:800;
+  display:grid;place-items:center;font-size:12px}
+.ed-stepl b{color:#fff}
 .ed-tlinfo{display:flex;justify-content:space-between;font-size:12px;color:var(--fg-2);font-variant-numeric:tabular-nums}
 .ed-tlinfo i{font-style:normal;color:var(--fg-3);margin-right:4px}
 .ed-tlinfo .mid{font-weight:700;color:#fff}
@@ -5971,48 +5995,42 @@ const TEMPLATES = [
            transIn: 'none', transOut: 'none', textAnim: false, sfxIn: 'none', sfxOut: 'none' } },
 ];
 
-// The Auto Edit style's side panel: the one decision it leaves to a person.
-function AutoEditSide({ dur, videoRef, hookOn, setHookOn, hookStart, setHookStart, hookLen, setHookLen, locked }) {
-  const fmt = x => (Math.round(x * 10) / 10).toFixed(1) + 's';
-  const here = () => {
-    const v = videoRef.current; if (!v) return;
-    let t = v.currentTime;
-    if (dur && t + hookLen > dur) t = Math.max(0, dur - hookLen);
-    setHookStart(Math.round(t * 10) / 10);
-  };
-  const preview = () => {
-    const v = videoRef.current; if (!v || hookStart == null) return;
-    const stopAt = hookStart + hookLen;
-    const onT = () => { if (v.currentTime >= stopAt) { v.pause(); v.removeEventListener('timeupdate', onT); } };
-    v.addEventListener('timeupdate', onT);
-    v.currentTime = hookStart; v.play();
-  };
+// The Auto Edit style's side panel: the one decision it leaves to a person,
+// in plain words, with the choosing done on the timeline (the pink box).
+function AutoEditSide({ dur, hookOn, chooseHook, hookStart, hookLen, setHookLen, onPlayHook, locked }) {
+  // The same clock the timeline prints, so the two never disagree by a tenth.
+  const end = hookStart == null ? 0 : Math.min(hookStart + hookLen, dur || hookStart + hookLen);
   return (
     <div className="ed-quick">
-      <div className="ed-sec-t">Hook at the start</div>
-      <div className="ed-seg">
-        <button className={!hookOn ? 'on' : ''} disabled={locked} onClick={()=>setHookOn(false)}>No hook</button>
-        <button className={hookOn ? 'on' : ''} disabled={locked} onClick={()=>setHookOn(true)}>Open on a hook</button>
+      <div className="ed-sec-t">How should it start?</div>
+      <div className="ed-choice">
+        <button className={'ed-ch' + (hookOn ? ' on' : '')} disabled={locked} onClick={()=>chooseHook(true)}>
+          <b>Start with a hook</b>
+          <span>Shows the best few seconds first, then plays the whole clip.</span>
+        </button>
+        <button className={'ed-ch' + (!hookOn ? ' on' : '')} disabled={locked} onClick={()=>chooseHook(false)}>
+          <b>Just the clip</b>
+          <span>Plays from the beginning.</span>
+        </button>
       </div>
-      {!hookOn && <div className="ed-note">The clip plays from the start, sliding in and out.</div>}
-      {hookOn && <>
-        <div className="ed-note">Play to the hype or the controversial moment and press the button. The video opens on it, slides across, then plays the clip from the start.</div>
-        <button className="rd-btn sm ed-wide" disabled={locked || !dur} onClick={here}>
-          <Icon name="zap" size={13}/>&nbsp;Hook starts here</button>
-        <label className="ed-note" style={{display:'flex',alignItems:'center',gap:8}}>
-          Length
-          <input type="range" min="5" max="10" step="0.5" value={hookLen} disabled={locked}
-            onChange={e=>setHookLen(parseFloat(e.target.value))} style={{flex:1}}/>
-          <span style={{fontVariantNumeric:'tabular-nums'}}>{fmt(hookLen)}</span>
-        </label>
-        {hookStart == null
-          ? <div className="ed-warn">Pick where the hook starts.</div>
-          : <div className="ed-row">
-              <span className="ed-note" style={{flex:1,fontVariantNumeric:'tabular-nums'}}>
-                Hook {fmt(hookStart)} – {fmt(Math.min(hookStart + hookLen, dur || hookStart + hookLen))}</span>
-              <button className="rd-btn sm" disabled={locked} onClick={preview}><Icon name="play" size={13}/>&nbsp;Preview</button>
-            </div>}
-      </>}
+      {hookOn && <div className="ed-steps">
+        <div className="ed-stepl"><span className="n">1</span>
+          <span>Drag the <b>pink HOOK box</b> on the timeline onto the moment you want first.</span></div>
+        <div className="ed-stepl"><span className="n">2</span>
+          <span>It plays when you let go. Happy with it? Press <b>Make auto-edit</b>.</span></div>
+        <div className="ed-row" style={{marginTop:4}}>
+          <button className="rd-btn grad sm" disabled={locked || hookStart == null} onClick={onPlayHook}>
+            <Icon name="play" size={13}/>&nbsp;Play hook</button>
+          {hookStart != null && <span className="ed-note" style={{fontVariantNumeric:'tabular-nums'}}>{edTime(hookStart)} – {edTime(end)}</span>}
+        </div>
+        <div className="ed-row" style={{alignItems:'center'}}>
+          <span className="ed-note">Length</span>
+          <div className="ed-seg ed-seg-sm" style={{flex:1}}>
+            {[5, 8, 10].map(n => <button key={n} className={Math.abs(hookLen - n) < 0.05 ? 'on' : ''} disabled={locked}
+              onClick={()=>setHookLen(n)}>{n}s</button>)}
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -6454,9 +6472,11 @@ function outputSize(ratio, vw, vh) {
    strip, which on a phone is every drag. The element never re-renders during
    a drag — positions are written straight to the DOM from the pointer events
    and React catches up when the pointer lifts. */
-function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, onSeek, onDragState }) {
+function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, onSeek, onDragState,
+                      whole = false, hook = null, onHook, onHookLen, onHookDone }) {
   const ref = useRef(null);
   const drag = useRef(null);
+  const grab = useRef(0);        // where on the hook box the finger took hold
   const pct = (t) => (dur ? Math.max(0, Math.min(1, t / dur)) * 100 : 0);
   const timeAt = (clientX) => {
     const r = ref.current.getBoundingClientRect();
@@ -6466,6 +6486,7 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
     if (disabled || !dur) return;
     const kind = e.target.dataset.h || 'seek';
     drag.current = kind;
+    if (kind === 'hook' && hook) grab.current = timeAt(e.clientX) - hook.start;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {}
     onDragState(true);
     move(e);
@@ -6476,13 +6497,25 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
     const t = timeAt(e.clientX);
     if (drag.current === 'in') onIn(t);
     else if (drag.current === 'out') onOut(t);
+    else if (drag.current === 'hook' && hook) {
+      // Move the box, keeping the finger where it took hold; the preview
+      // follows the box's first frame so you see what the video will open on.
+      const s = Math.max(0, Math.min(dur - hook.len, t - grab.current));
+      onHook(s); onSeek(s);
+    }
+    else if (drag.current === 'hooklen' && hook) {
+      onHookLen(Math.max(5, Math.min(10, Math.min(dur - hook.start, t - hook.start))));
+    }
     else onSeek(t);
   };
   const up = (e) => {
     if (!drag.current) return;
+    const was = drag.current;
     drag.current = null;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (x) {}
     onDragState(false);
+    // Let go of the hook and it plays, so checking it takes no extra step.
+    if ((was === 'hook' || was === 'hooklen') && onHookDone) onHookDone();
   };
   return (
     <div className={'ed-tl' + (disabled ? ' off' : '')} ref={ref}
@@ -6492,11 +6525,17 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
           ? <img key={i} src={src} alt="" draggable="false"/>
           : <span key={i}/>)}
       </div>
-      <div className="ed-dim l" style={{width: pct(inPt) + '%'}}/>
-      <div className="ed-dim r" style={{width: (100 - pct(outPt)) + '%'}}/>
-      <div className="ed-sel" style={{left: pct(inPt) + '%', width: (pct(outPt) - pct(inPt)) + '%'}}/>
-      <div className="ed-hd l" data-h="in" style={{left: pct(inPt) + '%'}} title="Drag to set the start"><i data-h="in"/></div>
-      <div className="ed-hd r" data-h="out" style={{left: pct(outPt) + '%'}} title="Drag to set the end"><i data-h="out"/></div>
+      {!whole && <>
+        <div className="ed-dim l" style={{width: pct(inPt) + '%'}}/>
+        <div className="ed-dim r" style={{width: (100 - pct(outPt)) + '%'}}/>
+        <div className="ed-sel" style={{left: pct(inPt) + '%', width: (pct(outPt) - pct(inPt)) + '%'}}/>
+        <div className="ed-hd l" data-h="in" style={{left: pct(inPt) + '%'}} title="Drag to set the start"><i data-h="in"/></div>
+        <div className="ed-hd r" data-h="out" style={{left: pct(outPt) + '%'}} title="Drag to set the end"><i data-h="out"/></div>
+      </>}
+      {hook && <div className="ed-hook" data-h="hook" title="Drag onto the moment the video should open on"
+          style={{left: pct(hook.start) + '%', width: (pct(hook.start + hook.len) - pct(hook.start)) + '%'}}>
+        <b>HOOK</b><i data-h="hooklen" title="Drag to make the hook longer or shorter"/>
+      </div>}
       <div className="ed-ph" ref={headRef} data-h="head" style={{left: 0}}><b data-h="head"/></div>
     </div>
   );
@@ -6566,6 +6605,19 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const [aeJob, setAeJob]         = useState(null);   // {status, at, hook, result, seconds, error}
   const [aeErr, setAeErr]         = useState('');
   const aeSent = useRef(0);                           // when this tab pressed Make
+  const hookStop = useRef(null);                      // "Play hook" stops here
+  // Where the hook box lands before anyone touches it: around 60% in, which
+  // is where a caught moment usually sits (the capture keeps more lead-in
+  // than tail) — so leaving it alone is already a sensible hook.
+  const hookDefault = (len, d) => Math.max(0, Math.min((d || 0) - len, (d || 0) * 0.6 - len / 2));
+  const chooseHook = (on) => {
+    setHookOn(on);
+    if (on && hookStart == null && dur) setHookStart(Math.round(hookDefault(hookLen, dur) * 10) / 10);
+  };
+  const changeHookLen = (n) => {
+    setHookLen(n);
+    setHookStart(s0 => s0 == null ? s0 : Math.max(0, Math.min(s0, (dur || n) - n)));
+  };
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -6823,6 +6875,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         // Preview loops inside the cut. Checking a trim means watching the
         // ends, and a preview that stops dead at the out-point makes you
         // press play again for every look.
+        // "Play hook" plays just the hook, then stops.
+        if (hookStop.current != null && L.playing && t >= hookStop.current) {
+          hookStop.current = null; v.pause(); setPlay(false);
+        }
         if (L.playing && !L.busy && t >= L.outPt - 0.02) {
           v.currentTime = L.inPt;
           if (L.fireSfx) L.fireSfx(L.inPt);         // the loop restarts the sounds too
@@ -6910,7 +6966,16 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     if (L.fireSfx) L.fireSfx(v.currentTime);
     setPlay(true);
   };
-  const togglePlay = () => { if (busy) return; latest.current.playing ? pause() : play(); };
+  const togglePlay = () => { if (busy) return; hookStop.current = null; latest.current.playing ? pause() : play(); };
+  const playHook = () => {
+    if (busy || hookStart == null) return;
+    const v = videoRef.current; if (!v) return;
+    v.currentTime = hookStart;
+    hookStop.current = Math.min(hookStart + hookLen, dur || hookStart + hookLen);
+    v.play().catch(() => {});
+    if (latest.current.fireSfx) latest.current.fireSfx(hookStart);
+    setPlay(true);
+  };
 
   const setInAt = (t) => {
     const L = latest.current;
@@ -6962,6 +7027,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const applyTemplate = (t) => {
     if (busy) return;
     Object.keys(t.set).forEach(k => { if (SETTERS[k]) SETTERS[k](t.set[k]); });
+    // Auto Edit uses the whole video, so the trim goes back to all of it, and
+    // it opens on a hook unless the user says otherwise — already placed.
+    if (t.id === 'auto') {
+      setIn(0); setOut(dur || 0);
+      setHookOn(true);
+      if (hookStart == null && dur) setHookStart(Math.round(hookDefault(hookLen, dur) * 10) / 10);
+    }
     setTpl(t.id);
     setTab(t.tab);
     setHint(true);
@@ -7296,20 +7368,32 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               <button className="ed-step" onClick={()=>step(-1/30)} disabled={busy || !dur} title="Back one frame (←)">‹</button>
               <button className="ed-step" onClick={()=>step(1/30)} disabled={busy || !dur} title="Forward one frame (→)">›</button>
               <span className="ed-clock"><b ref={clockRef}>{edTime(0)}</b><span className="dim"> / {edTime(dur)}</span></span>
-              <span className="ed-cut">
+              {tpl !== 'auto' && <span className="ed-cut">
                 <button className="ed-mark" onClick={()=>{const v=videoRef.current; if(v) setInAt(v.currentTime);}} disabled={busy || !dur} title="Set start here (I)">Set start</button>
                 <button className="ed-mark" onClick={()=>{const v=videoRef.current; if(v) setOutAt(v.currentTime);}} disabled={busy || !dur} title="Set end here (O)">Set end</button>
-              </span>
+              </span>}
             </div>
 
-            <EdTimeline dur={dur} inPt={inPt} outPt={outPt} thumbs={thumbs} headRef={headRef} disabled={busy}
-              onIn={setInAt} onOut={setOutAt} onSeek={t=>seek(t)} onDragState={onDragState}/>
+            <EdTimeline dur={dur} inPt={inPt} outPt={outPt} thumbs={thumbs} headRef={headRef}
+              disabled={busy || !!(aeJob && aeJob.status === 'rendering' && tpl === 'auto')}
+              onIn={setInAt} onOut={setOutAt} onSeek={t=>seek(t)} onDragState={onDragState}
+              whole={tpl === 'auto'}
+              hook={tpl === 'auto' && hookOn && hookStart != null ? {start: hookStart, len: hookLen} : null}
+              onHook={s0=>setHookStart(Math.round(s0 * 10) / 10)}
+              onHookLen={n=>setHookLen(Math.round(n * 2) / 2)}
+              onHookDone={playHook}/>
 
-            <div className="ed-tlinfo">
-              <span><i>Start</i> {edTime(inPt)}</span>
-              <span className="mid"><i>Cut</i> {clipSecs.toFixed(1)}s</span>
-              <span><i>End</i> {edTime(outPt)}</span>
-            </div>
+            {tpl === 'auto'
+              ? <div className="ed-tlinfo">
+                  <span><i>Whole clip</i> {edTime(dur)}</span>
+                  <span className="mid">{hookOn && hookStart != null ? 'Hook ' + edTime(hookStart) + ' – ' + edTime(Math.min(hookStart + hookLen, dur)) : 'No hook'}</span>
+                  <span>{hookOn ? 'Drag the pink box' : ''}</span>
+                </div>
+              : <div className="ed-tlinfo">
+                  <span><i>Start</i> {edTime(inPt)}</span>
+                  <span className="mid"><i>Cut</i> {clipSecs.toFixed(1)}s</span>
+                  <span><i>End</i> {edTime(outPt)}</span>
+                </div>}
           </div>
 
           <div className="ed-side">
@@ -7341,8 +7425,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
             </div>
 
-            {tpl === 'auto' ? <AutoEditSide dur={dur} videoRef={videoRef} hookOn={hookOn} setHookOn={setHookOn}
-                hookStart={hookStart} setHookStart={setHookStart} hookLen={hookLen} setHookLen={setHookLen}
+            {tpl === 'auto' ? <AutoEditSide dur={dur} hookOn={hookOn} chooseHook={chooseHook}
+                hookStart={hookStart} hookLen={hookLen} setHookLen={changeHookLen} onPlayHook={playHook}
                 locked={!!(aeJob && aeJob.status === 'rendering')}/> : <>
             <div className="ed-quick">
               <div className="ed-sec-t">Title</div>
