@@ -4059,3 +4059,14 @@ length slider) is gone. Now:
   — two numbered steps, a Play hook button and 5s / 8s / 10s.
 Tested in Chromium on a real 58s MP4: placed at 30.8s, dragged to 13.6s
 (played on release), stretched to 10s, 5s button, Just the clip removes it.
+
+**WATCH, THEN PICK (2026-09-24).** Owner: "I need the user to be able to play
+the video while selecting the hook so they can see where to place it."
+Playback worked, but every touch on the strip paused it and left it paused.
+Now the Auto Edit panel has **Play video / Pause** and **Hook here** side by
+side: Hook here drops the pink box at the playhead, one second early (people
+press a beat after the moment), WITHOUT pausing. In Auto Edit a click or
+scrub on the strip resumes playback when the finger lifts
+(`resumeAfterDrag`; other styles still pause, unchanged). Dragging the box
+still plays the hook on release. Driven in Chromium: Hook here at 0:04.0 →
+hook 0:03.1-0:11.0 while playing; clicking the strip at 85% kept playing.

@@ -5997,7 +5997,8 @@ const TEMPLATES = [
 
 // The Auto Edit style's side panel: the one decision it leaves to a person,
 // in plain words, with the choosing done on the timeline (the pink box).
-function AutoEditSide({ dur, hookOn, chooseHook, hookStart, hookLen, setHookLen, onPlayHook, locked }) {
+function AutoEditSide({ dur, hookOn, chooseHook, hookStart, hookLen, setHookLen, onPlayHook, locked,
+                        playing, onTogglePlay, onHookHere }) {
   // The same clock the timeline prints, so the two never disagree by a tenth.
   const end = hookStart == null ? 0 : Math.min(hookStart + hookLen, dur || hookStart + hookLen);
   return (
@@ -6014,10 +6015,22 @@ function AutoEditSide({ dur, hookOn, chooseHook, hookStart, hookLen, setHookLen,
         </button>
       </div>
       {hookOn && <div className="ed-steps">
+        {/* WATCH, THEN PICK (owner, 2026-09-24: "I need the user to be able
+            to play the video while selecting the hook so they can see where
+            to place it"). Play runs the whole clip; "Hook here" drops the
+            box at what is on screen without stopping playback. */}
         <div className="ed-stepl"><span className="n">1</span>
-          <span>Drag the <b>pink HOOK box</b> on the timeline onto the moment you want first.</span></div>
+          <span>Press <b>Play</b> and watch the clip.</span></div>
         <div className="ed-stepl"><span className="n">2</span>
-          <span>It plays when you let go. Happy with it? Press <b>Make auto-edit</b>.</span></div>
+          <span>When the moment happens, press <b>Hook here</b>. You can also drag the pink box on the timeline.</span></div>
+        <div className="ed-row">
+          <button className="rd-btn sm" disabled={locked || !dur} onClick={onTogglePlay} style={{flex:1,justifyContent:'center'}}>
+            {playing ? <><span className="ed-pause"/>&nbsp;Pause</> : <><Icon name="play" size={13}/>&nbsp;Play video</>}</button>
+          <button className="rd-btn grad sm" disabled={locked || !dur} onClick={onHookHere} style={{flex:1,justifyContent:'center'}}>
+            <Icon name="zap" size={13}/>&nbsp;Hook here</button>
+        </div>
+        <div className="ed-stepl"><span className="n">3</span>
+          <span>Check it with <b>Play hook</b>, then press <b>Make auto-edit</b>.</span></div>
         <div className="ed-row" style={{marginTop:4}}>
           <button className="rd-btn grad sm" disabled={locked || hookStart == null} onClick={onPlayHook}>
             <Icon name="play" size={13}/>&nbsp;Play hook</button>
@@ -6614,6 +6627,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     setHookOn(on);
     if (on && hookStart == null && dur) setHookStart(Math.round(hookDefault(hookLen, dur) * 10) / 10);
   };
+  // Drop the hook at what is on screen, a second early so the build-up is in
+  // it (people press a beat after they see the moment). Playback continues.
+  const hookHere = () => {
+    const v = videoRef.current; if (!v || !dur) return;
+    setHookOn(true);
+    setHookStart(Math.round(Math.max(0, Math.min(dur - hookLen, v.currentTime - 1)) * 10) / 10);
+  };
   const changeHookLen = (n) => {
     setHookLen(n);
     setHookStart(s0 => s0 == null ? s0 : Math.max(0, Math.min(s0, (dur || n) - n)));
@@ -6684,7 +6704,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     scheduleSfx(ctx, dest, plan.filter(p => base + p.at >= ctx.currentTime - 0.02), base);
   };
 
-  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH, layout, zoom, sfx: sfxPlan, fireSfx };
+  latest.current = { opts, dur, inPt, outPt, playing, busy, outW, outH, layout, zoom, sfx: sfxPlan, fireSfx, tpl };
   // Anything that changes the picture marks the frame dirty. Cheaper than
   // diffing: the loop paints once and clears it.
   useEffect(() => { dirtyRef.current = true; },
@@ -6988,9 +7008,18 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     setOut(x); seek(x);
   };
   const step = (secs) => { const v = videoRef.current; if (v) seek(v.currentTime + secs); };
+  const resumeAfterDrag = useRef(false);
   const onDragState = (on) => {
     dragging.current = on;
-    if (on && latest.current.playing) pause();
+    if (on && latest.current.playing) {
+      // In Auto Edit, a scrub while watching goes back to playing when the
+      // finger lifts: the user is looking for the moment, not editing.
+      resumeAfterDrag.current = latest.current.tpl === 'auto';
+      pause();
+    } else if (!on && resumeAfterDrag.current) {
+      resumeAfterDrag.current = false;
+      play();
+    }
   };
 
   // Keyboard: the shortcuts every cutting tool shares. Ignored while typing
@@ -7427,6 +7456,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
             {tpl === 'auto' ? <AutoEditSide dur={dur} hookOn={hookOn} chooseHook={chooseHook}
                 hookStart={hookStart} hookLen={hookLen} setHookLen={changeHookLen} onPlayHook={playHook}
+                playing={playing} onTogglePlay={togglePlay} onHookHere={hookHere}
                 locked={!!(aeJob && aeJob.status === 'rendering')}/> : <>
             <div className="ed-quick">
               <div className="ed-sec-t">Title</div>

@@ -426,3 +426,19 @@ def test_the_hook_is_picked_on_the_timeline_not_with_a_form():
     side = page[page.index("function AutoEditSide("):page.index("function capWrap(")]
     assert "Start with a hook" in side and "Just the clip" in side
     assert "Hook starts here" not in side and 'type="range"' not in side, "the old form is back"
+
+
+def test_the_hook_can_be_picked_while_the_video_plays():
+    """Owner, 2026-09-24: "I need the user to be able to play the video while
+    selecting the hook so they can see where to place it." Play and "Hook
+    here" sit together in the panel; Hook here drops the box at the playhead
+    (a second early) without pausing; a scrub in Auto Edit resumes playing."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    side = page[page.index("function AutoEditSide("):page.index("function capWrap(")]
+    assert "onClick={onTogglePlay}" in side and "onClick={onHookHere}" in side
+    a = page.index("function ClipEditor(")
+    ed = page[a:page.index("/* ── Scheduler", a)]
+    hh = ed[ed.index("const hookHere = () => {"):ed.index("const changeHookLen")]
+    assert "v.currentTime - 1" in hh and "pause()" not in hh, "Hook here stops the video"
+    assert "resumeAfterDrag.current = latest.current.tpl === 'auto';" in ed
+    assert "fireSfx, tpl };" in ed, "the drag handler cannot see which style is on"
