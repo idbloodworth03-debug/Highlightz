@@ -3302,6 +3302,28 @@ def _upload_for_auto_edit(request: Request, upload_id: str):
     return uid, up, path
 
 
+@app.get("/uploads/{upload_id}/thumbs")
+async def get_upload_thumbs(request: Request, upload_id: str):
+    """The Clip Editor's filmstrip: sixteen frames cut on the server.
+
+    Owner, 2026-09-24: the strip was black. It was drawn in the browser from
+    a hidden, hardware-decoded <video>; see src/uploads/thumbs.py for why
+    that can come back black and why this does not. Owner-scoped like every
+    other upload route; cached beside the file and deleted with it.
+    """
+    from src.uploads import library as upload_lib
+    from src.uploads import thumbs as upload_thumbs
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    up = upload_lib.get(upload_id, uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    path = upload_lib.path_for(up)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Upload file is missing")
+    return {"thumbs": await upload_thumbs.strip(path)}
+
+
 @app.get("/uploads/{upload_id}/auto-edit")
 async def get_upload_auto_edit(request: Request, upload_id: str):
     """The Auto Edit job for this upload, or {} if none is running or done

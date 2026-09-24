@@ -4022,3 +4022,23 @@ there. Otherwise lets use the auto edit template I created."
 - To release it to Pro: drop the `_require_admin` calls in the two
   `/uploads/{id}/auto-edit` routes and pass `autoEditOn` for Pro in
   UploadScreen.
+
+**THE EDITOR'S FILMSTRIP IS CUT ON THE SERVER (2026-09-24).** Owner: "The
+bottom bar on the clip editor is just a black screen. Nothing renders I need
+this fixed." The strip was drawn in the browser from a hidden `<video>`
+(`buildThumbs`). Reproduced in Chromium with a real 58s 1280x720 MP4 (VP9 —
+this Chromium has no H.264) it rendered correctly with and without range
+requests and on a throttled link, so the black is not the network: the
+uploads are H.264, a user's Chrome decodes that in hardware, and a
+hardware-decoded frame from a video that is not in the document can reach
+drawImage as black. The old code also filled black first and drew after a
+1.5s timeout whether or not a frame had decoded.
+- `GET /uploads/{id}/thumbs` (owner-scoped) → 16 data: URLs from
+  `src/uploads/thumbs.py`: one ffmpeg run per frame, SEQUENTIAL (sixteen
+  inputs in one process would be sixteen 1080p decoders on a 2 GB box),
+  `-ss` before `-i`, cover-cropped to 128x72, cached as
+  `<file>.thumbs.json` and deleted with the upload (`_drop_sidecars`).
+- The editor asks the server first and falls back to `buildThumbs`, which
+  now puts its video ON the page (invisible) and skips any tile whose frame
+  has not decoded (`readyState < 2`) instead of painting it black.
+- Not run with real ffmpeg here; the first editor open on prod is the check.

@@ -6367,6 +6367,10 @@ const THUMB_N = 16;
 function buildThumbs(url, dur, onBatch, isGone) {
   const tv = document.createElement('video');
   tv.muted = true; tv.preload = 'auto'; tv.crossOrigin = 'anonymous'; tv.playsInline = true;
+  // ON THE PAGE, invisibly: Chrome can hand drawImage a black frame from a
+  // hardware-decoded video that is not in the document.
+  tv.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+  document.body.appendChild(tv);
   tv.src = url;
   const c = document.createElement('canvas');
   c.width = 128; c.height = 72;
@@ -6389,6 +6393,9 @@ function buildThumbs(url, dur, onBatch, isGone) {
     for (let i = 0; i < THUMB_N; i++) {
       if (isGone()) break;
       await seekTo(Math.min(dur - 0.05, (i + 0.5) / THUMB_N * dur));
+      // No decoded frame yet (a slow seek hit the timeout): leave this tile
+      // plain rather than drawing an empty video as a black thumbnail.
+      if (tv.readyState < 2) continue;
       try {
         const vw = tv.videoWidth || 16, vh = tv.videoHeight || 9;
         const s = Math.max(c.width / vw, c.height / vh);
@@ -6399,6 +6406,7 @@ function buildThumbs(url, dur, onBatch, isGone) {
       if (i % 4 === 3 || i === THUMB_N - 1) onBatch(out.slice());
     }
     tv.removeAttribute('src'); try { tv.load(); } catch (e) {}
+    tv.remove();
   };
   run();
 }
@@ -6848,13 +6856,22 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     v.currentTime = 1e101;
   };
 
-  // Filmstrip, once the length is known.
+  // Filmstrip, once the length is known. CUT ON THE SERVER first (owner,
+  // 2026-09-24: "the bottom bar on the clip editor is just a black screen"):
+  // drawing it in the browser from a hidden, hardware-decoded video can give
+  // black frames. The browser way is the fallback, for when the server cannot.
   useEffect(() => {
     if (!dur) return;
     let gone = false;
-    buildThumbs(clip.url, dur, t => { if (!gone) setThumbs(t); }, () => gone);
+    const local = () => buildThumbs(clip.url, dur, t => { if (!gone) setThumbs(t); }, () => gone);
+    fetch('/uploads/' + clip.id + '/thumbs').then(r => r.ok ? r.json() : null).then(d => {
+      if (gone) return;
+      const t = d && d.thumbs;
+      if (t && t.length === THUMB_N && t.some(Boolean)) setThumbs(t);
+      else local();
+    }).catch(() => { if (!gone) local(); });
     return () => { gone = true; };
-  }, [dur, clip.url]);
+  }, [dur, clip.url, clip.id]);
 
   const seek = (t, clampToCut) => {
     const v = videoRef.current;

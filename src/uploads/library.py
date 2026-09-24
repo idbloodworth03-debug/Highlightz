@@ -324,6 +324,13 @@ async def save_stream(user_id: str, filename: str, chunks,
     return up
 
 
+def _drop_sidecars(up: Upload) -> None:
+    """Files cut FROM an upload go with it — today the editor's filmstrip
+    (src/uploads/thumbs.py), which is frames of the user's video."""
+    p = path_for(up)
+    p.with_name(p.name + ".thumbs.json").unlink(missing_ok=True)
+
+
 def delete(upload_id: str, user_id: str) -> Upload | None:
     """Remove an upload and its file. Returns the record, or None if the
     caller does not own it (indistinguishable from 'does not exist')."""
@@ -331,6 +338,7 @@ def delete(upload_id: str, user_id: str) -> Upload | None:
     if not up:
         return None
     path_for(up).unlink(missing_ok=True)
+    _drop_sidecars(up)
     _uploads.pop(upload_id, None)
     _save()
     log.info("upload_deleted", user_id=user_id, upload_id=upload_id)
@@ -343,6 +351,7 @@ def delete_all_for_user(user_id: str) -> int:
     n = 0
     for up in for_user(user_id):
         path_for(up).unlink(missing_ok=True)
+        _drop_sidecars(up)
         _uploads.pop(up.id, None)
         n += 1
     if n:
