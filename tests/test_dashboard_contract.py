@@ -808,7 +808,7 @@ def test_the_split_layout_draws_a_camera_window_over_the_whole_frame():
 
 def test_the_template_row_is_in_the_panel_and_the_layout_is_a_manual_control_too():
     ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
-    assert 'className="ed-tpl-row"' in ed and "TEMPLATES.filter(t => !t.server || autoEditOn).map(" in ed
+    assert 'className="ed-tpl-row"' in ed and "TEMPLATES.filter(t => !t.server).map(" in ed and "autoEditOn && TEMPLATES.filter(t => t.server).map(" in ed
     assert "onClick={()=>setLayout('single')}" in ed and "setLayout('split')" in ed, \
         "the split layout can only be reached through a template"
     assert "L.layout === 'split'" in ed, "a drag in the split layout does not move the camera window"

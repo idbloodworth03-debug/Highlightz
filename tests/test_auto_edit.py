@@ -402,5 +402,7 @@ def test_the_editor_follows_the_job_live_and_after_a_reconnect():
     assert "fetch('/uploads/'+clip.id+'/auto-edit')" in ed, "no read-back on open"
     assert "window.addEventListener('hz_refetch', load);" in ed
     assert "m.event === 'upload_auto_edit' && m.upload_id === clip.id" in ed
-    assert "TEMPLATES.filter(t => !t.server || autoEditOn)" in ed, "Auto Edit shown to everyone"
+    assert "autoEditOn && TEMPLATES.filter(t => t.server).map(" in ed, "Auto Edit shown to everyone"
+    assert "TEMPLATES.filter(t => !t.server).map(" in ed, "Auto Edit also in the ordinary grid"
+    assert "ed-tpl-feat" in ed and ".ed-tpl-feat{" in page, "Auto Edit is not the featured card"
     assert "autoEditOn={!!(me && me.is_admin)}" in page

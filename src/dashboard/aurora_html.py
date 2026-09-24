@@ -1143,6 +1143,24 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tpl.on{background:var(--grad-soft);border-color:rgba(196,137,228,.6);color:#fff;box-shadow:0 0 0 1px rgba(196,137,228,.25)}
 .ed-tpl:disabled{opacity:.5;cursor:default}
 .ed-tpl-n{font-size:14px;font-weight:700;line-height:1.2;min-width:0;overflow-wrap:anywhere}
+/* AUTO EDIT, featured (owner, 2026-09-24: "can we make the auto edit stand
+   out more"). Its own full-width card above the grid, in the brand gradient
+   the Export button wears, with a sparkle, a NEW tag and one line saying
+   what it does — it is the one style that is a finished edit, not a preset. */
+.ed-tpl-feat{width:100%;margin-bottom:8px;padding:12px;gap:12px;color:#fff;
+  background:var(--grad-soft);border-color:rgba(249,67,255,.55);
+  box-shadow:0 0 0 1px rgba(249,67,255,.18),0 8px 24px -10px rgba(184,106,220,.7)}
+.ed-tpl-feat:hover{background:linear-gradient(135deg,rgba(249,67,255,.28),rgba(124,107,255,.28));color:#fff}
+.ed-tpl-feat.on{background:var(--grad);border-color:transparent;box-shadow:0 8px 24px -8px rgba(184,106,220,.9)}
+.ed-feat-ic{width:36px;height:36px;border-radius:12px;background:var(--grad);display:grid;place-items:center;
+  color:#fff;flex-shrink:0;box-shadow:0 4px 12px -4px rgba(249,67,255,.7)}
+.ed-tpl-feat.on .ed-feat-ic{background:rgba(255,255,255,.22);box-shadow:none}
+.ed-feat-tx{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.ed-feat-tx .ed-tpl-n{display:flex;align-items:center;gap:8px;font-size:16px}
+.ed-feat-new{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.5;
+  padding:0 8px;border-radius:999px;background:#fff;color:#b33ed1}
+.ed-feat-d{font-size:12px;font-weight:500;line-height:1.4;color:rgba(255,255,255,.72)}
+.ed-tpl-feat.on .ed-feat-d{color:rgba(255,255,255,.92)}
 /* Tiny 9:16 diagrams of each layout, drawn in CSS so they are the same
    colours as the rest of the panel. i = the main picture, b = the accent. */
 .ed-tpl-ic{position:relative;width:20px;height:34px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
@@ -7301,8 +7319,18 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 little too confusing, make it even simpler"). */}
             <div className="ed-tpls">
               <div className="ed-sec-t">Style</div>
+              {autoEditOn && TEMPLATES.filter(t => t.server).map(t => (
+                <button key={t.id} className={'ed-tpl ed-tpl-feat' + (tpl === t.id ? ' on' : '')} disabled={busy}
+                  onClick={() => applyTemplate(t)} title={t.desc}>
+                  <span className="ed-feat-ic" aria-hidden="true"><Icon name="sparkles" size={18}/></span>
+                  <span className="ed-feat-tx">
+                    <span className="ed-tpl-n">{t.name}<span className="ed-feat-new">New</span></span>
+                    <span className="ed-feat-d">One click: blurred frame, slide in and out with a whoosh, captions, and an optional hook.</span>
+                  </span>
+                </button>
+              ))}
               <div className="ed-tpl-row">
-                {TEMPLATES.filter(t => !t.server || autoEditOn).map(t => (
+                {TEMPLATES.filter(t => !t.server).map(t => (
                   <button key={t.id} className={'ed-tpl' + (tpl === t.id ? ' on' : '')} disabled={busy}
                     onClick={() => applyTemplate(t)} title={t.desc}>
                     <span className={'ed-tpl-ic ' + t.id} aria-hidden="true"><i/><b/></span>
