@@ -1157,6 +1157,8 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-tpl-ic.punch b{left:4px;right:4px;bottom:6px;height:4px;background:var(--acc)}
 .ed-tpl-ic.hook i{inset:0;border-radius:0;background:rgba(255,255,255,.3)}
 .ed-tpl-ic.hook b{left:3px;right:3px;top:4px;height:6px;background:#fff}
+.ed-tpl-ic.auto i{left:0;right:0;top:34%;height:32%}
+.ed-tpl-ic.auto b{left:4px;right:4px;bottom:4px;height:4px;background:var(--acc)}
 /* The adjust sections: one open at a time, each header carrying its current
    setting so the whole state reads at a glance without opening anything. */
 /* The side column scrolls as one: style cards, the Title and Captions
@@ -5937,7 +5939,65 @@ const TEMPLATES = [
            capPos: 'bottom', capHi: false, capUpper: false, capWord: true, capSize: 0.055,
            textPos: 'top', textSize: 0.09,
            transIn: 'none', transOut: 'fade', textAnim: true, sfxIn: 'pop', sfxOut: 'none' } },
+  // AUTO EDIT (owner, 2026-09-24): the server's auto-edit, not a browser
+  // preset. The whole video on the blurred frame, sliding in and out with a
+  // whoosh, captions, and optionally opening on a 5-10s hook the user picks.
+  // `server` marks it: the side panel becomes the hook choice and Export
+  // becomes "Make auto-edit". The knobs below only make the PREVIEW look like
+  // the result (blurred frame, no browser effects); the server renders it.
+  { id: 'auto', name: 'Auto Edit', server: true,
+    desc: 'Our auto-edit: the whole clip on a blurred frame, sliding in and out with a whoosh, with captions. Choose whether it opens on a hook.',
+    tab: 'frame',
+    set: { ratio: '9:16', layout: 'single', fill: 'blur', zoom: 1, offX: 0, offY: 0,
+           capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.05,
+           transIn: 'none', transOut: 'none', textAnim: false, sfxIn: 'none', sfxOut: 'none' } },
 ];
+
+// The Auto Edit style's side panel: the one decision it leaves to a person.
+function AutoEditSide({ dur, videoRef, hookOn, setHookOn, hookStart, setHookStart, hookLen, setHookLen, locked }) {
+  const fmt = x => (Math.round(x * 10) / 10).toFixed(1) + 's';
+  const here = () => {
+    const v = videoRef.current; if (!v) return;
+    let t = v.currentTime;
+    if (dur && t + hookLen > dur) t = Math.max(0, dur - hookLen);
+    setHookStart(Math.round(t * 10) / 10);
+  };
+  const preview = () => {
+    const v = videoRef.current; if (!v || hookStart == null) return;
+    const stopAt = hookStart + hookLen;
+    const onT = () => { if (v.currentTime >= stopAt) { v.pause(); v.removeEventListener('timeupdate', onT); } };
+    v.addEventListener('timeupdate', onT);
+    v.currentTime = hookStart; v.play();
+  };
+  return (
+    <div className="ed-quick">
+      <div className="ed-sec-t">Hook at the start</div>
+      <div className="ed-seg">
+        <button className={!hookOn ? 'on' : ''} disabled={locked} onClick={()=>setHookOn(false)}>No hook</button>
+        <button className={hookOn ? 'on' : ''} disabled={locked} onClick={()=>setHookOn(true)}>Open on a hook</button>
+      </div>
+      {!hookOn && <div className="ed-note">The clip plays from the start, sliding in and out.</div>}
+      {hookOn && <>
+        <div className="ed-note">Play to the hype or the controversial moment and press the button. The video opens on it, slides across, then plays the clip from the start.</div>
+        <button className="rd-btn sm ed-wide" disabled={locked || !dur} onClick={here}>
+          <Icon name="zap" size={13}/>&nbsp;Hook starts here</button>
+        <label className="ed-note" style={{display:'flex',alignItems:'center',gap:8}}>
+          Length
+          <input type="range" min="5" max="10" step="0.5" value={hookLen} disabled={locked}
+            onChange={e=>setHookLen(parseFloat(e.target.value))} style={{flex:1}}/>
+          <span style={{fontVariantNumeric:'tabular-nums'}}>{fmt(hookLen)}</span>
+        </label>
+        {hookStart == null
+          ? <div className="ed-warn">Pick where the hook starts.</div>
+          : <div className="ed-row">
+              <span className="ed-note" style={{flex:1,fontVariantNumeric:'tabular-nums'}}>
+                Hook {fmt(hookStart)} – {fmt(Math.min(hookStart + hookLen, dur || hookStart + hookLen))}</span>
+              <button className="rd-btn sm" disabled={locked} onClick={preview}><Icon name="play" size={13}/>&nbsp;Preview</button>
+            </div>}
+      </>}
+    </div>
+  );
+}
 
 function capWrap(ctx, words, maxW) {
   const lines = [];
@@ -6416,7 +6476,7 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
   );
 }
 
-function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [], schedulerOn = false }) {
+function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [], schedulerOn = false, autoEditOn = false }) {
   // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
@@ -6470,6 +6530,16 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   // phone, into the real app, with no OAuth and no platform app-review. Dropping
   // the blob after download would force a re-export to share.
   const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
+
+  // Auto Edit: the hook choice, and the server's job for this upload. The job
+  // is the SERVER'S, read on open and on every reconnect and followed live
+  // over upload_auto_edit — see the effect below.
+  const [hookOn, setHookOn]       = useState(false);
+  const [hookStart, setHookStart] = useState(null);
+  const [hookLen, setHookLen]     = useState(8);
+  const [aeJob, setAeJob]         = useState(null);   // {status, at, hook, result, seconds, error}
+  const [aeErr, setAeErr]         = useState('');
+  const aeSent = useRef(0);                           // when this tab pressed Make
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -6599,6 +6669,48 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       window.removeEventListener('hz_refetch', load);
     };
   },[clip.id]);
+
+  // The Auto Edit job, the captions way: GET on open and on reconnect, live
+  // events in between. A job this tab started that the server no longer
+  // knows about (it restarted mid-render) is reported, not left spinning.
+  useEffect(()=>{
+    if (!autoEditOn) return;
+    let gone = false;
+    const load = ()=>{
+      fetch('/uploads/'+clip.id+'/auto-edit').then(r=>r.ok?r.json():null).then(d=>{
+        if (gone || !d) return;
+        if (d.status) { setAeJob(d); return; }
+        setAeJob(prev=>{
+          if (!prev || prev.status !== 'rendering') return prev;
+          if (Date.now() - aeSent.current < 6000) return prev;
+          return {status:'failed', error:'The render stopped: the server restarted. Make it again.'};
+        });
+      }).catch(()=>{});
+    };
+    load();
+    const onWs = e=>{
+      try{
+        const m = JSON.parse(e.detail);
+        if (m.event === 'upload_auto_edit' && m.upload_id === clip.id) setAeJob(m.job);
+      }catch{}
+    };
+    window.addEventListener('hz_ws', onWs);
+    window.addEventListener('hz_refetch', load);
+    return ()=>{ gone = true; window.removeEventListener('hz_ws', onWs); window.removeEventListener('hz_refetch', load); };
+  },[clip.id, autoEditOn]);
+
+  const makeAutoEdit = async () => {
+    setAeErr('');
+    const hook = hookOn && hookStart != null
+      ? {start: hookStart, end: Math.min(hookStart + hookLen, dur || hookStart + hookLen)} : null;
+    aeSent.current = Date.now();
+    try{
+      const r = await fetch('/uploads/'+clip.id+'/auto-edit', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({hook: hook, captions: true})});
+      if (r.ok) setAeJob(await r.json());
+      else { let d = 'Could not start the auto-edit'; try{ d = (await r.json()).detail || d; }catch{} setAeErr(d); }
+    }catch{ setAeErr('Could not reach the server'); }
+  };
 
   const makeCaptions = async () => {
     setCapErr(''); setCapJob({status:'running',pct:0,startedAt:Date.now()});
@@ -7173,7 +7285,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             <div className="ed-tpls">
               <div className="ed-sec-t">Style</div>
               <div className="ed-tpl-row">
-                {TEMPLATES.map(t => (
+                {TEMPLATES.filter(t => !t.server || autoEditOn).map(t => (
                   <button key={t.id} className={'ed-tpl' + (tpl === t.id ? ' on' : '')} disabled={busy}
                     onClick={() => applyTemplate(t)} title={t.desc}>
                     <span className={'ed-tpl-ic ' + t.id} aria-hidden="true"><i/><b/></span>
@@ -7184,6 +7296,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
             </div>
 
+            {tpl === 'auto' ? <AutoEditSide dur={dur} videoRef={videoRef} hookOn={hookOn} setHookOn={setHookOn}
+                hookStart={hookStart} setHookStart={setHookStart} hookLen={hookLen} setHookLen={setHookLen}
+                locked={!!(aeJob && aeJob.status === 'rendering')}/> : <>
             <div className="ed-quick">
               <div className="ed-sec-t">Title</div>
               <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
@@ -7416,10 +7531,36 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 );
               })}
             </div>}
+            </>}
 
           </div>
         </div>
         <div className="ed-foot">
+          {tpl === 'auto' ? (()=>{
+            const rendering = !!(aeJob && aeJob.status === 'rendering');
+            const main = Math.min(dur || 0, 170);
+            const secs = main + (hookOn && hookStart != null ? Math.min(hookLen, (dur || 0) - hookStart) - 0.5 : 0);
+            const needHook = hookOn && hookStart == null;
+            return <>
+              <button className="rd-btn grad ed-export" onClick={makeAutoEdit} disabled={rendering || needHook || !dur}>
+                <Icon name="sparkles" size={14}/>&nbsp;{rendering ? 'Rendering…' : 'Make auto-edit · 9:16 · ' + secs.toFixed(1) + 's'}
+              </button>
+              {!rendering && !aeErr && (!aeJob || aeJob.status !== 'failed') &&
+                <div className="ed-note">Made on our server from the whole video — a few minutes. It lands in your library; nothing is posted.</div>}
+              {rendering && <div className="ed-note">Rendering on the server, started {new Date((aeJob.at || Date.now()/1000) * 1000).toLocaleTimeString()}. You can close this; it lands in your library on its own.</div>}
+              {aeErr && <div className="ed-warn">{aeErr}</div>}
+              {aeJob && aeJob.status === 'failed' && <div className="ed-warn">{aeJob.error || 'That render failed.'}</div>}
+              {aeJob && aeJob.status === 'ready' && aeJob.result && <div className="ed-row" style={{alignItems:'flex-start'}}>
+                <video key={aeJob.result.id} src={'/uploads/' + aeJob.result.id + '/file'} controls playsInline preload="metadata"
+                  style={{width:96,aspectRatio:'9/16',background:'#000',borderRadius:6}}/>
+                <div style={{flex:1}}>
+                  <div className="ed-note ok">Your auto-edit is ready — {aeJob.seconds}s{aeJob.hook ? ', opening on the hook' : ''}{aeJob.captions ? ', ' + aeJob.captions + ' captions' : ''}. It is in your library.</div>
+                  <a className="rd-btn sm" href={'/uploads/' + aeJob.result.id + '/file'} download
+                    style={{textDecoration:'none',display:'inline-flex',marginTop:8}}><Icon name="download" size={13}/>&nbsp;Download</a>
+                </div>
+              </div>}
+            </>;
+          })() : <>
           {busy && <div className="ed-grp">
             <div className="ed-prog"><i style={{transform:'scaleX(' + (pct/100) + ')'}}/></div>
             <div className="ed-row">
@@ -7444,6 +7585,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 lives, so the editor stays about editing. */}
             <span className="ed-note">Caption it and post from the <b>Scheduler</b> tab.</span>
           </div>}
+          </>}
         </div>
       </div>
     </div>
@@ -8562,7 +8704,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         {importOn && <TwitchImport/>}
       </div>
       {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}
-        schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))}/>}
+        schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))} autoEditOn={!!(me && me.is_admin)}/>}
     </div>
   );
 }
@@ -9448,6 +9590,11 @@ function RdApp() {
         // Forward Clip Editor events so a second open tab (or your phone)
         // reflects an upload/delete live instead of after a refresh.
         else if(['upload_added','upload_removed'].includes(msg.event)){
+          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
+        }
+        // Auto Edit runs on the SERVER; the editor that asked (or any other
+        // tab with it open) follows the job here.
+        else if(msg.event==='upload_auto_edit'){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Captioning runs on the SERVER, so its progress has to arrive over the

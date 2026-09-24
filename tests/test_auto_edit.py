@@ -317,3 +317,90 @@ def test_an_oom_kill_is_reported_as_memory_not_as_a_broken_edit(monkeypatch, tmp
     plan = P.build([{"id": "c1", "channel": "x"}], {"c1": ("/x.mp4", 30.0)})
     with pytest.raises(ap_render.RenderError, match="out of memory"):
         _run(auto_edit.render_plan(plan, tmp_path / "o.mp4"))
+
+
+# ── Auto Edit as a style in the Clip Editor (owner, 2026-09-24) ─────────────
+
+def _upload(app_env, uid="admin", name="jynxzi - bro mad.mp4"):
+    import asyncio as _a
+
+    async def chunks():
+        yield MP4
+    up = _a.run(lib.save_stream(uid, name, chunks()))
+    return up
+
+
+def test_editor_auto_edit_renders_an_upload_with_its_hook(app_env, monkeypatch):
+    up = _upload(app_env)
+    seen = {}
+
+    async def dur(path): return 58.3
+
+    async def fake_make_from(src, rec, dst, *, captions, mode="clipper"):
+        seen["hook"] = rec.get("hook"); seen["src"] = src
+        dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
+        return P.build([rec], {rec["id"]: ("/x.mp4", 58.3)})
+    monkeypatch.setattr(auto_edit, "probe_duration", dur)
+    monkeypatch.setattr(auto_edit, "make_from", fake_make_from)
+    c = app_env.login("admin")
+    r = c.post(f"/uploads/{up.id}/auto-edit", json={"hook": {"start": 12, "end": 20}})
+    assert r.status_code == 202, r.text
+    assert r.json()["status"] == "rendering"
+    assert c.get(f"/uploads/{up.id}/auto-edit").json()["status"] == "rendering"
+    app_env.drain()
+    job = c.get(f"/uploads/{up.id}/auto-edit").json()
+    assert job["status"] == "ready", job
+    assert seen["hook"] == {"start": 12.0, "end": 20.0}
+    assert job["seconds"] == pytest.approx(8 + 58.3 - 0.5, abs=0.1)
+    assert job["result"]["filename"].endswith("-auto-edit-9x16.mp4")
+    assert lib.get(job["result"]["id"], "admin"), "the result is not in the library"
+    ev = [e for e, _, _ in app_env.sent]
+    assert ev.count("upload_auto_edit") == 2 and "upload_added" in ev
+    assert not sched._items, "Make auto-edit must never schedule a post"
+
+
+def test_editor_auto_edit_without_a_hook(app_env, monkeypatch):
+    up = _upload(app_env)
+    seen = {}
+
+    async def fake_make_from(src, rec, dst, *, captions, mode="clipper"):
+        seen["hook"] = rec.get("hook")
+        dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
+        return P.build([rec], {rec["id"]: ("/x.mp4", 30.0)})
+    monkeypatch.setattr(auto_edit, "make_from", fake_make_from)
+    c = app_env.login("admin")
+    assert c.post(f"/uploads/{up.id}/auto-edit", json={"hook": None}).status_code == 202
+    app_env.drain()
+    assert seen["hook"] is None
+    assert c.get(f"/uploads/{up.id}/auto-edit").json()["status"] == "ready"
+
+
+@pytest.mark.parametrize("hook", [{"start": 10, "end": 14}, {"start": 10, "end": 21},
+                                  {"start": 55, "end": 62}, {"start": "a", "end": 5}])
+def test_editor_auto_edit_refuses_a_bad_hook(app_env, monkeypatch, hook):
+    up = _upload(app_env)
+
+    async def dur(path): return 58.3
+    monkeypatch.setattr(auto_edit, "probe_duration", dur)
+    r = app_env.login("admin").post(f"/uploads/{up.id}/auto-edit", json={"hook": hook})
+    assert r.status_code == 400 and r.json()["detail"]
+
+
+def test_editor_auto_edit_is_admin_and_owner_only(app_env):
+    theirs = _upload(app_env, uid="pro")
+    mine = _upload(app_env, uid="admin")
+    assert app_env.login("pro").post(f"/uploads/{theirs.id}/auto-edit", json={}).status_code == 403
+    assert app_env.login("admin").post(f"/uploads/{theirs.id}/auto-edit", json={}).status_code == 404
+    assert app_env.login("pro").get(f"/uploads/{mine.id}/auto-edit").status_code == 403
+
+
+def test_the_editor_follows_the_job_live_and_after_a_reconnect():
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    assert "msg.event==='upload_auto_edit'" in page, "the event would be dropped"
+    a = page.index("function ClipEditor(")
+    ed = page[a:page.index("/* ── Scheduler", a)]
+    assert "fetch('/uploads/'+clip.id+'/auto-edit')" in ed, "no read-back on open"
+    assert "window.addEventListener('hz_refetch', load);" in ed
+    assert "m.event === 'upload_auto_edit' && m.upload_id === clip.id" in ed
+    assert "TEMPLATES.filter(t => !t.server || autoEditOn)" in ed, "Auto Edit shown to everyone"
+    assert "autoEditOn={!!(me && me.is_admin)}" in page

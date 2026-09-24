@@ -779,9 +779,10 @@ def test_there_are_five_templates_and_each_one_is_a_full_starting_point():
     m = re.search(r"const TEMPLATES = \[(.*?)\n\];", SRC, re.S)
     assert m, "TEMPLATES not found"
     ids = re.findall(r"id: '(\w+)'", m.group(1))
-    assert ids == ["camgame", "full", "blur", "punch", "hook"], ids
+    # "auto" is the server's Auto Edit (owner, 2026-09-24), shown to admins.
+    assert ids == ["camgame", "full", "blur", "punch", "hook", "auto"], ids
     sets = re.findall(r"set: \{(.*?)\} \}", m.group(1), re.S)
-    assert len(sets) == 5
+    assert len(sets) == 6
     for body in sets:
         for k in ("ratio", "layout", "fill", "zoom", "offX", "offY", "capPos", "capHi", "capUpper", "capWord", "capSize"):
             assert re.search(r"\b" + k + r":", body), f"a template does not set {k}"
@@ -807,7 +808,7 @@ def test_the_split_layout_draws_a_camera_window_over_the_whole_frame():
 
 def test_the_template_row_is_in_the_panel_and_the_layout_is_a_manual_control_too():
     ed = SRC[SRC.index("function ClipEditor("):SRC.index("function UploadScreen(")]
-    assert 'className="ed-tpl-row"' in ed and "TEMPLATES.map(" in ed
+    assert 'className="ed-tpl-row"' in ed and "TEMPLATES.filter(t => !t.server || autoEditOn).map(" in ed
     assert "onClick={()=>setLayout('single')}" in ed and "setLayout('split')" in ed, \
         "the split layout can only be reached through a template"
     assert "L.layout === 'split'" in ed, "a drag in the split layout does not move the camera window"
@@ -1060,7 +1061,7 @@ def test_the_frame_accurate_export_receives_the_plan():
 def test_templates_carry_effects_and_the_setters_accept_them():
     tpl = SRC[SRC.index("const TEMPLATES = ["):SRC.index("function capWrap(")]
     for k in ("transIn", "transOut", "textAnim", "sfxIn", "sfxOut"):
-        assert tpl.count(f"{k}:") == 5, f"not every template sets {k}"
+        assert tpl.count(f"{k}:") == 6, f"not every template sets {k}"
         assert f"{k}: set" in SRC[SRC.index("const SETTERS = {"):SRC.index("const applyTemplate")], \
             f"templates set {k} but applyTemplate cannot apply it"
     for kind in re.findall(r"sfx(?:In|Out): '(\w+)'", tpl):

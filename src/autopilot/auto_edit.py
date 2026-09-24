@@ -128,13 +128,24 @@ async def render_plan(plan: P.EditPlan, dst: Path) -> Path:
 
 
 async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper") -> P.EditPlan:
-    """Plan and render one clip's edit to `dst`. Raises RenderError with a
-    message safe to show the user."""
+    """Plan and render one CAUGHT clip's edit to `dst`. Raises RenderError
+    with a message safe to show the user."""
     from src.clips import files as clip_files
     src = clip_files.path_for(clip["id"])
     if not src or not src.exists():
         raise RenderError("This clip has no video file to edit.")
-    plan, meta = await build_plan(clip, src, captions=captions, mode=mode)
+    return await make_from(src, clip, dst, captions=captions, mode=mode)
+
+
+async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
+                    mode: str = "clipper") -> P.EditPlan:
+    """Plan and render the edit of ANY video file — a caught clip or a file
+    in the library (the Clip Editor's Auto Edit style). `rec` carries what
+    the builder reads: an `id`, a `channel` for the log, and the `hook`."""
+    if not src or not Path(src).exists():
+        raise RenderError("There is no video file to edit.")
+    clip = rec
+    plan, meta = await build_plan(clip, Path(src), captions=captions, mode=mode)
     log.info("auto_edit_rendering", clip_id=clip["id"], hook=plan.hook,
              seconds=round(P.plan_duration(plan), 2), captions=len(plan.captions),
              source=meta.get("source"))

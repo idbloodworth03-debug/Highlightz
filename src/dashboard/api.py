@@ -3271,6 +3271,112 @@ async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
             await broadcast({"event": "clip_updated", "clip": _clip_out(clip)}, user_id=uid)
 
 
+# ── Auto Edit in the Clip Editor (owner, 2026-09-24) ────────────────────────
+#
+# "I want there to be a selection here when I go to edit something called
+# auto edit and I want it to be what we were working on with the auto editor
+# this whole time. All i want the user to have to do is pick whether he wants
+# the hook at the beggining or not and then select what part of the clip he
+# wants to put there. Otherwise lets use the auto edit template I created."
+#
+# The editor edits a LIBRARY upload, so this renders from the upload's file
+# and saves the result as a new upload. The job lives in memory, keyed by the
+# source upload; the editor reads it on open and on every reconnect (GET), and
+# follows it live over `upload_auto_edit`. A restart loses the job — the GET
+# then answers "none running", and the editor says so, the same way captions do.
+
+_upload_edits: dict[str, dict] = {}
+
+
+def _upload_for_auto_edit(request: Request, upload_id: str):
+    from src.uploads import library as upload_lib
+    _require_admin(request)                 # admins only while it is tested
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    up = upload_lib.get(upload_id, uid)     # scoped to the owner
+    if not up:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    path = upload_lib.path_for(up)
+    if not path.exists():
+        raise HTTPException(status_code=409, detail="The upload's file is missing.")
+    return uid, up, path
+
+
+@app.get("/uploads/{upload_id}/auto-edit")
+async def get_upload_auto_edit(request: Request, upload_id: str):
+    """The Auto Edit job for this upload, or {} if none is running or done
+    since the server started."""
+    _require_admin(request)
+    _upload_for_auto_edit(request, upload_id)
+    return _upload_edits.get(upload_id) or {}
+
+
+@app.post("/uploads/{upload_id}/auto-edit", status_code=202)
+async def start_upload_auto_edit(request: Request, upload_id: str):
+    """Render the Auto Edit of a library upload: the whole video on the
+    blurred frame, sliding in and out with a whoosh, captions, and — if
+    `hook` is sent — opening on those 5-10 seconds first. The result is a
+    new upload; nothing is posted."""
+    from src.autopilot import auto_edit
+    from src.autopilot import plan as P
+    _require_admin(request)
+    uid, up, path = _upload_for_auto_edit(request, upload_id)
+    if (_upload_edits.get(upload_id) or {}).get("status") == "rendering":
+        raise HTTPException(status_code=409, detail="This video is already rendering.")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    hook = body.get("hook")
+    if hook is not None:
+        try:
+            hs, he = float(hook["start"]), float(hook["end"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Send the hook's start and end in seconds.")
+        if hs < 0 or not (P.HOOK_MIN_S - 1e-6 <= he - hs <= P.HOOK_MAX_S + 1e-6):
+            raise HTTPException(status_code=400, detail=(
+                f"The hook has to be {P.HOOK_MIN_S:g} to {P.HOOK_MAX_S:g} seconds long."))
+        dur = await auto_edit.probe_duration(path)
+        if dur and he > dur + 0.5:
+            raise HTTPException(status_code=400, detail="The hook runs past the end of the video.")
+        hook = {"start": round(hs, 2), "end": round(he, 2)}
+    job = {"status": "rendering", "at": time.time(), "hook": hook}
+    _upload_edits[upload_id] = job
+    await broadcast({"event": "upload_auto_edit", "upload_id": upload_id, "job": job}, user_id=uid)
+    from src.autopilot import runner as ap_runner
+    ap_runner.kick(_run_upload_auto_edit(upload_id, uid, up.filename, path, hook,
+                                         bool(body.get("captions", True))))
+    return job
+
+
+async def _run_upload_auto_edit(upload_id: str, uid: str, filename: str, path: Path,
+                                hook: dict | None, captions: bool) -> None:
+    from src.autopilot import auto_edit, runner
+    from src.autopilot.render import RenderError
+    from src.autopilot.plan import plan_duration
+    from src.uploads import library as upload_lib
+    stem = re.sub(r"\.(mp4|mov|webm)$", "", filename or "clip", flags=re.I)
+    rec = {"id": upload_id, "channel": stem, "hook": hook}
+    try:
+        dst = Path(settings.local_storage_path) / "autoedit" / f"u-{upload_id}.mp4"
+        plan = await auto_edit.make_from(path, rec, dst, captions=captions)
+        name = runner._safe_name(stem + "-auto-edit") + "-9x16.mp4"
+        new_up = await runner.save_render(uid, rec, dst, name=name)
+        await broadcast({"event": "upload_added", "upload": new_up.public(),
+                         "quota": upload_lib.quota(uid)}, user_id=uid)
+        job = {"status": "ready", "at": time.time(), "hook": hook,
+               "result": new_up.public(), "seconds": round(plan_duration(plan), 1),
+               "captions": len(plan.captions)}
+    except RenderError as exc:
+        job = {"status": "failed", "at": time.time(), "hook": hook, "error": exc.args[0]}
+    except Exception as exc:                    # never leave the editor on "rendering"
+        log.exception("upload_auto_edit_crashed", upload_id=upload_id)
+        job = {"status": "failed", "at": time.time(), "hook": hook,
+               "error": f"Unexpected error: {exc}"[:200]}
+    _upload_edits[upload_id] = job
+    await broadcast({"event": "upload_auto_edit", "upload_id": upload_id, "job": job}, user_id=uid)
+
+
 @app.post("/clips/{clip_id}/fetch", status_code=202)
 async def fetch_clip_file(request: Request, clip_id: str):
     """Get this clip's video from Twitch, for a clip capture did not produce.

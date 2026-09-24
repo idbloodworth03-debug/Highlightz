@@ -78,7 +78,7 @@ def render_name(clip: dict) -> str:
     return _safe_name(f"{clip.get('channel', 'clip')}-{clip.get('clip_title') or clip.get('stream_title') or 'highlight'}") + "-9x16.mp4"
 
 
-async def save_render(uid: str, clip: dict, dst: Path):
+async def save_render(uid: str, clip: dict, dst: Path, name: str | None = None):
     """Move a finished render into the user's library, then delete the
     working copy either way. Shared by Autopilot and the admin test button,
     so both land a render in the same place with the same name."""
@@ -92,7 +92,7 @@ async def save_render(uid: str, clip: dict, dst: Path):
                     break
                 yield b
     try:
-        return await upload_lib.save_stream(uid, render_name(clip), _chunks(), source="render")
+        return await upload_lib.save_stream(uid, name or render_name(clip), _chunks(), source="render")
     finally:
         dst.unlink(missing_ok=True)
 

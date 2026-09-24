@@ -3996,3 +3996,29 @@ Remember that we need that option to add the intro hook bait thing also."
   the realtime/panel copy through the same review as any public surface.
 - Not verified with real ffmpeg in this container; the first in-app render
   on prod is the check. Watch `journalctl -u highlightz | grep auto_edit`.
+
+**AUTO EDIT IS A STYLE IN THE CLIP EDITOR (2026-09-24).** Owner: "I want
+there to be a selection here when I go to edit something called auto edit
+and I want it to be what we were working on with the auto editor this whole
+time. All i want the user to have to do is pick whether he wants the hook at
+the beggining or not and then select what part of the clip he wants to put
+there. Otherwise lets use the auto edit template I created."
+- A sixth tile, **Auto Edit** (`TEMPLATES` entry `auto`, `server: true`),
+  shown to ADMINS only (`autoEditOn` from UploadScreen; the tile list is
+  `TEMPLATES.filter(t => !t.server || autoEditOn)`). Its `set` only makes the
+  canvas PREVIEW look like the result (blurred 9:16, no browser effects).
+- Choosing it replaces Title / Captions / More options with one decision
+  (`AutoEditSide`): **No hook** or **Open on a hook** → "Hook starts here" at
+  the playhead, 5-10s slider, Preview. Trim, title and browser effects are
+  ignored: the template uses the whole video.
+- Export becomes **Make auto-edit · 9:16 · Ns**: `POST /uploads/{id}/auto-edit`
+  {hook|null, captions:true} renders the upload's file through
+  `auto_edit.make_from` (same pipeline as the clip panel and admins'
+  Autopilot) and saves `<name>-auto-edit-9x16.mp4` as a NEW upload; nothing
+  is posted. The job is in memory (`_upload_edits`); the editor reads
+  `GET /uploads/{id}/auto-edit` on open and on every reconnect (hz_refetch),
+  and follows `upload_auto_edit` live (forwarded to hz_ws in ws.onmessage).
+  A job lost to a restart shows "the server restarted. Make it again."
+- To release it to Pro: drop the `_require_admin` calls in the two
+  `/uploads/{id}/auto-edit` routes and pass `autoEditOn` for Pro in
+  UploadScreen.
