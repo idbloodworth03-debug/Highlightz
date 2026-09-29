@@ -426,6 +426,41 @@ app.add_middleware(SecurityHeadersMiddleware)
 if _HAS_PROXY_HEADERS:
     app.add_middleware(_ProxyHeadersMiddleware, trusted_hosts=["127.0.0.1", "::1"])
 
+class RequestFailureLogMiddleware:
+    """Say WHICH request an unhandled error belonged to.
+
+    Owner's journal (2026-09-29): two "Exception in ASGI application ...
+    RuntimeError: Response content shorter than Content-Length" tracebacks, 7
+    hours apart, and nothing in either names the route — uvicorn's traceback is
+    all framework frames. That error means a file was served whose size shrank
+    between being measured and being sent (a clip or upload being re-written, or
+    the admin preview file being replaced), and WHICH file is the whole question.
+
+    A plain ASGI wrapper rather than BaseHTTPMiddleware: the failure happens
+    while the body is streaming, after the response has started, where a
+    dispatch() cannot see it. Logs and re-raises; changes nothing else. Signed
+    /media links carry a bearer token in the path, so that one is never logged.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+        try:
+            await self.app(scope, receive, send)
+        except Exception as exc:
+            path = str(scope.get("path") or "")
+            if path.startswith("/media/"):
+                path = "/media/<token>"
+            log.warning("request_failed", method=scope.get("method"), path=path[:200],
+                        error=f"{type(exc).__name__}: {str(exc)[:160]}")
+            raise
+
+
+app.add_middleware(RequestFailureLogMiddleware)
+
 from typing import Callable
 
 # ── Atomic file writes ────────────────────────────────────────────────────────

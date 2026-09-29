@@ -4280,3 +4280,16 @@ renderer. Fixed: the load-time reset above, and `run_now` now works in batches
 of 25 until nothing is left (max 10 batches; failed clips are retried only in the
 first batch and no clip is taken twice in a pass). Two `Exception Group
 Traceback` lines at 06:33 and 13:08 in the journal are not explained yet.
+
+**"Response content shorter than Content-Length" (2026-09-29).** Two
+`Exception in ASGI application` tracebacks in the prod journal (06:33:41 and
+13:08:25), each ending `RuntimeError: Response content shorter than
+Content-Length` in uvicorn's `send`, with no route in either. That error means a
+file being served (FileResponse measures it first) got SHORTER before it was
+sent — a clip or upload re-written, or the admin preview file replaced. One
+request each time, no other effect. Not yet attributed to a route:
+`RequestFailureLogMiddleware` (outermost ASGI wrapper) now logs
+`request_failed method path error` and re-raises, with a signed /media path
+redacted, so the next occurrence names the file route. Look for it with
+`journalctl -u highlightz | grep request_failed`. Possibly related to the earlier
+"Kick clip stays black" report (a capture file still being written).

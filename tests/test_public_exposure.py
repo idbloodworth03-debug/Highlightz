@@ -348,3 +348,37 @@ def test_the_landing_page_does_not_count_its_own_users_at_visitors():
     src = inspect.getsource(api.render_landing)
     assert "_users._load()" not in src, "the landing page still counts accounts"
     assert "_bignums_html(get_clip_counter(), kept_now)" in src
+
+
+def test_an_unhandled_request_error_is_logged_with_its_path_and_not_swallowed():
+    """The journal showed 'Response content shorter than Content-Length' twice
+    with no route in either traceback. The wrapper names the path, keeps a
+    signed /media token out of the log, and still raises."""
+    import asyncio
+    from src.dashboard import api
+
+    events = []
+
+    class L:
+        def warning(self, name, **kw): events.append((name, kw))
+
+    async def boom_app(scope, receive, send):
+        raise RuntimeError("Response content shorter than Content-Length")
+
+    mw = api.RequestFailureLogMiddleware(boom_app)
+    orig = api.log
+    api.log = L()
+    try:
+        for path in ("/clips/abc/file", "/media/SECRET.TOKEN.VALUE"):
+            with pytest.raises(RuntimeError):
+                asyncio.run(mw({"type": "http", "method": "GET", "path": path}, None, None))
+    finally:
+        api.log = orig
+    assert events[0][1]["path"] == "/clips/abc/file"
+    assert events[1][1]["path"] == "/media/<token>" and "SECRET" not in str(events)
+    # Non-HTTP scopes (the websocket) pass straight through.
+    seen = []
+
+    async def ok(scope, receive, send): seen.append(scope["type"])
+    asyncio.run(api.RequestFailureLogMiddleware(ok)({"type": "websocket"}, None, None))
+    assert seen == ["websocket"]
