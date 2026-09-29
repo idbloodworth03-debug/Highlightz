@@ -5978,6 +5978,49 @@ async def publish_connect_callback(request: Request, platform: str, code: str = 
     return RedirectResponse("/?connected=" + platform)
 
 
+@app.get("/admin/connections")
+async def admin_connections(request: Request):
+    """Every user's connected posting accounts (YouTube, TikTok, Instagram).
+
+    Owner, 2026-09-28: "a way to see what tiktok account is connected for all
+    users inside the admin page as well as instagrams". The provider list is
+    read from the registry, so a platform shows up here the moment it can be
+    connected — nothing is hard-coded per platform.
+
+    Names, not credentials: a row carries the platform, the public account
+    name and id, when it was connected and whether it is healthy. It is built
+    from `Connection.public()`, which has no token field, so this cannot leak
+    one. The account is resolved to a name here for the same reason the
+    downloads log does it (a table of uuids is a table nobody reads).
+    """
+    _require_admin(request)
+    from src.auth import users as user_store
+    from src.publish import connections as pub_conns, providers
+    who = {}
+    for u in user_store._load():
+        who[u["id"]] = (u.get("twitch_login") or u.get("kick_slug")
+                        or u.get("username") or u["id"][:8])
+    labels = {p.id: p.label for p in providers.all_providers()}
+    rows = []
+    for c in pub_conns.all_connections():
+        pub = c.public()
+        rows.append({"user_id": c.user_id, "user": who.get(c.user_id, "(deleted account)"),
+                     "platform": c.platform, "label": labels.get(c.platform, c.platform.title()),
+                     "account_name": pub["account_name"], "account_id": pub["account_id"],
+                     "connected_at": pub["connected_at"], "last_error": pub["last_error"],
+                     "privacy_level": (pub.get("extra") or {}).get("privacy_level", "")})
+    rows.sort(key=lambda r: r["connected_at"], reverse=True)
+    counts = {p.id: {"label": p.label, "connected": 0, "broken": 0, "configured": p.configured()}
+              for p in providers.all_providers()}
+    for r in rows:
+        k = counts.setdefault(r["platform"], {"label": r["label"], "connected": 0,
+                                              "broken": 0, "configured": True})
+        k["connected"] += 1
+        if r["last_error"]:
+            k["broken"] += 1
+    return {"rows": rows, "platforms": counts}
+
+
 @app.delete("/publish/connections/{platform}", status_code=204)
 async def publish_disconnect(request: Request, platform: str):
     from src.publish import connections as pub_conns, providers
@@ -12917,6 +12960,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="growth">Growth<span class="c" id="tc-growth"></span></button>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
     <button class="tab" data-tab="downloads">Downloads<span class="c" id="tc-downloads"></span></button>
+    <button class="tab" data-tab="accounts">Accounts<span class="c" id="tc-accounts"></span></button>
     <button class="tab" data-tab="onboarding">Onboarding<span class="c" id="tc-onboarding"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
@@ -13045,6 +13089,21 @@ ADMIN_HTML = """<!DOCTYPE html>
     </p>
     <div class="toolbar"><input class="field" id="dl-filter" placeholder="Filter by account, channel or title"></div>
     <div class="tw"><div id="dl-wrap" class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <!-- ── ACCOUNTS ── -->
+  <div class="panel" id="panel-accounts">
+    <div class="block-head"><h2>Connected accounts</h2><span class="c" id="ac-c"></span></div>
+    <p class="lede">
+      The TikTok, Instagram and YouTube accounts each user has connected in the
+      Scheduler &mdash; who connected what, when, and whether it still works.
+      <b>Needs reconnect</b> means the platform refused the saved login and
+      that user has to press Connect again. No login token is ever shown here;
+      these are the public account names only.
+    </p>
+    <div class="toolbar"><input class="field" id="ac-filter" placeholder="Filter by account, platform or handle"></div>
+    <div id="ac-plat" class="sub"></div>
+    <div class="tw"><div id="ac-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
   <!-- ── ONBOARDING ── -->
@@ -13190,6 +13249,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'funnel' && !FUNNEL_LOADED) loadFunnel();
   if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();
   if(b.dataset.tab === 'downloads') loadDownloads();
+  if(b.dataset.tab === 'accounts') loadAccounts();
   if(b.dataset.tab === 'onboarding') loadOnboarding();
 });
 
@@ -13336,6 +13396,77 @@ window.addEventListener('focus', function(){
   const panel = document.getElementById('panel-downloads');
   if(DL_LOADED && panel && panel.classList.contains('on')) loadDownloads();
 });
+
+// ── connected accounts ──────────────────────────────────────────────────────
+// Every user's posting accounts. This page has no WebSocket, so like Downloads
+// it is re-read on every open and on window focus, and additionally every 20s
+// while the panel is the one on screen -- a connect or a dead token elsewhere
+// shows up here without anyone pressing anything.
+let AC_LOADED = false, AC_ROWS = [], AC_Q = '';
+
+async function loadAccounts(){
+  AC_LOADED = true;
+  let d;
+  try { d = await api('/admin/connections'); }
+  catch(e){
+    if(!AC_ROWS.length) document.getElementById('ac-wrap').textContent = 'Could not load.';
+    return;
+  }
+  AC_ROWS = (d && d.rows) || [];
+  const plats = (d && d.platforms) || {};
+  const ids = Object.keys(plats);
+  document.getElementById('ac-c').textContent = AC_ROWS.length + ' connected';
+  document.getElementById('tc-accounts').textContent = AC_ROWS.length ? String(AC_ROWS.length) : '';
+  document.getElementById('ac-plat').innerHTML = ids.map(function(id){
+    const k = plats[id];
+    return '<b>' + esc(k.label) + '</b> ' + k.connected + ' connected'
+      + (k.broken ? ' (' + k.broken + ' need reconnect)' : '')
+      + (k.configured ? '' : ' (not set up on this server)');
+  }).join(' &nbsp;&middot;&nbsp; ');
+  renderAccounts();
+}
+
+function renderAccounts(){
+  const wrap = document.getElementById('ac-wrap');
+  const q = AC_Q.trim().toLowerCase();
+  const rows = q ? AC_ROWS.filter(function(r){
+    return ((r.user||'') + ' ' + (r.label||'') + ' ' + (r.account_name||'') + ' ' + (r.account_id||'')).toLowerCase().indexOf(q) >= 0;
+  }) : AC_ROWS;
+  if(!rows.length){
+    wrap.className = '';
+    wrap.innerHTML = '<p class="sub">' + (AC_ROWS.length
+      ? 'No accounts match that.'
+      : 'Nobody has connected a posting account yet. A row appears here the moment somebody does.')
+      + '</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>User</th><th>Platform</th><th>Connected as</th>'
+    + '<th>Since</th><th>Status</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    const bad = !!r.last_error;
+    html += '<tr>'
+      + '<td><b>' + esc(r.user) + '</b></td>'
+      + '<td>' + esc(r.label) + '</td>'
+      + '<td>' + esc(r.account_name || '—')
+        + (r.privacy_level ? ' <span class="sub">posts as ' + esc(r.privacy_level.toLowerCase().replace(/_/g,' ')) + '</span>' : '') + '</td>'
+      + '<td>' + (r.connected_at ? new Date(r.connected_at*1000).toLocaleString() : '—') + '</td>'
+      + '<td>' + (bad ? '<span class="sub" title="' + esc(r.last_error) + '">Needs reconnect</span>'
+                      : 'Working') + '</td></tr>';
+  });
+  wrap.className = '';
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+document.getElementById('ac-filter').addEventListener('input', function(e){
+  AC_Q = e.target.value; renderAccounts();
+});
+
+function accountsOpen(){
+  const panel = document.getElementById('panel-accounts');
+  return AC_LOADED && panel && panel.classList.contains('on') && !document.hidden;
+}
+window.addEventListener('focus', function(){ if(accountsOpen()) loadAccounts(); });
+setInterval(function(){ if(accountsOpen()) loadAccounts(); }, 20000);
 
 // ── announcements ─────────────────────────────────────────
 let AN_LOADED = false;

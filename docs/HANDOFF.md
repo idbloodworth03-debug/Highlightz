@@ -4070,3 +4070,27 @@ scrub on the strip resumes playback when the finger lifts
 (`resumeAfterDrag`; other styles still pause, unchanged). Dragging the box
 still plays the hook on release. Driven in Chromium: Hook here at 0:04.0 →
 hook 0:03.1-0:11.0 while playing; clicking the strip at 85% kept playing.
+
+## Connected posting accounts: admin list and the user's own (2026-09-28)
+
+Owner: "a way to see what tiktok account is connected for all users inside
+the admin page as well as instagrams … I also want the user to be able to see
+all their stored accounts inside their settings."
+
+- **Admin → Accounts tab** (`GET /admin/connections`, admin only). One row per
+  user per platform: user (resolved to a name), platform, connected-as handle,
+  since, and Working / Needs reconnect. A header line counts each platform,
+  built from the provider registry, so Instagram (and anything added later)
+  appears with no change here. Built from `Connection.public()`, which has no
+  token field; `test_connected_accounts` pins that no token string reaches the
+  response. The admin page has no WebSocket, so the panel re-reads on open, on
+  window focus, and every 20s while it is the panel on screen.
+- **Settings → Connected accounts** card: the user's stored accounts with
+  Disconnect (and Reconnect when the platform refused the login), plus Connect
+  for platforms the server has set up. It reads the App's `connections` state,
+  which `publish_connections_changed` and `refetchAll` already keep current
+  (connect, disconnect, poster finding a dead token, socket reconnect). Shown
+  only where the Scheduler is (`uploadsOn`) — /publish/connections is 503 for
+  everyone but admins while UPLOADS_ENABLED is false.
+- Not built: an admin "disconnect this user" button. Admins can see accounts,
+  not act on them; add it only if a real need shows up.

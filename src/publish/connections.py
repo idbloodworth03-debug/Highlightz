@@ -109,6 +109,13 @@ def for_user(user_id: str) -> list[Connection]:
     return [c for (u, _), c in _conns.items() if u == user_id]
 
 
+def all_connections() -> list[Connection]:
+    """Every user's connection, for the admin's accounts list. Callers must
+    go through `.public()` — the tokens on these objects are in the clear."""
+    _load()
+    return list(_conns.values())
+
+
 def connected_platforms(user_id: str) -> set[str]:
     """Platforms this user can post to right now: connected and not marked
     broken. A connection with a last_error is still listed by for_user (the

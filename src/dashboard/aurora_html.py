@@ -322,6 +322,7 @@ button{font-family:inherit;cursor:pointer}
   display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:var(--dur-fast);white-space:nowrap}
 .rd-btn:hover{background:rgba(255,255,255,.1)}
+a.rd-btn{text-decoration:none}
 .kick-theme{--acc:#53fc18;--acc-2:#39b515;--grad:linear-gradient(135deg,#53fc18 0%,#39b515 100%);--grad-soft:linear-gradient(135deg,rgba(83,252,24,.14),rgba(57,181,21,.10));--glow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.4)}
 .kick-theme .rd-btn.grad{box-shadow:0 6px 18px -6px rgba(83,252,24,.5)}
 .kick-theme .rd-filter.active{box-shadow:0 4px 14px -4px rgba(83,252,24,.5)}
@@ -4279,7 +4280,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
 // descriptions folded away as reference. State is the App's: streams,
 // profiles and me.prefs all arrive over the socket and refetchAll, so a
 // change made in another tab shows up here without a reload.
-function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
+function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch', connections = [], accountsOn = false }) {
   const prefs = (me && me.prefs) || {};
   const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
   const [err, setErr] = useState('');
@@ -4315,6 +4316,23 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
     if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { perm = 'denied'; } }
     setNotifPerm(perm);
     if (perm === 'granted') putPref({notify_clips: true});
+  };
+
+  // The posting accounts this login has stored. The list is the App's
+  // `connections` state, so a connect, a disconnect or a dead token in any
+  // tab (or on the poster) arrives here over publish_connections_changed and
+  // after every reconnect -- nothing here is fetched once.
+  const stored = (connections || []).filter(c => c.connected);
+  const addable = (connections || []).filter(c => !c.connected && c.configured);
+  const [dropping, setDropping] = useState('');
+  const dropAccount = async (c) => {
+    if (dropping) return;
+    setDropping(c.id); setErr('');
+    try {
+      const r = await fetch('/publish/connections/' + c.id, {method: 'DELETE'});
+      if (!r.ok) setErr('Could not disconnect ' + c.label);
+    } catch { setErr('Could not reach the server'); }
+    finally { setDropping(''); }
   };
 
   const SENS_LABEL = {'-3': 'Far fewer clips', '-2': 'Fewer clips', '-1': 'A little fewer', '0': 'As learned',
@@ -4415,6 +4433,40 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
                : 'Only while this tab is open somewhere; nothing is sent by email.'}
             on={!!prefs.notify_clips && notifPerm === 'granted'} onClick={toggleNotify}/>
         </div>
+
+        {/* ── Stored posting accounts: what Highlightz can post to for you. */}
+        {accountsOn &&
+          <div className="rd-card glass">
+            <h3><span className="si"><Icon name="link" size={15}/></span>Connected accounts</h3>
+            <div className="desc">The accounts Highlightz can post to for you. Each is stored as an encrypted sign-in token that is used only to post the clips you choose. Disconnecting deletes it.</div>
+            {stored.length === 0 &&
+              <div style={{fontSize: 14, color: 'var(--fg-3)', padding: '12px 0'}}>No posting accounts connected yet.</div>}
+            {stored.map(c => (
+              <div key={c.id} className="rd-field" style={{alignItems: 'center'}}>
+                <div style={{flex: 1, minWidth: 0}}>
+                  <div className="fl">{c.label} &middot; {c.account_name || 'connected'}</div>
+                  <div style={{fontSize: 12, color: c.last_error ? 'var(--danger)' : 'var(--fg-3)', marginTop: 4}}>
+                    {c.last_error
+                      ? 'Needs reconnecting: ' + c.last_error
+                      : 'Connected' + (c.connected_at ? ' ' + new Date(c.connected_at * 1000).toLocaleDateString([], {month: 'short', day: 'numeric', year: 'numeric'}) : '')}
+                  </div>
+                </div>
+                {c.last_error &&
+                  <a className="rd-btn sm grad" href={'/publish/connect/' + c.id}>Reconnect</a>}
+                <button className="rd-btn sm" disabled={dropping === c.id} onClick={() => dropAccount(c)}
+                  aria-label={'Disconnect ' + c.label}>{dropping === c.id ? 'Removing…' : 'Disconnect'}</button>
+              </div>
+            ))}
+            {addable.map(c => (
+              <div key={c.id} className="rd-field" style={{alignItems: 'center'}}>
+                <div style={{flex: 1, minWidth: 0}}>
+                  <div className="fl">{c.label}</div>
+                  <div style={{fontSize: 12, color: 'var(--fg-3)', marginTop: 4}}>Not connected</div>
+                </div>
+                <a className="rd-btn sm" href={'/publish/connect/' + c.id}>Connect</a>
+              </div>
+            ))}
+          </div>}
 
         {/* ── The preset descriptions, as reference, folded away. */}
         <details className="rd-card glass rd-details">
@@ -10112,7 +10164,7 @@ function RdApp() {
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
   else if(view==='account') screen=<AccountScreen me={me}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
-  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>;
+  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform,connections}} accountsOn={uploadsOn}/>;
 
   // FIRST RUN. Rendered INSTEAD of the shell, not inside it: a nav rail, a
   // platform switch and a live pill are answers to questions somebody with no
