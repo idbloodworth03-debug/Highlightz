@@ -361,7 +361,7 @@ def test_autopilot_has_its_own_screen_and_the_clip_card_shows_its_state():
     card = h[h.index("function AutopilotScreen("):h.index("function ScheduleScreen(")]
     assert "tz_offset_min: -new Date().getTimezoneOffset()" in card, "daily_at would be in server time"
     assert "role=\"switch\"" in card and "fetch('/autopilot/run', {method:'POST'})" in card
-    for k in ("['now','Right away']", "['spaced','Spread out']", "['daily','Once a day']"):
+    for k in ("['now','Right away',", "['spaced','Spread out',", "['daily','Once a day',"):
         assert k in card
     # Auto Edit has its own settings section, with the suggested template first.
     assert "Auto Edit settings" in card and "save({edit_template:k})" in card

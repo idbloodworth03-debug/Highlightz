@@ -711,6 +711,58 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ap-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3)}
 .ap-row .ed-in{width:auto;flex:0 1 160px}
 .ap-toggles{flex-direction:row;flex-wrap:wrap;align-items:center;grid-column:1/-1}
+.apx{max-width:1080px;margin:0 auto;padding:8px 0 48px;display:flex;flex-direction:column;gap:24px}
+.apx .hint{font-size:12px;color:var(--fg-3);line-height:1.5}
+.apx-tabs{display:inline-flex;gap:4px;padding:4px;border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--hair);align-self:flex-start}
+.apx-tabs button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:99px;font-size:14px;font-weight:700;color:var(--fg-3)}
+.apx-tabs button:hover{color:var(--fg)}
+.apx-tabs button.on{background:var(--grad-soft);color:#fff;box-shadow:inset 0 0 0 1px rgba(196,137,228,.4)}
+.apx-hero{padding:24px;border-radius:24px;border:1px solid var(--hair);display:flex;flex-direction:column;gap:24px;
+  background:linear-gradient(135deg,rgba(184,106,220,.12),rgba(255,255,255,.03))}
+.apx-hero.on{border-color:rgba(184,106,220,.5)}
+.apx-hero-top{display:flex;align-items:center;gap:16px}
+.apx-ico{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:var(--grad);color:#14021c;flex-shrink:0}
+.apx-hero-tx{flex:1;min-width:0}
+.apx-hero-tx h2{margin:0;font-size:24px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:12px}
+.apx-hero-tx p{margin:4px 0 0;font-size:14px;color:var(--fg-2);line-height:1.5}
+.apx-pill{font-size:12px;font-weight:700;letter-spacing:.04em;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.08);color:var(--fg-3)}
+.apx-pill.on{background:rgba(74,222,128,.14);color:var(--live)}
+.apx-pill.work{background:var(--grad-soft);color:#fff}
+.apx-flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:12px}
+.apx-step{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;background:rgba(0,0,0,.22);border:1px solid var(--hair);text-align:center}
+.apx-step b{font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.apx-step span{font-size:12px;font-weight:600;color:var(--fg-3)}
+.apx-step.work b{color:var(--acc)}
+.apx-step.done b{color:var(--live)}
+.apx-arrow{color:var(--fg-3);display:grid;place-items:center}
+.apx-arrow svg{transform:rotate(-90deg)}
+.apx-fail{font-size:14px;color:var(--danger);background:var(--danger-soft);border-radius:12px;padding:12px 16px}
+.apx-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.apx-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
+.apx-card{padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.apx-card h3{margin:0 0 16px;font-size:16px;font-weight:800;letter-spacing:-.01em;display:block}
+.apx-card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.apx-card-h h3{margin-bottom:16px}
+.apx-sec{display:flex;gap:16px;padding:24px 0;border-top:1px solid var(--hair)}
+.apx-sec:first-of-type{border-top:0;padding-top:0}
+.apx-sec:last-child{padding-bottom:0}
+.apx-n{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:14px;font-weight:800;
+  background:var(--grad-soft);border:1px solid rgba(196,137,228,.4)}
+.apx-sb{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.apx-sb h4{margin:0;font-size:14px;font-weight:700;line-height:32px}
+.apx-opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.apx-opt{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-radius:12px;
+  border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.apx-opt:hover{border-color:var(--hair-2)}
+.apx-opt.on{border-color:rgba(184,106,220,.55);background:var(--grad-soft)}
+.apx-opt b{font-size:14px}
+.apx-opt span{font-size:12px;color:var(--fg-3);line-height:1.4}
+.apx-tags{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.apx-prev-l{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.apx-prev{font-size:14px;line-height:1.5;padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.25);border:1px dashed var(--hair-2);color:var(--fg-2);word-break:break-word}
+.apx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:32px 16px;color:var(--fg-3);font-size:14px;line-height:1.5}
+.apx-empty b{color:var(--fg);font-size:16px}
+@media(max-width:900px){.apx-cols{grid-template-columns:minmax(0,1fr)}.apx-hero-tx h2{font-size:20px}.apx-flow{gap:8px}.apx-step{padding:12px 8px}}
 .apt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:16px}
 .apt-stats div{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--hair)}
 .apt-stats b{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
@@ -8460,6 +8512,9 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   const [tab, setTab]   = useState('autopilot');     // 'autopilot' | 'edit'
   const [busy, setBusy] = useState(false);
   const [ran, setRan]   = useState('');
+  const [cap, setCap]   = useState(cfg ? cfg.caption_text : '');
+  // Somebody else's tab saved a new caption: follow it.
+  useEffect(() => { if (cfg) setCap(cfg.caption_text); }, [cfg ? cfg.caption_text : '']);
   const isAdmin = !!(me && me.is_admin);
 
   // Held back with the Scheduler it feeds: /autopilot answers 503 while
@@ -8510,7 +8565,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   };
   const runNow = async () => {
     setRan('');
-    try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the list below.' : 'Could not start.'); }
+    try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the activity list.' : 'Could not start.'); }
     catch { setRan('Could not reach the server.'); }
   };
 
@@ -8524,119 +8579,156 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   const touched   = accepted.filter(c => st(c)).sort((a, b) => ((b.autopilot||{}).at || 0) - ((a.autopilot||{}).at || 0)).slice(0, 8);
   const total = editing.length + scheduled.length + failed.length + waiting.length;
   const pct = total ? Math.round(100 * (scheduled.length + failed.length) / total) : 0;
+  const working = editing.length > 0;
+  const n = waiting.length;
+
+  const heroLine = working ? 'Editing your accepted clips now. Each finished one lands in the Scheduler on its own.'
+    : on ? (n ? 'Picking up your accepted clips…' : 'Every clip you accept is edited and added to the Scheduler automatically.')
+    : n ? 'Turn it on and Highlightz will edit your ' + n + ' accepted clip' + (n === 1 ? '' : 's') + ' and add ' + (n === 1 ? 'it' : 'them') + ' to the Scheduler.'
+    : 'Turn it on and every clip you accept is edited and added to the Scheduler automatically.';
+
+  // The caption as it will read, from the newest accepted clip (or an example).
+  // Braces are matched with [{] / [}] classes: this page is a Python string, so
+  // the script keeps to no backslashes at all.
+  const sample = accepted[0] || {clip_title: 'Insane 1v4 ace', channel: 'yourchannel', game: ''};
+  const preview = String(cap || '')
+    .replace(/[{]title[}]/g, sample.clip_title || sample.stream_title || '')
+    .replace(/[{]channel[}]/g, sample.channel || '')
+    .replace(/[{]game[}]/g, String(sample.game || '').replace(/ /g, ''))
+    .replace(/ +/g, ' ').trim();
+  const addTag = (tag) => { const v = (cap ? cap.replace(/ +$/, '') + ' ' : '') + tag; setCap(v); save({caption_text: v}); };
 
   const TPL = [['suggested','Suggested'],['fill','Fill the screen'],['clean','Clean']];
   const TPL_DESC = {suggested:'The whole clip over a blurred backdrop, sliding in and out with a whoosh.',
                     fill:'The clip cropped to fill the vertical frame, sliding in and out with a whoosh.',
                     clean:'The whole clip over a blurred backdrop. No slides, no sound effect.'};
+  const WHEN = [['now','Right away','As soon as each clip is edited'],
+                ['spaced','Spread out','One every few hours'],
+                ['daily','Once a day','At the time you pick']];
 
   return (
     <div className="rd-scroll">
-      <div className="ed-seg" style={{marginBottom:16,maxWidth:420}} role="tablist">
-        <button className={tab==='autopilot'?'on':''} role="tab" aria-selected={tab==='autopilot'} onClick={()=>setTab('autopilot')}>Autopilot</button>
-        <button className={tab==='edit'?'on':''} role="tab" aria-selected={tab==='edit'} onClick={()=>setTab('edit')}>Auto Edit settings</button>
-      </div>
-
-      {tab === 'autopilot' && <>
-        <div className={'rd-card glass ap' + (on ? ' on' : '')} style={{marginTop:0}}>
-          <div className="ap-head">
-            <div className="ap-title">
-              <span className="si"><Icon name="zap" size={15}/></span>
-              <div>
-                <h3>Autopilot is {on ? 'on' : 'off'}</h3>
-                <div className="desc" style={{margin:0}}>
-                  {on ? 'Every clip you accept is edited and added to the Scheduler automatically.'
-                      : 'Turn it on and Highlightz goes through the clips you have already accepted, edits each one and adds it to the Scheduler.'}
-                </div>
-              </div>
-            </div>
-            <button className={'ap-switch' + (on ? ' on' : '')} role="switch" aria-checked={on} disabled={busy}
-              onClick={()=>save({enabled: !on})} aria-label="Autopilot on or off"><i/></button>
-          </div>
-          <div className="apt-stats">
-            <div><b>{waiting.length}</b><span>accepted, waiting</span></div>
-            <div><b>{editing.length}</b><span>editing now</span></div>
-            <div><b>{scheduled.length}</b><span>in the Scheduler</span></div>
-            <div className={failed.length ? 'bad' : ''}><b>{failed.length}</b><span>need attention</span></div>
-          </div>
-          {on && total > 0 && <div className="apt-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct}><i style={{transform: 'scaleX(' + (pct / 100) + ')'}}/></div>}
-          {!on && waiting.length > 0 && <div className="sc-sub" style={{marginTop:12}}>
-            {waiting.length} accepted clip{waiting.length === 1 ? '' : 's'} with a video will be picked up the moment you switch it on.</div>}
-          <div className="ap-toggles" style={{marginTop:12,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-            <button className="rd-btn sm" onClick={runNow} disabled={busy}
-              title="Every clip accepted in the last 30 days that has a video and is not in the Scheduler yet">
-              Go through my accepted clips now
-            </button>
-            {ran && <span className="sc-sub">{ran}</span>}
-          </div>
+      <div className="apx">
+        <div className="apx-tabs" role="tablist">
+          <button className={tab==='autopilot'?'on':''} role="tab" aria-selected={tab==='autopilot'} onClick={()=>setTab('autopilot')}>
+            <Icon name="zap" size={14}/>Autopilot</button>
+          <button className={tab==='edit'?'on':''} role="tab" aria-selected={tab==='edit'} onClick={()=>setTab('edit')}>
+            <Icon name="sparkles" size={14}/>Auto Edit settings</button>
         </div>
 
-        <div className="rd-card glass ap" style={{marginTop:16}}>
-          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="clock" size={15}/></span>
-            <div><h3>Where and when</h3><div className="desc" style={{margin:0}}>Applies to every clip Autopilot adds.</div></div></div></div>
-          <div className="ap-body">
-            <div className="ap-grp">
-              <label>Post to</label>
-              {connected.length === 0
-                ? <div className="sc-sub">Connect an account on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
-                : <div className="sc-pchips">
-                    {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
-                      <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
-                        onClick={()=>save({platforms: picked ? cfg.platforms.filter(p=>p!==c.id) : [...cfg.platforms, c.id]})}>
-                        {picked ? '✓ ' : ''}{c.label}
-                      </button>); })}
+        {tab === 'autopilot' && <>
+          <div className={'apx-hero' + (on ? ' on' : '')}>
+            <div className="apx-hero-top">
+              <span className="apx-ico"><Icon name="zap" size={24}/></span>
+              <div className="apx-hero-tx">
+                <h2>Autopilot <span className={'apx-pill ' + (working ? 'work' : on ? 'on' : 'off')}>{working ? 'Working' : on ? 'On' : 'Off'}</span></h2>
+                <p>{heroLine}</p>
+              </div>
+              <button className={'ap-switch' + (on ? ' on' : '')} role="switch" aria-checked={on} disabled={busy}
+                onClick={()=>save({enabled: !on})} aria-label="Autopilot on or off"><i/></button>
+            </div>
+            <div className="apx-flow">
+              <div className="apx-step"><b>{waiting.length}</b><span>Accepted, ready</span></div>
+              <span className="apx-arrow"><Icon name="chevron" size={16}/></span>
+              <div className="apx-step work"><b>{editing.length}</b><span>Being edited</span></div>
+              <span className="apx-arrow"><Icon name="chevron" size={16}/></span>
+              <div className="apx-step done"><b>{scheduled.length}</b><span>In the Scheduler</span></div>
+            </div>
+            {on && total > 0 && <div className="apt-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct}><i style={{transform: 'scaleX(' + (pct / 100) + ')'}}/></div>}
+            {failed.length > 0 && <div className="apx-fail">{failed.length} clip{failed.length === 1 ? '' : 's'} could not be edited. The reason is in the activity list.</div>}
+            <div className="apx-actions">
+              <button className="rd-btn sm" onClick={runNow} disabled={busy}
+                title="Every clip accepted in the last 30 days that has a video and is not in the Scheduler yet">
+                Go through my accepted clips now
+              </button>
+              {ran && <span className="sc-sub">{ran}</span>}
+            </div>
+          </div>
+
+          <div className="apx-cols">
+            <div className="apx-card">
+              <h3>Setup</h3>
+              <section className="apx-sec">
+                <span className="apx-n">1</span>
+                <div className="apx-sb">
+                  <h4>Where should it post?</h4>
+                  {connected.length === 0
+                    ? <div className="hint">No account connected yet. Connect TikTok, Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
+                    : <div className="sc-pchips">
+                        {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
+                          <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
+                            onClick={()=>save({platforms: picked ? cfg.platforms.filter(p=>p!==c.id) : [...cfg.platforms, c.id]})}>
+                            {picked ? '✓ ' : ''}{c.label}
+                          </button>); })}
+                      </div>}
+                </div>
+              </section>
+              <section className="apx-sec">
+                <span className="apx-n">2</span>
+                <div className="apx-sb">
+                  <h4>When should it post?</h4>
+                  <div className="apx-opts" role="radiogroup" aria-label="When to post">
+                    {WHEN.map(([k,l,d])=>(
+                      <button key={k} role="radio" aria-checked={cfg.timing===k} className={'apx-opt' + (cfg.timing===k ? ' on' : '')}
+                        disabled={busy} onClick={()=>save({timing:k})}><b>{l}</b><span>{d}</span></button>
+                    ))}
+                  </div>
+                  {cfg.timing==='spaced' && <div className="ap-row">
+                    <span>Post one every</span>
+                    <select className="ed-in" value={cfg.spacing_h} disabled={busy} onChange={e=>save({spacing_h:+e.target.value})}>
+                      {[1,2,3,4,6,8,12,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}
+                    </select>
+                  </div>}
+                  {cfg.timing==='daily' && <div className="ap-row">
+                    <span>Post at</span>
+                    <input className="ed-in" type="time" value={cfg.daily_at} disabled={busy} onChange={e=>save({daily_at:e.target.value})}/>
+                    <span className="sc-sub">your local time</span>
+                  </div>}
+                </div>
+              </section>
+              <section className="apx-sec">
+                <span className="apx-n">3</span>
+                <div className="apx-sb">
+                  <h4>What should the caption say?</h4>
+                  <input className="ed-in" value={cap} disabled={busy} maxLength={2200} onChange={e=>setCap(e.target.value)}
+                    onBlur={()=>{ if (cap !== cfg.caption_text) save({caption_text: cap}); }}/>
+                  <div className="apx-tags">
+                    <span className="hint">Add:</span>
+                    {['{title}','{channel}','{game}'].map(t=>(
+                      <button key={t} className="sc-pchip" disabled={busy} onClick={()=>addTag(t)}>{t}</button>))}
+                  </div>
+                  <div className="apx-prev-l">How it will read</div>
+                  <div className="apx-prev">{preview || 'Your caption is empty.'}</div>
+                </div>
+              </section>
+            </div>
+
+            <div className="apx-card">
+              <div className="apx-card-h"><h3>Activity</h3>
+                {onOpenScheduler && <button className="rd-btn sm" onClick={onOpenScheduler}>Open the Scheduler</button>}</div>
+              {touched.length === 0
+                ? <div className="apx-empty">
+                    <span><Icon name="film" size={24}/></span>
+                    <b>Nothing yet</b>
+                    <span>Accept a clip in Clip Review, or switch Autopilot on to go through the ones you already have.</span>
+                  </div>
+                : <div className="apt-list">
+                    {touched.map(c=>(
+                      <div key={c.id} className="apt-row">
+                        <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
+                        <span className={'apt-pill ' + st(c)}>{APT_LABEL[st(c)] || st(c)}</span>
+                        {st(c) === 'failed' && c.autopilot.error && <em>{c.autopilot.error}</em>}
+                      </div>))}
                   </div>}
             </div>
-            <div className="ap-grp">
-              <label>When</label>
-              <div className="ed-seg">
-                {[['now','Right away'],['spaced','Spread out'],['daily','Once a day']].map(([k,l])=>(
-                  <button key={k} className={cfg.timing===k?'on':''} disabled={busy} onClick={()=>save({timing:k})}>{l}</button>
-                ))}
-              </div>
-              {cfg.timing==='spaced' && <div className="ap-row">
-                <span>Every</span>
-                <select className="ed-in" value={cfg.spacing_h} disabled={busy} onChange={e=>save({spacing_h:+e.target.value})}>
-                  {[1,2,3,4,6,8,12,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}
-                </select>
-              </div>}
-              {cfg.timing==='daily' && <div className="ap-row">
-                <span>At</span>
-                <input className="ed-in" type="time" value={cfg.daily_at} disabled={busy} onChange={e=>save({daily_at:e.target.value})}/>
-                <span className="sc-sub">your local time</span>
-              </div>}
-            </div>
-            <div className="ap-grp" style={{gridColumn:'1/-1'}}>
-              <label>Caption</label>
-              <input className="ed-in" defaultValue={cfg.caption_text} disabled={busy} maxLength={2200}
-                onBlur={e=>{ if (e.target.value !== cfg.caption_text) save({caption_text:e.target.value}); }}/>
-              <div className="sc-sub">{'{title}'}, {'{channel}'} and {'{game}'} are filled in from the clip.</div>
-            </div>
           </div>
-        </div>
+        </>}
 
-        <div className="rd-card glass ap" style={{marginTop:16}}>
-          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="film" size={15}/></span>
-            <div><h3>What Autopilot is doing</h3><div className="desc" style={{margin:0}}>The most recent clips it has touched.</div></div></div>
-            {onOpenScheduler && <button className="rd-btn sm" onClick={onOpenScheduler}>Open the Scheduler</button>}</div>
-          {touched.length === 0
-            ? <div className="sc-sub" style={{marginTop:12}}>Nothing yet. Accept a clip in Clip Review, or switch Autopilot on to go through the ones you already have.</div>
-            : <div className="apt-list">
-                {touched.map(c=>(
-                  <div key={c.id} className="apt-row">
-                    <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
-                    <span className={'apt-pill ' + st(c)}>{APT_LABEL[st(c)] || st(c)}</span>
-                    {st(c) === 'failed' && c.autopilot.error && <em>{c.autopilot.error}</em>}
-                  </div>))}
-              </div>}
-        </div>
-      </>}
-
-      {tab === 'edit' && <>
-        <div className="rd-card glass ap" style={{marginTop:0}}>
-          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="sparkles" size={15}/></span>
-            <div><h3>Auto Edit</h3>
-              <div className="desc" style={{margin:0}}>How every automatic edit looks. Nothing to pick per clip: it is fully automatic once a clip is accepted.</div></div></div></div>
+        {tab === 'edit' && <div className="apx-card">
+          <div className="apx-card-h"><div>
+            <h3 style={{marginBottom:4}}>Auto Edit</h3>
+            <div className="hint">How every automatic edit looks. Nothing to pick per clip: it is fully automatic once a clip is accepted.</div>
+          </div></div>
           {isAdmin
             ? <div className="apt-tpls" role="radiogroup" aria-label="Auto Edit template">
                 {TPL.map(([k,l])=>(
@@ -8647,26 +8739,31 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                     <span>{TPL_DESC[k]}</span>
                   </button>))}
               </div>
-            : <div className="ap-grp" style={{marginTop:16}}>
-                <label>Style</label>
-                <div className="ed-seg">
+            : <div className="apx-sb" style={{marginTop:16}}>
+                <h4>Style</h4>
+                <div className="apx-opts">
                   {[['full','Full Frame'],['blur','Blur Bars'],['punch','Punch In'],['hook','Hook Title']].map(([k,l])=>(
-                    <button key={k} className={cfg.template===k?'on':''} disabled={busy} onClick={()=>save({template:k})}>{l}</button>
+                    <button key={k} className={'apx-opt' + (cfg.template===k ? ' on' : '')} disabled={busy} onClick={()=>save({template:k})}><b>{l}</b></button>
                   ))}
                 </div>
               </div>}
-          <div className="ap-grp ap-toggles" style={{marginTop:16}}>
-            <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
-              {cfg.title ? '✓ ' : ''}Title on the video
-            </button>
-            {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
-              {cfg.captions ? '✓ ' : ''}Auto-captions
-            </button>}
-          </div>
-          {isAdmin && <div className="sc-sub" style={{marginTop:12}}>Used by Autopilot and by Auto Edit in the Clip Editor.</div>}
-          {ap && ap.font_ok === false && <div className="ed-warn" style={{marginTop:12}}>The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}
-        </div>
-      </>}
+          <section className="apx-sec" style={{marginTop:24}}>
+            <div className="apx-sb">
+              <h4>Extras</h4>
+              <div className="sc-pchips">
+                <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
+                  {cfg.title ? '✓ ' : ''}Title on the video
+                </button>
+                {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
+                  {cfg.captions ? '✓ ' : ''}Auto-captions
+                </button>}
+              </div>
+              {isAdmin && <div className="hint">Used by Autopilot and by Auto Edit in the Clip Editor.</div>}
+            </div>
+          </section>
+          {ap && ap.font_ok === false && <div className="ed-warn" style={{marginTop:16}}>The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}
+        </div>}
+      </div>
     </div>
   );
 }

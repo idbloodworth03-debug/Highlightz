@@ -4182,3 +4182,12 @@ editor tab because I want it to be fully auto after a user accepts a clip."
   capability is not lost, but nothing in the app sends one.
 - While UPLOADS_ENABLED is off a regular user sees "Autopilot is coming soon"
   instead of an endless loading state (`/autopilot` is 503 for them).
+
+**Layout pass (2026-09-28, same day; owner: "make this look prettier. This setup is clunky and confusing").**
+Same behaviour, new arrangement: one status card (name + On/Off/Working pill, one
+plain sentence, the switch, and a three-step flow Accepted → Being edited → In the
+Scheduler with a progress bar), then a numbered Setup card (1 where, 2 when as
+three described options, 3 caption with insert chips and a "how it will read"
+preview) beside an Activity card. Content is centred at 1080px and stacks on a
+phone. The caption preview is done in the browser from the newest accepted clip
+using `[{]title[}]`-style patterns (the page is a Python string: no backslashes).
