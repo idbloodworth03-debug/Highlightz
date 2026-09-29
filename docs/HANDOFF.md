@@ -4319,3 +4319,13 @@ changed their mind about and clear the queue fully."
 - Realtime: each change is that clip's own `clip_updated`, plus `schedule_removed`
   / `upload_removed`; the screen reads the App's `clips` and `queue` state, so the
   posted/posting state follows the poster with no refresh.
+
+## Clip Editor page, restyled like Autopilot (2026-09-29)
+
+Owner: "make the clip editor look better like we did with the auto pilot page"
+(both the page and the editing window; the page first). Same behaviour and class
+names (so the contract tests still hold): a centred 1080px column; a toolbar card
+(clip count + How it works + Add a clip) instead of a second "Clip Editor"
+heading; a real drop target; clip cards with a hover, larger titles and a small
+tag ("Edited" for an Autopilot/auto-edit render, "From a clip" for a caught clip);
+storage as its own labelled strip. Scoped under `.edp` so nothing else moves.

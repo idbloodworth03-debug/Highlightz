@@ -1583,6 +1583,35 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
   background:var(--grad-soft);color:var(--acc);font-size:12px;font-weight:800}
 .rd-step .st{font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px}
 .rd-step .sb{font-size:12px;color:var(--fg-3);line-height:1.5}
+/* Clip Editor page, restyled to match Autopilot (2026-09-29): a centred column,
+   a toolbar instead of a repeated heading, a real drop target, cards with a
+   hover, and storage as its own strip. Same class names as before. */
+.rd-settings.edp{max-width:1080px;gap:24px;padding-bottom:48px}
+.edp-bar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:0;padding:16px 24px;border-radius:24px;
+  border:1px solid var(--hair);background:linear-gradient(135deg,rgba(184,106,220,.10),rgba(255,255,255,.03))}
+.edp-count{display:flex;align-items:center;gap:12px;min-width:0}
+.edp-ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex-shrink:0;background:var(--grad);color:#14021c}
+.edp-count b{display:block;font-size:16px;font-weight:800;letter-spacing:-.01em}
+.edp-count > div > span{display:block;font-size:12px;color:var(--fg-3);margin-top:4px}
+.edp-tag{display:inline-block;margin-left:8px;padding:4px 8px;border-radius:99px;font-size:12px;font-weight:700;letter-spacing:.02em;
+  background:var(--grad-soft);color:var(--fg)}
+.edp-ql{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.edp .rd-drop{padding:48px 24px;border-radius:24px;border:1px dashed rgba(196,137,228,.45);
+  background:linear-gradient(180deg,rgba(184,106,220,.06),rgba(255,255,255,.015))}
+.edp .rd-drop .di{width:64px;height:64px;border-radius:50%;margin:0 auto 16px;display:grid;place-items:center;
+  background:var(--grad-soft);border:1px solid rgba(196,137,228,.4)}
+.edp .rd-drop .dt{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.edp .rd-drop .ds{margin-top:4px}
+.edp .rd-lib-grid{margin-top:0;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.edp .rd-up{border-radius:16px;transition:border-color var(--dur-fast),transform var(--dur-fast)}
+.edp .rd-up:hover{border-color:rgba(196,137,228,.45);transform:translateY(-2px)}
+.edp .rd-up .ub{padding:16px}
+.edp .rd-up .un{font-size:14px}
+.edp .rd-lib-foot{margin-top:0;padding:12px 24px;border-radius:16px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.edp .rd-lib-foot .rd-quota{max-width:none}
+.edp .rd-lib-admin{margin-bottom:0;border-radius:12px}
+.edp .rd-howbox{margin-bottom:0}
+.edp .rd-step{border-radius:16px;padding:16px}
 /* Clip Editor library: a header with two buttons, a drop strip, the clips. */
 .rd-lib-head{flex-wrap:wrap}
 .rd-lib-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
@@ -1597,6 +1626,8 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
 .rd-howbox .rd-step:last-child{padding-right:48px}
 .rd-drop.slim{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 16px;
   border-radius:12px;text-align:left}
+.edp .rd-drop.slim{padding:16px 24px;border-radius:16px}
+.edp .rd-drop.slim .di{width:auto;height:auto;margin:0;border:0;background:none}
 .rd-drop.slim .di{margin:0;display:flex}
 .rd-drop.slim .dt{margin:0;font-size:12px}
 .rd-drop.slim .ds{margin:0}
@@ -9227,11 +9258,18 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   // button to tell people if they need it").
   return (
     <div className="rd-scroll">
-      <div className="rd-settings">
-        <div className="rd-section-title rd-lib-head">
-          <h2>Clip Editor</h2>
-          {uploadsOn && hasClips &&
-            <span className="cnt">{uploads.length} clip{uploads.length===1?'':'s'}</span>}
+      <div className="rd-settings edp">
+        {/* No second "Clip Editor" heading: the page header above already says
+            it. The bar carries what is HERE (how many clips) and the two things
+            to do. */}
+        <div className="edp-bar rd-lib-head">
+          <div className="edp-count">
+            <span className="edp-ic"><Icon name="film" size={16}/></span>
+            <div>
+              <b>{uploadsOn && hasClips ? uploads.length + ' clip' + (uploads.length===1?'':'s') : 'Your clips'}</b>
+              <span>{hasClips ? 'Pick one to edit it, or add another.' : 'Add a clip to open the editor.'}</span>
+            </div>
+          </div>
           <div className="rd-lib-actions">
             <button className={'rd-btn'+(showHow?' on':'')} onClick={()=>setShowHow(v=>!v)}
               aria-expanded={showHow} title="A three-step walkthrough">
@@ -9287,7 +9325,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             onDragOver={e=>{e.preventDefault();setOver(true);}}
             onDragLeave={()=>setOver(false)}
             onDrop={onDrop}>
-            <div className="di"><Icon name="upload" size={hasClips?18:30}/></div>
+            <div className="di"><Icon name="upload" size={hasClips?18:28}/></div>
             <div className="dt">Drop a clip here to open the editor</div>
             <div className="ds">or click to choose · MP4, MOV or WebM · up to {quota?fmtBytes(quota.max_file):'300 MB'}</div>
           </div>
@@ -9319,7 +9357,11 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
                   <div className="ub">
                     <div style={{minWidth:0,flex:1}}>
                       <div className="un" title={u.filename}>{u.filename}</div>
-                      <div className="um">{fmtBytes(u.size)}{u.source==='render'?' · Autopilot':''}</div>
+                      <div className="um">
+                        <span>{fmtBytes(u.size)}</span>
+                        {u.source==='render' && <span className="edp-tag">Edited</span>}
+                        {u.source==='clip' && <span className="edp-tag">From a clip</span>}
+                      </div>
                     </div>
                     <button className="rd-btn grad sm" onClick={()=>setEditing(u)} title="Open in the editor">
                       Edit
@@ -9333,6 +9375,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             </div>}
 
           {quota && hasClips && <div className="rd-lib-foot">
+            <span className="edp-ql">Storage</span>
             <div className={'rd-quota'+(pct>=90?' rd-quota-full':'')}><i style={{width:pct+'%'}}/></div>
             <span>{fmtBytes(quota.used)} of {fmtBytes(quota.limit)} used</span>
           </div>}
