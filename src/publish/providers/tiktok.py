@@ -30,10 +30,14 @@ from __future__ import annotations
 import time
 import urllib.parse
 
+import structlog
+
 from config.settings import settings
 
 from . import ProviderError, PostResult, content_type, redirect_uri
 from . import _http
+
+log = structlog.get_logger(__name__)
 
 _AUTH = "https://www.tiktok.com/v2/auth/authorize/"
 _TOKEN = "https://open.tiktokapis.com/v2/oauth/token/"
@@ -102,8 +106,14 @@ class TikTok:
             raise ProviderError("TikTok did not accept the sign-in: "
                                 + str(tok.get("error_description") or tok.get("error") or r.status))
         who = await self._user(tok["access_token"])
+        # creator_info is the second source, and the one that names the
+        # @handle: `username` is not a user.info.basic field, but the posting
+        # scope we already hold returns it as creator_username.
+        cr = await self._creator_names(tok["access_token"])
+        who["username"] = who.get("username") or cr.get("username", "")
+        who["display_name"] = who.get("display_name") or cr.get("nickname", "")
         return {"account_id": tok.get("open_id") or who.get("open_id", ""),
-                "account_name": who.get("display_name") or "TikTok",
+                "account_name": who.get("display_name") or who["username"] or "TikTok",
                 "access_token": tok["access_token"],
                 "refresh_token": tok.get("refresh_token", ""),
                 "expires_at": time.time() + float(tok.get("expires_in") or 86400),
@@ -135,10 +145,42 @@ class TikTok:
             pass
 
     async def _user(self, access_token: str) -> dict:
-        r = await _http.request("GET", _USER,
-                                params={"fields": "open_id,display_name,username"},
-                                headers={"Authorization": "Bearer " + access_token})
-        return ((r.json() or {}).get("data") or {}).get("user") or {}
+        # ONLY user.info.basic FIELDS. This used to ask for `username` too,
+        # which belongs to user.info.profile — a scope we do not request. TikTok
+        # answers a request for a field outside the granted scope with an error
+        # and no user at all, so display_name came back empty and every
+        # connection was stored — and shown — as the placeholder "TikTok"
+        # (owner's Account screen, 2026-09-28: "@TikTok"). Never raises: the
+        # connection works without a name, and the second source below can
+        # still supply one.
+        try:
+            r = await _http.request("GET", _USER,
+                                    params={"fields": "open_id,display_name,avatar_url"},
+                                    headers={"Authorization": "Bearer " + access_token})
+            body = r.json() or {}
+        except Exception as exc:
+            log.warning("tiktok_user_info_failed", error=str(exc))
+            return {}
+        user = (body.get("data") or {}).get("user") or {}
+        err = body.get("error") or {}
+        if not user and str(err.get("code") or "") not in ("", "ok"):
+            log.warning("tiktok_user_info_refused", code=err.get("code"),
+                        message=str(err.get("message") or "")[:200])
+        return dict(user)
+
+    async def _creator_names(self, access_token: str) -> dict:
+        """The account's nickname and @handle from creator_info. A query — it
+        opens nothing and posts nothing. Best effort: {} on any failure."""
+        try:
+            r = await _http.request("POST", _CREATOR, json={}, headers={
+                "Authorization": "Bearer " + access_token,
+                "Content-Type": "application/json; charset=UTF-8"})
+            d = ((r.json() or {}).get("data")) or {}
+        except Exception as exc:
+            log.warning("tiktok_creator_names_failed", error=str(exc))
+            return {}
+        return {"nickname": str(d.get("creator_nickname") or ""),
+                "username": str(d.get("creator_username") or "")}
 
     async def post(self, conn, path, size: int, caption: str, fmt: str,
                    duration_s: float = 0.0) -> PostResult:

@@ -5194,7 +5194,7 @@ function AccountScreen({ me, connections = [], accountsOn = false }) {
                   <div style={{fontSize:12,color:bad ? 'var(--danger)' : 'var(--fg-3)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis'}}>
                     {!c.connected ? 'Not connected'
                       : bad ? 'Needs reconnecting: ' + c.last_error
-                      : (c.account_name ? (String(c.account_name).startsWith('@') ? '' : '@') + c.account_name : 'Connected')}
+                      : (c.account_name && c.account_name !== c.label ? c.account_name : 'Connected')}
                   </div>
                 </div>
                 {c.connected && !bad && <span style={{fontSize:12,color:brand.text,fontWeight:600,flexShrink:0}}>✓ Connected</span>}

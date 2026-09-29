@@ -4097,3 +4097,14 @@ all their stored accounts inside their settings."
   (pinned by `test_connected_accounts`).
 - Not built: an admin "disconnect this user" button. Admins can see accounts,
   not act on them; add it only if a real need shows up.
+
+**TikTok showed as "@TikTok" (2026-09-28).** The connection worked but stored its
+own placeholder as the account name: `_user` asked for `username`, a
+user.info.profile field, and the app only requests user.info.basic, so TikTok
+returned an error and no user. Now the lookup asks for basic-scope fields only
+and falls back to creator_info (`creator_nickname` / `creator_username`, which
+the video.publish scope returns). This is inferred from TikTok's documented
+scopes and the symptom, not yet confirmed against a live response — the
+production check is the one in the message below. **A connection made before the
+fix keeps the placeholder name until the user disconnects and connects again.**
+The Account screen shows the name as stored (no invented "@").
