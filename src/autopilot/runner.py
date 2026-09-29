@@ -47,6 +47,12 @@ RUN_NOW_MAX = 25
 # on twice, or pressing the button mid-run, does not start a second pass over
 # the same clips.
 _backlogs: set[str] = set()
+# A clip still marked "rendering" this long after it started is not being
+# rendered: the worst honest case is a 170s edit at the 10x allowance (~28 min)
+# plus the caption step, so past this the record is a leftover, and a pass
+# takes the clip again instead of skipping it forever. (One genuinely in this
+# process is protected separately by `_inflight`.)
+STALE_RENDER_S = 45 * 60
 
 
 def eligible(clip: dict, cfg: dict) -> bool:
@@ -234,8 +240,11 @@ async def run_now(uid: str, *, force: bool = True) -> int:
             continue
         if now - float(c.get("approved_at") or c.get("created_at") or 0) > RUN_NOW_WINDOW_S:
             continue
-        st = (c.get("autopilot") or {}).get("status")
-        if st in ("rendering", "scheduled"):
+        rec = c.get("autopilot") or {}
+        st = rec.get("status")
+        if st == "scheduled":
+            continue
+        if st == "rendering" and now - float(rec.get("at") or 0) < STALE_RENDER_S:
             continue
         p = clip_files.path_for(c["id"])
         if not p or not p.exists():

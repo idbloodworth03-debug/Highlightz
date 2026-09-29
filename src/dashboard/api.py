@@ -497,6 +497,18 @@ def _load_clips() -> dict:
         if (c.get("auto_edit") or {}).get("status") == "rendering":
             c["auto_edit"] = {"status": "failed", "at": time.time(),
                               "error": "Interrupted by a server restart. Make it again."}
+        # THE SAME FOR AUTOPILOT (owner, 2026-09-29: "I ran my autopilot all
+        # night it looks like the editor is hung up"). A clip Autopilot was
+        # editing when the process stopped — a deploy, a crash, the kernel's
+        # out-of-memory kill — kept `autopilot.status == "rendering"` on disk.
+        # Nothing ever picks that up again (a pass skips "rendering", and an
+        # approval only looks at clips with no record), so the clip sat on
+        # "Editing…" for good and the counts never drained. Marked failed with
+        # the reason, which "Go through my accepted clips now" retries.
+        if (c.get("autopilot") or {}).get("status") == "rendering":
+            c["autopilot"] = {"status": "failed", "at": time.time(),
+                              "error": "Interrupted by a server restart. Press "
+                                       "\"Go through my accepted clips now\" to retry."}
     return {c["id"]: c for c in rows}
 
 

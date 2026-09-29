@@ -374,3 +374,34 @@ def test_autopilot_has_its_own_screen_and_the_clip_card_shows_its_state():
     # The clip card says what Autopilot did with it.
     rd = h[h.index("function RdClip("):h.index("function ClipModal(")]
     assert "rd-apbadge" in rd and "clip.autopilot.status" in rd
+
+
+def test_a_pass_takes_a_clip_left_on_rendering_but_not_one_still_being_edited(world, monkeypatch):
+    """A clip Autopilot was editing when the process died keeps status
+    "rendering" on disk. Skipping it forever left the counts stuck (owner,
+    2026-09-29: "I ran my autopilot all night it looks like the editor is hung
+    up"); one edited a moment ago must still be left alone."""
+    w = world
+    from src.auth import users as user_store
+    monkeypatch.setattr(user_store, "autopilot_for", lambda uid: ap.normalize({"enabled": False}))
+    monkeypatch.setattr(w.api, "broadcast", w.notify)
+    now = time.time()
+    _clip(w, "leftover", autopilot={"status": "rendering", "at": now - 3 * 3600}); (w.src_dir / "leftover.mp4").write_bytes(MP4)
+    _clip(w, "busy", autopilot={"status": "rendering", "at": now - 60}); (w.src_dir / "busy.mp4").write_bytes(MP4)
+    n = _run(runner.run_now("u1"))
+    assert n == 1 and {r["src"].stem for r in w.rendered} == {"leftover"}
+
+
+def test_a_restart_turns_a_stuck_rendering_clip_into_a_retryable_failure(tmp_path, monkeypatch):
+    import json
+    from src.dashboard import api
+    f = tmp_path / "clips.json"
+    f.write_text(json.dumps([
+        {"id": "a", "autopilot": {"status": "rendering", "at": 1}},
+        {"id": "b", "autopilot": {"status": "scheduled", "item_id": "x"}},
+        {"id": "c", "auto_edit": {"status": "rendering", "at": 1}}]))
+    monkeypatch.setattr(api, "_CLIPS_FILE", f)
+    got = api._load_clips()
+    assert got["a"]["autopilot"]["status"] == "failed" and "restart" in got["a"]["autopilot"]["error"]
+    assert got["b"]["autopilot"]["status"] == "scheduled", "a finished clip was touched"
+    assert got["c"]["auto_edit"]["status"] == "failed"

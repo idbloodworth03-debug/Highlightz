@@ -4259,3 +4259,14 @@ captions on the bottom of the screen and not the top."
 **To confirm on prod:** `grep -E "^CAPTIONS_" /opt/highlightz/.env`, then
 `venv/bin/python -m src.captions.transcribe --selftest`, then
 `journalctl -u highlightz --since "1 hour ago" | grep -i -E "caption|whisper"`.
+
+**Clips left on "Editing…" after a restart (2026-09-29).** `_load_clips` reset a
+stuck `auto_edit` render after a restart but not a stuck `autopilot` one, and a
+pass skipped anything on "rendering", so a clip Autopilot was editing when the
+process stopped (deploy, crash, OOM kill) stayed on "Editing…" forever and the
+counts never drained. On load it is now `failed` ("Interrupted by a server
+restart…"), and a pass also retakes a "rendering" clip older than
+`STALE_RENDER_S` (45 min). A pass does NOT resume by itself after a restart on
+purpose: a render that gets the service OOM-killed would loop. After a deploy,
+press "Go through my accepted clips now". The cause of the overnight hang itself
+is not established — see the prod checks given to the owner.
