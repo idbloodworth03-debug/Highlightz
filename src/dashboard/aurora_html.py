@@ -1328,6 +1328,47 @@ select.ed-in,select.rd-select{color-scheme:dark}
 .ed-prog{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
 .ed-prog i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(0);background:var(--grad);border-radius:99px;transition:transform var(--dur-fast) linear}
 .ed-note{font-size:12px;color:var(--fg-3);line-height:1.5}
+/* THE EDITING WINDOW, restyled to match Autopilot (2026-09-29). Layout and
+   look only: every control, id and behaviour is the same. A calmer shell, a
+   header with a real title block, the transport + filmstrip together in one
+   strip, and a side panel whose sections all start at the same edge (the
+   Style heading sat 16px left of Title and Captions before). */
+.ed{width:min(1240px,100%);grid-template-columns:minmax(0,1fr) 380px;border-radius:24px;
+  background:linear-gradient(180deg,rgba(184,106,220,.07),rgba(184,106,220,0) 260px),var(--rd-bg-2);
+  box-shadow:0 32px 96px -32px rgba(0,0,0,.9)}
+.ed.glass{background:linear-gradient(180deg,rgba(184,106,220,.07),rgba(184,106,220,0) 260px),var(--rd-bg-2)}
+.ed-head{gap:16px;padding:16px 24px}
+.ed-ico{width:40px;height:40px;border-radius:12px;align-items:center;justify-content:center;background:var(--grad);color:#14021c;flex-shrink:0}
+.ed-head h3{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.ed-sub{margin-top:4px}
+.ed-x{width:40px;height:40px;border-radius:12px}
+.ed-main{gap:16px;padding:24px}
+.ed-stage{border-radius:16px;border:1px solid var(--hair);box-shadow:0 16px 48px -24px rgba(0,0,0,.8)}
+.ed-strip{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.ed-side{background:rgba(255,255,255,.015)}
+.ed-side::after{content:'';flex:0 0 24px}
+.ed-tpls,.ed-quick{padding:24px 24px 0;gap:12px}
+.ed-quick .ed-sec-t,.ed-tpls .ed-sec-t{padding:0}
+.ed-sec-t{padding:24px 24px 0}
+.ed-tpl-row{gap:12px}
+.ed-tpl{padding:12px 16px;border-radius:16px}
+.ed-tpl-ic{width:24px;height:40px;border-radius:6px}
+.ed-tpl-feat{padding:16px;margin-bottom:0}
+.ed-more{margin:24px 24px 0;border-radius:16px}
+.ed-panel{padding:12px 24px 24px;gap:12px}
+.ed-sec{border-radius:16px}
+.ed-foot{padding:24px;gap:12px;background:rgba(14,11,17,.72)}
+.ed-export{padding:16px 24px;font-size:16px;border-radius:16px}
+@media(max-width:860px){
+  .ed{border-radius:16px}
+  .ed-head{padding:12px 16px}
+  .ed-main{padding:16px}
+  .ed-tpls,.ed-quick{padding:16px 16px 0}
+  .ed-sec-t{padding:16px 16px 0}
+  .ed-more{margin:16px 16px 0}
+  .ed-panel{padding:12px 16px 16px}
+  .ed-foot{padding:16px}
+}
 .ed-note.ok{color:var(--acc)}
 .ed-note kbd{font-family:inherit;font-size:12px;padding:0 4px;border-radius:4px;border:1px solid var(--hair-2);background:rgba(255,255,255,.06);color:var(--fg-2);margin:0 4px 0 0}
 /* Phone: the editor is the whole screen. Stage on top, then the transport
@@ -7427,6 +7468,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             <video ref={videoRef} src={clip.url} onLoadedMetadata={onMeta} playsInline preload="auto"
               crossOrigin="anonymous" style={{display:'none'}}/>
 
+            <div className="ed-strip">
             <div className="ed-transport">
               <button className={'ed-play' + (playing ? ' on' : '')} onClick={togglePlay} disabled={busy || !dur}
                 aria-label={playing ? 'Pause' : 'Play'} title="Space">
@@ -7456,6 +7498,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   <span className="mid"><i>Cut</i> {clipSecs.toFixed(1)}s</span>
                   <span><i>End</i> {edTime(outPt)}</span>
                 </div>}
+            </div>
           </div>
 
           <div className="ed-side">

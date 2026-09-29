@@ -4329,3 +4329,14 @@ names (so the contract tests still hold): a centred 1080px column; a toolbar car
 heading; a real drop target; clip cards with a hover, larger titles and a small
 tag ("Edited" for an Autopilot/auto-edit render, "From a clip" for a caught clip);
 storage as its own labelled strip. Scoped under `.edp` so nothing else moves.
+
+**Editing window, restyled (2026-09-29).** Same controls and behaviour; look and
+spacing only, appended as one CSS block after `.ed-note` and one JSX wrapper. A
+calmer shell (24px radius, faint brand gradient), a header with a gradient icon
+tile and a real title block, the transport + filmstrip + readout grouped in one
+`.ed-strip` card, a wider side panel (380px) whose headings and cards all start
+at the same edge (Style used to sit 16px left of Title and Captions), larger
+style tiles, and the phone layout (the original 860px block, which still wins
+where it must) unchanged. Not screenshot-checked: the sections inside "More
+options" (Trim/Frame/Text/Effects/Captions) — they share the restyled classes but
+were not opened in the browser check.
