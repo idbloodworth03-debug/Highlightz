@@ -2535,7 +2535,7 @@ function spikeLabel(clip){
   return pool[Math.abs(h) % pool.length];
 }
 
-function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMode }) {
+function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, libraryMode }) {
   const score = Math.round(clip.score||clip.trigger_score||0);  // VOD clips carry 'score'; both are 0-100
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
@@ -2594,6 +2594,13 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
   const edBtn = ((clip.has_file || clip.fetchable) && onEdit) ? (
     <button className="rd-btn sm" title="Edit this clip" style={{flex:'0 0 auto'}}
        onClick={e=>{e.stopPropagation();onEdit(clip)}}><Icon name="sliders" size={13}/></button>
+  ) : null;
+  // Straight to TikTok / Instagram / YouTube, no queue first. `onPost` is only
+  // passed when the Scheduler is reachable for this account, like onEdit.
+  const postBtn = ((clip.has_file || clip.fetchable) && onPost) ? (
+    <button className="rd-btn sm grad" title="Post this clip to TikTok, Instagram or YouTube now"
+       style={{flex:'0 0 auto'}} onClick={e=>{e.stopPropagation();onPost(clip)}}>
+      <Icon name="upload" size={13}/>Post</button>
   ) : null;
   return (
     <div className={'rd-clip'+(sug?' suggested':'')}>
@@ -2688,6 +2695,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
             {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on {outName}</a>}
             {dlBtn}
             {edBtn}
+            {postBtn}
             {onDelete && <button className="rd-btn sm" style={{flex:'0 0 auto',background:'rgba(255,90,120,.1)',color:'var(--danger)',borderColor:'rgba(255,90,120,.2)'}} title="Remove from library" onClick={e=>{e.stopPropagation();onDelete(clip.id)}}><Icon name="trash" size={13}/></button>}
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
@@ -2695,6 +2703,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, libraryMo
             {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title={'Open on '+outName} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
             {edBtn}
+            {clip.status==='approved' && postBtn}
           </span>}
         </div>
       </div>
@@ -3067,7 +3076,7 @@ function AutoEditPanel({ clip }) {
   );
 }
 
-function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featured, onFeature }) {
+function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin, featured, onFeature }) {
   // Retry counter for the Twitch iframe. Declared BEFORE the null-clip early
   // return: hooks must run on every render or React errors when the modal
   // opens (same trap documented on the VOD plan gate).
@@ -3292,6 +3301,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, isAdmin, featur
                   style={{marginTop:8,width:'100%',justifyContent:'center'}}
                   onClick={()=>{onEdit(clip);onClose()}}>
                 <Icon name="sliders" size={14}/>Edit clip</button>}
+              {(clip.has_file || clip.fetchable) && onPost && <button className="rd-btn sm"
+                  style={{marginTop:8,width:'100%',justifyContent:'center'}}
+                  onClick={()=>{onPost(clip);onClose()}}>
+                <Icon name="upload" size={14}/>Post now</button>}
               {clip.status==='pending' && <div className="rd-modal-actions">
                 <button className="rd-btn live sm" onClick={()=>{onApprove(clip.id);onClose()}}><Icon name="check" size={14}/>Approve</button>
                 <button className="rd-btn danger sm" onClick={()=>{onReject(clip.id);onClose()}}><Icon name="x" size={14}/>Reject</button>
@@ -4206,7 +4219,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
 // /clips/{id}/reject) rather than kept with a status — so "Rejected" could never
 // match anything, and "All" and "Approved" were the same button twice. The
 // streamer filter stays: it is the one that still narrows a real list.
-function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
+function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview }) {
   const [chanFilter, setChanFilter] = useState('all');
   // Defaults to newest APPROVAL, not newest capture. The library is the record
   // of what you decided to keep, so approving a clip puts it at the top even if
@@ -4268,7 +4281,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
       {clipsArr.length===0
         ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
         : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
-            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} libraryMode/>)}
+            {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} onPost={onPost} libraryMode/>)}
           </div>}
     </div>
   );
@@ -8170,17 +8183,19 @@ function WeekCalendar({ weekStart, onWeek, items, onOpen, onMove, onSlot }) {
    Not filtered by the Twitch/Kick switch, unlike Clip Review: the queue below
    already shows both platforms, so hiding half the clips in a picker sitting
    above it would be the odd one out. */
-function AddClipPicker({ clips, items, onClose }) {
+function AddClipPicker({ clips, items, onClose, mode = 'add', onPick = null }) {
   const [busy, setBusy] = useState('');
   const [err, setErr]   = useState('');
   const [q, setQ]       = useState('');
 
   // Already in the queue, so offering it again would make a second copy of
   // the same bytes and a second card that nothing distinguishes.
+  // Post now is the opposite question: a clip that is ALREADY queued is the
+  // one you might want to post right away, so nothing is filtered out there.
   const queued = new Set((items || []).map(i => i.upload_id).filter(Boolean));
   const all = Object.values(clips || {})
     .filter(c => (c.file_state === 'ready' || c.fetchable)
-                 && !(c.editor_upload_id && queued.has(c.editor_upload_id)))
+                 && (mode === 'now' || !(c.editor_upload_id && queued.has(c.editor_upload_id))))
     .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   const needle = q.trim().toLowerCase();
   const list = needle
@@ -8189,6 +8204,7 @@ function AddClipPicker({ clips, items, onClose }) {
     : all;
 
   const add = async (c) => {
+    if (mode === 'now' && onPick) { onPick(c); return; }
     setBusy(c.id); setErr('');
     try {
       const r = await fetch('/publish/schedule', {method:'POST',
@@ -8211,9 +8227,10 @@ function AddClipPicker({ clips, items, onClose }) {
       <div className="wk-pick-bg" onClick={onClose}/>
       <div className="wk-pick" role="dialog" aria-label="Add a clip to the queue">
         <div>
-          <h4>Add a clip</h4>
-          <div className="wk-pick-sub">Anything Highlightz caught for you. It does not
-            need to go through the editor first.</div>
+          <h4>{mode === 'now' ? 'Post a clip now' : 'Add a clip'}</h4>
+          <div className="wk-pick-sub">{mode === 'now'
+            ? 'Pick the clip, then choose TikTok, Instagram or YouTube.'
+            : 'Anything Highlightz caught for you. It does not need to go through the editor first.'}</div>
         </div>
         {all.length > 8 &&
           <input className="ed-in" placeholder="Filter by channel or title"
@@ -8236,6 +8253,123 @@ function AddClipPicker({ clips, items, onClose }) {
               ))}
             </div>}
         <button className="rd-btn sm" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/* POST NOW, for one clip. Owner, 2026-09-28: "make [post now] a thing in the
+   scheduler and also make it a thing in the clip library. Make sure there is
+   the option to have it post to tiktok or instagram."
+
+   Opened from a clip card, the clip popup, and the Scheduler. It asks where,
+   with every platform visible: connected ones can be ticked, the rest say why
+   they cannot (Connect / Reconnect / not set up). NOTHING IS PRE-TICKED — a
+   post goes to exactly the accounts the person chose. One call to
+   POST /publish/post-now does the rest, and this dialog then follows the queue
+   item over the socket (the `queue` prop is the App's live state), so the
+   result appears here without a refresh and the Scheduler shows the same
+   card. Closing it does not stop the upload. */
+function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onClose }) {
+  const ORDER = ['tiktok', 'instagram', 'youtube'];
+  const specs = [...(platforms || [])].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+  const conn = {}; (connections || []).forEach(c => { conn[c.id] = c; });
+  const [picked, setPicked] = useState(() => new Set());
+  const [cap, setCap] = useState(() => String(clip.clip_title || clip.stream_title || '').slice(0, 150));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [itemId, setItemId] = useState('');
+  const item = itemId ? (queue || []).find(i => i.id === itemId) : null;
+  const results = (item && item.results) || {};
+  const working = busy || (!!item && (item.status === 'posting'
+                            || (item.status === 'pending' && Object.keys(results).length === 0)));
+  const sent = !!itemId;
+
+  const ready = id => !!(conn[id] && conn[id].connected && !conn[id].last_error);
+  const toggle = id => {
+    if (sent || !ready(id)) return;
+    setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const chosen = specs.filter(pf => picked.has(pf.id));
+  const issues = chosen.map(pf => fitIssues(pf, clip.duration_seconds || 0, '16:9', cap, 'mp4')[0]).filter(Boolean);
+
+  const post = async () => {
+    if (!picked.size || busy) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/publish/post-now', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap})});
+      let d = {};
+      try { d = await r.json(); } catch (e) {}
+      if (!r.ok) { setErr(d.detail || 'Could not start posting.'); return; }
+      setItemId(d.item && d.item.id ? d.item.id : '');
+    } catch (e) { setErr('Could not reach the server.'); }
+    finally { setBusy(false); }
+  };
+
+  const label = id => (specs.find(pf => pf.id === id) || {}).label || id;
+  return (
+    <div>
+      <div className="wk-pick-bg" onClick={onClose}/>
+      <div className="wk-pick" role="dialog" aria-label="Post this clip now">
+        <div>
+          <h4>Post now</h4>
+          <div className="wk-pick-sub">{clip.channel} &middot; {clip.clip_title || clip.stream_title || 'Highlight'}</div>
+        </div>
+
+        <div className="sc-lbl">Post to</div>
+        <div className="sc-pchips">
+          {specs.map(pf => {
+            const c = conn[pf.id];
+            const on = picked.has(pf.id);
+            if (ready(pf.id)) return (
+              <button key={pf.id} className={'sc-pchip' + (on ? ' on' : '')} onClick={() => toggle(pf.id)} disabled={sent}>
+                {on ? '✓ ' : ''}{pf.label}
+                {c.account_name && c.account_name !== c.label && <small>{c.account_name}</small>}
+              </button>);
+            if (c && c.connected) return (
+              <a key={pf.id} className="sc-pchip" href={'/publish/connect/' + pf.id} title={c.last_error}
+                style={{textDecoration: 'none'}}>{pf.label}<small>Reconnect</small></a>);
+            if (c && c.configured) return (
+              <a key={pf.id} className="sc-pchip" href={'/publish/connect/' + pf.id}
+                style={{textDecoration: 'none'}}>{pf.label}<small>Connect</small></a>);
+            return <span key={pf.id} className="sc-pchip" style={{opacity: .5, cursor: 'default'}}
+              title="Not set up on this server yet">{pf.label}<small>Not set up</small></span>;
+          })}
+        </div>
+        {!sent && picked.size === 0 &&
+          <div className="sc-sub">Choose where this goes. Nothing is posted until you press Post now.</div>}
+
+        <div className="sc-lbl">Caption</div>
+        <textarea className="ed-in" rows="3" value={cap} disabled={sent}
+          placeholder="Caption + hashtags" onChange={e => setCap(e.target.value)}/>
+        {issues.map((t, i) => <div key={i} className="pub-warn">{t}</div>)}
+        {!sent && <div className="sc-sub">Posts the clip as Highlightz caught it (widescreen). For a vertical
+          9:16 version, close this and use Edit first.</div>}
+
+        {err && <div className="ed-warn">{err}</div>}
+        {sent && <div className="sc-res">
+          {Object.keys(results).length === 0
+            ? <div><span className="pub-ok">Starting…</span></div>
+            : Object.entries(results).map(([p, res]) => (
+              <div key={p}>
+                <b>{label(p)}</b>
+                {res.status === 'posted'
+                  ? <span className="pub-ok">Posted{res.url ? <> &middot; <a href={res.url} target="_blank" rel="noopener noreferrer">View</a></> : ''}{res.note ? <span className="sc-note"> {res.note}</span> : null}</span>
+                  : res.status === 'posting'
+                    ? <span className="pub-ok">Uploading…</span>
+                    : <span className="pub-warn">{res.error}</span>}
+              </div>))}
+        </div>}
+        {sent && working && <div className="sc-sub">You can close this. It keeps posting, and the Scheduler shows the result.</div>}
+
+        <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+          {!sent && <button className="rd-btn sm grad" onClick={post} disabled={!picked.size || busy}>
+            <Icon name="upload" size={13}/>&nbsp;{busy ? 'Starting…'
+              : picked.size ? 'Post now to ' + chosen.map(pf => pf.label).join(' + ') : 'Post now'}
+          </button>}
+          <button className="rd-btn sm" onClick={onClose}>{sent && !working ? 'Done' : sent ? 'Close' : 'Cancel'}</button>
+        </div>
       </div>
     </div>
   );
@@ -8394,6 +8528,9 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
             })}
           </div>
           {issues.map((t,i)=><div key={i} className="pub-warn">{t}</div>)}
+          {!posting && !done && auto.length === 0 &&
+            <div className="sc-sub">To post now, tick TikTok or Instagram above. An account that is not connected yet
+              can be connected on the <b>Account</b> page.</div>}
           <div className="sc-sub">
             Connected accounts are posted to for you at this time; the rest get a reminder and one-tap share.
             {manual.length > 0 && <> Open: {manual.map((p,i)=>(
@@ -8425,8 +8562,13 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           {busyErr && <div className="ed-warn">{busyErr}</div>}
         </div>
         <div className="sc-dr-foot">
-          {auto.length > 0 && !posting && !done &&
-            <button className="rd-btn sm grad" onClick={postNow}>
+          {/* ALWAYS THERE unless it is already posting or done. It was hidden until
+              an account was picked AND connected, so the drawer of a new clip
+              had no Post now at all (owner, 2026-09-28: "I have no post now
+              button"). With nothing to post to it is disabled and says why. */}
+          {!posting && !done &&
+            <button className="rd-btn sm grad" onClick={postNow} disabled={auto.length === 0}
+              title={auto.length === 0 ? 'Choose TikTok or Instagram above (and connect it on the Account page) to post now' : ''}>
               <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
@@ -8548,11 +8690,12 @@ function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }
   );
 }
 
-function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false }) {
+function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false, onPostNow = null }) {
   const [weekStart, setWeekStart] = useState(()=>weekStartOf(new Date()));
   const [openId, setOpenId] = useState(null);
   const [slotAt, setSlotAt] = useState(null);      // {day, slot} being filled
   const [adding, setAdding] = useState(false);    // the any-clip picker
+  const [postingNow, setPostingNow] = useState(false);   // the pick-a-clip step of Post now
   const drop = (id) => fetch('/publish/schedule/'+id, {method:'DELETE'}).catch(()=>{});
 
   const items = queue || [];
@@ -8638,6 +8781,9 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
         <button className="rd-btn sm grad" onClick={()=>setAdding(true)}>
           <Icon name="plus" size={13}/>Add a clip
         </button>
+        {onPostNow && <button className="rd-btn sm" onClick={()=>setPostingNow(true)}>
+          <Icon name="upload" size={13}/>Post a clip now
+        </button>}
         <span className="sc-sub">Post any clip Highlightz caught &mdash; no trip through the editor needed.</span>
       </div>
 
@@ -8647,6 +8793,8 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
 
       <SlotPicker at={slotAt} items={inbox} onPick={fillSlot} onClose={()=>setSlotAt(null)}/>
       {adding && <AddClipPicker clips={clips} items={items} onClose={()=>setAdding(false)}/>}
+      {postingNow && <AddClipPicker clips={clips} items={items} mode="now"
+        onPick={c=>{ setPostingNow(false); onPostNow && onPostNow(c); }} onClose={()=>setPostingNow(false)}/>}
       {openItem && <ScheduleDrawer item={openItem} platforms={platforms} connections={connections}
         onClose={()=>setOpenId(null)} onDrop={drop}/>}
     </div>
@@ -10150,6 +10298,11 @@ function RdApp() {
   // independently — this only stops us offering a dead end.
   const editorOn = uploadsOn && !!(me && (me.plan_limits?.uploads || me.is_admin));
   const onEditClip = editorOn ? sendToEditor : null;
+  // "Post now" from a clip card, the popup and the Scheduler. Same reachability
+  // as the editor (release flag + a plan with the Scheduler, or an admin): the
+  // endpoint refuses independently, this only stops us offering a dead end.
+  const [postClip, setPostClip] = useState(null);
+  const onPostClip = editorOn ? setPostClip : null;
   // The screen actually rendered. The nav is the only way in today (`route`
   // lives in React state alone), but that is a property of the current code,
   // not a guarantee — normalise so a future deep link or restored route cannot
@@ -10166,11 +10319,12 @@ function RdApp() {
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
-  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
+  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} clips={clips} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
-      autopilot={autopilot} onAutopilot={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))} captionsOn={captionsOn}/>;
+      autopilot={autopilot} onAutopilot={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))} captionsOn={captionsOn}
+      onPostNow={onPostClip}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;
@@ -10271,8 +10425,10 @@ function RdApp() {
           // product change, not just the modal disappear.
           if (expect) flash(expect);
         }}/>}
+      {postClip && <PostNowDialog clip={postClip} platforms={platforms} connections={connections} queue={queue}
+        onClose={()=>setPostClip(null)}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
-        onEdit={onEditClip}
+        onEdit={onEditClip} onPost={onPostClip}
         isAdmin={!!me.is_admin} featured={!!modalClip&&featuredIds.includes(modalClip.id)} onFeature={toggleFeature}/>
       {wake && <WakeSequence channel={wake.channel} platform={wake.platform} reduceMotion={!!(me&&me.prefs&&me.prefs.reduce_motion)}
         score={(scores[wake.channel]||{}).score||0}

@@ -4108,3 +4108,34 @@ scopes and the symptom, not yet confirmed against a live response — the
 production check is the one in the message below. **A connection made before the
 fix keeps the placeholder name until the user disconnects and connects again.**
 The Account screen shows the name as stored (no invented "@").
+
+## Post now: one step, from the Scheduler and the Clip Library (2026-09-28)
+
+Owner: "I have no post now button make that a thing in the scheduler and also
+make it a thing in the clip library. Make sure there is the option to have it
+post to tiktok or instagram."
+
+Why there was none: the only Post now was inside a queued item's drawer, and it
+was hidden until an account was picked AND connected on that card. A clip that
+had never been queued had no way to be posted.
+
+- `POST /publish/post-now {clip_id | upload_id, platforms, caption}` does the
+  whole path: `_clip_into_library` (same function as Edit and the Scheduler),
+  make or reuse the queue item, start posting in the background. Pro/admin gate
+  like the rest of /publish.
+- **Posts only to the platforms named.** Nothing is pre-ticked in the dialog,
+  and a platform that is not connected (or has a dead login) is refused by name
+  with a 400 rather than skipped. A queue card that is scheduled for some OTHER
+  platform is not reused (the poster posts every connected platform on a card,
+  so reusing it would post there too); the clip gets its own card. A platform
+  that already took the clip is never posted to twice (409 if all of them did).
+- Frontend: `PostNowDialog` (TikTok, Instagram, YouTube chips; connected ones
+  tick, the rest say Connect / Reconnect / Not set up; caption; fit warnings;
+  result follows the App's live `queue` over `schedule_added/updated`, no poll).
+  Entry points: a **Post** button on Clip Library cards, **Post now** in the clip
+  popup, **Post a clip now** on the Scheduler (opens the clip picker first), and
+  the queue drawer's **Post now** is now always shown (disabled, with the reason,
+  when nothing is ticked/connected).
+- Posts the clip as caught: 1280x720, so the card warns that TikTok/Reels expect
+  9:16. Vertical means Edit first. Instagram shows "Not set up" until
+  INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET are on the server.

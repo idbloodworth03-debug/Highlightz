@@ -6367,6 +6367,106 @@ async def publish_schedule_post_now(request: Request, item_id: str):
     return {"status": "posting", "platforms": poster.auto_platforms(item)}
 
 
+@app.post("/publish/post-now", status_code=202)
+async def publish_post_now(request: Request):
+    """Post a clip to TikTok / Instagram / YouTube right now, in one step.
+
+    Owner, 2026-09-28: "I have no post now button make that a thing in the
+    scheduler and also make it a thing in the clip library." The only Post now
+    lived inside a queued item's drawer, so a clip that had never been queued
+    had no way to be posted — and the button was hidden until an account was
+    already picked on it. This is the whole path in one call: get the clip
+    into the library (the same function the Scheduler and Edit use), make or
+    reuse its queue item, and start posting in the background.
+
+    The caller names the platforms EXPLICITLY. Nothing is posted to an account
+    the user did not tick, and a platform that is not connected is refused by
+    name rather than silently skipped, so a click cannot read as "posted" when
+    half of it was not.
+
+    REUSES the clip's existing queue item instead of adding a second one, so a
+    clip that is already scheduled is posted, not duplicated. A platform that
+    already took it is never posted to twice (`reset_for_retry` keeps the
+    successes); if every platform asked for already has it, that is a 409
+    rather than a quiet no-op.
+    """
+    from src.publish import schedule as sched, poster, connections as pub_conns
+    from src.publish import platforms as plat
+    from src.uploads import library as upload_lib
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send the request as an object.")
+
+    targets = []
+    for p in (body.get("platforms") or []):
+        if p in plat.BY_ID and p not in targets:
+            targets.append(p)
+    if not targets:
+        raise HTTPException(status_code=400,
+                            detail="Choose where to post it: TikTok, Instagram or YouTube.")
+    connected = pub_conns.connected_platforms(uid)
+    missing = [plat.BY_ID[p].label for p in targets if p not in connected]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not connected "
+                   "(or needs reconnecting). Connect it on the Account page first.")
+
+    caption = str(body.get("caption") or "")
+    if len(caption) > sched.CAPTION_MAX:
+        raise HTTPException(status_code=400,
+                            detail=f"Caption is longer than {sched.CAPTION_MAX} characters.")
+
+    clip_id = str(body.get("clip_id") or "")
+    clip = _clips.get(clip_id) if clip_id else None
+    if clip_id:
+        up = await _clip_into_library(clip_id, uid)
+    else:
+        up = upload_lib.get(str(body.get("upload_id") or ""), uid)
+    if not up:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # REUSE ONLY WHEN IT CANNOT POST SOMEWHERE THE USER DID NOT TICK. The poster
+    # posts every connected platform on an item, so reusing a card that is
+    # scheduled for YouTube tomorrow would send it to YouTube now too. That
+    # clip gets its own card instead.
+    existing = next((i for i in sched.for_user(uid) if i.upload_id == up.id
+                     and all(p in targets or p in i.posted_on() for p in i.platforms)), None)
+    if existing is not None:
+        if existing.status == sched.POSTING and existing.id in poster._inflight:
+            raise HTTPException(status_code=409, detail="Already posting.")
+        already = existing.posted_on()
+        if all(p in already for p in targets):
+            raise HTTPException(
+                status_code=409,
+                detail="Already posted to " + ", ".join(plat.BY_ID[p].label for p in targets)
+                       + ". Remove that post in the Scheduler first to post it again.")
+        item = sched.update(existing.id, uid, caption=caption,
+                            platforms=list(dict.fromkeys(targets + list(existing.platforms))))
+        event = "schedule_updated"
+    else:
+        try:
+            item = sched.add(uid, up.id, up.filename, caption, targets, 0.0,
+                             duration_s=float((clip or {}).get("duration_seconds") or 0),
+                             # Captures are 1280x720. Said out loud so the card
+                             # warns that TikTok/Reels expect vertical, instead
+                             # of showing "fits" for a widescreen file.
+                             ratio="16:9" if clip else "",
+                             fmt=str(getattr(up, "kind", "") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        event = "schedule_added"
+
+    item = sched.reset_for_retry(item.id, uid)
+    if not poster.auto_platforms(item):
+        raise HTTPException(status_code=400, detail="Nothing to post to.")
+    await broadcast({"event": event, "item": item.public()}, user_id=uid)
+    poster.start_now(item, broadcast)
+    return {"status": "posting", "item": item.public(), "platforms": poster.auto_platforms(item)}
+
+
 async def schedule_due_task() -> None:
     """The posting worker, and the reminder nudge, every 30 seconds.
 
