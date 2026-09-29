@@ -43,6 +43,7 @@ _inflight: set[str] = set()
 # Clips approved this long ago or less are eligible for the bulk "run now".
 RUN_NOW_WINDOW_S = 30 * 24 * 3600
 RUN_NOW_MAX = 25
+MAX_BATCHES = 10            # 250 clips in one pass, then it stops rather than run away
 # Users whose backlog is being worked through right now, so switching Autopilot
 # on twice, or pressing the button mid-run, does not start a second pass over
 # the same clips.
@@ -220,29 +221,21 @@ def kick(coro) -> None:
     asyncio.create_task(coro)
 
 
-async def run_now(uid: str, *, force: bool = True) -> int:
-    """The bulk button, and what switching Autopilot ON does: every recently
-    approved clip with a file that Autopilot has not scheduled (including ones
-    that failed), oldest first, capped.
-
-    `force` is the button's: pressed while Autopilot is off it still runs, as
-    it always has. Switching Autopilot on passes force=False, so turning it
-    back OFF while the pass is in flight stops it after the clip in hand."""
-    from src.auth import users as user_store
+def _collect(uid: str, now: float, *, retry_failed: bool, skip: set[str]) -> list[dict]:
+    """The approved clips a pass should take next, oldest first, capped."""
     from src.dashboard import api
     from src.clips import files as clip_files
-    from src.publish import connections
-    cfg = user_store.autopilot_for(uid)
-    now = time.time()
     todo = []
     for c in api._clips.values():
-        if c.get("user_id") != uid or c.get("status") != "approved":
+        if c.get("user_id") != uid or c.get("status") != "approved" or c["id"] in skip:
             continue
         if now - float(c.get("approved_at") or c.get("created_at") or 0) > RUN_NOW_WINDOW_S:
             continue
         rec = c.get("autopilot") or {}
         st = rec.get("status")
         if st == "scheduled":
+            continue
+        if st == "failed" and not retry_failed:
             continue
         if st == "rendering" and now - float(rec.get("at") or 0) < STALE_RENDER_S:
             continue
@@ -251,24 +244,47 @@ async def run_now(uid: str, *, force: bool = True) -> int:
             continue
         todo.append(c)
     todo.sort(key=lambda c: float(c.get("approved_at") or 0))
-    todo = todo[:RUN_NOW_MAX]
-    connected = connections.connected_platforms(uid)
+    return todo[:RUN_NOW_MAX]
+
+
+async def run_now(uid: str, *, force: bool = True) -> int:
+    """The bulk button, and what switching Autopilot ON does: every recently
+    approved clip with a file that Autopilot has not scheduled, oldest first.
+
+    It works in batches of RUN_NOW_MAX until nothing is left, so 54 accepted
+    clips are all gone through, not the first 25 (owner, 2026-09-29: it ran all
+    night and 54 were still untouched). The first batch also retries clips that
+    failed; later ones do not, and no clip is taken twice in one pass, so a
+    clip that keeps failing cannot loop the pass.
+
+    `force` is the button's: pressed while Autopilot is off it still runs, as
+    it always has. Switching Autopilot on passes force=False, so turning it
+    back OFF while the pass is in flight stops it after the clip in hand."""
+    from src.auth import users as user_store
+    from src.dashboard import api
+    from src.publish import connections
     if uid in _backlogs:
         return 0
     _backlogs.add(uid)
     try:
-        for c in todo:
-            c["autopilot"] = {}                     # a failed one gets another go
-        done = 0
-        for c in todo:
-            # Re-read every time: switching Autopilot OFF mid-run has to stop
-            # the run, not just the next approval.
-            live = user_store.autopilot_for(uid)
-            if not live.get("enabled") and not force:
+        done, seen, first = 0, set(), True
+        for _batch in range(MAX_BATCHES):
+            todo = _collect(uid, time.time(), retry_failed=first, skip=seen)
+            first = False
+            if not todo:
                 break
-            await process_clip(c, {**live, "enabled": True}, api.broadcast,
-                               connected=connections.connected_platforms(uid))
-            done += 1
+            for c in todo:
+                seen.add(c["id"])
+                c["autopilot"] = {}                 # a failed one gets another go
+            for c in todo:
+                # Re-read every time: switching Autopilot OFF mid-run has to
+                # stop the run, not just the next approval.
+                live = user_store.autopilot_for(uid)
+                if not live.get("enabled") and not force:
+                    return done
+                await process_clip(c, {**live, "enabled": True}, api.broadcast,
+                                   connected=connections.connected_platforms(uid))
+                done += 1
         return done
     finally:
         _backlogs.discard(uid)

@@ -4270,3 +4270,13 @@ restart…"), and a pass also retakes a "rendering" clip older than
 purpose: a render that gets the service OOM-killed would loop. After a deploy,
 press "Go through my accepted clips now". The cause of the overnight hang itself
 is not established — see the prod checks given to the owner.
+
+**Prod findings, 2026-09-29 (owner ran Autopilot overnight).** Server healthy
+(load 0.03, 3.2 GB free, no OOM, no busy process). The service had restarted
+~9h40m earlier (a deploy); one clip sat on `rendering` for 617 minutes (started
+03:01, the restart came before it finished) and 54 approved clips had no
+autopilot record: the pass runs in memory, so the restart ended it. Not a hung
+renderer. Fixed: the load-time reset above, and `run_now` now works in batches
+of 25 until nothing is left (max 10 batches; failed clips are retried only in the
+first batch and no clip is taken twice in a pass). Two `Exception Group
+Traceback` lines at 06:33 and 13:08 in the journal are not explained yet.

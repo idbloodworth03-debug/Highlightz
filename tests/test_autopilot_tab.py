@@ -169,3 +169,27 @@ def test_a_second_pass_does_not_start_while_one_is_running(backlog, monkeypatch)
     async def fake(*a, **k): raise AssertionError("a second pass started")
     monkeypatch.setattr(runner, "process_clip", fake)
     assert _run(runner.run_now("pro", force=False)) == 0
+
+
+def test_a_pass_keeps_going_past_one_batch_until_every_clip_is_done(backlog, monkeypatch):
+    """54 accepted clips were still untouched after a night: a pass stopped at
+    25. It now works in batches until nothing is left."""
+    from src.dashboard import api
+    now = time.time()
+    for i in range(3, 60):
+        api._clips[f"c{i}"] = {"id": f"c{i}", "user_id": "pro", "status": "approved",
+                               "approved_at": now - 1000 + i, "created_at": now - 2000}
+    async def fake(clip, cfg, notify, *, connected):
+        clip["autopilot"] = {"status": "scheduled"}; backlog["done"].append(clip["id"]); return {}
+    monkeypatch.setattr(runner, "process_clip", fake)
+    assert _run(runner.run_now("pro", force=False)) == 60
+    assert len(set(backlog["done"])) == 60
+
+
+def test_a_clip_that_keeps_failing_is_tried_once_per_pass_not_forever(backlog, monkeypatch):
+    calls = []
+    async def fake(clip, cfg, notify, *, connected):
+        calls.append(clip["id"]); clip["autopilot"] = {"status": "failed", "error": "x"}; return {}
+    monkeypatch.setattr(runner, "process_clip", fake)
+    assert _run(runner.run_now("pro", force=False)) == 3
+    assert sorted(calls) == ["c0", "c1", "c2"], "a failing clip was retried within one pass"
