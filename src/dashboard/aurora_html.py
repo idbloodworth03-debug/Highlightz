@@ -762,7 +762,6 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apx-prev{font-size:14px;line-height:1.5;padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.25);border:1px dashed var(--hair-2);color:var(--fg-2);word-break:break-word}
 .apx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:32px 16px;color:var(--fg-3);font-size:14px;line-height:1.5}
 .apx-empty b{color:var(--fg);font-size:16px}
-@media(max-width:900px){.apx-cols{grid-template-columns:minmax(0,1fr)}.apx-hero-tx h2{font-size:20px}.apx-flow{gap:8px}.apx-step{padding:12px 8px}}
 .apt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:16px}
 .apt-stats div{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--hair)}
 .apt-stats b{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
@@ -1699,6 +1698,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
 .rd-meta-row .mk{color:var(--fg-2)}
 .rd-meta-row .mv{font-weight:600}
 @media(max-width:900px){
+  .apx-cols{grid-template-columns:minmax(0,1fr)}.apx-hero-tx h2{font-size:20px}.apx-flow{gap:8px}.apx-step{padding:12px 8px}
   .rd-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .rd-col{max-height:300px}
   /* Stacked, so it is now TALLER than the window rather than two columns that
