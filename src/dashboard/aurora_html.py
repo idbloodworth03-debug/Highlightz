@@ -711,6 +711,33 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ap-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3)}
 .ap-row .ed-in{width:auto;flex:0 1 160px}
 .ap-toggles{flex-direction:row;flex-wrap:wrap;align-items:center;grid-column:1/-1}
+.apt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:16px}
+.apt-stats div{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--hair)}
+.apt-stats b{font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.apt-stats span{font-size:12px;color:var(--fg-3)}
+.apt-stats .bad b{color:var(--danger)}
+.apt-bar{height:8px;border-radius:99px;background:rgba(255,255,255,.08);margin-top:12px;overflow:hidden}
+.apt-bar i{display:block;height:100%;width:100%;background:var(--grad);border-radius:99px;transform-origin:left;transition:transform var(--dur-fast)}
+.apt-list{display:flex;flex-direction:column;margin-top:12px}
+.apt-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--hair)}
+.apt-row:first-child{border-top:0}
+.apt-row b{flex:1;min-width:160px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.apt-row em{flex-basis:100%;font-style:normal;font-size:12px;color:var(--danger)}
+.apt-pill{font-size:12px;font-weight:700;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.08);color:var(--fg-2);flex-shrink:0}
+.apt-pill.rendering{background:var(--grad-soft);color:var(--fg)}
+.apt-pill.scheduled{background:rgba(74,222,128,.14);color:var(--live)}
+.apt-pill.failed{background:var(--danger-soft);color:var(--danger)}
+.apt-tpls{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
+.apt-tpl{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:16px;
+  border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.apt-tpl:hover{border-color:var(--hair-2)}
+.apt-tpl.on{border-color:rgba(184,106,220,.55);background:var(--grad-soft)}
+.apt-tpl b{font-size:14px;display:flex;align-items:center;gap:8px}
+.apt-tpl b small{font-size:12px;font-weight:700;color:var(--acc);letter-spacing:.04em;text-transform:uppercase}
+.apt-tpl > span:last-child{font-size:12px;color:var(--fg-3);line-height:1.5}
+.apt-prev{position:relative;width:48px;height:84px;border-radius:8px;overflow:hidden;background:linear-gradient(160deg,#3a2a52,#15101f);border:1px solid var(--hair)}
+.apt-prev i{position:absolute;left:0;right:0;top:50%;height:27px;transform:translateY(-50%);background:linear-gradient(120deg,#e9a3ff,#7c6bff)}
+.apt-prev.fill i{top:0;bottom:0;height:auto;transform:none}
 .rd-agebadge{position:absolute;right:10px;bottom:10px;z-index:2;display:inline-flex;align-items:center;gap:4px;
   font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 8px;border-radius:7px;
   color:#0a0a0a;background:rgba(250,204,21,.92)}
@@ -1123,18 +1150,6 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .ed-hd i::after{content:'';position:absolute;top:50%;left:50%;width:2px;height:16px;transform:translate(-50%,-50%);background:rgba(0,0,0,.55);border-radius:1px}
 .ed-ph{position:absolute;top:0;bottom:0;width:16px;margin-left:-8px;z-index:3;cursor:ew-resize;display:grid;place-items:center}
 .ed-ph b{display:block;width:2px;height:100%;background:#fff;box-shadow:0 0 6px #fff;pointer-events:none}
-/* THE HOOK, on the strip (owner, 2026-09-24: "I need it easier for the
-   person to pick out the hook it is way too confusing right now"). A pink box
-   over the thumbnails: drag it onto the moment, drag its right edge for the
-   length. It lands pre-placed, so the default is already a sensible choice. */
-.ed-hook{position:absolute;top:0;bottom:0;z-index:2;cursor:grab;box-sizing:border-box;border-radius:8px;
-  border:3px solid #f943ff;background:rgba(249,67,255,.22);
-  box-shadow:0 0 0 1px rgba(0,0,0,.45),0 0 18px rgba(249,67,255,.7)}
-.ed-hook:active{cursor:grabbing}
-.ed-hook b{position:absolute;top:4px;left:4px;font-size:12px;font-weight:800;letter-spacing:.06em;line-height:1.5;
-  padding:0 8px;border-radius:999px;background:var(--grad);color:#fff;pointer-events:none;white-space:nowrap}
-.ed-hook i{position:absolute;top:0;bottom:0;right:-4px;width:12px;cursor:ew-resize;display:grid;place-items:center}
-.ed-hook i::after{content:'';width:4px;height:24px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
 .ed-choice{display:grid;gap:8px}
 .ed-ch{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:12px;border-radius:12px;
   border:1px solid var(--hair);background:rgba(255,255,255,.04);color:var(--fg-2);cursor:pointer}
@@ -2961,51 +2976,17 @@ function AnnouncementModal({ a, onSeen }) {
   );
 }
 
-// ── Auto-edit, admins only while it is tested (owner, 2026-09-23) ────────
-// "I want this to be implemented to the admins right now so we can test it
-// out … we need that option to add the intro hook bait thing also."
+// AUTO-EDIT ON A CLIP, admin test (owner, 2026-09-23). FULLY AUTOMATIC since
+// 2026-09-28: the manual hook picker that used to live here is gone ("I want it
+// to be fully auto after a user accepts a clip"). One button renders the same
+// edit Autopilot makes, with the template chosen in Autopilot > Auto Edit
+// settings, into the library and posts nothing.
 //
-// Two things, on the clip's own file:
-//   THE HOOK  play the clip, press "Hook starts here" at the moment, pick 5-10
-//             seconds, save. The edit opens on those seconds, slides across
-//             and plays the clip from its start. Optional — no hook is the
-//             clip alone, sliding in and out.
-//   THE EDIT  "Make auto-edit" renders it into the library and posts nothing.
-//
-// LIVE BOTH WAYS: saving a hook and each render step arrive as clip_updated,
-// which App already applies to the card and to this window — this component
-// keeps no copy of either, it re-reads `clip`.
+// LIVE: each render step arrives as clip_updated, which App already applies to
+// the card and to this window — this component keeps no copy, it re-reads `clip`.
 function AutoEditPanel({ clip }) {
-  const vref = useRef(null);
-  const hook = clip.hook || null;
-  const dur = clip.duration_seconds || 0;
-  const [start, setStart] = useState(hook ? hook.start : null);
-  const [len, setLen] = useState(hook ? Math.round((hook.end - hook.start) * 2) / 2 : 8);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  // A hook saved from another tab, or cleared, lands here as a new clip.hook.
-  useEffect(()=>{
-    const h = clip.hook;
-    setStart(h ? h.start : null);
-    setLen(h ? Math.round((h.end - h.start) * 2) / 2 : 8);
-    setErr('');
-  }, [clip.id, hook ? hook.start : -1, hook ? hook.end : -1]);
-  const end = start == null ? null : (dur ? Math.min(start + len, dur) : start + len);
-  const dirty = start != null && (!hook || Math.abs(hook.start - start) > 0.05 || Math.abs(hook.end - end) > 0.05);
-  const fmt = x => (Math.round(x * 10) / 10).toFixed(1) + 's';
-  const fromPlayer = () => {
-    const v = vref.current; if (!v) return;
-    let t = v.currentTime;
-    if (dur && t + len > dur) t = Math.max(0, dur - len);
-    setStart(Math.round(t * 10) / 10);
-  };
-  const preview = () => {
-    const v = vref.current; if (!v || start == null) return;
-    const stopAt = start + len;
-    const onT = () => { if (v.currentTime >= stopAt) { v.pause(); v.removeEventListener('timeupdate', onT); } };
-    v.addEventListener('timeupdate', onT);
-    v.currentTime = start; v.play();
-  };
   const post = async (url, body) => {
     setBusy(true); setErr('');
     try {
@@ -3019,54 +3000,24 @@ function AutoEditPanel({ clip }) {
   return (
     <div style={{marginTop:24,paddingTop:16,borderTop:'1px solid rgba(255,255,255,.08)'}}>
       <div className="rd-eyebrow" style={{marginBottom:12}}>Auto-edit · admin test</div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:16}}>
-        <div>
-          <video ref={vref} src={'/clips/' + clip.id + '/file'} controls playsInline preload="metadata"
-            style={{width:'100%',aspectRatio:'16/9',background:'#000',borderRadius:8,display:'block'}}/>
-          <div style={{fontSize:12,color:'var(--fg-3)',marginTop:8,lineHeight:1.5}}>
-            Play to the hype or the controversial moment, then press <b style={{color:'var(--fg)'}}>Hook starts here</b>.
-            The edit opens on it, slides across, then plays the clip from the start.
-          </div>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <button className="rd-btn sm" disabled={busy || rendering} onClick={fromPlayer}>
-            <Icon name="zap" size={13}/>Hook starts here</button>
-          <label style={{fontSize:12,color:'var(--fg-2)',display:'flex',alignItems:'center',gap:8}}>
-            Length
-            <input type="range" min="5" max="10" step="0.5" value={len} disabled={busy || rendering}
-              onChange={e=>setLen(parseFloat(e.target.value))} style={{flex:1}}/>
-            <span style={{fontVariantNumeric:'tabular-nums',minWidth:36,textAlign:'right'}}>{fmt(len)}</span>
-          </label>
-          <div style={{fontSize:14,color:'var(--fg)',fontVariantNumeric:'tabular-nums'}}>
-            {start == null
-              ? <span style={{color:'var(--fg-3)'}}>No hook — the edit is the clip alone.</span>
-              : <>Hook {fmt(start)} – {fmt(end)}{dirty ? <span style={{color:'var(--pending)'}}> · not saved</span> : hook ? <span style={{color:'var(--fg-3)'}}> · saved</span> : null}</>}
-          </div>
-          {start != null && <div style={{display:'flex',gap:8}}>
-            <button className="rd-btn sm" disabled={busy} onClick={preview} style={{flex:1,justifyContent:'center'}}>
-              <Icon name="play" size={13}/>Preview</button>
-            {dirty && <button className="rd-btn grad sm" disabled={busy || rendering} style={{flex:1,justifyContent:'center'}}
-              onClick={()=>post('/clips/' + clip.id + '/hook', {start: start, end: end})}>Save hook</button>}
-            {hook && !dirty && <button className="rd-btn sm" disabled={busy || rendering} style={{flex:1,justifyContent:'center'}}
-              onClick={()=>post('/clips/' + clip.id + '/hook', {clear: true})}>Remove hook</button>}
-          </div>}
-          <button className="rd-btn grad sm" disabled={busy || rendering || dirty}
-            title={dirty ? 'Save the hook first' : ''}
-            style={{marginTop:4,justifyContent:'center'}}
-            onClick={()=>post('/clips/' + clip.id + '/auto-edit', {captions: true})}>
-            <Icon name="sparkles" size={13}/>{rendering ? 'Rendering…' : ae.status === 'ready' ? 'Make it again' : 'Make auto-edit'}</button>
-          {err && <div className="rd-dl-note" style={{color:'var(--danger)'}}>{err}</div>}
-          {rendering && <div className="rd-dl-note"><b>Rendering on the server.</b> A few minutes —
-            started {new Date(ae.at * 1000).toLocaleTimeString()}. It lands here and in your library on its own.</div>}
-          {ae.status === 'failed' && <div className="rd-dl-note"><b>That render failed.</b> {ae.error || ''}</div>}
+      <div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>
+        <button className="rd-btn grad sm" disabled={busy || rendering}
+          onClick={()=>post('/clips/' + clip.id + '/auto-edit', {captions: true})}>
+          <Icon name="sparkles" size={13}/>{rendering ? 'Rendering…' : ae.status === 'ready' ? 'Make it again' : 'Make auto-edit'}</button>
+        <div style={{fontSize:12,color:'var(--fg-3)',lineHeight:1.5,flex:1,minWidth:200}}>
+          Edited automatically with your Auto Edit template. Nothing to pick.
         </div>
       </div>
+      {err && <div className="rd-dl-note" style={{color:'var(--danger)'}}>{err}</div>}
+      {rendering && <div className="rd-dl-note"><b>Rendering on the server.</b> A few minutes —
+        started {new Date(ae.at * 1000).toLocaleTimeString()}. It lands here and in your library on its own.</div>}
+      {ae.status === 'failed' && <div className="rd-dl-note"><b>That render failed.</b> {ae.error || ''}</div>}
       {ae.status === 'ready' && ae.upload_id && <div style={{marginTop:16,display:'flex',gap:16,alignItems:'flex-start',flexWrap:'wrap'}}>
         <video key={ae.upload_id} src={'/uploads/' + ae.upload_id + '/file'} controls playsInline preload="metadata"
           style={{width:220,aspectRatio:'9/16',background:'#000',borderRadius:8,display:'block'}}/>
         <div style={{fontSize:12,color:'var(--fg-2)',lineHeight:1.6,flex:1,minWidth:160}}>
           <div style={{color:'var(--fg)',fontWeight:600,marginBottom:4}}>Your auto-edit</div>
-          {ae.seconds ? <div>{ae.seconds}s{ae.hook ? ', opening on the hook' : ', no hook'}{ae.captions ? ', ' + ae.captions + ' captions' : ''}.</div> : null}
+          {ae.seconds ? <div>{ae.seconds}s{ae.captions ? ', ' + ae.captions + ' captions' : ''}.</div> : null}
           <div>Saved to your library — nothing was posted.</div>
           <a href={'/uploads/' + ae.upload_id + '/file'} download className="rd-btn sm"
             style={{textDecoration:'none',marginTop:8,display:'inline-flex'}}><Icon name="download" size={13}/>Download</a>
@@ -4634,7 +4585,7 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that close on Kick WHEN `kickOpen` (in the app) is false. Kick
 // monitoring went live on 2026-09-15 (chat + audio + viewers, clips cut from
 // live capture — no Kick-hosted clip, no Highlight clips) as an admin-only
@@ -4644,11 +4595,11 @@ const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'
 // unclickable rather than looking live and then dead-ending; Account,
 // Feedback, the platform switch and Sign out always stay live so Kick is
 // never a trap.
-const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];
+const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','autopilot','settings'];
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -6066,62 +6017,25 @@ const TEMPLATES = [
   // becomes "Make auto-edit". The knobs below only make the PREVIEW look like
   // the result (blurred frame, no browser effects); the server renders it.
   { id: 'auto', name: 'Auto Edit', server: true,
-    desc: 'Our auto-edit: the whole clip on a blurred frame, sliding in and out with a whoosh, with captions. Choose whether it opens on a hook.',
+    desc: 'Our auto-edit, fully automatic: your Auto Edit template (the suggested one unless you changed it), with captions. Nothing to pick.',
     tab: 'frame',
     set: { ratio: '9:16', layout: 'single', fill: 'blur', zoom: 1, offX: 0, offY: 0,
            capPos: 'low', capHi: true, capUpper: true, capWord: true, capSize: 0.05,
            transIn: 'none', transOut: 'none', textAnim: false, sfxIn: 'none', sfxOut: 'none' } },
 ];
 
-// The Auto Edit style's side panel: the one decision it leaves to a person,
-// in plain words, with the choosing done on the timeline (the pink box).
-function AutoEditSide({ dur, hookOn, chooseHook, hookStart, hookLen, setHookLen, onPlayHook, locked,
-                        playing, onTogglePlay, onHookHere }) {
-  // The same clock the timeline prints, so the two never disagree by a tenth.
-  const end = hookStart == null ? 0 : Math.min(hookStart + hookLen, dur || hookStart + hookLen);
+// The Auto Edit style's side panel. It asks for NOTHING (owner, 2026-09-28:
+// "I want it to be fully auto after a user accepts a clip"): the hook picker
+// that lived here is gone. It says what will happen and where the template is
+// chosen.
+function AutoEditSide() {
   return (
     <div className="ed-quick">
-      <div className="ed-sec-t">How should it start?</div>
-      <div className="ed-choice">
-        <button className={'ed-ch' + (hookOn ? ' on' : '')} disabled={locked} onClick={()=>chooseHook(true)}>
-          <b>Start with a hook</b>
-          <span>Shows the best few seconds first, then plays the whole clip.</span>
-        </button>
-        <button className={'ed-ch' + (!hookOn ? ' on' : '')} disabled={locked} onClick={()=>chooseHook(false)}>
-          <b>Just the clip</b>
-          <span>Plays from the beginning.</span>
-        </button>
+      <div className="ed-sec-t">Fully automatic</div>
+      <div className="ed-note">
+        Press <b>Make auto-edit</b> and Highlightz edits the whole clip for you. The look comes
+        from <b>Autopilot &rarr; Auto Edit settings</b>.
       </div>
-      {hookOn && <div className="ed-steps">
-        {/* WATCH, THEN PICK (owner, 2026-09-24: "I need the user to be able
-            to play the video while selecting the hook so they can see where
-            to place it"). Play runs the whole clip; "Hook here" drops the
-            box at what is on screen without stopping playback. */}
-        <div className="ed-stepl"><span className="n">1</span>
-          <span>Press <b>Play</b> and watch the clip.</span></div>
-        <div className="ed-stepl"><span className="n">2</span>
-          <span>When the moment happens, press <b>Hook here</b>. You can also drag the pink box on the timeline.</span></div>
-        <div className="ed-row">
-          <button className="rd-btn sm" disabled={locked || !dur} onClick={onTogglePlay} style={{flex:1,justifyContent:'center'}}>
-            {playing ? <><span className="ed-pause"/>&nbsp;Pause</> : <><Icon name="play" size={13}/>&nbsp;Play video</>}</button>
-          <button className="rd-btn grad sm" disabled={locked || !dur} onClick={onHookHere} style={{flex:1,justifyContent:'center'}}>
-            <Icon name="zap" size={13}/>&nbsp;Hook here</button>
-        </div>
-        <div className="ed-stepl"><span className="n">3</span>
-          <span>Check it with <b>Play hook</b>, then press <b>Make auto-edit</b>.</span></div>
-        <div className="ed-row" style={{marginTop:4}}>
-          <button className="rd-btn grad sm" disabled={locked || hookStart == null} onClick={onPlayHook}>
-            <Icon name="play" size={13}/>&nbsp;Play hook</button>
-          {hookStart != null && <span className="ed-note" style={{fontVariantNumeric:'tabular-nums'}}>{edTime(hookStart)} – {edTime(end)}</span>}
-        </div>
-        <div className="ed-row" style={{alignItems:'center'}}>
-          <span className="ed-note">Length</span>
-          <div className="ed-seg ed-seg-sm" style={{flex:1}}>
-            {[5, 8, 10].map(n => <button key={n} className={Math.abs(hookLen - n) < 0.05 ? 'on' : ''} disabled={locked}
-              onClick={()=>setHookLen(n)}>{n}s</button>)}
-          </div>
-        </div>
-      </div>}
     </div>
   );
 }
@@ -6564,10 +6478,9 @@ function outputSize(ratio, vw, vh) {
    a drag — positions are written straight to the DOM from the pointer events
    and React catches up when the pointer lifts. */
 function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, onSeek, onDragState,
-                      whole = false, hook = null, onHook, onHookLen, onHookDone }) {
+                      whole = false }) {
   const ref = useRef(null);
   const drag = useRef(null);
-  const grab = useRef(0);        // where on the hook box the finger took hold
   const pct = (t) => (dur ? Math.max(0, Math.min(1, t / dur)) * 100 : 0);
   const timeAt = (clientX) => {
     const r = ref.current.getBoundingClientRect();
@@ -6577,7 +6490,6 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
     if (disabled || !dur) return;
     const kind = e.target.dataset.h || 'seek';
     drag.current = kind;
-    if (kind === 'hook' && hook) grab.current = timeAt(e.clientX) - hook.start;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {}
     onDragState(true);
     move(e);
@@ -6588,25 +6500,13 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
     const t = timeAt(e.clientX);
     if (drag.current === 'in') onIn(t);
     else if (drag.current === 'out') onOut(t);
-    else if (drag.current === 'hook' && hook) {
-      // Move the box, keeping the finger where it took hold; the preview
-      // follows the box's first frame so you see what the video will open on.
-      const s = Math.max(0, Math.min(dur - hook.len, t - grab.current));
-      onHook(s); onSeek(s);
-    }
-    else if (drag.current === 'hooklen' && hook) {
-      onHookLen(Math.max(5, Math.min(10, Math.min(dur - hook.start, t - hook.start))));
-    }
     else onSeek(t);
   };
   const up = (e) => {
     if (!drag.current) return;
-    const was = drag.current;
     drag.current = null;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (x) {}
     onDragState(false);
-    // Let go of the hook and it plays, so checking it takes no extra step.
-    if ((was === 'hook' || was === 'hooklen') && onHookDone) onHookDone();
   };
   return (
     <div className={'ed-tl' + (disabled ? ' off' : '')} ref={ref}
@@ -6623,10 +6523,7 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
         <div className="ed-hd l" data-h="in" style={{left: pct(inPt) + '%'}} title="Drag to set the start"><i data-h="in"/></div>
         <div className="ed-hd r" data-h="out" style={{left: pct(outPt) + '%'}} title="Drag to set the end"><i data-h="out"/></div>
       </>}
-      {hook && <div className="ed-hook" data-h="hook" title="Drag onto the moment the video should open on"
-          style={{left: pct(hook.start) + '%', width: (pct(hook.start + hook.len) - pct(hook.start)) + '%'}}>
-        <b>HOOK</b><i data-h="hooklen" title="Drag to make the hook longer or shorter"/>
-      </div>}
+
       <div className="ed-ph" ref={headRef} data-h="head" style={{left: 0}}><b data-h="head"/></div>
     </div>
   );
@@ -6687,35 +6584,14 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   // the blob after download would force a re-export to share.
   const [outFile, setOutFile] = useState(null);  // {blob, ext, name}
 
-  // Auto Edit: the hook choice, and the server's job for this upload. The job
-  // is the SERVER'S, read on open and on every reconnect and followed live
-  // over upload_auto_edit — see the effect below.
-  const [hookOn, setHookOn]       = useState(false);
-  const [hookStart, setHookStart] = useState(null);
-  const [hookLen, setHookLen]     = useState(8);
-  const [aeJob, setAeJob]         = useState(null);   // {status, at, hook, result, seconds, error}
+  // Auto Edit: the server's job for this upload. FULLY AUTOMATIC (owner,
+  // 2026-09-28) — there is no hook to choose; the template comes from
+  // Autopilot > Auto Edit settings. The job is the SERVER'S, read on open and
+  // on every reconnect and followed live over upload_auto_edit — see the
+  // effect below.
+  const [aeJob, setAeJob]         = useState(null);   // {status, at, result, seconds, error}
   const [aeErr, setAeErr]         = useState('');
   const aeSent = useRef(0);                           // when this tab pressed Make
-  const hookStop = useRef(null);                      // "Play hook" stops here
-  // Where the hook box lands before anyone touches it: around 60% in, which
-  // is where a caught moment usually sits (the capture keeps more lead-in
-  // than tail) — so leaving it alone is already a sensible hook.
-  const hookDefault = (len, d) => Math.max(0, Math.min((d || 0) - len, (d || 0) * 0.6 - len / 2));
-  const chooseHook = (on) => {
-    setHookOn(on);
-    if (on && hookStart == null && dur) setHookStart(Math.round(hookDefault(hookLen, dur) * 10) / 10);
-  };
-  // Drop the hook at what is on screen, a second early so the build-up is in
-  // it (people press a beat after they see the moment). Playback continues.
-  const hookHere = () => {
-    const v = videoRef.current; if (!v || !dur) return;
-    setHookOn(true);
-    setHookStart(Math.round(Math.max(0, Math.min(dur - hookLen, v.currentTime - 1)) * 10) / 10);
-  };
-  const changeHookLen = (n) => {
-    setHookLen(n);
-    setHookStart(s0 => s0 == null ? s0 : Math.max(0, Math.min(s0, (dur || n) - n)));
-  };
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
@@ -6877,12 +6753,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   const makeAutoEdit = async () => {
     setAeErr('');
-    const hook = hookOn && hookStart != null
-      ? {start: hookStart, end: Math.min(hookStart + hookLen, dur || hookStart + hookLen)} : null;
     aeSent.current = Date.now();
     try{
       const r = await fetch('/uploads/'+clip.id+'/auto-edit', {method:'POST',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify({hook: hook, captions: true})});
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({captions: true})});
       if (r.ok) setAeJob(await r.json());
       else { let d = 'Could not start the auto-edit'; try{ d = (await r.json()).detail || d; }catch{} setAeErr(d); }
     }catch{ setAeErr('Could not reach the server'); }
@@ -6973,10 +6847,6 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         // Preview loops inside the cut. Checking a trim means watching the
         // ends, and a preview that stops dead at the out-point makes you
         // press play again for every look.
-        // "Play hook" plays just the hook, then stops.
-        if (hookStop.current != null && L.playing && t >= hookStop.current) {
-          hookStop.current = null; v.pause(); setPlay(false);
-        }
         if (L.playing && !L.busy && t >= L.outPt - 0.02) {
           v.currentTime = L.inPt;
           if (L.fireSfx) L.fireSfx(L.inPt);         // the loop restarts the sounds too
@@ -7064,16 +6934,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     if (L.fireSfx) L.fireSfx(v.currentTime);
     setPlay(true);
   };
-  const togglePlay = () => { if (busy) return; hookStop.current = null; latest.current.playing ? pause() : play(); };
-  const playHook = () => {
-    if (busy || hookStart == null) return;
-    const v = videoRef.current; if (!v) return;
-    v.currentTime = hookStart;
-    hookStop.current = Math.min(hookStart + hookLen, dur || hookStart + hookLen);
-    v.play().catch(() => {});
-    if (latest.current.fireSfx) latest.current.fireSfx(hookStart);
-    setPlay(true);
-  };
+  const togglePlay = () => { if (busy) return; latest.current.playing ? pause() : play(); };
 
   const setInAt = (t) => {
     const L = latest.current;
@@ -7134,13 +6995,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const applyTemplate = (t) => {
     if (busy) return;
     Object.keys(t.set).forEach(k => { if (SETTERS[k]) SETTERS[k](t.set[k]); });
-    // Auto Edit uses the whole video, so the trim goes back to all of it, and
-    // it opens on a hook unless the user says otherwise — already placed.
-    if (t.id === 'auto') {
-      setIn(0); setOut(dur || 0);
-      setHookOn(true);
-      if (hookStart == null && dur) setHookStart(Math.round(hookDefault(hookLen, dur) * 10) / 10);
-    }
+    // Auto Edit uses the whole video, so the trim goes back to all of it.
+    if (t.id === 'auto') { setIn(0); setOut(dur || 0); }
     setTpl(t.id);
     setTab(t.tab);
     setHint(true);
@@ -7484,17 +7340,12 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
             <EdTimeline dur={dur} inPt={inPt} outPt={outPt} thumbs={thumbs} headRef={headRef}
               disabled={busy || !!(aeJob && aeJob.status === 'rendering' && tpl === 'auto')}
               onIn={setInAt} onOut={setOutAt} onSeek={t=>seek(t)} onDragState={onDragState}
-              whole={tpl === 'auto'}
-              hook={tpl === 'auto' && hookOn && hookStart != null ? {start: hookStart, len: hookLen} : null}
-              onHook={s0=>setHookStart(Math.round(s0 * 10) / 10)}
-              onHookLen={n=>setHookLen(Math.round(n * 2) / 2)}
-              onHookDone={playHook}/>
+              whole={tpl === 'auto'}/>
 
             {tpl === 'auto'
               ? <div className="ed-tlinfo">
                   <span><i>Whole clip</i> {edTime(dur)}</span>
-                  <span className="mid">{hookOn && hookStart != null ? 'Hook ' + edTime(hookStart) + ' – ' + edTime(Math.min(hookStart + hookLen, dur)) : 'No hook'}</span>
-                  <span>{hookOn ? 'Drag the pink box' : ''}</span>
+                  <span className="mid">Edited automatically</span>
                 </div>
               : <div className="ed-tlinfo">
                   <span><i>Start</i> {edTime(inPt)}</span>
@@ -7516,7 +7367,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   <span className="ed-feat-ic" aria-hidden="true"><Icon name="sparkles" size={18}/></span>
                   <span className="ed-feat-tx">
                     <span className="ed-tpl-n">{t.name}<span className="ed-feat-new">New</span></span>
-                    <span className="ed-feat-d">One click: blurred frame, slide in and out with a whoosh, captions, and an optional hook.</span>
+                    <span className="ed-feat-d">One click, fully automatic: your Auto Edit template, with captions.</span>
                   </span>
                 </button>
               ))}
@@ -7532,10 +7383,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
               {tpl && <div className="ed-note">{(TEMPLATES.find(t => t.id === tpl) || {}).desc}</div>}
             </div>
 
-            {tpl === 'auto' ? <AutoEditSide dur={dur} hookOn={hookOn} chooseHook={chooseHook}
-                hookStart={hookStart} hookLen={hookLen} setHookLen={changeHookLen} onPlayHook={playHook}
-                playing={playing} onTogglePlay={togglePlay} onHookHere={hookHere}
-                locked={!!(aeJob && aeJob.status === 'rendering')}/> : <>
+            {tpl === 'auto' ? <AutoEditSide/> : <>
             <div className="ed-quick">
               <div className="ed-sec-t">Title</div>
               <textarea className="ed-in" rows="2" value={text} disabled={busy} ref={textRef}
@@ -7775,11 +7623,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         <div className="ed-foot">
           {tpl === 'auto' ? (()=>{
             const rendering = !!(aeJob && aeJob.status === 'rendering');
-            const main = Math.min(dur || 0, 170);
-            const secs = main + (hookOn && hookStart != null ? Math.min(hookLen, (dur || 0) - hookStart) - 0.5 : 0);
-            const needHook = hookOn && hookStart == null;
+            const secs = Math.min(dur || 0, 170);
             return <>
-              <button className="rd-btn grad ed-export" onClick={makeAutoEdit} disabled={rendering || needHook || !dur}>
+              <button className="rd-btn grad ed-export" onClick={makeAutoEdit} disabled={rendering || !dur}>
                 <Icon name="sparkles" size={14}/>&nbsp;{rendering ? 'Rendering…' : 'Make auto-edit · 9:16 · ' + secs.toFixed(1) + 's'}
               </button>
               {!rendering && !aeErr && (!aeJob || aeJob.status !== 'failed') &&
@@ -7791,7 +7637,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 <video key={aeJob.result.id} src={'/uploads/' + aeJob.result.id + '/file'} controls playsInline preload="metadata"
                   style={{width:96,aspectRatio:'9/16',background:'#000',borderRadius:6}}/>
                 <div style={{flex:1}}>
-                  <div className="ed-note ok">Your auto-edit is ready — {aeJob.seconds}s{aeJob.hook ? ', opening on the hook' : ''}{aeJob.captions ? ', ' + aeJob.captions + ' captions' : ''}. It is in your library.</div>
+                  <div className="ed-note ok">Your auto-edit is ready — {aeJob.seconds}s{aeJob.captions ? ', ' + aeJob.captions + ' captions' : ''}. It is in your library.</div>
                   <a className="rd-btn sm" href={'/uploads/' + aeJob.result.id + '/file'} download
                     style={{textDecoration:'none',display:'inline-flex',marginTop:8}}><Icon name="download" size={13}/>&nbsp;Download</a>
                 </div>
@@ -8589,14 +8435,69 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
 }
 
 
-/* Autopilot: approve a clip and the server renders and queues it. Pro,
-   off by default. Saves on every change (PUT /autopilot) and carries the
-   browser's timezone so "daily at 18:00" means the user's 18:00. */
-function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }) {
+/* AUTOPILOT, on its own screen (owner, 2026-09-28: "Autopilot has no spot that
+   it sits in. We need a spot for it to sit in where people can activate it and
+   it will pull the clips that you already have accepted and start going
+   through them, auto editing and adding them to the scheduler. Also I need the
+   auto edit to have its own settings spot").
+
+   Two sections, one screen. AUTOPILOT: the switch, where and when it posts, and
+   a live count of what it is doing to the clips already accepted. AUTO EDIT:
+   which template the edit uses (or the suggested one) and the title/captions
+   options. Switching it on makes the server start on the accepted clips at once
+   (PUT /autopilot, off -> on); the counts here are read from the App's `clips`
+   state, so every step arrives as that clip's own clip_updated with no refresh,
+   and `ap` is refreshed by autopilot_changed and refetchAll.
+
+   FULLY AUTOMATIC: nothing here asks for anything per clip. The manual hook
+   picker is gone from the editor's Auto Edit for the same reason. */
+const APT_LABEL = {rendering:'Editing…', scheduled:'Added to the Scheduler', failed:'Needs attention',
+                   waiting_file:'Waiting for its video'};
+
+function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captionsOn = false,
+                           uploadsOn = true, onOpenScheduler = null }) {
   const cfg = (ap && ap.config) || null;
+  const [tab, setTab]   = useState('autopilot');     // 'autopilot' | 'edit'
   const [busy, setBusy] = useState(false);
-  const [ran, setRan] = useState('');
-  if (!cfg) return null;
+  const [ran, setRan]   = useState('');
+  const isAdmin = !!(me && me.is_admin);
+
+  // Held back with the Scheduler it feeds: /autopilot answers 503 while
+  // UPLOADS_ENABLED is off, so without this a regular user would sit on
+  // "Loading Autopilot…" forever. Admins are always through (uploadsOn).
+  if (!uploadsOn) {
+    return (
+      <div className="rd-scroll">
+        <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
+          <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="zap" size={40}/></div>
+          <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Autopilot is coming soon</h3>
+          <div className="desc" style={{maxWidth:460,margin:'0 auto'}}>
+            Accept a clip and it will be edited and added to your Scheduler for you. Not open yet.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (me && me.plan_limits && !me.plan_limits.uploads && !isAdmin) {
+    return (
+      <div className="rd-scroll">
+        <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
+          <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="zap" size={40}/></div>
+          <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Autopilot is a Pro feature</h3>
+          <div className="desc" style={{maxWidth:460,margin:'0 auto 24px'}}>
+            Approve a clip and Autopilot edits it and adds it to the Scheduler, and goes back
+            through the clips you have already accepted. Included with Pro.
+          </div>
+          <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
+            <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
+          </a>
+        </div>
+      </div>
+    );
+  }
+  if (!cfg) return <div className="rd-scroll"><div className="rd-card glass"><div className="desc">Loading Autopilot…</div></div></div>;
+
+  const on = !!cfg.enabled;
   const connected = (connections||[]).filter(c=>c.connected && !c.last_error);
   const save = async (patch) => {
     setBusy(true);
@@ -8609,88 +8510,168 @@ function AutopilotCard({ me, ap, connections = [], captionsOn = false, onSaved }
   };
   const runNow = async () => {
     setRan('');
-    try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the calendar.' : 'Could not start.'); }
+    try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the list below.' : 'Could not start.'); }
     catch { setRan('Could not reach the server.'); }
   };
-  const on = !!cfg.enabled;
+
+  // What Autopilot is doing to the clips you have ACCEPTED, from live state.
+  const st = c => (c.autopilot && c.autopilot.status) || '';
+  const accepted = Object.values(clips || {}).filter(c => c.status === 'approved');
+  const editing   = accepted.filter(c => st(c) === 'rendering');
+  const scheduled = accepted.filter(c => st(c) === 'scheduled');
+  const failed    = accepted.filter(c => st(c) === 'failed');
+  const waiting   = accepted.filter(c => (!st(c) || st(c) === 'waiting_file') && c.has_file);
+  const touched   = accepted.filter(c => st(c)).sort((a, b) => ((b.autopilot||{}).at || 0) - ((a.autopilot||{}).at || 0)).slice(0, 8);
+  const total = editing.length + scheduled.length + failed.length + waiting.length;
+  const pct = total ? Math.round(100 * (scheduled.length + failed.length) / total) : 0;
+
+  const TPL = [['suggested','Suggested'],['fill','Fill the screen'],['clean','Clean']];
+  const TPL_DESC = {suggested:'The whole clip over a blurred backdrop, sliding in and out with a whoosh.',
+                    fill:'The clip cropped to fill the vertical frame, sliding in and out with a whoosh.',
+                    clean:'The whole clip over a blurred backdrop. No slides, no sound effect.'};
+
   return (
-    <div className={'rd-card glass ap' + (on ? ' on' : '')}>
-      <div className="ap-head">
-        <div className="ap-title">
-          <span className="si"><Icon name="zap" size={15}/></span>
-          <div>
-            <h3>Autopilot</h3>
-            <div className="desc" style={{margin:0}}>Approve a clip and it is cut for vertical, captioned and posted for you.</div>
-          </div>
-        </div>
-        <button className={'ap-switch' + (on ? ' on' : '')} role="switch" aria-checked={on} disabled={busy}
-          onClick={()=>save({enabled: !on})} aria-label="Autopilot on or off"><i/></button>
+    <div className="rd-scroll">
+      <div className="ed-seg" style={{marginBottom:16,maxWidth:420}} role="tablist">
+        <button className={tab==='autopilot'?'on':''} role="tab" aria-selected={tab==='autopilot'} onClick={()=>setTab('autopilot')}>Autopilot</button>
+        <button className={tab==='edit'?'on':''} role="tab" aria-selected={tab==='edit'} onClick={()=>setTab('edit')}>Auto Edit settings</button>
       </div>
-      {on && <div className="ap-body">
-        <div className="ap-grp">
-          <label>Style</label>
-          <div className="ed-seg">
-            {[['full','Full Frame'],['blur','Blur Bars'],['punch','Punch In'],['hook','Hook Title']].map(([k,l])=>(
-              <button key={k} className={cfg.template===k?'on':''} disabled={busy} onClick={()=>save({template:k})}>{l}</button>
-            ))}
+
+      {tab === 'autopilot' && <>
+        <div className={'rd-card glass ap' + (on ? ' on' : '')} style={{marginTop:0}}>
+          <div className="ap-head">
+            <div className="ap-title">
+              <span className="si"><Icon name="zap" size={15}/></span>
+              <div>
+                <h3>Autopilot is {on ? 'on' : 'off'}</h3>
+                <div className="desc" style={{margin:0}}>
+                  {on ? 'Every clip you accept is edited and added to the Scheduler automatically.'
+                      : 'Turn it on and Highlightz goes through the clips you have already accepted, edits each one and adds it to the Scheduler.'}
+                </div>
+              </div>
+            </div>
+            <button className={'ap-switch' + (on ? ' on' : '')} role="switch" aria-checked={on} disabled={busy}
+              onClick={()=>save({enabled: !on})} aria-label="Autopilot on or off"><i/></button>
+          </div>
+          <div className="apt-stats">
+            <div><b>{waiting.length}</b><span>accepted, waiting</span></div>
+            <div><b>{editing.length}</b><span>editing now</span></div>
+            <div><b>{scheduled.length}</b><span>in the Scheduler</span></div>
+            <div className={failed.length ? 'bad' : ''}><b>{failed.length}</b><span>need attention</span></div>
+          </div>
+          {on && total > 0 && <div className="apt-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct}><i style={{transform: 'scaleX(' + (pct / 100) + ')'}}/></div>}
+          {!on && waiting.length > 0 && <div className="sc-sub" style={{marginTop:12}}>
+            {waiting.length} accepted clip{waiting.length === 1 ? '' : 's'} with a video will be picked up the moment you switch it on.</div>}
+          <div className="ap-toggles" style={{marginTop:12,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <button className="rd-btn sm" onClick={runNow} disabled={busy}
+              title="Every clip accepted in the last 30 days that has a video and is not in the Scheduler yet">
+              Go through my accepted clips now
+            </button>
+            {ran && <span className="sc-sub">{ran}</span>}
           </div>
         </div>
-        <div className="ap-grp">
-          <label>Post to</label>
-          {connected.length === 0
-            ? <div className="sc-sub">Connect an account above. Until then Autopilot still cuts each clip and puts it on the calendar as a reminder.</div>
-            : <div className="sc-pchips">
-                {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
-                  <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
-                    onClick={()=>save({platforms: picked ? cfg.platforms.filter(p=>p!==c.id) : [...cfg.platforms, c.id]})}>
-                    {picked ? '✓ ' : ''}{c.label}
-                  </button>); })}
+
+        <div className="rd-card glass ap" style={{marginTop:16}}>
+          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="clock" size={15}/></span>
+            <div><h3>Where and when</h3><div className="desc" style={{margin:0}}>Applies to every clip Autopilot adds.</div></div></div></div>
+          <div className="ap-body">
+            <div className="ap-grp">
+              <label>Post to</label>
+              {connected.length === 0
+                ? <div className="sc-sub">Connect an account on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
+                : <div className="sc-pchips">
+                    {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
+                      <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
+                        onClick={()=>save({platforms: picked ? cfg.platforms.filter(p=>p!==c.id) : [...cfg.platforms, c.id]})}>
+                        {picked ? '✓ ' : ''}{c.label}
+                      </button>); })}
+                  </div>}
+            </div>
+            <div className="ap-grp">
+              <label>When</label>
+              <div className="ed-seg">
+                {[['now','Right away'],['spaced','Spread out'],['daily','Once a day']].map(([k,l])=>(
+                  <button key={k} className={cfg.timing===k?'on':''} disabled={busy} onClick={()=>save({timing:k})}>{l}</button>
+                ))}
+              </div>
+              {cfg.timing==='spaced' && <div className="ap-row">
+                <span>Every</span>
+                <select className="ed-in" value={cfg.spacing_h} disabled={busy} onChange={e=>save({spacing_h:+e.target.value})}>
+                  {[1,2,3,4,6,8,12,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}
+                </select>
+              </div>}
+              {cfg.timing==='daily' && <div className="ap-row">
+                <span>At</span>
+                <input className="ed-in" type="time" value={cfg.daily_at} disabled={busy} onChange={e=>save({daily_at:e.target.value})}/>
+                <span className="sc-sub">your local time</span>
+              </div>}
+            </div>
+            <div className="ap-grp" style={{gridColumn:'1/-1'}}>
+              <label>Caption</label>
+              <input className="ed-in" defaultValue={cfg.caption_text} disabled={busy} maxLength={2200}
+                onBlur={e=>{ if (e.target.value !== cfg.caption_text) save({caption_text:e.target.value}); }}/>
+              <div className="sc-sub">{'{title}'}, {'{channel}'} and {'{game}'} are filled in from the clip.</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rd-card glass ap" style={{marginTop:16}}>
+          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="film" size={15}/></span>
+            <div><h3>What Autopilot is doing</h3><div className="desc" style={{margin:0}}>The most recent clips it has touched.</div></div></div>
+            {onOpenScheduler && <button className="rd-btn sm" onClick={onOpenScheduler}>Open the Scheduler</button>}</div>
+          {touched.length === 0
+            ? <div className="sc-sub" style={{marginTop:12}}>Nothing yet. Accept a clip in Clip Review, or switch Autopilot on to go through the ones you already have.</div>
+            : <div className="apt-list">
+                {touched.map(c=>(
+                  <div key={c.id} className="apt-row">
+                    <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
+                    <span className={'apt-pill ' + st(c)}>{APT_LABEL[st(c)] || st(c)}</span>
+                    {st(c) === 'failed' && c.autopilot.error && <em>{c.autopilot.error}</em>}
+                  </div>))}
               </div>}
         </div>
-        <div className="ap-grp">
-          <label>When</label>
-          <div className="ed-seg">
-            {[['now','Right away'],['spaced','Spread out'],['daily','Once a day']].map(([k,l])=>(
-              <button key={k} className={cfg.timing===k?'on':''} disabled={busy} onClick={()=>save({timing:k})}>{l}</button>
-            ))}
+      </>}
+
+      {tab === 'edit' && <>
+        <div className="rd-card glass ap" style={{marginTop:0}}>
+          <div className="ap-head"><div className="ap-title"><span className="si"><Icon name="sparkles" size={15}/></span>
+            <div><h3>Auto Edit</h3>
+              <div className="desc" style={{margin:0}}>How every automatic edit looks. Nothing to pick per clip: it is fully automatic once a clip is accepted.</div></div></div></div>
+          {isAdmin
+            ? <div className="apt-tpls" role="radiogroup" aria-label="Auto Edit template">
+                {TPL.map(([k,l])=>(
+                  <button key={k} role="radio" aria-checked={cfg.edit_template===k} disabled={busy}
+                    className={'apt-tpl' + (cfg.edit_template===k ? ' on' : '')} onClick={()=>save({edit_template:k})}>
+                    <span className={'apt-prev ' + k}><i/></span>
+                    <b>{l}{k==='suggested' && <small>Recommended</small>}</b>
+                    <span>{TPL_DESC[k]}</span>
+                  </button>))}
+              </div>
+            : <div className="ap-grp" style={{marginTop:16}}>
+                <label>Style</label>
+                <div className="ed-seg">
+                  {[['full','Full Frame'],['blur','Blur Bars'],['punch','Punch In'],['hook','Hook Title']].map(([k,l])=>(
+                    <button key={k} className={cfg.template===k?'on':''} disabled={busy} onClick={()=>save({template:k})}>{l}</button>
+                  ))}
+                </div>
+              </div>}
+          <div className="ap-grp ap-toggles" style={{marginTop:16}}>
+            <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
+              {cfg.title ? '✓ ' : ''}Title on the video
+            </button>
+            {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
+              {cfg.captions ? '✓ ' : ''}Auto-captions
+            </button>}
           </div>
-          {cfg.timing==='spaced' && <div className="ap-row">
-            <span>Every</span>
-            <select className="ed-in" value={cfg.spacing_h} disabled={busy} onChange={e=>save({spacing_h:+e.target.value})}>
-              {[1,2,3,4,6,8,12,24].map(h=><option key={h} value={h}>{h} hour{h>1?'s':''}</option>)}
-            </select>
-          </div>}
-          {cfg.timing==='daily' && <div className="ap-row">
-            <span>At</span>
-            <input className="ed-in" type="time" value={cfg.daily_at} disabled={busy} onChange={e=>save({daily_at:e.target.value})}/>
-            <span className="sc-sub">your local time</span>
-          </div>}
+          {isAdmin && <div className="sc-sub" style={{marginTop:12}}>Used by Autopilot and by Auto Edit in the Clip Editor.</div>}
+          {ap && ap.font_ok === false && <div className="ed-warn" style={{marginTop:12}}>The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}
         </div>
-        <div className="ap-grp">
-          <label>Caption</label>
-          <input className="ed-in" defaultValue={cfg.caption_text} disabled={busy} maxLength={2200}
-            onBlur={e=>{ if (e.target.value !== cfg.caption_text) save({caption_text:e.target.value}); }}/>
-          <div className="sc-sub">{'{title}'}, {'{channel}'} and {'{game}'} are filled in from the clip.</div>
-        </div>
-        <div className="ap-grp ap-toggles">
-          <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
-            {cfg.title ? '✓ ' : ''}Title on the video
-          </button>
-          {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
-            {cfg.captions ? '✓ ' : ''}Auto-captions
-          </button>}
-          <button className="rd-btn sm" onClick={runNow} disabled={busy} title="Every clip approved this week that has a file and is not scheduled yet">
-            Run on my approved clips
-          </button>
-          {ran && <span className="sc-sub">{ran}</span>}
-        </div>
-        {ap && ap.font_ok === false && <div className="ed-warn">The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}
-      </div>}
+      </>}
     </div>
   );
 }
 
-function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false, onPostNow = null }) {
+function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false, onPostNow = null, onOpenAutopilot = null }) {
   const [weekStart, setWeekStart] = useState(()=>weekStartOf(new Date()));
   const [openId, setOpenId] = useState(null);
   const [slotAt, setSlotAt] = useState(null);      // {day, slot} being filled
@@ -8767,7 +8748,11 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
       </div>}
 
       <AccountChips me={me} connections={connections}/>
-      <AutopilotCard me={me} ap={autopilot} connections={connections} captionsOn={captionsOn} onSaved={onAutopilot}/>
+      {autopilot && autopilot.config && <div className="sc-addrow">
+        <span className="sc-sub">Autopilot is <b>{autopilot.config.enabled ? 'on' : 'off'}</b>.</span>
+        {onOpenAutopilot && <button className="rd-btn sm" onClick={onOpenAutopilot}>
+          <Icon name="zap" size={13}/>Open Autopilot</button>}
+      </div>}
 
       {!uploadsOn &&
         <div className="ed-warn" style={{marginTop:12}}>
@@ -10324,7 +10309,10 @@ function RdApp() {
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} clips={clips} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
       autopilot={autopilot} onAutopilot={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))} captionsOn={captionsOn}
-      onPostNow={onPostClip}/>;
+      onPostNow={onPostClip} onOpenAutopilot={()=>setRoute('autopilot')}/>;
+  else if(view==='autopilot') screen=<AutopilotScreen me={me} ap={autopilot} clips={clips} connections={connections}
+      uploadsOn={uploadsOn} captionsOn={captionsOn} onSaved={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))}
+      onOpenScheduler={()=>setRoute('schedule')}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;

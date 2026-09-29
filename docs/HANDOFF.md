@@ -4139,3 +4139,46 @@ had never been queued had no way to be posted.
 - Posts the clip as caught: 1280x720, so the card warns that TikTok/Reels expect
   9:16. Vertical means Edit first. Instagram shows "Not set up" until
   INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET are on the server.
+
+## Autopilot gets its own tab; Auto Edit gets settings; the hook picker is gone (2026-09-28)
+
+Owner: "Autopilot has no spot that it sits in … where people can activate it
+and it will pull the clips that you already have accepted and start going
+through them, auto editing and adding them to the scheduler. Also I need the
+auto edit to have its own settings spot … choose what template … or just use
+the suggested one. Also remove the hook part from the current suggested auto
+editor tab because I want it to be fully auto after a user accepts a clip."
+
+- **Autopilot nav tab** (`AutopilotScreen`, replaces the `AutopilotCard` that sat
+  inside the Scheduler; the Scheduler keeps a one-line "Autopilot is on/off ·
+  Open Autopilot"). Two sections behind a segmented control: **Autopilot** (the
+  switch, four live counts — accepted/waiting, editing now, in the Scheduler,
+  need attention — a progress bar, Post to / When / Caption, and a "what it is
+  doing" list) and **Auto Edit settings**.
+- **Switching it ON goes through the accepted clips.** `PUT /autopilot` kicks
+  `runner.run_now(uid, force=False)` on the off→on edge only (saving a setting
+  while on does not restart it). It renders one clip at a time; each step reaches
+  the tab as that clip's own `clip_updated`, and the counts are read off the
+  App's `clips` state — nothing to refresh. `force=False` re-reads the setting
+  before every clip, so switching it OFF mid-pass stops it after the clip in
+  hand; a per-user guard (`_backlogs`) stops two passes overlapping. The window
+  is now 30 days (was 7) and the cap 25 (was 10). The "Go through my accepted
+  clips now" button is the same pass with force=True.
+- **Auto Edit template** (`autopilot.edit_template`: `suggested` | `fill` |
+  `clean`, default `suggested`), applied by `auto_edit.apply_template` using only
+  the renderer's own knobs: `fill` sets framing to fill (crop to the vertical
+  frame); `clean` drops the slides and the whoosh; `suggested` changes nothing.
+  Title-on-video and auto-captions are set here too and now reach the render
+  (the title was ignored on the plan-based path before). The template also drives
+  the Clip Editor's Auto Edit button and the clip popup's "Make auto-edit".
+- **Admin only, as decided:** the plan-based edit (and so the template choice)
+  is still admin-only while testing. Non-admin Pro accounts see the old four
+  styles under Auto Edit settings and keep the legacy renderer.
+- **The hook picker is removed** from the Clip Editor's Auto Edit (no pink box,
+  no Hook here / Play hook, no "how should it start"; the side panel asks for
+  nothing) and from the clip popup's panel. `auto_edit.make` also ignores any
+  hook saved on a clip earlier. The backend still ACCEPTS a hook
+  (`POST /clips/{id}/hook`, and `hook` on `/uploads/{id}/auto-edit`) so the
+  capability is not lost, but nothing in the app sends one.
+- While UPLOADS_ENABLED is off a regular user sees "Autopilot is coming soon"
+  instead of an endless loading state (`/autopilot` is 503 for them).

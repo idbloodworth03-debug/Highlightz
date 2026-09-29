@@ -3251,7 +3251,9 @@ async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
         if not clip:
             return
         dst = Path(settings.local_storage_path) / "autoedit" / f"{clip_id}.mp4"
-        plan = await auto_edit.make(clip, dst, captions=captions)
+        from src.auth import users as _users
+        plan = await auto_edit.make(clip, dst, captions=captions,
+                                    template=_users.autopilot_for(uid)["edit_template"])
         up = await runner.save_render(uid, clip, dst)
         await broadcast({"event": "upload_added", "upload": up.public(),
                          "quota": upload_lib.quota(uid)}, user_id=uid)
@@ -3381,7 +3383,9 @@ async def _run_upload_auto_edit(upload_id: str, uid: str, filename: str, path: P
     rec = {"id": upload_id, "channel": stem, "hook": hook}
     try:
         dst = Path(settings.local_storage_path) / "autoedit" / f"u-{upload_id}.mp4"
-        plan = await auto_edit.make_from(path, rec, dst, captions=captions)
+        from src.auth import users as _users
+        plan = await auto_edit.make_from(path, rec, dst, captions=captions,
+                                         template=_users.autopilot_for(uid)["edit_template"])
         name = runner._safe_name(stem + "-auto-edit") + "-9x16.mp4"
         new_up = await runner.save_render(uid, rec, dst, name=name)
         await broadcast({"event": "upload_added", "upload": new_up.public(),
@@ -6218,8 +6222,18 @@ async def autopilot_put(request: Request):
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Send the settings as an object.")
+    was_on = bool(user_store.autopilot_for(uid).get("enabled"))
     cfg = user_store.set_autopilot(uid, body)
     await broadcast({"event": "autopilot_changed", "config": cfg}, user_id=uid)
+    # SWITCHING IT ON starts on the clips already approved (owner, 2026-09-28:
+    # "it will pull the clips that you already have accepted and start going
+    # through them"). Only on the off->on edge, so saving the caption or the
+    # template while it is already on does not restart a pass. It renders one
+    # clip at a time in the background, and each step reaches the tab as the
+    # clip's own clip_updated.
+    if cfg.get("enabled") and not was_on:
+        from src.autopilot import runner as _autopilot
+        _autopilot.kick(_autopilot.run_now(uid, force=False))
     return {"config": cfg}
 
 

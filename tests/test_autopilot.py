@@ -349,16 +349,25 @@ def test_an_approval_kicks_the_runner_and_the_file_hooks_call_it():
 
 # ── the dashboard ────────────────────────────────────────────────────────────
 
-def test_the_scheduler_has_the_autopilot_card_and_the_clip_card_shows_its_state():
+def test_autopilot_has_its_own_screen_and_the_clip_card_shows_its_state():
+    """Owner, 2026-09-28: "Autopilot has no spot that it sits in." It is a nav
+    tab of its own now, not a card inside the Scheduler."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
-    assert "function AutopilotCard(" in h
-    screen = h[h.index("function ScheduleScreen("):h.index("function UploadScreen(")]
-    assert "<AutopilotCard" in screen
-    card = h[h.index("function AutopilotCard("):h.index("function ScheduleScreen(")]
+    assert "function AutopilotScreen(" in h and "function AutopilotCard(" not in h
+    assert "{id:'autopilot',label:'Autopilot',icon:'zap'}" in h
+    assert "view==='autopilot') screen=<AutopilotScreen" in h
+    sched_screen = h[h.index("function ScheduleScreen("):h.index("function UploadScreen(")]
+    assert "<AutopilotCard" not in sched_screen and "onOpenAutopilot" in sched_screen
+    card = h[h.index("function AutopilotScreen("):h.index("function ScheduleScreen(")]
     assert "tz_offset_min: -new Date().getTimezoneOffset()" in card, "daily_at would be in server time"
     assert "role=\"switch\"" in card and "fetch('/autopilot/run', {method:'POST'})" in card
     for k in ("['now','Right away']", "['spaced','Spread out']", "['daily','Once a day']"):
         assert k in card
+    # Auto Edit has its own settings section, with the suggested template first.
+    assert "Auto Edit settings" in card and "save({edit_template:k})" in card
+    assert "['suggested','Suggested']" in card
+    # Its counts are read off the live clips state, not fetched here.
+    assert "fetch('/clips" not in card
     # Realtime: pulled in refetchAll and updated by its event.
     assert "refetchAutopilot();" in h[h.index("const refetchAll"):h.index("const wsBootstrapped")]
     assert "msg.event==='autopilot_changed'" in h

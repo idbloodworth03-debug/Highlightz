@@ -246,7 +246,7 @@ def test_kick_is_open_to_everyone_through_the_one_switch():
     assert "admin-only beta" not in inspect.getsource(api.add_stream)
     assert "activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)" in h
     assert "activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(n.id)" in h
-    assert "const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','settings'];" in h
+    assert "const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','autopilot','settings'];" in h
     assert "Coming soon</span>" not in h[h.index("{/* Kick row */}"):h.index("{/* Legal links */}")]
 
 

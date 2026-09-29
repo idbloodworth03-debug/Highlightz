@@ -147,7 +147,7 @@ def test_make_auto_edit_renders_into_the_library_and_posts_nothing(app_env, monk
     rec = app_env.clip(hook={"start": 18, "end": 26})
     made = {}
 
-    async def fake_make(clip, dst, *, captions, mode="clipper"):
+    async def fake_make(clip, dst, *, captions, mode="clipper", **kw):
         made["hook"] = clip.get("hook"); made["captions"] = captions
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
         plan = P.build([clip], {clip["id"]: ("/x.mp4", 35.0)})
@@ -172,7 +172,7 @@ def test_make_auto_edit_renders_into_the_library_and_posts_nothing(app_env, monk
 def test_a_failed_render_says_why_and_frees_the_button(app_env, monkeypatch):
     rec = app_env.clip()
 
-    async def boom(clip, dst, *, captions, mode="clipper"):
+    async def boom(clip, dst, *, captions, mode="clipper", **kw):
         raise ap_render.RenderError("The server ran out of memory rendering this edit.")
     monkeypatch.setattr(auto_edit, "make", boom)
     assert app_env.login("admin").post("/clips/c1/auto-edit", json={}).status_code == 202
@@ -233,8 +233,8 @@ def world(tmp_path, monkeypatch):
         calls.append("old"); dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
     monkeypatch.setattr(ap_render, "render", old)
 
-    async def new(clip, dst, *, captions, mode="clipper"):
-        calls.append(("new", clip.get("hook"), mode))
+    async def new(clip, dst, *, captions, mode="clipper", template="suggested", title=""):
+        calls.append(("new", clip.get("hook"), mode, template, title))
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
         return P.build([clip], {clip["id"]: ("/x.mp4", 30.0)})
     monkeypatch.setattr(auto_edit, "make", new)
@@ -256,12 +256,41 @@ def _cfg(**kw):
     return ap.normalize({"enabled": True, "platforms": [], **kw})
 
 
-def test_an_admins_autopilot_renders_the_new_edit_with_the_hook(world):
+def test_an_admins_autopilot_renders_the_new_edit_with_the_chosen_template(world):
     calls, clip, notify = world
-    rec = clip("a1", "admin", hook={"start": 5, "end": 12})
-    out = _run(runner.process_clip(rec, _cfg(mode="streamer"), notify, connected=set()))
+    rec = clip("a1", "admin")
+    out = _run(runner.process_clip(rec, _cfg(mode="streamer", edit_template="fill"), notify, connected=set()))
     assert out["status"] == "scheduled", out
-    assert calls == [("new", {"start": 5, "end": 12}, "streamer")]
+    assert len(calls) == 1 and calls[0][:4] == ("new", None, "streamer", "fill")
+
+
+def test_autopilot_passes_the_title_when_the_user_wants_it_on_the_video(world):
+    calls, clip, notify = world
+    rec = clip("a2", "admin", clip_title="Insane ace")
+    _run(runner.process_clip(rec, _cfg(title=True), notify, connected=set()))
+    assert calls[0][4] == "Insane ace"
+    rec = clip("a3", "admin", clip_title="Insane ace")
+    calls.clear(); runner._inflight.clear()
+    _run(runner.process_clip(rec, _cfg(title=False), notify, connected=set()))
+    assert calls[0][4] == ""
+
+
+def test_a_hook_saved_on_a_clip_is_not_used_by_the_automatic_edit(monkeypatch, tmp_path):
+    """FULLY AUTOMATIC (owner, 2026-09-28). A hook picked while the picker
+    existed must not open an edit nobody asked to open on it."""
+    from src.clips import files as clip_files
+    src = tmp_path / "c1.mp4"; src.write_bytes(MP4)
+    monkeypatch.setattr(clip_files, "path_for", lambda cid: src)
+    seen = {}
+
+    async def fake_make_from(src_, rec, dst, **kw):
+        seen["rec"] = rec; seen["kw"] = kw
+        return None
+    monkeypatch.setattr(auto_edit, "make_from", fake_make_from)
+    clip = {"id": "c1", "channel": "lacy", "hook": {"start": 5, "end": 12}}
+    _run(auto_edit.make(clip, tmp_path / "o.mp4", captions=False, template="clean"))
+    assert "hook" not in seen["rec"] and seen["kw"]["template"] == "clean"
+    assert clip["hook"] == {"start": 5, "end": 12}, "the caller's record was edited"
 
 
 def test_everyone_elses_autopilot_is_untouched(world):
@@ -284,10 +313,12 @@ def test_the_panel_is_admin_only_and_live():
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     assert "{isAdmin && clip.has_file && <AutoEditPanel clip={clip}/>}" in page
     body = page[page.index("function AutoEditPanel("):page.index("function ClipModal(")]
-    assert "/clips/' + clip.id + '/hook'" in body and "/auto-edit'" in body
-    # It keeps no copy of the server's state: the hook and the render status
-    # are read off `clip`, which clip_updated replaces.
-    assert "clip.auto_edit" in body and "clip.hook" in body
+    assert "/auto-edit'" in body
+    # FULLY AUTOMATIC: the manual hook picker is gone from the panel.
+    assert "/hook'" not in body and "Hook starts here" not in body and "Save hook" not in body
+    # It keeps no copy of the server's state: the render status is read off
+    # `clip`, which clip_updated replaces.
+    assert "clip.auto_edit" in body
     assert "msg.event==='clip_updated'" in page
     assert "refresh" not in body.lower()
 
@@ -336,7 +367,7 @@ def test_editor_auto_edit_renders_an_upload_with_its_hook(app_env, monkeypatch):
 
     async def dur(path): return 58.3
 
-    async def fake_make_from(src, rec, dst, *, captions, mode="clipper"):
+    async def fake_make_from(src, rec, dst, *, captions, mode="clipper", **kw):
         seen["hook"] = rec.get("hook"); seen["src"] = src
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
         return P.build([rec], {rec["id"]: ("/x.mp4", 58.3)})
@@ -363,7 +394,7 @@ def test_editor_auto_edit_without_a_hook(app_env, monkeypatch):
     up = _upload(app_env)
     seen = {}
 
-    async def fake_make_from(src, rec, dst, *, captions, mode="clipper"):
+    async def fake_make_from(src, rec, dst, *, captions, mode="clipper", **kw):
         seen["hook"] = rec.get("hook")
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
         return P.build([rec], {rec["id"]: ("/x.mp4", 30.0)})
@@ -408,37 +439,20 @@ def test_the_editor_follows_the_job_live_and_after_a_reconnect():
     assert "autoEditOn={!!(me && me.is_admin)}" in page
 
 
-def test_the_hook_is_picked_on_the_timeline_not_with_a_form():
-    """Owner, 2026-09-24: "I need it easier for the person to pick out the
-    hook it is way too confusing right now." The hook is a pink box on the
-    filmstrip: drag it, drag its edge for the length, it plays on release,
-    and it lands pre-placed so leaving it alone is a real choice."""
+def test_the_editors_auto_edit_has_no_hook_picker():
+    """Owner, 2026-09-28: "remove the hook part from the current suggested
+    auto editor tab because I want it to be fully auto after a user accepts a
+    clip." No pink box on the timeline, no Hook here / Play hook, no choice of
+    how it starts; the Auto Edit side panel asks for nothing."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     tl = page[page.index("function EdTimeline("):page.index("function ClipEditor(")]
-    assert 'className="ed-hook" data-h="hook"' in tl and 'data-h="hooklen"' in tl
-    assert "onHookDone()" in tl, "letting go of the box does not play the hook"
-    assert "Math.max(5, Math.min(10," in tl, "the edge can stretch the hook past 5-10s"
+    assert "ed-hook" not in tl and "hooklen" not in tl and "onHook" not in tl
     a = page.index("function ClipEditor(")
     ed = page[a:page.index("/* ── Scheduler", a)]
-    assert "hookDefault(hookLen, dur)" in ed, "the box does not land pre-placed"
+    for gone in ("hookOn", "hookStart", "hookLen", "chooseHook", "hookHere", "playHook", "hookStop"):
+        assert gone not in ed, f"{gone} is still in the editor"
     assert "whole={tpl === 'auto'}" in ed, "trim handles still shown for Auto Edit"
-    assert "{tpl !== 'auto' && <span className=\"ed-cut\">" in ed, "Set start/Set end still shown"
     side = page[page.index("function AutoEditSide("):page.index("function capWrap(")]
-    assert "Start with a hook" in side and "Just the clip" in side
-    assert "Hook starts here" not in side and 'type="range"' not in side, "the old form is back"
-
-
-def test_the_hook_can_be_picked_while_the_video_plays():
-    """Owner, 2026-09-24: "I need the user to be able to play the video while
-    selecting the hook so they can see where to place it." Play and "Hook
-    here" sit together in the panel; Hook here drops the box at the playhead
-    (a second early) without pausing; a scrub in Auto Edit resumes playing."""
-    from src.dashboard.aurora_html import DASHBOARD_HTML as page
-    side = page[page.index("function AutoEditSide("):page.index("function capWrap(")]
-    assert "onClick={onTogglePlay}" in side and "onClick={onHookHere}" in side
-    a = page.index("function ClipEditor(")
-    ed = page[a:page.index("/* ── Scheduler", a)]
-    hh = ed[ed.index("const hookHere = () => {"):ed.index("const changeHookLen")]
-    assert "v.currentTime - 1" in hh and "pause()" not in hh, "Hook here stops the video"
-    assert "resumeAfterDrag.current = latest.current.tpl === 'auto';" in ed
-    assert "fireSfx, tpl };" in ed, "the drag handler cannot see which style is on"
+    for gone in ("Start with a hook", "Just the clip", "Hook here", "Play hook"):
+        assert gone not in side
+    assert "body: JSON.stringify({captions: true})" in ed, "the editor still sends a hook"

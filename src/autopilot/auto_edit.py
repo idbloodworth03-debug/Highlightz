@@ -76,8 +76,27 @@ async def _transcript(path: Path) -> list:
         return []
 
 
+def apply_template(plan: P.EditPlan, name: str) -> P.EditPlan:
+    """Shape a finished plan into one of the user's Auto Edit templates.
+
+    Only the plan's own knobs are turned — framing, and the slide in/out with
+    its whoosh — so every template is something the renderer already does and
+    `P.valid` still has the last word. `suggested` changes nothing: it is the
+    formula as designed.
+    """
+    if name == "fill":
+        for seg in plan.segments:
+            seg.framing = "fill"
+    elif name == "clean":
+        plan.slide_in = False
+        plan.slide_out = False
+        plan.sfx = []
+    return plan
+
+
 async def build_plan(clip: dict, src: Path, *, captions: bool,
-                     mode: str = "clipper") -> tuple[P.EditPlan, dict]:
+                     mode: str = "clipper", template: str = "suggested",
+                     title: str = "") -> tuple[P.EditPlan, dict]:
     """The plan for this one clip — with its hook, if it has one."""
     from src.autopilot import builder, llm_common
     duration = await probe_duration(src)
@@ -92,6 +111,9 @@ async def build_plan(clip: dict, src: Path, *, captions: bool,
     plan, meta = await builder.build([clip], sources, transcripts=transcripts, mode=mode)
     if captions and transcripts and not plan.captions:
         plan.captions = llm_common.captions_for_plan(plan, transcripts)
+    apply_template(plan, template)
+    if title:
+        plan.title = title
     ok, why = P.valid(plan)
     if not ok:
         raise RenderError(f"The edit could not be planned: {why}")
@@ -127,25 +149,37 @@ async def render_plan(plan: P.EditPlan, dst: Path) -> Path:
     return dst
 
 
-async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper") -> P.EditPlan:
+async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper",
+                template: str = "suggested", title: str = "") -> P.EditPlan:
     """Plan and render one CAUGHT clip's edit to `dst`. Raises RenderError
-    with a message safe to show the user."""
+    with a message safe to show the user.
+
+    FULLY AUTOMATIC (owner, 2026-09-28: "I want it to be fully auto after a
+    user accepts a clip"). A hook somebody saved on this clip while the picker
+    existed is NOT used: nothing in the app asks for one any more, and an
+    edit that opens on a stale 8 seconds nobody remembers choosing would be a
+    bug that looks like the feature.
+    """
     from src.clips import files as clip_files
     src = clip_files.path_for(clip["id"])
     if not src or not src.exists():
         raise RenderError("This clip has no video file to edit.")
-    return await make_from(src, clip, dst, captions=captions, mode=mode)
+    rec = {k: v for k, v in clip.items() if k != "hook"}
+    return await make_from(src, rec, dst, captions=captions, mode=mode,
+                           template=template, title=title)
 
 
 async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
-                    mode: str = "clipper") -> P.EditPlan:
+                    mode: str = "clipper", template: str = "suggested",
+                    title: str = "") -> P.EditPlan:
     """Plan and render the edit of ANY video file — a caught clip or a file
     in the library (the Clip Editor's Auto Edit style). `rec` carries what
     the builder reads: an `id`, a `channel` for the log, and the `hook`."""
     if not src or not Path(src).exists():
         raise RenderError("There is no video file to edit.")
     clip = rec
-    plan, meta = await build_plan(clip, Path(src), captions=captions, mode=mode)
+    plan, meta = await build_plan(clip, Path(src), captions=captions, mode=mode,
+                                  template=template, title=title)
     log.info("auto_edit_rendering", clip_id=clip["id"], hook=plan.hook,
              seconds=round(P.plan_duration(plan), 2), captions=len(plan.captions),
              source=meta.get("source"))

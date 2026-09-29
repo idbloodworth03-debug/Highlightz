@@ -27,6 +27,18 @@ import time
 from datetime import datetime, timedelta, timezone
 
 TEMPLATES = ("full", "blur", "punch", "hook")
+# The AUTO EDIT template (owner, 2026-09-28: the user "can choose what template
+# they want for the auto edit or just use the suggested one"). These are the
+# plan/graph renderer's own knobs, nothing invented: which framing, and whether
+# the picture slides in and out with the whoosh. `suggested` is the owner's own
+# design and the default. The legacy TEMPLATES above still drive the old
+# renderer for accounts the plan-based edit has not reached yet.
+EDIT_TEMPLATES = ("suggested", "fill", "clean")
+EDIT_TEMPLATE_INFO = {
+    "suggested": ("Suggested", "The whole clip over a blurred backdrop, sliding in and out with a whoosh."),
+    "fill":      ("Fill the screen", "The clip cropped to fill the vertical frame, sliding in and out with a whoosh."),
+    "clean":     ("Clean", "The whole clip over a blurred backdrop. No slides, no sound effect."),
+}
 TIMINGS = ("now", "spaced", "daily")
 # Clipper or streamer. Both post ONE clip per video since 2026-09-23 (owner:
 # "instead of combining clips just keep it only to one clip"); see
@@ -39,6 +51,7 @@ TITLE_MAX = 60
 DEFAULT = {
     "enabled": False,
     "template": "full",
+    "edit_template": "suggested",
     "mode": "clipper",
     "platforms": [],
     "timing": "spaced",
@@ -58,6 +71,8 @@ def normalize(raw: dict | None) -> dict:
     cfg = dict(DEFAULT)
     cfg["enabled"] = bool(raw.get("enabled", False))
     cfg["template"] = raw.get("template") if raw.get("template") in TEMPLATES else DEFAULT["template"]
+    cfg["edit_template"] = (raw.get("edit_template") if raw.get("edit_template") in EDIT_TEMPLATES
+                            else DEFAULT["edit_template"])
     cfg["mode"] = raw.get("mode") if raw.get("mode") in MODES else DEFAULT["mode"]
     cfg["platforms"] = [p for p in (raw.get("platforms") or []) if p in PLATFORMS][:3]
     cfg["timing"] = raw.get("timing") if raw.get("timing") in TIMINGS else DEFAULT["timing"]
