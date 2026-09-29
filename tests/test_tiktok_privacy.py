@@ -194,3 +194,16 @@ def test_a_video_longer_than_the_account_allows_is_refused_before_upload(api, mo
     with pytest.raises(tk.ProviderError) as e:
         asyncio.run(tk.PROVIDER.post(Conn(), "x", 64, "c", "mp4", 30.0))
     assert "10s" in str(e.value)
+
+
+def test_the_probe_and_the_provider_choose_the_level_the_same_way(monkeypatch):
+    """The probe printed the audited-app choice on an unaudited app, which
+    contradicted the provider and read as a bug. Both now call one function."""
+    import pathlib
+    src = pathlib.Path("scripts/tiktok_probe.py").read_text()
+    assert "choose_privacy(" in src and "_PRIVACY_ORDER" not in src
+    offered = ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
+    monkeypatch.setattr(settings, "tiktok_audited", False)
+    assert tk.choose_privacy(offered) == "SELF_ONLY"
+    monkeypatch.setattr(settings, "tiktok_audited", True)
+    assert tk.choose_privacy(offered) == "FOLLOWER_OF_CREATOR"

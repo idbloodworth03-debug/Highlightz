@@ -26,7 +26,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from config.settings import settings                      # noqa: E402
 from src.publish import connections as pub_conns          # noqa: E402
 from src.publish.providers import _http                   # noqa: E402
-from src.publish.providers.tiktok import _CREATOR, _PRIVACY_ORDER   # noqa: E402
+from src.publish.providers.tiktok import _CREATOR, choose_privacy   # noqa: E402
 
 
 async def main() -> int:
@@ -69,14 +69,17 @@ async def main() -> int:
         if k in d:
             print(f"  {k:<27}: {d[k]}")
 
-    chosen = next((p for p in _PRIVACY_ORDER if p in options),
-                  options[0] if options else "SELF_ONLY")
-    print(f"\n  the provider would ask for : {chosen}")
-    if chosen != "SELF_ONLY":
-        print("  -> An unaudited app may only post SELF_ONLY. If creator_info still")
-        print("     offers the public levels, asking for one is what init rejected.")
+    chosen = choose_privacy(options)
+    audited = bool(settings.tiktok_audited)
+    print(f"\n  TIKTOK_AUDITED             : {audited}")
+    print(f"  the provider will ask for  : {chosen}")
+    if not audited and chosen == "SELF_ONLY":
+        print("  -> Correct for an unaudited app: posts land private, only you see them.")
+    elif not audited:
+        print("  -> Unaudited, but SELF_ONLY is not on offer, so this is the quietest")
+        print("     level available. If init refuses it, that is the audit gate.")
     else:
-        print("  -> Already the private level, so the refusal is something else.")
+        print("  -> Audited: the most public level this account allows.")
     return 0
 
 

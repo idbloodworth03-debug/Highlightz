@@ -66,6 +66,22 @@ _PRIVACY_ORDER = ("PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FR
                   "SELF_ONLY")
 
 
+def choose_privacy(options: list) -> str:
+    """The privacy level a post asks for, from what creator_info offers.
+
+    ONE function, used by the provider AND by scripts/tiktok_probe.py. The
+    probe had its own copy of the audited-app rule and kept printing "would ask
+    for FOLLOWER_OF_CREATOR" on an unaudited app long after the provider was
+    fixed to ask for SELF_ONLY (owner's probe output, 2026-09-28) — a
+    diagnostic that disagrees with the code it diagnoses sends you chasing a
+    bug that is not there.
+    """
+    if settings.tiktok_audited:
+        return next((p for p in _PRIVACY_ORDER if p in options),
+                    options[0] if options else "SELF_ONLY")
+    return next((p for p in reversed(_PRIVACY_ORDER) if p in options), "SELF_ONLY")
+
+
 def chunk_plan(size: int) -> tuple[int, int]:
     """(chunk_size, total_chunk_count) per TikTok's rules."""
     if size <= SINGLE_CHUNK_MAX:
@@ -198,12 +214,7 @@ class TikTok:
         # video/init refuse the post outright. Until the audit passes, take
         # the least public level on offer (SELF_ONLY is last in the order, so
         # reversing picks it whenever it is available).
-        if settings.tiktok_audited:
-            privacy = next((p for p in _PRIVACY_ORDER if p in options),
-                           options[0] if options else "SELF_ONLY")
-        else:
-            privacy = next((p for p in reversed(_PRIVACY_ORDER) if p in options),
-                           "SELF_ONLY")
+        privacy = choose_privacy(options)
         max_s = float(d.get("max_video_post_duration_sec") or 0)
         if max_s and duration_s and duration_s > max_s:
             raise ProviderError(f"TikTok limits this account to {max_s:.0f}s videos; "
