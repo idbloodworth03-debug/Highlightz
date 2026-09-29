@@ -4293,3 +4293,29 @@ request each time, no other effect. Not yet attributed to a route:
 redacted, so the next occurrence names the file route. Look for it with
 `journalctl -u highlightz | grep request_failed`. Possibly related to the earlier
 "Kick clip stays black" report (a capture file still being written).
+
+## Clear Autopilot and X clips out (2026-09-29)
+
+Owner: "a way to basically clear the autopilot so a user can x out clips they
+changed their mind about and clear the queue fully."
+
+- **Autopilot → Activity** now lists what it has touched AND every accepted clip
+  still waiting its turn, each with an **✕** (removed clips show **Add back**), and
+  the hero has **Clear queue** with a confirmation that says how many clips it will
+  clear. "Show all" expands the list (up to 80).
+- **`autopilot.status = "skipped"`** is the removal record; a pass, an approval
+  and "Go through my accepted clips now" all leave it alone.
+- `POST /autopilot/clips/{id}/remove` | `/restore` | `POST /autopilot/clear`
+  (owner-only, Pro gate). Removing a clip: waiting → marked skipped; being edited →
+  the render in hand runs to its end and its result is thrown away, never saved or
+  scheduled (`runner._cancelled`, only when it is really in flight in this
+  process); already in the Scheduler → the queued post AND the rendered file
+  (which holds upload quota) are deleted. **A clip that has posted, or is posting,
+  is never touched** (409 on the single remove; `kept_posted` in the clear count).
+- **Clear queue** takes everything unfinished: waiting clips a pass would have taken
+  (in the 30-day window with a file), the one being edited, failures, and every
+  queued Autopilot post that has not gone out. It stops a pass that is mid-way
+  (`runner._stops`) and leaves Autopilot on or off as it was.
+- Realtime: each change is that clip's own `clip_updated`, plus `schedule_removed`
+  / `upload_removed`; the screen reads the App's `clips` and `queue` state, so the
+  posted/posting state follows the poster with no refresh.

@@ -6294,6 +6294,53 @@ async def autopilot_put(request: Request):
     return {"config": cfg}
 
 
+def _own_approved_clip(uid: str, clip_id: str) -> dict:
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return clip
+
+
+@app.post("/autopilot/clips/{clip_id}/remove")
+async def autopilot_remove_clip(request: Request, clip_id: str):
+    """X a clip out of Autopilot: it is not edited, or its edit and its queued
+    post are removed. A clip that has already posted is refused (409): this
+    never touches something that has gone out. Realtime: the clip's own
+    `clip_updated`, plus `schedule_removed` / `upload_removed` for what went."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    clip = _own_approved_clip(uid, clip_id)
+    result = await _autopilot.remove_clip(uid, clip, broadcast)
+    if result == "posted":
+        raise HTTPException(status_code=409,
+                            detail="That clip has already been posted (or is posting now), "
+                                   "so it was left as it is.")
+    return {"status": "removed"}
+
+
+@app.post("/autopilot/clips/{clip_id}/restore")
+async def autopilot_restore_clip(request: Request, clip_id: str):
+    """Put a removed or failed clip back into Autopilot."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    clip = _own_approved_clip(uid, clip_id)
+    await _autopilot.restore_clip(uid, clip, broadcast)
+    return {"status": "restored"}
+
+
+@app.post("/autopilot/clear")
+async def autopilot_clear(request: Request):
+    """Clear the whole queue: waiting clips, the one being edited, failures and
+    every queued post Autopilot made that has not gone out. Posted clips are
+    left alone; Autopilot stays on or off as it was."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    return await _autopilot.clear_queue(uid, broadcast)
+
+
 @app.post("/autopilot/run", status_code=202)
 async def autopilot_run(request: Request):
     """Run Autopilot over the recently approved clips that have a file and

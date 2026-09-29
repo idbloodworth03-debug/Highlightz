@@ -331,7 +331,7 @@ def test_every_autopilot_route_is_behind_the_pro_gate():
     import inspect
     from src.dashboard import api
     routes = [r for r in api.app.routes if getattr(r, "path", "").startswith("/autopilot")]
-    assert len(routes) == 3
+    assert len(routes) >= 6
     for r in routes:
         assert "_require_upload_access(" in inspect.getsource(r.endpoint), r.path
 

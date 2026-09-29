@@ -48,6 +48,12 @@ MAX_BATCHES = 10            # 250 clips in one pass, then it stops rather than r
 # on twice, or pressing the button mid-run, does not start a second pass over
 # the same clips.
 _backlogs: set[str] = set()
+# Clips the user removed while they were being edited: the render in hand runs
+# to its end (it cannot be un-run cheaply) but its result is thrown away rather
+# than saved and scheduled. And users who pressed "Clear queue", so a pass that
+# is mid-way stops after the clip in hand.
+_cancelled: set[str] = set()
+_stops: set[str] = set()
 # A clip still marked "rendering" this long after it started is not being
 # rendered: the worst honest case is a 170s edit at the 10x allowance (~28 min)
 # plus the caption step, so past this the record is a leftover, and a pass
@@ -121,6 +127,8 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
     _inflight.add(cid)
 
     async def mark(rec: dict) -> None:
+        if cid in _cancelled:
+            return                      # removed by the user: leave it "skipped"
         clip["autopilot"] = rec
         api._save_clips()
         await notify({"event": "clip_updated", "clip": api._clip_out(clip)}, uid)
@@ -163,6 +171,9 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
             await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip),
                                    captions=captions, duration=duration)
 
+        if cid in _cancelled:
+            dst.unlink(missing_ok=True)
+            return clip.get("autopilot") or {}
         up = await save_render(uid, clip, dst)
 
         platforms = [p for p in cfg["platforms"] if p in connected]
@@ -188,6 +199,7 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
                     "error": f"Unexpected error: {exc}"[:200]})
     finally:
         _inflight.discard(cid)
+        _cancelled.discard(cid)
     return clip.get("autopilot") or {}
 
 
@@ -233,7 +245,7 @@ def _collect(uid: str, now: float, *, retry_failed: bool, skip: set[str]) -> lis
             continue
         rec = c.get("autopilot") or {}
         st = rec.get("status")
-        if st == "scheduled":
+        if st in ("scheduled", "skipped"):
             continue
         if st == "failed" and not retry_failed:
             continue
@@ -266,6 +278,7 @@ async def run_now(uid: str, *, force: bool = True) -> int:
     if uid in _backlogs:
         return 0
     _backlogs.add(uid)
+    _stops.discard(uid)
     try:
         done, seen, first = 0, set(), True
         for _batch in range(MAX_BATCHES):
@@ -282,9 +295,100 @@ async def run_now(uid: str, *, force: bool = True) -> int:
                 live = user_store.autopilot_for(uid)
                 if not live.get("enabled") and not force:
                     return done
+                if uid in _stops:
+                    return done             # "Clear queue" was pressed
+                if (c.get("autopilot") or {}).get("status") == "skipped":
+                    continue                # removed while it waited its turn
                 await process_clip(c, {**live, "enabled": True}, api.broadcast,
                                    connected=connections.connected_platforms(uid))
                 done += 1
         return done
     finally:
         _backlogs.discard(uid)
+
+
+async def remove_clip(uid: str, clip: dict, notify) -> str:
+    """Take one clip out of Autopilot ("x out clips they changed their mind
+    about", owner 2026-09-29). Returns what happened:
+
+      "removed"  it will not be edited, or its edit and queued post are gone;
+      "posted"   it has already gone out, or is going out right now, so it is
+                 left exactly as it is.
+
+    Whatever stage it was at: a waiting clip is marked `skipped` so no pass
+    takes it; one being edited has its result thrown away when the render
+    ends; one already in the Scheduler has that queued post AND its rendered
+    file removed (the file only exists for Autopilot, and holds upload quota).
+    Nothing that has posted is ever touched.
+    """
+    from src.dashboard import api
+    from src.publish import schedule as sched
+    from src.uploads import library as upload_lib
+    rec = clip.get("autopilot") or {}
+    if rec.get("status") == "scheduled":
+        item = sched.get(rec.get("item_id") or "", uid)
+        if item is not None:
+            if item.status == sched.POSTING or item.posted_on() or item.status == sched.POSTED:
+                return "posted"
+            sched.remove(item.id, uid)
+            await notify({"event": "schedule_removed", "item_id": item.id}, uid)
+            if item.upload_id and upload_lib.delete(item.upload_id, uid):
+                for dropped in sched.drop_upload(item.upload_id, uid):
+                    await notify({"event": "schedule_removed", "item_id": dropped}, uid)
+                await notify({"event": "upload_removed", "upload_id": item.upload_id,
+                              "quota": upload_lib.quota(uid)}, uid)
+    if clip["id"] in _inflight:
+        # Only when a render of it really is running in THIS process. A clip
+        # merely marked "rendering" by a process that has since died has
+        # nothing to cancel, and a leftover entry here would silence every later
+        # update to it.
+        _cancelled.add(clip["id"])
+    clip["autopilot"] = {"status": "skipped", "at": time.time()}
+    api._save_clips()
+    await notify({"event": "clip_updated", "clip": api._clip_out(clip)}, uid)
+    return "removed"
+
+
+async def restore_clip(uid: str, clip: dict, notify) -> None:
+    """Put a removed (or failed) clip back: it is handled again, right away if
+    Autopilot is on."""
+    from src.auth import users as user_store
+    from src.dashboard import api
+    clip["autopilot"] = {}
+    api._save_clips()
+    await notify({"event": "clip_updated", "clip": api._clip_out(clip)}, uid)
+    if user_store.autopilot_for(uid).get("enabled"):
+        await maybe_run(clip)
+
+
+async def clear_queue(uid: str, notify) -> dict:
+    """Clear everything Autopilot has not finished for this user: the clips
+    waiting their turn, the one being edited, failures, and every queued post it
+    made that has not gone out. Posted clips are left alone. Stops a pass that
+    is mid-way. Autopilot itself stays on or off as it was."""
+    from src.dashboard import api
+    from src.clips import files as clip_files
+    _stops.add(uid)
+    now = time.time()
+    removed = kept = 0
+    for c in list(api._clips.values()):
+        if c.get("user_id") != uid or c.get("status") != "approved":
+            continue
+        st = (c.get("autopilot") or {}).get("status") or ""
+        if st == "skipped":
+            continue
+        if not st or st == "waiting_file":
+            # Only clips a pass WOULD have taken; an old or file-less one was
+            # never in the queue.
+            if now - float(c.get("approved_at") or c.get("created_at") or 0) > RUN_NOW_WINDOW_S:
+                continue
+            p = clip_files.path_for(c["id"])
+            if not p or not p.exists():
+                continue
+        result = await remove_clip(uid, c, notify)
+        if result == "removed":
+            removed += 1
+        else:
+            kept += 1
+    return {"removed": removed, "kept_posted": kept}
+

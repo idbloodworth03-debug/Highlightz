@@ -779,6 +779,12 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apt-pill.rendering{background:var(--grad-soft);color:var(--fg)}
 .apt-pill.scheduled{background:rgba(74,222,128,.14);color:var(--live)}
 .apt-pill.failed{background:var(--danger-soft);color:var(--danger)}
+.apt-pill.skipped{background:rgba(255,255,255,.06);color:var(--fg-3)}
+.apt-act{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.apt-x{all:unset;box-sizing:border-box;cursor:pointer;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--fg-3);flex-shrink:0}
+.apt-x:hover{background:var(--danger-soft);color:var(--danger)}
+.apt-x:disabled{opacity:.4;cursor:default}
+.apx-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;background:var(--danger-soft);font-size:14px}
 .apt-tpls{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
 .apt-tpl{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:16px;
   border:1px solid var(--hair);background:rgba(255,255,255,.03)}
@@ -8618,22 +8624,27 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
    FULLY AUTOMATIC: nothing here asks for anything per clip. The manual hook
    picker is gone from the editor's Auto Edit for the same reason. */
 const APT_LABEL = {rendering:'Editing…', scheduled:'Added to the Scheduler', failed:'Needs attention',
-                   waiting_file:'Waiting for its video'};
+                   waiting_file:'Waiting for its video', skipped:'Removed'};
 // A slow step is SEEN: the server marks each stage, so a clip on captions says
 // "Writing captions…" instead of sitting on a bare "Editing…".
 const aptLabel = c => {
   const a = c.autopilot || {};
+  if (!a.status) return 'Waiting its turn';
   if (a.status === 'rendering') return a.stage === 'captions' ? 'Writing captions…' : a.stage === 'render' ? 'Rendering…' : 'Editing…';
   return APT_LABEL[a.status] || a.status;
 };
 
 function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captionsOn = false,
-                           uploadsOn = true, onOpenScheduler = null }) {
+                           uploadsOn = true, onOpenScheduler = null, queue = [] }) {
   const cfg = (ap && ap.config) || null;
   const [tab, setTab]   = useState('autopilot');     // 'autopilot' | 'edit'
   const [busy, setBusy] = useState(false);
   const [ran, setRan]   = useState('');
   const [cap, setCap]   = useState(cfg ? cfg.caption_text : '');
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [rowBusy, setRowBusy] = useState('');
+  const [msg, setMsg] = useState('');
   // Somebody else's tab saved a new caption: follow it.
   useEffect(() => { if (cfg) setCap(cfg.caption_text); }, [cfg ? cfg.caption_text : '']);
   const isAdmin = !!(me && me.is_admin);
@@ -8684,6 +8695,23 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
     } catch {}
     setBusy(false);
   };
+  const call = async (url, key) => {
+    setRowBusy(key); setMsg('');
+    try {
+      const r = await fetch(url, {method: 'POST'});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) setMsg(d.detail || 'That did not work.');
+      return r.ok ? d : null;
+    } catch { setMsg('Could not reach the server.'); return null; }
+    finally { setRowBusy(''); }
+  };
+  const removeClip = (c) => call('/autopilot/clips/' + c.id + '/remove', c.id);
+  const restoreClip = (c) => call('/autopilot/clips/' + c.id + '/restore', c.id);
+  const clearQueue = async () => {
+    const d = await call('/autopilot/clear', 'all');
+    setConfirmClear(false);
+    if (d) setMsg(d.removed ? 'Cleared ' + d.removed + ' clip' + (d.removed === 1 ? '' : 's') + '.' + (d.kept_posted ? ' ' + d.kept_posted + ' already posted, left as they are.' : '') : 'Nothing to clear.');
+  };
   const runNow = async () => {
     setRan('');
     try { const r = await fetch('/autopilot/run', {method:'POST'}); setRan(r.ok ? 'Started. Watch the activity list.' : 'Could not start.'); }
@@ -8697,7 +8725,18 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   const scheduled = accepted.filter(c => st(c) === 'scheduled');
   const failed    = accepted.filter(c => st(c) === 'failed');
   const waiting   = accepted.filter(c => (!st(c) || st(c) === 'waiting_file') && c.has_file);
-  const touched   = accepted.filter(c => st(c)).sort((a, b) => ((b.autopilot||{}).at || 0) - ((a.autopilot||{}).at || 0)).slice(0, 8);
+  // What it has touched (newest first), then what is still WAITING its turn
+  // (oldest first, the order a pass takes them) so any of them can be X'd out.
+  const touchedAll = [
+    ...accepted.filter(c => st(c)).sort((a, b) => ((b.autopilot||{}).at || 0) - ((a.autopilot||{}).at || 0)),
+    ...waiting.slice().sort((a, b) => (a.approved_at || 0) - (b.approved_at || 0))];
+  const touched   = showAll ? touchedAll.slice(0, 80) : touchedAll.slice(0, 8);
+  // Posted or posting: it has gone out (or is going), so it has no X. The queue
+  // is the App's live state, so this follows the poster with no refresh.
+  const itemOf = c => (queue || []).find(i => i.id === (c.autopilot || {}).item_id);
+  const sentOut = c => { const i = itemOf(c); return !!i && (i.status === 'posted' || i.status === 'posting'); };
+  const clearable = waiting.length + editing.length + failed.length
+    + scheduled.filter(c => !sentOut(c)).length;
   const total = editing.length + scheduled.length + failed.length + waiting.length;
   const pct = total ? Math.round(100 * (scheduled.length + failed.length) / total) : 0;
   const working = editing.length > 0;
@@ -8763,7 +8802,15 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                 Go through my accepted clips now
               </button>
               {ran && <span className="sc-sub">{ran}</span>}
+              {!confirmClear && <button className="rd-btn sm danger" onClick={()=>setConfirmClear(true)} disabled={busy || !clearable}
+                title="Take every clip Autopilot has not finished out of the queue">Clear queue</button>}
             </div>
+            {confirmClear && <div className="apx-confirm" role="alertdialog">
+              <span>Clear {clearable} clip{clearable === 1 ? '' : 's'}? They will not be edited, and posts Autopilot queued that have not gone out are removed from the Scheduler. Anything already posted is left alone.</span>
+              <button className="rd-btn sm danger" onClick={clearQueue} disabled={rowBusy === 'all'}>{rowBusy === 'all' ? 'Clearing…' : 'Yes, clear it'}</button>
+              <button className="rd-btn sm" onClick={()=>setConfirmClear(false)}>Keep</button>
+            </div>}
+            {msg && <div className="sc-sub">{msg}</div>}
           </div>
 
           <div className="apx-cols">
@@ -8837,10 +8884,18 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                     {touched.map(c=>(
                       <div key={c.id} className="apt-row">
                         <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
-                        <span className={'apt-pill ' + st(c)}>{aptLabel(c)}</span>
+                        <span className="apt-act">
+                          <span className={'apt-pill ' + st(c)}>{sentOut(c) ? (itemOf(c).status === 'posting' ? 'Posting…' : 'Posted') : aptLabel(c)}</span>
+                          {st(c) === 'skipped'
+                            ? <button className="rd-btn sm" disabled={rowBusy === c.id} onClick={()=>restoreClip(c)}>Add back</button>
+                            : !sentOut(c) && <button className="apt-x" disabled={rowBusy === c.id} onClick={()=>removeClip(c)}
+                                aria-label="Remove this clip from Autopilot" title="Remove from Autopilot"><Icon name="x" size={14}/></button>}
+                        </span>
                         {st(c) === 'failed' && c.autopilot.error && <em>{c.autopilot.error}</em>}
                         {st(c) === 'scheduled' && c.autopilot.note && <em className="note">{c.autopilot.note}</em>}
                       </div>))}
+                    {touchedAll.length > 8 && <button className="rd-btn sm" style={{marginTop:12}} onClick={()=>setShowAll(v=>!v)}>
+                      {showAll ? 'Show fewer' : 'Show all ' + touchedAll.length}</button>}
                   </div>}
             </div>
           </div>
@@ -10538,7 +10593,7 @@ function RdApp() {
       onPostNow={onPostClip} onOpenAutopilot={()=>setRoute('autopilot')}/>;
   else if(view==='autopilot') screen=<AutopilotScreen me={me} ap={autopilot} clips={clips} connections={connections}
       uploadsOn={uploadsOn} captionsOn={captionsOn} onSaved={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))}
-      onOpenScheduler={()=>setRoute('schedule')}/>;
+      onOpenScheduler={()=>setRoute('schedule')} queue={queue}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;
