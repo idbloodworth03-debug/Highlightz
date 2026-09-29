@@ -4085,12 +4085,15 @@ all their stored accounts inside their settings."
   token field; `test_connected_accounts` pins that no token string reaches the
   response. The admin page has no WebSocket, so the panel re-reads on open, on
   window focus, and every 20s while it is the panel on screen.
-- **Settings → Connected accounts** card: the user's stored accounts with
-  Disconnect (and Reconnect when the platform refused the login), plus Connect
-  for platforms the server has set up. It reads the App's `connections` state,
-  which `publish_connections_changed` and `refetchAll` already keep current
-  (connect, disconnect, poster finding a dead token, socket reconnect). Shown
-  only where the Scheduler is (`uploadsOn`) — /publish/connections is 503 for
-  everyone but admins while UPLOADS_ENABLED is false.
+- **Account → Profile & Platforms card** (moved here from Settings the same day;
+  owner: "I want the tiktok to be here instead. This is the account overview"):
+  TikTok, Instagram and YouTube rows under Twitch and Kick, same row shape —
+  brand tile, name, @handle, ✓ Connected — with Disconnect, and Reconnect when
+  the platform refused the login. It reads the App's `connections` state, which
+  `publish_connections_changed` and `refetchAll` already keep current (connect,
+  disconnect, poster finding a dead token, socket reconnect). Shown only where
+  the Scheduler is (`uploadsOn`) — /publish/connections is 503 for everyone but
+  admins while UPLOADS_ENABLED is false. Settings no longer has this card
+  (pinned by `test_connected_accounts`).
 - Not built: an admin "disconnect this user" button. Admins can see accounts,
   not act on them; add it only if a real need shows up.

@@ -136,21 +136,26 @@ def _page():
     return aurora_html.DASHBOARD_HTML
 
 
-def _settings_screen(page):
-    start = page.index("function SettingsScreen(")
+def _account_screen(page):
+    start = page.index("function AccountScreen(")
     return page[start:page.index("\nfunction ", start + 10)]
 
 
-def test_settings_lists_stored_accounts_from_live_state():
+def test_the_account_overview_lists_stored_posting_accounts_from_live_state():
+    """Owner, 2026-09-28: the accounts go in the Account screen's "Profile &
+    Platforms" card, next to Twitch and Kick, not in Settings."""
     page = _page()
-    body = _settings_screen(page)
-    assert "Connected accounts" in body
-    assert "connections = []" in page[page.index("function SettingsScreen("):][:200]
+    body = _account_screen(page)
+    assert "Profile &amp; Platforms" in body
+    assert "connections = []" in page[page.index("function AccountScreen("):][:200]
     assert "'/publish/connections/' + c.id" in body          # disconnect
     assert "'/publish/connect/' + c.id" in body              # connect / reconnect
     # Fed by the App's live state, not fetched once inside the screen.
     assert "fetch('/publish/connections')" not in body
-    assert re.search(r"<SettingsScreen[^>]*connections", page)
+    assert re.search(r"<AccountScreen[^>]*connections", page)
+    # …and it is not ALSO in Settings.
+    settings = page[page.index("function SettingsScreen("):page.index("function tutBold(")]
+    assert "Connected accounts" not in settings and "/publish/connect" not in settings
 
 
 def test_the_connections_state_stays_live_and_resyncs():

@@ -159,7 +159,7 @@ def test_the_settings_screen_has_the_controls_and_follows_the_events():
     # Reference card stays, folded.
     assert "What each preset does" in scr and "<details" in scr
     # Realtime contract: the App feeds it live state and handles the events.
-    assert "screen=<SettingsScreen {...{streams,profiles,me,activePlatform,connections}} accountsOn={uploadsOn}/>" in h
+    assert "screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>" in h
     assert "msg.event==='prefs_changed'" in h and "msg.event==='stream_updated'" in h
     assert "msg.event==='profile_updated'" in h
     # Notifications fire from the clip_ready handler, background tabs only.

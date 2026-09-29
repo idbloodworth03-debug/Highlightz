@@ -4280,7 +4280,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onGoReview }) {
 // descriptions folded away as reference. State is the App's: streams,
 // profiles and me.prefs all arrive over the socket and refetchAll, so a
 // change made in another tab shows up here without a reload.
-function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch', connections = [], accountsOn = false }) {
+function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
   const prefs = (me && me.prefs) || {};
   const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
   const [err, setErr] = useState('');
@@ -4316,23 +4316,6 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
     if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { perm = 'denied'; } }
     setNotifPerm(perm);
     if (perm === 'granted') putPref({notify_clips: true});
-  };
-
-  // The posting accounts this login has stored. The list is the App's
-  // `connections` state, so a connect, a disconnect or a dead token in any
-  // tab (or on the poster) arrives here over publish_connections_changed and
-  // after every reconnect -- nothing here is fetched once.
-  const stored = (connections || []).filter(c => c.connected);
-  const addable = (connections || []).filter(c => !c.connected && c.configured);
-  const [dropping, setDropping] = useState('');
-  const dropAccount = async (c) => {
-    if (dropping) return;
-    setDropping(c.id); setErr('');
-    try {
-      const r = await fetch('/publish/connections/' + c.id, {method: 'DELETE'});
-      if (!r.ok) setErr('Could not disconnect ' + c.label);
-    } catch { setErr('Could not reach the server'); }
-    finally { setDropping(''); }
   };
 
   const SENS_LABEL = {'-3': 'Far fewer clips', '-2': 'Fewer clips', '-1': 'A little fewer', '0': 'As learned',
@@ -4433,40 +4416,6 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
                : 'Only while this tab is open somewhere; nothing is sent by email.'}
             on={!!prefs.notify_clips && notifPerm === 'granted'} onClick={toggleNotify}/>
         </div>
-
-        {/* ── Stored posting accounts: what Highlightz can post to for you. */}
-        {accountsOn &&
-          <div className="rd-card glass">
-            <h3><span className="si"><Icon name="link" size={15}/></span>Connected accounts</h3>
-            <div className="desc">The accounts Highlightz can post to for you. Each is stored as an encrypted sign-in token that is used only to post the clips you choose. Disconnecting deletes it.</div>
-            {stored.length === 0 &&
-              <div style={{fontSize: 14, color: 'var(--fg-3)', padding: '12px 0'}}>No posting accounts connected yet.</div>}
-            {stored.map(c => (
-              <div key={c.id} className="rd-field" style={{alignItems: 'center'}}>
-                <div style={{flex: 1, minWidth: 0}}>
-                  <div className="fl">{c.label} &middot; {c.account_name || 'connected'}</div>
-                  <div style={{fontSize: 12, color: c.last_error ? 'var(--danger)' : 'var(--fg-3)', marginTop: 4}}>
-                    {c.last_error
-                      ? 'Needs reconnecting: ' + c.last_error
-                      : 'Connected' + (c.connected_at ? ' ' + new Date(c.connected_at * 1000).toLocaleDateString([], {month: 'short', day: 'numeric', year: 'numeric'}) : '')}
-                  </div>
-                </div>
-                {c.last_error &&
-                  <a className="rd-btn sm grad" href={'/publish/connect/' + c.id}>Reconnect</a>}
-                <button className="rd-btn sm" disabled={dropping === c.id} onClick={() => dropAccount(c)}
-                  aria-label={'Disconnect ' + c.label}>{dropping === c.id ? 'Removing…' : 'Disconnect'}</button>
-              </div>
-            ))}
-            {addable.map(c => (
-              <div key={c.id} className="rd-field" style={{alignItems: 'center'}}>
-                <div style={{flex: 1, minWidth: 0}}>
-                  <div className="fl">{c.label}</div>
-                  <div style={{fontSize: 12, color: 'var(--fg-3)', marginTop: 4}}>Not connected</div>
-                </div>
-                <a className="rd-btn sm" href={'/publish/connect/' + c.id}>Connect</a>
-              </div>
-            ))}
-          </div>}
 
         {/* ── The preset descriptions, as reference, folded away. */}
         <details className="rd-card glass rd-details">
@@ -5026,10 +4975,40 @@ function LandingScreen({ clips, featured, onToggle, onMove, onGrab, onPlace, myU
   );
 }
 
-function AccountScreen({ me }) {
+/* Tiles for the accounts Highlightz posts to, in the same shape as the Twitch
+   and Kick rows on the Account screen. Plain marks, no external images. */
+const POST_BRAND = {
+  tiktok:    {bg:'rgba(255,255,255,.10)', fill:'#ffffff', text:'#ffffff',
+              path:<path d="M16.6 3c.3 2.4 1.7 3.9 4 4.1v3.1c-1.5.1-2.8-.4-4-1.2v6.3c0 4-3.3 6.2-6.4 5.6-2.4-.5-4.2-2.6-4.2-5.1 0-3.2 2.9-5.6 6.2-5v3.3c-1.6-.5-3.1.5-3.1 2 0 1.2 1 2.1 2.2 2.1 1.4 0 2.2-1 2.2-2.4V3z"/>},
+  instagram: {bg:'rgba(225,48,108,.16)', fill:'none', stroke:'#e1306c', text:'#e1306c',
+              path:<><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6" fill="#e1306c"/></>},
+  youtube:   {bg:'rgba(255,0,51,.14)', fill:'#ff0033', text:'#ff4d6a',
+              path:<path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2C2 8.8 2 12 2 12s0 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z"/>},
+  other:     {bg:'rgba(255,255,255,.10)', fill:'#ffffff', text:'#ffffff', path:<circle cx="12" cy="12" r="6"/>},
+};
+
+function AccountScreen({ me, connections = [], accountsOn = false }) {
   const [deleting, setDeleting]   = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr]       = useState('');
+  // The posting accounts (TikTok, Instagram, YouTube) sit in the same card as
+  // Twitch and Kick. They come from the App's `connections` state, which
+  // publish_connections_changed and refetchAll keep current, so a connect, a
+  // disconnect or a dead token shows here with no refresh.
+  const [dropping, setDropping]   = useState('');
+  const [acctErr, setAcctErr]     = useState('');
+  const POST_ORDER = ['tiktok', 'instagram', 'youtube'];
+  const postable = (connections || []).filter(c => c.connected || c.configured)
+    .sort((a, b) => POST_ORDER.indexOf(a.id) - POST_ORDER.indexOf(b.id));
+  const dropAccount = async (c) => {
+    if (dropping) return;
+    setDropping(c.id); setAcctErr('');
+    try {
+      const r = await fetch('/publish/connections/' + c.id, {method:'DELETE'});
+      if (!r.ok) setAcctErr('Could not disconnect ' + c.label);
+    } catch { setAcctErr('Could not reach the server'); }
+    setDropping('');
+  };
   const sub        = me.subscription_status || 'none';
   const trialDays  = me.trial_days_left || 0;
   const isTrial    = sub === 'trialing';
@@ -5134,7 +5113,7 @@ function AccountScreen({ me }) {
         {/* Profile & Connected Platforms */}
         <div className="rd-card glass">
           <h3><span className="si"><Icon name="user" size={15}/></span>Profile &amp; Platforms</h3>
-          <div className="desc">Your account and connected streaming platforms.</div>
+          <div className="desc">{accountsOn && postable.length ? 'Your account, the streaming platforms you clip from, and the accounts Highlightz posts to for you.' : 'Your account and connected streaming platforms.'}</div>
 
           {/* Avatar + display name + sign out */}
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
@@ -5172,7 +5151,7 @@ function AccountScreen({ me }) {
           </div>}
 
           {/* Kick row */}
-          <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0 4px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:accountsOn && postable.length ? '12px 0' : '12px 0 4px',borderBottom:accountsOn && postable.length ? '1px solid rgba(255,255,255,.07)' : 'none'}}>
             <span style={{width:32,height:32,borderRadius:8,background:'rgba(83,252,24,.12)',display:'grid',placeItems:'center',flexShrink:0}}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#53fc18"><path d="M2 2h4v8l6-8h5l-7 9 7 9h-5l-6-8v8H2z"/></svg>
             </span>
@@ -5195,6 +5174,40 @@ function AccountScreen({ me }) {
                     title="Sign in with Kick next time too">Connect</a>
                 : <span style={{fontSize:12,color:'#53fc18',fontWeight:600,flexShrink:0}}>Live</span>}
           </div>
+
+          {/* Posting accounts: where Highlightz uploads finished clips. Same row
+              as Twitch and Kick — brand tile, name, handle, status — with a
+              Disconnect, because unlike a streaming login these hold a token
+              that only this user should be able to revoke. */}
+          {accountsOn && postable.map((c, i) => {
+            const brand = POST_BRAND[c.id] || POST_BRAND.other;
+            const bad = c.connected && !!c.last_error;
+            return (
+              <div key={c.id} style={{display:'flex',alignItems:'center',gap:12,padding:i === postable.length - 1 ? '12px 0 4px' : '12px 0',
+                  borderBottom:i === postable.length - 1 ? 'none' : '1px solid rgba(255,255,255,.07)'}}>
+                <span style={{width:32,height:32,borderRadius:8,background:brand.bg,display:'grid',placeItems:'center',flexShrink:0}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill={brand.fill} stroke={brand.stroke || 'none'} strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{brand.path}</svg>
+                </span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:12}}>{c.label}</div>
+                  <div style={{fontSize:12,color:bad ? 'var(--danger)' : 'var(--fg-3)',marginTop:4,overflow:'hidden',textOverflow:'ellipsis'}}>
+                    {!c.connected ? 'Not connected'
+                      : bad ? 'Needs reconnecting: ' + c.last_error
+                      : (c.account_name ? (String(c.account_name).startsWith('@') ? '' : '@') + c.account_name : 'Connected')}
+                  </div>
+                </div>
+                {c.connected && !bad && <span style={{fontSize:12,color:brand.text,fontWeight:600,flexShrink:0}}>✓ Connected</span>}
+                {(bad || !c.connected) &&
+                  <a href={'/publish/connect/' + c.id} className={'rd-btn sm' + (bad ? ' grad' : '')}
+                    style={{textDecoration:'none',flexShrink:0}}>{bad ? 'Reconnect' : 'Connect'}</a>}
+                {c.connected &&
+                  <button className="rd-btn sm" style={{flexShrink:0}} disabled={dropping === c.id}
+                    onClick={() => dropAccount(c)} aria-label={'Disconnect ' + c.label}>
+                    {dropping === c.id ? 'Removing…' : 'Disconnect'}</button>}
+              </div>);
+          })}
+          {accountsOn && acctErr && <div style={{fontSize:12,color:'var(--danger)',paddingTop:8}}>{acctErr}</div>}
         </div>
 
         {/* Legal links */}
@@ -10162,9 +10175,9 @@ function RdApp() {
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
-  else if(view==='account') screen=<AccountScreen me={me}/>;
+  else if(view==='account') screen=<AccountScreen me={me} connections={connections} accountsOn={uploadsOn}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
-  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform,connections}} accountsOn={uploadsOn}/>;
+  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>;
 
   // FIRST RUN. Rendered INSTEAD of the shell, not inside it: a nav rail, a
   // platform switch and a live pill are answers to questions somebody with no
