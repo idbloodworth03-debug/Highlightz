@@ -1464,9 +1464,22 @@ a.sc-acct:hover{border-color:var(--hair-2);background:rgba(255,255,255,.06);colo
    collision logic for nothing. */
 .wk-pick-bg{position:fixed;inset:0;z-index:150;background:rgba(4,4,8,.72)}
 .wk-pick{position:fixed;z-index:151;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:min(420px,92vw);max-height:80vh;display:flex;flex-direction:column;gap:12px;padding:16px;
+  width:min(420px,92vw);max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px;
   border-radius:16px;border:1px solid var(--hair-2);background:rgba(16,14,22,.97);
   box-shadow:0 24px 64px -24px rgba(0,0,0,.8)}
+.wk-pick.wide{width:min(560px,94vw)}
+.tt-box{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.tt-who{display:flex;align-items:center;gap:12px;font-size:14px}
+.tt-who img{width:32px;height:32px;border-radius:50%;object-fit:cover}
+.tt-who b{font-weight:700}
+.tt-vid{width:100%;max-height:200px;background:#000;border-radius:8px;display:block}
+.tt-f{display:flex;flex-direction:column;gap:8px}
+.tt-l{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.tt-chk{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.tt-chk.off{opacity:.5;cursor:default}
+.tt-chk small{font-size:12px;color:var(--fg-3)}
+.tt-decl{font-size:12px;line-height:1.5;color:var(--fg-2)}
+.tt-decl a{color:var(--acc)}
 .wk-pick h4{font-size:16px;font-weight:800;letter-spacing:-.02em;margin:0}
 .wk-pick .when{font-size:13px;color:var(--acc);font-weight:700}
 .wk-pick-list{overflow:auto;display:flex;flex-direction:column;gap:4px}
@@ -8177,6 +8190,17 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [itemId, setItemId] = useState('');
+  // TikTok's Direct Post rules put these choices on the PERSON, on this screen:
+  // who can view (no default), comments/duets/stitches (all off until ticked),
+  // and a commercial-content declaration. Nothing here is pre-filled.
+  const [tt, setTt] = useState({state: 'idle', data: null, err: ''});   // creator_info
+  const [ttPriv, setTtPriv] = useState('');
+  const [ttCom, setTtCom] = useState(false);
+  const [ttDuet, setTtDuet] = useState(false);
+  const [ttStitch, setTtStitch] = useState(false);
+  const [ttDisc, setTtDisc] = useState(false);
+  const [ttBrand, setTtBrand] = useState(false);
+  const [ttBranded, setTtBranded] = useState(false);
   const item = itemId ? (queue || []).find(i => i.id === itemId) : null;
   const results = (item && item.results) || {};
   const working = busy || (!!item && (item.status === 'posting'
@@ -8191,12 +8215,40 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
   const chosen = specs.filter(pf => picked.has(pf.id));
   const issues = chosen.map(pf => fitIssues(pf, clip.duration_seconds || 0, '16:9', cap, 'mp4')[0]).filter(Boolean);
 
+  // TikTok: read the ACCOUNT once, the first time TikTok is ticked.
+  const tiktokOn = picked.has('tiktok');
+  useEffect(() => {
+    if (!tiktokOn || tt.state !== 'idle') return;
+    setTt({state: 'loading', data: null, err: ''});
+    fetch('/publish/tiktok/creator').then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || 'Could not read your TikTok account.');
+      setTt({state: 'ok', data: d, err: ''});
+    }).catch(e => setTt({state: 'err', data: null, err: (e && e.message) || 'Could not read your TikTok account.'}));
+  }, [tiktokOn]);
+  const td = tt.data || {};
+  const LEVELS = [['PUBLIC_TO_EVERYONE', 'Everyone'], ['FOLLOWER_OF_CREATOR', 'Followers'],
+                  ['MUTUAL_FOLLOW_FRIENDS', 'Friends'], ['SELF_ONLY', 'Only me']];
+  const offered = LEVELS.filter(([k]) => (td.privacy_level_options || []).includes(k));
+  const brandedPrivate = ttDisc && ttBranded;
+  const ttOver = !!(td.max_video_post_duration_sec && (clip.duration_seconds || 0) > td.max_video_post_duration_sec);
+  const ttWhy = tt.state !== 'ok' ? (tt.state === 'err' ? tt.err : 'Reading your TikTok account…')
+    : ttOver ? 'This clip is longer than TikTok allows for this account (' + Math.round(td.max_video_post_duration_sec) + 's).'
+    : !ttPriv ? 'Choose who can view this video.'
+    : (ttDisc && !ttBrand && !ttBranded) ? 'You need to indicate if your content promotes yourself, a third party, or both.'
+    : (brandedPrivate && td.audited === false) ? 'Branded content cannot be posted until TikTok has approved Highlightz.'
+    : '';
+  const canPost = picked.size > 0 && (!tiktokOn || !ttWhy);
+
   const post = async () => {
-    if (!picked.size || busy) return;
+    if (!canPost || busy) return;
     setBusy(true); setErr('');
+    const options = tiktokOn ? {tiktok: {privacy_level: ttPriv, allow_comment: ttCom, allow_duet: ttDuet,
+      allow_stitch: ttStitch, commercial: ttDisc, your_brand: ttDisc && ttBrand,
+      branded_content: ttDisc && ttBranded, consent: true}} : {};
     try {
       const r = await fetch('/publish/post-now', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap})});
+        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap, options})});
       let d = {};
       try { d = await r.json(); } catch (e) {}
       if (!r.ok) { setErr(d.detail || 'Could not start posting.'); return; }
@@ -8209,7 +8261,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
   return (
     <div>
       <div className="wk-pick-bg" onClick={onClose}/>
-      <div className="wk-pick" role="dialog" aria-label="Post this clip now">
+      <div className={'wk-pick' + (tiktokOn ? ' wide' : '')} role="dialog" aria-label="Post this clip now">
         <div>
           <h4>Post now</h4>
           <div className="wk-pick-sub">{clip.channel} &middot; {clip.clip_title || clip.stream_title || 'Highlight'}</div>
@@ -8242,6 +8294,62 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
         <textarea className="ed-in" rows="3" value={cap} disabled={sent}
           placeholder="Caption + hashtags" onChange={e => setCap(e.target.value)}/>
         {issues.map((t, i) => <div key={i} className="pub-warn">{t}</div>)}
+
+        {tiktokOn && <div className="tt-box">
+          <div className="tt-l">TikTok</div>
+          {tt.state === 'loading' && <div className="sc-sub">Reading your TikTok account…</div>}
+          {tt.state === 'err' && <div className="ed-warn">{tt.err}</div>}
+          {tt.state === 'ok' && <>
+            <div className="tt-who">
+              {td.avatar_url ? <img src={td.avatar_url} alt=""/> : null}
+              <span>Posting as <b>{td.nickname || td.username || 'your TikTok account'}</b>{td.username && td.nickname ? ' (@' + td.username + ')' : ''}</span>
+            </div>
+            <video className="tt-vid" src={'/clips/' + clip.id + '/file'} controls playsInline preload="metadata"/>
+            <div className="tt-f">
+              <label htmlFor="tt-priv" className="tt-l">Who can view this video</label>
+              <select id="tt-priv" className="ed-in" value={ttPriv} disabled={sent}
+                onChange={e => setTtPriv(e.target.value)}>
+                <option value="">Select…</option>
+                {offered.map(([k, l]) => (
+                  <option key={k} value={k} disabled={k === 'SELF_ONLY' && brandedPrivate}
+                    title={k === 'SELF_ONLY' && brandedPrivate ? 'Branded content visibility cannot be set to private.' : ''}>{l}</option>))}
+              </select>
+              {td.audited === false && <div className="sc-sub">Highlightz is waiting for TikTok's approval, so this post will be private
+                (only you can see it) whatever you choose here.</div>}
+            </div>
+            <div className="tt-f">
+              <span className="tt-l">Allow people to</span>
+              <label className="tt-chk"><input type="checkbox" checked={ttCom} disabled={sent || td.comment_disabled}
+                onChange={e => setTtCom(e.target.checked)}/>Comment
+                {td.comment_disabled && <small>Turned off in your TikTok settings</small>}</label>
+              <label className="tt-chk"><input type="checkbox" checked={ttDuet} disabled={sent || td.duet_disabled}
+                onChange={e => setTtDuet(e.target.checked)}/>Duet
+                {td.duet_disabled && <small>Turned off in your TikTok settings</small>}</label>
+              <label className="tt-chk"><input type="checkbox" checked={ttStitch} disabled={sent || td.stitch_disabled}
+                onChange={e => setTtStitch(e.target.checked)}/>Stitch
+                {td.stitch_disabled && <small>Turned off in your TikTok settings</small>}</label>
+            </div>
+            <div className="tt-f">
+              <label className="tt-chk"><input type="checkbox" checked={ttDisc} disabled={sent}
+                onChange={e => { setTtDisc(e.target.checked); if (!e.target.checked) { setTtBrand(false); setTtBranded(false); } }}/>
+                Disclose commercial content</label>
+              <div className="sc-sub">Turn this on if the video promotes yourself, a brand, a product or a service.</div>
+              {ttDisc && <>
+                <label className="tt-chk"><input type="checkbox" checked={ttBrand} disabled={sent}
+                  onChange={e => setTtBrand(e.target.checked)}/>Your brand
+                  <small>You are promoting yourself or your own business</small></label>
+                <label className="tt-chk"><input type="checkbox" checked={ttBranded} disabled={sent}
+                  onChange={e => { setTtBranded(e.target.checked); if (e.target.checked && ttPriv === 'SELF_ONLY') setTtPriv(''); }}/>Branded content
+                  <small>You are promoting another brand or a third party</small></label>
+              </>}
+            </div>
+            <div className="tt-decl">
+              {ttDisc && ttBranded
+                ? <>By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noopener noreferrer">Branded Content Policy</a> and <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener noreferrer">Music Usage Confirmation</a>.</>
+                : <>By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener noreferrer">Music Usage Confirmation</a>.</>}
+            </div>
+          </>}
+        </div>}
         {!sent && <div className="sc-sub">Posts the clip as Highlightz caught it (widescreen). For a vertical
           9:16 version, close this and use Edit first.</div>}
 
@@ -8260,9 +8368,12 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
               </div>))}
         </div>}
         {sent && working && <div className="sc-sub">You can close this. It keeps posting, and the Scheduler shows the result.</div>}
+        {sent && tiktokOn && <div className="sc-sub">TikTok can take a few minutes to process the video before it shows on your profile.</div>}
+        {!sent && tiktokOn && ttWhy && tt.state === 'ok' && <div className="sc-sub">{ttWhy}</div>}
 
         <div style={{display: 'flex', gap: 8, flexWrap: 'wrap'}}>
-          {!sent && <button className="rd-btn sm grad" onClick={post} disabled={!picked.size || busy}>
+          {!sent && <button className="rd-btn sm grad" onClick={post} disabled={!canPost || busy}
+            title={tiktokOn && ttWhy ? ttWhy : ''}>
             <Icon name="upload" size={13}/>&nbsp;{busy ? 'Starting…'
               : picked.size ? 'Post now to ' + chosen.map(pf => pf.label).join(' + ') : 'Post now'}
           </button>}

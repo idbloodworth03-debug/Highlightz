@@ -184,6 +184,30 @@ class TikTok:
                         message=str(err.get("message") or "")[:200])
         return dict(user)
 
+    async def creator_info(self, conn) -> dict:
+        """What the POSTING SCREEN needs, straight from TikTok's creator_info:
+        who this is (nickname, @handle, avatar), which visibilities the account
+        offers, and which interactions the creator has switched off in TikTok
+        itself. TikTok's rules make the screen show all of it and follow it
+        (the visibility list is exactly `privacy_level_options`; a switched-off
+        interaction is greyed out). A query only: nothing is opened or posted.
+        Raises ProviderError with a sentence a person can read."""
+        auth = {"Authorization": "Bearer " + conn.access_token,
+                "Content-Type": "application/json; charset=UTF-8"}
+        r = await _http.request("POST", _CREATOR, headers=auth, json={})
+        info = r.json() or {}
+        self._check(r, info, "TikTok would not say what this account may post")
+        d = info.get("data") or {}
+        return {"nickname": str(d.get("creator_nickname") or ""),
+                "username": str(d.get("creator_username") or ""),
+                "avatar_url": str(d.get("creator_avatar_url") or ""),
+                "privacy_level_options": [p for p in (d.get("privacy_level_options") or [])
+                                          if isinstance(p, str)],
+                "comment_disabled": bool(d.get("comment_disabled")),
+                "duet_disabled": bool(d.get("duet_disabled")),
+                "stitch_disabled": bool(d.get("stitch_disabled")),
+                "max_video_post_duration_sec": float(d.get("max_video_post_duration_sec") or 0)}
+
     async def _creator_names(self, access_token: str) -> dict:
         """The account's nickname and @handle from creator_info. A query — it
         opens nothing and posts nothing. Best effort: {} on any failure."""
@@ -199,14 +223,14 @@ class TikTok:
                 "username": str(d.get("creator_username") or "")}
 
     async def post(self, conn, path, size: int, caption: str, fmt: str,
-                   duration_s: float = 0.0) -> PostResult:
+                   duration_s: float = 0.0, options: dict | None = None) -> PostResult:
+        opts = options or {}
         auth = {"Authorization": "Bearer " + conn.access_token,
                 "Content-Type": "application/json; charset=UTF-8"}
         r = await _http.request("POST", _CREATOR, headers=auth, json={})
         info = (r.json() or {})
         self._check(r, info, "TikTok would not say what this account may post")
         d = info.get("data") or {}
-        options = d.get("privacy_level_options") or []
         # THE OFFER IS NOT PERMISSION. creator_info lists what the ACCOUNT
         # allows, not what an unaudited APP may ask for, and the two are not
         # the same: on production 2026-09-18 it offered FOLLOWER_OF_CREATOR,
@@ -214,7 +238,19 @@ class TikTok:
         # video/init refuse the post outright. Until the audit passes, take
         # the least public level on offer (SELF_ONLY is last in the order, so
         # reversing picks it whenever it is available).
-        privacy = choose_privacy(options)
+        offered = list(d.get("privacy_level_options") or [])
+        if opts.get("privacy_level"):
+            # THE PERSON'S CHOICE (TikTok's posting rules: they pick, there is no
+            # default). It must still be one the account offers today, and an
+            # unaudited app is held to SELF_ONLY whatever was picked — see
+            # choose_privacy for why the offer is not permission.
+            want = str(opts["privacy_level"])
+            if want not in offered:
+                raise ProviderError("TikTok no longer offers that visibility for this "
+                                    "account. Open Post now and choose again.")
+            privacy = want if settings.tiktok_audited else "SELF_ONLY"
+        else:
+            privacy = choose_privacy(offered)
         max_s = float(d.get("max_video_post_duration_sec") or 0)
         if max_s and duration_s and duration_s > max_s:
             raise ProviderError(f"TikTok limits this account to {max_s:.0f}s videos; "
@@ -227,11 +263,7 @@ class TikTok:
             # back on is an invalid request. Hardcoding False here meant
             # telling TikTok to enable duets and stitches for an account that
             # had disabled both (production, 2026-09-18).
-            "post_info": {"title": (caption or "")[:TITLE_MAX], "privacy_level": privacy,
-                          "disable_duet": bool(d.get("duet_disabled")),
-                          "disable_comment": bool(d.get("comment_disabled")),
-                          "disable_stitch": bool(d.get("stitch_disabled")),
-                          "video_cover_timestamp_ms": 1000},
+            "post_info": self._post_info(caption, privacy, d, opts),
             "source_info": {"source": "FILE_UPLOAD", "video_size": size,
                             "chunk_size": chunk, "total_chunk_count": count}})
         init = r.json() or {}
@@ -278,11 +310,39 @@ class TikTok:
         url = f"https://www.tiktok.com/@{username}/video/{post_id}" if username and post_id else \
               (f"https://www.tiktok.com/@{username}" if username else "")
         note = ""
-        if privacy != "PUBLIC_TO_EVERYONE":
+        if not settings.tiktok_audited:
             note = ("Posted as private (visible only to you): TikTok only allows "
                     "public posts once the Highlightz app passes its audit. Open it "
                     "in TikTok and set it public.")
+        elif privacy == "SELF_ONLY":
+            note = "Posted as private, as you chose."
+        elif not opts and privacy != "PUBLIC_TO_EVERYONE":
+            note = ("Posted at the most open level your account allows. Open it in "
+                    "TikTok to change who can see it.")
         return PostResult(url=url, remote_id=post_id or publish_id, note=note)
+
+    @staticmethod
+    def _post_info(caption: str, privacy: str, d: dict, opts: dict) -> dict:
+        """The post_info body. With the person's options it follows THEM —
+        an interaction is on only if they ticked it AND the creator has not
+        switched it off in TikTok — and declares commercial content when they
+        did. Without options (Autopilot, an older card) it keeps the earlier
+        behaviour: the creator's own switches decide."""
+        if opts:
+            info = {"title": (caption or "")[:TITLE_MAX], "privacy_level": privacy,
+                    "disable_comment": bool(d.get("comment_disabled")) or not opts.get("allow_comment"),
+                    "disable_duet": bool(d.get("duet_disabled")) or not opts.get("allow_duet"),
+                    "disable_stitch": bool(d.get("stitch_disabled")) or not opts.get("allow_stitch"),
+                    "video_cover_timestamp_ms": 1000}
+            if opts.get("commercial"):
+                info["brand_organic_toggle"] = bool(opts.get("your_brand"))
+                info["brand_content_toggle"] = bool(opts.get("branded_content"))
+            return info
+        return {"title": (caption or "")[:TITLE_MAX], "privacy_level": privacy,
+                "disable_duet": bool(d.get("duet_disabled")),
+                "disable_comment": bool(d.get("comment_disabled")),
+                "disable_stitch": bool(d.get("stitch_disabled")),
+                "video_cover_timestamp_ms": 1000}
 
     @staticmethod
     def _check(r, payload: dict, what: str) -> None:

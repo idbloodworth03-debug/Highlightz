@@ -6381,6 +6381,72 @@ async def publish_schedule_post_now(request: Request, item_id: str):
     return {"status": "posting", "platforms": poster.auto_platforms(item)}
 
 
+@app.get("/publish/tiktok/creator")
+async def publish_tiktok_creator(request: Request):
+    """What the TikTok posting screen shows before anyone can post: the
+    connected account's name and avatar, the visibilities it offers, which
+    interactions the creator has switched off in TikTok, and the longest video
+    it accepts. Straight from TikTok's creator_info (a query — nothing is
+    posted), so the screen follows the ACCOUNT, not a guess of ours.
+
+    `audited` tells the screen whether Highlightz is approved yet: until it is,
+    every post is private whatever is picked, and the screen says so.
+    """
+    from src.publish import connections as pub_conns, providers
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    conn = pub_conns.get(uid, "tiktok")
+    provider = providers.get("tiktok")
+    if conn is None or provider is None or conn.last_error:
+        raise HTTPException(status_code=400,
+                            detail="TikTok is not connected (or needs reconnecting). "
+                                   "Connect it on the Account page.")
+    try:
+        await providers.ensure_fresh(provider, conn)
+        info = await provider.creator_info(conn)
+    except providers.ProviderError as exc:
+        if exc.reauth:
+            pub_conns.set_error(uid, "tiktok", exc.message)
+            await broadcast({"event": "publish_connections_changed"}, user_id=uid)
+        raise HTTPException(status_code=502, detail=exc.message)
+    info["audited"] = bool(settings.tiktok_audited)
+    return info
+
+
+_TIKTOK_LEVELS = ("PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY")
+
+
+def _clean_tiktok_options(raw) -> dict:
+    """The person's TikTok choices, checked against TikTok's own posting rules.
+    Raises HTTPException with a sentence they can act on."""
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="Choose who can view this video on TikTok.")
+    level = str(raw.get("privacy_level") or "")
+    if level not in _TIKTOK_LEVELS:
+        raise HTTPException(status_code=400, detail="Choose who can view this video on TikTok.")
+    if raw.get("consent") is not True:
+        raise HTTPException(status_code=400,
+                            detail="TikTok needs you to agree to its usage confirmation before posting.")
+    commercial = bool(raw.get("commercial"))
+    your_brand = bool(raw.get("your_brand")) if commercial else False
+    branded = bool(raw.get("branded_content")) if commercial else False
+    if commercial and not (your_brand or branded):
+        raise HTTPException(status_code=400,
+                            detail="You need to indicate if your content promotes yourself, a third party, or both.")
+    if branded:
+        if level == "SELF_ONLY":
+            raise HTTPException(status_code=400, detail="Branded content visibility cannot be set to private.")
+        if not settings.tiktok_audited:
+            raise HTTPException(
+                status_code=400,
+                detail="Branded content cannot be posted until TikTok has approved Highlightz, "
+                       "because every post is private until then.")
+    return {"privacy_level": level, "allow_comment": bool(raw.get("allow_comment")),
+            "allow_duet": bool(raw.get("allow_duet")), "allow_stitch": bool(raw.get("allow_stitch")),
+            "commercial": commercial, "your_brand": your_brand, "branded_content": branded,
+            "consent": True}
+
+
 @app.post("/publish/post-now", status_code=202)
 async def publish_post_now(request: Request):
     """Post a clip to TikTok / Instagram / YouTube right now, in one step.
@@ -6433,6 +6499,13 @@ async def publish_post_now(request: Request):
         raise HTTPException(status_code=400,
                             detail=f"Caption is longer than {sched.CAPTION_MAX} characters.")
 
+    # TikTok's Direct Post rules put these choices on the person, on this
+    # screen: no TikTok post goes out without them.
+    raw_opts = body.get("options") if isinstance(body.get("options"), dict) else {}
+    plat_opts = {}
+    if "tiktok" in targets:
+        plat_opts["tiktok"] = _clean_tiktok_options(raw_opts.get("tiktok"))
+
     clip_id = str(body.get("clip_id") or "")
     clip = _clips.get(clip_id) if clip_id else None
     if clip_id:
@@ -6457,7 +6530,7 @@ async def publish_post_now(request: Request):
                 status_code=409,
                 detail="Already posted to " + ", ".join(plat.BY_ID[p].label for p in targets)
                        + ". Remove that post in the Scheduler first to post it again.")
-        item = sched.update(existing.id, uid, caption=caption,
+        item = sched.update(existing.id, uid, caption=caption, options=plat_opts,
                             platforms=list(dict.fromkeys(targets + list(existing.platforms))))
         event = "schedule_updated"
     else:
@@ -6468,7 +6541,8 @@ async def publish_post_now(request: Request):
                              # warns that TikTok/Reels expect vertical, instead
                              # of showing "fits" for a widescreen file.
                              ratio="16:9" if clip else "",
-                             fmt=str(getattr(up, "kind", "") or ""))
+                             fmt=str(getattr(up, "kind", "") or ""),
+                             options=plat_opts)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         event = "schedule_added"

@@ -87,6 +87,13 @@ class Item:
     # clip the server rendered and queued by itself. Autopilot reads its own
     # last due time from this to space posts out.
     source: str = ""
+    # What the USER chose for a platform at post time, by platform id. Only
+    # TikTok has any today: its Direct Post rules make the person pick who can
+    # see the video, whether comments/duets/stitches are on, and declare
+    # commercial content, on the screen they post from. Absent for a platform
+    # that never asked (Autopilot, an older card), and the provider then falls
+    # back to its own defaults.
+    options: dict = field(default_factory=dict)
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
@@ -137,7 +144,7 @@ def _save() -> None:
 def add(user_id: str, upload_id: str, filename: str, caption: str,
         platforms: list[str], due_at: float = 0.0,
         duration_s: float = 0.0, ratio: str = "", fmt: str = "",
-        source: str = "") -> Item:
+        source: str = "", options: dict | None = None) -> Item:
     _load()
     if due_at < 0:
         raise ValueError("Pick a time for this post.")
@@ -152,7 +159,8 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
                 filename=filename, caption=caption,
                 platforms=list(platforms), due_at=float(due_at),
                 duration_s=float(duration_s), ratio=str(ratio),
-                fmt=str(fmt).lower().lstrip("."), source=str(source or ""))
+                fmt=str(fmt).lower().lstrip("."), source=str(source or ""),
+                options=dict(options or {}))
     _items[item.id] = item
     _save()
     return item
@@ -198,7 +206,8 @@ def set_status(item_id: str, user_id: str, status: str) -> Item | None:
 
 def update(item_id: str, user_id: str, *, caption: str | None = None,
            due_at: float | None = None,
-           platforms: list[str] | None = None) -> Item | None:
+           platforms: list[str] | None = None,
+           options: dict | None = None) -> Item | None:
     """Edit a queued post. Re-arming the time clears `notified` so a
     rescheduled item is announced again — otherwise moving a missed post to
     tomorrow would silently never nudge."""
@@ -211,6 +220,8 @@ def update(item_id: str, user_id: str, *, caption: str | None = None,
         item.caption = caption
     if platforms is not None:
         item.platforms = list(platforms)
+    if options is not None:
+        item.options = {**item.options, **options}
     if due_at is not None:
         if due_at < 0:
             raise ValueError("Pick a time for this post.")

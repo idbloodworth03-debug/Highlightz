@@ -4191,3 +4191,41 @@ three described options, 3 caption with insert chips and a "how it will read"
 preview) beside an Activity card. Content is centred at 1080px and stacks on a
 phone. The caption preview is done in the browser from the newest accepted clip
 using `[{]title[}]`-style patterns (the page is a Python string: no backslashes).
+
+## The TikTok posting screen for the audit (2026-09-29)
+
+TikTok's Direct Post rules (checked against their content-sharing guidelines via
+search, 2026-09-29 — the developer site itself is blocked from the dev box)
+require the posting screen to show the creator, a preview, a visibility choice
+with NO default drawn from `creator_info.privacy_level_options`, comment/duet/
+stitch OFF until ticked (greyed out when the creator switched them off in
+TikTok), a commercial-content switch that starts OFF with "Your brand" /
+"Branded content" (post disabled if on with neither; "Only me" disabled for
+branded content), and the music-usage declaration above Post.
+
+- **Where:** the Post now dialog. Ticking TikTok opens a TikTok section: "Posting
+  as <name> (@handle)", a preview of the clip, Who can view this video (Select…),
+  Allow people to (Comment / Duet / Stitch), Disclose commercial content, the
+  declaration (Music Usage Confirmation, plus the Branded Content Policy when
+  Branded content is ticked), and Post now stays disabled with the reason until
+  the choices are made. After posting it says TikTok can take a few minutes.
+- **Backend:** `GET /publish/tiktok/creator` (name, @handle, avatar, offered
+  visibilities, disabled interactions, max duration, and `audited`);
+  `POST /publish/post-now` takes `options.tiktok` and REFUSES a TikTok post
+  without the person's choices and consent. The choices are stored per platform
+  on the queue item (`Item.options`) and the provider follows them
+  (`_post_info`: an interaction is on only if ticked AND not disabled by the
+  creator; `brand_organic_toggle` / `brand_content_toggle` when declared).
+- **Still private until the audit:** unaudited, the provider forces SELF_ONLY
+  whatever was picked, and the screen says so. Branded content is refused
+  until audited (it cannot be private), rather than failing at TikTok.
+- **NOT changed: Autopilot.** It sends no options, so it keeps the earlier
+  behaviour (the creator's own switches decide; privacy per `choose_privacy`).
+  TikTok expects the person to review and agree to each post, so fully
+  automatic TikTok posting is unlikely to pass the audit. The owner has not yet
+  decided whether Autopilot's TikTok posts should wait for a one-click
+  confirmation ("Ready to post"). That decision is still open.
+- Unverified until run against TikTok: the field names `brand_organic_toggle` /
+  `brand_content_toggle` are from TikTok's Direct Post reference as I recall it,
+  not seen live. Sandbox posts never set them (unaudited, and only when the
+  person declares commercial content).

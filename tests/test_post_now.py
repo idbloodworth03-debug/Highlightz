@@ -92,9 +92,17 @@ def env(tmp_path, monkeypatch):
     lib._uploads.clear()
 
 
-def _post(c, platforms, **kw):
-    return c.login("pro").post("/publish/post-now",
-                               json={"clip_id": "c1", "platforms": platforms, "caption": "Ace!", **kw})
+TIKTOK_OK = {"privacy_level": "SELF_ONLY", "allow_comment": False, "allow_duet": False,
+             "allow_stitch": False, "commercial": False, "consent": True}
+
+
+def _post(c, platforms, tiktok=TIKTOK_OK, **kw):
+    """TikTok's rules put its choices on the person, so a TikTok post always
+    carries them; other platforms carry none."""
+    body = {"clip_id": "c1", "platforms": platforms, "caption": "Ace!", **kw}
+    if tiktok is not None:
+        body["options"] = {"tiktok": tiktok}
+    return c.login("pro").post("/publish/post-now", json=body)
 
 
 def test_it_posts_to_exactly_the_platform_ticked(env):
@@ -208,3 +216,112 @@ def test_the_dialog_offers_tiktok_and_instagram_and_ticks_nothing():
     assert "fetch('/publish/post-now'" in dlg
     # Live: follows the App's queue state, not a poll of its own.
     assert "queue || []).find(" in dlg and "setInterval" not in dlg
+
+
+# ── TikTok's Direct Post rules, on the endpoint ──────────────────────────────
+
+def test_a_tiktok_post_without_the_persons_choices_is_refused(env):
+    _conn("pro", "tiktok")
+    r = _post(env, ["tiktok"], tiktok=None)
+    assert r.status_code == 400 and "who can view" in r.json()["detail"].lower()
+    assert sched.for_user("pro") == [] and env.started == []
+
+
+@pytest.mark.parametrize("edit,needle", [
+    ({"privacy_level": ""}, "who can view"),
+    ({"privacy_level": "EVERYONE_AND_THEIR_DOG"}, "who can view"),
+    ({"consent": False}, "usage confirmation"),
+    ({"commercial": True}, "promotes yourself"),
+])
+def test_the_rules_it_enforces_before_anything_is_queued(env, edit, needle):
+    _conn("pro", "tiktok")
+    r = _post(env, ["tiktok"], tiktok={**TIKTOK_OK, **edit})
+    assert r.status_code == 400 and needle in r.json()["detail"].lower(), r.text
+    assert sched.for_user("pro") == []
+
+
+def test_branded_content_cannot_be_private(env, monkeypatch):
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "tiktok_audited", True)
+    _conn("pro", "tiktok")
+    r = _post(env, ["tiktok"], tiktok={**TIKTOK_OK, "commercial": True, "branded_content": True,
+                                       "privacy_level": "SELF_ONLY"})
+    assert r.status_code == 400 and "private" in r.json()["detail"].lower()
+
+
+def test_branded_content_waits_for_the_audit(env, monkeypatch):
+    """Every post is private until TikTok approves the app, and branded content
+    cannot be private — so it is refused up front rather than failing at TikTok."""
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "tiktok_audited", False)
+    _conn("pro", "tiktok")
+    r = _post(env, ["tiktok"], tiktok={**TIKTOK_OK, "commercial": True, "branded_content": True,
+                                       "privacy_level": "PUBLIC_TO_EVERYONE"})
+    assert r.status_code == 400 and "approved" in r.json()["detail"].lower()
+
+
+def test_the_persons_choices_are_stored_on_the_item(env):
+    _conn("pro", "tiktok")
+    picks = {**TIKTOK_OK, "allow_comment": True, "commercial": True, "your_brand": True}
+    assert _post(env, ["tiktok"], tiktok=picks).status_code == 202
+    item = sched.for_user("pro")[0]
+    assert item.options["tiktok"] == {"privacy_level": "SELF_ONLY", "allow_comment": True,
+        "allow_duet": False, "allow_stitch": False, "commercial": True, "your_brand": True,
+        "branded_content": False, "consent": True}
+
+
+def test_other_platforms_carry_no_tiktok_options(env):
+    _conn("pro", "instagram")
+    assert _post(env, ["instagram"], tiktok=None).status_code == 202
+    assert sched.for_user("pro")[0].options == {}
+
+
+def test_the_creator_endpoint_reports_the_account_and_the_audit_state(env, monkeypatch):
+    from src.dashboard import api
+    from src.publish import providers
+    _conn("pro", "tiktok")
+
+    async def fake_info(conn):
+        return {"nickname": "Ian", "username": "ian", "avatar_url": "https://x/a.jpg",
+                "privacy_level_options": ["SELF_ONLY"], "comment_disabled": False,
+                "duet_disabled": True, "stitch_disabled": True, "max_video_post_duration_sec": 600.0}
+
+    async def no_refresh(provider, conn): return None
+    monkeypatch.setattr(providers.get("tiktok"), "creator_info", fake_info)
+    monkeypatch.setattr(providers, "ensure_fresh", no_refresh)
+    monkeypatch.setattr(api.settings, "tiktok_audited", False)
+    r = env.login("pro").get("/publish/tiktok/creator")
+    assert r.status_code == 200, r.text
+    assert r.json()["nickname"] == "Ian" and r.json()["audited"] is False
+    assert r.json()["duet_disabled"] is True and "access_token" not in r.text
+
+
+def test_the_creator_endpoint_needs_a_connected_account(env):
+    r = env.login("pro").get("/publish/tiktok/creator")
+    assert r.status_code == 400 and "connect" in r.json()["detail"].lower()
+    assert env.login("starter").get("/publish/tiktok/creator").status_code == 403
+
+
+def test_the_dialog_follows_tiktoks_direct_post_rules():
+    """developers.tiktok.com content-sharing guidelines, checked 2026-09-29:
+    creator name, a preview, a visibility choice with no default from
+    creator_info's own list, interactions off until ticked and greyed when the
+    creator disabled them, a commercial-content switch that starts off with
+    Your brand / Branded content, no private branded content, and the
+    music-usage declaration above the button."""
+    dlg = _fn(_page(), "PostNowDialog")
+    assert "fetch('/publish/tiktok/creator')" in dlg and "Posting as" in dlg
+    assert "<video className=\"tt-vid\"" in dlg, "no preview of what is being posted"
+    assert "useState('')" in dlg and "Select…" in dlg, "visibility has a default"
+    assert "privacy_level_options" in dlg, "the list is not the account's own"
+    for k in ("comment_disabled", "duet_disabled", "stitch_disabled"):
+        assert f"td.{k}" in dlg, f"{k} does not grey the box out"
+    for name in ("ttCom", "ttDuet", "ttStitch", "ttDisc", "ttBrand", "ttBranded"):
+        assert f"useState(false)" in dlg and f"[{name}, " in dlg
+    assert "Disclose commercial content" in dlg and "Your brand" in dlg and "Branded content" in dlg
+    assert "Branded content visibility cannot be set to private." in dlg
+    assert "You need to indicate if your content promotes yourself, a third party, or both." in dlg
+    assert "By posting, you agree to TikTok's" in dlg
+    assert "Music Usage Confirmation" in dlg and "Branded Content Policy" in dlg
+    assert "consent: true" in dlg
+    assert "TikTok can take a few minutes to process" in dlg

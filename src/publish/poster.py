@@ -83,8 +83,11 @@ async def post_item(item: sched.Item, notify: Notify | None = None) -> sched.Ite
             await _say(notify, item)
             try:
                 await providers.ensure_fresh(provider, conn)
+                # Only when there ARE some: a provider that never asked (YouTube,
+                # Instagram) keeps its old signature.
+                extra = {"options": item.options[p]} if item.options.get(p) else {}
                 res = await provider.post(conn, path, size, item.caption, item.fmt,
-                                          item.duration_s)
+                                          item.duration_s, **extra)
                 item = sched.mark_result(item.id, uid, p, sched.R_POSTED, url=res.url,
                                          remote_id=res.remote_id, note=res.note)
                 log.info("post_published", item=item.id, platform=p, url=res.url)
