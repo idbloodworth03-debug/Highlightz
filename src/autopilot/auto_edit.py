@@ -215,9 +215,12 @@ async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
     # Why there are no captions, when there are none. An attribute rather than a
     # new return type: every caller (and every test double) returns the plan.
     plan.caption_note = meta.get("caption_note", "")
+    # `captions_requested` next to `captions`: 0 placed with requested=False means
+    # nobody asked for them; 0 with requested=True has a `caption_note` saying why.
     log.info("auto_edit_rendering", clip_id=clip["id"], hook=plan.hook,
              seconds=round(P.plan_duration(plan), 2), captions=len(plan.captions),
-             source=meta.get("source"))
+             captions_requested=bool(captions), caption_note=plan.caption_note,
+             template=template, source=meta.get("source"))
     if on_stage:
         await on_stage("render")
     await render_plan(plan, dst)
