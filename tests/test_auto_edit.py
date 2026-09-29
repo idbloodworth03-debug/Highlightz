@@ -233,8 +233,11 @@ def world(tmp_path, monkeypatch):
         calls.append("old"); dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
     monkeypatch.setattr(ap_render, "render", old)
 
-    async def new(clip, dst, *, captions, mode="clipper", template="suggested", title=""):
-        calls.append(("new", clip.get("hook"), mode, template, title))
+    async def new(clip, dst, *, captions, mode="clipper", template="suggested", title="",
+                  on_stage=None):
+        calls.append(("new", clip.get("hook"), mode, template, title, captions))
+        if on_stage:
+            await on_stage("captions"); await on_stage("render")
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4)
         return P.build([clip], {clip["id"]: ("/x.mp4", 30.0)})
     monkeypatch.setattr(auto_edit, "make", new)
@@ -264,15 +267,37 @@ def test_an_admins_autopilot_renders_the_new_edit_with_the_chosen_template(world
     assert len(calls) == 1 and calls[0][:4] == ("new", None, "streamer", "fill")
 
 
-def test_autopilot_passes_the_title_when_the_user_wants_it_on_the_video(world):
+def test_the_auto_edit_has_captions_and_no_title_unless_asked(world):
+    """Owner, 2026-09-28: the preset is captions at the BOTTOM and nothing at the
+    top. The clip's title is drawn at the top of the frame, and it was on by
+    default (the legacy `title` switch) — so it is a separate, OFF-by-default
+    switch for the plan-based edit."""
     calls, clip, notify = world
     rec = clip("a2", "admin", clip_title="Insane ace")
-    _run(runner.process_clip(rec, _cfg(title=True), notify, connected=set()))
-    assert calls[0][4] == "Insane ace"
+    _run(runner.process_clip(rec, _cfg(), notify, connected=set()))
+    assert calls[0][4] == "" and calls[0][5] is True, "default is captions on, no title"
     rec = clip("a3", "admin", clip_title="Insane ace")
     calls.clear(); runner._inflight.clear()
-    _run(runner.process_clip(rec, _cfg(title=False), notify, connected=set()))
-    assert calls[0][4] == ""
+    _run(runner.process_clip(rec, _cfg(edit_title=True, edit_captions=False), notify, connected=set()))
+    assert calls[0][4] == "Insane ace" and calls[0][5] is False
+    # the legacy switch no longer leaks into the new edit
+    rec = clip("a4", "admin", clip_title="Insane ace")
+    calls.clear(); runner._inflight.clear()
+    _run(runner.process_clip(rec, _cfg(title=True, captions=False), notify, connected=set()))
+    assert calls[0][4] == "" and calls[0][5] is True
+
+
+def test_a_slow_step_is_seen_not_a_card_frozen_on_editing(world):
+    calls, clip, notify = world
+    seen = []
+
+    async def spy(msg, uid):
+        rec = (msg.get("clip") or {}).get("autopilot") or {}
+        seen.append((rec.get("status"), rec.get("stage")))
+    rec = clip("a5", "admin")
+    _run(runner.process_clip(rec, _cfg(), spy, connected=set()))
+    assert ("rendering", "captions") in seen and ("rendering", "render") in seen
+    assert seen[-1][0] == "scheduled"
 
 
 def test_a_hook_saved_on_a_clip_is_not_used_by_the_automatic_edit(monkeypatch, tmp_path):

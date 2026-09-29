@@ -3252,14 +3252,21 @@ async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
             return
         dst = Path(settings.local_storage_path) / "autoedit" / f"{clip_id}.mp4"
         from src.auth import users as _users
-        plan = await auto_edit.make(clip, dst, captions=captions,
-                                    template=_users.autopilot_for(uid)["edit_template"])
+        cfg = _users.autopilot_for(uid)
+        # The user's Auto Edit settings decide, not the request: the same
+        # captions-at-the-bottom preset as Autopilot. `captions` stays in the
+        # signature as a way to turn them off for one render.
+        plan = await auto_edit.make(clip, dst, captions=captions and cfg["edit_captions"],
+                                    template=cfg["edit_template"],
+                                    title=(str(clip.get("clip_title") or clip.get("stream_title") or "")[:60]
+                                           if cfg["edit_title"] else ""))
         up = await runner.save_render(uid, clip, dst)
         await broadcast({"event": "upload_added", "upload": up.public(),
                          "quota": upload_lib.quota(uid)}, user_id=uid)
         clip["auto_edit"] = {"status": "ready", "at": time.time(), "upload_id": up.id,
                              "seconds": round(plan_duration(plan), 1), "hook": plan.hook,
-                             "captions": len(plan.captions)}
+                             "captions": len(plan.captions),
+                             "note": getattr(plan, "caption_note", "") or ""}
     except RenderError as exc:
         clip["auto_edit"] = {"status": "failed", "at": time.time(), "error": exc.args[0]}
     except Exception as exc:                    # never leave the card on "rendering"
@@ -3384,15 +3391,18 @@ async def _run_upload_auto_edit(upload_id: str, uid: str, filename: str, path: P
     try:
         dst = Path(settings.local_storage_path) / "autoedit" / f"u-{upload_id}.mp4"
         from src.auth import users as _users
-        plan = await auto_edit.make_from(path, rec, dst, captions=captions,
-                                         template=_users.autopilot_for(uid)["edit_template"])
+        cfg = _users.autopilot_for(uid)
+        plan = await auto_edit.make_from(path, rec, dst, captions=captions and cfg["edit_captions"],
+                                         template=cfg["edit_template"],
+                                         title=stem[:60] if cfg["edit_title"] else "")
         name = runner._safe_name(stem + "-auto-edit") + "-9x16.mp4"
         new_up = await runner.save_render(uid, rec, dst, name=name)
         await broadcast({"event": "upload_added", "upload": new_up.public(),
                          "quota": upload_lib.quota(uid)}, user_id=uid)
         job = {"status": "ready", "at": time.time(), "hook": hook,
                "result": new_up.public(), "seconds": round(plan_duration(plan), 1),
-               "captions": len(plan.captions)}
+               "captions": len(plan.captions),
+               "note": getattr(plan, "caption_note", "") or ""}
     except RenderError as exc:
         job = {"status": "failed", "at": time.time(), "hook": hook, "error": exc.args[0]}
     except Exception as exc:                    # never leave the editor on "rendering"

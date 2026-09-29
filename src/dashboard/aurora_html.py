@@ -760,6 +760,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apx-tags{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .apx-prev-l{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
 .apx-prev{font-size:14px;line-height:1.5;padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.25);border:1px dashed var(--hair-2);color:var(--fg-2);word-break:break-word}
+.apt-row em.note{color:var(--fg-3)}
 .apx-empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:32px 16px;color:var(--fg-3);font-size:14px;line-height:1.5}
 .apx-empty b{color:var(--fg);font-size:16px}
 .apt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:16px}
@@ -3083,6 +3084,7 @@ function AutoEditPanel({ clip }) {
         <div style={{fontSize:12,color:'var(--fg-2)',lineHeight:1.6,flex:1,minWidth:160}}>
           <div style={{color:'var(--fg)',fontWeight:600,marginBottom:4}}>Your auto-edit</div>
           {ae.seconds ? <div>{ae.seconds}s{ae.captions ? ', ' + ae.captions + ' captions' : ''}.</div> : null}
+          {ae.note ? <div style={{color:'var(--pending)'}}>{ae.note}</div> : null}
           <div>Saved to your library — nothing was posted.</div>
           <a href={'/uploads/' + ae.upload_id + '/file'} download className="rd-btn sm"
             style={{textDecoration:'none',marginTop:8,display:'inline-flex'}}><Icon name="download" size={13}/>Download</a>
@@ -7703,6 +7705,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   style={{width:96,aspectRatio:'9/16',background:'#000',borderRadius:6}}/>
                 <div style={{flex:1}}>
                   <div className="ed-note ok">Your auto-edit is ready — {aeJob.seconds}s{aeJob.captions ? ', ' + aeJob.captions + ' captions' : ''}. It is in your library.</div>
+                  {aeJob.note && <div className="ed-note">{aeJob.note}</div>}
                   <a className="rd-btn sm" href={'/uploads/' + aeJob.result.id + '/file'} download
                     style={{textDecoration:'none',display:'inline-flex',marginTop:8}}><Icon name="download" size={13}/>&nbsp;Download</a>
                 </div>
@@ -8616,6 +8619,13 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
    picker is gone from the editor's Auto Edit for the same reason. */
 const APT_LABEL = {rendering:'Editing…', scheduled:'Added to the Scheduler', failed:'Needs attention',
                    waiting_file:'Waiting for its video'};
+// A slow step is SEEN: the server marks each stage, so a clip on captions says
+// "Writing captions…" instead of sitting on a bare "Editing…".
+const aptLabel = c => {
+  const a = c.autopilot || {};
+  if (a.status === 'rendering') return a.stage === 'captions' ? 'Writing captions…' : a.stage === 'render' ? 'Rendering…' : 'Editing…';
+  return APT_LABEL[a.status] || a.status;
+};
 
 function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captionsOn = false,
                            uploadsOn = true, onOpenScheduler = null }) {
@@ -8827,8 +8837,9 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                     {touched.map(c=>(
                       <div key={c.id} className="apt-row">
                         <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
-                        <span className={'apt-pill ' + st(c)}>{APT_LABEL[st(c)] || st(c)}</span>
+                        <span className={'apt-pill ' + st(c)}>{aptLabel(c)}</span>
                         {st(c) === 'failed' && c.autopilot.error && <em>{c.autopilot.error}</em>}
+                        {st(c) === 'scheduled' && c.autopilot.note && <em className="note">{c.autopilot.note}</em>}
                       </div>))}
                   </div>}
             </div>
@@ -8862,14 +8873,21 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
             <div className="apx-sb">
               <h4>Extras</h4>
               <div className="sc-pchips">
-                <button className={'sc-pchip'+(cfg.title?' on':'')} disabled={busy} onClick={()=>save({title:!cfg.title})}>
-                  {cfg.title ? '✓ ' : ''}Title on the video
+                {/* Auto Edit's own switches for the plan-based edit (admins); the
+                    legacy ones for everybody else. Captions sit at the BOTTOM of
+                    the frame, the title (if you want one) at the top. */}
+                <button className={'sc-pchip'+((isAdmin ? cfg.edit_title : cfg.title)?' on':'')} disabled={busy}
+                  onClick={()=>save(isAdmin ? {edit_title:!cfg.edit_title} : {title:!cfg.title})}>
+                  {(isAdmin ? cfg.edit_title : cfg.title) ? '✓ ' : ''}Title at the top
                 </button>
-                {captionsOn && <button className={'sc-pchip'+(cfg.captions?' on':'')} disabled={busy} onClick={()=>save({captions:!cfg.captions})}>
-                  {cfg.captions ? '✓ ' : ''}Auto-captions
+                {(captionsOn || isAdmin) && <button className={'sc-pchip'+((isAdmin ? cfg.edit_captions : cfg.captions)?' on':'')} disabled={busy}
+                  onClick={()=>save(isAdmin ? {edit_captions:!cfg.edit_captions} : {captions:!cfg.captions})}>
+                  {(isAdmin ? cfg.edit_captions : cfg.captions) ? '✓ ' : ''}Auto-captions at the bottom
                 </button>}
               </div>
-              {isAdmin && <div className="hint">Used by Autopilot and by Auto Edit in the Clip Editor.</div>}
+              {isAdmin && <div className="hint">Used by Autopilot and by Auto Edit in the Clip Editor. Captions are on by default; the title is off.</div>}
+              {isAdmin && cfg.edit_captions && ap && ap.captions_available === false && <div className="ed-warn">
+                Captions are switched off on the server (CAPTIONS_ENABLED), so edits are made without them.</div>}
             </div>
           </section>
           {ap && ap.font_ok === false && <div className="ed-warn" style={{marginTop:16}}>The server has no font for titles and captions, so clips render without text. (Admin: set AUTOPILOT_FONT.)</div>}

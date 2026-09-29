@@ -4229,3 +4229,33 @@ branded content), and the music-usage declaration above Post.
   `brand_content_toggle` are from TikTok's Direct Post reference as I recall it,
   not seen live. Sandbox posts never set them (unaudited, and only when the
   person declares commercial content).
+
+## Autopilot captions: no silent "no words", and the preset (2026-09-29)
+
+Owner: "The auto captions are being held up and it is stuck. No words are coming
+out. Also make the auto pilot format that I want as the preset have the auto
+captions on the bottom of the screen and not the top."
+
+**What the code shows (not yet confirmed on prod):**
+- Captions are drawn at 78% of the frame height (`graph.CAPTION_Y`), i.e. the
+  BOTTOM; the clip TITLE is drawn at 12%, the top. Since 2026-09-28 the title was
+  passed into the plan-based edit and the legacy `title` switch defaults ON, so
+  every Autopilot video got the title at the top. The words at the top were
+  probably that, not captions. The plan-based edit now has its own switches:
+  `edit_captions` (default ON) and `edit_title` (default OFF); the legacy
+  `captions`/`title` are untouched and only drive the old renderer.
+- `settings.captions_enabled` defaults to False. With it off, an Autopilot edit
+  had no captions and nothing said so ("no words"). The wait for the ONE
+  process-wide transcription slot also had no limit of its own.
+- **Now:** `auto_edit._transcript` returns the reason when there are no captions
+  (server flag off / failed / timed out / no speech) and the caption step has its
+  own ceiling (`captions_timeout_s` + 90s) after which the edit carries on
+  without captions and says so. The runner marks each stage on the clip
+  (`autopilot.stage` = captions | render) so the Activity list reads "Writing
+  captions…" / "Rendering…", and the reason lands on the finished clip as
+  `autopilot.note` (also on the manual Auto Edit results). The Auto Edit
+  settings show a warning when the server has captions off.
+
+**To confirm on prod:** `grep -E "^CAPTIONS_" /opt/highlightz/.env`, then
+`venv/bin/python -m src.captions.transcribe --selftest`, then
+`journalctl -u highlightz --since "1 hour ago" | grep -i -E "caption|whisper"`.

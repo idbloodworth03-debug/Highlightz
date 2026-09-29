@@ -61,19 +61,43 @@ async def probe_duration(path: Path) -> float:
         return 0.0
 
 
-async def _transcript(path: Path) -> list:
-    """Whisper's cues for the clip, cached beside the file. Any failure is
-    no captions — never the reason an edit is missed."""
+# The caption step gets its own ceiling on top of Whisper's: waiting for the
+# one transcription slot has no timeout of its own, so a slot held by something
+# else (the editor's Auto-captions, another render) would leave an Autopilot
+# clip sitting on "Editing…" with nothing said. Past this, the edit carries on
+# without captions AND says why.
+CAPTION_STEP_EXTRA_S = 90.0
+
+
+async def _transcript(path: Path) -> tuple[list, str]:
+    """Whisper's cues for the clip, cached beside the file, and — when there
+    are none — the REASON, in words the person can act on. Never raises: a
+    missing caption must not cost the edit, but it must not be silent either
+    ("The auto captions are being held up and it is stuck. No words are
+    coming out", owner 2026-09-28)."""
     from src.captions import transcribe as cap
-    try:
+    if not settings.captions_enabled:
+        return [], ("Captions are switched off on the server (CAPTIONS_ENABLED is not set), "
+                    "so this edit has none.")
+
+    async def work() -> list:
         payload = cap.load(path)
         if payload is None:
             payload = await cap.transcribe(path)
             cap.save(path, payload)
         return payload.get("segments") or []
+
+    try:
+        segs = await asyncio.wait_for(work(), timeout=settings.captions_timeout_s + CAPTION_STEP_EXTRA_S)
+    except asyncio.TimeoutError:
+        log.warning("auto_edit_captions_timeout", path=path.name)
+        return [], "Captions took too long (another caption job may have been running), so this edit has none."
     except Exception as exc:
         log.warning("auto_edit_captions_skipped", error=str(exc))
-        return []
+        return [], f"Captions could not be made: {str(exc)[:140]}"
+    if not segs:
+        return [], "No speech was found in this clip, so it has no captions."
+    return segs, ""
 
 
 def apply_template(plan: P.EditPlan, name: str) -> P.EditPlan:
@@ -96,7 +120,7 @@ def apply_template(plan: P.EditPlan, name: str) -> P.EditPlan:
 
 async def build_plan(clip: dict, src: Path, *, captions: bool,
                      mode: str = "clipper", template: str = "suggested",
-                     title: str = "") -> tuple[P.EditPlan, dict]:
+                     title: str = "", on_stage=None) -> tuple[P.EditPlan, dict]:
     """The plan for this one clip — with its hook, if it has one."""
     from src.autopilot import builder, llm_common
     duration = await probe_duration(src)
@@ -106,14 +130,22 @@ async def build_plan(clip: dict, src: Path, *, captions: bool,
         raise RenderError("This clip is too short to edit.")
     sources = {clip["id"]: (src, duration)}
     transcripts = {}
-    if captions and settings.captions_enabled:
-        transcripts = {clip["id"]: await _transcript(src)}
+    caption_note = ""
+    if captions:
+        if on_stage:
+            await on_stage("captions")
+        segs, caption_note = await _transcript(src)
+        if segs:
+            transcripts = {clip["id"]: segs}
     plan, meta = await builder.build([clip], sources, transcripts=transcripts, mode=mode)
     if captions and transcripts and not plan.captions:
         plan.captions = llm_common.captions_for_plan(plan, transcripts)
     apply_template(plan, template)
     if title:
         plan.title = title
+    if captions and not plan.captions and not caption_note:
+        caption_note = "No captions were placed on this edit."
+    meta["caption_note"] = caption_note
     ok, why = P.valid(plan)
     if not ok:
         raise RenderError(f"The edit could not be planned: {why}")
@@ -150,7 +182,7 @@ async def render_plan(plan: P.EditPlan, dst: Path) -> Path:
 
 
 async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper",
-                template: str = "suggested", title: str = "") -> P.EditPlan:
+                template: str = "suggested", title: str = "", on_stage=None) -> P.EditPlan:
     """Plan and render one CAUGHT clip's edit to `dst`. Raises RenderError
     with a message safe to show the user.
 
@@ -166,12 +198,12 @@ async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper",
         raise RenderError("This clip has no video file to edit.")
     rec = {k: v for k, v in clip.items() if k != "hook"}
     return await make_from(src, rec, dst, captions=captions, mode=mode,
-                           template=template, title=title)
+                           template=template, title=title, on_stage=on_stage)
 
 
 async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
                     mode: str = "clipper", template: str = "suggested",
-                    title: str = "") -> P.EditPlan:
+                    title: str = "", on_stage=None) -> P.EditPlan:
     """Plan and render the edit of ANY video file — a caught clip or a file
     in the library (the Clip Editor's Auto Edit style). `rec` carries what
     the builder reads: an `id`, a `channel` for the log, and the `hook`."""
@@ -179,9 +211,14 @@ async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
         raise RenderError("There is no video file to edit.")
     clip = rec
     plan, meta = await build_plan(clip, Path(src), captions=captions, mode=mode,
-                                  template=template, title=title)
+                                  template=template, title=title, on_stage=on_stage)
+    # Why there are no captions, when there are none. An attribute rather than a
+    # new return type: every caller (and every test double) returns the plan.
+    plan.caption_note = meta.get("caption_note", "")
     log.info("auto_edit_rendering", clip_id=clip["id"], hook=plan.hook,
              seconds=round(P.plan_duration(plan), 2), captions=len(plan.captions),
              source=meta.get("source"))
+    if on_stage:
+        await on_stage("render")
     await render_plan(plan, dst)
     return plan

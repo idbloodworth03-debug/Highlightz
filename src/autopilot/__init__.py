@@ -59,8 +59,15 @@ DEFAULT = {
     "daily_at": "18:00",       # for "daily", in the user's local time
     "tz_offset_min": 0,        # the browser's -getTimezoneOffset(); daily_at is local
     "caption_text": "{title} #{channel} #twitchclips",
-    "title": True,             # burn the clip's title onto the video
-    "captions": False,         # burn auto-captions (needs CAPTIONS_ENABLED)
+    "title": True,             # burn the clip's title onto the video (LEGACY renderer)
+    "captions": False,         # burn auto-captions (LEGACY renderer; needs CAPTIONS_ENABLED)
+    # AUTO EDIT's own switches (owner, 2026-09-28: the preset is the whole clip
+    # with CAPTIONS AT THE BOTTOM and nothing at the top). Separate from the two
+    # above on purpose: `title` defaults ON for the legacy renderer, and passing
+    # it into the plan-based edit put the clip's title at the top of every
+    # Autopilot video — the words at the top the owner saw.
+    "edit_captions": True,
+    "edit_title": False,
 }
 
 
@@ -90,6 +97,8 @@ def normalize(raw: dict | None) -> dict:
                               else DEFAULT["caption_text"])[:CAPTION_MAX]
     cfg["title"] = bool(raw.get("title", DEFAULT["title"]))
     cfg["captions"] = bool(raw.get("captions", DEFAULT["captions"]))
+    cfg["edit_captions"] = bool(raw.get("edit_captions", DEFAULT["edit_captions"]))
+    cfg["edit_title"] = bool(raw.get("edit_title", DEFAULT["edit_title"]))
     return cfg
 
 

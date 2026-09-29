@@ -126,6 +126,7 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
         await mark({"status": "rendering", "at": time.time()})
 
         duration = float(clip.get("duration_seconds") or 0.0)
+        caption_note = ""
         out_dir = Path(settings.local_storage_path) / "autopilot"
         dst = out_dir / f"{cid}.mp4"
         from src.auth import users as user_store
@@ -134,11 +135,20 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
             # ADMINS: the plan-based edit (blur frame, slides + whoosh, the
             # user's hook if they picked one), owner 2026-09-23: "implemented
             # to the admins right now so we can test it out".
-            plan = await auto_edit.make(clip, dst, captions=bool(cfg.get("captions")),
+            started = time.time()
+
+            async def on_stage(name: str) -> None:
+                # "Writing captions…" then "Rendering…", so a slow step is
+                # SEEN, not a card frozen on "Editing…".
+                await mark({"status": "rendering", "stage": name, "at": started})
+
+            plan = await auto_edit.make(clip, dst, captions=bool(cfg.get("edit_captions", True)),
                                         mode=cfg.get("mode") or "clipper",
                                         template=cfg.get("edit_template") or "suggested",
-                                        title=title_for(cfg, clip))
+                                        title=title_for({**cfg, "title": cfg.get("edit_title", False)}, clip),
+                                        on_stage=on_stage)
             duration = _plan_seconds(plan)
+            caption_note = getattr(plan, "caption_note", "") or ""
         else:
             captions = []
             if cfg.get("captions") and settings.captions_enabled:
@@ -155,8 +165,11 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
         await notify({"event": "schedule_added", "item": item.public()}, uid)
         await notify({"event": "upload_added", "upload": up.public(),
                       "quota": upload_lib.quota(uid)}, uid)
-        await mark({"status": "scheduled", "at": time.time(), "item_id": item.id,
-                    "due_at": due, "platforms": platforms})
+        rec = {"status": "scheduled", "at": time.time(), "item_id": item.id,
+               "due_at": due, "platforms": platforms}
+        if caption_note:
+            rec["note"] = caption_note
+        await mark(rec)
         log.info("autopilot_scheduled", clip_id=cid, user_id=uid, item=item.id,
                  due_at=due, platforms=platforms)
         return clip["autopilot"]
