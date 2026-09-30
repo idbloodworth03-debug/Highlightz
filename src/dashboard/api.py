@@ -5702,10 +5702,11 @@ def _library_upgrade_hint(uid: str) -> str:
         n = PLAN_LIMITS[p]["max_library_week"]
         return "as many as you like" if n >= UNLIMITED_PENDING else f"{n} a week"
     if plan == "free":
-        return (f" Starter (${PLAN_LIMITS['starter']['price']}/mo) keeps {keeps('starter')},"
-                f" Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}.")
+        return (f" Upgrade to keep more: Starter (${PLAN_LIMITS['starter']['price']}/mo)"
+                f" keeps {keeps('starter')}, Pro (${PLAN_LIMITS['pro']['price']}/mo)"
+                f" keeps {keeps('pro')}.")
     if plan == "starter":
-        return f" Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}."
+        return f" Upgrade to keep more: Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}."
     return ""
 
 
