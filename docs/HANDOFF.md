@@ -4446,3 +4446,8 @@ Autopilot tab's activity list has **Retry** (`POST /autopilot/clips/{id}/retry`,
 failure banner has **Retry all** (`POST /autopilot/retry-failed`: clears this
 user's failures and starts a pass). Progress is the usual clip_updated. Also:
 "Add back" (`restore_clip`) no longer awaits the edit inside the request.
+
+**Captions a bit smaller (2026-09-30).** Owner: "make the auto captions a tiny bit
+smaller". `graph.CAPTION_MAX_PX` 100 → 88 and `CAPTION_SPLIT_BELOW` 88 → 77 (same
+ratio, so wrapping behaves as before, just ~12% smaller). Auto Edit / Autopilot
+renders only; the browser editor's own caption size is unchanged.

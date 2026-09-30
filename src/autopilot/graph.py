@@ -59,8 +59,10 @@ CAPTION_COLOURS = ("white", "0xF7A745")
 CAPTION_Y = 0.78            # centre of the block — the editor's default, and
                             # with blur framing it sits in the blurred band,
                             # below the picture rather than over the gameplay
-CAPTION_MAX_PX = 100        # the editor's default is 0.055 x 1920 = 105
-CAPTION_SPLIT_BELOW = 88    # one line smaller than this: wrap instead. The
+CAPTION_MAX_PX = 88         # was 100 (the editor's 0.055 x 1920 = 105); owner,
+                            # 2026-09-30: "make the auto captions a tiny bit
+                            # smaller", so about 12% down
+CAPTION_SPLIT_BELOW = 77    # one line smaller than this: wrap instead. The
                             # editor never shrinks a caption, it wraps at one
                             # size; this keeps every cue within ~12% of that
                             # instead of jumping between 72 and 100
