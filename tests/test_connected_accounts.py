@@ -164,9 +164,7 @@ def test_the_connections_state_stays_live_and_resyncs():
     ws = page[page.index("msg.event==='publish_connections_changed'"):][:400]
     assert "refetchConnections()" in ws
     # refetchAll pulls it on mount and on every socket reconnect.
-    start = page.index("const refetchAll = useCallback")
-    ra = page[start:page.index("hz_refetch", start)]
-    assert "refetchConnections()" in ra
+    assert _publishing_resyncs(page, "refetchConnections();")
 
 
 def test_the_admin_page_has_the_tab_and_rereads_while_open():
@@ -197,3 +195,27 @@ def test_the_admin_user_list_can_sort_by_most_recently_active():
     assert 'id="u-sort"' in html and '<option value="active">' in html
     assert "active:   u => u.last_active_at || 0" in html
     assert "if(key) rows.sort(" in html
+
+
+def _publishing_resyncs(html, what):
+    """refetchAll (mount + every reconnect) reaches `what` through
+    refetchPublishing, called once /me says the account can post (2026-09-30:
+    no failing requests for accounts that cannot)."""
+    ra = html[html.index("const refetchAll"):html.index("const wsBootstrapped")]
+    assert "if(canPublishFor(data)) refetchPublishing();" in ra
+    rp = html[html.index("const refetchPublishing = useCallback"):][:1200]
+    return what in rp
+
+
+def test_accounts_that_cannot_post_do_not_request_posting_data():
+    """2026-09-30 audit: every non-admin tab fetched /publish/platforms,
+    /publish/schedule, /publish/connections and /autopilot on each load and
+    reconnect, and all four refused. They are only fetched when canPublishFor."""
+    page = _page()
+    ra = page[page.index("const refetchAll"):page.index("const wsBootstrapped")]
+    for url in ("fetch('/publish/platforms')", "fetch('/publish/schedule')"):
+        assert url not in ra, url + " is still fetched for everyone"
+    fn = page[page.index("function canPublishFor(me)"):][:300]
+    assert "me.plan_limits.uploads" in fn and "((me.features || {}).uploads || me.is_admin)" in fn
+    # access that arrives mid-session still loads it
+    assert "useEffect(()=>{ if(canPublish && !publishLoaded.current) refetchPublishing(); },[canPublish]);" in page

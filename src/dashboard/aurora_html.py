@@ -4422,8 +4422,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview }) 
 // change made in another tab shows up here without a reload.
 function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
   const prefs = (me && me.prefs) || {};
-  const canEditor = !!(me && me.plan_limits && me.plan_limits.uploads
-                       && ((me.features || {}).uploads || me.is_admin));
+  const canEditor = canPublishFor(me);
   const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
   const [err, setErr] = useState('');
   const platName = activePlatform === 'kick' ? 'Kick' : 'Twitch';
@@ -9968,6 +9967,15 @@ function UploadsUnderConstruction() {
   );
 }
 
+// Whether this account can use the Clip Editor / posting / Autopilot. The
+// client copy of the server's _require_upload_access: the plan includes it, and
+// it is released or the account is an admin. One definition, used by App (which
+// data to load) and Settings (which switches to show).
+function canPublishFor(me) {
+  return !!(me && me.plan_limits && me.plan_limits.uploads
+            && ((me.features || {}).uploads || me.is_admin));
+}
+
 function RdApp() {
   const [route, setRoute] = useState('review');
   // Mobile nav drawer. Desktop CSS ignores the class entirely (the rail is
@@ -10038,6 +10046,24 @@ function RdApp() {
   const refetchAutopilot = useCallback(()=>{
     fetch('/autopilot').then(r=>r.ok?r.json():null).then(d=>{ if(d) setAutopilot(d); }).catch(()=>{});
   },[]);
+  // POSTING DATA, ONLY FOR ACCOUNTS THAT CAN POST. The four endpoints below all
+  // refuse (503 while posting is held back, 403 below Pro) for everyone else, so
+  // fetching them on every load and reconnect was four failing requests per
+  // tab (2026-09-30 audit). Same rule as the server's _require_upload_access.
+  // Called from refetchAll once /me says who this is — so it still re-syncs on
+  // every reconnect — and by the effect below when access arrives mid-session.
+  const refetchPublishing = useCallback(()=>{
+    publishLoaded.current = true;
+    fetch('/publish/platforms').then(r=>r.ok?r.json():null).then(d=>{ if(d) setPlatforms(d.platforms||[]); }).catch(()=>{});
+    fetch('/publish/schedule').then(r=>r.ok?r.json():null).then(d=>{ if(d) setQueue(d.items||[]); }).catch(()=>{});
+    refetchConnections();
+    refetchAutopilot();
+  },[refetchConnections, refetchAutopilot]);
+  const publishLoaded = useRef(false);
+  // Access that arrives after the first load (an upgrade, an admin grant) —
+  // the /me that carries it may come from an event rather than refetchAll.
+  const canPublish = canPublishFor(me);
+  useEffect(()=>{ if(canPublish && !publishLoaded.current) refetchPublishing(); },[canPublish]);
   // {clips} while the review prompt is open, null otherwise.
   const [reviewAsk, setReviewAsk] = useState(null);
   // Clips DELETED by the pending cap. Not 'missed' — the new clip is kept
@@ -10125,6 +10151,7 @@ function RdApp() {
     }).catch(()=>{});
     fetch('/me').then(r=>r.json()).then(data=>{
       setMe(data);
+      if(canPublishFor(data)) refetchPublishing();
       // An account that signed up with Kick starts on Kick, unless it has
       // already chosen a platform in this browser.
       try{
@@ -10159,10 +10186,7 @@ function RdApp() {
     // Announcements: the socket event reaches tabs open at the moment of
     // sending; this reaches everyone else on their next open or reconnect.
     fetch('/announcements').then(r=>r.json()).then(d=>setAnnouncements(d.rows||[])).catch(()=>{});
-    fetch('/publish/platforms').then(r=>r.json()).then(d=>setPlatforms(d.platforms||[])).catch(()=>{});
-    fetch('/publish/schedule').then(r=>r.json()).then(d=>setQueue(d.items||[])).catch(()=>{});
-    refetchConnections();
-    refetchAutopilot();
+    // (Posting data: from the /me reply above, and only if this account can post.)
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
     fetch('/tutorial/content').then(r=>r.ok?r.json():null)

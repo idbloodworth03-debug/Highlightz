@@ -178,6 +178,7 @@ def test_the_clip_editor_switch_only_shows_to_accounts_that_have_the_editor():
     The page uses the same rule as the server's _require_upload_access."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     body = page[page.index("function SettingsScreen("):page.index("function tutBold(")]
-    assert "const canEditor = !!(me && me.plan_limits && me.plan_limits.uploads" in body
-    assert "((me.features || {}).uploads || me.is_admin)" in body
+    assert "const canEditor = canPublishFor(me);" in body
+    fn = page[page.index("function canPublishFor(me)"):][:300]
+    assert "me.plan_limits.uploads" in fn and "((me.features || {}).uploads || me.is_admin)" in fn
     assert '{canEditor && <Toggle k="auto_editor"' in body

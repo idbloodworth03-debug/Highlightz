@@ -742,7 +742,8 @@ def test_the_slot_picker_only_offers_clips_that_have_no_time_yet():
 def test_the_scheduler_is_wired_for_realtime():
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     assert "msg.event==='publish_connections_changed'" in html
-    assert "refetchConnections();" in html[html.index("const refetchAll"):html.index("const wsBootstrapped")]
+    from tests.test_connected_accounts import _publishing_resyncs
+    assert _publishing_resyncs(html, "refetchConnections();")
     assert "_params.get('connected')" in html and "_params.get('connect_error')" in html
     assert "connections={connections}" in html
 

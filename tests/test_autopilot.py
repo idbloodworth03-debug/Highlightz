@@ -369,7 +369,8 @@ def test_autopilot_has_its_own_screen_and_the_clip_card_shows_its_state():
     # Its counts are read off the live clips state, not fetched here.
     assert "fetch('/clips" not in card
     # Realtime: pulled in refetchAll and updated by its event.
-    assert "refetchAutopilot();" in h[h.index("const refetchAll"):h.index("const wsBootstrapped")]
+    from tests.test_connected_accounts import _publishing_resyncs
+    assert _publishing_resyncs(h, "refetchAutopilot();")
     assert "msg.event==='autopilot_changed'" in h
     # The clip card says what Autopilot did with it.
     rd = h[h.index("function RdClip("):h.index("function ClipModal(")]

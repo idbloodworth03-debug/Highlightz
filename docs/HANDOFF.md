@@ -4494,3 +4494,14 @@ client copy of `_require_upload_access`: plan_limits.uploads AND (features.uploa
 OR is_admin)). Browser-checked with UPLOADS_ENABLED=false: hidden for free and
 Pro, shown for admin. The server already skipped the copy for these accounts;
 this only stops showing them a switch that did nothing.
+
+**No posting requests from accounts that cannot post (2026-09-30).** refetchAll
+used to fetch /publish/platforms, /publish/schedule, /publish/connections and
+/autopilot for every tab; all four refuse (503/403) unless the account can use
+posting, so each non-admin load and reconnect made four failing requests. Now
+`refetchPublishing()` loads them, called from refetchAll's /me reply only when
+`canPublishFor(me)` (one shared helper, the client copy of
+`_require_upload_access`; Settings uses it too), plus an effect for access that
+arrives mid-session. Realtime contract kept: an account that can post re-syncs
+all four on every reconnect. Browser-checked (UPLOADS_ENABLED=false): free and
+Pro make zero failing requests; admin loads the four once each, all 200.
