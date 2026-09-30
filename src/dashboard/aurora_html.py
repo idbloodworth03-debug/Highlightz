@@ -4422,6 +4422,8 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview }) 
 // change made in another tab shows up here without a reload.
 function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
   const prefs = (me && me.prefs) || {};
+  const canEditor = !!(me && me.plan_limits && me.plan_limits.uploads
+                       && ((me.features || {}).uploads || me.is_admin));
   const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
   const [err, setErr] = useState('');
   const platName = activePlatform === 'kick' ? 'Kick' : 'Twitch';
@@ -4538,9 +4540,15 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
               {PRESETS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
             </select>
           </div>
-          <Toggle k="auto_editor" label="Send approved clips to the Clip Editor"
+          {/* Only for accounts that can use the Clip Editor — the same rule as
+              the server's _require_upload_access (plan includes it, and it is
+              released or they are an admin). Free and Starter users, and Pro
+              while the editor is held back, were shown a switch for a feature
+              they do not have (2026-09-30 audit). Follows /me, so an upgrade
+              shows it without a reload. */}
+          {canEditor && <Toggle k="auto_editor" label="Send approved clips to the Clip Editor"
             sub="Approving a clip also puts its file in the editor library. Off means the Edit button on the card is the only way in."
-            on={prefs.auto_editor !== false} onClick={() => putPref({auto_editor: prefs.auto_editor === false})}/>
+            on={prefs.auto_editor !== false} onClick={() => putPref({auto_editor: prefs.auto_editor === false})}/>}
           <Toggle k="reduce_motion" label="Reduce motion"
             sub="Skip the platform-switch sweep and the wake-up animation when a channel is added."
             on={!!prefs.reduce_motion} onClick={() => putPref({reduce_motion: !prefs.reduce_motion})}/>

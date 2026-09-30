@@ -170,3 +170,14 @@ def test_the_settings_screen_has_the_controls_and_follows_the_events():
     # The add box starts on the default preset until the user picks one.
     assert "if(defaultPreset && !presetTouched.current) setPreset(defaultPreset)" in h
     assert re.search(r"settings:\['Settings','Tune each channel", h)
+
+
+def test_the_clip_editor_switch_only_shows_to_accounts_that_have_the_editor():
+    """2026-09-30 audit: free users (and Pro while the editor is held back) saw
+    "Send approved clips to the Clip Editor" for a feature they do not have.
+    The page uses the same rule as the server's _require_upload_access."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    body = page[page.index("function SettingsScreen("):page.index("function tutBold(")]
+    assert "const canEditor = !!(me && me.plan_limits && me.plan_limits.uploads" in body
+    assert "((me.features || {}).uploads || me.is_admin)" in body
+    assert '{canEditor && <Toggle k="auto_editor"' in body

@@ -4487,3 +4487,10 @@ Fixed what was still Pro-only or vague:
 - at the weekly wall the Clip Review toolbar shows **See plans** → /billing/paywall;
 - the comped-trial banner's **Subscribe** goes to /billing/paywall (both plans)
   instead of straight to Pro checkout.
+
+**Settings: the Clip Editor switch only for accounts that have it (2026-09-30).**
+"Send approved clips to the Clip Editor" is shown only when `canEditor` (the
+client copy of `_require_upload_access`: plan_limits.uploads AND (features.uploads
+OR is_admin)). Browser-checked with UPLOADS_ENABLED=false: hidden for free and
+Pro, shown for admin. The server already skipped the copy for these accounts;
+this only stops showing them a switch that did nothing.
