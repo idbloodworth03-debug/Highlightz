@@ -13286,6 +13286,12 @@ ADMIN_HTML = """<!DOCTYPE html>
         <button class="chip" data-f="noemail" title="No email on file — they have not paid, and their Twitch grant predates the email scope">No email</button>
         <button class="chip" data-f="all">All</button>
       </div>
+      <select class="field" id="u-sort" style="width:auto" title="Order of the list">
+        <option value="">Sort: default</option>
+        <option value="active">Sort: recently active</option>
+        <option value="joined">Sort: newest signups</option>
+        <option value="accepted">Sort: most clips accepted</option>
+      </select>
       <span class="spacer" id="u-count"></span>
     </div>
     <div class="tw"><div id="u-wrap" class="loading">Loading&hellip;</div></div>
@@ -14024,6 +14030,15 @@ async function ackRefusal(btn){
 
 // ── users ───────────────────────────────────────────────────────────────────
 let USERS = [], ME = '', U_FILTER = 'active', U_Q = '';
+// The list's order, remembered per browser (a convenience, so wrapped: storage
+// can be blocked). "" keeps the server's order.
+let U_SORT = '';
+try { U_SORT = localStorage.getItem('hz_admin_user_sort') || ''; } catch(e) {}
+const U_SORTS = {
+  active:   u => u.last_active_at || 0,
+  joined:   u => u.created_at || 0,
+  accepted: u => u.clips_approved || 0,
+};
 
 // The comp-able tiers. Kept next to the table and the drawer so the two can
 // never offer different memberships; the server validates against PAID_PLANS
@@ -14143,6 +14158,8 @@ function renderUsers(){
   const wrap = document.getElementById('u-wrap');
   if(!USERS.length){ wrap.className='empty'; wrap.textContent='No users yet.'; return; }
   const rows = USERS.map((u,i) => [u,i]).filter(p => userMatches(p[0]));
+  const key = U_SORTS[U_SORT];
+  if(key) rows.sort((a, b) => key(b[0]) - key(a[0]));   // biggest / newest first
   // Email coverage next to the row count: the one number that says whether
   // you can actually reach these people. Only shown when somebody is
   // missing one, so it stays quiet once the answer is everybody.
@@ -14260,6 +14277,12 @@ document.getElementById('af-user').addEventListener('change', e => {
   document.getElementById('af-code').value = (opt && opt.dataset.code) || '';
 });
 
+document.getElementById('u-sort').value = U_SORT;
+document.getElementById('u-sort').addEventListener('change', e => {
+  U_SORT = e.target.value || '';
+  try { localStorage.setItem('hz_admin_user_sort', U_SORT); } catch(err) {}
+  renderUsers();
+});
 document.getElementById('u-search').addEventListener('input', e => {
   U_Q = (e.target.value || '').toLowerCase().trim(); renderUsers();
 });

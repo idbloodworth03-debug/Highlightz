@@ -177,3 +177,23 @@ def test_the_admin_page_has_the_tab_and_rereads_while_open():
     assert "loadAccounts()" in html
     # No WebSocket on that page, so it polls while the panel is the one showing.
     assert "setInterval(function(){ if(accountsOpen()) loadAccounts(); }" in html
+
+
+def test_the_admin_user_list_can_sort_by_most_recently_active():
+    """Owner, 2026-09-30: "give me a way to sort the admin page by most
+    recently active"."""
+    from src.dashboard import api
+    html = api.ADMIN_HTML
+    assert 'id="u-sort"' in html and '<option value="active">' in html
+    assert "active:   u => u.last_active_at || 0" in html
+    assert "if(key) rows.sort(" in html
+
+
+def test_the_admin_user_list_can_sort_by_most_recently_active():
+    """Owner, 2026-09-30: "give me a way to sort the admin page by most
+    recently active"."""
+    from src.dashboard import api
+    html = api.ADMIN_HTML
+    assert 'id="u-sort"' in html and '<option value="active">' in html
+    assert "active:   u => u.last_active_at || 0" in html
+    assert "if(key) rows.sort(" in html
