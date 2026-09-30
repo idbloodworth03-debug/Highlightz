@@ -9111,6 +9111,23 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
   const move = (id, d, slot) => at(id, slotTime(d, slot));
   const fillSlot = (it, when) => { setSlotAt(null); at(it.id, when); };
 
+  // Held back with the Clip Editor it is fed by (the API answers 503 while
+  // UPLOADS_ENABLED is off). The shared page, like the Clip Editor's and
+  // Autopilot's; before the plan gate, as theirs are, so nobody is asked to pay
+  // for something that is not open yet (2026-09-30 audit: Pro users saw the
+  // full calendar with a warning and an "Add a clip" that could not work).
+  if (!uploadsOn) {
+    return (
+      <div className="rd-scroll">
+        <UnderConstruction theme="violet" icon="clock" title="Scheduler is coming soon">
+          Connect YouTube and Instagram once, give each clip a time, and Highlightz posts it
+          for you with your caption. TikTok you post yourself, from the clip. It is built and
+          in testing — we'll switch it on together with the Clip Editor and Autopilot.
+        </UnderConstruction>
+      </div>
+    );
+  }
+
   // Plan gate mirrors the backend 403 with an upgrade card, the same shape
   // as the Clip Editor's. After every hook, so hook order stays stable.
   if (me && me.plan_limits && !me.plan_limits.uploads && !me.is_admin) {
@@ -9165,11 +9182,6 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
         {onOpenAutopilot && <button className="rd-btn sm" onClick={onOpenAutopilot}>
           <Icon name="zap" size={13}/>Open Autopilot</button>}
       </div>}
-
-      {!uploadsOn &&
-        <div className="ed-warn" style={{marginTop:12}}>
-          The Clip Editor is switched off, so nothing can reach the Scheduler yet.
-        </div>}
 
       {/* Always visible, unlike the tray below it, which hides when empty:
           the tray is where exports land, and this is how anything else gets

@@ -4512,3 +4512,11 @@ Autopilot tab was a small card whose icon sat left of centred text; it is now
 Editor's. Browser-checked at 1366 and 390 px, no overflow, no errors. Noted, not
 changed: the Scheduler has no coming-soon page; Pro users see the full calendar
 with a "Clip Editor is switched off" warning.
+
+**Scheduler "coming soon" page (2026-09-30).** While UPLOADS_ENABLED is off the
+Scheduler tab is now the shared `UnderConstruction` page (clock icon), before the
+Pro gate as the Clip Editor's and Autopilot's are — Pro users used to get the full
+calendar, a warning bar and an "Add a clip" that could only fail. The now
+unreachable "Clip Editor is switched off" warning was removed. Admins still get
+the real Scheduler. Browser-checked: pro (desktop + phone) and free see the page,
+admin sees the calendar, no overflow, no errors.

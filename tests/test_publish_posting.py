@@ -763,8 +763,9 @@ def test_the_scheduler_screen_can_actually_scroll():
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
     assert 'className="rd-wrap"' not in screen, "the Scheduler is back on a class with no CSS"
-    # Both roots: the Pro gate returns early and needs one too.
-    assert screen.count('className="rd-scroll"') == 2
+    # Every root: the coming-soon page and the Pro gate return early and need
+    # one too.
+    assert screen.count('className="rd-scroll"') == 3
     assert ".rd-scroll{flex:1;overflow-y:auto;min-height:0" in html
 
 
@@ -912,3 +913,15 @@ def test_the_calibration_banner_is_above_the_numbers_it_explains():
     assert banner < score < grid, "the calibration banner sank back down the card"
     # And the two states do not both render.
     assert "{!calibrating &&" in card
+
+
+def test_the_scheduler_says_coming_soon_while_it_is_held_back():
+    """2026-09-30 audit: with UPLOADS_ENABLED off, Pro users saw the full
+    calendar, a warning, and an "Add a clip" that could not work. It is now the
+    shared coming-soon page, before the plan gate like the Clip Editor's and
+    Autopilot's."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as html
+    screen = html[html.index("function ScheduleScreen("):html.index("function UploadScreen(")]
+    soon = screen.index('<UnderConstruction theme="violet" icon="clock" title="Scheduler is coming soon">')
+    assert screen.index("if (!uploadsOn) {") < soon < screen.index("Scheduler is a Pro feature")
+    assert "switched off, so nothing can reach the Scheduler" not in screen
