@@ -243,9 +243,21 @@ async def maybe_run_by_id(clip_id: str) -> None:
         await maybe_run(clip)
 
 
+_tasks: set[asyncio.Task] = set()
+
+
 def kick(coro) -> None:
-    """Fire-and-forget from a request handler."""
-    asyncio.create_task(coro)
+    """Fire-and-forget from a request handler or a hook. The task is held
+    (the loop keeps only a weak reference) and a crash in it is logged, so a
+    hook can never break, or wait on, the caller."""
+    task = asyncio.create_task(coro)
+    _tasks.add(task)
+
+    def _done(t: asyncio.Task) -> None:
+        _tasks.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            log.warning("autopilot_hook_failed", error=str(t.exception()))
+    task.add_done_callback(_done)
 
 
 def _collect(uid: str, now: float, *, retry_failed: bool, skip: set[str]) -> list[dict]:

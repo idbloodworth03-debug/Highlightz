@@ -125,3 +125,24 @@ def test_a_clip_removed_mid_edit_stops_before_the_render(env, monkeypatch):
     _run(runner.process_clip(c, {"enabled": True, "platforms": []}, notify, connected=set()))
     assert rendered == [], "rendered a clip the user had removed"
     assert "x" not in runner._inflight
+
+
+def test_a_file_arriving_never_waits_for_the_autopilot_edit(monkeypatch):
+    """Owner, 2026-09-30: Post now sat on "Starting…". The file-arrived hook
+    awaited Autopilot's whole edit of the clip, so a Post now (or Edit, or the
+    capture worker) that had to fetch the video waited for captions + render,
+    queued behind every other clip. It must return at once."""
+    from src.dashboard import api
+
+    async def slow_edit(clip_id):
+        await asyncio.sleep(3600)               # an edit stuck in the render queue
+    async def no_copy(clip_id):
+        return None
+    monkeypatch.setattr(runner, "maybe_run_by_id", slow_edit)
+    monkeypatch.setattr(api, "library_copy_if_approved", no_copy)
+
+    async def go():
+        await asyncio.wait_for(api.on_clip_file_ready("c1"), timeout=1)
+        for t in list(runner._tasks):
+            t.cancel()
+    asyncio.run(go())

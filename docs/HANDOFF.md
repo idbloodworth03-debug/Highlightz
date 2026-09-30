@@ -4387,3 +4387,11 @@ restart mid-pass, a clip approved before its file existed) sat forever.
 
 Blast radius: Autopilot only; realtime unchanged (process_clip still
 broadcasts clip_updated at each step). Verified: full suite, JSX parse.
+
+**Post now stuck on "Starting…" (2026-09-30).** `on_clip_file_ready` AWAITED
+`maybe_run_by_id`, so any caller that had to fetch a clip's video (Post now,
+Edit, Schedule via `_clip_into_library`, and the capture worker) waited for
+Autopilot's entire edit of that clip, queued behind the sweeper's backlog for the
+one render slot. Now kicked in the background (`runner.kick`, which holds the task
+and logs a crash). Test proves the hook returns within 1 s with a stuck edit (it
+fails on the old code).

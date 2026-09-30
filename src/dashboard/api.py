@@ -3096,10 +3096,12 @@ async def on_clip_file_ready(clip_id: str) -> None:
     and the moment it can populate the Clip Editor."""
     from src.autopilot import runner as _autopilot
     await library_copy_if_approved(clip_id)
-    try:
-        await _autopilot.maybe_run_by_id(clip_id)
-    except Exception as exc:                      # never let a hook break the caller
-        log.warning("autopilot_hook_failed", clip_id=clip_id, error=str(exc))
+    # IN THE BACKGROUND, never awaited. Awaiting it made every caller wait for
+    # Autopilot's whole edit of this clip (captions + render, queued behind
+    # every other clip for the box's one render slot): a "Post now" on a clip
+    # whose video had to be fetched sat on "Starting…" for as long as that took
+    # (owner, 2026-09-30), and the capture worker stalled the same way.
+    _autopilot.kick(_autopilot.maybe_run_by_id(clip_id))
 
 
 def _start_fetch(clip: dict) -> None:
