@@ -13,12 +13,12 @@ import struct
 import structlog
 
 from config.settings import settings
+from src.ingestion.restart import Backoff, redact
 
 log = structlog.get_logger(__name__)
 
 _SILENCE_DB    = -100.0
 _CHUNK_BYTES   = 3200   # 0.2s at 8kHz mono s16le (8000 × 2 bytes × 0.2s)
-_RESTART_DELAY = 15
 
 
 def _rms_db(data: bytes) -> float:
@@ -44,6 +44,7 @@ class AudioMeter:
         self._sl_log:   asyncio.Task | None = None
         self._monitor:  asyncio.Task | None = None
         self._running = False
+        self._backoff = Backoff()
 
     async def start(self) -> None:
         self._running = True
@@ -54,6 +55,7 @@ class AudioMeter:
         log.info("audio_meter_started", channel=self.channel)
 
     async def _launch(self) -> None:
+        self._backoff.started()
         r_fd, w_fd = os.pipe()
         try:
             # streamlink → write end of OS pipe
@@ -128,7 +130,7 @@ class AudioMeter:
             async for raw in self._sl.stderr:
                 line = raw.decode(errors="replace").strip()
                 if line:
-                    log.warning("streamlink_stderr", channel=self.channel, line=line)
+                    log.warning("streamlink_stderr", channel=self.channel, line=redact(line))
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -145,8 +147,10 @@ class AudioMeter:
                             ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
                 await self._kill_procs()
                 self._level_db = _SILENCE_DB
-                log.info("audio_meter_restarting", channel=self.channel, delay=_RESTART_DELAY)
-                await asyncio.sleep(_RESTART_DELAY)
+                delay = self._backoff.next_delay()
+                log.info("audio_meter_restarting", channel=self.channel, delay=delay,
+                         failures_in_a_row=self._backoff.failures)
+                await asyncio.sleep(delay)
                 if self._running:
                     await self._launch()
             await asyncio.sleep(5)

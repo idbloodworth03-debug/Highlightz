@@ -4451,3 +4451,26 @@ user's failures and starts a pass). Progress is the usual clip_updated. Also:
 smaller". `graph.CAPTION_MAX_PX` 100 → 88 and `CAPTION_SPLIT_BELOW` 88 → 77 (same
 ratio, so wrapping behaves as before, just ~12% smaller). Auto Edit / Autopilot
 renders only; the browser editor's own caption size is unchanged.
+
+## Capture restarts back off; playback tokens never logged (2026-09-30)
+
+From the audit of the prod journal: a Kick channel (`gymskin`) whose playback URL
+answered 403 had its clip recorder AND audio meter restarted every ~20s forever
+(15s delay + 5s monitor tick, no backoff), each launch a fresh streamlink +
+ffmpeg on the 1-vCPU box, and each failure logging the signed playback URL with
+its `token=`.
+
+- `src/ingestion/restart.py`: `Backoff` — a pipeline that ran ≥60s and then
+  died restarts after 15s every time (a live stream's blip recovers exactly as
+  before); one that dies within 60s of launch doubles its wait each time,
+  15 → 30 → 60 → 120 → 240 → 300s cap. `redact()` replaces token/sig/auth-style
+  query values in logged lines, keeping host and path.
+- Both `clip_recorder` and `audio_meter` use it; restarts log
+  `*_restarting` with `delay` and `failures_in_a_row`.
+
+Blast radius: only pipelines that keep dying within a minute of starting wait
+longer. The worker runs these only while it thinks the channel is live and its
+60s liveness check still ends the session when the broadcast ends; a flaky
+stream that never stays up 60s now retries up to every 5 min instead of 3×/min.
+Not verified on prod: WHY gymskin's stream is refused (reported live by one
+Kick endpoint, "not live" by the viewer poll). Verified: new tests, full suite.

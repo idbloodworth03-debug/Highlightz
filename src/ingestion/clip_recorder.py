@@ -55,6 +55,7 @@ from pathlib import Path
 import structlog
 
 from config.settings import settings
+from src.ingestion.restart import Backoff, redact
 
 log = structlog.get_logger(__name__)
 
@@ -64,9 +65,8 @@ _ROOT = Path(settings.local_storage_path) / "capture"
 
 _SEG_RE = re.compile(r"^seg-(\d+)\.ts$")
 
-# How long a channel's pipeline is given before the monitor decides it died.
-# Matches the audio meter's shape so the two behave alike under a flaky feed.
-_RESTART_DELAY = 15.0
+# Restart timing (shared with the audio meter, so the two behave alike under a
+# flaky feed) lives in src/ingestion/restart.py.
 _PRUNE_INTERVAL = 5.0
 
 MB = 1024 * 1024
@@ -149,6 +149,7 @@ class ClipRecorder:
         self._pruner: asyncio.Task | None = None
         self._sl_log: asyncio.Task | None = None
         self._running = False
+        self._backoff = Backoff()
         self._seq = 0
         # Set when the pipeline has produced at least one segment, so callers
         # can tell "recording" from "launched but the stream never arrived".
@@ -172,6 +173,7 @@ class ClipRecorder:
         # Numbering continues across restarts so a new pipeline cannot
         # overwrite segments the old one just wrote and a cut spanning the
         # restart still finds both halves in order.
+        self._backoff.started()
         self._seq = self._next_seq()
         pattern = str(self.dir / "seg-%05d.ts")
         r_fd, w_fd = os.pipe()
@@ -240,7 +242,7 @@ class ClipRecorder:
                 line = raw.decode(errors="replace").strip()
                 if line:
                     log.warning("clip_recorder_streamlink_stderr",
-                                channel=self.channel, line=line)
+                                channel=self.channel, line=redact(line))
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -256,7 +258,10 @@ class ClipRecorder:
                             streamlink_rc=self._sl.returncode if self._sl else "n/a",
                             ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
                 await self._kill_procs()
-                await asyncio.sleep(_RESTART_DELAY)
+                delay = self._backoff.next_delay()
+                log.info("clip_recorder_restarting", channel=self.channel, delay=delay,
+                         failures_in_a_row=self._backoff.failures)
+                await asyncio.sleep(delay)
                 if self._running:
                     await self._launch()
             await asyncio.sleep(5)
