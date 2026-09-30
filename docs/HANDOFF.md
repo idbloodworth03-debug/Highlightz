@@ -4474,3 +4474,16 @@ longer. The worker runs these only while it thinks the channel is live and its
 stream that never stays up 60s now retries up to every 5 min instead of 3×/min.
 Not verified on prod: WHY gymskin's stream is refused (reported live by one
 Kick endpoint, "not live" by the viewer poll). Verified: new tests, full suite.
+
+## Upgrade prompts offer Starter where Starter is the answer (2026-09-30)
+
+Owner: "fix the starter upgrade prompts". Re-audited first: the stream-limit
+refusal, the queue-full banner (`next_plan`) and the Account "Want more?" row
+already named Starter, and the four "Upgrade to Pro — $25/month" cards guard
+Pro-ONLY features (VOD, Clip Editor, Scheduler, Autopilot), where Pro is right.
+Fixed what was still Pro-only or vague:
+- the weekly keep-limit refusal now names the next plan (`_library_upgrade_hint`,
+  numbers from PLAN_LIMITS): free → Starter 100/wk and Pro unlimited; Starter → Pro;
+- at the weekly wall the Clip Review toolbar shows **See plans** → /billing/paywall;
+- the comped-trial banner's **Subscribe** goes to /billing/paywall (both plans)
+  instead of straight to Pro checkout.

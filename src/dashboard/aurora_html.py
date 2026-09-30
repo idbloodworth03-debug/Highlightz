@@ -4091,6 +4091,10 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
                 ? libKept + ' of ' + libCap + ' kept this week'
                 : 'Weekly limit reached · ' + libCap + ' kept'}
             </span>}
+          {/* At the wall, the way past it, to the page that offers BOTH plans
+              rather than straight to Pro (owner, 2026-09-30). */}
+          {libCapped && libLeft <= 0 &&
+            <a className="rd-toolbar-meta warn" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a>}
           <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
               <div style={{position:'relative'}}>
@@ -10811,7 +10815,7 @@ function RdApp() {
         {me.subscription_status==='trialing' && <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 24px',background:'rgba(145,70,255,.1)',borderBottom:'1px solid rgba(145,70,255,.22)',fontSize:12,color:'var(--acc)',fontWeight:600}}>
           <span style={{width:7,height:7,borderRadius:'50%',background:'var(--live)',boxShadow:'0 0 8px var(--live)',flexShrink:0}}/>
           <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'var(--fg-2)',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
-          <a href={me.trial_converts?'/billing/portal':'/billing/checkout'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
+          <a href={me.trial_converts?'/billing/portal':'/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
         <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>{screen}</main>
         {/* The platform-switch sweep. Keyed by n so a fresh switch restarts

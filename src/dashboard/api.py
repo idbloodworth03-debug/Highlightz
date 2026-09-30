@@ -3821,9 +3821,9 @@ async def approve_clip(request: Request, clip_id: str):
             if used >= cap:
                 raise HTTPException(
                     status_code=403,
-                    detail=(f"You have kept {used} of {cap} clips this week. "
-                            f"Upgrade to keep more, or come back when your "
-                            f"week rolls over — this clip stays in review "
+                    detail=(f"You have kept {used} of {cap} clips this week."
+                            f"{_library_upgrade_hint(uid)} Or come back when "
+                            f"your week rolls over — this clip stays in review "
                             f"until then."))
         clip["status"] = "approved"
         # WHEN it entered the library, which is not when it was captured. The
@@ -5687,6 +5687,26 @@ def suggestion_room(uid: str) -> tuple[int, int]:
 # Seven days, in seconds. Rolling rather than a calendar week — see the note on
 # _LIB_WEEK in plans.py for why a Monday reset is worse for everybody.
 LIBRARY_WEEK_SECS = 7 * 24 * 60 * 60
+
+
+def _library_upgrade_hint(uid: str) -> str:
+    """What the next plan up keeps a week, in the weekly-cap refusal. Names
+    Starter to a free user (owner, 2026-09-30: fix the upgrade prompts that only
+    ever offered Pro), and Pro to a Starter user. Read from PLAN_LIMITS, so the
+    numbers cannot drift from what the plans actually allow."""
+    from src.auth import users as user_store
+    from src.billing.plans import PLAN_LIMITS, get_plan, UNLIMITED_PENDING
+    plan = get_plan(user_store.get_by_id(uid))
+
+    def keeps(p: str) -> str:
+        n = PLAN_LIMITS[p]["max_library_week"]
+        return "as many as you like" if n >= UNLIMITED_PENDING else f"{n} a week"
+    if plan == "free":
+        return (f" Starter (${PLAN_LIMITS['starter']['price']}/mo) keeps {keeps('starter')},"
+                f" Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}.")
+    if plan == "starter":
+        return f" Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}."
+    return ""
 
 
 def library_room(uid: str) -> tuple[int, int]:
