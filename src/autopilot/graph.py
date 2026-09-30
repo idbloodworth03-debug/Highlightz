@@ -459,6 +459,16 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                      f"amix=inputs={len(plan.sfx) + 1}:normalize=0:dropout_transition=0[aout]")
         alab = "aout"
 
+    # The audio must END on a filter's output label: the command maps it as
+    # `[label]`, and `[0:a]` there means "the filter output called 0:a", which
+    # does not exist. One segment and no sound effect left it as the raw input
+    # (prod, 2026-09-30, the day the whoosh was removed: "Output with label
+    # '0:a' does not exist in any defined filter graph"). anull passes it
+    # through unchanged.
+    if ":" in alab:
+        parts.append(f"[{alab}]anull[aout]")
+        alab = "aout"
+
     # ── the open and the close ──────────────────────────────────────────────
     # A slide is an xfade `slideleft` (a push) against half a second of black:
     # in, the black leaves to the left as the video arrives from the right;

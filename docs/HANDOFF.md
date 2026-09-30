@@ -4429,3 +4429,11 @@ slides and whoosh, so it is gone and a saved "clean" normalises to "suggested".
 callers of the graph keep their fades via `edge_fades=True` by default.
 Verified: filter-graph tests (no slideleft/fade/whoosh), full suite, JSX. Not
 render-checked here (no ffmpeg in the dev container).
+
+**Render break from the above, fixed the same day.** With no whoosh, a one-clip
+plan's audio label stayed `0:a` and `build_command` mapped `[0:a]`, which ffmpeg
+reads as a filter output ("Output with label '0:a' does not exist"). Every
+Autopilot render failed. `build_filtergraph` now ends the audio on `[aout]` via
+`anull` when it is still a raw input. Test fails on the old code. Clips that
+failed in between are retried by "Go through my accepted clips now" (the sweeper
+does not retry failures).

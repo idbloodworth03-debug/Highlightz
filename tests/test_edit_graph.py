@@ -531,3 +531,17 @@ def test_the_old_on_the_frame_offsets_were_the_bug():
     what makes the test above mean something."""
     assert _xfade_first_z(0.0, 0.5) == -G.W
     assert _xfade_first_z(7.5, 0.5) == -G.W
+
+
+def test_one_clip_with_no_sound_effect_maps_a_real_audio_label():
+    """Prod, 2026-09-30: with the whoosh gone, a one-clip edit mapped
+    `[0:a]`, which ffmpeg reads as a filter output that does not exist, and
+    every Autopilot render failed. The mapped audio must be a label the graph
+    defines."""
+    p = P.EditPlan(segments=[seg(0, 20)], sfx=[])
+    graph, vlab, alab = G.build_filtergraph(p)
+    assert ":" not in alab and f"[{alab}]" in graph
+    args = G.build_command(p, "/tmp/out.mp4", {})
+    mapped = [args[i + 1] for i, a in enumerate(args) if a == "-map"]
+    for m in mapped:
+        assert m.strip("[]") in {vlab, alab} and f"[{m.strip('[]')}]" in graph
