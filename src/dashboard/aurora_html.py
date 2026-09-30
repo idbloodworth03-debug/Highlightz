@@ -3120,6 +3120,31 @@ function AnnouncementModal({ a, onSeen }) {
   );
 }
 
+// A PERSONAL DISCOUNT an admin gave this account (owner, 2026-09-30). Shown on
+// their next visit until they claim it, press Not now, or subscribe. Claim goes
+// straight to Stripe Checkout with the code already applied; the server only
+// applies it because it is this account's own offer. Same look as an
+// announcement, behind one if both are waiting.
+function OfferModal({ offer, onDismiss }) {
+  const plan = offer.plan === 'starter' ? 'Starter' : 'Pro';
+  const what = offer.headline || 'a discount';
+  return (
+    <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-offer-title">
+      <div className="rd-ann glass">
+        <div className="rd-ann-k"><Icon name="sparkles" size={13}/>Just for you</div>
+        <h3 id="rd-offer-title">{what} on {plan}</h3>
+        <div className="rd-ann-body">Thanks for using Highlightz! Here is a little something from us.
+          Code <b>{offer.code}</b> is already applied when you check out.</div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+          <a className="rd-btn grad" href={'/billing/checkout?plan=' + (offer.plan || 'pro') + '&offer=1'}
+            style={{textDecoration:'none'}} autoFocus>Claim it</a>
+          <button className="rd-btn" onClick={onDismiss}>Not now</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // AUTO-EDIT ON A CLIP, admin test (owner, 2026-09-23). FULLY AUTOMATIC since
 // 2026-09-28: the manual hook picker that used to live here is gone ("I want it
 // to be fully auto after a user accepts a clip"). One button renders the same
@@ -10400,6 +10425,11 @@ function RdApp() {
           // follow without a reload.
           fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
         }
+        else if(msg.event==='offer_changed'){
+          // An admin gave, changed or removed this account's discount, or it
+          // was dismissed in another tab. /me carries it.
+          fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
+        }
         else if(msg.event==='publish_connections_changed'){
           // Sent on connect, disconnect, and when the poster finds a token
           // dead. The event carries nothing; the list is the state.
@@ -10494,6 +10524,13 @@ function RdApp() {
   // "Got it" on an announcement. Removed locally so the modal closes at once
   // (revealing the next one, if any); the POST persists it on the account and
   // its broadcast closes the same modal in this user's other tabs.
+  // "Not now" on a personal offer: gone here at once; the POST records it and
+  // its offer_changed broadcast closes it in this user's other tabs.
+  const dismissOffer = ()=>{
+    setMe(m=>({...(m||{}), offer: null}));
+    fetch('/offer/dismiss',{method:'POST'}).catch(()=>{});
+  };
+
   const dismissAnnouncement = (id)=>{
     setAnnouncements(p=>p.filter(a=>a.id!==id));
     fetch('/announcements/'+encodeURIComponent(id)+'/seen',{method:'POST'}).catch(()=>{});
@@ -10779,6 +10816,8 @@ function RdApp() {
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
       {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
+      {announcements.length === 0 && !needsOnboarding && me && me.offer &&
+        <OfferModal offer={me.offer} onDismiss={dismissOffer}/>}
       {needsOnboarding && <OnboardingModal preview={onbPreview}
         onDone={(p, expect)=>{
           setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}));

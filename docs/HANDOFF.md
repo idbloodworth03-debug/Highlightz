@@ -4395,3 +4395,24 @@ Autopilot's entire edit of that clip, queued behind the sweeper's backlog for th
 one render slot. Now kicked in the background (`runner.kick`, which holds the task
 and logs a crash). Test proves the hook returns within 1 s with a stuck edit (it
 fails on the old code).
+
+## Personal discount offers (2026-09-30)
+
+Owner: offer one heavy free user code CLIPPER (25% off the first month), claimable
+on their next visit, straight into checkout.
+
+- Admin: Users > Details > **Discount offer**: Stripe code + the words shown
+  ("25% off your first month") + plan. `POST/DELETE /admin/users/{id}/offer`.
+- Stored on the user as `offer` {code, plan, headline, created_at, claimed_at,
+  dismissed_at}. `users.offer_for` hides it once dismissed or when they already
+  pay (a paying account must not be sent into a second checkout).
+- User: `/me.offer` → `OfferModal` (after announcements/onboarding). **Claim it**
+  → `/billing/checkout?plan=…&offer=1`, which pre-applies the code ONLY when it
+  is that account's own offer; **Not now** → `POST /offer/dismiss`.
+- Stripe: `create_checkout_url(promo_code=)` looks up the active Promotion Code
+  by name and sends `discounts` (dropping `allow_promotion_codes`, which Stripe
+  refuses alongside it). Not found → the ordinary code box, never a dead end.
+  **The code must exist in Stripe**: Coupon 25% off, Duration "Once", with a
+  Promotion Code named CLIPPER. Not verified against live Stripe from here.
+- Realtime: `offer_changed` (set, remove, dismiss) → the user's tabs re-read /me;
+  /me is in refetchAll.

@@ -21,7 +21,8 @@ def has_access(subscription_status: str, is_admin: bool) -> bool:
 
 async def create_checkout_url(user_id: str, username: str, price_id: str,
                               customer_id: str | None = None,
-                              trial_days: int = 0) -> str:
+                              trial_days: int = 0,
+                              promo_code: str | None = None) -> str:
     """Create a Stripe Checkout session for the given recurring price and
     return its URL.
 
@@ -70,8 +71,32 @@ async def create_checkout_url(user_id: str, username: str, price_id: str,
     }
     if customer_id:
         params["customer"] = customer_id
+    if promo_code:
+        # A personal offer (users.set_offer): open Checkout with the code
+        # ALREADY APPLIED. Stripe refuses `discounts` together with
+        # allow_promotion_codes, so the box goes away when a code is in.
+        # If Stripe has no active code by that name, fall back to the box, so
+        # the person can still type it and the click is never a dead end.
+        promo_id = _active_promo_id(client, promo_code)
+        if promo_id:
+            params.pop("allow_promotion_codes", None)
+            params["discounts"] = [{"promotion_code": promo_id}]
     session = client.checkout.sessions.create(params=params)
     return session.url
+
+
+def _active_promo_id(client, code: str) -> str | None:
+    """The id of the active Stripe Promotion Code called `code`, or None."""
+    try:
+        res = client.promotion_codes.list(params={"code": code, "active": True, "limit": 1})
+        items = res.data if hasattr(res, "data") else (res.get("data") or [])
+        if items:
+            first = items[0]
+            return first.get("id") if isinstance(first, dict) else first.id
+        log.warning("offer_code_not_in_stripe", code=code)
+    except Exception as exc:
+        log.warning("offer_code_lookup_failed", code=code, error=str(exc))
+    return None
 
 
 async def cancel_duplicate_subscriptions(customer_id: str, keep_id: str) -> int:

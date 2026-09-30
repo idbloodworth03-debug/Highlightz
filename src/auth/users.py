@@ -999,3 +999,82 @@ def ensure_admin_exists(admin_password: str) -> None:
     if not users or not any(u.get("is_admin") for u in users):
         if not any(u["username"].lower() == "admin" for u in users):
             create("admin", admin_password, is_admin=True)
+
+
+# ── A personal discount offer (owner, 2026-09-30) ─────────────────────────────
+#
+# "I want to offer a specific user a code … next time he signs in he can claim
+# a discount code that brings him straight to the checkout page."
+#
+# One offer per account, set by an admin. The user sees it in the app until
+# they subscribe or press "Not now"; "Claim" opens Stripe Checkout with the
+# code already applied (see /billing/checkout?offer=1). The code itself lives
+# in Stripe as a Promotion Code — nothing here decides the discount, it only
+# carries the code's name and the words to show.
+
+OFFER_CODE_MAX = 40
+OFFER_HEADLINE_MAX = 60
+
+
+def _clean_offer_code(code: str) -> str:
+    code = str(code or "").strip().upper()
+    if not code or len(code) > OFFER_CODE_MAX or not all(c.isalnum() or c in "-_" for c in code):
+        return ""
+    return code
+
+
+def set_offer(user_id: str, code: str, plan: str, headline: str) -> dict | None:
+    """Give this account an offer (replacing any earlier one, so re-sending a
+    dismissed offer shows it again). None if the user does not exist or the
+    code is not a valid Stripe code shape."""
+    code = _clean_offer_code(code)
+    if not code:
+        return None
+    offer = {"code": code, "plan": plan if plan in ("starter", "pro") else "pro",
+             "headline": str(headline or "").strip()[:OFFER_HEADLINE_MAX],
+             "created_at": time.time(), "claimed_at": 0, "dismissed_at": 0}
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["offer"] = offer
+            _save(users)
+            return offer
+    return None
+
+
+def clear_offer(user_id: str) -> bool:
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.pop("offer", None) is not None:
+                _save(users)
+            return True
+    return False
+
+
+def mark_offer(user_id: str, field: str) -> bool:
+    """Stamp claimed_at (Checkout opened with it) or dismissed_at ("Not now")."""
+    if field not in ("claimed_at", "dismissed_at"):
+        return False
+    users = _load()
+    for u in users:
+        if u["id"] == user_id and isinstance(u.get("offer"), dict):
+            u["offer"][field] = time.time()
+            _save(users)
+            return True
+    return False
+
+
+def offer_for(user: dict | None) -> dict | None:
+    """The offer the user should SEE, or None: it exists, they have not said
+    "Not now", and they are not already paying (an offer to someone already
+    subscribed would send them into a second checkout)."""
+    offer = (user or {}).get("offer")
+    if not isinstance(offer, dict) or not offer.get("code"):
+        return None
+    if offer.get("dismissed_at"):
+        return None
+    if (user or {}).get("is_admin") or (user or {}).get("subscription_status") in ("active", "trialing"):
+        return None
+    return {"code": offer["code"], "plan": offer.get("plan") or "pro",
+            "headline": offer.get("headline") or ""}

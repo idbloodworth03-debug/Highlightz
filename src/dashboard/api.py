@@ -1523,6 +1523,10 @@ async def me(request: Request):
         "kick_signin":         bool(settings.kick_client_id and settings.kick_client_secret),
         # The Settings tab's preferences, always complete (defaults filled).
         "prefs":               user_store.prefs_for(uid) if uid else dict(user_store.PREF_DEFAULTS),
+        # A personal discount an admin gave this account (None when there is
+        # none, it was dismissed, or they already pay). Kept live by the
+        # `offer_changed` event; refetchAll reads /me on every reconnect.
+        "offer":               user_store.offer_for(user),
     }
 
 
@@ -2495,7 +2499,7 @@ async def paywall_page(request: Request):
 
 
 @app.get("/billing/checkout")
-async def billing_checkout(request: Request, plan: str = "pro"):
+async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
     """Create a Stripe Checkout session for the chosen tier and redirect.
 
     Billing starts immediately — no self-serve trial. A user on an app-managed
@@ -2574,9 +2578,19 @@ async def billing_checkout(request: Request, plan: str = "pro"):
             return RedirectResponse("/billing/portal")
     # Reuse the existing Stripe customer so a re-subscribe stays on one customer
     # (portal / cancel-on-delete / admin sync all key off the stored id).
+    # A personal offer is applied only when it is THIS account's own offer, so
+    # the URL cannot be used to pre-apply a code the account was not given.
+    promo = None
+    if offer:
+        mine = user_store.offer_for(db_user)
+        if mine:
+            promo = mine["code"]
+            user_store.mark_offer(uid, "claimed_at")
+            log.info("offer_claimed", user=uid, code=promo, plan=plan)
     url = await create_checkout_url(uid, username, price_id,
                                     customer_id=stripe_customer,
-                                    trial_days=_checkout_trial_days(db_user))
+                                    trial_days=_checkout_trial_days(db_user),
+                                    promo_code=promo)
     # Stamped only once the session actually exists. Stamping before this line
     # would count people whose checkout we failed to create as people who
     # reached the card form and walked away — the opposite conclusion.
@@ -7598,6 +7612,52 @@ async def admin_overview(request: Request):
             "live": sum(1 for s in _streams.values() if s.get("status") == "live"),
         },
     }
+
+
+class OfferRequest(BaseModel):
+    code: str
+    plan: str = "pro"
+    headline: str = ""
+
+
+@app.post("/admin/users/{user_id}/offer")
+async def admin_set_offer(request: Request, user_id: str, body: OfferRequest):
+    """Give one account a discount they can claim in the app (owner,
+    2026-09-30). The code must exist in Stripe as an active Promotion Code for
+    Checkout to apply it; if it does not, Checkout still opens with the code
+    box, so the person can type it."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    offer = user_store.set_offer(user_id, body.code, body.plan, body.headline)
+    if offer is None:
+        if not user_store.get_by_id(user_id):
+            raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400,
+                            detail="Use letters, numbers, - or _ for the code (max 40).")
+    log.info("offer_set", user_id=user_id, code=offer["code"], plan=offer["plan"],
+             by=request.session.get("user_id"))
+    await broadcast({"event": "offer_changed"}, user_id=user_id)
+    return {"ok": True, "offer": offer}
+
+
+@app.delete("/admin/users/{user_id}/offer")
+async def admin_clear_offer(request: Request, user_id: str):
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not user_store.clear_offer(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    await broadcast({"event": "offer_changed"}, user_id=user_id)
+    return {"ok": True}
+
+
+@app.post("/offer/dismiss")
+async def dismiss_offer(request: Request):
+    """"Not now" on the offer. Hidden for good; an admin can send it again."""
+    uid = _current_user_id(request)
+    from src.auth import users as user_store
+    user_store.mark_offer(uid, "dismissed_at")
+    await broadcast({"event": "offer_changed"}, user_id=uid)     # the user's other tabs
+    return {"ok": True}
 
 
 @app.post("/admin/users/{user_id}/grant")
@@ -14448,6 +14508,7 @@ async function openUser(u){
     + '<div class="acts" style="justify-content:flex-start;margin-top:10px">'
     + '<a class="btn" href="/admin/feedback-page?to=' + encodeURIComponent(u.id) + '">'
     + 'Send a message</a></div>'
+    + offerBlock(u)
     + '</div>';
 
   const [streams, clips] = await Promise.all([
@@ -14534,6 +14595,31 @@ async function openUser(u){
   document.getElementById('dr-body').innerHTML = html;
 }
 
+// A personal discount the user sees in the app and claims straight into
+// Checkout with the code applied. The code must exist in Stripe as an active
+// Promotion Code (Products > Coupons) for Checkout to apply it.
+function offerBlock(u){
+  const o = u.offer;
+  let h = '<div class="dh" style="margin-top:24px">Discount offer</div>';
+  if(o && o.code){
+    const state = o.dismissed_at ? 'dismissed ' + ago(o.dismissed_at)
+      : o.claimed_at ? 'opened checkout ' + ago(o.claimed_at)
+      : (u.subscription_status === 'active' || u.subscription_status === 'trialing') ? 'not shown (already paying)'
+      : 'waiting for them to open the app';
+    h += '<dl class="kv"><dt>Code</dt><dd><b>' + esc(o.code) + '</b> on ' + esc(o.plan || 'pro') + '</dd>'
+      + '<dt>Shows as</dt><dd>' + esc(o.headline || 'a discount') + '</dd>'
+      + '<dt>Status</dt><dd>' + esc(state) + '</dd></dl>'
+      + '<div class="acts" style="justify-content:flex-start;margin-top:8px">'
+      + '<button class="btn btn-bad dr-unoffer">Remove offer</button></div>';
+    return h;
+  }
+  return h + '<div class="acts" style="justify-content:flex-start;flex-wrap:wrap">'
+    + '<input class="field dr-offer-code" placeholder="Stripe code, e.g. CLIPPER" style="width:180px">'
+    + '<input class="field dr-offer-text" placeholder="25% off your first month" style="width:200px">'
+    + '<select class="btn dr-offer-plan"><option value="pro">Pro</option><option value="starter">Starter</option></select>'
+    + '<button class="btn btn-good dr-offer">Offer it</button></div>';
+}
+
 document.getElementById('dr-body').addEventListener('click', async e => {
   const u = DR_USER; if(!u) return;
   // THIS LIST IS THE GATE. A dr-* button missing from it is inert — the click
@@ -14541,9 +14627,30 @@ document.getElementById('dr-body').addEventListener('click', async e => {
   // that would have acted. It fails silently and looks exactly like a button
   // that does nothing, so tests/test_admin_stop_streams.py checks every dr-*
   // class in the drawer markup appears here.
-  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del, .dr-stopone, .dr-stopall');
+  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del, .dr-stopone, .dr-stopall, .dr-offer, .dr-unoffer');
   if(!b) return;
   try {
+    if(b.classList.contains('dr-offer')){
+      const body = document.getElementById('dr-body');
+      const code = (body.querySelector('.dr-offer-code').value || '').trim();
+      if(!code){ toast('Enter the Stripe promotion code first'); return; }
+      const res = await fetch('/admin/users/' + u.id + '/offer', {method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: code, plan: body.querySelector('.dr-offer-plan').value,
+          headline: (body.querySelector('.dr-offer-text').value || '').trim()})});
+      const r = await res.json().catch(() => ({}));
+      if(!res.ok){ toast(r.detail || 'Could not save the offer'); return; }
+      u.offer = r.offer;
+      toast('Offer sent. ' + u.username + ' sees it next time they open Highlightz');
+      await openUser(u); refresh(); return;
+    }
+    if(b.classList.contains('dr-unoffer')){
+      if(!confirm('Remove the discount offer for ' + u.username + '?')) return;
+      await api('/admin/users/' + u.id + '/offer', 'DELETE');
+      u.offer = null;
+      toast('Offer removed');
+      await openUser(u); refresh(); return;
+    }
     if(b.classList.contains('dr-grant')){
       const body = document.getElementById('dr-body');
       const plan = body.querySelector('.dr-plan').value;
