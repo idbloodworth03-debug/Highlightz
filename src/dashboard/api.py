@@ -540,7 +540,15 @@ def _load_clips() -> dict:
         # approval only looks at clips with no record), so the clip sat on
         # "Editing…" for good and the counts never drained. Marked failed with
         # the reason, which "Go through my accepted clips now" retries.
-        if (c.get("autopilot") or {}).get("status") == "rendering":
+        # Since 2026-09-30 it is RESUMED instead: the record is cleared, so
+        # the Autopilot sweeper takes the clip again a couple of minutes after
+        # the restart with nobody pressing anything. Twice at most: a clip
+        # whose edit kills the process (out of memory) must not restart-loop.
+        if (c.get("autopilot") or {}).get("status") == "rendering" and \
+                int(c.get("autopilot_resumes") or 0) < 2:
+            c["autopilot_resumes"] = int(c.get("autopilot_resumes") or 0) + 1
+            c["autopilot"] = {}
+        elif (c.get("autopilot") or {}).get("status") == "rendering":
             c["autopilot"] = {"status": "failed", "at": time.time(),
                               "error": "Interrupted by a server restart. Press "
                                        "\"Go through my accepted clips now\" to retry."}

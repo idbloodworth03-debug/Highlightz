@@ -114,6 +114,10 @@ async def save_render(uid: str, clip: dict, dst: Path, name: str | None = None):
         dst.unlink(missing_ok=True)
 
 
+class _Removed(Exception):
+    """The user took the clip out of Autopilot while it was being edited."""
+
+
 async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) -> dict:
     """Render, save, schedule. Returns the clip's autopilot record."""
     from src.dashboard import api
@@ -153,6 +157,11 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
             started = time.time()
 
             async def on_stage(name: str) -> None:
+                # Removed while it waited or wrote captions: stop here instead
+                # of rendering a clip nobody wants (2-3 CPU minutes on this box,
+                # holding the one render slot the next clip is waiting for).
+                if cid in _cancelled:
+                    raise _Removed()
                 # "Writing captions…" then "Rendering…", so a slow step is
                 # SEEN, not a card frozen on "Editing…".
                 await mark({"status": "rendering", "stage": name, "at": started})
@@ -168,6 +177,8 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
             captions = []
             if cfg.get("captions") and settings.captions_enabled:
                 captions = await _captions_for(src)
+            if cid in _cancelled:
+                raise _Removed()
             await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip),
                                    captions=captions, duration=duration)
 
@@ -191,6 +202,10 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
         log.info("autopilot_scheduled", clip_id=cid, user_id=uid, item=item.id,
                  due_at=due, platforms=platforms)
         return clip["autopilot"]
+    except _Removed:
+        dst.unlink(missing_ok=True)
+        log.info("autopilot_removed_mid_edit", clip_id=cid)
+        return clip.get("autopilot") or {}
     except ap_render.RenderError as exc:
         await mark({"status": "failed", "at": time.time(), "error": exc.args[0]})
     except Exception as exc:
@@ -259,7 +274,7 @@ def _collect(uid: str, now: float, *, retry_failed: bool, skip: set[str]) -> lis
     return todo[:RUN_NOW_MAX]
 
 
-async def run_now(uid: str, *, force: bool = True) -> int:
+async def run_now(uid: str, *, force: bool = True, retry_failed: bool = True) -> int:
     """The bulk button, and what switching Autopilot ON does: every recently
     approved clip with a file that Autopilot has not scheduled, oldest first.
 
@@ -280,7 +295,8 @@ async def run_now(uid: str, *, force: bool = True) -> int:
     _backlogs.add(uid)
     _stops.discard(uid)
     try:
-        done, seen, first = 0, set(), True
+        done, seen, first = 0, set(), retry_failed
+        log.info("autopilot_pass_started", user_id=uid, force=force)
         for _batch in range(MAX_BATCHES):
             todo = _collect(uid, time.time(), retry_failed=first, skip=seen)
             first = False
@@ -305,6 +321,7 @@ async def run_now(uid: str, *, force: bool = True) -> int:
         return done
     finally:
         _backlogs.discard(uid)
+        log.info("autopilot_pass_done", user_id=uid)
 
 
 async def remove_clip(uid: str, clip: dict, notify) -> str:
@@ -392,3 +409,95 @@ async def clear_queue(uid: str, notify) -> dict:
             kept += 1
     return {"removed": removed, "kept_posted": kept}
 
+
+
+# ── the sweeper: Autopilot keeps itself going ────────────────────────────────
+#
+# Owner, 2026-09-30: "I just need the auto pilot to work". Autopilot used to
+# run only on events: an approval, a file arriving, switching it on, the
+# button. Any one of those that was missed (a deploy restart mid-pass, a clip
+# approved before its file existed and never fetched, a hook that errored)
+# left accepted clips sitting with no record forever, and the tab looked
+# frozen. Production had 21 such clips on an account with Autopilot ON.
+#
+# So every SWEEP_EVERY_S, for every account with Autopilot on and the plan
+# for it, this starts a pass if there is anything to take and no pass is
+# already running, and asks for the file of accepted clips that have none.
+# Failed clips are NOT retried here (a clip that always fails would take the
+# box's one render slot every two minutes); the button still retries them.
+
+SWEEP_EVERY_S = 120
+FETCH_PER_SWEEP = 3             # streamlink downloads started per sweep
+FETCH_RETRY_S = 3600            # a clip whose fetch failed is asked again after this
+_fetch_tried: dict[str, float] = {}
+
+
+def _missing_files(uid: str, now: float) -> list[dict]:
+    """Accepted clips Autopilot would take but that have no file yet."""
+    from src.dashboard import api
+    from src.clips import files as clip_files
+    out = []
+    for c in api._clips.values():
+        if c.get("user_id") != uid or c.get("status") != "approved":
+            continue
+        if now - float(c.get("approved_at") or c.get("created_at") or 0) > RUN_NOW_WINDOW_S:
+            continue
+        if (c.get("autopilot") or {}).get("status") not in (None, "", "waiting_file"):
+            continue
+        p = clip_files.path_for(c["id"])
+        if p and p.exists():
+            continue
+        out.append(c)
+    out.sort(key=lambda c: -float(c.get("approved_at") or 0))   # newest first
+    return out
+
+
+def _fetch_missing(uid: str, now: float) -> int:
+    from src.dashboard import api
+    from src.clips import fetch as clip_fetch
+    started = 0
+    for c in _missing_files(uid, now):
+        if started >= FETCH_PER_SWEEP:
+            break
+        if not clip_fetch.fetchable(c) or clip_fetch.in_flight(c["id"]):
+            continue
+        if now - _fetch_tried.get(c["id"], 0) < FETCH_RETRY_S:
+            continue
+        _fetch_tried[c["id"]] = now
+        api._start_fetch(c)             # on success: on_clip_file_ready → maybe_run
+        started += 1
+    return started
+
+
+async def sweep_once(now: float | None = None) -> list[str]:
+    """One sweep. Returns the users a pass was started for."""
+    from src.auth import users as user_store
+    from src.autopilot import normalize
+    from src.billing.plans import limits_for
+    now = time.time() if now is None else now
+    started = []
+    for u in user_store._load():
+        uid = u.get("id")
+        if not uid or not normalize(u.get("autopilot") or {}).get("enabled"):
+            continue
+        if not limits_for(u).get("uploads"):
+            continue
+        fetched = _fetch_missing(uid, now)
+        if fetched:
+            log.info("autopilot_fetching_files", user_id=uid, count=fetched)
+        if uid in _backlogs:
+            continue
+        if _collect(uid, now, retry_failed=False, skip=set()):
+            kick(run_now(uid, force=False, retry_failed=False))
+            started.append(uid)
+    return started
+
+
+async def sweep_task() -> None:
+    await asyncio.sleep(30)             # let startup finish loading clips
+    while True:
+        try:
+            await sweep_once()
+        except Exception as exc:
+            log.warning("autopilot_sweep_error", error=str(exc))
+        await asyncio.sleep(SWEEP_EVERY_S)

@@ -4364,3 +4364,26 @@ untrue while Autopilot and the Scheduler could post to TikTok on their own, so:
 
 Blast radius: only TikTok; YouTube/Instagram paths untouched. Verified: full suite,
 JSX parse.
+
+## Autopilot keeps itself going: sweeper, fetch, resume, early stop (2026-09-30)
+
+Owner: "I just need the auto pilot to work." Prod probe: the owner's account had
+Autopilot ON with 21 accepted clips and no Autopilot record (25 of the 70
+such clips box-wide had files; the rest had none). Autopilot only ran on events
+(approval, file arriving, switch on, button), so anything missed (a deploy
+restart mid-pass, a clip approved before its file existed) sat forever.
+
+- `runner.sweep_task` (started in `src/main.py`) runs `sweep_once` every 120 s:
+  for every account with Autopilot on and the uploads entitlement, it starts
+  `run_now(force=False, retry_failed=False)` if there is work and no pass is
+  running. Failed clips are not retried by it (the button still does).
+- Accepted clips with no file get `api._start_fetch` (3 per sweep, once an hour
+  per clip); a fetched file lands via `on_clip_file_ready` → `maybe_run`.
+- A clip mid-edit at restart is resumed (record cleared) up to twice
+  (`autopilot_resumes`), then failed with the reason, so an OOM clip can't loop.
+- A clip removed mid-edit stops at the next stage instead of rendering.
+- Journal: `autopilot_pass_started` / `autopilot_pass_done` /
+  `autopilot_fetching_files` / `autopilot_removed_mid_edit`.
+
+Blast radius: Autopilot only; realtime unchanged (process_clip still
+broadcasts clip_updated at each step). Verified: full suite, JSX parse.

@@ -392,16 +392,20 @@ def test_a_pass_takes_a_clip_left_on_rendering_but_not_one_still_being_edited(wo
     assert n == 1 and {r["src"].stem for r in w.rendered} == {"leftover"}
 
 
-def test_a_restart_turns_a_stuck_rendering_clip_into_a_retryable_failure(tmp_path, monkeypatch):
+def test_a_restart_resumes_a_stuck_clip_twice_then_fails_it(tmp_path, monkeypatch):
+    """Resumed (record cleared, so the sweeper takes it again) up to twice; a
+    clip whose edit keeps killing the process then fails with the reason."""
     import json
     from src.dashboard import api
     f = tmp_path / "clips.json"
     f.write_text(json.dumps([
-        {"id": "a", "autopilot": {"status": "rendering", "at": 1}},
+        {"id": "r", "autopilot": {"status": "rendering", "at": 1}},
+        {"id": "a", "autopilot": {"status": "rendering", "at": 1}, "autopilot_resumes": 2},
         {"id": "b", "autopilot": {"status": "scheduled", "item_id": "x"}},
         {"id": "c", "auto_edit": {"status": "rendering", "at": 1}}]))
     monkeypatch.setattr(api, "_CLIPS_FILE", f)
     got = api._load_clips()
+    assert got["r"]["autopilot"] == {} and got["r"]["autopilot_resumes"] == 1
     assert got["a"]["autopilot"]["status"] == "failed" and "restart" in got["a"]["autopilot"]["error"]
     assert got["b"]["autopilot"]["status"] == "scheduled", "a finished clip was touched"
     assert got["c"]["auto_edit"]["status"] == "failed"

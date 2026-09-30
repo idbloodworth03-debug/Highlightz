@@ -17,6 +17,7 @@ from redis.asyncio import from_url as redis_from_url
 
 from config.settings import settings
 from src.dashboard import api as dashboard_api
+from src.autopilot import runner as _autopilot_runner
 from src.dashboard.api import app as dashboard_app
 from src.ingestion.stream_worker import StreamWorker, WorkerConfig
 from src.ingestion.platform.twitch import TwitchPlatform
@@ -695,6 +696,7 @@ async def main() -> None:
         asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
+        asyncio.create_task(_autopilot_runner.sweep_task(), name="autopilot-sweep"),
         # Webhooks are the only writer of subscription state, so a delivery
         # missed during a deploy would otherwise be wrong forever.
         asyncio.create_task(dashboard_api.subscription_reconcile_task(),
