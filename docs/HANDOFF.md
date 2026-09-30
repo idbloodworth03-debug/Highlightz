@@ -4563,3 +4563,16 @@ Closes two items from "July 2026 audit — remaining open items".
 - Guard: tests/test_dependencies_pinned.py.
 - Not verified: the droplet's installed versions. Deploys don't run pip, so prod
   keeps what it has until someone runs `venv/bin/pip install -r requirements.lock`.
+
+**Correction, same day: the pins are PRODUCTION's, not the dev box's.** The first
+lock (0ca27a0) was the dev container's installed set on Python 3.11; a dry-run on
+the droplet (Python 3.12.3) showed it would change ~70 packages, several of them
+downgrades of Debian-shipped versions. It was never installed there. Now:
+- `requirements.lock` = the droplet's `pip freeze` (122 lines, incl. a few unused
+  leftovers like aioredis/rq/twitchAPI, kept so a reinstall reproduces prod).
+- `requirements.txt` pinned to those versions; `requirements-test.txt` holds
+  test-only Pillow==12.3.0 (prod has no PIL).
+- CI runs Python 3.12 and installs lock + test file. Verified: a clean 3.12
+  resolution of those two files is exactly the freeze plus Pillow; the full suite
+  (3501) passes on that exact set under 3.12 and on the dev 3.11 set.
+- Nothing needs installing on the droplet: the lock IS what it runs.

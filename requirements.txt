@@ -1,6 +1,7 @@
 # PINNED (2026-09-30 audit: "requirements.txt is fully unpinned; no CI runs
-# the test suite"). These are the exact versions the full test suite passes on;
-# requirements.lock pins everything they pull in as well. CI installs the lock.
+# the test suite") to the versions PRODUCTION runs (the droplet's pip freeze,
+# Python 3.12.3). requirements.lock is that freeze, whole. CI installs the lock
+# plus requirements-test.txt on Python 3.12 and runs the suite against it.
 #
 # To upgrade a package: change it here, `pip install -r requirements.txt`,
 # run the suite, then regenerate requirements.lock (see its header).
@@ -8,34 +9,34 @@
 # Deploys do NOT run pip install, so the droplet keeps whatever it has until
 # someone reinstalls. To make it match: venv/bin/pip install -r requirements.lock
 # Core async
-aiohttp==3.14.3
-websockets==17.1
+aiohttp==3.13.5
+websockets==16.0
 
 # Stream handling
-streamlink==8.5.0
+streamlink==8.4.0
 
 # API clients
-google-api-python-client==2.200.0
-google-auth-httplib2==0.4.2
-google-auth-oauthlib==1.4.1
+google-api-python-client==2.196.0
+google-auth-httplib2==0.4.0
+google-auth-oauthlib==1.4.0
 
 # NLP / sentiment
 vaderSentiment==3.3.2
 
 # Cryptography (Fernet token encryption)
-cryptography==41.0.7
+cryptography==48.0.0
 
 # Queue & cache
-redis==8.1.0
+redis==7.4.0
 
 # Storage
-boto3==1.43.89
-google-cloud-storage==3.13.1
+boto3==1.43.6
+google-cloud-storage==3.10.1
 
 # Web / dashboard API
-fastapi==0.141.1
-uvicorn[standard]==0.52.4
-python-multipart==0.0.32
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+python-multipart==0.0.28
 itsdangerous==2.2.0
 
 # Auto-captions (Whisper on the droplet). NOT imported at startup — the model
@@ -51,23 +52,18 @@ faster-whisper==1.2.1
 # boots and clips normally and every edit falls back to the formula in
 # plan.py. Deploys do not run pip install: `venv/bin/pip install anthropic` on
 # the droplet before setting AUTOPILOT_LLM=true.
-anthropic==1.10.0
+anthropic==1.7.0
 
 # Utilities
-pydantic==2.13.5
-pydantic-settings==2.15.0
-python-dotenv==1.2.3
-structlog==26.1.0
+pydantic==2.13.4
+pydantic-settings==2.14.1
+python-dotenv==1.2.2
+structlog==25.5.0
 tenacity==9.1.4
 httpx==0.28.1
 
 # Testing
-pytest==9.1.1
-pytest-asyncio==1.4.0
+pytest==9.0.3
+pytest-asyncio==1.3.0
 pytest-mock==3.15.1
-stripe==15.6.1
-# Pillow is TEST/BUILD ONLY — the server never imports PIL. It is here so
-# tests/test_brand_assets.py can open the shipped logo and social card and
-# assert things about the actual pixels (is the mark really transparent, is the
-# preview card really 1200x630). Prod not having it installed is fine.
-Pillow==12.3.0
+stripe==15.2.0

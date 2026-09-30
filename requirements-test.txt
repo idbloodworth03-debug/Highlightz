@@ -1,0 +1,7 @@
+# Test-only packages that production does not have. CI installs these on top
+# of requirements.lock.
+#
+# Pillow: tests/test_brand_assets.py opens the shipped logo and social card and
+# checks the actual pixels (is the mark transparent, is the card 1200x630). The
+# server never imports PIL.
+Pillow==12.3.0
