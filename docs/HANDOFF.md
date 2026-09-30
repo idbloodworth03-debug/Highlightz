@@ -4547,3 +4547,19 @@ and posting options are read when the posting screen opens and the picture is no
 stored (Connection has no avatar field). All three legal documents are dated
 together (tests/test_legal_pages_match_the_code.py), so Terms, Privacy and Cookies
 now all read September 30, 2026.
+
+## Housekeeping: pinned dependencies and CI (2026-09-30)
+
+Closes two items from "July 2026 audit — remaining open items".
+- `requirements.txt`: every package pinned (`==`) to the version the full suite
+  passes on. `requirements.lock`: the whole installed closure (109 packages),
+  verified to equal what `pip install -r requirements.lock` resolves in a clean
+  install (dry-run report). `anthropic==1.10.0` was installed in dev for this and
+  the suite passes with it present.
+- `.github/workflows/tests.yml`: on every push and PR, Python 3.11, installs the
+  lock, `npm ci` (Playwright browser download skipped), `node scripts/check_jsx.js`,
+  `python -m pytest -q`. It deploys nothing. The suite passes in a clean env
+  (`env -i`), so CI needs no secrets.
+- Guard: tests/test_dependencies_pinned.py.
+- Not verified: the droplet's installed versions. Deploys don't run pip, so prod
+  keeps what it has until someone runs `venv/bin/pip install -r requirements.lock`.

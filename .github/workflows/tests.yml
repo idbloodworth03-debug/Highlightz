@@ -1,0 +1,43 @@
+# Runs the whole test suite and the JSX parse on every push and pull request.
+#
+# Added 2026-09-30 (audit: "no CI runs the test suite"). The dashboard is React
+# in a Python string with no bundler, so a JSX syntax error white-screens the
+# whole app; `node scripts/check_jsx.js` is what catches that before a deploy.
+# Nothing here deploys — production is still updated by hand on the droplet.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install Python packages
+        run: pip install -r requirements.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the JSX checker
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm ci
+
+      - name: JSX parses
+        run: node scripts/check_jsx.js
+
+      - name: Test suite
+        run: python -m pytest -q

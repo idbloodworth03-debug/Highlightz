@@ -1,40 +1,49 @@
+# PINNED (2026-09-30 audit: "requirements.txt is fully unpinned; no CI runs
+# the test suite"). These are the exact versions the full test suite passes on;
+# requirements.lock pins everything they pull in as well. CI installs the lock.
+#
+# To upgrade a package: change it here, `pip install -r requirements.txt`,
+# run the suite, then regenerate requirements.lock (see its header).
+#
+# Deploys do NOT run pip install, so the droplet keeps whatever it has until
+# someone reinstalls. To make it match: venv/bin/pip install -r requirements.lock
 # Core async
-aiohttp
-websockets
+aiohttp==3.14.3
+websockets==17.1
 
 # Stream handling
-streamlink
+streamlink==8.5.0
 
 # API clients
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+google-api-python-client==2.200.0
+google-auth-httplib2==0.4.2
+google-auth-oauthlib==1.4.1
 
 # NLP / sentiment
-vaderSentiment
+vaderSentiment==3.3.2
 
 # Cryptography (Fernet token encryption)
-cryptography
+cryptography==41.0.7
 
 # Queue & cache
-redis
+redis==8.1.0
 
 # Storage
-boto3
-google-cloud-storage
+boto3==1.43.89
+google-cloud-storage==3.13.1
 
 # Web / dashboard API
-fastapi
-uvicorn[standard]
-python-multipart
-itsdangerous
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+itsdangerous==2.2.0
 
 # Auto-captions (Whisper on the droplet). NOT imported at startup — the model
 # is loaded lazily on the first caption job — so a box without this installed
 # still boots and clips normally; only /uploads/{id}/captions fails.
 # Deploys do not run pip install: `venv/bin/pip install faster-whisper` on the
 # droplet before setting CAPTIONS_ENABLED=true.
-faster-whisper
+faster-whisper==1.2.1
 
 # The model that decides the auto-edit (src/autopilot/llm_plan.py). Like
 # faster-whisper above, it is NOT imported at startup — only inside the
@@ -42,23 +51,23 @@ faster-whisper
 # boots and clips normally and every edit falls back to the formula in
 # plan.py. Deploys do not run pip install: `venv/bin/pip install anthropic` on
 # the droplet before setting AUTOPILOT_LLM=true.
-anthropic
+anthropic==1.10.0
 
 # Utilities
-pydantic
-pydantic-settings
-python-dotenv
-structlog
-tenacity
-httpx
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+structlog==26.1.0
+tenacity==9.1.4
+httpx==0.28.1
 
 # Testing
-pytest
-pytest-asyncio
-pytest-mock
-stripe
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-mock==3.15.1
+stripe==15.6.1
 # Pillow is TEST/BUILD ONLY — the server never imports PIL. It is here so
 # tests/test_brand_assets.py can open the shipped logo and social card and
 # assert things about the actual pixels (is the mark really transparent, is the
 # preview card really 1200x630). Prod not having it installed is fine.
-Pillow
+Pillow==12.3.0
