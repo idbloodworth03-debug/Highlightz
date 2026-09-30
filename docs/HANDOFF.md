@@ -4520,3 +4520,20 @@ calendar, a warning bar and an "Add a clip" that could only fail. The now
 unreachable "Clip Editor is switched off" warning was removed. Admins still get
 the real Scheduler. Browser-checked: pro (desktop + phone) and free see the page,
 admin sees the calendar, no overflow, no errors.
+
+## Public wording: posting tense and TikTok (2026-09-30)
+
+Owner: "fix the tutorial and landing page wording". Two kinds of fix:
+- **Tense while posting is held back** (UPLOADS_ENABLED off): the landing
+  "Pick a time" card says "will post"; the tutorial FAQ no longer points at a
+  posting queue or Autopilot (download and post it yourself); the Kick FAQ ends
+  at "plays in the Clip Library, ready to download". Each renders the live copy
+  once the flag is on.
+- **TikTok is never automatic**, so no page may say the Scheduler posts to
+  "YouTube, TikTok and Instagram": landing cards/sub/FAQ, the compare row (now
+  "Auto-posts to Shorts and Reels", note says TikTok is one press), compare's
+  "We stop at the clip" (kept only while held back; a TikTok-specific point once
+  shipped), and the in-app Scheduler Pro card. Guard: tests/test_tiktok_claims.py
+  renders the public pages with the flag off AND on.
+Not changed (legal text, owner's call): the Privacy Policy says posting tokens
+"upload clips you schedule", which for TikTok is "clips you post".

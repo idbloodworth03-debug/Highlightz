@@ -314,7 +314,7 @@ print(t.body.decode() if hasattr(t, 'body') else str(t))
 def test_compare_marks_the_editor_and_scheduler_soon_while_they_are_held_back():
     rows = _render_with_flag("false", _MATRIX)
     for feature in ("Vertical reframing and auto-captions",
-                    "Auto-posts to TikTok, Shorts and Reels"):
+                    "Auto-posts to Shorts and Reels"):
         line = next(l for l in rows.splitlines() if l.endswith(feature))
         assert line.startswith("'Soon'"), \
             f"/compare still ticks {feature!r} while UPLOADS_ENABLED is off: {line}"
@@ -325,7 +325,7 @@ def test_compare_ticks_them_once_they_really_ship():
     undersells a feature that is live."""
     rows = _render_with_flag("true", _MATRIX)
     for feature in ("Vertical reframing and auto-captions",
-                    "Auto-posts to TikTok, Shorts and Reels"):
+                    "Auto-posts to Shorts and Reels"):
         line = next(l for l in rows.splitlines() if l.endswith(feature))
         assert line.startswith("True"), \
             f"/compare does not tick {feature!r} even when released: {line}"

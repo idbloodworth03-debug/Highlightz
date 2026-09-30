@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from config.settings import settings
 from src.billing.plans import PLAN_LIMITS
 
 
@@ -527,8 +528,13 @@ FAQ: tuple[tuple[str, str], ...] = (
      "A clip is created on Twitch, under your account, through the official API — "
      "the same thing that happens when you press Twitch's own Clip button. Nothing is "
      "posted anywhere else unless you tell it to: approving a clip keeps it in your "
-     "library, and a clip only goes to another platform when you post it from the "
-     "posting queue or switch on Autopilot to post it for you."),
+     # Follows the release flag (2026-09-30): while posting is held back there is
+     # no posting queue or Autopilot to point at, and TikTok is never automatic.
+     + ("library, and from there you download the file and post it wherever you like."
+        if not settings.uploads_enabled else
+        "library, and a clip only goes to another platform when you post it, or when "
+        "Autopilot is switched on for an account you connected. TikTok is always posted "
+        "by you, from the clip.")),
 
     ("Do you record my stream?",
      "Not all of it, and never a channel that has opted out. While a channel is being "

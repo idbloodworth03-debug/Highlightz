@@ -9137,9 +9137,9 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
           <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="clock" size={40}/></div>
           <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Scheduler is a Pro feature</h3>
           <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
-            Connect YouTube, TikTok and Instagram and have every clip you export
-            posted for you at the time you pick. Included with Pro, with the Clip
-            Editor and the VOD scanner.
+            Connect YouTube and Instagram and have every clip you export posted
+            for you at the time you pick, and post to TikTok with one press.
+            Included with Pro, with the Clip Editor and the VOD scanner.
           </div>
           <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
             <Icon name="zap" size={14}/>Upgrade to Pro — $25/month

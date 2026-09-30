@@ -376,8 +376,10 @@ def test_the_scheduler_is_marketed_on_the_landing_page_and_sold_as_pro_only():
     s = _public_surfaces()
     landing = _visible_text(s["landing"])
     assert 'id="post"' in s["landing"], "no Scheduler block on the landing page"
+    # TikTok is marketed as one press from the clip, never as posted for you
+    # (2026-09-30: TikTok is manual-only, see tests/test_tiktok_claims.py).
     for need in ("scheduler", "then post it", "connect once", "pick a time",
-                 "youtube, tiktok and instagram"):
+                 "youtube and instagram", "tiktok posts from the clip with one press"):
         assert need in landing, f"the landing page does not say: {need!r}"
     for name in ("pricing", "terms plans", "llms.txt", "paywall"):
         assert "scheduler" in _visible_text(s[name]), f"{name} omits the Scheduler"

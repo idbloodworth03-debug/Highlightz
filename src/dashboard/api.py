@@ -12053,14 +12053,22 @@ def _editor_section() -> str:
     # The Scheduler, marketed the same day it started posting (owner:
     # "market the scheduler and only open it to pro"). Same block, under the
     # editor cards: cut it, then post it, is one story.
+    # TikTok is never posted automatically (its Direct Post rules put the
+    # choices on the person, every post), so no card promises it; and while the
+    # Scheduler is held back the cards say what it WILL do (2026-09-30).
+    held = not settings.uploads_enabled
     post_cards = [
         ("Connect once",
-         "YouTube, TikTok and Instagram Reels, from the Scheduler tab. Your "
-         "account stays yours; Highlightz only holds what it needs to post."),
+         "YouTube and Instagram Reels, from the Scheduler tab; TikTok posts from the "
+         "clip with one press. Your account stays yours; Highlightz only holds what "
+         "it needs to post."),
         ("Pick a time",
-         "Every export lands in the queue. Give it a time and Highlightz posts it "
-         "for you, with your caption, to every account you chose. Or press Post "
-         "now."),
+         ("Every export will land in the queue. Give it a time and Highlightz will "
+          "post it for you, with your caption, to every account you chose. Or press "
+          "Post now." if held else
+          "Every export lands in the queue. Give it a time and Highlightz posts it "
+          "for you, with your caption, to every account you chose. Or press Post "
+          "now.")),
         ("One caption, checked",
          "Written once, used everywhere, and checked against each platform's "
          "length, ratio and format limits before it goes out, so the upload page "
@@ -12084,12 +12092,13 @@ def _editor_section() -> str:
                 "Every clip Highlightz catches can be reframed for vertical, "
                 "titled and cut, right where it landed. In the browser, on your "
                 "machine, with nothing waiting on a render queue.")
-    post_sub = ("Connect your YouTube, TikTok and Instagram accounts once and the "
-                "Scheduler will post your clips to them for you, at the time you "
-                "set. In testing with the platforms now."
+    post_sub = ("Connect your YouTube and Instagram accounts once and the Scheduler "
+                "will post your clips to them for you, at the time you set; TikTok "
+                "will be one press from the clip. In testing with the platforms now."
                 if soon else
-                "Connect your YouTube, TikTok and Instagram accounts once and "
-                "the Scheduler posts your clips to them for you, at the time you set.")
+                "Connect your YouTube and Instagram accounts once and the Scheduler "
+                "posts your clips to them for you, at the time you set. TikTok is one "
+                "press from the clip.")
     cta = ('<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Start free</a>'
            "<span>Both arrive with Pro, alongside the VOD Scanner. Clipping works "
            "today on every plan.</span></p>"
@@ -12191,8 +12200,10 @@ def _faq() -> str:
          "Yes, on every plan. Switch to Kick at the top of the dashboard and add a channel the same "
          "way. Kick has no clip API, so there is no Kick-hosted clip: Highlightz cuts the video "
          "file from the live broadcast the moment the score crosses, and that file is what lands "
-         "in your review queue, plays in the Clip Library, opens in the Clip Editor and goes out "
-         "through the Scheduler. You can sign in with Kick or with Twitch; to clip Twitch "
+         "in your review queue and plays in the Clip Library"
+         + (", ready to download." if not settings.uploads_enabled else
+            ", opens in the Clip Editor and goes out through the Scheduler.") +
+         " You can sign in with Kick or with Twitch; to clip Twitch "
          "channels from a Kick account, connect Twitch once from the Account tab, because a "
          "Twitch clip is made under your own Twitch login. Highlight clips are Twitch-only."),
         ("Do I have to leave anything running?",
@@ -12267,8 +12278,9 @@ def _faq() -> str:
          "press, reframes it for vertical with five templates, adds a title, transitions and a sound "
          "on the cut, and exports it frame by frame at up to 1080×1920, in your browser, "
          "with nothing waiting on a render queue. The Scheduler takes every clip you export and "
-         "posts it to the YouTube, TikTok and Instagram accounts you connect, at the time you pick, "
-         "with one caption checked against each platform's limits first. Disconnect an account and "
+         "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
+         "with one caption checked against each platform's limits first; TikTok you post with one "
+         "press, on TikTok's own posting screen. Disconnect an account and "
          "Highlightz forgets its login. TikTok may land a post as private until TikTok finishes "
          "reviewing the Highlightz app; you set it public in TikTok."),
         ("Is this allowed on Twitch?",

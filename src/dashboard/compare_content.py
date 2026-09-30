@@ -262,16 +262,20 @@ FEATURES = (
      "a title and burned-in captions, rendered frame by frame in the browser "
      "from the clip Highlightz already caught."),
 
-    ("Auto-posts to TikTok, Shorts and Reels",
+    # Shorts and Reels only (2026-09-30): Highlightz never posts to TikTok by
+    # itself — its Direct Post rules put the choices on the person each time —
+    # so a row promising automatic TikTok posting would be a tick we cannot earn.
+    ("Auto-posts to Shorts and Reels",
      _SOON, True, True,
      "Theirs today; ours shortly. The Scheduler is built and in testing — "
-     "connect YouTube, TikTok or Instagram and it posts at the time you set, "
-     "with Autopilot cutting and queueing every clip you approve. Not open to "
-     "accounts yet, so this row is not a tick either."
+     "connect YouTube or Instagram and it posts at the time you set, with "
+     "Autopilot cutting and queueing every clip you approve. TikTok will be one "
+     "press from the clip. Not open to accounts yet, so this row is not a tick "
+     "either."
      if not _shipped() else
-     "All three. Ours is the Scheduler: connect YouTube, TikTok or Instagram "
-     "and it posts at the time you set; Autopilot cuts and queues every clip "
-     "you approve by itself."),
+     "All three. Ours is the Scheduler: connect YouTube or Instagram and it "
+     "posts at the time you set; Autopilot cuts and queues every clip you "
+     "approve by itself. TikTok is one press from the clip, never automatic."),
 
     ("Works on any uploaded video, not just live streams",
      "VOD only", True, True,
@@ -372,9 +376,14 @@ THEY_DO_BETTER = {
         ("Your source is uploads, not live streams.",
          "Podcasts, recorded interviews, a folder of MP4s — that is squarely "
          "their product and not ours."),
-        ("You want it posted for you.",
-         "They connect to TikTok, Shorts and Reels and publish on a schedule. "
-         "We stop at the clip."),
+        # "We stop at the clip" is true only while posting is held back.
+        (("You want it posted for you.",
+          "They connect to TikTok, Shorts and Reels and publish on a schedule. "
+          "We stop at the clip.")
+         if not _shipped() else
+         ("You want TikTok posted for you automatically.",
+          "They schedule TikTok posts. We post Shorts and Reels on a schedule, "
+          "but TikTok only when you press Post.")),
     ),
 }
 
