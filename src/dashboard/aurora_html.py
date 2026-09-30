@@ -8766,16 +8766,16 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   // Held back with the Scheduler it feeds: /autopilot answers 503 while
   // UPLOADS_ENABLED is off, so without this a regular user would sit on
   // "Loading Autopilot…" forever. Admins are always through (uploadsOn).
+  // The shared "coming soon" page, like the Clip Editor's (2026-09-30 audit:
+  // this was a small card whose icon sat off to the left of centred text).
   if (!uploadsOn) {
     return (
       <div className="rd-scroll">
-        <div className="rd-card glass" style={{textAlign:'center',padding:'48px 24px'}}>
-          <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="zap" size={40}/></div>
-          <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Autopilot is coming soon</h3>
-          <div className="desc" style={{maxWidth:460,margin:'0 auto'}}>
-            Accept a clip and it will be edited and added to your Scheduler for you. Not open yet.
-          </div>
-        </div>
+        <UnderConstruction theme="violet" icon="zap" title="Autopilot is coming soon">
+          Accept a clip and Autopilot edits it for vertical, adds captions and puts it in your
+          Scheduler, ready to go out on the accounts you connect. It is built and in testing —
+          we'll switch it on together with the Clip Editor and the Scheduler.
+        </UnderConstruction>
       </div>
     );
   }
@@ -9917,7 +9917,7 @@ const UC_THEME = {
   violet: { a:'var(--acc)', b:'#b86adc' },
 };
 
-function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note }) {
+function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note, icon='cog' }) {
   const { a, b } = UC_THEME[theme] || UC_THEME.kick;
   const tint = (o)=>theme==='kick'?`rgba(83,252,24,${o})`:`rgba(184,106,220,${o})`;
   return (
@@ -9925,7 +9925,7 @@ function UnderConstruction({ theme='kick', title='Kick is coming soon', children
                  textAlign:'center',minHeight:'70vh',padding:'32px 24px',gap:24}}>
       <div style={{width:96,height:96,borderRadius:26,display:'grid',placeItems:'center',color:a,
                    background:tint(.1),border:'1px solid '+tint(.32),
-                   boxShadow:'0 12px 40px -14px '+tint(.45)}}><Icon name="cog" size={44}/></div>
+                   boxShadow:'0 12px 40px -14px '+tint(.45)}}><Icon name={icon} size={44}/></div>
       <div style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',borderRadius:999,
                    background:tint(.12),border:'1px solid '+tint(.35),
                    color:a,fontWeight:800,fontSize:12,letterSpacing:'.14em',textTransform:'uppercase'}}>

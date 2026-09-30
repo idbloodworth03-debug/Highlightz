@@ -379,3 +379,14 @@ def test_the_screen_has_the_x_add_back_and_clear_controls():
     # A posted clip gets no X, and the state it reads is the App's live queue.
     assert "sentOut(c)" in scr and "queue={queue}" in page
     assert "...waiting.slice()" in scr, "waiting clips cannot be X'd out"
+
+
+def test_the_coming_soon_page_matches_the_clip_editors():
+    """2026-09-30 audit: Autopilot's "coming soon" was a small card with its
+    icon off to the left of centred text; it is now the shared page."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    screen = page[page.index("function AutopilotScreen("):]
+    screen = screen[:screen.index("\nfunction ", 10)]
+    gate = screen[screen.index("if (!uploadsOn) {"):][:600]
+    assert '<UnderConstruction theme="violet" icon="zap" title="Autopilot is coming soon">' in gate
+    assert "function UnderConstruction({ theme='kick', title='Kick is coming soon', children, note, icon='cog' })" in page

@@ -4505,3 +4505,10 @@ posting, so each non-admin load and reconnect made four failing requests. Now
 arrives mid-session. Realtime contract kept: an account that can post re-syncs
 all four on every reconnect. Browser-checked (UPLOADS_ENABLED=false): free and
 Pro make zero failing requests; admin loads the four once each, all 200.
+
+**Autopilot "coming soon" uses the shared page (2026-09-30).** The held-back
+Autopilot tab was a small card whose icon sat left of centred text; it is now
+`UnderConstruction` (theme violet, new `icon` prop = zap), matching the Clip
+Editor's. Browser-checked at 1366 and 390 px, no overflow, no errors. Noted, not
+changed: the Scheduler has no coming-soon page; Pro users see the full calendar
+with a "Clip Editor is switched off" warning.
