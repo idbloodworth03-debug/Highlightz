@@ -8863,10 +8863,11 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
     .replace(/ +/g, ' ').trim();
   const addTag = (tag) => { const v = (cap ? cap.replace(/ +$/, '') + ' ' : '') + tag; setCap(v); save({caption_text: v}); };
 
-  const TPL = [['suggested','Suggested'],['fill','Fill the screen'],['clean','Clean']];
-  const TPL_DESC = {suggested:'The whole clip over a blurred backdrop, sliding in and out with a whoosh.',
-                    fill:'The clip cropped to fill the vertical frame, sliding in and out with a whoosh.',
-                    clean:'The whole clip over a blurred backdrop. No slides, no sound effect.'};
+  // No slide in or out and no whoosh on any template (owner, 2026-09-30), so
+  // the old "Clean" (which only took those away) is now just Suggested.
+  const TPL = [['suggested','Suggested'],['fill','Fill the screen']];
+  const TPL_DESC = {suggested:'The whole clip over a blurred backdrop, with captions.',
+                    fill:'The clip cropped to fill the vertical frame, with captions.'};
   const WHEN = [['now','Right away','As soon as each clip is edited'],
                 ['spaced','Spread out','One every few hours'],
                 ['daily','Once a day','At the time you pick']];

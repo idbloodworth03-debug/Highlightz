@@ -4416,3 +4416,16 @@ on their next visit, straight into checkout.
   Promotion Code named CLIPPER. Not verified against live Stripe from here.
 - Realtime: `offer_changed` (set, remove, dismiss) → the user's tabs re-read /me;
   /me is in refetchAll.
+
+## Auto Edit: no whoosh, no slide in/out, no end fades (2026-09-30)
+
+Owner: "get rid of the swoosh sound affect and the transition in at the
+beginning and end of the auto pilot editor format preset." `auto_edit.apply_template`
+now clears `slide_in`, `slide_out`, `sfx` and the new `EditPlan.edge_fades` on
+EVERY plan (any builder), so the video starts on its first frame and ends on its
+last. Templates are Suggested (blur) and Fill; "clean" existed only to drop the
+slides and whoosh, so it is gone and a saved "clean" normalises to "suggested".
+`plan.build` still sets the slides (the flags are cleared after), and other
+callers of the graph keep their fades via `edge_fades=True` by default.
+Verified: filter-graph tests (no slideleft/fade/whoosh), full suite, JSX. Not
+render-checked here (no ffmpeg in the dev container).

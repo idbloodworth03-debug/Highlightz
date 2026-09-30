@@ -33,11 +33,16 @@ TEMPLATES = ("full", "blur", "punch", "hook")
 # the picture slides in and out with the whoosh. `suggested` is the owner's own
 # design and the default. The legacy TEMPLATES above still drive the old
 # renderer for accounts the plan-based edit has not reached yet.
-EDIT_TEMPLATES = ("suggested", "fill", "clean")
+#
+# NO SLIDES, NO WHOOSH (owner, 2026-09-30: "get rid of the swoosh sound affect
+# and the transition in at the beginning and end … I dont want that in there
+# anymore"). `auto_edit.apply_template` takes them off every plan, so "clean",
+# which differed only by lacking them, is gone; a saved "clean" normalises to
+# "suggested", which is now the same edit.
+EDIT_TEMPLATES = ("suggested", "fill")
 EDIT_TEMPLATE_INFO = {
-    "suggested": ("Suggested", "The whole clip over a blurred backdrop, sliding in and out with a whoosh."),
-    "fill":      ("Fill the screen", "The clip cropped to fill the vertical frame, sliding in and out with a whoosh."),
-    "clean":     ("Clean", "The whole clip over a blurred backdrop. No slides, no sound effect."),
+    "suggested": ("Suggested", "The whole clip over a blurred backdrop, with captions."),
+    "fill":      ("Fill the screen", "The clip cropped to fill the vertical frame, with captions."),
 }
 TIMINGS = ("now", "spaced", "daily")
 # Clipper or streamer. Both post ONE clip per video since 2026-09-23 (owner:

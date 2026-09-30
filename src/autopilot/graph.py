@@ -480,9 +480,9 @@ def build_filtergraph(plan: EditPlan, *, font: str = "") -> tuple[str, str, str]
                      f"offset={_xoff(max(0.0, total - d))}[slout]")
         vlab = "slout"
     ends = []
-    if not plan.slide_in:
+    if not plan.slide_in and plan.edge_fades:
         ends.append("fade=t=in:st=0:d=0.3")
-    if not plan.slide_out:
+    if not plan.slide_out and plan.edge_fades:
         ends.append(f"fade=t=out:st={max(0.0, total - 0.4):.2f}:d=0.4")
     parts.append(f"[{vlab}]{','.join(ends) or 'null'}[vout]")
     return ";".join(parts), "vout", alab

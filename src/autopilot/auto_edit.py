@@ -103,18 +103,22 @@ async def _transcript(path: Path) -> tuple[list, str]:
 def apply_template(plan: P.EditPlan, name: str) -> P.EditPlan:
     """Shape a finished plan into one of the user's Auto Edit templates.
 
-    Only the plan's own knobs are turned — framing, and the slide in/out with
-    its whoosh — so every template is something the renderer already does and
-    `P.valid` still has the last word. `suggested` changes nothing: it is the
-    formula as designed.
+    EVERY template: no slide in or out, no whoosh, and no fade at either end
+    (owner, 2026-09-30: "get rid of the swoosh sound affect and the transition
+    in at the beginning and end … I dont want that in there anymore"). Done
+    here, on the finished plan, so it holds whichever builder made the plan.
+    The video starts on its first frame and ends on its last.
+
+    Then only framing differs: `fill` crops to fill the frame; `suggested`
+    keeps the whole clip over the blurred backdrop.
     """
+    plan.slide_in = False
+    plan.slide_out = False
+    plan.edge_fades = False
+    plan.sfx = []
     if name == "fill":
         for seg in plan.segments:
             seg.framing = "fill"
-    elif name == "clean":
-        plan.slide_in = False
-        plan.slide_out = False
-        plan.sfx = []
     return plan
 
 

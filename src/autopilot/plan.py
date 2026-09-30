@@ -182,6 +182,9 @@ class EditPlan:
     # default, so a model's plan (and every older plan) keeps its fades.
     slide_in: bool = False
     slide_out: bool = False
+    # The short fade from/to black at each end when there is no slide. Off for
+    # Auto Edit (owner, 2026-09-30: no transition at the beginning or end).
+    edge_fades: bool = True
     # Segment 0 is the HOOK: a 5-10s replay of part of segment 1, shown first
     # as bait before segment 1 plays the clip from its start. `valid()` holds
     # the shape to exactly that, so a plan cannot claim a hook it does not

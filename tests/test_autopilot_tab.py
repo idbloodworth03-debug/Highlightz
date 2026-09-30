@@ -39,25 +39,27 @@ def _plan():
     return P.build([{"id": "c1", "channel": "lacy"}], {"c1": ("/x.mp4", 30.0)})
 
 
-def test_suggested_is_the_formula_as_designed():
-    p = auto_edit.apply_template(_plan(), "suggested")
-    assert {s.framing for s in p.segments} == {"blur"}
-    assert p.slide_in and p.slide_out and p.sfx
-    assert P.valid(p)[0]
+def test_no_template_slides_whooshes_or_fades_at_the_ends():
+    """Owner, 2026-09-30: "get rid of the swoosh sound affect and the
+    transition in at the beginning and end … I dont want that in there
+    anymore"."""
+    from src.autopilot import graph as G
+    for name in ("suggested", "fill"):
+        p = auto_edit.apply_template(_plan(), name)
+        assert not p.slide_in and not p.slide_out and p.sfx == [] and not p.edge_fades
+        assert P.valid(p)[0]
+        g = G.build_filtergraph(p)[0]
+        assert "fade=t=in" not in g and "fade=t=out" not in g and "slideleft:duration" not in g
 
 
-def test_fill_crops_to_fill_but_keeps_the_slides():
-    p = auto_edit.apply_template(_plan(), "fill")
-    assert {s.framing for s in p.segments} == {"fill"}
-    assert p.slide_in and p.slide_out and p.sfx
-    assert P.valid(p)[0]
+def test_suggested_keeps_the_blur_and_fill_crops():
+    assert {s.framing for s in auto_edit.apply_template(_plan(), "suggested").segments} == {"blur"}
+    assert {s.framing for s in auto_edit.apply_template(_plan(), "fill").segments} == {"fill"}
 
 
-def test_clean_has_no_slides_and_no_sound():
-    p = auto_edit.apply_template(_plan(), "clean")
-    assert {s.framing for s in p.segments} == {"blur"}
-    assert not p.slide_in and not p.slide_out and p.sfx == []
-    assert P.valid(p)[0]
+def test_a_saved_clean_template_becomes_suggested():
+    from src import autopilot as ap
+    assert ap.normalize({"edit_template": "clean"})["edit_template"] == "suggested"
 
 
 # ── switching it on ──────────────────────────────────────────────────────────
@@ -97,7 +99,7 @@ def test_switching_autopilot_on_starts_on_the_accepted_clips(client):
 def test_saving_a_setting_while_it_is_on_does_not_restart_the_pass(client):
     client.put("/autopilot", json={"enabled": True})
     client.kicked.clear()
-    client.put("/autopilot", json={"enabled": True, "edit_template": "clean"})
+    client.put("/autopilot", json={"enabled": True, "edit_template": "fill"})
     client.put("/autopilot", json={"enabled": True, "timing": "daily"})
     assert client.kicked == [], "every setting change restarted the pass"
 
@@ -110,8 +112,8 @@ def test_switching_it_off_starts_nothing(client):
 
 
 def test_the_template_is_saved_with_the_settings(client):
-    r = client.put("/autopilot", json={"enabled": False, "edit_template": "clean"})
-    assert r.json()["config"]["edit_template"] == "clean"
+    r = client.put("/autopilot", json={"enabled": False, "edit_template": "fill"})
+    assert r.json()["config"]["edit_template"] == "fill"
 
 
 # ── the pass itself ──────────────────────────────────────────────────────────
