@@ -45,3 +45,14 @@ def test_no_page_claims_tiktok_is_posted_for_you(flag):
 def test_the_in_app_scheduler_card_does_not_either():
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     assert "Connect YouTube, TikTok and Instagram and have every clip" not in page
+
+
+def test_the_privacy_policy_says_how_tiktok_posting_works():
+    """2026-09-30: the policy said the tokens "upload clips you schedule",
+    which for TikTok (never scheduled, never automatic) was untrue."""
+    from src.dashboard import api
+    p = api.PRIVACY_HTML
+    assert "upload clips you schedule" not in p
+    assert "a TikTok post is made only when you press Post" in p
+    assert "the picture is not stored" in p
+    assert "Effective date: September 30, 2026" in p

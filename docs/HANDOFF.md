@@ -4537,3 +4537,13 @@ Owner: "fix the tutorial and landing page wording". Two kinds of fix:
   renders the public pages with the flag off AND on.
 Not changed (legal text, owner's call): the Privacy Policy says posting tokens
 "upload clips you schedule", which for TikTok is "clips you post".
+
+**Privacy Policy: connected posting accounts (2026-09-30).** Was "tokens that
+authorize the Service to upload clips you schedule" (and "connect … in the
+Scheduler"). Now: connected from the Account page; uploads happen only when you
+post, or for YouTube/Instagram when you schedule or switch on Autopilot; a TikTok
+post only when you press Post with the settings you choose; TikTok profile picture
+and posting options are read when the posting screen opens and the picture is not
+stored (Connection has no avatar field). All three legal documents are dated
+together (tests/test_legal_pages_match_the_code.py), so Terms, Privacy and Cookies
+now all read September 30, 2026.

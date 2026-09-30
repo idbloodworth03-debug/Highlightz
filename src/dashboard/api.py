@@ -12689,7 +12689,7 @@ TOS_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
@@ -12802,7 +12802,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
@@ -12812,7 +12812,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
-    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account in the Scheduler, the OAuth tokens that authorize the Service to upload clips you schedule to that account, and the account's public name. They are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account from your Account page, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
@@ -12906,7 +12906,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: September 2, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
