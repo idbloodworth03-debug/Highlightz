@@ -387,7 +387,42 @@ async def restore_clip(uid: str, clip: dict, notify) -> None:
     api._save_clips()
     await notify({"event": "clip_updated", "clip": api._clip_out(clip)}, uid)
     if user_store.autopilot_for(uid).get("enabled"):
-        await maybe_run(clip)
+        kick(maybe_run(clip))          # in the background: the click must not wait for the edit
+
+
+async def retry_clip(uid: str, clip: dict, notify) -> None:
+    """The Retry button on a failed clip (owner, 2026-09-30). Edits it again
+    now, whether or not Autopilot is switched on (it is the person asking),
+    in the background; progress arrives as clip_updated like any edit."""
+    from src.auth import users as user_store
+    from src.dashboard import api
+    from src.publish import connections
+    clip["autopilot"] = {}
+    api._save_clips()
+    await notify({"event": "clip_updated", "clip": api._clip_out(clip)}, uid)
+    cfg = {**user_store.autopilot_for(uid), "enabled": True}
+    kick(process_clip(clip, cfg, notify, connected=connections.connected_platforms(uid)))
+
+
+async def retry_failed(uid: str, notify) -> int:
+    """"Retry all": every failed clip of this user gets another go, oldest
+    first, in one background pass. Returns how many were queued."""
+    from src.dashboard import api
+    n = 0
+    for c in list(api._clips.values()):
+        if c.get("user_id") != uid or c.get("status") != "approved":
+            continue
+        if (c.get("autopilot") or {}).get("status") != "failed":
+            continue
+        c["autopilot"] = {}
+        await notify({"event": "clip_updated", "clip": api._clip_out(c)}, uid)
+        n += 1
+    if n:
+        api._save_clips()
+        # A pass already running takes them in its next batch; otherwise this
+        # starts one. Failed records are already cleared, so no retry flag.
+        kick(run_now(uid, force=True, retry_failed=False))
+    return n
 
 
 async def clear_queue(uid: str, notify) -> dict:

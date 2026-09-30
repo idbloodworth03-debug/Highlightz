@@ -4437,3 +4437,12 @@ Autopilot render failed. `build_filtergraph` now ends the audio on `[aout]` via
 `anull` when it is still a raw input. Test fails on the old code. Clips that
 failed in between are retried by "Go through my accepted clips now" (the sweeper
 does not retry failures).
+
+## Retry for failed Autopilot edits (2026-09-30)
+
+Owner: "add retry button for failed auto pilot edits". Each failed row in the
+Autopilot tab's activity list has **Retry** (`POST /autopilot/clips/{id}/retry`,
+409 unless it failed; runs even with Autopilot off, in the background), and the
+failure banner has **Retry all** (`POST /autopilot/retry-failed`: clears this
+user's failures and starts a pass). Progress is the usual clip_updated. Also:
+"Add back" (`restore_clip`) no longer awaits the edit inside the request.

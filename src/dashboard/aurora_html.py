@@ -737,6 +737,8 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apx-arrow{color:var(--fg-3);display:grid;place-items:center}
 .apx-arrow svg{transform:rotate(-90deg)}
 .apx-fail{font-size:14px;color:var(--danger);background:var(--danger-soft);border-radius:12px;padding:12px 16px}
+.apx-fail{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.apx-fail > span{flex:1;min-width:200px}
 .apx-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .apx-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
 .apx-card{padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
@@ -8812,6 +8814,12 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   };
   const removeClip = (c) => call('/autopilot/clips/' + c.id + '/remove', c.id);
   const restoreClip = (c) => call('/autopilot/clips/' + c.id + '/restore', c.id);
+  // Retry a failed edit. The clip flips back to "Editing…" over the socket.
+  const retryClip = (c) => call('/autopilot/clips/' + c.id + '/retry', c.id);
+  const retryAll = async () => {
+    const d = await call('/autopilot/retry-failed', 'retry');
+    if (d) setMsg(d.retrying ? 'Retrying ' + d.retrying + ' clip' + (d.retrying === 1 ? '' : 's') + '.' : 'Nothing to retry.');
+  };
   const clearQueue = async () => {
     const d = await call('/autopilot/clear', 'all');
     setConfirmClear(false);
@@ -8901,7 +8909,10 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
               <div className="apx-step done"><b>{scheduled.length}</b><span>In the Scheduler</span></div>
             </div>
             {on && total > 0 && <div className="apt-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct}><i style={{transform: 'scaleX(' + (pct / 100) + ')'}}/></div>}
-            {failed.length > 0 && <div className="apx-fail">{failed.length} clip{failed.length === 1 ? '' : 's'} could not be edited. The reason is in the activity list.</div>}
+            {failed.length > 0 && <div className="apx-fail">
+              <span>{failed.length} clip{failed.length === 1 ? '' : 's'} could not be edited. The reason is in the activity list.</span>
+              <button className="rd-btn sm" disabled={rowBusy === 'retry'} onClick={retryAll}>Retry {failed.length === 1 ? 'it' : 'all'}</button>
+            </div>}
             <div className="apx-actions">
               <button className="rd-btn sm" onClick={runNow} disabled={busy}
                 title="Every clip accepted in the last 30 days that has a video and is not in the Scheduler yet">
@@ -8993,6 +9004,8 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                         <b>{c.channel} &middot; {c.clip_title || c.stream_title || 'Highlight'}</b>
                         <span className="apt-act">
                           <span className={'apt-pill ' + st(c)}>{sentOut(c) ? (itemOf(c).status === 'posting' ? 'Posting…' : 'Posted') : aptLabel(c)}</span>
+                          {st(c) === 'failed' &&
+                            <button className="rd-btn sm" disabled={rowBusy === c.id} onClick={()=>retryClip(c)}>Retry</button>}
                           {st(c) === 'skipped'
                             ? <button className="rd-btn sm" disabled={rowBusy === c.id} onClick={()=>restoreClip(c)}>Add back</button>
                             : !sentOut(c) && <button className="apt-x" disabled={rowBusy === c.id} onClick={()=>removeClip(c)}

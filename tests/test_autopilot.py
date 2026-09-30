@@ -409,3 +409,20 @@ def test_a_restart_resumes_a_stuck_clip_twice_then_fails_it(tmp_path, monkeypatc
     assert got["a"]["autopilot"]["status"] == "failed" and "restart" in got["a"]["autopilot"]["error"]
     assert got["b"]["autopilot"]["status"] == "scheduled", "a finished clip was touched"
     assert got["c"]["auto_edit"]["status"] == "failed"
+
+
+def test_retry_endpoints_are_pro_only_and_refuse_a_clip_that_did_not_fail(client, monkeypatch):
+    from src.dashboard import api
+    from src.autopilot import runner as R
+    monkeypatch.setattr(api, "_clips", {
+        "ok": {"id": "ok", "user_id": "pro_user", "status": "approved", "autopilot": {"status": "scheduled"}},
+        "bad": {"id": "bad", "user_id": "pro_user", "status": "approved", "autopilot": {"status": "failed"}}})
+    called = []
+
+    async def fake_retry(uid, clip, notify):
+        called.append(clip["id"])
+    monkeypatch.setattr(R, "retry_clip", fake_retry)
+    assert client.login("starter_user").post("/autopilot/clips/bad/retry").status_code == 403
+    c = client.login("pro_user")
+    assert c.post("/autopilot/clips/ok/retry").status_code == 409
+    assert c.post("/autopilot/clips/bad/retry").status_code == 202 and called == ["bad"]

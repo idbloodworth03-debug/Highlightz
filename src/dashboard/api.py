@@ -6354,6 +6354,28 @@ async def autopilot_restore_clip(request: Request, clip_id: str):
     return {"status": "restored"}
 
 
+@app.post("/autopilot/clips/{clip_id}/retry", status_code=202)
+async def autopilot_retry_clip(request: Request, clip_id: str):
+    """Edit one failed clip again, now (owner, 2026-09-30)."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    clip = _own_approved_clip(uid, clip_id)
+    if (clip.get("autopilot") or {}).get("status") != "failed":
+        raise HTTPException(status_code=409, detail="Only a clip whose edit failed can be retried.")
+    await _autopilot.retry_clip(uid, clip, broadcast)
+    return {"status": "retrying"}
+
+
+@app.post("/autopilot/retry-failed", status_code=202)
+async def autopilot_retry_failed(request: Request):
+    """Every failed Autopilot edit of this account, again."""
+    from src.autopilot import runner as _autopilot
+    uid = _current_user_id(request)
+    _require_upload_access(uid)
+    return {"retrying": await _autopilot.retry_failed(uid, broadcast)}
+
+
 @app.post("/autopilot/clear")
 async def autopilot_clear(request: Request):
     """Clear the whole queue: waiting clips, the one being edited, failures and

@@ -146,3 +146,52 @@ def test_a_file_arriving_never_waits_for_the_autopilot_edit(monkeypatch):
         for t in list(runner._tasks):
             t.cancel()
     asyncio.run(go())
+
+
+# ── Retry (owner, 2026-09-30: "add retry button for failed auto pilot edits") ──
+
+def _retry_env(monkeypatch, env):
+    from src.dashboard import api
+    from src.publish import connections
+    monkeypatch.setattr(api, "_save_clips", lambda: None)
+    monkeypatch.setattr(connections, "connected_platforms", lambda uid: set())
+    sent = []
+
+    async def notify(msg, uid):
+        sent.append((msg["event"], uid))
+    return sent, notify
+
+
+def test_retry_clears_the_failure_and_edits_it_again_even_when_off(env, monkeypatch):
+    from src.auth import users as user_store
+    sent, notify = _retry_env(monkeypatch, env)
+    monkeypatch.setattr(user_store, "autopilot_for", lambda uid: {"enabled": False, "platforms": []})
+    ran = []
+    monkeypatch.setattr(runner, "kick", lambda coro: (ran.append(coro.cr_frame.f_locals.get("cfg")), coro.close()))
+    c = env.clip("bad", autopilot={"status": "failed", "error": "ffmpeg"})
+    asyncio.run(runner.retry_clip("on", c, notify))
+    assert c["autopilot"] == {} and ("clip_updated", "on") in sent
+    assert ran and ran[0]["enabled"] is True, "a retry must run even with Autopilot off"
+
+
+def test_retry_all_takes_only_this_users_failures(env, monkeypatch):
+    sent, notify = _retry_env(monkeypatch, env)
+    a = env.clip("f1", autopilot={"status": "failed"})
+    b = env.clip("f2", autopilot={"status": "failed"})
+    ok = env.clip("s1", autopilot={"status": "scheduled"})
+    theirs = env.clip("f3", uid="off", autopilot={"status": "failed"})
+    assert asyncio.run(runner.retry_failed("on", notify)) == 2
+    assert a["autopilot"] == {} and b["autopilot"] == {}
+    assert ok["autopilot"]["status"] == "scheduled" and theirs["autopilot"]["status"] == "failed"
+    assert env.kicked == ["on"]
+
+
+def test_add_back_does_not_wait_for_the_edit(env, monkeypatch):
+    import inspect
+    assert "await maybe_run(clip)" not in inspect.getsource(runner.restore_clip)
+
+
+def test_the_buttons_are_on_the_autopilot_tab():
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    assert "'/autopilot/clips/' + c.id + '/retry'" in page and "onClick={()=>retryClip(c)}>Retry</button>" in page
+    assert "fetch" in page and "'/autopilot/retry-failed'" in page and "onClick={retryAll}" in page
