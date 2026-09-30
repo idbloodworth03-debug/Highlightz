@@ -41,7 +41,15 @@ def auto_platforms(item: sched.Item) -> list[str]:
     the card AND connected AND not already posted."""
     connected = connections.connected_platforms(item.user_id)
     done = item.posted_on()
-    return [p for p in item.platforms if p in connected and p not in done]
+    # TIKTOK IS NEVER AUTOMATIC. Its Direct Post rules put the choices — who can
+    # view, comments/duets/stitches, commercial-content disclosure, the
+    # music-usage agreement — on the person, each time. An item carries
+    # `options["tiktok"]` only when the person posted it from the TikTok screen,
+    # so without it TikTok is skipped here: not by the due-time worker, not by a
+    # retry, not by Autopilot, not by a "Post now" on a queue card.
+    return [p for p in item.platforms
+            if p in connected and p not in done
+            and (p != "tiktok" or item.options.get("tiktok"))]
 
 
 async def _say(notify: Notify | None, item: sched.Item) -> None:

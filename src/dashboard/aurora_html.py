@@ -8529,7 +8529,9 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
 
   // Which chosen platforms the SERVER will post to (connected, healthy) and
   // which the user still posts by hand. Same split the poster makes.
-  const connected = new Set((connections||[]).filter(c=>c.connected && !c.last_error).map(c=>c.id));
+  // TikTok is never posted for them (see poster.auto_platforms), so it is never
+  // "Auto" here: it is the one they post by hand from the clip's Post button.
+  const connected = new Set((connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok').map(c=>c.id));
   const results = item.results || {};
   const auto   = [...picked].filter(p=>connected.has(p));
   const manual = [...picked].filter(p=>!connected.has(p));
@@ -8621,8 +8623,8 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           </div>
           {issues.map((t,i)=><div key={i} className="pub-warn">{t}</div>)}
           {!posting && !done && auto.length === 0 &&
-            <div className="sc-sub">To post now, tick TikTok or Instagram above. An account that is not connected yet
-              can be connected on the <b>Account</b> page.</div>}
+            <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it on the <b>Account</b> page).
+              TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>}
           <div className="sc-sub">
             Connected accounts are posted to for you at this time; the rest get a reminder and one-tap share.
             {manual.length > 0 && <> Open: {manual.map((p,i)=>(
@@ -8660,7 +8662,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
               button"). With nothing to post to it is disabled and says why. */}
           {!posting && !done &&
             <button className="rd-btn sm grad" onClick={postNow} disabled={auto.length === 0}
-              title={auto.length === 0 ? 'Choose TikTok or Instagram above (and connect it on the Account page) to post now' : ''}>
+              title={auto.length === 0 ? 'Choose Instagram or YouTube above (and connect it on the Account page) to post now. TikTok is posted from the Post button on a clip.' : ''}>
               <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
@@ -8759,7 +8761,11 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   if (!cfg) return <div className="rd-scroll"><div className="rd-card glass"><div className="desc">Loading Autopilot…</div></div></div>;
 
   const on = !!cfg.enabled;
-  const connected = (connections||[]).filter(c=>c.connected && !c.last_error);
+  // TikTok is not offered: its rules need the person to choose who can view,
+  // the interactions and the disclosure, and agree, for EACH post, so it is
+  // always posted by hand from the clip's Post button.
+  const connected = (connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok');
+  const hasTiktok = (connections||[]).some(c=>c.id === 'tiktok' && c.connected);
   const save = async (patch) => {
     setBusy(true);
     try {
@@ -8895,7 +8901,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                 <div className="apx-sb">
                   <h4>Where should it post?</h4>
                   {connected.length === 0
-                    ? <div className="hint">No account connected yet. Connect TikTok, Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
+                    ? <div className="hint">No account connected yet. Connect Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
                     : <div className="sc-pchips">
                         {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
                           <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
@@ -8903,6 +8909,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                             {picked ? '✓ ' : ''}{c.label}
                           </button>); })}
                       </div>}
+                  {hasTiktok && <div className="hint">TikTok is posted by you, not by Autopilot: TikTok asks you to choose who can view each video and agree to its terms every time. Use <b>Post</b> on any clip in the Clip Library.</div>}
                 </div>
               </section>
               <section className="apx-sec">

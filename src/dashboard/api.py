@@ -6690,8 +6690,10 @@ async def schedule_due_task() -> None:
                 # Only nudge for platforms the server is not posting to; a
                 # "time to post" toast next to "Posting to YouTube…" reads as
                 # a contradiction.
-                manual = [p for p in item.platforms
-                          if p not in pub_conns.connected_platforms(item.user_id)]
+                auto_ok = pub_conns.connected_platforms(item.user_id)
+                if not item.options.get("tiktok"):
+                    auto_ok = auto_ok - {"tiktok"}      # TikTok is never posted for them
+                manual = [p for p in item.platforms if p not in auto_ok]
                 if manual or not item.platforms:
                     await broadcast({"event": "schedule_due", "item": item.public()},
                                     user_id=item.user_id)

@@ -45,6 +45,12 @@ TIMINGS = ("now", "spaced", "daily")
 # plan.limits_for(), where a future difference between them would go.
 MODES = ("clipper", "streamer")
 PLATFORMS = ("youtube", "tiktok", "instagram")
+# What Autopilot may post to BY ITSELF. TikTok is left out on purpose: its Direct
+# Post rules require the person to choose who can view, the interactions and the
+# commercial-content disclosure and to agree to its terms for each post, so a
+# TikTok post is always made by hand from the posting screen. (A saved config
+# that still lists it is quietly cleaned by `normalize`.)
+AUTO_PLATFORMS = ("youtube", "instagram")
 CAPTION_MAX = 2200
 TITLE_MAX = 60
 
@@ -81,7 +87,7 @@ def normalize(raw: dict | None) -> dict:
     cfg["edit_template"] = (raw.get("edit_template") if raw.get("edit_template") in EDIT_TEMPLATES
                             else DEFAULT["edit_template"])
     cfg["mode"] = raw.get("mode") if raw.get("mode") in MODES else DEFAULT["mode"]
-    cfg["platforms"] = [p for p in (raw.get("platforms") or []) if p in PLATFORMS][:3]
+    cfg["platforms"] = [p for p in (raw.get("platforms") or []) if p in AUTO_PLATFORMS][:3]
     cfg["timing"] = raw.get("timing") if raw.get("timing") in TIMINGS else DEFAULT["timing"]
     try:
         cfg["spacing_h"] = int(min(48, max(1, int(raw.get("spacing_h", DEFAULT["spacing_h"])))))

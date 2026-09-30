@@ -4340,3 +4340,27 @@ style tiles, and the phone layout (the original 860px block, which still wins
 where it must) unchanged. Not screenshot-checked: the sections inside "More
 options" (Trim/Frame/Text/Effects/Captions) — they share the restyled classes but
 were not opened in the browser check.
+
+## TikTok is never automatic (2026-09-30) — decision made for the audit submission
+
+TikTok's Direct Post rules put the choices (who can view, interactions, the
+commercial-content disclosure, the music-usage agreement) on the person for each
+post, and the submission says nothing is posted until they press Post. That was
+untrue while Autopilot and the Scheduler could post to TikTok on their own, so:
+
+- `poster.auto_platforms` skips TikTok unless the item carries the person's own
+  choices (`options["tiktok"]`, set only by `POST /publish/post-now`). This is the
+  single choke point for the due-time worker, retries, Post now on a queue card
+  and Autopilot.
+- `autopilot.AUTO_PLATFORMS = ("youtube", "instagram")`; `normalize` cleans old
+  configs; the Autopilot screen shows no TikTok chip, with a hint pointing to the
+  clip's Post button. The Scheduler drawer never tags TikTok "Auto".
+- A TikTok card in the Scheduler still gets the "time to post" nudge (it counts as
+  a manual platform); the person posts it from the clip's Post button.
+- The owner was asked twice whether Autopilot's TikTok posts should wait for one
+  confirmation click and never answered; the conservative option was chosen. A
+  later "Ready to post" one-click flow is the way to bring it back if wanted.
+- Submission answers: `docs/tiktok-submission.md`.
+
+Blast radius: only TikTok; YouTube/Instagram paths untouched. Verified: full suite,
+JSX parse.

@@ -49,7 +49,7 @@ def test_normalize_fills_defaults_and_clamps_everything():
                       "timing": "weekly", "spacing_h": 900, "daily_at": "25:99", "tz_offset_min": 99999,
                       "caption_text": "x" * 5000, "title": 0, "captions": "yes", "evil": True})
     assert c["enabled"] is True and c["template"] == "full"
-    assert c["platforms"] == ["youtube", "tiktok"]
+    assert c["platforms"] == ["youtube"]      # TikTok is never Autopilot's to post
     assert c["timing"] == "spaced" and c["spacing_h"] == 48 and c["daily_at"] == "18:00"
     assert c["tz_offset_min"] == 840 and len(c["caption_text"]) == ap.CAPTION_MAX
     assert c["title"] is False and c["captions"] is True and "evil" not in c
@@ -180,7 +180,7 @@ def _clip(w, cid="c1", **kw):
 def test_process_clip_renders_saves_and_schedules_on_connected_platforms_only(world):
     w = world
     c = _clip(w); (w.src_dir / "c1.mp4").write_bytes(MP4)
-    cfg = ap.normalize({"enabled": True, "template": "hook", "platforms": ["youtube", "tiktok"],
+    cfg = ap.normalize({"enabled": True, "template": "hook", "platforms": ["youtube", "instagram"],
                         "timing": "now", "caption_text": "{title} #{channel}"})
     rec = _run(runner.process_clip(c, cfg, w.notify, connected={"youtube"}))
     assert rec["status"] == "scheduled" and rec["platforms"] == ["youtube"]

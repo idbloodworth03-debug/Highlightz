@@ -631,13 +631,13 @@ def test_post_now_refuses_with_nothing_connected_and_kicks_the_poster_otherwise(
 def test_post_now_retries_failures_but_not_platforms_already_posted(client, monkeypatch):
     c = client.login("pro_user")
     up = _run(_upload("pro_user"))
-    _conn(uid="pro_user"); _conn(uid="pro_user", platform="tiktok")
-    it = _item(uid="pro_user", up=up, platforms=("youtube", "tiktok"))
+    _conn(uid="pro_user"); _conn(uid="pro_user", platform="instagram")
+    it = _item(uid="pro_user", up=up, platforms=("youtube", "instagram"))
     sched.mark_result(it.id, "pro_user", "youtube", sched.R_POSTED, url="https://y/1")
-    sched.mark_result(it.id, "pro_user", "tiktok", sched.R_FAILED, error="nope")
+    sched.mark_result(it.id, "pro_user", "instagram", sched.R_FAILED, error="nope")
     monkeypatch.setattr(poster, "start_now", lambda item, notify=None: True)
     r = c.post(f"/publish/schedule/{it.id}/post")
-    assert r.status_code == 202 and r.json()["platforms"] == ["tiktok"]
+    assert r.status_code == 202 and r.json()["platforms"] == ["instagram"]
 
 
 def test_the_queue_payload_carries_results_for_the_card(client):
