@@ -218,6 +218,12 @@ class Settings(BaseSettings):
     # the reason uploads are held back does not apply to it.
     clip_import_enabled: bool = False
 
+    # The Campaigns marketplace (src/campaigns). Admins always see it; this
+    # opens it to every signed-in account, published campaigns only. Off while
+    # it is being built and filled (owner, 2026-09-30: "make an admin only
+    # section and start to work on the marketplace").
+    campaigns_enabled: bool = False
+
     # Auto-captions (Whisper, on this box — owner's call over a paid API).
     #
     # DEFAULTS RAISED 2026-09-15. They started at tiny.en / greedy / no prompt,

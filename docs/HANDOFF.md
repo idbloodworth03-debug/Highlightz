@@ -4576,3 +4576,47 @@ downgrades of Debian-shipped versions. It was never installed there. Now:
   resolution of those two files is exactly the freeze plus Pillow; the full suite
   (3501) passes on that exact set under 3.12 and on the dev 3.11 set.
 - Nothing needs installing on the droplet: the lock IS what it runs.
+
+## Campaigns: the clipping marketplace, admin-only for now (2026-09-30)
+
+Owner: "make an admin only section and start to work on the marketplace … see
+all the campaigns that are going to be ran … the dates, the rules, the streamers
+… prize pool and how we are distributing the money (how many winners and how we
+are grading it) … connected to posting … post straight to instagram or tiktok and
+already have it using the correct rules (like hashtags needed or certain caption)
+… inside the admin page we can create new campaigns … add a picture and insert all
+the rules".
+
+- **Store** `src/campaigns/__init__.py`: campaigns.json + one picture each in
+  campaign_images/ (PNG/JPEG/WebP sniffed from bytes, ≤5 MB). Fields: title,
+  summary, rules (plain text, line breaks kept), start/end, streamers
+  (Twitch/Kick name → URL), prize_pool + payouts (one per winner; may not exceed
+  the pool), judging (top_clip_views / best_n_views / best_n_engagement / custom +
+  N + note), platforms, hashtags, mentions, caption_template ({title},
+  {streamer}), published. Status (upcoming/live/ended) is derived from the clock.
+- **Visibility**: `CAMPAIGNS_ENABLED` (default false). Admins always see the
+  Campaigns tab, drafts included (marked). With the flag on, everyone signed in
+  sees published campaigns only. `/me.features.campaigns`; client `canCampaignsFor`.
+- **Admin**: Admin page → Campaigns tab: list (status, dates, prize, winners,
+  entries), full create/edit form incl. picture upload, entries view per
+  campaign. `/admin/campaigns` CRUD, `/admin/campaigns/{id}/image`,
+  `/admin/campaigns/{id}/entries`. Polls while open (no socket on that page).
+- **Marketplace** (dashboard, `CampaignsScreen`): grid filtered Live & upcoming /
+  Live / Upcoming / Ended; campaign page with picture, dates, streamers, rules,
+  prize split, judging, "Post it here" (platforms, required tags, suggested
+  caption) and **Post a clip for this campaign** (live only, needs posting access).
+- **Posting for a campaign**: the button sets `postFor` and opens the Clip
+  Library with a banner; the Post dialog has a campaign picker that fills the
+  caption from the template + required tags, limits platforms to the campaign's,
+  shows each tag ✓/✗ and blocks Post while one is missing. The SERVER enforces the
+  same (`/publish/post-now` with `campaign_id`: live, platforms, `caption_problems`)
+  and records `Item.campaign_id`; entries = `schedule.for_campaign(id)`.
+- **Realtime**: every admin write broadcasts `campaigns_changed` (global, no
+  payload); tabs that can see the marketplace re-read `/campaigns`; refetchAll
+  reads it on every reconnect.
+- **Not built yet** (owner agreed order): joining, leaderboards, automatic view
+  counts (TikTok needs `video.list` + another audit; Instagram needs insights),
+  winners, payouts, third-party brands posting campaigns.
+- Verified: tests/test_campaigns.py (23), full suite, JSX + admin JS parse,
+  browser (admin create/edit with picture, grid + page at 1366/390, library
+  banner, dialog prefill, missing-tag block; no overflow, no errors).

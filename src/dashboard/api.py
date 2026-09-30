@@ -1488,6 +1488,7 @@ async def me(request: Request):
         "next_plan":           _next_tier(user),
         "features":            {"uploads": settings.uploads_enabled,
                                 "clip_import": settings.clip_import_enabled,
+                                "campaigns": settings.campaigns_enabled,
                                 "captions": settings.captions_enabled,
                                 # Exposed so the VOD screen can describe what a
                                 # scan actually does. With audio on it decodes
@@ -6670,6 +6671,33 @@ async def publish_post_now(request: Request):
         raise HTTPException(status_code=400,
                             detail=f"Caption is longer than {sched.CAPTION_MAX} characters.")
 
+    # POSTING FOR A CAMPAIGN (the marketplace, src/campaigns). The post has to
+    # follow the campaign's rules to count, so they are checked HERE rather
+    # than trusted from the dialog: the campaign is live, every platform is one
+    # it counts on, and the caption carries each required hashtag and mention.
+    # The dialog fills those in; this is what stops an entry that dropped one.
+    campaign_id = str(body.get("campaign_id") or "")
+    if campaign_id:
+        from src import campaigns as camp
+        from src.auth import users as _users
+        is_admin = bool((_users.get_by_id(uid) or {}).get("is_admin"))
+        c = camp.get(campaign_id)
+        if (not c or (not c.get("published") and not is_admin)
+                or not (settings.campaigns_enabled or is_admin)):
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        if camp.status_of(c) != "live":
+            raise HTTPException(status_code=400, detail=(
+                "This campaign has not started yet." if camp.status_of(c) == "upcoming"
+                else "This campaign has ended."))
+        off = [plat.BY_ID[p].label for p in targets if p not in c["platforms"]]
+        if off:
+            raise HTTPException(status_code=400, detail=(
+                f"{', '.join(off)} {'does' if len(off) == 1 else 'do'} not count for this campaign."))
+        missing = camp.caption_problems(c, caption)
+        if missing:
+            raise HTTPException(status_code=400, detail=(
+                "This campaign needs " + ", ".join(missing) + " in the caption."))
+
     # TikTok's Direct Post rules put these choices on the person, on this
     # screen: no TikTok post goes out without them.
     raw_opts = body.get("options") if isinstance(body.get("options"), dict) else {}
@@ -6702,7 +6730,8 @@ async def publish_post_now(request: Request):
                 detail="Already posted to " + ", ".join(plat.BY_ID[p].label for p in targets)
                        + ". Remove that post in the Scheduler first to post it again.")
         item = sched.update(existing.id, uid, caption=caption, options=plat_opts,
-                            platforms=list(dict.fromkeys(targets + list(existing.platforms))))
+                            platforms=list(dict.fromkeys(targets + list(existing.platforms))),
+                            campaign_id=campaign_id or None)
         event = "schedule_updated"
     else:
         try:
@@ -6713,7 +6742,7 @@ async def publish_post_now(request: Request):
                              # of showing "fits" for a widescreen file.
                              ratio="16:9" if clip else "",
                              fmt=str(getattr(up, "kind", "") or ""),
-                             options=plat_opts)
+                             options=plat_opts, campaign_id=campaign_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         event = "schedule_added"
@@ -7691,6 +7720,147 @@ async def admin_clear_offer(request: Request, user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     await broadcast({"event": "offer_changed"}, user_id=user_id)
     return {"ok": True}
+
+
+# ── Campaigns: the clipping marketplace (src/campaigns) ──────────────────────
+#
+# Read: any signed-in account once CAMPAIGNS_ENABLED is on (published campaigns
+# only); admins always, drafts included and marked. Write: admins only, from the
+# admin page. Every change broadcasts `campaigns_changed` (no payload; the tab
+# re-reads /campaigns), so an open marketplace follows edits live.
+
+def _campaign_viewer(request: Request) -> tuple[str, bool]:
+    """(user id, is admin) for someone allowed to see the marketplace."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    admin = bool((user_store.get_by_id(uid) or {}).get("is_admin"))
+    if not admin and not settings.campaigns_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    return uid, admin
+
+
+def _visible_campaign(campaign_id: str, admin: bool) -> dict:
+    from src import campaigns as camp
+    c = camp.get(campaign_id)
+    if not c or (not c.get("published") and not admin):
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return c
+
+
+@app.get("/campaigns")
+async def list_campaigns(request: Request):
+    from src import campaigns as camp
+    _uid, admin = _campaign_viewer(request)
+    return {"rows": camp.listing(include_drafts=admin)}
+
+
+@app.get("/campaigns/{campaign_id}")
+async def get_campaign(request: Request, campaign_id: str):
+    from src import campaigns as camp
+    _uid, admin = _campaign_viewer(request)
+    return camp.public(_visible_campaign(campaign_id, admin))
+
+
+@app.get("/campaigns/{campaign_id}/image")
+async def campaign_image(request: Request, campaign_id: str):
+    from src import campaigns as camp
+    _uid, admin = _campaign_viewer(request)
+    _visible_campaign(campaign_id, admin)
+    p = camp.image_path(campaign_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="No picture")
+    return FileResponse(p, headers={"Cache-Control": "private, max-age=86400"})
+
+
+async def _campaigns_changed() -> None:
+    await broadcast({"event": "campaigns_changed"}, user_id=None)
+
+
+@app.get("/admin/campaigns")
+async def admin_list_campaigns(request: Request):
+    _require_admin(request)
+    from src import campaigns as camp
+    from src.publish import schedule as sched
+    rows = camp.listing(include_drafts=True)
+    for r in rows:
+        r["entries"] = len(sched.for_campaign(r["id"]))
+    return {"rows": rows, "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS)}
+
+
+@app.post("/admin/campaigns")
+async def admin_create_campaign(request: Request):
+    _require_admin(request)
+    from src import campaigns as camp
+    try:
+        c = camp.create(await request.json())
+    except camp.CampaignError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    log.info("campaign_created", id=c["id"], title=c["title"], by=request.session.get("user_id"))
+    await _campaigns_changed()
+    return camp.public(c)
+
+
+@app.put("/admin/campaigns/{campaign_id}")
+async def admin_update_campaign(request: Request, campaign_id: str):
+    _require_admin(request)
+    from src import campaigns as camp
+    try:
+        c = camp.update(campaign_id, await request.json())
+    except camp.CampaignError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if c is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    await _campaigns_changed()
+    return camp.public(c)
+
+
+@app.delete("/admin/campaigns/{campaign_id}")
+async def admin_delete_campaign(request: Request, campaign_id: str):
+    _require_admin(request)
+    from src import campaigns as camp
+    if not camp.delete(campaign_id):
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    log.info("campaign_deleted", id=campaign_id, by=request.session.get("user_id"))
+    await _campaigns_changed()
+    return {"ok": True}
+
+
+@app.post("/admin/campaigns/{campaign_id}/image")
+async def admin_campaign_image(request: Request, campaign_id: str, file: UploadFile = File(...)):
+    _require_admin(request)
+    from src import campaigns as camp
+    data = await file.read(camp.IMAGE_MAX + 1)
+    try:
+        c = camp.set_image(campaign_id, data)
+    except camp.CampaignError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if c is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    await _campaigns_changed()
+    return camp.public(c)
+
+
+@app.get("/admin/campaigns/{campaign_id}/entries")
+async def admin_campaign_entries(request: Request, campaign_id: str):
+    """Every post made for this campaign, from every user."""
+    _require_admin(request)
+    from src import campaigns as camp
+    from src.auth import users as user_store
+    from src.publish import schedule as sched
+    if not camp.get(campaign_id):
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    rows = []
+    for it in sched.for_campaign(campaign_id):
+        u = user_store.get_by_id(it.user_id) or {}
+        rows.append({
+            "item_id": it.id,
+            "user": u.get("twitch_login") or u.get("kick_slug") or u.get("username") or it.user_id[:8],
+            "platforms": it.platforms, "status": it.status, "caption": it.caption,
+            "created_at": it.created_at,
+            "results": {p: {"status": r.get("status"), "url": r.get("url", ""), "at": r.get("at", 0),
+                            "error": r.get("error", "")} for p, r in it.results.items()},
+        })
+    return {"rows": rows}
 
 
 @app.post("/offer/dismiss")
@@ -13331,6 +13501,31 @@ ADMIN_HTML = """<!DOCTYPE html>
     .crow .btn,.crow .dim{grid-column:2;grid-row:2;justify-self:end}
     .toast{left:var(--s-4);right:var(--s-4);bottom:var(--s-4);max-width:none}
   }
+
+  /* ── Campaigns (the marketplace) ── */
+  .cp-list{display:grid;gap:var(--s-3)}
+  .cp-row{display:flex;gap:var(--s-4);align-items:center;padding:var(--s-3);border:1px solid var(--hair);border-radius:4px;background:var(--void)}
+  .cp-thumb{width:96px;height:54px;border-radius:3px;object-fit:cover;background:var(--wall);flex-shrink:0}
+  .cp-row .t{flex:1;min-width:0}
+  .cp-row .t b{display:block;font-size:14px;color:var(--ink)}
+  .cp-pill{font-family:var(--mono);font-size:12px;padding:0 var(--s-2);border-radius:99px;border:1px solid var(--hair-2);color:var(--ink-2);margin-left:var(--s-2)}
+  .cp-pill.live{color:var(--good);border-color:rgba(74,222,128,.35)}
+  .cp-pill.draft{color:var(--ember);border-color:rgba(247,167,69,.35)}
+  .cp-form{display:grid;gap:var(--s-4);max-width:880px;padding:var(--s-4);border:1px solid var(--hair-2);border-radius:4px;background:var(--void);margin-bottom:var(--s-5)}
+  .cp-form h3{font-size:16px;margin:0}
+  .cp-sec{display:grid;gap:var(--s-2)}
+  .cp-sec > label,.cp-lab{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+  .cp-form .field{max-width:none;width:100%}
+  .cp-form textarea.field{min-height:96px;resize:vertical;line-height:1.5}
+  .cp-form textarea.cp-rules{min-height:260px}
+  .cp-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-3)}
+  .cp-line{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap}
+  .cp-line .field{flex:1 1 160px}
+  .cp-img{width:320px;max-width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;background:var(--wall);border:1px solid var(--hair)}
+  .cp-checks{display:flex;gap:var(--s-4);flex-wrap:wrap;font-size:14px;color:var(--ink-2)}
+  .cp-checks label{display:flex;gap:var(--s-2);align-items:center}
+  .cp-err{color:var(--bad);font-size:14px}
+  @media(max-width:700px){.cp-2{grid-template-columns:1fr}.cp-row{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -13380,6 +13575,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="clips">Clip record<span class="c" id="tc-clips"></span></button>
     <button class="tab" data-tab="downloads">Downloads<span class="c" id="tc-downloads"></span></button>
     <button class="tab" data-tab="accounts">Accounts<span class="c" id="tc-accounts"></span></button>
+    <button class="tab" data-tab="campaigns">Campaigns<span class="c" id="tc-campaigns"></span></button>
     <button class="tab" data-tab="onboarding">Onboarding<span class="c" id="tc-onboarding"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
@@ -13531,6 +13727,22 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="tw"><div id="ac-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
+  <!-- ── CAMPAIGNS ── -->
+  <div class="panel" id="panel-campaigns">
+    <div class="block-head"><h2>Campaigns</h2><span class="c" id="cp-c"></span></div>
+    <p class="lede">
+      The marketplace. Every campaign you create here shows in the <b>Campaigns</b> tab of the
+      dashboard, with its picture, dates, streamers, prize split, judging and rules. Leave
+      <b>Show in the marketplace</b> off to keep it a draft only admins can see. Posting rules
+      (hashtags, mentions, caption) are filled in for anyone posting a clip for it, and a post
+      missing one is refused. Until <b>CAMPAIGNS_ENABLED</b> is on, only admins see the tab at all.
+    </p>
+    <div class="toolbar"><button class="btn btn-good" id="cp-new">+ New campaign</button></div>
+    <div id="cp-editor"></div>
+    <div id="cp-wrap" class="loading">Loading&hellip;</div>
+    <div id="cp-entries"></div>
+  </div>
+
   <!-- ── ONBOARDING ── -->
   <div class="panel" id="panel-onboarding">
     <div class="block-head"><h2>Onboarding</h2><span class="c" id="ob-c"></span></div>
@@ -13675,6 +13887,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();
   if(b.dataset.tab === 'downloads') loadDownloads();
   if(b.dataset.tab === 'accounts') loadAccounts();
+  if(b.dataset.tab === 'campaigns') loadCampaigns();
   if(b.dataset.tab === 'onboarding') loadOnboarding();
 });
 
@@ -13892,6 +14105,245 @@ function accountsOpen(){
 }
 window.addEventListener('focus', function(){ if(accountsOpen()) loadAccounts(); });
 setInterval(function(){ if(accountsOpen()) loadAccounts(); }, 20000);
+
+// ── campaigns (the marketplace) ───────────────────────────
+// Created and edited here, shown in the dashboard's Campaigns tab. Every save
+// broadcasts campaigns_changed, so an open marketplace follows it live; this
+// page has no socket, so it re-reads while the panel is open (as Accounts does).
+let CP_LOADED = false, CP_ROWS = [], CP_JUDGING = {}, CP_EDIT = null, CP_FILE = null;
+const CP_PLATS = [['tiktok','TikTok'],['instagram','Instagram'],['youtube','YouTube']];
+
+async function apiJson(url, method, body){
+  const r = await fetch(url, {method: method, credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(function(){ return {}; });
+  if(!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+  return d;
+}
+
+async function loadCampaigns(){
+  CP_LOADED = true;
+  let d;
+  try { d = await api('/admin/campaigns'); }
+  catch(e){ if(!CP_ROWS.length) fail('cp-wrap', 'campaigns'); return; }
+  CP_ROWS = d.rows || []; CP_JUDGING = d.judging || {};
+  document.getElementById('cp-c').textContent = CP_ROWS.length + ' total';
+  document.getElementById('tc-campaigns').textContent = CP_ROWS.length ? String(CP_ROWS.length) : '';
+  renderCampaigns();
+}
+
+function cpWhen(ts){ return ts ? new Date(ts*1000).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '—'; }
+function cpMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 2}); }
+
+function renderCampaigns(){
+  const wrap = document.getElementById('cp-wrap');
+  wrap.className = '';
+  if(!CP_ROWS.length){
+    wrap.innerHTML = '<p class="sub">No campaigns yet. Press <b>+ New campaign</b> to make the first one.</p>';
+    return;
+  }
+  wrap.innerHTML = '<div class="cp-list">' + CP_ROWS.map(function(c){
+    return '<div class="cp-row">'
+      + (c.image_url ? '<img class="cp-thumb" src="' + esc(c.image_url) + '" alt="">' : '<div class="cp-thumb"></div>')
+      + '<div class="t"><b>' + esc(c.title)
+        + '<span class="cp-pill ' + esc(c.status) + '">' + esc(c.status) + '</span>'
+        + (c.published ? '' : '<span class="cp-pill draft">draft</span>') + '</b>'
+        + '<span class="sub">' + cpWhen(c.start_at) + ' &rarr; ' + cpWhen(c.end_at) + ' &middot; '
+        + cpMoney(c.prize_pool) + ' &middot; ' + (c.winners || 0) + ' winner' + (c.winners === 1 ? '' : 's')
+        + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + '</span></div>'
+      + '<div class="acts"><button class="btn cp-edit" data-id="' + esc(c.id) + '">Edit</button>'
+      + '<button class="btn cp-ent" data-id="' + esc(c.id) + '">Entries</button>'
+      + '<button class="btn btn-bad cp-del" data-id="' + esc(c.id) + '">Delete</button></div></div>';
+  }).join('') + '</div>';
+}
+
+function cpLocal(ts){
+  if(!ts) return '';
+  const d = new Date(ts*1000), z = function(n){ return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+
+function cpStreamerRow(sv){
+  sv = sv || {name: '', platform: 'twitch'};
+  return '<div class="cp-line cp-streamer"><input class="field cp-sname" placeholder="Channel name, e.g. jynxzi" value="' + esc(sv.name) + '">'
+    + '<select class="btn cp-splat"><option value="twitch"' + (sv.platform === 'twitch' ? ' selected' : '') + '>Twitch</option>'
+    + '<option value="kick"' + (sv.platform === 'kick' ? ' selected' : '') + '>Kick</option></select>'
+    + '<button class="btn btn-bad cp-rm" type="button">Remove</button></div>';
+}
+
+function cpPayoutRow(v, i){
+  return '<div class="cp-line cp-payout"><span class="cp-lab cp-place">' + (i + 1) + '. place</span>'
+    + '<input class="field cp-pamt" type="number" min="0" step="0.01" placeholder="Amount in $" value="' + (v || '') + '">'
+    + '<button class="btn btn-bad cp-rm" type="button">Remove</button></div>';
+}
+
+function openCampaignEditor(c){
+  CP_EDIT = c || null; CP_FILE = null;
+  c = c || {platforms: ['tiktok', 'instagram'], judging: 'top_clip_views', judging_n: 3, payouts: [], streamers: []};
+  const judging = Object.keys(CP_JUDGING).map(function(k){
+    return '<option value="' + k + '"' + (c.judging === k ? ' selected' : '') + '>' + esc(CP_JUDGING[k].replace('{n}', 'N')) + '</option>';
+  }).join('');
+  const ed = document.getElementById('cp-editor');
+  ed.innerHTML = '<form class="cp-form" id="cp-form" autocomplete="off">'
+    + '<h3>' + (CP_EDIT ? 'Edit campaign' : 'New campaign') + '</h3>'
+    + '<div class="cp-sec"><label>Title</label><input class="field" name="title" maxlength="120" value="' + esc(c.title || '') + '" placeholder="Highlightz Clipping Cup #1"></div>'
+    + '<div class="cp-sec"><label>Short description (shown on the card)</label><input class="field" name="summary" maxlength="300" value="' + esc(c.summary || '') + '" placeholder="Clip three streamers, post on TikTok or Instagram, win a share of $500."></div>'
+    + '<div class="cp-sec"><label>Picture (PNG, JPEG or WebP, up to 5 MB &middot; 16:9 looks best)</label>'
+      + '<div class="cp-line">' + (c.image_url ? '<img class="cp-img" id="cp-prev" src="' + esc(c.image_url) + '" alt="">' : '<img class="cp-img" id="cp-prev" alt="" style="display:none">')
+      + '<input type="file" id="cp-file" accept="image/png,image/jpeg,image/webp"></div></div>'
+    + '<div class="cp-2"><div class="cp-sec"><label>Starts</label><input class="field" type="datetime-local" name="start" value="' + cpLocal(c.start_at) + '"></div>'
+      + '<div class="cp-sec"><label>Ends</label><input class="field" type="datetime-local" name="end" value="' + cpLocal(c.end_at) + '"></div></div>'
+    + '<div class="cp-sec"><label>Streamers in the campaign</label><div id="cp-streamers">' + (c.streamers || []).map(cpStreamerRow).join('') + '</div>'
+      + '<div><button class="btn" type="button" id="cp-add-streamer">+ Add streamer</button></div></div>'
+    + '<div class="cp-sec"><label>Prize pool (USD)</label><input class="field" type="number" min="0" step="0.01" name="prize_pool" value="' + (c.prize_pool || '') + '" placeholder="500"></div>'
+    + '<div class="cp-sec"><label>How the prize is split (one row per winner)</label><div id="cp-payouts">' + (c.payouts || []).map(cpPayoutRow).join('') + '</div>'
+      + '<div class="cp-line"><button class="btn" type="button" id="cp-add-payout">+ Add a place</button><span class="sub" id="cp-paysum"></span></div></div>'
+    + '<div class="cp-2"><div class="cp-sec"><label>How entries are judged</label><select class="btn" name="judging" id="cp-judging">' + judging + '</select></div>'
+      + '<div class="cp-sec" id="cp-n-wrap"><label>N (clips counted per person)</label><input class="field" type="number" min="1" max="20" name="judging_n" value="' + (c.judging_n || 3) + '"></div></div>'
+    + '<div class="cp-sec"><label>Judging notes (tie-breaks, what counts; required for a custom method)</label><textarea class="field" name="judging_note" maxlength="1000">' + esc(c.judging_note || '') + '</textarea></div>'
+    + '<div class="cp-sec"><label>Where clips can be posted</label><div class="cp-checks">' + CP_PLATS.map(function(p){
+        return '<label><input type="checkbox" name="plat" value="' + p[0] + '"' + ((c.platforms || []).indexOf(p[0]) >= 0 ? ' checked' : '') + '> ' + p[1] + '</label>';
+      }).join('') + '</div></div>'
+    + '<div class="cp-2"><div class="cp-sec"><label>Required hashtags (space separated)</label><input class="field" name="hashtags" value="' + esc((c.hashtags || []).map(function(t){ return '#' + t; }).join(' ')) + '" placeholder="#HighlightzCup #clips"></div>'
+      + '<div class="cp-sec"><label>Required mentions (space separated)</label><input class="field" name="mentions" value="' + esc((c.mentions || []).map(function(t){ return '@' + t; }).join(' ')) + '" placeholder="@highlightz"></div></div>'
+    + '<div class="cp-sec"><label>Caption template (filled in when someone posts; the hashtags and mentions are added if missing)</label><textarea class="field" name="caption_template" maxlength="2200" placeholder="{title} | clipped from {streamer}">' + esc(c.caption_template || '') + '</textarea>'
+      + '<span class="sub">{title} = the clip title &middot; {streamer} = the channel it came from</span></div>'
+    + '<div class="cp-sec"><label>Rules (shown in full on the campaign page)</label><textarea class="field cp-rules" name="rules" maxlength="20000" placeholder="Paste the official rules here. Line breaks are kept.">' + esc(c.rules || '') + '</textarea></div>'
+    + '<div class="cp-checks"><label><input type="checkbox" name="published"' + (c.published ? ' checked' : '') + '> Show in the marketplace (off = draft, admins only)</label></div>'
+    + '<div class="cp-err" id="cp-err"></div>'
+    + '<div class="cp-line"><button class="btn btn-good" type="submit" id="cp-save">' + (CP_EDIT ? 'Save changes' : 'Create campaign') + '</button>'
+      + '<button class="btn" type="button" id="cp-cancel">Cancel</button></div>'
+    + '</form>';
+  cpSyncJudging(); cpSyncPayouts();
+  ed.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function cpSyncJudging(){
+  const sel = document.getElementById('cp-judging');
+  if(!sel) return;
+  document.getElementById('cp-n-wrap').style.display = sel.value.indexOf('best_n') === 0 ? '' : 'none';
+}
+
+function cpSyncPayouts(){
+  const rows = document.querySelectorAll('#cp-payouts .cp-payout');
+  let sum = 0;
+  rows.forEach(function(r, i){
+    r.querySelector('.cp-place').textContent = (i + 1) + '. place';
+    sum += Number(r.querySelector('.cp-pamt').value || 0);
+  });
+  const el = document.getElementById('cp-paysum');
+  if(el) el.textContent = rows.length ? rows.length + ' winner' + (rows.length === 1 ? '' : 's') + ' · ' + cpMoney(sum) + ' paid out' : 'No places yet';
+}
+
+function cpCollect(){
+  const f = document.getElementById('cp-form');
+  const v = function(n){ return (f.elements[n] ? f.elements[n].value : '').trim(); };
+  const epoch = function(x){ return x ? Math.floor(new Date(x).getTime() / 1000) : 0; };
+  return {
+    title: v('title'), summary: v('summary'), rules: f.elements.rules.value,
+    start_at: epoch(v('start')), end_at: epoch(v('end')),
+    streamers: Array.prototype.map.call(f.querySelectorAll('.cp-streamer'), function(r){
+      return {name: r.querySelector('.cp-sname').value.trim(), platform: r.querySelector('.cp-splat').value};
+    }).filter(function(x){ return x.name; }),
+    prize_pool: Number(v('prize_pool') || 0),
+    payouts: Array.prototype.map.call(f.querySelectorAll('.cp-pamt'), function(i){ return Number(i.value || 0); }).filter(function(x){ return x > 0; }),
+    judging: v('judging'), judging_n: Number(v('judging_n') || 3), judging_note: v('judging_note'),
+    platforms: Array.prototype.filter.call(f.querySelectorAll('input[name=plat]'), function(i){ return i.checked; }).map(function(i){ return i.value; }),
+    hashtags: v('hashtags'), mentions: v('mentions'), caption_template: f.elements.caption_template.value,
+    published: f.elements.published.checked,
+  };
+}
+
+async function cpSave(){
+  const err = document.getElementById('cp-err'), btn = document.getElementById('cp-save');
+  err.textContent = ''; btn.disabled = true;
+  try {
+    const body = cpCollect();
+    const c = CP_EDIT ? await apiJson('/admin/campaigns/' + CP_EDIT.id, 'PUT', body)
+                      : await apiJson('/admin/campaigns', 'POST', body);
+    if(CP_FILE){
+      const fd = new FormData(); fd.append('file', CP_FILE);
+      const r = await fetch('/admin/campaigns/' + c.id + '/image', {method: 'POST', body: fd, credentials: 'same-origin'});
+      if(!r.ok){
+        const d = await r.json().catch(function(){ return {}; });
+        CP_EDIT = c;
+        throw new Error('Saved, but the picture was refused: ' + (d.detail || r.status));
+      }
+    }
+    document.getElementById('cp-editor').innerHTML = '';
+    CP_EDIT = null; CP_FILE = null;
+    toast(body.published ? 'Saved. It is in the marketplace.' : 'Saved as a draft.');
+    loadCampaigns();
+  } catch(e){ err.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
+async function cpEntries(id){
+  const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
+  const box = document.getElementById('cp-entries');
+  box.innerHTML = '<div class="block-head"><h2>Entries &middot; ' + esc(c.title || '') + '</h2></div><div class="loading">Loading&hellip;</div>';
+  let d;
+  try { d = await api('/admin/campaigns/' + id + '/entries'); }
+  catch(e){ box.innerHTML = '<p class="err">Could not load entries.</p>'; return; }
+  const rows = d.rows || [];
+  let html = '<div class="block-head"><h2>Entries &middot; ' + esc(c.title || '') + '</h2><span class="c">' + rows.length + '</span></div>';
+  if(!rows.length){ box.innerHTML = html + '<p class="sub">Nobody has posted for this campaign yet.</p>'; return; }
+  html += '<div class="tw"><table><thead><tr><th>User</th><th>Posted</th><th>Where</th><th>Caption</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    const where = r.platforms.map(function(p){
+      const res = r.results[p] || {};
+      if(res.url) return '<a href="' + esc(res.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p) + ' &#8599;</a>';
+      return esc(p) + ' <span class="sub">' + esc(res.status || r.status) + (res.error ? ': ' + esc(res.error) : '') + '</span>';
+    }).join('<br>');
+    html += '<tr><td><b>' + esc(r.user) + '</b></td><td>' + cpWhen(r.created_at) + '</td><td>' + where + '</td>'
+      + '<td class="sub" style="max-width:360px">' + esc(r.caption) + '</td></tr>';
+  });
+  box.innerHTML = html + '</tbody></table></div>';
+  box.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+document.getElementById('cp-new').addEventListener('click', function(){ openCampaignEditor(null); });
+document.getElementById('panel-campaigns').addEventListener('click', async function(e){
+  const t = e.target;
+  if(t.id === 'cp-add-streamer'){ document.getElementById('cp-streamers').insertAdjacentHTML('beforeend', cpStreamerRow()); return; }
+  if(t.id === 'cp-add-payout'){
+    const box = document.getElementById('cp-payouts');
+    box.insertAdjacentHTML('beforeend', cpPayoutRow('', box.children.length)); cpSyncPayouts(); return;
+  }
+  if(t.classList.contains('cp-rm')){ t.parentNode.remove(); cpSyncPayouts(); return; }
+  if(t.id === 'cp-cancel'){ document.getElementById('cp-editor').innerHTML = ''; CP_EDIT = null; return; }
+  const id = t.getAttribute('data-id');
+  if(t.classList.contains('cp-edit')){ openCampaignEditor(CP_ROWS.find(function(c){ return c.id === id; })); return; }
+  if(t.classList.contains('cp-ent')){ cpEntries(id); return; }
+  if(t.classList.contains('cp-del')){
+    const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
+    if(!confirm('Delete "' + (c.title || 'this campaign') + '"? It disappears from the marketplace. Posts already made stay on the platforms.')) return;
+    try { await api('/admin/campaigns/' + id, 'DELETE'); toast('Deleted'); loadCampaigns(); }
+    catch(err){ toast(err.message); }
+  }
+});
+document.getElementById('panel-campaigns').addEventListener('input', function(e){
+  if(e.target.classList.contains('cp-pamt')) cpSyncPayouts();
+});
+document.getElementById('panel-campaigns').addEventListener('change', function(e){
+  if(e.target.id === 'cp-judging') cpSyncJudging();
+  if(e.target.id === 'cp-file'){
+    CP_FILE = e.target.files && e.target.files[0] || null;
+    const prev = document.getElementById('cp-prev');
+    if(CP_FILE){ prev.src = URL.createObjectURL(CP_FILE); prev.style.display = ''; }
+  }
+});
+document.getElementById('panel-campaigns').addEventListener('submit', function(e){
+  if(e.target.id === 'cp-form'){ e.preventDefault(); cpSave(); }
+});
+function campaignsOpen(){
+  const panel = document.getElementById('panel-campaigns');
+  // Not while the editor is open: a re-read would not touch the form, but it is
+  // the admin's own edit in flight, and the list below it can wait.
+  return CP_LOADED && panel && panel.classList.contains('on') && !document.hidden
+    && !document.getElementById('cp-form');
+}
+setInterval(function(){ if(campaignsOpen()) loadCampaigns(); }, 30000);
 
 // ── announcements ─────────────────────────────────────────
 let AN_LOADED = false;

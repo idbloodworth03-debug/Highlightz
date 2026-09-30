@@ -739,6 +739,74 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apx-fail{font-size:14px;color:var(--danger);background:var(--danger-soft);border-radius:12px;padding:12px 16px}
 .apx-fail{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .apx-fail > span{flex:1;min-width:200px}
+/* ── Campaigns marketplace ── */
+.cmp{max-width:1180px;margin:0 auto;padding:8px 0 48px;display:flex;flex-direction:column;gap:24px}
+.cmp-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.cmp-top h2{margin:0;font-size:24px;font-weight:800;letter-spacing:-.02em}
+.cmp-muted{margin:4px 0 0;font-size:14px;color:var(--fg-3);line-height:1.5}
+.cmp-n{margin-left:4px;font-size:12px;opacity:.7}
+.cmp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.cmp-card{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;border-radius:16px;overflow:hidden;
+  border:1px solid var(--hair);background:rgba(255,255,255,.03);transition:border-color var(--dur-fast),transform var(--dur-fast)}
+.cmp-card:hover{border-color:rgba(184,106,220,.5);transform:translateY(-2px)}
+.cmp-card:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.cmp-img{position:relative;aspect-ratio:16/9;background:var(--grad-soft);display:grid;place-items:center;color:var(--acc)}
+.cmp-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cmp-img .cmp-status{position:absolute;top:12px;left:12px}
+.cmp-img .cmp-status.draft{left:auto;right:12px}
+.cmp-status{font-size:12px;font-weight:700;letter-spacing:.04em;padding:4px 12px;border-radius:99px;background:rgba(0,0,0,.55);color:var(--fg-2)}
+.cmp-status.live{background:rgba(46,224,138,.18);color:var(--live)}
+.cmp-status.upcoming{background:var(--grad-soft);color:#fff}
+.cmp-status.draft{background:rgba(255,190,90,.16);color:var(--fg)}
+.cmp-body{display:flex;flex-direction:column;gap:8px;padding:16px}
+.cmp-title{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.cmp-sum{font-size:14px;color:var(--fg-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cmp-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--fg-3);font-weight:600}
+.cmp-pool{font-size:16px;font-weight:800;color:var(--live)}
+.cmp-dot{width:4px;height:4px;border-radius:50%;background:var(--fg-3)}
+.cmp-streamers{display:flex;gap:8px;flex-wrap:wrap}
+.cmp-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:4px 12px;border-radius:99px;
+  background:rgba(255,255,255,.06);border:1px solid var(--hair);color:var(--fg);text-decoration:none}
+.cmp-chip small{font-size:12px;color:var(--fg-3);font-weight:600}
+.cmp-chip.tag{color:var(--acc)}
+.cmp-streamers.big .cmp-chip{font-size:14px;padding:8px 16px}
+a.cmp-chip:hover{border-color:var(--hair-2)}
+.cmp-page{max-width:1180px;margin:0 auto;padding:8px 0 48px;display:flex;flex-direction:column;gap:24px}
+.cmp-back{align-self:flex-start;display:inline-flex;gap:8px;align-items:center}
+.cmp-hero{border-radius:24px;overflow:hidden;aspect-ratio:21/9;background:var(--grad-soft);border:1px solid var(--hair)}
+.cmp-hero img{width:100%;height:100%;object-fit:cover;display:block}
+.cmp-hero-ph{width:100%;height:100%;display:grid;place-items:center;color:var(--acc)}
+.cmp-cols{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start}
+.cmp-main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.cmp-main h2{margin:0;font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.cmp-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cmp-when{font-size:14px;color:var(--fg-2);font-weight:600}
+.cmp-lede{margin:0;font-size:16px;color:var(--fg-2);line-height:1.6}
+.cmp-dates{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cmp-dates div{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.cmp-dates span,.cmp-k{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.cmp-dates b{font-size:16px}
+.cmp-sec{display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid var(--hair)}
+.cmp-sec h3{margin:0;font-size:16px;font-weight:800;display:block}
+.cmp-rules,.cmp-pre{white-space:pre-wrap;overflow-wrap:anywhere}
+.cmp-rules{font-size:14px;line-height:1.7;color:var(--fg-2);padding:24px;border-radius:16px;border:1px solid var(--hair);background:rgba(0,0,0,.2)}
+.cmp-side{display:flex;flex-direction:column;gap:16px;position:sticky;top:0}
+.cmp-box{display:flex;flex-direction:column;gap:12px;padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.cmp-box p{margin:0;font-size:14px;line-height:1.5}
+.cmp-box .rd-btn{justify-content:center;display:inline-flex;gap:8px;align-items:center}
+.cmp-big{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--live)}
+.cmp-split{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.cmp-split li{display:flex;justify-content:space-between;font-size:14px;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.04)}
+.cmp-split li span{color:var(--fg-2)}
+.cmp-banner{display:flex;align-items:center;gap:12px;margin:0 0 16px;padding:12px 16px;border-radius:12px;font-size:14px;
+  background:var(--grad-soft);border:1px solid rgba(196,137,228,.4);color:var(--fg)}
+.cmp-banner > span{flex:1;min-width:0}
+.pn-camp{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-radius:12px;border:1px solid rgba(196,137,228,.35);background:var(--grad-soft)}
+.pn-camp .rd-select{width:100%}
+.pn-req{display:flex;gap:8px;flex-wrap:wrap}
+.pn-req span{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:rgba(46,224,138,.14);color:var(--live)}
+.pn-req span.miss{background:var(--danger-soft);color:var(--danger)}
+@media (max-width:900px){.cmp-cols{grid-template-columns:1fr}.cmp-side{position:static}.cmp-main h2{font-size:24px}.cmp-hero{aspect-ratio:16/9}}
 .apx-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .apx-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
 .apx-card{padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
@@ -2266,6 +2334,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     play: <polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>,
     plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
     zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+    trophy: <><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></>,
     radio: <><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></>,
     film: <><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></>,
     logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></>,
@@ -4346,7 +4415,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
 // /clips/{id}/reject) rather than kept with a status — so "Rejected" could never
 // match anything, and "All" and "Approved" were the same button twice. The
 // streamer filter stays: it is the one that still narrows a real list.
-function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview }) {
+function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, banner = null }) {
   const [chanFilter, setChanFilter] = useState('all');
   // Defaults to newest APPROVAL, not newest capture. The library is the record
   // of what you decided to keep, so approving a clip puts it at the top even if
@@ -4379,6 +4448,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview }) 
   const pendingCount = all.filter(c=>c.status==='pending').length;
   return (
     <div className="rd-scroll">
+      {banner}
       {/* Same two rows as Clip Review, in the same order and out of the same
           components: what you can DO on the title line, what you are LOOKING at
           below it. The screen name is not repeated here — the page header two
@@ -4768,7 +4838,7 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'campaigns',label:'Campaigns',icon:'trophy',campaignsOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that close on Kick WHEN `kickOpen` (in the app) is false. Kick
 // monitoring went live on 2026-09-15 (chat + audio + viewers, clips cut from
 // live capture — no Kick-hosted clip, no Highlight clips) as an admin-only
@@ -4782,7 +4852,7 @@ const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','aut
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -8302,7 +8372,8 @@ function AddClipPicker({ clips, items, onClose, mode = 'add', onPick = null }) {
    item over the socket (the `queue` prop is the App's live state), so the
    result appears here without a refresh and the Scheduler shows the same
    card. Closing it does not stop the upload. */
-function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onClose }) {
+function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onClose,
+                        campaigns = [], initialCampaign = '' }) {
   const ORDER = ['tiktok', 'instagram', 'youtube'];
   const specs = [...(platforms || [])].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
   const conn = {}; (connections || []).forEach(c => { conn[c.id] = c; });
@@ -8311,6 +8382,22 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [itemId, setItemId] = useState('');
+  // POSTING FOR A CAMPAIGN (the marketplace). Picking one fills the caption
+  // from its template with its required hashtags and mentions, limits the
+  // platforms to the ones it counts on, and blocks Post while a required tag
+  // is missing — the same check the server makes. `campaigns` is live ones only.
+  const [campId, setCampId] = useState(() => campaigns.some(c => c.id === initialCampaign) ? initialCampaign : '');
+  const camp = campId ? campaigns.find(c => c.id === campId) || null : null;
+  useEffect(() => { if (camp) setCap(campaignCaption(camp, clip)); }, []);
+  const pickCampaign = (id) => {
+    setCampId(id);
+    const c = campaigns.find(x => x.id === id);
+    if (c) {
+      setCap(campaignCaption(c, clip));
+      setPicked(p => new Set([...p].filter(x => c.platforms.includes(x))));
+    }
+  };
+  const campMissing = camp ? campaignMissing(camp, cap) : [];
   // TikTok's Direct Post rules put these choices on the PERSON, on this screen:
   // who can view (no default), comments/duets/stitches (all off until ticked),
   // and a commercial-content declaration. Nothing here is pre-filled.
@@ -8328,7 +8415,8 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
                             || (item.status === 'pending' && Object.keys(results).length === 0)));
   const sent = !!itemId;
 
-  const ready = id => !!(conn[id] && conn[id].connected && !conn[id].last_error);
+  const ready = id => !!(conn[id] && conn[id].connected && !conn[id].last_error)
+                      && (!camp || camp.platforms.includes(id));
   const toggle = id => {
     if (sent || !ready(id)) return;
     setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -8359,7 +8447,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
     : (ttDisc && !ttBrand && !ttBranded) ? 'You need to indicate if your content promotes yourself, a third party, or both.'
     : (brandedPrivate && td.audited === false) ? 'Branded content cannot be posted until TikTok has approved Highlightz.'
     : '';
-  const canPost = picked.size > 0 && (!tiktokOn || !ttWhy);
+  const canPost = picked.size > 0 && (!tiktokOn || !ttWhy) && campMissing.length === 0;
 
   const post = async () => {
     if (!canPost || busy) return;
@@ -8369,7 +8457,8 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
       branded_content: ttDisc && ttBranded, consent: true}} : {};
     try {
       const r = await fetch('/publish/post-now', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap, options})});
+        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap, options,
+                              campaign_id: camp ? camp.id : undefined})});
       let d = {};
       try { d = await r.json(); } catch (e) {}
       if (!r.ok) { setErr(d.detail || 'Could not start posting.'); return; }
@@ -8388,11 +8477,30 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
           <div className="wk-pick-sub">{clip.channel} &middot; {clip.clip_title || clip.stream_title || 'Highlight'}</div>
         </div>
 
+        {campaigns.length > 0 && <div className="pn-camp">
+          <div className="sc-lbl" style={{marginTop:0}}>Post for a campaign</div>
+          <select className="rd-select" value={campId} disabled={sent} onChange={e => e.target.value ? pickCampaign(e.target.value) : setCampId('')}>
+            <option value="">No campaign</option>
+            {campaigns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+          {camp && <>
+            <div className="sc-sub" style={{marginTop:0}}>Counts on {camp.platforms.map(p => CAMP_PLAT[p] || p).join(', ')}. {camp.judging_text}.</div>
+            {(camp.hashtags.length + camp.mentions.length) > 0 && <div className="pn-req">
+              {[...camp.hashtags.map(t => '#' + t), ...camp.mentions.map(h => '@' + h)].map(t =>
+                <span key={t} className={campMissing.includes(t) ? 'miss' : ''}>{campMissing.includes(t) ? '✗ ' : '✓ '}{t}</span>)}
+            </div>}
+            {campMissing.length > 0 && <div className="pub-warn">Add {campMissing.join(', ')} to the caption, or this post will not count.</div>}
+          </>}
+        </div>}
+
         <div className="sc-lbl">Post to</div>
         <div className="sc-pchips">
           {specs.map(pf => {
             const c = conn[pf.id];
             const on = picked.has(pf.id);
+            if (camp && !camp.platforms.includes(pf.id)) return (
+              <span key={pf.id} className="sc-pchip" style={{opacity: .5, cursor: 'default'}}
+                title="This campaign does not count posts here">{pf.label}<small>Not in campaign</small></span>);
             if (ready(pf.id)) return (
               <button key={pf.id} className={'sc-pchip' + (on ? ' on' : '')} onClick={() => toggle(pf.id)} disabled={sent}>
                 {on ? '✓ ' : ''}{pf.label}
@@ -9979,6 +10087,187 @@ function UploadsUnderConstruction() {
   );
 }
 
+// ── CAMPAIGNS: the clipping marketplace (owner, 2026-09-30) ─────────────────
+// Every campaign that is running or coming up: dates, streamers, prize pool and
+// how it is split, how entries are judged, the posting rules and the full rules.
+// Created in the admin page; this is the showcase. Admins always see it; others
+// once CAMPAIGNS_ENABLED is on. Live: App holds the list, refetchAll re-reads it
+// on every reconnect and `campaigns_changed` on every admin edit.
+function canCampaignsFor(me) {
+  return !!(me && (me.is_admin || (me.features || {}).campaigns));
+}
+const CAMP_PLAT = {tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube Shorts'};
+const campMoney = n => '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 2});
+const campOrdinal = i => { const n = i + 1, t = n % 100; return n + ((t > 10 && t < 14) ? 'th' : ({1:'st',2:'nd',3:'rd'})[n % 10] || 'th'); };
+const campDate = ts => new Date(ts * 1000).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+function campWhen(c) {
+  const now = Date.now() / 1000;
+  const span = s => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+    return d > 0 ? d + ' day' + (d === 1 ? '' : 's') : h > 0 ? h + ' hour' + (h === 1 ? '' : 's') : 'under an hour'; };
+  if (c.status === 'live') return 'Ends in ' + span(c.end_at - now);
+  if (c.status === 'upcoming') return 'Starts in ' + span(c.start_at - now);
+  return 'Ended ' + new Date(c.end_at * 1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+}
+// The caption a campaign post starts with: the template with {title} and
+// {streamer} filled from the clip, then any required hashtag or mention the
+// template left out. The person can still edit it (TikTok requires that).
+function campaignCaption(c, clip) {
+  const title = (clip && (clip.clip_title || clip.stream_title)) || '';
+  let cap = String(c.caption_template || '{title}')
+    .replace(/[{]title[}]/g, title).replace(/[{]streamer[}]/g, (clip && clip.channel) || '').trim();
+  const need = campaignMissing(c, cap);
+  return (cap + (need.length ? ' ' + need.join(' ') : '')).trim();
+}
+// The same test as the server's caption_problems: a tag counts only as a whole
+// word (#cup does not satisfy #cupfinal).
+function campaignMissing(c, cap) {
+  const low = String(cap || '').toLowerCase();
+  const has = (tok, tail) => { let i = low.indexOf(tok);
+    while (i >= 0) { if (!tail.test(low.charAt(i + tok.length))) return true; i = low.indexOf(tok, i + 1); }
+    return false; };
+  return [...(c.hashtags || []).filter(t => !has('#' + t.toLowerCase(), /[a-z0-9_]/)).map(t => '#' + t),
+          ...(c.mentions || []).filter(h => !has('@' + h.toLowerCase(), /[a-z0-9_.]/)).map(h => '@' + h)];
+}
+
+function CampaignCard({ c, onOpen }) {
+  return (
+    <button className="cmp-card" onClick={() => onOpen(c.id)}>
+      <div className="cmp-img">{c.image_url ? <img src={c.image_url} alt="" loading="lazy"/> : <Icon name="trophy" size={32}/>}
+        <span className={'cmp-status ' + c.status}>{c.status === 'live' ? 'Live' : c.status === 'upcoming' ? 'Upcoming' : 'Ended'}</span>
+        {!c.published && <span className="cmp-status draft">Draft</span>}
+      </div>
+      <div className="cmp-body">
+        <b className="cmp-title">{c.title}</b>
+        {c.summary && <span className="cmp-sum">{c.summary}</span>}
+        <div className="cmp-meta">
+          <span className="cmp-pool">{campMoney(c.prize_pool)}</span>
+          <span>{c.winners ? c.winners + ' winner' + (c.winners === 1 ? '' : 's') : 'Prize pool'}</span>
+          <span className="cmp-dot"/>
+          <span>{campWhen(c)}</span>
+        </div>
+        {c.streamers.length > 0 && <div className="cmp-streamers">
+          {c.streamers.slice(0, 4).map(st => <span key={st.platform + st.name} className="cmp-chip">{st.name}</span>)}
+          {c.streamers.length > 4 && <span className="cmp-chip">+{c.streamers.length - 4}</span>}
+        </div>}
+      </div>
+    </button>
+  );
+}
+
+function CampaignPage({ c, onBack, onPostFor, canPost }) {
+  const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
+  return (
+    <div className="cmp-page">
+      <button className="rd-btn sm cmp-back" onClick={onBack}><Icon name="chevron" size={14} style={{transform:'rotate(90deg)'}}/>All campaigns</button>
+      <div className="cmp-hero">
+        {c.image_url ? <img src={c.image_url} alt=""/> : <div className="cmp-hero-ph"><Icon name="trophy" size={48}/></div>}
+      </div>
+      <div className="cmp-cols">
+        <div className="cmp-main">
+          <div className="cmp-head">
+            <span className={'cmp-status ' + c.status}>{c.status === 'live' ? 'Live' : c.status === 'upcoming' ? 'Upcoming' : 'Ended'}</span>
+            {!c.published && <span className="cmp-status draft">Draft, only admins can see it</span>}
+            <span className="cmp-when">{campWhen(c)}</span>
+          </div>
+          <h2>{c.title}</h2>
+          {c.summary && <p className="cmp-lede">{c.summary}</p>}
+          <div className="cmp-dates">
+            <div><span>Starts</span><b>{campDate(c.start_at)}</b></div>
+            <div><span>Ends</span><b>{campDate(c.end_at)}</b></div>
+          </div>
+          {c.streamers.length > 0 && <section className="cmp-sec">
+            <h3>Streamers</h3>
+            <div className="cmp-streamers big">
+              {c.streamers.map(st => (
+                <a key={st.platform + st.name} className="cmp-chip" href={st.url} target="_blank" rel="noopener noreferrer">
+                  {st.name}<small>{st.platform === 'kick' ? 'Kick' : 'Twitch'}</small>
+                </a>))}
+            </div>
+          </section>}
+          <section className="cmp-sec">
+            <h3>Rules</h3>
+            {c.rules ? <div className="cmp-rules">{c.rules}</div>
+                     : <p className="cmp-muted">The full rules have not been posted yet.</p>}
+          </section>
+        </div>
+        <aside className="cmp-side">
+          <div className="cmp-box">
+            <span className="cmp-k">Prize pool</span>
+            <b className="cmp-big">{campMoney(c.prize_pool)}</b>
+            {c.payouts.length > 0 && <ol className="cmp-split">
+              {c.payouts.map((amt, i) => <li key={i}><span>{campOrdinal(i)} place</span><b>{campMoney(amt)}</b></li>)}
+            </ol>}
+          </div>
+          <div className="cmp-box">
+            <span className="cmp-k">How winners are picked</span>
+            <p>{c.judging_text}</p>
+            {c.judging_note && <p className="cmp-muted cmp-pre">{c.judging_note}</p>}
+          </div>
+          <div className="cmp-box">
+            <span className="cmp-k">Post it here</span>
+            <div className="cmp-streamers">{c.platforms.map(p => <span key={p} className="cmp-chip">{CAMP_PLAT[p] || p}</span>)}</div>
+            {tags.length > 0 && <><span className="cmp-k">Your caption must include</span>
+              <div className="cmp-streamers">{tags.map(t => <span key={t} className="cmp-chip tag">{t}</span>)}</div></>}
+            {c.caption_template && <><span className="cmp-k">Suggested caption</span><p className="cmp-muted cmp-pre">{c.caption_template}</p></>}
+            {c.status === 'live' && canPost &&
+              <button className="rd-btn grad" onClick={() => onPostFor(c.id)}><Icon name="upload" size={14}/>Post a clip for this campaign</button>}
+            {c.status === 'live' && !canPost &&
+              <p className="cmp-muted">Posting from Highlightz is coming soon. Until then, post your clip yourself with the tags above.</p>}
+            {c.status === 'upcoming' && <p className="cmp-muted">Entries open {campDate(c.start_at)}.</p>}
+            {c.status === 'ended' && <p className="cmp-muted">This campaign has ended.</p>}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function CampaignsScreen({ campaigns, onPostFor, canPost }) {
+  const [show, setShow] = useState('open');     // which statuses the grid lists
+  const [openId, setOpenId] = useState(null);
+  const rows = campaigns || [];
+  // Derived from the live list, so an admin's edit shows here as it happens and
+  // a deleted campaign drops back to the grid rather than a stale page.
+  const open = openId ? rows.find(c => c.id === openId) : null;
+  if (campaigns === null) return <div className="rd-scroll"><div className="cmp"><p className="cmp-muted">Loading campaigns…</p></div></div>;
+  if (open) return <div className="rd-scroll"><CampaignPage c={open} onBack={() => setOpenId(null)} onPostFor={onPostFor} canPost={canPost}/></div>;
+  const counts = {open: rows.filter(c => c.status !== 'ended').length, live: rows.filter(c => c.status === 'live').length,
+                  upcoming: rows.filter(c => c.status === 'upcoming').length, ended: rows.filter(c => c.status === 'ended').length};
+  const shown = rows.filter(c => show === 'open' ? c.status !== 'ended' : c.status === show);
+  const FILTERS = [['open', 'Live & upcoming'], ['live', 'Live'], ['upcoming', 'Upcoming'], ['ended', 'Ended']];
+  return (
+    <div className="rd-scroll">
+      <div className="cmp">
+        <div className="cmp-top">
+          <div>
+            <h2>Campaigns</h2>
+            <p className="cmp-muted">Clip the streamers in a campaign, post with its tags, and compete for the prize pool.</p>
+          </div>
+          <div className="apx-tabs">
+            {FILTERS.map(([k, l]) => <button key={k} className={show === k ? 'on' : ''} onClick={() => setShow(k)}>{l}<small className="cmp-n">{counts[k]}</small></button>)}
+          </div>
+        </div>
+        {shown.length === 0
+          ? <div className="apx-empty"><span><Icon name="trophy" size={24}/></span><b>No campaigns here yet</b>
+              <span>{rows.length ? 'Try another filter.' : 'New campaigns appear here the moment they are announced.'}</span></div>
+          : <div className="cmp-grid">{shown.map(c => <CampaignCard key={c.id} c={c} onOpen={setOpenId}/>)}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Above the Clip Library while someone is posting for a campaign: says which,
+// and that the Post button fills the caption in. "Done" ends it.
+function CampaignPostBanner({ c, onDone }) {
+  return (
+    <div className="cmp-banner">
+      <Icon name="trophy" size={16}/>
+      <span>Posting for <b>{c.title}</b>. Press <b>Post</b> on any clip: its caption and required tags are filled in.</span>
+      <button className="rd-btn sm" onClick={onDone}>Done</button>
+    </div>
+  );
+}
+
 // Whether this account can use the Clip Editor / posting / Autopilot. The
 // client copy of the server's _require_upload_access: the plan includes it, and
 // it is released or the account is an admin. One definition, used by App (which
@@ -10072,6 +10361,20 @@ function RdApp() {
     refetchAutopilot();
   },[refetchConnections, refetchAutopilot]);
   const publishLoaded = useRef(false);
+  // The Campaigns marketplace. null until first loaded (so the screen can say
+  // Loading rather than "none yet"); only fetched for accounts that can see it.
+  const [campaigns, setCampaigns] = useState(null);
+  const refetchCampaigns = useCallback(()=>{
+    fetch('/campaigns').then(r=>r.ok?r.json():null).then(d=>{ if(d) setCampaigns(d.rows||[]); }).catch(()=>{});
+  },[]);
+  const canCampaigns = canCampaignsFor(me);
+  // The socket handler is created once; it reads access through this ref.
+  const canCampaignsRef = useRef(false);
+  canCampaignsRef.current = canCampaigns;
+  useEffect(()=>{ if(canCampaigns && campaigns === null) refetchCampaigns(); },[canCampaigns]);
+  // "Post a clip for this campaign": the campaign whose rules the next Post
+  // uses, shown as a banner over the Clip Library until they press Done.
+  const [postFor, setPostFor] = useState('');
   // Access that arrives after the first load (an upgrade, an admin grant) —
   // the /me that carries it may come from an event rather than refetchAll.
   const canPublish = canPublishFor(me);
@@ -10164,6 +10467,7 @@ function RdApp() {
     fetch('/me').then(r=>r.json()).then(data=>{
       setMe(data);
       if(canPublishFor(data)) refetchPublishing();
+      if(canCampaignsFor(data)) refetchCampaigns();
       // An account that signed up with Kick starts on Kick, unless it has
       // already chosen a platform in this browser.
       try{
@@ -10487,6 +10791,12 @@ function RdApp() {
           // follow without a reload.
           fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
         }
+        else if(msg.event==='campaigns_changed'){
+          // An admin created, edited or deleted a campaign. Sent to every
+          // socket with no payload; only accounts that can see the
+          // marketplace re-read it.
+          if(canCampaignsRef.current) refetchCampaigns();
+        }
         else if(msg.event==='offer_changed'){
           // An admin gave, changed or removed this account's discount, or it
           // was dismissed in another tab. /me carries it.
@@ -10765,7 +11075,12 @@ function RdApp() {
   // lives in React state alone), but that is a property of the current code,
   // not a guarantee — normalise so a future deep link or restored route cannot
   // walk into one of these. Falls back to the review queue.
-  const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review' : route;
+  const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review'
+             : (route === 'campaigns' && !canCampaigns) ? 'review' : route;
+
+  // Over the Clip Library while posting for a campaign (see CampaignPostBanner).
+  const postForCamp = postFor && (campaigns||[]).find(c=>c.id===postFor && c.status==='live');
+  const postForBanner = postForCamp ? <CampaignPostBanner c={postForCamp} onDone={()=>setPostFor('')}/> : null;
 
   let screen;
   // Kick is open to everyone (owner, 2026-09-16: "open kick to all users";
@@ -10777,7 +11092,9 @@ function RdApp() {
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
-  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review')}}/>;
+  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
+  else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip}
+      onPostFor={id=>{ setPostFor(id); setRoute('library'); }}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} clips={clips} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
@@ -10815,7 +11132,7 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo-mark.png" alt="Highlightz"/></span>
-        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))).map(n=>{
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))&&(!n.campaignsOnly||canCampaignsFor(me))).map(n=>{
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what
           // actually stops the click; the class only makes that visible.
@@ -10889,6 +11206,7 @@ function RdApp() {
           if (expect) flash(expect);
         }}/>}
       {postClip && <PostNowDialog clip={postClip} platforms={platforms} connections={connections} queue={queue}
+        campaigns={(campaigns||[]).filter(c=>c.status==='live')} initialCampaign={postFor}
         onClose={()=>setPostClip(null)}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip} onPost={onPostClip}

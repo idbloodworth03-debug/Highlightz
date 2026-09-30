@@ -94,6 +94,10 @@ class Item:
     # that never asked (Autopilot, an older card), and the provider then falls
     # back to its own defaults.
     options: dict = field(default_factory=dict)
+    # The marketplace campaign this post was made for, "" for none. Set by
+    # /publish/post-now when the person picks a campaign; the campaign's entry
+    # list is every item carrying its id (src/campaigns).
+    campaign_id: str = ""
 
     def public(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
@@ -144,7 +148,8 @@ def _save() -> None:
 def add(user_id: str, upload_id: str, filename: str, caption: str,
         platforms: list[str], due_at: float = 0.0,
         duration_s: float = 0.0, ratio: str = "", fmt: str = "",
-        source: str = "", options: dict | None = None) -> Item:
+        source: str = "", options: dict | None = None,
+        campaign_id: str = "") -> Item:
     _load()
     if due_at < 0:
         raise ValueError("Pick a time for this post.")
@@ -160,7 +165,7 @@ def add(user_id: str, upload_id: str, filename: str, caption: str,
                 platforms=list(platforms), due_at=float(due_at),
                 duration_s=float(duration_s), ratio=str(ratio),
                 fmt=str(fmt).lower().lstrip("."), source=str(source or ""),
-                options=dict(options or {}))
+                options=dict(options or {}), campaign_id=str(campaign_id or ""))
     _items[item.id] = item
     _save()
     return item
@@ -173,6 +178,17 @@ def for_user(user_id: str) -> list[Item]:
     # actually have a time.
     return sorted((i for i in _items.values() if i.user_id == user_id),
                   key=lambda i: (i.due_at <= 0, i.due_at, -i.created_at))
+
+
+def for_campaign(campaign_id: str) -> list[Item]:
+    """Every post, from every user, made for this campaign — its entries.
+    Newest first. Admin-side only: the caller must not hand another user's
+    items to a non-admin."""
+    _load()
+    if not campaign_id:
+        return []
+    return sorted((i for i in _items.values() if i.campaign_id == campaign_id),
+                  key=lambda i: -i.created_at)
 
 
 def last_due_from(user_id: str, source: str) -> float:
@@ -207,7 +223,8 @@ def set_status(item_id: str, user_id: str, status: str) -> Item | None:
 def update(item_id: str, user_id: str, *, caption: str | None = None,
            due_at: float | None = None,
            platforms: list[str] | None = None,
-           options: dict | None = None) -> Item | None:
+           options: dict | None = None,
+           campaign_id: str | None = None) -> Item | None:
     """Edit a queued post. Re-arming the time clears `notified` so a
     rescheduled item is announced again — otherwise moving a missed post to
     tomorrow would silently never nudge."""
@@ -222,6 +239,8 @@ def update(item_id: str, user_id: str, *, caption: str | None = None,
         item.platforms = list(platforms)
     if options is not None:
         item.options = {**item.options, **options}
+    if campaign_id is not None:
+        item.campaign_id = str(campaign_id)
     if due_at is not None:
         if due_at < 0:
             raise ValueError("Pick a time for this post.")
