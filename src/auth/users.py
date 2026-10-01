@@ -643,6 +643,27 @@ def set_labeler(user_id: str, on: bool) -> bool:
     return False
 
 
+def set_early_access(user_id: str, on: bool) -> bool:
+    """Grant/revoke early access: this account gets the held-back features
+    (Clip Editor, Scheduler, posting, Autopilot) while UPLOADS_ENABLED is
+    still off for everybody else. For testers and platform app reviewers —
+    it is NOT admin and grants no plan; posting still needs a plan that
+    includes it. Returns True if the user was found."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if bool(u.get("early_access")) != on:
+                u["early_access"] = on
+                _save(users)
+            return True
+    return False
+
+
+def has_early_access(user: dict | None) -> bool:
+    """Admins and early-access accounts see held-back features."""
+    return bool(user and (user.get("is_admin") or user.get("early_access")))
+
+
 def set_admin(user_id: str, on: bool) -> bool:
     """Grant/revoke full admin: the admin portal, user management, and the
     permanent billing bypass. Returns True if user found. The caller is

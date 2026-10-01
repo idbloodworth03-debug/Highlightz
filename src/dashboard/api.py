@@ -1486,7 +1486,12 @@ async def me(request: Request):
         # back to "review some to free up space" and never mentioned
         # upgrading at all.
         "next_plan":           _next_tier(user),
-        "features":            {"uploads": settings.uploads_enabled,
+        # Early access (admin-granted, per account) opens the held-back
+        # posting features for testers and platform app reviewers. Folded
+        # into the flag itself so every screen that reads features.uploads
+        # (Clip Editor, Scheduler, Autopilot, connections) follows it.
+        "early_access":        bool(user.get("early_access")),
+        "features":            {"uploads": settings.uploads_enabled or bool(user.get("early_access")),
                                 "clip_import": settings.clip_import_enabled,
                                 "campaigns": settings.campaigns_enabled,
                                 "captions": settings.captions_enabled,
@@ -2392,6 +2397,21 @@ async def admin_set_labeler(request: Request, user_id: str, on: bool = True):
     # Realtime: the user's open tab gains/loses the Training nav item live.
     await broadcast({"event": "roles_updated"}, user_id=user_id)
     return {"ok": True, "is_labeler": on}
+
+
+@app.post("/admin/users/{user_id}/early-access")
+async def admin_set_early_access(request: Request, user_id: str, on: bool = True):
+    """Grant/revoke early access to the held-back posting features (Clip
+    Editor, Scheduler, posting, Autopilot) for one account — testers and
+    platform app reviewers. Not admin, and no plan: posting still needs one."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not user_store.set_early_access(user_id, on):
+        raise HTTPException(status_code=404, detail="User not found")
+    log.info("early_access_set", user_id=user_id, on=on, by=request.session.get("user_id"))
+    # Realtime: their open tab swaps "coming soon" for the real screens live.
+    await broadcast({"event": "roles_updated"}, user_id=user_id)
+    return {"ok": True, "early_access": on}
 
 
 @app.post("/admin/users/{user_id}/admin")
@@ -5456,7 +5476,7 @@ def _require_upload_access(uid: str) -> None:
     # Release flag first: while the feature is held back the API must refuse
     # too, not just the UI. Otherwise a direct POST still writes to the shared
     # disk even though nobody can reach the tab.
-    if not settings.uploads_enabled and not (user or {}).get("is_admin"):
+    if not settings.uploads_enabled and not user_store.has_early_access(user):
         raise HTTPException(
             status_code=503,
             detail="The Clip Editor isn't available yet — it's coming soon.",
@@ -8361,6 +8381,7 @@ class _CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_\-]+$")
     password: str = Field(..., min_length=12, max_length=128)
     is_admin: bool = False
+    early_access: bool = False
 
 
 @app.post("/admin/users", status_code=201)
@@ -8369,7 +8390,10 @@ async def create_user(request: Request, body: _CreateUserRequest):
     from src.auth import users as user_store
     try:
         user = user_store.create(body.username, body.password, is_admin=body.is_admin)
-        log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"], is_admin=body.is_admin)
+        if body.early_access:
+            user_store.set_early_access(user["id"], True)
+        log.info("admin_user_created", by=request.session.get("user_id"), new_user=user["id"],
+                 is_admin=body.is_admin, early_access=body.early_access)
         return {"id": user["id"], "username": user["username"]}
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -13603,6 +13627,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         <option value="joined">Sort: newest signups</option>
         <option value="accepted">Sort: most clips accepted</option>
       </select>
+      <button class="btn" id="u-new" title="An account that signs in with a password instead of Twitch &mdash; for app reviewers and testers. They use Admin sign-in on the login page.">+ Password account</button>
       <span class="spacer" id="u-count"></span>
     </div>
     <div class="tw"><div id="u-wrap" class="loading">Loading&hellip;</div></div>
@@ -14760,6 +14785,7 @@ function renderUsers(){
     // actually need when somebody asks about their numbers.
     const marks = (u.is_admin ? '<span class="tagm adm">Admin</span>' : '')
                 + (u.is_labeler ? '<span class="tagm">Trainer</span>' : '')
+                + (u.early_access && !u.is_admin ? '<span class="tagm" title="Sees the Clip Editor, Scheduler, posting and Autopilot before release">Early access</span>' : '')
                 + (u.affiliate_code
                     ? '<span class="tagm aff" title="Affiliate code — see the Growth tab">'
                       + esc(u.affiliate_code) + '</span>'
@@ -14849,6 +14875,21 @@ document.getElementById('u-sort').addEventListener('change', e => {
   U_SORT = e.target.value || '';
   try { localStorage.setItem('hz_admin_user_sort', U_SORT); } catch(err) {}
   renderUsers();
+});
+// A password account: signs in from "Admin sign-in" on /login, no Twitch.
+// For platform app reviewers (Meta, TikTok) and testers. Created with early
+// access on; grant Pro from their drawer so they can post.
+document.getElementById('u-new').addEventListener('click', async () => {
+  const name = (prompt('Username for the new account (letters, numbers, _ or -):') || '').trim();
+  if(!name) return;
+  const pw = prompt('Password for ' + name + ' (at least 12 characters). It is the only thing they type to sign in, so make it unique.') || '';
+  if(!pw) return;
+  if(pw.length < 12){ toast('Password must be at least 12 characters'); return; }
+  try {
+    await apiJson('/admin/users', 'POST', {username: name, password: pw, early_access: true});
+    toast(name + ' created with early access. Open them and grant Pro so they can post.');
+    refresh();
+  } catch(e) { toast(e.message || 'Could not create the account'); }
 });
 document.getElementById('u-search').addEventListener('input', e => {
   U_Q = (e.target.value || '').toLowerCase().trim(); renderUsers();
@@ -15091,6 +15132,7 @@ async function openUser(u){
       + '<div class="acts" style="justify-content:flex-start">';
     if(!u.is_admin){
       html += '<button class="btn dr-labeler">' + (u.is_labeler ? 'Revoke trainer' : 'Make trainer') + '</button>';
+      html += '<button class="btn dr-early" title="Clip Editor, Scheduler, posting and Autopilot before release. Posting still needs Pro.">' + (u.early_access ? 'Remove early access' : 'Give early access') + '</button>';
       html += '<button class="btn dr-admin">Make admin</button>';
     } else if(u.id !== ME){
       html += '<button class="btn btn-bad dr-admin">Revoke admin</button>';
@@ -15134,7 +15176,7 @@ document.getElementById('dr-body').addEventListener('click', async e => {
   // that would have acted. It fails silently and looks exactly like a button
   // that does nothing, so tests/test_admin_stop_streams.py checks every dr-*
   // class in the drawer markup appears here.
-  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-admin, .dr-sync, .dr-del, .dr-stopone, .dr-stopall, .dr-offer, .dr-unoffer');
+  const b = e.target.closest('.dr-grant, .dr-revoke, .dr-labeler, .dr-early, .dr-admin, .dr-sync, .dr-del, .dr-stopone, .dr-stopall, .dr-offer, .dr-unoffer');
   if(!b) return;
   try {
     if(b.classList.contains('dr-offer')){
@@ -15198,6 +15240,12 @@ document.getElementById('dr-body').addEventListener('click', async e => {
       if(!confirm((on ? 'Grant ' : 'Revoke ') + 'training-studio access for ' + u.username + '?')) return;
       await api('/admin/users/' + u.id + '/labeler?on=' + on, 'POST');
       toast(on ? 'Trainer access granted' : 'Trainer access revoked');
+    } else if(b.classList.contains('dr-early')){
+      const on = !u.early_access;
+      if(!confirm((on ? 'Give ' + u.username + ' early access to the Clip Editor, Scheduler, posting and Autopilot? Posting still needs Pro.'
+                      : 'Remove early access for ' + u.username + '?'))) return;
+      await api('/admin/users/' + u.id + '/early-access?on=' + on, 'POST');
+      toast(on ? 'Early access on' : 'Early access off');
     } else if(b.classList.contains('dr-admin')){
       const on = !u.is_admin;
       const msg = on

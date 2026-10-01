@@ -4620,3 +4620,30 @@ the rules".
 - Verified: tests/test_campaigns.py (23), full suite, JSX + admin JS parse,
   browser (admin create/edit with picture, grid + page at 1366/390, library
   banner, dialog prefill, missing-tag block; no overflow, no errors).
+
+## Early access per account, and password accounts for app reviewers (2026-10-01)
+
+Meta's App Review needs a reviewer to sign in, connect Instagram and post,
+while `UPLOADS_ENABLED` is still off for everyone. Twitch login does not work
+for that (Twitch emails a new-device code the reviewer cannot read), and admin
+would hand a stranger the portal. Owner chose a per-account switch.
+
+- `users.early_access` (bool), set by `POST /admin/users/{id}/early-access?on=`
+  (admin only; broadcasts `roles_updated` to that user, whose existing handler
+  refetches `/me`, so their tab swaps "coming soon" for the real screens live).
+- `_require_upload_access` lets it through the release-flag 503 **only**; the
+  plan check still applies, so the account needs Pro (grant it in the drawer).
+- `/me.features.uploads = UPLOADS_ENABLED or early_access`, so every screen
+  that already reads that flag (Clip Editor, Scheduler, Autopilot, account
+  connections, Post now) follows without per-screen changes. `/me.early_access`
+  is exposed too.
+- `auto_edit.uses_new_edit` includes it, so the account's Autopilot renders the
+  same edit admins get. The Clip Editor's "Auto Edit" template stays admin-only
+  (its endpoint is `_require_admin`).
+- Admin page: "Give/Remove early access" in the user drawer, an "Early access"
+  tag in the table, and "+ Password account" next to the sort menu
+  (`POST /admin/users` now takes `early_access`). Password accounts sign in via
+  "Admin sign-in" on /login; the login is password-only, so each one needs a
+  unique password of 12+ characters.
+
+Tests: `tests/test_early_access.py`.

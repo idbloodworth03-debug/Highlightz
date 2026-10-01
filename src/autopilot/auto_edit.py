@@ -42,8 +42,9 @@ RENDER_X_REALTIME = 10.0
 
 
 def uses_new_edit(user: dict | None) -> bool:
-    """Who gets the plan-based edit. Admins only, while it is being tested."""
-    return bool(user and user.get("is_admin"))
+    """Who gets the plan-based edit: admins and early-access accounts, while
+    it is being tested."""
+    return bool(user and (user.get("is_admin") or user.get("early_access")))
 
 
 async def probe_duration(path: Path) -> float:
