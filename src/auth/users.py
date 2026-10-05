@@ -1063,6 +1063,44 @@ def set_offer(user_id: str, code: str, plan: str, headline: str) -> dict | None:
     return None
 
 
+def set_offer_for_many(user_ids, code: str, plan: str, headline: str) -> list[str]:
+    """The same offer for many accounts in one write (the "everyone not
+    paying" send, owner 2026-10-05). Replaces any earlier offer, like
+    set_offer. Returns the ids actually given it; [] for a bad code."""
+    code = _clean_offer_code(code)
+    if not code:
+        return []
+    wanted = set(user_ids)
+    now = time.time()
+    done = []
+    users = _load()
+    for u in users:
+        if u["id"] in wanted:
+            u["offer"] = {"code": code, "plan": plan if plan in ("starter", "pro") else "pro",
+                          "headline": str(headline or "").strip()[:OFFER_HEADLINE_MAX],
+                          "created_at": now, "claimed_at": 0, "dismissed_at": 0}
+            done.append(u["id"])
+    if done:
+        _save(users)
+    return done
+
+
+def clear_offers_with_code(code: str) -> list[str]:
+    """Take back every offer carrying this code. Returns the ids cleared."""
+    code = _clean_offer_code(code)
+    if not code:
+        return []
+    done = []
+    users = _load()
+    for u in users:
+        if isinstance(u.get("offer"), dict) and u["offer"].get("code") == code:
+            u.pop("offer")
+            done.append(u["id"])
+    if done:
+        _save(users)
+    return done
+
+
 def clear_offer(user_id: str) -> bool:
     users = _load()
     for u in users:

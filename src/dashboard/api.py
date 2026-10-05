@@ -7742,6 +7742,62 @@ async def admin_clear_offer(request: Request, user_id: str):
     return {"ok": True}
 
 
+# Everyone not paying, for the bulk send (owner, 2026-10-05: "notify all users
+# that are not on a paid plan and offer them 50% off first month"). Left out:
+#   - staff (admins, trainers);
+#   - active — paying, or comped by an admin; either way they already have it;
+#   - past_due / incomplete — a Stripe subscription exists, and a second
+#     Checkout would mint a second one.
+# Trial accounts are included but offer_for hides it while the trial runs, so
+# they see it when it ends — exactly when it is useful.
+_OFFER_SKIP_STATUSES = ("active", "past_due", "incomplete")
+
+
+def _offer_audience(users: list[dict]) -> list[dict]:
+    return [u for u in users
+            if not u.get("is_admin") and not u.get("is_labeler")
+            and (u.get("subscription_status") or "none") not in _OFFER_SKIP_STATUSES]
+
+
+class BulkOfferRequest(OfferRequest):
+    dry_run: bool = False
+
+
+@app.post("/admin/offers/bulk")
+async def admin_bulk_offer(request: Request, body: BulkOfferRequest):
+    """Give the same claimable offer to every account that is not paying.
+    `dry_run` only counts them, so the page can say how many before sending.
+    Each one's open tab gets `offer_changed` and the claim popup appears live;
+    everybody else sees it on their next open."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    if not user_store._clean_offer_code(body.code):
+        raise HTTPException(status_code=400,
+                            detail="Use letters, numbers, - or _ for the code (max 40).")
+    ids = [u["id"] for u in _offer_audience(user_store._load())]
+    if body.dry_run:
+        return {"ok": True, "count": len(ids), "sent": 0}
+    sent = user_store.set_offer_for_many(ids, body.code, body.plan, body.headline)
+    log.info("offer_bulk_set", count=len(sent), code=body.code.strip().upper(),
+             plan=body.plan, by=request.session.get("user_id"))
+    for uid in sent:
+        await broadcast({"event": "offer_changed"}, user_id=uid)
+    return {"ok": True, "count": len(ids), "sent": len(sent)}
+
+
+@app.delete("/admin/offers/bulk")
+async def admin_bulk_clear_offer(request: Request, code: str):
+    """Take an offer back from everybody who has it (by code)."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    cleared = user_store.clear_offers_with_code(code)
+    log.info("offer_bulk_cleared", count=len(cleared), code=code.strip().upper(),
+             by=request.session.get("user_id"))
+    for uid in cleared:
+        await broadcast({"event": "offer_changed"}, user_id=uid)
+    return {"ok": True, "cleared": len(cleared)}
+
+
 # ── Campaigns: the clipping marketplace (src/campaigns) ──────────────────────
 #
 # Read: any signed-in account once CAMPAIGNS_ENABLED is on (published campaigns
@@ -13810,6 +13866,27 @@ ADMIN_HTML = """<!DOCTYPE html>
         <span class="sub" id="an-msg"></span>
       </div>
     </div>
+    <h2>Discount for everyone not paying</h2>
+    <p class="sub">Pops up for every account that is not paying &mdash; free, lapsed, left at
+      checkout &mdash; with a <b>Claim it</b> button that opens checkout with the code already
+      applied. Live in open tabs, on next open for everyone else, until they claim it, press
+      Not now, or subscribe. Trial accounts see it when their trial ends. The code must exist
+      in Stripe as an active promotion code with the discount you describe here.</p>
+    <div style="display:grid;gap:var(--s-3);max-width:640px;margin:var(--s-4) 0">
+      <div style="display:flex;gap:var(--s-3);flex-wrap:wrap">
+        <input class="field" id="bo-code" maxlength="40" value="CLIPPER" placeholder="Stripe code" style="width:160px">
+        <input class="field" id="bo-head" maxlength="60" value="50% off your first month" placeholder="What it is (shown as the title)" style="flex:1;min-width:200px">
+        <select class="btn" id="bo-plan">
+          <option value="pro" selected>Pro</option>
+          <option value="starter">Starter</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">
+        <button class="btn btn-key" id="bo-send">Send to everyone not paying</button>
+        <button class="btn" id="bo-clear">Take this code back</button>
+        <span class="sub" id="bo-msg"></span>
+      </div>
+    </div>
     <h2>Showing now</h2>
     <div class="tw"><div id="an-list"><div class="sub">Loading&hellip;</div></div></div>
   </div>
@@ -14419,6 +14496,41 @@ document.getElementById('an-send').addEventListener('click', async function(){
     msg.textContent = 'Sent. It is in front of every open dashboard now, and everyone else sees it on their next open.';
     loadAnnouncements();
   } catch(e){ msg.textContent = 'Could not reach the server.'; }
+  finally { btn.disabled = false; }
+});
+
+// ── discount for everyone not paying ──────────────────────
+function boForm(){
+  return { code: document.getElementById('bo-code').value.trim(),
+           headline: document.getElementById('bo-head').value.trim(),
+           plan: document.getElementById('bo-plan').value };
+}
+document.getElementById('bo-send').addEventListener('click', async function(){
+  const btn = this, msg = document.getElementById('bo-msg'), f = boForm();
+  if(!f.code || !f.headline){ msg.textContent = 'A code and what it is are both needed.'; return; }
+  btn.disabled = true; msg.textContent = 'Counting…';
+  try {
+    const n = (await apiJson('/admin/offers/bulk', 'POST', Object.assign({dry_run: true}, f))).count;
+    if(!n){ msg.textContent = 'Nobody to send it to.'; return; }
+    const plan = f.plan === 'starter' ? 'Starter' : 'Pro';
+    if(!confirm('Offer "' + f.headline + ' on ' + plan + '" with code ' + f.code.toUpperCase() + ' to ' + n + ' account' + (n === 1 ? '' : 's') + ' that are not paying?')){ msg.textContent = ''; return; }
+    msg.textContent = 'Sending…';
+    const r = await apiJson('/admin/offers/bulk', 'POST', f);
+    msg.textContent = 'Sent to ' + r.sent + '. It is up in every open tab now, and everyone else sees it on their next open.';
+    refresh();
+  } catch(e){ msg.textContent = e.message || 'Could not reach the server.'; }
+  finally { btn.disabled = false; }
+});
+document.getElementById('bo-clear').addEventListener('click', async function(){
+  const btn = this, msg = document.getElementById('bo-msg'), code = boForm().code;
+  if(!code){ msg.textContent = 'Type the code to take back.'; return; }
+  if(!confirm('Take code ' + code.toUpperCase() + ' back from everyone who has it?')) return;
+  btn.disabled = true;
+  try {
+    const r = await api('/admin/offers/bulk?code=' + encodeURIComponent(code), 'DELETE');
+    msg.textContent = 'Taken back from ' + r.cleared + '.';
+    refresh();
+  } catch(e){ msg.textContent = e.message || 'Could not reach the server.'; }
   finally { btn.disabled = false; }
 });
 

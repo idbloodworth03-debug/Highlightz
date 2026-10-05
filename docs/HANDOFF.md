@@ -4647,3 +4647,28 @@ would hand a stranger the portal. Owner chose a per-account switch.
   unique password of 12+ characters.
 
 Tests: `tests/test_early_access.py`.
+
+## A discount offer for everyone not paying (2026-10-05)
+
+Owner: "notify all users that are not on a paid plan and offer them 50% off
+first month … code CLIPPER". Reuses the personal offer (same popup, same
+`?offer=1` checkout with the code pre-applied), sent in bulk.
+
+- Admin page → Announce → "Discount for everyone not paying": code, what it is
+  (the popup title, e.g. "50% off your first month" → "… on Pro"), plan.
+  "Send" dry-runs first to show the count in the confirm.
+- `POST /admin/offers/bulk` (`dry_run` counts only); `DELETE
+  /admin/offers/bulk?code=` takes it back. Each recipient gets `offer_changed`
+  (scoped), so the popup appears live in open tabs.
+- Audience (`_offer_audience`): not admin/trainer, status not `active`,
+  `past_due` or `incomplete`. Active covers paying AND comped accounts;
+  past_due/incomplete already have a Stripe subscription, and a second
+  Checkout would double-bill. Trial accounts get it stored but `offer_for`
+  hides it until the trial ends.
+- Re-sending replaces each person's offer and clears "Not now".
+- The discount itself lives in Stripe. A Stripe coupon's percentage cannot be
+  edited, so moving CLIPPER from 25% to 50% means: archive the old CLIPPER
+  promotion code, create a 50%-off "Once" coupon, and give it the promotion
+  code CLIPPER. Checkout looks up the ACTIVE code by name.
+
+Tests: `tests/test_bulk_offer.py`.
