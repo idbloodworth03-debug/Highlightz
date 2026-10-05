@@ -412,14 +412,14 @@ FEATURES: tuple[Section, ...] = (
             f"{PLAN_LIMITS['pro']['max_streams']} and adds the VOD Scanner."
         ),
         steps=(
-            "Open the **Account** tab to see **Plan status** and **Membership**.",
+            "Open the **Settings** tab and scroll down to **Plan status** and **Membership**.",
             "**Upgrade to Pro** starts a Stripe checkout.",
             "**Manage billing** opens the Stripe portal to change or cancel a plan.",
             "**Delete my account** removes your data permanently.",
         ),
         media=Media(
             src="10-account.png",
-            alt="The Account tab showing plan status, a membership summary, and "
+            alt="The account section of Settings showing plan status, a membership summary, and "
                 "buttons to upgrade and manage billing.",
         ),
         tip=(
@@ -493,7 +493,7 @@ FAQ: tuple[tuple[str, str], ...] = (
      f"<b>{PLAN_LIMITS['free']['max_streams']}</b> on the free plan, "
      f"<b>{PLAN_LIMITS['starter']['max_streams']}</b> on Starter, "
      f"<b>{PLAN_LIMITS['pro']['max_streams']}</b> on Pro. Remove a channel to "
-     "free a slot, or upgrade from the Account tab."),
+     "free a slot, or upgrade from the Settings tab."),
 
     ("What is the green label on a Highlight clip?",
      "A Highlight clip is usually a higher-quality clip already. A green label "

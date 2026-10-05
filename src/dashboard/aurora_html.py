@@ -4490,7 +4490,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, ba
 // descriptions folded away as reference. State is the App's: streams,
 // profiles and me.prefs all arrive over the socket and refetchAll, so a
 // change made in another tab shows up here without a reload.
-function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch' }) {
+function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch', embedded = false }) {
   const prefs = (me && me.prefs) || {};
   const canEditor = canPublishFor(me);
   const [saving, setSaving] = useState({});     // channel or pref key -> true while in flight
@@ -4554,7 +4554,7 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
     {name:'sports',   emoji:'', desc:'Sports co-streams. Sensitive to goal/score spikes; longer post-roll captures the celebration.'},
   ];
   return (
-    <div className="rd-scroll">
+    <div className={embedded ? undefined : 'rd-scroll'}>
       <div className="rd-settings">
         {err && <div className="ed-warn">{err}</div>}
 
@@ -4838,7 +4838,7 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'campaigns',label:'Campaigns',icon:'trophy',campaignsOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'account',label:'Account',icon:'user'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'campaigns',label:'Campaigns',icon:'trophy',campaignsOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that close on Kick WHEN `kickOpen` (in the app) is false. Kick
 // monitoring went live on 2026-09-15 (chat + audio + viewers, clips cut from
 // live capture — no Kick-hosted clip, no Highlight clips) as an admin-only
@@ -4852,7 +4852,7 @@ const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','aut
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Tune each channel, set your defaults, turn on notifications'],account:['Account','Billing, profile & platforms'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Your channels, defaults, plan and connected accounts'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -5204,7 +5204,7 @@ const POST_BRAND = {
   other:     {bg:'rgba(255,255,255,.10)', fill:'#ffffff', text:'#ffffff', path:<circle cx="12" cy="12" r="6"/>},
 };
 
-function AccountScreen({ me, connections = [], accountsOn = false }) {
+function AccountScreen({ me, connections = [], accountsOn = false, embedded = false }) {
   const [deleting, setDeleting]   = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr]       = useState('');
@@ -5266,7 +5266,7 @@ function AccountScreen({ me, connections = [], accountsOn = false }) {
   };
 
   return (
-    <div className="rd-scroll">
+    <div className={embedded ? undefined : 'rd-scroll'}>
       <div className="rd-settings">
 
         {/* Subscription */}
@@ -8774,7 +8774,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           {!posting && !done && auto.length === 0 && (autoHeld
             // YouTube/Instagram not open to this account yet: only TikTok.
             ? <div className="sc-sub">Post it to TikTok with the clip's <b>Post</b> button in the Clip Library. Automatic posting to YouTube and Instagram is coming soon.</div>
-            : <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it on the <b>Account</b> page).
+            : <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it in <b>Settings</b>).
               TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>)}
           <div className="sc-sub">
             Connected YouTube and Instagram accounts are posted to for you at this time; TikTok and the rest get a reminder and one-tap share.
@@ -8813,7 +8813,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
               button"). With nothing to post to it is disabled and says why. */}
           {!posting && !done &&
             <button className="rd-btn sm grad" onClick={postNow} disabled={auto.length === 0}
-              title={auto.length === 0 ? 'Choose Instagram or YouTube above (and connect it on the Account page) to post now. TikTok is posted from the Post button on a clip.' : ''}>
+              title={auto.length === 0 ? 'Choose Instagram or YouTube above (and connect it in Settings) to post now. TikTok is posted from the Post button on a clip.' : ''}>
               <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
@@ -9068,7 +9068,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                       // YouTube/Instagram not open to this account yet
                       // (PUBLIC_PLATFORMS): do not send them to a "soon" chip.
                       ? <div className="hint">Automatic posting to YouTube and Instagram is coming soon. Until then Autopilot edits each clip and puts it in the Scheduler, ready for you to post to TikTok with one press.</div>
-                      : <div className="hint">No account connected yet. Connect Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>)
+                      : <div className="hint">No account connected yet. Connect Instagram or YouTube in Settings. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>)
                     : <div className="sc-pchips">
                         {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
                           <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
@@ -10294,6 +10294,13 @@ function canPublishFor(me) {
 
 function RdApp() {
   const [route, setRoute] = useState('review');
+  // The Account tab became the lower half of Settings (2026-10-05). Anything
+  // that used to open it opens Settings and scrolls to that half.
+  const openAccount = useCallback(()=>{
+    setRoute('settings');
+    setTimeout(()=>{ const el = document.getElementById('settings-account');
+                     if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 80);
+  },[]);
   // Mobile nav drawer. Desktop CSS ignores the class entirely (the rail is
   // always visible there), so this state is inert above the breakpoint.
   const [navOpen, setNavOpen] = useState(false);
@@ -10541,10 +10548,10 @@ function RdApp() {
     const _params = new URLSearchParams(location.search);
     if (_params.get('linked')) {
       // Back from /auth/<platform>?intent=link. /me is refetched by the
-      // identity_linked broadcast; this lands them on the Account tab.
+      // identity_linked broadcast; this lands them on the account half of Settings.
       const which = _params.get('linked')==='kick' ? 'Kick' : 'Twitch';
       flash(which + ' connected to your account.');
-      setRoute('account');
+      openAccount();
       history.replaceState(null,'',location.pathname);
     } else if (_params.get('link_error')) {
       const why = {twitch_taken:'That Twitch account already has its own Highlightz account.',
@@ -10552,7 +10559,7 @@ function RdApp() {
                    kick:'Kick did not complete the sign-in. Try again.'}[_params.get('link_error')]
                   || 'Could not connect that account.';
       flash(why);
-      setRoute('account');
+      openAccount();
       history.replaceState(null,'',location.pathname);
     } else if (_params.get('connected')) {
       // Back from a YouTube/TikTok/Instagram consent screen. The connection
@@ -11135,9 +11142,19 @@ function RdApp() {
       openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
   else if(view==='training') screen=<TrainingScreen/>;
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
-  else if(view==='account') screen=<AccountScreen me={me} connections={connections} accountsOn={uploadsOn}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;
-  else screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>;
+  // ONE Settings tab (owner, 2026-10-05: "combine the settings and account
+  // tabs and just call it settings"). Channel tuning and defaults first, then
+  // plan, billing, connected accounts, legal, and delete-account last. The
+  // old 'account' route is gone; openAccount() opens Settings scrolled to the
+  // account half, so OAuth returns and the header chip still land there.
+  else screen=(
+    <div className="rd-scroll">
+      <SettingsScreen {...{streams,profiles,me,activePlatform}} embedded/>
+      <div id="settings-account" style={{marginTop:16}}>
+        <AccountScreen me={me} connections={connections} accountsOn={uploadsOn} embedded/>
+      </div>
+    </div>);
 
   // FIRST RUN. Rendered INSTEAD of the shell, not inside it: a nav rail, a
   // platform switch and a live pill are answers to questions somebody with no
@@ -11194,7 +11211,7 @@ function RdApp() {
             <button className={'plat-sw-btn '+(activePlatform==='kick'?'sw-on-kick':'sw-off')} onClick={()=>switchPlatform('kick')}>Kick</button>
           </div>
           <span className="rd-live"><span className="dot"/>Live</span>
-          <button className="rd-user-chip" title="Account" style={{border:'none',cursor:'pointer'}} onClick={()=>setRoute('account')}>
+          <button className="rd-user-chip" title="Settings" style={{border:'none',cursor:'pointer'}} onClick={()=>openAccount()}>
             {me.avatar_url
               ? <img src={me.avatar_url} alt={me.username}/>
               : <span className="uc-init">{(me.username||'?')[0].toUpperCase()}</span>}

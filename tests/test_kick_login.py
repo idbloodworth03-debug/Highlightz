@@ -154,7 +154,7 @@ def test_a_kick_only_account_can_add_a_kick_channel_but_not_a_twitch_one(scene, 
     r = scene.post("/streams", json={"channel": "jynxzi", "platform": "twitch", "preset": "fps"})
     assert r.status_code == 403
     assert "Connect your Twitch account" in r.json()["detail"]
-    assert "Account tab" in r.json()["detail"]
+    assert "Settings tab" in r.json()["detail"]   # Account merged into Settings, 2026-10-05
 
 
 def test_a_kick_only_account_can_link_twitch_and_then_add_twitch_channels(scene, monkeypatch):

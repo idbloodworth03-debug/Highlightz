@@ -4741,3 +4741,17 @@ Chose "Release to Pro" and "keep youtube and instagram to coming soon".
   Checked the rest under the release settings: meta/og/twitter descriptions,
   /compare, /tutorial, /blog, llms.txt all say TikTok + YouTube/Instagram
   coming soon; nothing still says the editor or Scheduler is "in testing".
+
+## Account tab merged into Settings (2026-10-05)
+
+Owner: "can we combine the settings and account tabs and just call it
+settings". One nav item, **Settings**: channel tuning and defaults first,
+then the former Account content (subscription, profile & platforms with the
+posting connections, legal, delete account last). Both screens take an
+`embedded` prop that drops their own `rd-scroll`, so the combined page has
+one scroller. The `account` route is gone; `openAccount()` opens Settings
+scrolled to `#settings-account`, used by the header chip and the Twitch/Kick
+link returns. Every "Account tab/page" in the app, API errors, public pages,
+legal pages and tutorial now says Settings. Tests:
+`tests/test_settings_merge.py` (including a sweep for any remaining "Account
+tab/page" copy).

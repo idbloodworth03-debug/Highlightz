@@ -159,7 +159,9 @@ def test_the_settings_screen_has_the_controls_and_follows_the_events():
     # Reference card stays, folded.
     assert "What each preset does" in scr and "<details" in scr
     # Realtime contract: the App feeds it live state and handles the events.
-    assert "screen=<SettingsScreen {...{streams,profiles,me,activePlatform}}/>" in h
+    # Rendered with the account half below it since the Account tab merged
+    # into Settings (2026-10-05).
+    assert "<SettingsScreen {...{streams,profiles,me,activePlatform}} embedded/>" in h
     assert "msg.event==='prefs_changed'" in h and "msg.event==='stream_updated'" in h
     assert "msg.event==='profile_updated'" in h
     # Notifications fire from the clip_ready handler, background tabs only.
@@ -169,7 +171,7 @@ def test_the_settings_screen_has_the_controls_and_follows_the_events():
     assert "reduceMotion={!!(me&&me.prefs&&me.prefs.reduce_motion)}" in h
     # The add box starts on the default preset until the user picks one.
     assert "if(defaultPreset && !presetTouched.current) setPreset(defaultPreset)" in h
-    assert re.search(r"settings:\['Settings','Tune each channel", h)
+    assert re.search(r"settings:\['Settings','Your channels, defaults, plan and connected accounts'", h)
 
 
 def test_the_clip_editor_switch_only_shows_to_accounts_that_have_the_editor():

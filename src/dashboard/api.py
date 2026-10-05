@@ -1532,7 +1532,7 @@ async def me(request: Request):
         # Which sign-in identities this account holds. Twitch clips need the
         # Twitch one (the clip is made under the user's own login); Kick
         # needs nothing beyond the account. The dashboard gates the Twitch
-        # add-channel box on this and offers Connect in the Account tab.
+        # add-channel box on this and offers Connect in the Settings tab.
         "platforms":           {"twitch": bool(user.get("twitch_id")),
                                 "kick": bool(user.get("kick_id"))},
         # Whether the Kick sign-in button exists at all on this server.
@@ -4539,7 +4539,7 @@ async def add_stream(request: Request, req: StreamRequest):
         if _u.get("kick_id") and not _u.get("twitch_id") and not _u.get("is_admin"):
             raise HTTPException(
                 status_code=403,
-                detail="Connect your Twitch account (Account tab) to clip Twitch "
+                detail="Connect your Twitch account (Settings tab) to clip Twitch "
                        "channels. Twitch clips are made under your own Twitch login.",
             )
     from src.auth.optout import is_opted_out
@@ -6625,7 +6625,7 @@ async def publish_tiktok_creator(request: Request):
     if conn is None or provider is None or conn.last_error:
         raise HTTPException(status_code=400,
                             detail="TikTok is not connected (or needs reconnecting). "
-                                   "Connect it on the Account page.")
+                                   "Connect it in Settings.")
     try:
         await providers.ensure_fresh(provider, conn)
         info = await provider.creator_info(conn)
@@ -6724,7 +6724,7 @@ async def publish_post_now(request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not connected "
-                   "(or needs reconnecting). Connect it on the Account page first.")
+                   "(or needs reconnecting). Connect it in Settings first.")
 
     caption = str(body.get("caption") or "")
     if len(caption) > sched.CAPTION_MAX:
@@ -8946,7 +8946,7 @@ no credits to run out.
   moment is saved as a video file captured by Highlightz (Kick has no clip API, so
   there is no Kick-hosted clip). Kick is open on every plan, and you can sign
   in with a Kick account or a Twitch account (a Kick account connects Twitch
-  from the Account tab to clip Twitch channels). Highlight clips are Twitch-only.
+  from the Settings tab to clip Twitch channels). Highlight clips are Twitch-only.
 - Highlightz is operated by ANTI Technology LLC. Support: support@highlightz.app.
 """
 
@@ -9019,7 +9019,7 @@ async def llms_full_txt():
     w(f"| Clip Editor | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
     w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
     w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
-    w("\nMove between plans whenever you like; cancel from the Account tab. Cancelling "
+    w("\nMove between plans whenever you like; cancel from the Settings tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
 
@@ -12355,7 +12355,7 @@ def _pricing() -> str:
         "the rows below and nowhere else.</p>"
         '<div class="plans">' + plan(free, "Start free", "no card") + plan(st, "Get Starter")
         + plan(pro, "Get Pro") + "</div>"
-        '<p class="price-tiny">Move between them whenever you like. Cancel from the Account tab. '
+        '<p class="price-tiny">Move between them whenever you like. Cancel from the Settings tab. '
         "No contracts. Streamers can opt out at any time, and it applies everywhere at once.</p>")
 
 
@@ -12408,7 +12408,7 @@ def _editor_section() -> str:
     tiktok_only = not held and not _rel_auto()
     post_cards = [
         ("Connect once",
-         ("Connect " + _rel_live_phrase() + " from your Account page and post any "
+         ("Connect " + _rel_live_phrase() + " from Settings and post any "
           "clip with one press. Your account stays yours; Highlightz only holds "
           "what it needs to post.")
          if tiktok_only else
@@ -12513,7 +12513,7 @@ def _tos_plans() -> str:
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
         "keep, the VOD Scanner, the Clip Editor and the Scheduler. Current plan details and "
-        "prices are shown on our pricing page and in your Account tab.</p>"
+        "prices are shown on our pricing page and in your Settings tab.</p>"
         "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
         "Clips already in your library are never removed because of it.</p>")
@@ -12566,7 +12566,7 @@ def _faq() -> str:
          + (", ready to download." if not settings.uploads_enabled else
             ", opens in the Clip Editor and goes out through the Scheduler.") +
          " You can sign in with Kick or with Twitch; to clip Twitch "
-         "channels from a Kick account, connect Twitch once from the Account tab, because a "
+         "channels from a Kick account, connect Twitch once from the Settings tab, because a "
          "Twitch clip is made under your own Twitch login. Highlight clips are Twitch-only."),
         ("Do I have to leave anything running?",
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
@@ -12678,7 +12678,7 @@ def _faq() -> str:
         ("How does billing work?",
          f"Free is free: it asks for no card and it never expires. Starter is <b>${st['price']}</b> a month and Pro is "
          f"<b>${pro['price']}</b> a month. Move between them whenever you like and cancel from the "
-         "Account tab. Cancelling puts you back on Free, and every clip you approved stays in your "
+         "Settings tab. Cancelling puts you back on Free, and every clip you approved stays in your "
          "library."),
     ]
     return (group("Using it", using)
@@ -13088,7 +13088,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>You must be at least 18 years old to use the Service. By using the Service you represent and warrant that you meet this requirement and that all information you provide is accurate and complete.</p>
 
   <h2>3. Accounts and Platform Authorization</h2>
-  <p>You sign in by authorizing the Service through your Twitch account or your Kick account via OAuth2; an account may hold both, and either may be connected later from the Account tab. Signing in with Kick asks Kick to confirm who you are; the Service keeps the Kick user id, username and avatar it returns and does not keep the Kick access token. Clips on Twitch channels require a connected Twitch account, because they are made under your own Twitch login. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission), and, if you approve it on the sign-in screen, to read the email address on your Twitch account (the <code>user:read:email</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
+  <p>You sign in by authorizing the Service through your Twitch account or your Kick account via OAuth2; an account may hold both, and either may be connected later from the Settings tab. Signing in with Kick asks Kick to confirm who you are; the Service keeps the Kick user id, username and avatar it returns and does not keep the Kick access token. Clips on Twitch channels require a connected Twitch account, because they are made under your own Twitch login. By connecting your Twitch account you grant the Service permission to create clips on your behalf using Twitch's Clips API (the <code>clips:edit</code> permission), and, if you approve it on the sign-in screen, to read the email address on your Twitch account (the <code>user:read:email</code> permission). Every clip created through the Service is made with <em>your</em> Twitch credentials and is attributed to <em>your</em> Twitch account, exactly as if you had clicked Twitch's own "Clip" button.</p>
   <p>You are responsible for maintaining the confidentiality of your account and for all activity that occurs under it, including all clips created through it. Notify us immediately at the contact address below if you suspect unauthorized use. We reserve the right to terminate accounts that violate these Terms.</p>
 
   <h2>4. Plans and Subscriptions</h2>
@@ -13195,7 +13195,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
-    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account from your Account page, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account from Settings, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
