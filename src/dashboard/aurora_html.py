@@ -8116,7 +8116,7 @@ function AccountChips({ me, connections = [] }) {
         })}
       </div>
       <p className="sc-hint">
-        Connect an account and Highlightz posts your clips to it for you. Only the clips you choose it for, only while it is connected.
+        Connected YouTube and Instagram accounts are posted to for you; TikTok goes out when you press Post. Only the clips you choose, only while the account is connected.
       </p>
       {/* Admin-only setup card (2026-09-17): each platform that has no app
           keys yet, with the exact callback URL its console needs and the
@@ -8678,6 +8678,9 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
   // TikTok is never posted for them (see poster.auto_platforms), so it is never
   // "Auto" here: it is the one they post by hand from the clip's Post button.
   const connected = new Set((connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok').map(c=>c.id));
+  // Neither YouTube nor Instagram can be connected by this account yet
+  // (PUBLIC_PLATFORMS) — do not tell them to tick one.
+  const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);
   const results = item.results || {};
   const auto   = [...picked].filter(p=>connected.has(p));
   const manual = [...picked].filter(p=>!connected.has(p));
@@ -8768,11 +8771,13 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
             })}
           </div>
           {issues.map((t,i)=><div key={i} className="pub-warn">{t}</div>)}
-          {!posting && !done && auto.length === 0 &&
-            <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it on the <b>Account</b> page).
-              TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>}
+          {!posting && !done && auto.length === 0 && (autoHeld
+            // YouTube/Instagram not open to this account yet: only TikTok.
+            ? <div className="sc-sub">Post it to TikTok with the clip's <b>Post</b> button in the Clip Library. Automatic posting to YouTube and Instagram is coming soon.</div>
+            : <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it on the <b>Account</b> page).
+              TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>)}
           <div className="sc-sub">
-            Connected accounts are posted to for you at this time; the rest get a reminder and one-tap share.
+            Connected YouTube and Instagram accounts are posted to for you at this time; TikTok and the rest get a reminder and one-tap share.
             {manual.length > 0 && <> Open: {manual.map((p,i)=>(
               <span key={p}>{i ? ', ' : ' '}<a href={(byId[p]||{}).upload_url} target="_blank" rel="noopener noreferrer">{(byId[p]||{}).label || p}</a></span>
             ))}</>}
@@ -8912,6 +8917,8 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   // always posted by hand from the clip's Post button.
   const connected = (connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok');
   const hasTiktok = (connections||[]).some(c=>c.id === 'tiktok' && c.connected);
+  // Neither YouTube nor Instagram can be connected by this account yet.
+  const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);
   const save = async (patch) => {
     setBusy(true);
     try {
@@ -9057,7 +9064,11 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                 <div className="apx-sb">
                   <h4>Where should it post?</h4>
                   {connected.length === 0
-                    ? <div className="hint">No account connected yet. Connect Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>
+                    ? (autoHeld
+                      // YouTube/Instagram not open to this account yet
+                      // (PUBLIC_PLATFORMS): do not send them to a "soon" chip.
+                      ? <div className="hint">Automatic posting to YouTube and Instagram is coming soon. Until then Autopilot edits each clip and puts it in the Scheduler, ready for you to post to TikTok with one press.</div>
+                      : <div className="hint">No account connected yet. Connect Instagram or YouTube on the Account page. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>)
                     : <div className="sc-pchips">
                         {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
                           <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
@@ -9272,7 +9283,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
       {items.length === 0 && <div className="rd-how">
         {[['download','1','Export a clip','Anything you export in the Clip Editor lands here.'],
           ['chat','2','Write it once','One caption, reused for every platform. We check it fits before it goes out.'],
-          ['clock','3','Post it','Click a half hour in the week, or drag a clip onto one. Connected accounts are posted to for you; the rest get a reminder and one-tap share.']
+          ['clock','3','Post it','Click a half hour in the week, or drag a clip onto one. Connected YouTube and Instagram accounts are posted to for you; TikTok and the rest get a reminder and one-tap share.']
         ].map(([icon,n,title,body])=>(
           <div className="rd-step" key={n}>
             <span className="sn">{n}</span>

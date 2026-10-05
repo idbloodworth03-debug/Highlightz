@@ -2497,14 +2497,22 @@ def _paywall_copy(kind: str) -> dict:
                          "away — from $10/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
+    # Says only what is open today (src/publish/release.py): this used to
+    # promise YouTube and Instagram posting whatever the release state.
+    from src.publish import release as _rel
+    _live = _rel.live_platforms()
+    _pro = ("the Clip Editor for reframing any clip for vertical and the "
+            "Scheduler to post it to " + _rel.join(_live)
+            + (" for you" if _rel.auto_posting_live() else "")
+            if _live else
+            "with the Clip Editor and Scheduler coming soon")
     return {
         "headline": "Watch more channels at once",
         "subline":  ("free covers one channel and a queue of 20 clips, which is "
                      "enough to see whether the detector earns its place. Paid "
                      "plans widen both, and Pro adds the VOD Scanner for streams "
-                     "that already happened, the Clip Editor for reframing any "
-                     "clip for vertical and the Scheduler to post it to YouTube, "
-                     "TikTok and Instagram for you — from $10/month, cancel anytime."),
+                     "that already happened, " + _pro + " — from $10/month, "
+                     "cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
@@ -6026,12 +6034,18 @@ def _connections_payload(uid: str) -> list[dict]:
     """One row per platform, connected or not, so the card can draw all
     three: `configured` is whether the OPERATOR has set the app up (a blank
     client id means the Connect button explains instead of failing)."""
-    from src.publish import connections as pub_conns, providers
+    from src.publish import connections as pub_conns, providers, release
+    from src.auth import users as user_store
+    user = user_store.get_by_id(uid)
     mine = {c.platform: c for c in pub_conns.for_user(uid)}
     rows = []
     for p in providers.all_providers():
         c = mine.get(p.id)
-        rows.append({"id": p.id, "label": p.label, "configured": p.configured(),
+        # A platform not yet open to this account (PUBLIC_PLATFORMS) reads
+        # exactly like one the operator has not set up: "soon", no Connect.
+        held = not release.open_for(p.id, user)
+        rows.append({"id": p.id, "label": p.label,
+                     "configured": p.configured() and not held, "held": held,
                      "connected": c is not None,
                      # For the admin's setup card: the exact callback URL each
                      # console must have (derived from PUBLIC_BASE_URL, so a
@@ -6070,6 +6084,11 @@ async def publish_connect(request: Request, platform: str):
     if not p.configured():
         raise HTTPException(status_code=503,
                             detail=f"{p.label} posting is not set up on this server yet.")
+    from src.publish import release
+    from src.auth import users as user_store
+    if not release.open_for(platform, user_store.get_by_id(uid)):
+        raise HTTPException(status_code=403,
+                            detail=f"Posting to {p.label} is coming soon.")
     state = secrets.token_urlsafe(24)
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(
@@ -6692,6 +6711,13 @@ async def publish_post_now(request: Request):
     if not targets:
         raise HTTPException(status_code=400,
                             detail="Choose where to post it: TikTok, Instagram or YouTube.")
+    from src.publish import release
+    from src.auth import users as _us
+    _me = _us.get_by_id(uid)
+    soon = [plat.BY_ID[p].label for p in targets if not release.open_for(p, _me)]
+    if soon:
+        raise HTTPException(status_code=403,
+                            detail=f"Posting to {', '.join(soon)} is coming soon.")
     connected = pub_conns.connected_platforms(uid)
     missing = [plat.BY_ID[p].label for p in targets if p not in connected]
     if missing:
@@ -8785,15 +8811,25 @@ async def llms_txt():
     # "coming" rather than "does" — a crawler quoting a feature nobody can
     # reach is a wrong answer the product cannot correct.
     live = bool(settings.uploads_enabled)
+    # Which platforms an account can post to today, and whether Autopilot can
+    # post by itself (only to YouTube/Instagram; TikTok never). Released
+    # 2026-10-05 with TikTok alone, so the "live" copy may not promise the
+    # other two (src/publish/release.py).
+    from src.publish import release as _rel
+    _to = _rel.join(_rel.live_platforms()) or "TikTok"
+    _auto = _rel.auto_posting_live()
+    _held = _rel.join(_rel.held_platforms())
+    _held_note = f" Posting to {_held} is coming soon." if live and _held else ""
     _pitch = (
         "so the clip can be downloaded and taken anywhere. Reframing for "
         "vertical (Clip Editor) and posting to YouTube, TikTok and Instagram "
         "(Scheduler, and Autopilot with nobody in the loop) are built and in "
         "testing, not yet open to accounts."
         if not live else
-        "so the clip can be downloaded, reframed for vertical in the Clip "
-        "Editor, and posted to YouTube, TikTok and Instagram from the "
-        "Scheduler (or by Autopilot, with no one in the loop).")
+        f"so the clip can be downloaded, reframed for vertical in the Clip "
+        f"Editor, and posted to {_to} from the Scheduler"
+        + (" (or by Autopilot, with no one in the loop)." if _auto else ".")
+        + _held_note)
     _pro_extra = (
         f"{keeps(pro)}, plus the VOD Scanner. The Clip Editor, the Scheduler "
         f"and Autopilot are built and in testing — not yet open to accounts, "
@@ -8801,11 +8837,17 @@ async def llms_txt():
         if not live else
         f"{keeps(pro)}, plus the VOD Scanner, the Clip Editor (reframe any "
         f"caught clip for vertical, title it, add transitions and a sound, "
-        f"export it frame by frame in the browser), the Scheduler (post "
-        f"exported clips to the YouTube, TikTok and Instagram accounts you "
-        f"connect, at a time you set) and Autopilot (every clip you approve is "
-        f"rendered vertical and queued to those accounts on a schedule you "
-        f"choose, with nobody in the loop).")
+        f"export it frame by frame in the browser), "
+        + (f"the Scheduler (post "
+           f"exported clips to the {_to} accounts you "
+           f"connect, at a time you set) and Autopilot (every clip you approve is "
+           f"rendered vertical and queued to those accounts on a schedule you "
+           f"choose, with nobody in the loop)."
+           if _auto else
+           f"the Scheduler (queue exported clips and post them to {_to} with "
+           f"one press) and Autopilot (every clip you approve is rendered "
+           f"vertical and queued in the Scheduler, ready to post).")
+        + _held_note)
     return f"""# Highlightz
 
 > Highlightz watches live Twitch and Kick streams and catches the clip
@@ -8950,8 +8992,13 @@ async def llms_full_txt():
       "approve — all three built and in testing, not yet open to accounts. "
       if not settings.uploads_enabled else
       "from Twitch, is private to the account that made it and is what the Clip Editor "
-      "reframes for vertical and the Scheduler posts to YouTube, TikTok and Instagram; "
-      "Autopilot (Pro, off by default) does both for every clip you approve. "
+      "reframes for vertical and the Scheduler posts to "
+      + _rel_live_phrase() + "; "
+      + ("Autopilot (Pro, off by default) does both for every clip you approve. "
+         if _rel_auto() else
+         "Autopilot (Pro, off by default) reframes and queues every clip you approve. "
+         + _rel_held_sentence())
+      + 
       "Kick channels are monitored the same way; there the file is the clip. "
       "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
@@ -11995,9 +12042,10 @@ def _org_schema() -> str:
             "description": "Automatic Twitch and Kick clipping across every "
                            "channel you watch, using a transparent scoring "
                            "formula, with a vertical clip editor and "
-                           "auto-posting " + ("built in."
-                                              if settings.uploads_enabled
-                                              else "coming soon."),
+                           + ("auto-posting built in." if _rel_auto() else
+                              "posting to " + _rel_live_phrase() + " built in."
+                              if settings.uploads_enabled else
+                              "auto-posting coming soon."),
             "inLanguage": "en",
             "publisher": {"@id": SITE_ORIGIN + "/#organization"}}
     blob = json.dumps({"@context": "https://schema.org",
@@ -12228,6 +12276,26 @@ def _bignums_html(total: int, kept: int | None) -> str:
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
 # Two tall columns, Starter and Pro, real limits and real prices. No badge, no
 # highlighted column. Free is the way in and is stated first, above them.
+def _rel_live_phrase() -> str:
+    from src.publish import release
+    return release.join(release.live_platforms()) or "TikTok"
+
+
+def _rel_auto() -> bool:
+    from src.publish import release
+    return release.auto_posting_live()
+
+
+def _rel_held_sentence() -> str:
+    """"Posting to YouTube and Instagram is coming soon. " — or "" when every
+    platform is open (or nothing is released, where other copy says so)."""
+    from src.publish import release
+    held = release.held_platforms()
+    if not settings.uploads_enabled or not held:
+        return ""
+    return "Posting to " + release.join(held) + " is coming soon. "
+
+
 def _released(key: str, limits: dict) -> str:
     """A plan row's answer for a feature that is behind a release flag.
 
@@ -12332,8 +12400,15 @@ def _editor_section() -> str:
     # choices on the person, every post), so no card promises it; and while the
     # Scheduler is held back the cards say what it WILL do (2026-09-30).
     held = not settings.uploads_enabled
+    # Released with TikTok alone (2026-10-05): YouTube and Instagram are still
+    # "coming soon", so nothing may promise they are posted for you today.
+    tiktok_only = not held and not _rel_auto()
     post_cards = [
         ("Connect once",
+         ("Connect " + _rel_live_phrase() + " from your Account page and post any "
+          "clip with one press. Your account stays yours; Highlightz only holds "
+          "what it needs to post.")
+         if tiktok_only else
          "YouTube and Instagram Reels, from the Scheduler tab; TikTok posts from the "
          "clip with one press. Your account stays yours; Highlightz only holds what "
          "it needs to post."),
@@ -12341,6 +12416,9 @@ def _editor_section() -> str:
          ("Every export will land in the queue. Give it a time and Highlightz will "
           "post it for you, with your caption, to every account you chose. Or press "
           "Post now." if held else
+          "Every export lands in the queue, with your caption ready. Give it a time "
+          "and Highlightz reminds you when it is due; press Post and it goes out. "
+          "Or press Post now." if tiktok_only else
           "Every export lands in the queue. Give it a time and Highlightz posts it "
           "for you, with your caption, to every account you chose. Or press Post "
           "now.")),
@@ -12371,6 +12449,10 @@ def _editor_section() -> str:
                 "will post your clips to them for you, at the time you set; TikTok "
                 "will be one press from the clip. In testing with the platforms now."
                 if soon else
+                "Connect your " + _rel_live_phrase() + " account and post any clip "
+                "with one press, with your caption checked against its limits "
+                "first. " + _rel_held_sentence().replace("Posting to", "Automatic posting to").strip()
+                if not _rel_auto() else
                 "Connect your YouTube and Instagram accounts once and the Scheduler "
                 "posts your clips to them for you, at the time you set. TikTok is one "
                 "press from the clip.")
@@ -12552,12 +12634,19 @@ def _faq() -> str:
          "its own timestamp in the VOD. The Clip Editor opens any clip you have caught with one "
          "press, reframes it for vertical with five templates, adds a title, transitions and a sound "
          "on the cut, and exports it frame by frame at up to 1080×1920, in your browser, "
-         "with nothing waiting on a render queue. The Scheduler takes every clip you export and "
-         "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
-         "with one caption checked against each platform's limits first; TikTok you post with one "
-         "press, on TikTok's own posting screen. Disconnect an account and "
-         "Highlightz forgets its login. TikTok may land a post as private until TikTok finishes "
-         "reviewing the Highlightz app; you set it public in TikTok."),
+         "with nothing waiting on a render queue. "
+         + ("The Scheduler holds every clip you export with one caption, checked against "
+            "the platform's limits first, and you post it to TikTok with one press, on "
+            "TikTok's own posting screen. " + _rel_held_sentence()
+            if settings.uploads_enabled and not _rel_auto() else
+            "The Scheduler takes every clip you export and "
+            "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
+            "with one caption checked against each platform's limits first; TikTok you post with one "
+            "press, on TikTok's own posting screen. ")
+         + "Disconnect an account and Highlightz forgets its login."
+         + ("" if settings.tiktok_audited else
+            " TikTok may land a post as private until TikTok finishes "
+            "reviewing the Highlightz app; you set it public in TikTok.")),
         ("Is this allowed on Twitch?",
          "Clips are created through Twitch's official Clips API with your authorized account, the "
          "same mechanism as Twitch's own Clip button. So you can download, edit and post a "
@@ -12602,13 +12691,25 @@ LANDING_HTML = LANDING_HTML.replace("<!--RAIL-->", _rail_html(), 1)
 # and auto-posting "built in" while both answer 503 is the claim that costs
 # the most trust, so it is rewritten here rather than left to the body copy
 # to walk back. Before _faq_schema, which reads the finished markup.
-if not settings.uploads_enabled:
-    for _was, _now in (
-        ("with a vertical editor and auto-posting built in",
-         "with a vertical editor and auto-posting coming soon"),
-        ("then reframes it for vertical and posts it for you",
-         "with vertical editing and auto-posting coming soon"),
-    ):
+# Released with TikTok alone (2026-10-05): the cards may say it posts, but
+# only to what is open (src/publish/release.py), not "auto-posting".
+_SOCIAL_SWAPS = (
+    (("with a vertical editor and auto-posting built in",
+      "with a vertical editor and auto-posting coming soon"),
+     ("then reframes it for vertical and posts it for you",
+      "with vertical editing and auto-posting coming soon"),
+     ("then reframes them for vertical and posts them to YouTube, TikTok and Instagram.",
+      "with vertical editing and auto-posting coming soon."))
+    if not settings.uploads_enabled else
+    (("with a vertical editor and auto-posting built in",
+      "with a vertical editor and posting to " + _rel_live_phrase() + " built in"),
+     ("then reframes it for vertical and posts it for you",
+      "then reframes it for vertical and posts it to " + _rel_live_phrase()),
+     ("then reframes them for vertical and posts them to YouTube, TikTok and Instagram.",
+      "then reframes them for vertical and posts them to " + _rel_live_phrase() + "."))
+    if not _rel_auto() else ())
+if _SOCIAL_SWAPS:
+    for _was, _now in _SOCIAL_SWAPS:
         if _was not in LANDING_HTML:            # copy moved; say so rather than
             log.warning("landing_soon_copy_missed", phrase=_was[:40])   # sell it
         LANDING_HTML = LANDING_HTML.replace(_was, _now)

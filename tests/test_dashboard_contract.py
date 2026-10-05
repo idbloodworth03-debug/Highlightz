@@ -372,10 +372,13 @@ def test_the_queue_says_exactly_when_it_posts_and_when_it_only_reminds():
     them (connected ones) and which they still post by hand (the rest), and
     the old promise must be gone."""
     low = SRC.lower().replace("’", "'")
-    for phrase in ("connected accounts are posted to for you",
-                   "the rest get a reminder and one-tap share",
-                   "connect an account and highlightz posts your clips to it for you",
-                   "only the clips you choose it for, only while it is connected"):
+    # 2026-10-05: named precisely — only YouTube and Instagram are posted
+    # for you; TikTok goes out when you press Post (it never was automatic,
+    # and with the TikTok-only release it is what most accounts connect).
+    for phrase in ("connected youtube and instagram accounts are posted to for you",
+                   "tiktok and the rest get a reminder and one-tap share",
+                   "tiktok goes out when you press post",
+                   "only the clips you choose, only while the account is connected"):
         assert phrase in low, f"the Scheduler no longer says {phrase!r}"
     for gone in ("never posts for you", "a reminder here is a nudge, not an upload",
                  "never asks for your tiktok"):

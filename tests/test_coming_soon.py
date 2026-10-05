@@ -28,12 +28,15 @@ def landing(flag: bool) -> str:
     Rebuilt from source because LANDING_HTML is assembled once, at import."""
     from config.settings import settings
     import src.dashboard.api as api
-    was = settings.uploads_enabled
+    was, was_pub = settings.uploads_enabled, settings.public_platforms
     settings.uploads_enabled = flag
+    # Released here means FULLY released, every platform open. The
+    # TikTok-only state has its own tests (tests/test_tiktok_rollout.py).
+    settings.public_platforms = "youtube,tiktok,instagram"
     try:
         return importlib.reload(api).LANDING_HTML
     finally:
-        settings.uploads_enabled = was
+        settings.uploads_enabled, settings.public_platforms = was, was_pub
         importlib.reload(api)
 
 

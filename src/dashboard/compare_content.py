@@ -172,6 +172,14 @@ def _shipped() -> bool:
 _SOON = True if _shipped() else "Soon"
 
 
+def _auto_live() -> bool:
+    """Can Autopilot/the Scheduler post by itself today? Only to YouTube and
+    Instagram, and those stay "coming soon" until Google and Meta approve
+    (src/publish/release.py; released 2026-10-05 with TikTok alone)."""
+    from src.publish import release
+    return release.auto_posting_live()
+
+
 # ── the argument ─────────────────────────────────────────────────────────────
 
 HERO_TITLE = "Highlightz vs Opus Clip vs Eklipse"
@@ -266,13 +274,18 @@ FEATURES = (
     # itself — its Direct Post rules put the choices on the person each time —
     # so a row promising automatic TikTok posting would be a tick we cannot earn.
     ("Auto-posts to Shorts and Reels",
-     _SOON, True, True,
+     True if _auto_live() else "Soon", True, True,
      "Theirs today; ours shortly. The Scheduler is built and in testing — "
      "connect YouTube or Instagram and it posts at the time you set, with "
      "Autopilot cutting and queueing every clip you approve. TikTok will be one "
      "press from the clip. Not open to accounts yet, so this row is not a tick "
      "either."
      if not _shipped() else
+     "Theirs today; ours shortly. The Scheduler and Autopilot are open, and "
+     "TikTok is one press from the clip, never automatic. Posting to YouTube "
+     "Shorts and Instagram Reels by itself is built and coming soon, so this "
+     "row is not a tick yet."
+     if not _auto_live() else
      "All three. Ours is the Scheduler: connect YouTube or Instagram and it "
      "posts at the time you set; Autopilot cuts and queues every clip you "
      "approve by itself. TikTok is one press from the clip, never automatic."),
@@ -381,6 +394,11 @@ THEY_DO_BETTER = {
           "They connect to TikTok, Shorts and Reels and publish on a schedule. "
           "We stop at the clip.")
          if not _shipped() else
+         ("You want it posted for you automatically.",
+          "They publish to TikTok, Shorts and Reels on a schedule. We post to "
+          "TikTok when you press Post; Shorts and Reels on a schedule are "
+          "coming soon.")
+         if not _auto_live() else
          ("You want TikTok posted for you automatically.",
           "They schedule TikTok posts. We post Shorts and Reels on a schedule, "
           "but TikTok only when you press Post.")),

@@ -283,14 +283,17 @@ import subprocess
 import sys
 
 
-def _render_with_flag(flag: str, snippet: str) -> str:
+def _render_with_flag(flag: str, snippet: str, platforms: str = "youtube,tiktok,instagram") -> str:
     """Import the public-copy modules fresh with UPLOADS_ENABLED=flag.
 
     A subprocess because both modules compute their copy at import time (the
     same way the landing page is built once and rebuilt on restart), so the
     flag cannot be flipped inside a running interpreter.
     """
-    env = dict(os.environ, UPLOADS_ENABLED=flag)
+    # `platforms` is PUBLIC_PLATFORMS. "Released" in these tests means fully
+    # released — every platform open; the TikTok-only state (2026-10-05) has
+    # its own tests in tests/test_tiktok_rollout.py.
+    env = dict(os.environ, UPLOADS_ENABLED=flag, PUBLIC_PLATFORMS=platforms)
     out = subprocess.run([sys.executable, "-c", snippet], env=env,
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-2000:]

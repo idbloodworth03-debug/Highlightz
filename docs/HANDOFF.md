@@ -4697,3 +4697,39 @@ From the 2026-10-05 audit; owner: "fix 1-3".
    as the cancelling tab does.
 
 Tests: `tests/test_audit_fixes_oct.py`.
+
+## RELEASED to Pro with TikTok only (2026-10-05)
+
+Owner: "we have been approved for TikTok lets get this rolled out ASAP".
+Chose "Release to Pro" and "keep youtube and instagram to coming soon".
+
+- **Production switches:** `UPLOADS_ENABLED=true` (Clip Editor, Scheduler,
+  Autopilot open to Pro), `TIKTOK_AUDITED=true` (posts go out at the chosen
+  privacy instead of forced private), and the TikTok **production** client
+  key/secret in `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` (the sandbox
+  ones only work for test accounts). Connections made with the sandbox key
+  must be reconnected.
+- **`PUBLIC_PLATFORMS`** (new, default `tiktok`; `src/publish/release.py`):
+  the platforms an ordinary account may connect. YouTube/Instagram read as
+  "soon" (`configured: false, held: true` in /publish/connections), their
+  OAuth start answers 403 "Posting to X is coming soon.", and Post now refuses
+  them by name. Admins and early-access accounts see every configured
+  platform (testing, Meta's reviewer). Add `instagram` when Meta approves,
+  `youtube` when Google verifies; one restart moves the dashboard and every
+  public page.
+- **Public copy follows it.** With only TikTok open nothing may say
+  "auto-posting" or promise YouTube/Instagram: paywall, llms.txt,
+  llms-full.txt, landing Scheduler block and FAQ, structured data, social
+  cards, /compare row and its "choose them if" line. Each says what is open
+  and that YouTube and Instagram are coming soon; all of it returns to the
+  full wording when every platform is public. The paywall used to promise
+  all three regardless of any flag; it now follows too. The FAQ's "TikTok may
+  land a post as private until reviewed" goes away with `TIKTOK_AUDITED`.
+- **In-app:** the Autopilot "Where should it post?" hint and the Scheduler
+  drawer no longer send an ordinary account to YouTube/Instagram; the
+  Scheduler's "posted to for you" lines now name YouTube and Instagram, since
+  TikTok was never automatic.
+- **Not changed:** a connection that already exists keeps posting if early
+  access is later removed (nobody but testers has one).
+- Older tests that meant "fully released" now set `PUBLIC_PLATFORMS` to all
+  three; the TikTok-only state is `tests/test_tiktok_rollout.py`.

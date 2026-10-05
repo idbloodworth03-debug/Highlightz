@@ -497,6 +497,9 @@ def client(monkeypatch, tmp_path):
         sent.append((msg.get("event"), user_id))
     monkeypatch.setattr(api, "broadcast", _bcast)
     monkeypatch.setattr(api.settings, "uploads_enabled", True)
+    # Every platform open: these tests cover posting itself, not which
+    # platforms are released (tests/test_tiktok_rollout.py).
+    monkeypatch.setattr(api.settings, "public_platforms", "youtube,tiktok,instagram")
     # https: the session cookie is Secure in production config, and a cookie
     # the OAuth start writes (the state) must survive to the callback.
     c = TestClient(api.app, base_url="https://testserver")

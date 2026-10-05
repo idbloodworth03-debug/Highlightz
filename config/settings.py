@@ -394,6 +394,11 @@ class Settings(BaseSettings):
     # day the audit passes and posts go out at the most public level the
     # creator allows; nothing else changes.
     tiktok_audited: bool = False
+    # Which posting platforms ordinary accounts may connect (src/publish/
+    # release.py). Admins and early-access accounts get every configured one.
+    # Released 2026-10-05 with TikTok only; add instagram / youtube as Meta
+    # and Google approve the apps (PUBLIC_PLATFORMS=tiktok,instagram).
+    public_platforms: str = "tiktok"
     # Meta for Developers → "Instagram API with Instagram Login". The user's
     # Instagram must be a Professional (Business/Creator) account. Instagram
     # does not take bytes: it fetches the render from a public URL, which is
