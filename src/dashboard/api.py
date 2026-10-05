@@ -328,6 +328,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if uid in _paused_users:
                     _paused_users.discard(uid)
                     asyncio.create_task(_resume_user_streams(uid))
+            else:
+                # The account is gone (deleted by an admin, or by them in
+                # another tab) but the cookie still names it. Without this the
+                # session kept working against a user that no longer exists.
+                request.session.clear()
+                if path == "/":
+                    return await call_next(request)
+                if _is_api_request(request):
+                    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+                return RedirectResponse("/login?error=account_removed", status_code=302)
         # NO BILLING GATE HERE ANY MORE. Everyone who signs in gets the
         # product; what differs is how much of it (src/billing/plans.py). This
         # used to redirect non-subscribers to /billing/paywall, which meant a
@@ -1604,6 +1614,8 @@ async def delete_account(request: Request):
     from src.stats import downloads as _dl_purge
     _dl_purge.delete_all_for_user(uid)
 
+    # Their OTHER open tabs (phone, second window) leave too, live.
+    await broadcast({"event": "account_deleted"}, user_id=uid)
     user_store.delete(uid)
     request.session.clear()
     log.info("account_deleted", user_id=uid, uploads_removed=removed_uploads)
@@ -5370,6 +5382,8 @@ async def cancel_vod_job(request: Request, job_id: str):
     if task and not task.done():
         task.cancel()
     _vod_jobs.pop(job_id, None)
+    # Realtime: the scan disappears from this user's other open tabs too.
+    await broadcast({"event": "vod_cancelled", "job_id": job_id}, user_id=uid)
 
 
 # ── Clip Editor library ───────────────────────────────────────────────────────
@@ -6900,6 +6914,10 @@ async def websocket_endpoint(ws: WebSocket):
     # that expires mid-session is caught immediately rather than at next HTTP request.
     from src.auth import users as _ws_user_store
     _ws_db_user  = _ws_user_store.get_by_id(uid)
+    if not _ws_db_user:
+        # Deleted account, stale cookie. Nothing to stream to it.
+        await ws.close(code=1008)
+        return
     _ws_is_admin = _ws_db_user.get("is_admin", False) if _ws_db_user else False
     _ws_sub      = _ws_db_user.get("subscription_status", "none") if _ws_db_user else "none"
     if _ws_sub == "trialing" and _ws_db_user:
@@ -8104,6 +8122,8 @@ async def admin_delete_user(request: Request, user_id: str):
         # log where it can still be acted on.
         log.error("admin_delete_stripe_cancel_failed", user=user_id, customer=customer)
 
+    # Realtime: their open tabs sign out now, not on their next click.
+    await broadcast({"event": "account_deleted"}, user_id=user_id)
     user_store.delete(user_id)
     return {"ok": True, "stripe_cancelled": cancelled,
             "stripe_ok": cancelled is not None}
@@ -8350,6 +8370,7 @@ _ERROR_MESSAGES = {
     "invalid_state":      "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
     "account_deleted":    "Account deleted successfully.",
+    "account_removed":    "This account has been deleted.",
 }
 
 
@@ -8444,6 +8465,10 @@ class _CreateUserRequest(BaseModel):
 async def create_user(request: Request, body: _CreateUserRequest):
     _require_admin(request)
     from src.auth import users as user_store
+    if user_store.password_in_use(body.password):
+        raise HTTPException(status_code=409, detail=(
+            "Another password account already uses that password. Sign-in is by "
+            "password alone, so each one needs its own — pick a different one."))
     try:
         user = user_store.create(body.username, body.password, is_admin=body.is_admin)
         if body.early_access:
@@ -12671,7 +12696,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     <div class="divider">admin access</div>
     <form method="POST" action="/login">
       <label>Password</label>
-      <input type="password" name="password" placeholder="Admin password" autocomplete="current-password">
+      <input type="password" name="password" placeholder="Password" autocomplete="current-password">
       <button type="submit" class="pw-btn">Sign In</button>
     </form>
   </div>

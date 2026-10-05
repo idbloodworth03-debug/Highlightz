@@ -4672,3 +4672,28 @@ first month … code CLIPPER". Reuses the personal offer (same popup, same
   code CLIPPER. Checkout looks up the ACTIVE code by name.
 
 Tests: `tests/test_bulk_offer.py`.
+
+## Audit fixes: password accounts, deleted accounts, VOD cancel (2026-10-05)
+
+From the 2026-10-05 audit; owner: "fix 1-3".
+
+1. **Password accounts must have their own password.** `POST /login` is
+   password-only and signs in the first account the password verifies
+   against, so a shared password would sign the second person in as the
+   first. `POST /admin/users` now 409s on a password already in use
+   (`users.password_in_use`). The sign-in field says "Password", not "Admin
+   password" (reviewers and testers use it). The "Admin sign-in" link text is
+   unchanged on purpose: the Meta reviewer instructions name it.
+2. **Deleted accounts leave live.** Both deletes (admin and self) broadcast
+   `account_deleted` to that user before the record goes; the dashboard sends
+   the tab to `/login?error=account_removed` ("This account has been
+   deleted."). Underneath that, the auth middleware now signs out a cookie
+   whose account no longer exists (it used to keep working against a missing
+   user), the socket refuses it, and `refetchAll` treats a 401 from /me as
+   signed out, which covers a tab that slept through the delete. Three older
+   tests signed in as user ids that were never in the store; they now stub one.
+3. **VOD cancel is live in other tabs.** `DELETE /vod/jobs/{id}` broadcasts
+   `vod_cancelled`, forwarded to the VOD screen, which drops the job exactly
+   as the cancelling tab does.
+
+Tests: `tests/test_audit_fixes_oct.py`.

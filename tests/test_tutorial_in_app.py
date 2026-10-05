@@ -108,6 +108,10 @@ def test_the_endpoint_serves_the_walkthrough(client, monkeypatch):
     import base64, json as _j
     from itsdangerous import TimestampSigner
     from src.dashboard import api
+    # The session must name a real account: a cookie for a deleted (or
+    # never-existing) user is signed out by the auth middleware.
+    from src.auth import users as _us
+    monkeypatch.setattr(_us, "get_by_id", lambda uid: {"id": uid, "username": uid, "subscription_status": "active"})
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     client.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
         {"auth": True, "user_id": "u1", "username": "nova"}).encode())).decode())

@@ -9712,6 +9712,10 @@ function VodScreen({ clips, me }) {
         } else if(msg.event==='vod_done'){
           setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,status:'done',progress:100}:j));
           setScanning(false);
+        } else if(msg.event==='vod_cancelled'){
+          // Cancelled here or in another tab: same result as cancelJob.
+          setJobs(prev=>prev.filter(j=>j.id!==msg.job_id));
+          setActiveJob(a=>{ if(a===msg.job_id){ setScanning(false); return null; } return a; });
         } else if(msg.event==='vod_error'){
           setJobs(prev=>prev.map(j=>j.id===msg.job_id?{...j,status:'failed',error:msg.error}:j));
           setErr(msg.error||'Analysis failed');
@@ -10464,7 +10468,14 @@ function RdApp() {
     fetch('/profiles').then(r=>r.json()).then(arr=>{
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
     }).catch(()=>{});
-    fetch('/me').then(r=>r.json()).then(data=>{
+    fetch('/me').then(r=>{
+      // Signed out underneath us (account deleted while this tab slept, or
+      // the session ended): go to sign-in instead of rendering an error body
+      // as the account.
+      if(r.status===401){ window.location.href='/login'; return null; }
+      return r.json();
+    }).then(data=>{
+      if(!data) return;
       setMe(data);
       if(canPublishFor(data)) refetchPublishing();
       if(canCampaignsFor(data)) refetchCampaigns();
@@ -10706,7 +10717,13 @@ function RdApp() {
           flash(msg.error||'A stream hit an error — reconnecting.');
         }
         // Forward VOD events to VodScreen via custom event
-        else if(['vod_progress','vod_moment','vod_done','vod_error'].includes(msg.event)){
+        // The account was deleted (by an admin, or by them in another tab).
+        // Its session is dead server-side; leave rather than show a screen
+        // whose every request now fails.
+        else if(msg.event==='account_deleted'){
+          window.location.href='/login?error=account_removed';
+        }
+        else if(['vod_progress','vod_moment','vod_done','vod_error','vod_cancelled'].includes(msg.event)){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Forward Clip Editor events so a second open tab (or your phone)

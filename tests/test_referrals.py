@@ -180,7 +180,7 @@ def test_short_links_work_signed_out(client):
     assert "/login" not in r.headers.get("location", "")
 
 
-def test_an_unknown_slug_is_never_treated_as_a_referral():
+def test_an_unknown_slug_is_never_treated_as_a_referral(monkeypatch):
     """The bare-slug route must behave as if it does not exist for anything
     that is not a referrer, or it shadows every future single-segment page.
 
@@ -199,6 +199,10 @@ def test_an_unknown_slug_is_never_treated_as_a_referral():
     assert out.headers.get("location", "").startswith("/login"), \
         f"an unknown slug was swallowed by the referral route: {out.headers.get('location')}"
 
+    # The session must name a real account: a cookie for a deleted (or
+    # never-existing) user is signed out by the auth middleware.
+    from src.auth import users as _us
+    monkeypatch.setattr(_us, "get_by_id", lambda uid: {"id": uid, "username": uid, "subscription_status": "active"})
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
         {"auth": True, "user_id": "u", "subscription_status": "none"}).encode())).decode())

@@ -137,6 +137,14 @@ def verify(user: dict, password: str) -> bool:
     return secrets.compare_digest(dk, user["password_hash"])
 
 
+def password_in_use(password: str) -> bool:
+    """Is this password already some password account's? Sign-in is
+    password-only (POST /login matches the first account it verifies
+    against), so two accounts sharing one would log the second person in as
+    the first. Checked when an admin creates a password account."""
+    return any(u.get("password_hash") and verify(u, password) for u in _load())
+
+
 def create(username: str, password: str, is_admin: bool = False) -> dict:
     users = _load()
     if any(u["username"].lower() == username.lower() for u in users):

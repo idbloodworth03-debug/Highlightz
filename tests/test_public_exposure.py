@@ -90,10 +90,14 @@ def test_application_data_is_never_served_to_a_stranger(anon, path):
     assert r.status_code != 200, f"{path} serves data to an unauthenticated request"
 
 
-def test_a_signed_in_user_cannot_reach_admin_data():
+def test_a_signed_in_user_cannot_reach_admin_data(monkeypatch):
     """403, not 404 and not 200 — the routes exist, they are just not theirs."""
     import base64, json as _j
     from itsdangerous import TimestampSigner
+    # The session must name a real account: a cookie for a deleted (or
+    # never-existing) user is signed out by the auth middleware.
+    from src.auth import users as _us
+    monkeypatch.setattr(_us, "get_by_id", lambda uid: {"id": uid, "username": uid, "subscription_status": "active"})
     c = TestClient(api.app)
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
