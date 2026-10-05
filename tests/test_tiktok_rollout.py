@@ -20,6 +20,7 @@ What these defend:
 """
 
 import base64
+import inspect
 import json
 import os
 import subprocess
@@ -227,3 +228,19 @@ def test_autopilot_does_not_point_at_a_soon_chip():
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
     assert "const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);" in h
     assert "Automatic posting to YouTube and Instagram is coming soon." in h
+
+
+def test_the_landing_page_sells_autopilot_now_it_is_open(tiktok_only):
+    """Owner, 2026-10-05: "make sure the landing page has the up to date
+    things too". Autopilot opened to Pro with the Scheduler but the landing
+    page never named it."""
+    t = tiktok_only["LANDING"]
+    assert "Scheduler Yes Autopilot Yes Get Pro" in t
+    assert "Switch on Autopilot and every clip you approve is reframed" in t
+    assert "Autopilot, also Pro" in t
+
+
+def test_autopilot_is_soon_on_the_plan_table_while_held():
+    from src.dashboard import api
+    src = inspect.getsource(api)
+    assert '("Autopilot", _released("uploads", limits)),' in src

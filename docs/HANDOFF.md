@@ -4733,3 +4733,11 @@ Chose "Release to Pro" and "keep youtube and instagram to coming soon".
   access is later removed (nobody but testers has one).
 - Older tests that meant "fully released" now set `PUBLIC_PLATFORMS` to all
   three; the TikTok-only state is `tests/test_tiktok_rollout.py`.
+- **Landing page names Autopilot** (owner: "make sure the landing page has
+  the up to date things too"). It had never been mentioned there. Pricing
+  gets an Autopilot row (same `_released("uploads")` entitlement: Soon/Yes/No
+  with the editor and Scheduler), the Scheduler block's sub-heading and the
+  "What are the VOD Scanner…" FAQ answer describe it in the TikTok-only state.
+  Checked the rest under the release settings: meta/og/twitter descriptions,
+  /compare, /tutorial, /blog, llms.txt all say TikTok + YouTube/Instagram
+  coming soon; nothing still says the editor or Scheduler is "in testing".

@@ -12335,6 +12335,9 @@ def _pricing() -> str:
             ("Clip Editor", _released("uploads", limits)),
             # Same entitlement as the editor, on purpose: cut it, then post it.
             ("Scheduler", _released("uploads", limits)),
+            # Opened to Pro with the Scheduler (2026-10-05); same entitlement,
+            # so it reads Soon/Yes/No in step with the two rows above.
+            ("Autopilot", _released("uploads", limits)),
         ]
         return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
@@ -12451,7 +12454,9 @@ def _editor_section() -> str:
                 if soon else
                 "Connect your " + _rel_live_phrase() + " account and post any clip "
                 "with one press, with your caption checked against its limits "
-                "first. " + _rel_held_sentence().replace("Posting to", "Automatic posting to").strip()
+                "first. Switch on Autopilot and every clip you approve is reframed "
+                "for vertical and queued in the Scheduler by itself, ready to post. "
+                + _rel_held_sentence().replace("Posting to", "Automatic posting to").strip()
                 if not _rel_auto() else
                 "Connect your YouTube and Instagram accounts once and the Scheduler "
                 "posts your clips to them for you, at the time you set. TikTok is one "
@@ -12637,7 +12642,9 @@ def _faq() -> str:
          "with nothing waiting on a render queue. "
          + ("The Scheduler holds every clip you export with one caption, checked against "
             "the platform's limits first, and you post it to TikTok with one press, on "
-            "TikTok's own posting screen. " + _rel_held_sentence()
+            "TikTok's own posting screen. Autopilot, also Pro, does the editing for you: "
+            "switch it on and every clip you approve is reframed for vertical and queued "
+            "in the Scheduler by itself. " + _rel_held_sentence()
             if settings.uploads_enabled and not _rel_auto() else
             "The Scheduler takes every clip you export and "
             "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
