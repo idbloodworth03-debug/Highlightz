@@ -994,7 +994,10 @@ async def sweep_dead_twitch_clips(fetch_existing) -> int:
     return len(removed)
 
 
-async def notify_clip_ready(clip: dict) -> None:
+async def notify_clip_ready(clip: dict) -> bool:
+    """Store a finished clip and tell the user. Returns whether it was KEPT —
+    False when it was a duplicate or the queue was full — so the processor can
+    discard the video file the stream worker cuts for it (files.discard)."""
     async with _data_lock:
         channel  = clip.get("channel")
         clip_uid = clip.get("user_id")
@@ -1012,7 +1015,7 @@ async def notify_clip_ready(clip: dict) -> None:
                     and abs(existing.get("created_at", 0) - clip_ts) < _DEDUP_WINDOW):
                 log.info("clip_deduplicated", clip_id=clip["id"], channel=channel,
                          duplicate_of=existing["id"])
-                return
+                return False
 
         # TWO BUDGETS, NOT ONE. Triggered clips draw on max_pending (Free 20 /
         # Starter 50 / Pro 200); crowd suggestions draw on max_suggested (Free
@@ -1152,7 +1155,7 @@ async def notify_clip_ready(clip: dict) -> None:
         # that promise — nagging here would manufacture a miss to sell against.
         if counts_as_caught:
             await notify_clip_missed(clip_uid, channel)
-        return
+        return False
 
     await broadcast({"event": "clip_ready", "clip": clip}, user_id=clip_uid)
 
@@ -1164,6 +1167,7 @@ async def notify_clip_ready(clip: dict) -> None:
                                name=f"fetch-fallback-{clip.get('id')}")
     _fetch_tasks.add(task)
     task.add_done_callback(_fetch_tasks.discard)
+    return True
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────

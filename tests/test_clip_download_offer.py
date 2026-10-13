@@ -201,7 +201,9 @@ def test_the_reasons_share_one_event_name():
     import inspect
     from src.ingestion import stream_worker
     src = inspect.getsource(stream_worker.StreamWorker._cut_local_file)
-    assert src.count('"clip_file_skipped"') == 5
+    # 7 since 2026-10-13: "not_kept", checked before the cut and after it,
+    # for a moment the processor dropped (tests/test_skipped_moment_files.py).
+    assert src.count('"clip_file_skipped"') == 7
 
 
 def test_the_diagnostic_exists_and_is_read_only():

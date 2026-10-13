@@ -4802,3 +4802,35 @@ reject decisions (per channel name, Twitch and Kick together), which is the
 doing: rename that box ("Reviewed"); stop cutting a video file for a moment
 the queue-full gate is about to skip (27 orphan files from Westcol in one day);
 `viewer_poll_failed` x67 on a Kick channel.
+
+## No video file for a moment that never becomes a clip; "Reviewed" label (2026-10-13)
+
+Owner: "do 1 and 2" (the two follow-ups from the luclips ticket above).
+
+1. **Discarded moments keep no file.** The stream worker cuts a moment's video
+   ~30s after the trigger, independently of the clip processor, which decides
+   far sooner whether the moment becomes a clip. Every moment it did NOT keep
+   (queue full, stale backlog, automod/classification/auth refusal, an error, a
+   duplicate or a queue-full race at storage) still got a file with no record
+   pointing at it — invisible, undownloadable, held until the cap evicted it,
+   which pushed out files people CAN download (27 from Westcol in one day).
+   - `files.discard(clip_id)` / `files.discarded(clip_id)`: an in-memory,
+     15-minute registry (processor and workers share one process —
+     src/main.py). `discard` deletes the file if it is already there.
+   - `run_clip_processor` gains a `finally`: any job that did not end in a KEPT
+     clip is discarded. `notify_clip_ready` now returns True/False (kept or
+     not), so duplicates and the storage-time queue-full race count too.
+   - `_cut_local_file` checks BEFORE the headroom trim (so nobody's downloadable
+     file is evicted to make room for a dropped moment) and again after the
+     cut (a drop that landed mid-cut). Both log `clip_file_skipped
+     why=not_kept` at info — expected, not a fault (why_no_download explains it).
+2. **"Total clips" → "Reviewed"** on the Live Streams channel panel. It is
+   `profile.total_clips`, which only counts approve + reject decisions; an
+   empty queue next to "22" read as 22 clips missing. Tooltip says so. The
+   Channel performance card's "Total clips" (from /stats: clips you have) is
+   accurate and unchanged.
+
+Tests: `tests/test_skipped_moment_files.py` (the real processor loop for each
+drop path, the real `_cut_local_file` before/during/after, notify's return
+value, the label). With only the registry kept and the behaviour reverted, 10
+of 14 fail.

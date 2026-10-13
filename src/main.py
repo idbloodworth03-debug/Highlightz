@@ -209,6 +209,7 @@ async def run_clip_processor() -> None:
     queue_backoff = _QUEUE_RETRY_START
     while True:
         job = None
+        kept = False
         try:
             job = await _queue.pop(timeout=5)
             queue_backoff = _QUEUE_RETRY_START   # the queue answered; reset
@@ -292,7 +293,7 @@ async def run_clip_processor() -> None:
                         {"event": "refusals_changed"}, user_id=_was_warned)
                 except Exception:
                     pass
-            await dashboard_api.notify_clip_ready(meta.to_dict())
+            kept = bool(await dashboard_api.notify_clip_ready(meta.to_dict()))
         except asyncio.CancelledError:
             break
         except TwitchAuthExpiredError:
@@ -442,6 +443,20 @@ async def run_clip_processor() -> None:
                     )
                 except Exception:
                     pass
+        finally:
+            # EVERY way out that did not keep a clip — queue full, a stale
+            # backlog, a Twitch refusal, an error, a duplicate — leaves a video
+            # file the stream worker is about to cut (or has cut) with no record
+            # pointing at it. Discard it rather than let it take the space of a
+            # file somebody can download (2026-10-13: 27 such files from one
+            # channel in a day). A `continue` above still runs this.
+            if job is not None and not kept:
+                try:
+                    from src.clips import files as _clip_files
+                    _clip_files.discard(job.clip_id)
+                except Exception as exc:
+                    log.warning("clip_file_discard_failed", clip_id=job.clip_id,
+                                error=str(exc))
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

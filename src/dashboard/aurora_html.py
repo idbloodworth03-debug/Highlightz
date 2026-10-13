@@ -4380,7 +4380,10 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
               {p.total_clips?Math.round(p.approval_rate*100)+'%':'—'}
             </div>
           </div>
-          <div className="rd-metric glass"><div className="k">Total clips</div><div className="v">{p.total_clips||0}</div></div>
+          {/* "Reviewed", not "Total clips" (2026-10-13): this counts approve +
+              reject decisions, never new detections, and a user with an empty
+              queue read "22 clips" here as 22 clips gone missing. */}
+          <div className="rd-metric glass" title="Clips from this channel you have approved or rejected. Clips still waiting in Clip Review are not counted."><div className="k">Reviewed</div><div className="v">{p.total_clips||0}</div></div>
         </div>
         {Object.keys(sw).length>0 && <div className="rd-card2 glass">
           <h3 style={{fontSize:14,fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:8}}><Icon name="sliders" size={15} style={{color:'var(--acc)'}}/>Learned signal weights</h3>

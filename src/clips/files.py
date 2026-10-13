@@ -87,6 +87,40 @@ def delete(clip_id: str) -> bool:
     return False
 
 
+# ── moments that will never become a clip (2026-10-13) ───────────────────────
+#
+# The stream worker cuts a file about 30s after a trigger, independently of the
+# clip processor, which decides much sooner whether the moment becomes a clip
+# at all (queue full, a stale backlog, a Twitch refusal, an error). A file cut
+# for a moment the processor dropped has no record pointing at it: nobody can
+# see, download or edit it, and it sits in the store until the cap evicts it —
+# pushing out files somebody CAN download. Westcol on a full Free queue made 27
+# of them in one day.
+#
+# The processor marks such ids here. The cut checks before writing and again
+# after; a mark that lands after the cut deletes the file then and there. In
+# memory, because the processor and the workers run in one process
+# (src/main.py); aged out, because a decision older than any cut that could
+# still be waiting on it is no longer useful to anyone.
+_DISCARDED: dict[str, float] = {}
+_DISCARD_TTL_S = 900.0
+
+
+def discard(clip_id: str) -> None:
+    """This moment will not become a clip: drop its file, now or when cut."""
+    now = time.time()
+    for k in [k for k, ts in _DISCARDED.items() if now - ts > _DISCARD_TTL_S]:
+        _DISCARDED.pop(k, None)
+    if clip_id:
+        _DISCARDED[clip_id] = now
+        delete(clip_id)
+
+
+def discarded(clip_id: str) -> bool:
+    ts = _DISCARDED.get(clip_id)
+    return ts is not None and time.time() - ts <= _DISCARD_TTL_S
+
+
 def total_bytes() -> int:
     total = 0
     try:

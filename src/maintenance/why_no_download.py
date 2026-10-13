@@ -151,6 +151,8 @@ def main(argv) -> int:
     print("    no_headroom    the disk cap is reached; clip_file_max_total_mb")
     print("                   is " + _n(settings.clip_file_max_total_mb) + " MB")
     print("    cut_raised     ffmpeg failed; the error is on the same line")
+    print("    not_kept       expected, not a fault: the moment never became a clip")
+    print("                   (queue full, backlog, refusal), so no file is kept")
     print()
     print("  and the successes, which should outnumber them:")
     print("    journalctl -u highlightz --since '24 hours ago' | grep -c clip_file_ready")
