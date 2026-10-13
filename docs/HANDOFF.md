@@ -4755,3 +4755,50 @@ link returns. Every "Account tab/page" in the app, API errors, public pages,
 legal pages and tutorial now says Settings. Tests:
 `tests/test_settings_merge.py` (including a sweep for any remaining "Account
 tab/page" copy).
+
+## Stripe webhook was crashing on every delivery; sweep could not read plans (2026-10-13)
+
+Found from a support ticket (luclips: "bought Pro, Live Streams shows 22 clips,
+Clip Review shows 0"). That ticket itself was NOT a bug — see below — but the
+account had no `plan` stored despite paying, which led here.
+
+**Verified on prod before fixing:** `pip show stripe` → 15.2.0; journal, 7 days:
+zero `stripe_*` events, ten `request_failed path=/billing/webhook error=
+"AttributeError: get"`; 2 of 4 active paying users with `plan` = None.
+
+- **Cause.** In stripe-python 15.2.0 a `StripeObject` is not a dict (checked:
+  `issubclass(StripeObject, dict)` is False; `Event` has no `.get`).
+  `handle_webhook_event` returned `construct_event`'s Event to code written for
+  dicts → every webhook 500'd. Separately `authoritative_subscription` (the
+  hourly sweep and "Sync with Stripe") read `items.data[0].price` as "dict or
+  str" — a `Price` object is neither → `plan=None` forever.
+- **Effect while broken:** no plan stored for new subscribers (a Starter buyer
+  resolves to Pro via the legacy fallback), portal plan changes never applied,
+  double-billing sweep / duplicate-email refund / promo attribution never ran.
+  Status still converged via the hourly sweep and `/billing/success` self-heal.
+- **Fix:** `handle_webhook_event` still calls `construct_event` (signature +
+  timestamp check, raises on failure) and then returns `json.loads(payload)` —
+  plain dicts, immune to the SDK's object model. The sweep takes `price` as a
+  string id or anything with an `id` (`_g(price, "id")`).
+- **Tests:** `tests/test_stripe_sdk_objects.py` uses the REAL library: a signed
+  payload through `POST /billing/webhook` (plan stored for pro and starter,
+  tampered body → 400) and real `Subscription`/`ListObject` objects through the
+  sweep. On the old code 5 of 7 fail with exactly prod's `AttributeError: get`.
+  Every older billing test fed hand-built dicts, which is why this shipped.
+- **Not fixed, noted:** `refund_and_cancel_subscription` reads
+  `invoice.payment_intent`/`charge`, which newer Stripe API versions moved off
+  the Invoice; on a duplicate-email signup it will log
+  `duplicate_refund_no_payment_ref` and keep access (the safe direction).
+- **After deploy:** check the endpoint is still enabled in Stripe → Developers →
+  Webhooks (Stripe disables endpoints that keep failing); "Sync with Stripe" on
+  the plan-less accounts, or let the hourly sweep fill them.
+
+**The ticket itself (luclips, Westcol on Kick):** on Free (20-clip queue) the
+queue filled and every Westcol moment from Oct 10 21:01 to Oct 12 22:28 was
+skipped as queue-full (177; logs `pending=20 cap=20 plan=free`). They then
+rejected 22 / approved 1 — the Live Streams "Total clips" box counts approve +
+reject decisions (per channel name, Twitch and Kick together), which is the
+"22". Pro landed via the checkout self-heal at Oct 13 01:08. Follow-ups worth
+doing: rename that box ("Reviewed"); stop cutting a video file for a moment
+the queue-full gate is about to skip (27 orphan files from Westcol in one day);
+`viewer_poll_failed` x67 on a Kick channel.

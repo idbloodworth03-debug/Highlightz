@@ -1,5 +1,7 @@
 """Stripe subscription billing helpers."""
 
+import json
+
 import stripe
 import structlog
 from config.settings import settings
@@ -349,10 +351,11 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
             else getattr(raw_items, "data", None)) or []
     for line in data:
         price = _g(line, "price")
-        if isinstance(price, dict) and price.get("id"):
-            price_id = price["id"]
-        elif isinstance(price, str) and price:
-            price_id = price
+        # A string id, a dict, or — in the stripe-python production runs —
+        # a Price OBJECT, which is neither. Checking only the first two is how
+        # this returned plan=None for every live subscription, so the hourly
+        # sweep could correct a status but never a plan (2026-10-13).
+        price_id = price if isinstance(price, str) else _g(price, "id") if price else None
         if price_id:
             break
 
@@ -751,10 +754,27 @@ async def resolve_promo_code(promo_id: str) -> str | None:
 
 
 def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
-    """Verify and parse a Stripe webhook event. Raises on invalid signature."""
-    return stripe.Webhook.construct_event(
+    """Verify a Stripe webhook's signature, then return the event as PLAIN
+    JSON. Raises on an invalid signature or a stale timestamp.
+
+    WHY NOT construct_event's RETURN VALUE (2026-10-13). In the stripe-python
+    production runs (15.2.0) a StripeObject is no longer a dict: the Event it
+    returns has no .get(), and everything downstream — sync_subscription_event,
+    extract_price_id, the duplicate guards — is written against dicts. Every
+    delivery raised "AttributeError: get" and answered 500 (ten in one week on
+    prod), so no subscription event was processed at all: new subscribers got
+    no plan stored, portal plan changes never landed, and the double-billing
+    and duplicate-email guards never ran.
+
+    construct_event still does the part that matters, the signature and
+    timestamp check, and raises if either fails. The body it just verified IS
+    the event, so it is parsed as JSON rather than converted from the SDK's
+    object — which cannot break again the next time the SDK changes its model.
+    """
+    stripe.Webhook.construct_event(
         payload, sig_header, settings.stripe_webhook_secret
     )
+    return json.loads(payload)
 
 
 def sync_subscription_event(event: dict) -> tuple[str | None, str | None, str]:
