@@ -23,6 +23,7 @@ from src.ingestion.stream_worker import StreamWorker, WorkerConfig
 from src.ingestion.platform.twitch import TwitchPlatform
 from src.ingestion.platform.youtube import YouTubePlatform
 from src.ingestion.platform.kick import KickPlatform
+from src.chat.platform import kick_events as _kick_events
 from src.queue.job_queue import JobQueue
 from src.processor.clip_processor import ClipProcessor, TwitchAuthExpiredError
 from src.output import twitch_clips
@@ -52,8 +53,9 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "", pres
 
     # Kick workers spawn like Twitch ones since 2026-09-15. The public API
     # is asked with an app token (KICK_CLIENT_ID/SECRET) and the site endpoint
-    # for the chatroom id; a Kick clip is the file cut from live capture, so
-    # POST /streams refuses Kick while CLIP_CAPTURE_ENABLED is off.
+    # for the HLS playlist; chat is Kick's signed webhooks (kick_events). A
+    # Kick clip is the file cut from live capture, so POST /streams refuses
+    # Kick while CLIP_CAPTURE_ENABLED is off.
     platform_cls = PLATFORM_MAP.get(platform_name, TwitchPlatform)
     platform = platform_cls()
 
@@ -716,6 +718,13 @@ async def main() -> None:
         # missed during a deploy would otherwise be wrong forever.
         asyncio.create_task(dashboard_api.subscription_reconcile_task(),
                             name="billing-reconcile"),
+        # Kick chat webhooks: drop the subscription of a channel nobody lists
+        # any more, or Kick keeps POSTing its whole chat here for nothing.
+        asyncio.create_task(_kick_events.prune_task(
+            lambda: {str(s.get("channel") or "").lower()
+                     for s in list(dashboard_api._streams.values())
+                     if s.get("platform") == "kick"}),
+            name="kick-events-prune"),
     ]
 
     # Restore streams that were running before the last shutdown

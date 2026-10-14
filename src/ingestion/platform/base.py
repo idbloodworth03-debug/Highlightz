@@ -39,6 +39,9 @@ class StreamInfo:
     # can hit a channel that is not flagged. This says "what we capture here
     # will be age-gated", which is what decides whether a clip is worth posting.
     is_mature: bool = False
+    # Kick only: the channel owner's user id, which is what Kick's chat
+    # webhooks are subscribed by (src/chat/platform/kick_events.py).
+    broadcaster_id: str = ""
 
 
 class BasePlatform(ABC):

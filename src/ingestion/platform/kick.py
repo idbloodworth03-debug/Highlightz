@@ -1,23 +1,25 @@
-"""Kick platform — liveness, metadata and the chatroom id for a channel.
+"""Kick platform — liveness, metadata and the broadcaster id for a channel.
 
 Two doors, because Kick keeps them apart (verified against Kick's public API
 docs, September 2026):
 
   * **api.kick.com/public/v1** is the sanctioned one. It needs an APP access
     token (client-credentials grant against id.kick.com, no user involved) and
-    answers whether a channel is live, its title, category and viewer count.
-    It does NOT return the chatroom id, and it has no clips endpoint at all —
-    which is why a Kick clip is a file Highlightz captures itself
-    (src/ingestion/clip_recorder.py), never a Kick-hosted clip.
+    answers whether a channel is live, its title, category, viewer count and
+    the broadcaster's user id — which is what chat is subscribed by. It has
+    no clips endpoint at all — which is why a Kick clip is a file Highlightz
+    captures itself (src/ingestion/clip_recorder.py), never a Kick-hosted clip.
   * **kick.com/api/v2/channels/<slug>** is the site's own endpoint, sitting
-    behind Cloudflare. It is the only place the chatroom id lives, and it
-    also carries liveness when the public API is not configured. It is asked
-    with browser-shaped headers; it may still answer 403 from a datacenter
-    IP, which is why the chatroom id is CACHED ON DISK the first time it is
-    learned — it never changes for a channel, so one success is enough for
-    every session after it, including across restarts.
+    behind Cloudflare. It is the only source of the HLS playlist, it carries
+    liveness when the public API is not configured, and its `user_id` stands
+    in for the broadcaster id when the public API could not be read. It is
+    asked with browser-shaped headers; it may still answer 403 from a
+    datacenter IP. It also holds the Pusher chatroom id, still cached on disk
+    (kick_chatrooms.json) but no longer used: Kick retired the Pusher chat
+    key, and chat now arrives as the public API's signed webhooks
+    (src/chat/platform/kick_events.py).
 
-When the chatroom id cannot be learned the channel still runs: the worker
+When the broadcaster id cannot be learned the channel still runs: the worker
 scores it from audio and viewer count and says so in the log
 (`kick_chat_unavailable`). Chat is the best signal, not the only one.
 """
@@ -221,6 +223,7 @@ class KickPlatform(BasePlatform):
             raise
         except Exception as exc:
             log.info("kick_site_lookup_failed", slug=slug, error=str(exc))
+        broadcaster_id = ""
         if pub is not None:
             stream = pub.get("stream") or {}
             live = bool(stream.get("is_live"))
@@ -228,6 +231,7 @@ class KickPlatform(BasePlatform):
             game = _ascii((pub.get("category") or {}).get("name"))
             viewers = int(stream.get("viewer_count") or 0)
             mature = bool(stream.get("is_mature"))
+            broadcaster_id = str(pub.get("broadcaster_user_id") or "")
         else:
             # No app credentials (or the public API is down): the site
             # endpoint carries liveness too.
@@ -244,11 +248,13 @@ class KickPlatform(BasePlatform):
 
         if site is not None and not chatroom_id:
             chatroom_id = str((site.get("chatroom") or {}).get("id") or "")
+        if site is not None and not broadcaster_id:
+            broadcaster_id = str(site.get("user_id") or (site.get("user") or {}).get("id") or "")
         if not live:
             raise ChannelOffline(f"Channel '{slug}' is not live on Kick")
-        if not chatroom_id:
+        if not broadcaster_id:
             log.warning("kick_chat_unavailable", slug=slug,
-                        why="chatroom id not learned; scoring on audio and viewers")
+                        why="broadcaster id not learned; scoring on audio and viewers")
 
         # The HLS playlist itself, handed to streamlink's generic HLS reader
         # (`hls://` forces that plugin), so nothing depends on the Kick plugin
@@ -266,6 +272,7 @@ class KickPlatform(BasePlatform):
             game=game,
             viewer_count=viewers,
             is_mature=mature,
+            broadcaster_id=broadcaster_id,
         )
 
     async def is_live(self, channel: str) -> bool:

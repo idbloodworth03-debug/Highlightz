@@ -189,11 +189,14 @@ grep before relying on either. Every public page — /compare, /llms.txt,
     endpoint `kick.com/api/v2/channels/<slug>` (browser headers; behind
     Cloudflare, may 403 from a datacenter IP). `ChannelOffline` is not
     retried; a near-miss slug is refused.
-  - **Chat**: Pusher (`src/chat/platform/kick_chat.py`, key `32cbd69e…`,
-    `chatrooms.<id>.v2`). The chatroom id only exists on the site endpoint,
-    so it is **cached on disk** (`clips/kick_chatrooms.json`) the first time
-    it is learned; if it cannot be learned the channel STILL runs on audio +
-    viewer count and logs `kick_chat_unavailable`. No sub/raid events.
+  - **Chat**: since 2026-10-14, Kick's official event WEBHOOKS
+    (`src/chat/platform/kick_events.py`, endpoint `POST /kick/webhook`) —
+    Kick retired the Pusher key the old websocket used; see "Kick chat: Pusher
+    is dead, webhooks instead" at the end of this file. Subscribed per channel
+    by the broadcaster's user id (public API `broadcaster_user_id`, site
+    `user_id` as fallback); without it the channel STILL runs on audio +
+    viewer count and logs `kick_chat_unavailable`. No sub/raid events. The
+    Pusher chatroom id is still cached (`clips/kick_chatrooms.json`) but unused.
   - **Video/audio**: the site endpoint's `playback_url` (the channel's IVS
     HLS playlist, token included) is handed to streamlink as
     `hls://<playback_url>`, which forces the generic HLS reader — NOT the
@@ -4834,3 +4837,84 @@ Tests: `tests/test_skipped_moment_files.py` (the real processor loop for each
 drop path, the real `_cut_local_file` before/during/after, notify's return
 value, the label). With only the registry kept and the behaviour reverted, 10
 of 14 fail.
+
+## Kick chat: Pusher is dead, webhooks instead (2026-10-14)
+
+From luclips' second ticket: "Highlightz Pro is still not generating clips from
+the Kick livestreams I'm monitoring" (La Cobra). Owner: "we need to get this
+fixed".
+
+**Verified on prod before changing anything:**
+- `kick_chat_reconnecting` x459 on lacobraaa in one day, every one
+  `pusher:error 4001 "App key 32cbd69e4b950bf97679 not in this cluster"`; the
+  channel's profile had avg_velocity 0.0 after calibrating — no chat message
+  had ever reached its engine.
+- A probe from the droplet: both known Kick Pusher app keys refused on all 9
+  Pusher clusters (18 of 18, 4001). Not our IP, not one channel: Kick retired
+  the key, and EVERY Kick channel had been scoring on audio + viewers only.
+  The customer's account was configured correctly; moments were not failing
+  to save, the threshold was rarely reached without chat.
+
+**Fix: Kick's sanctioned route, the public API's event subscriptions.**
+- `KickChatMonitor` (same `run`/`stop`/`on_message` shape) connects to
+  nothing. It listens on a per-channel queue in `kick_events` and calls
+  `ensure_subscribed(broadcaster_id, slug)` when the session starts.
+- `ensure_subscribed`: `POST /public/v1/events/subscriptions` with the APP
+  token, body `{broadcaster_user_id, events:[chat.message.sent v1], method:
+  "webhook"}` ("App access tokens allow you to subscribe to events from any
+  channel given you supply the user ID of that channel" — Kick's docs). The id
+  is recorded in `clips/kick_event_subscriptions.json`, and that record is the
+  truth: Kick's own listing can omit live subscriptions (KickDevDocs #419).
+  One subscription per channel however many users monitor it.
+- `POST /kick/webhook` (in `_OPEN_PATHS`, POST only, 64 KB cap). Signature:
+  RSA PKCS#1 v1.5 + SHA-256 over `<msg id>.<timestamp>.<RAW body>`, base64 in
+  `Kick-Event-Signature`, against Kick's key from `/public/v1/public-key`
+  (fetched and cached; re-fetched at most once a minute when a signature fails;
+  that response's schema is undocumented, so the parser takes any shape).
+  Answers: 400 without the headers, 401 bad signature, 503 no key yet, and
+  **200 for everything signed** — Kick unsubscribes a webhook that keeps
+  failing for over a day. Deduped by the chat `message_id` (retries, renewal
+  overlap). Emote tags `[emote:<id>:<NAME>]` become `NAME`, so Kick chat
+  scores the way Twitch chat does (hype-emote weight, crowdspeak).
+- A live channel with no chat for 3 minutes is renewed (create, then delete
+  the old one; if Kick refuses the create as a duplicate, delete then create),
+  at most every 10 minutes — Kick deliveries can stall (#300).
+- `prune_task` (src/main.py), every 30 minutes: deletes the subscription of a
+  channel no user lists any more. Listed-but-offline channels keep theirs.
+- Fixed on the way: the old monitor RETURNED when it had no id, and the worker
+  ends a session on its first finished task — so such a channel restarted its
+  whole session (meter, recorder, in-flight cuts) every ~30 s. It waits now.
+
+**Owner setup, once** (kick.com → Settings → Developer → the app whose
+KICK_CLIENT_ID is in `/opt/highlightz/.env`): Webhook URL
+`https://highlightz.app/kick/webhook`, webhooks toggled **On**; tick
+`events:subscribe` if the app lists scopes. KICK_CLIENT_ID / KICK_CLIENT_SECRET
+must be in `.env` (no app token, no subscription).
+
+**Logs (journalctl -u highlightz).** Healthy: `kick_events_subscribed` (once
+per channel), `kick_public_key_loaded`, `kick_chat_flowing` (first message of
+a session), `kick_chat_stats messages=N` every 10 min per live session,
+`kick_webhook_stats` every 10 min (received / rejected / duplicate /
+delivered / unclaimed). Faults: `kick_events_subscribe_failed` (carries Kick's
+answer), `kick_webhook_rejected why=…`, `kick_public_key_unavailable`, and
+`kick_events_renewed` repeating every 10 min on a busy channel = deliveries are
+not arriving (webhook URL or toggle).
+
+**Unverified from the dev box (api.kick.com is not reachable from it):** the
+public-key response shape (parser is tolerant), whether Kick accepts a second
+subscription for the same channel (both outcomes handled), and DELETE's query
+parameter `id` (a failure logs `kick_events_unsubscribe_failed` and is retried
+every pass). Confirm from the first prod logs.
+
+**Load:** one HTTPS POST per chat message per subscribed channel — a big
+channel is dozens a second through nginx and the app. Each is cheap (one RSA
+verify, one JSON parse), but watch CPU on the shared vCPU and the nginx access
+log; `access_log off;` in a `location = /kick/webhook` block is the relief if
+either bites.
+
+Tests: `tests/test_kick_chat_webhooks.py` (35) with a generated RSA key — the
+real endpoint signed-out, raw-body verification (re-serialised JSON refused),
+tampered/foreign/missing signatures, key rotation and the re-fetch rate limit,
+dedupe, emotes, subscribe/record/restart/renew/replace/refusal/401, prune, the
+prune task surviving errors, the monitor end to end, and the broadcaster id
+from both endpoints. Mutation-checked: 15 deliberate breakages, all caught.

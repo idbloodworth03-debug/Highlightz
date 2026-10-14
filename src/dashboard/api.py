@@ -94,7 +94,11 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # handlers, not the session.
                   "/instagram/deauthorize",
                   "/instagram/data-deletion",
-                  "/instagram/data-deletion/status"}
+                  "/instagram/data-deletion/status",
+                  # Kick POSTs every chat message of a monitored channel here,
+                  # server-to-server. Its security is Kick's RSA signature,
+                  # checked in the handler (src/chat/platform/kick_events.py).
+                  "/kick/webhook"}
 # ── shared head tags for the secondary public pages ──────────────────────────
 
 SITE_ORIGIN = "https://highlightz.app"
@@ -6334,6 +6338,31 @@ async def instagram_data_deletion_status(code: str = ""):
         "<link rel=\"icon\" type=\"image/png\" href=\"/static/icon.png\">"
         "<style>" + _LEGAL_STYLE + "</style></head><body>"
         + _LEGAL_NAV + body + _LEGAL_FOOT + "</body></html>")
+
+
+# ── Kick's chat webhook ──────────────────────────────────────────────────────
+#
+# Kick chat for every monitored Kick channel, one POST per message, since Kick
+# retired the Pusher key the old websocket used (2026-10-14). The URL is set
+# once on the Kick developer app, so it is a fixed path of its own rather than
+# anything under a user's surface. No session: the signature over the RAW
+# body is the whole security model, so the body is read here as bytes and
+# handed over untouched — never parsed and re-serialised first.
+
+@app.post("/kick/webhook")
+async def kick_webhook(request: Request):
+    from src.chat.platform import kick_events
+    limit = kick_events.MAX_BODY
+    size = request.headers.get("content-length", "")
+    if size.isdigit() and int(size) > limit:
+        return Response(status_code=413)
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            return Response(status_code=413)
+    status = await kick_events.handle_delivery(request.headers, body)
+    return Response(status_code=status)
 
 
 @app.get("/media/{token}")

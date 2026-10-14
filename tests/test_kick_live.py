@@ -5,8 +5,10 @@ What "as best as we can" means, and what these pin:
 
   * liveness/title/category/viewers come from Kick's PUBLIC API with an app
     token when KICK_CLIENT_ID/SECRET are set, else from the site endpoint;
-  * the chatroom id (Pusher) only exists on the site endpoint, is cached on
-    disk once learned, and a channel still runs without it;
+  * the chatroom id only exists on the site endpoint and is cached on disk
+    once learned. Since 2026-10-14 chat no longer uses it — Kick retired the
+    Pusher key — and comes as signed webhooks keyed by the broadcaster id
+    (tests/test_kick_chat_webhooks.py);
   * a Kick clip is FILE-ONLY: no Kick clip API, so the processor returns a
     pending record pointing at the channel and the worker's live-capture cut
     is the video — and with capture off, both POST /streams and the processor
@@ -127,13 +129,16 @@ def test_the_chatroom_id_is_cached_on_disk_and_not_asked_for_again(monkeypatch):
     assert info.stream_url == "https://kick.com/xqc"
 
 
-def test_a_channel_runs_without_chat_when_the_site_endpoint_is_blocked(monkeypatch):
+def test_a_channel_runs_when_the_site_endpoint_is_blocked(monkeypatch):
     _configured(monkeypatch)
     p = Scripted({"id.kick.com/oauth/token": TOKEN, "api.kick.com/public/v1/channels": PUBLIC_LIVE,
                   "kick.com/api/v2/channels/xqc": (403, None)})
     info = _run(p.get_stream_info("xqc"))
     assert info.chat_channel_id == "" and info.viewer_count == 1234
     assert info.stream_url == "https://kick.com/xqc"
+    # Chat is keyed by the public API's broadcaster id now, so a blocked site
+    # endpoint no longer costs the channel its chat.
+    assert info.broadcaster_id == "1"
 
 
 def test_not_live_is_channel_offline_not_an_error(monkeypatch):
@@ -171,13 +176,25 @@ def test_a_near_miss_slug_from_the_public_api_is_not_monitored(monkeypatch):
         _run(p.get_stream_info("xqc"))
 
 
-def test_the_chat_monitor_does_not_loop_on_an_empty_chatroom():
+def test_the_chat_monitor_neither_loops_nor_ends_the_session_without_an_id():
+    """It used to return at once on an empty chatroom id — which ended the
+    whole session (the worker stops when any of its tasks does). Now it
+    waits without connecting anywhere until stopped; the full contract is in
+    tests/test_kick_chat_webhooks.py."""
     from src.chat.platform.kick_chat import KickChatMonitor
     calls = []
 
     async def on_msg(a, m): calls.append((a, m))
-    m = KickChatMonitor("", on_msg)
-    _run(m.run())                       # returns at once rather than reconnecting forever
+
+    async def go():
+        m = KickChatMonitor("", on_msg)
+        t = asyncio.create_task(m.run())
+        await asyncio.sleep(0.05)
+        assert not t.done()
+        m.stop()
+        await asyncio.wait_for(t, 1)
+        return m
+    m = _run(go())
     assert m._running is False and calls == []
 
 

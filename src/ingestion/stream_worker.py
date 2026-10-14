@@ -401,8 +401,10 @@ class StreamWorker:
                 sub_raid_cb=lambda _: self._engine.notify_sub_raid() if self._engine else None,
             )
         elif self._config.platform_name == "kick":
+            # Chat arrives as Kick's signed webhooks, subscribed by the
+            # broadcaster's user id — the Pusher chatroom is gone.
             from src.chat.platform.kick_chat import KickChatMonitor
-            monitor = KickChatMonitor(info.chat_channel_id, on_message)
+            monitor = KickChatMonitor(info.broadcaster_id, on_message, slug=info.channel)
         else:
             monitor = YouTubeChatMonitor(info.chat_channel_id, on_message)
 

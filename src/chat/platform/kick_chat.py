@@ -1,94 +1,118 @@
 """
-Kick chat via Pusher WebSockets (wss://ws-us2.pusher.com).
-Calls `on_message` callback for every ChatMessageEvent received.
+Kick chat for one live session, fed by Kick's chat webhooks.
+
+Nothing here connects to Kick. Kick POSTs every chat message to /kick/webhook;
+src/chat/platform/kick_events.py verifies it and hands it to whoever is
+listening for that channel. This is the listener, with the same `run()` and
+`on_message(author, content)` shape as the Twitch and YouTube monitors, so the
+stream worker treats all three alike.
+
+It replaced a Pusher websocket that Kick retired (2026-10-14) — see
+kick_events' docstring for what happened and why webhooks.
 """
 
 import asyncio
-import json
+import time
+from typing import Awaitable, Callable
+
 import structlog
-import websockets
-from typing import Callable, Awaitable
+
+from src.chat.platform import kick_events
 
 log = structlog.get_logger(__name__)
 
-PUSHER_KEY = "32cbd69e4b950bf97679"
-PUSHER_URL = (
-    f"wss://ws-us2.pusher.com/app/{PUSHER_KEY}"
-    "?protocol=7&client=python-highlightz&version=1.0&flash=false"
-)
-
 
 class KickChatMonitor:
+    # A live channel with no chat at all for this long gets its subscription
+    # renewed (Kick deliveries can stall — KickDevDocs #300). A busy chat is
+    # never three minutes quiet; a small one can be, and then the renewal
+    # costs two API calls and loses nothing. kick_events rate-limits it.
+    SILENCE_S = 180.0
+    TICK_S = 30.0
+    STATS_EVERY_S = 600.0
+
     def __init__(
         self,
-        chatroom_id: str,
+        broadcaster_id: str,
         on_message: Callable[[str, str], Awaitable[None]],
+        slug: str = "",
     ) -> None:
-        self.chatroom_id = str(chatroom_id)
+        self.broadcaster_id = str(broadcaster_id or "")
+        self.slug = (slug or "").lower()
         self.on_message = on_message
         self._running = False
+        self._stopped = False
+        self._queue: asyncio.Queue | None = None
 
     async def run(self) -> None:
-        # No chatroom id means the site endpoint could not be read (see
-        # src/ingestion/platform/kick.py). The worker keeps scoring on audio
-        # and viewers; looping on an empty subscription would only spam.
-        if not self.chatroom_id:
-            log.warning("kick_chat_unavailable", why="no chatroom id")
+        if self._stopped:
             return
         self._running = True
-        backoff = 5
+        try:
+            if not self.broadcaster_id:
+                # Kick's user id for the channel could not be learned (see
+                # src/ingestion/platform/kick.py), so there is nothing to
+                # subscribe to. The worker scores on audio and viewers. This
+                # WAITS rather than returning: the worker ends the session as
+                # soon as any of its tasks finishes, so a monitor that returned
+                # would restart the whole session every half-minute.
+                log.warning("kick_chat_unavailable", slug=self.slug,
+                            why="no broadcaster id; scoring on audio and viewers")
+                self._queue = asyncio.Queue()
+                while self._running and await self._queue.get() is not None:
+                    pass
+                return
+            self._queue = kick_events.listen(self.broadcaster_id)
+            try:
+                await kick_events.ensure_subscribed(self.broadcaster_id, self.slug)
+                await self._consume(self._queue)
+            finally:
+                kick_events.unlisten(self.broadcaster_id, self._queue)
+        finally:
+            self._running = False
+
+    async def _consume(self, q: asyncio.Queue) -> None:
+        quiet_since = stats_at = time.time()
+        heard = 0
+        flowing = False
         while self._running:
             try:
-                await self._connect()
-                backoff = 5
-            except Exception as exc:
-                log.warning("kick_chat_reconnecting", chatroom_id=self.chatroom_id,
-                            error=str(exc), retry_in=backoff)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 60)
-
-    async def _connect(self) -> None:
-        async with websockets.connect(PUSHER_URL, ping_interval=30) as ws:
-            # Wait for connection_established
-            raw = await ws.recv()
-            msg = json.loads(raw)
-            if msg.get("event") != "pusher:connection_established":
-                raise RuntimeError(f"Unexpected Pusher handshake: {msg}")
-
-            # Subscribe to the chatroom channel
-            await ws.send(json.dumps({
-                "event": "pusher:subscribe",
-                "data": {
-                    "auth": "",
-                    "channel": f"chatrooms.{self.chatroom_id}.v2",
-                },
-            }))
-            log.info("kick_chat_joined", chatroom_id=self.chatroom_id)
-
-            async for raw in ws:
-                if not self._running:
-                    break
+                item = await asyncio.wait_for(q.get(), timeout=self.TICK_S)
+            except asyncio.TimeoutError:
+                item = ()
+            if item is None:
+                break
+            now = time.time()
+            if item:
+                author, content = item
+                if not flowing:
+                    # Once per session, and again after a renewal brings a
+                    # quiet chat back: the line that says chat is reaching
+                    # the engine.
+                    flowing = True
+                    log.info("kick_chat_flowing", slug=self.slug,
+                             broadcaster_id=self.broadcaster_id)
+                quiet_since = now
+                heard += 1
                 try:
-                    msg = json.loads(raw)
-                    event = msg.get("event", "")
-
-                    if event == "App\\Events\\ChatMessageEvent":
-                        data = json.loads(msg.get("data", "{}"))
-                        author = data.get("sender", {}).get("username", "")
-                        content = data.get("content", "")
-                        if author and content:
-                            await self.on_message(author, content)
-
-                    elif event == "pusher:ping":
-                        await ws.send(json.dumps({"event": "pusher:pong", "data": {}}))
-
-                    elif event in ("pusher:error", "pusher:subscription_error"):
-                        # A refused subscription never recovers by waiting on
-                        # the same socket; reconnect with the backoff instead.
-                        raise RuntimeError(f"Pusher {event}: {str(msg.get('data'))[:200]}")
-
-                except Exception:
-                    pass  # malformed frame — ignore and continue
+                    await self.on_message(author, content)
+                except Exception as exc:
+                    log.warning("kick_chat_message_failed", slug=self.slug,
+                                error=str(exc)[:200])
+            elif now - quiet_since >= self.SILENCE_S:
+                await kick_events.ensure_subscribed(self.broadcaster_id, self.slug,
+                                                    renew=True)
+                quiet_since, flowing = now, False
+            if now - stats_at >= self.STATS_EVERY_S:
+                log.info("kick_chat_stats", slug=self.slug, messages=heard,
+                         window_s=round(now - stats_at))
+                heard, stats_at = 0, now
 
     def stop(self) -> None:
+        self._stopped = True
         self._running = False
+        if self._queue is not None:
+            try:
+                self._queue.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
