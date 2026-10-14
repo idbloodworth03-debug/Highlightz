@@ -8,10 +8,16 @@ it reaches them two ways: live over the socket if their tab is open, and on
 the next open if it is not. Both matter; a message only the people online at
 that second saw would miss most of the accounts it was written for.
 
-DELIBERATELY SMALL. A title, a body, when it was sent, when it stops showing.
+DELIBERATELY SMALL. A title, a body, when it was sent, when it stops showing,
+and whether it is an announcement or a product update (`kind`, owner
+2026-10-14 — it labels the popup and the row in the notifications bell).
 Per-user dismissal lives on the user record (users.py), so an announcement
 somebody closed stays closed on every device. Retiring one deletes it — there
 is no archive to maintain and nothing to un-retire; send it again.
+
+THE BELL. Every announcement still showing is also listed in the dashboard's
+notifications bell (GET /inbox), dismissed or not, so a popup somebody closed
+can be read again until it expires or is retired.
 
 BOUNDED. A title and body have hard ceilings, an announcement always expires,
 and the list is pruned of expired rows on every write — nothing here grows
@@ -37,6 +43,7 @@ MAX_TITLE = 80
 MAX_BODY = 1000
 MAX_DAYS = 90
 DEFAULT_DAYS = 14
+KINDS = ("announcement", "update")
 
 
 def _load() -> list[dict]:
@@ -56,9 +63,17 @@ def _live(rows: list[dict], now: float) -> list[dict]:
     return [r for r in rows if float(r.get("expires_at") or 0) > now]
 
 
-def create(title: str, body: str, days: int | None = None, by: str = "") -> dict:
+def kind_of(row: dict) -> str:
+    """Rows sent before `kind` existed are announcements."""
+    k = row.get("kind")
+    return k if k in KINDS else "announcement"
+
+
+def create(title: str, body: str, days: int | None = None, by: str = "",
+           kind: str = "announcement") -> dict:
     """Send an announcement. Raises ValueError for an empty or oversized one —
-    the endpoint turns that into a 400 with the message."""
+    the endpoint turns that into a 400 with the message. An unknown `kind` is
+    an announcement."""
     title = (title or "").strip()
     body = (body or "").strip()
     if not title:
@@ -76,11 +91,12 @@ def create(title: str, body: str, days: int | None = None, by: str = "") -> dict
     days = max(1, min(MAX_DAYS, days))
     now = time.time()
     row = {"id": uuid.uuid4().hex[:12], "title": title, "body": body,
+           "kind": kind if kind in KINDS else "announcement",
            "created_at": now, "expires_at": now + days * 86400, "by": by or ""}
     rows = _live(_load(), now)
     rows.append(row)
     _save(rows)
-    log.info("announcement_sent", id=row["id"], by=by, days=days)
+    log.info("announcement_sent", id=row["id"], by=by, days=days, kind=row["kind"])
     return row
 
 

@@ -4918,3 +4918,49 @@ tampered/foreign/missing signatures, key rotation and the re-fetch rate limit,
 dedupe, emotes, subscribe/record/restart/renew/replace/refusal/401, prune, the
 prune task surviving errors, the monitor end to end, and the broadcaster id
 from both endpoints. Mutation-checked: 15 deliberate breakages, all caught.
+
+## The notifications bell (2026-10-14)
+
+Owner: "make a little notification tab for users that is in like the top of
+the screen somewhere that displays all announcements, discount code offers,
+updates and things of that sort so users can see those things again if they
+want".
+
+- **Where:** a bell in the dashboard header, left of the account chip
+  (`InboxBell` / `InboxItem` in aurora_html.py). Opens a panel listing, newest
+  first: every announcement still showing (dismissed or not), labelled
+  Announcement or **Update**, and the account's discount offer with its code
+  and a **Claim it** button. Escape, an outside click/tap, the ×, or the bell
+  closes it. The popups themselves are unchanged.
+- **Server:** `GET /inbox` → `{items, unread}`; `POST /inbox/read` stamps
+  `inbox_read_at` on the user and broadcasts `inbox_changed` (scoped). An item
+  is read once acknowledged anywhere: Got it / Not now / Claim on its popup,
+  or the bell opened after it arrived. A re-sent offer is new again (its id
+  carries its send time). Retired/expired announcements leave the bell;
+  announcements keep their 14–90 day lifetime, nothing is archived.
+- **Offers after "Not now":** `users.claimable_offer` (exists; not paying,
+  trialing or staff) is now separate from `users.offer_for` (claimable AND not
+  dismissed — the popup, unchanged). `/billing/checkout?offer=1` uses
+  `claimable_offer`, so Claim it from the bell still pre-applies the code after
+  Not now. Still only the account's own offer.
+- **Updates:** announcements gained `kind` (`announcement` | `update`;
+  `announcements.kind_of`, legacy rows read as announcements). Admin → Announce
+  has the picker; the popup and the bell label it.
+- **Realtime:** `/inbox` is in `refetchAll` (`refetchInbox()`); re-read on
+  `announcement`, `announcement_retired`, `announcement_seen`, `offer_changed`,
+  and the new `inbox_changed`. Plan changes already call refetchAll.
+- **Phone header:** the bell made the header row one button too long — at
+  360–390px it wrapped and left the avatar alone on a second row (58px →
+  106px). Under 700px the row no longer wraps: 4px gaps, slightly narrower
+  Twitch/Kick buttons, 34px bell, and the page title ellipsizes if it must.
+  Measured 58px, no sideways scroll, 320–700px. The panel is OPAQUE
+  (`#100e16`): at .97 the screen read through it on a phone.
+- **Verified in a real browser** (Chromium, the real server on seeded data;
+  React/Babel served from npm with matching SRI): badge, open → read → badge
+  clears and the POST fires, New tag, Escape returns focus, the Update popup,
+  desktop and 360/390px phone layouts.
+
+Tests: `tests/test_inbox.py` (26). Mutation-checked: 12 deliberate breakages
+(checkout ignoring the bell, dismissed items dropped, read logic, global
+broadcast, refetchAll, offer_changed, header placement, kind, offer to paying
+accounts, popup returning after Not now), all caught.

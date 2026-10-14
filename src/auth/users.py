@@ -1132,16 +1132,37 @@ def mark_offer(user_id: str, field: str) -> bool:
     return False
 
 
-def offer_for(user: dict | None) -> dict | None:
-    """The offer the user should SEE, or None: it exists, they have not said
-    "Not now", and they are not already paying (an offer to someone already
-    subscribed would send them into a second checkout)."""
+def claimable_offer(user: dict | None) -> dict | None:
+    """The offer this account can still CLAIM, or None: it exists and they are
+    not already paying (an offer to someone already subscribed would send
+    them into a second checkout). "Not now" does not take it away — it only
+    stops the popup; the notifications bell keeps it, with its Claim button,
+    until it is claimed into a subscription or an admin takes it back."""
     offer = (user or {}).get("offer")
     if not isinstance(offer, dict) or not offer.get("code"):
-        return None
-    if offer.get("dismissed_at"):
         return None
     if (user or {}).get("is_admin") or (user or {}).get("subscription_status") in ("active", "trialing"):
         return None
     return {"code": offer["code"], "plan": offer.get("plan") or "pro",
             "headline": offer.get("headline") or ""}
+
+
+def offer_for(user: dict | None) -> dict | None:
+    """The offer the popup should SHOW, or None: claimable, and they have not
+    said "Not now"."""
+    offer = claimable_offer(user)
+    if offer is None or ((user or {}).get("offer") or {}).get("dismissed_at"):
+        return None
+    return offer
+
+
+def mark_inbox_read(user_id: str) -> None:
+    """The user opened the notifications bell: everything in it as of now is
+    read. One timestamp, on the user record, so the badge clears on every
+    device."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            u["inbox_read_at"] = time.time()
+            _save(users)
+            return

@@ -1163,6 +1163,43 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .rd-ann h3{margin:0;font-size:20px;font-weight:800;letter-spacing:-.01em}
 .rd-ann-body{white-space:pre-wrap;font-size:14px;line-height:1.6;color:var(--fg-2);max-height:50vh;overflow:auto}
 .rd-ann .rd-btn{align-self:flex-end}
+/* The notifications bell, left of the account chip, and its panel. The panel
+   hangs from the HEADER (position:relative here), not from the bell, so on a
+   phone it can span the screen edge to edge instead of overflowing it. It
+   lives inside the header's stacking context (z-index 5), so every modal
+   still covers it. */
+.rd-header{position:relative}
+.rd-inbox{display:flex;flex-shrink:0}
+.rd-bell{position:relative}
+.rd-bell.on{color:var(--fg);background:rgba(255,255,255,.1)}
+.rd-bell-n{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:99px;
+  background:var(--grad);color:#fff;font-size:10px;font-weight:800;line-height:17px;text-align:center;
+  box-shadow:0 0 0 2px var(--rd-bg)}
+/* OPAQUE, not .97: checked in Chromium at phone width, a near-opaque fill
+   hanging out of the header let the screen underneath read through it at
+   roughly a fifth of its brightness ("Waiting for clips" across the offer). */
+.rd-inbox-panel{position:absolute;top:calc(100% + 8px);right:24px;width:min(380px,calc(100vw - 24px));
+  max-height:min(70vh,560px);display:flex;flex-direction:column;border-radius:16px;overflow:hidden;
+  background:#100e16;border:1px solid var(--hair);box-shadow:0 24px 60px -18px rgba(0,0,0,.8)}
+.rd-inbox-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;
+  border-bottom:1px solid var(--hair);font-size:14px}
+.rd-inbox-x{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:none;border:none;color:var(--fg-3)}
+.rd-inbox-x:hover{color:var(--fg);background:rgba(255,255,255,.06)}
+.rd-inbox-list{list-style:none;overflow-y:auto;min-height:0}
+.rd-inbox-item{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-bottom:1px solid var(--hair)}
+.rd-inbox-item:last-child{border-bottom:none}
+.rd-inbox-item.fresh{background:rgba(196,137,228,.08);background:color-mix(in srgb,var(--acc) 9%,transparent)}
+.rd-inbox-k{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--acc)}
+.rd-inbox-new{padding:0 4px;border-radius:99px;background:var(--grad);color:#fff;letter-spacing:.06em}
+.rd-inbox-when{margin-left:auto;color:var(--fg-3);letter-spacing:.04em;text-transform:none}
+.rd-inbox-t{font-size:14px;font-weight:700;color:var(--fg);overflow-wrap:anywhere}
+.rd-inbox-b{white-space:pre-wrap;font-size:13px;line-height:1.55;color:var(--fg-2);overflow-wrap:anywhere}
+.rd-inbox-cta{align-self:flex-start;text-decoration:none;padding:8px 16px;font-size:12px}
+.rd-inbox-empty{padding:24px 16px;text-align:center;font-size:13px;line-height:1.55;color:var(--fg-3)}
+@media(max-width:700px){
+  .rd-inbox-panel{left:8px;right:8px;width:auto;top:calc(100% + 6px);max-height:75dvh}
+}
 /* Onboarding: the two questions, asked once after Twitch is attached. Shares
    the announcement backdrop so it lands in front of everything. */
 .rd-onb{width:min(620px,100%);padding:24px;border-radius:20px;display:flex;flex-direction:column;gap:12px}
@@ -2086,6 +2123,24 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-detail-head{flex-wrap:wrap}
   .rd-detail-head>div{min-width:0}
   .rd-detail-head h2{font-size:17px;word-break:break-word}
+}
+/* THE BELL MADE THE PHONE HEADER ONE BUTTON TOO LONG (2026-10-14). Measured in
+   Chromium: with it, the row above wrapped at 360-390px and left the account
+   avatar alone on a second line (header 58px -> 106px on every screen). So on
+   a phone the row never wraps: the buttons keep their size, a little spacing
+   comes out, and the page TITLE is the one thing that gives way, with an
+   ellipsis. Measured after: 58px and no sideways scroll from 320 to 700px;
+   "Clip Review" whole from 360px up. After the block above, which it must
+   beat at equal specificity. */
+@media(max-width:700px){
+  .rd-header{flex-wrap:nowrap;gap:4px}
+  .rd-header .spacer{display:none}
+  .rd-header .plat-switch{margin-left:auto}
+  .rd-header .plat-sw-btn{padding:8px}
+  .rd-header .rd-bell{width:34px;height:34px}
+  .rd-header>div:not([class]){flex:0 1 auto}
+  .rd-header .htitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rd-header .rd-menubtn,.rd-header .plat-switch,.rd-header .rd-inbox,.rd-header .rd-user-chip{flex-shrink:0}
 }
 </style>
 </head>
@@ -3182,7 +3237,7 @@ function AnnouncementModal({ a, onSeen }) {
   return (
     <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-ann-title">
       <div className="rd-ann glass">
-        <div className="rd-ann-k"><Icon name="bell" size={13}/>Announcement</div>
+        <div className="rd-ann-k"><Icon name={a.kind==='update'?'zap':'bell'} size={13}/>{a.kind==='update'?'Update':'Announcement'}</div>
         <h3 id="rd-ann-title">{a.title}</h3>
         <div className="rd-ann-body">{a.body}</div>
         <button className="rd-btn grad" onClick={()=>onSeen(a.id)} autoFocus>Got it</button>
@@ -3212,6 +3267,113 @@ function OfferModal({ offer, onDismiss }) {
           <button className="rd-btn" onClick={onDismiss}>Not now</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// THE NOTIFICATIONS BELL (owner, 2026-10-14): "a little notification tab ...
+// in like the top of the screen somewhere that displays all announcements,
+// discount code offers, updates and things of that sort so users can see
+// those things again if they want". The popups above are unchanged; this is
+// where what they said can be found again after Got it or Not now.
+//
+// The list and the unread count come from GET /inbox — the server decides
+// what is read. Opening the panel marks everything read. Whatever was unread
+// when it opened keeps a New tag until it closes, so marking it read does not
+// make the highlight vanish while it is being looked at.
+const INBOX_KINDS = {
+  announcement: ['bell', 'Announcement'],
+  update:       ['zap', 'Update'],
+  offer:        ['sparkles', 'Offer'],
+};
+const inboxWhen = ts => {
+  if (!ts) return '';
+  const s = Math.max(0, Date.now()/1000 - ts);
+  if (s < 3600)   return Math.max(1, Math.round(s/60)) + 'm ago';
+  if (s < 86400)  return Math.round(s/3600) + 'h ago';
+  if (s < 604800) return Math.round(s/86400) + 'd ago';
+  return new Date(ts*1000).toLocaleDateString([], {month:'short', day:'numeric'});
+};
+
+function InboxItem({ item, fresh }) {
+  const [icon, label] = INBOX_KINDS[item.kind] || INBOX_KINDS.announcement;
+  const offer = item.kind === 'offer';
+  // An offer reads the way its popup does: "50% off your first month on Pro".
+  const title = offer
+    ? (item.headline || 'A discount') + ' on ' + (item.plan === 'starter' ? 'Starter' : 'Pro')
+    : item.title;
+  return (
+    <li className={'rd-inbox-item' + (fresh ? ' fresh' : '')}>
+      <div className="rd-inbox-k">
+        <Icon name={icon} size={12}/><span>{label}</span>
+        {fresh && <span className="rd-inbox-new">New</span>}
+        <span className="rd-inbox-when">{inboxWhen(item.at)}</span>
+      </div>
+      <div className="rd-inbox-t">{title}</div>
+      {offer
+        ? <>
+            <div className="rd-inbox-b">Code <b>{item.code}</b> is already applied when you check out.</div>
+            <a className="rd-btn grad rd-inbox-cta"
+              href={'/billing/checkout?plan=' + (item.plan || 'pro') + '&offer=1'}>Claim it</a>
+          </>
+        : <div className="rd-inbox-b">{item.body}</div>}
+    </li>
+  );
+}
+
+function InboxBell({ inbox, onRead }) {
+  const [open, setOpen] = useState(false);
+  const [fresh, setFresh] = useState([]);
+  const wrap = useRef(null);
+  const bell = useRef(null);
+  const items = (inbox && inbox.items) || [];
+  const unread = (inbox && inbox.unread) || 0;
+  // Open means read — including something that arrives while it is open,
+  // which is being looked at. Tagged New all the same.
+  useEffect(() => {
+    if (!open || unread <= 0) return;
+    const ids = items.filter(i => !i.read).map(i => i.id);
+    setFresh(f => f.concat(ids.filter(id => !f.includes(id))));
+    onRead();
+  }, [open, unread]);
+  useEffect(() => { if (!open) setFresh([]); }, [open]);
+  // Closed by Escape (focus back on the bell), a click or tap outside it, or
+  // the bell again.
+  useEffect(() => {
+    if (!open) return;
+    const away = e => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === 'Escape') { setOpen(false); if (bell.current) bell.current.focus(); } };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('touchstart', away);
+    window.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('touchstart', away);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <div className="rd-inbox" ref={wrap}>
+      <button ref={bell} className={'rd-iconbtn rd-bell' + (open ? ' on' : '')} title="Notifications"
+        aria-label={unread ? 'Notifications, ' + unread + ' new' : 'Notifications'}
+        aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <Icon name="bell" size={17}/>
+        {unread > 0 && <span className="rd-bell-n" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}
+      </button>
+      {open &&
+        <div className="rd-inbox-panel" role="dialog" aria-label="Notifications">
+          <div className="rd-inbox-head">
+            <b>Notifications</b>
+            <button className="rd-inbox-x" aria-label="Close notifications" onClick={() => setOpen(false)}>
+              <Icon name="x" size={14}/></button>
+          </div>
+          {items.length === 0
+            ? <div className="rd-inbox-empty">Nothing here yet. Announcements, updates and offers
+                from Highlightz will show up here.</div>
+            : <ul className="rd-inbox-list">
+                {items.map(i => <InboxItem key={i.id} item={i} fresh={fresh.includes(i.id)}/>)}
+              </ul>}
+        </div>}
     </div>
   );
 }
@@ -10416,6 +10578,15 @@ function RdApp() {
   // Announcements from the operator, in front of everything until dismissed.
   // Server-filtered: only the ones this account has not closed arrive here.
   const [announcements, setAnnouncements] = useState([]);
+  // The notifications bell: every announcement still showing and this
+  // account's discount, dismissed or not, with the unread count. In
+  // refetchAll, and re-read on every event that can change it (announcement,
+  // announcement_retired, announcement_seen, offer_changed, inbox_changed).
+  const [inbox, setInbox] = useState({items:[], unread:0});
+  const refetchInbox = useCallback(()=>{
+    fetch('/inbox').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) setInbox({items:d.items||[], unread:d.unread||0}); }).catch(()=>{});
+  }, []);
   // Ask the onboarding questions once, and only after Twitch is attached —
   // the flow is "connect Twitch, then tell us what you are here for", and
   // before that there is nothing to configure. Derived from /me rather than
@@ -10534,6 +10705,9 @@ function RdApp() {
     // Announcements: the socket event reaches tabs open at the moment of
     // sending; this reaches everyone else on their next open or reconnect.
     fetch('/announcements').then(r=>r.json()).then(d=>setAnnouncements(d.rows||[])).catch(()=>{});
+    // The bell, for the same reason: anything sent, retired or read while
+    // this tab was asleep or the server was restarting.
+    refetchInbox();
     // (Posting data: from the /me reply above, and only if this account can post.)
     // Which clips are featured on the landing page (admin curation state).
     fetch('/landing/showcase').then(r=>r.json()).then(d=>setFeatured(d.clips||[])).catch(()=>{});
@@ -10779,11 +10953,18 @@ function RdApp() {
         // IS the announcement, and a fetch would only re-read it.
         else if(msg.event==='announcement' && msg.announcement){
           setAnnouncements(p=>p.some(a=>a.id===msg.announcement.id)?p:[...p, msg.announcement]);
+          refetchInbox();
         }
         // Retired by the operator, or dismissed in one of this user's other
-        // tabs. Either way it comes down here too.
+        // tabs. Either way it comes down here too — and the bell re-reads:
+        // retired leaves it, dismissed stays in it, marked read.
         else if(msg.event==='announcement_retired' || msg.event==='announcement_seen'){
           setAnnouncements(p=>p.filter(a=>a.id!==msg.id));
+          refetchInbox();
+        }
+        // The bell was opened in another of this user's tabs: badge clears.
+        else if(msg.event==='inbox_changed'){
+          refetchInbox();
         }
         // Clearing recents in one tab must clear them in every open tab. The
         // suggestion list lives inside AddStreamPanel and is fetched on open
@@ -10837,8 +11018,10 @@ function RdApp() {
         }
         else if(msg.event==='offer_changed'){
           // An admin gave, changed or removed this account's discount, or it
-          // was dismissed in another tab. /me carries it.
+          // was dismissed in another tab. /me carries it for the popup; the
+          // bell lists it, Not now or not.
           fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
+          refetchInbox();
         }
         else if(msg.event==='publish_connections_changed'){
           // Sent on connect, disconnect, and when the poster finds a token
@@ -10939,6 +11122,13 @@ function RdApp() {
   const dismissOffer = ()=>{
     setMe(m=>({...(m||{}), offer: null}));
     fetch('/offer/dismiss',{method:'POST'}).catch(()=>{});
+  };
+
+  // The bell was opened: all read here at once; the POST persists it, and
+  // its inbox_changed broadcast clears the badge in this user's other tabs.
+  const markInboxRead = ()=>{
+    setInbox(b=>({items:b.items.map(i=>({...i, read:true})), unread:0}));
+    fetch('/inbox/read',{method:'POST'}).catch(()=>{});
   };
 
   const dismissAnnouncement = (id)=>{
@@ -11214,6 +11404,7 @@ function RdApp() {
             <button className={'plat-sw-btn '+(activePlatform==='kick'?'sw-on-kick':'sw-off')} onClick={()=>switchPlatform('kick')}>Kick</button>
           </div>
           <span className="rd-live"><span className="dot"/>Live</span>
+          <InboxBell inbox={inbox} onRead={markInboxRead}/>
           <button className="rd-user-chip" title="Settings" style={{border:'none',cursor:'pointer'}} onClick={()=>openAccount()}>
             {me.avatar_url
               ? <img src={me.avatar_url} alt={me.username}/>

@@ -2629,9 +2629,11 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
     # (portal / cancel-on-delete / admin sync all key off the stored id).
     # A personal offer is applied only when it is THIS account's own offer, so
     # the URL cannot be used to pre-apply a code the account was not given.
+    # claimable_offer, not offer_for: "Not now" only closed the popup, and the
+    # notifications bell still offers Claim it — which must still apply the code.
     promo = None
     if offer:
-        mine = user_store.offer_for(db_user)
+        mine = user_store.claimable_offer(db_user)
         if mine:
             promo = mine["code"]
             user_store.mark_offer(uid, "claimed_at")
@@ -7469,7 +7471,9 @@ async def dismiss_clip_refusal(channel: str, request: Request):
 # ── Announcements: one message, in front of every user ───────────────────────
 
 def _announcement_out(a: dict) -> dict:
+    from src.dashboard import announcements
     return {"id": a.get("id"), "title": a.get("title", ""), "body": a.get("body", ""),
+            "kind": announcements.kind_of(a),
             "created_at": a.get("created_at", 0), "expires_at": a.get("expires_at", 0)}
 
 
@@ -7530,7 +7534,8 @@ async def admin_send_announcement(request: Request):
         body = {}
     try:
         row = announcements.create(str(body.get("title", "")), str(body.get("body", "")),
-                                   body.get("days"), by=request.session.get("user_id", ""))
+                                   body.get("days"), by=request.session.get("user_id", ""),
+                                   kind=str(body.get("kind") or "announcement"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     await broadcast({"event": "announcement", "announcement": _announcement_out(row)},
@@ -7546,6 +7551,66 @@ async def admin_retire_announcement(aid: str, request: Request):
     if not announcements.retire(aid):
         raise HTTPException(status_code=404, detail="Announcement not found")
     await broadcast({"event": "announcement_retired", "id": aid}, user_id=None)
+    return {"ok": True}
+
+
+# ── The notifications bell (owner, 2026-10-14) ───────────────────────────────
+#
+# "a little notification tab for users that is in like the top of the screen
+# somewhere that displays all announcements, discount code offers, updates and
+# things of that sort so users can see those things again if they want"
+#
+# The popups are unchanged; this is where they can be found again. It lists
+# every announcement still showing, dismissed or not, and this account's
+# discount while it can still be claimed — after "Not now" too (see
+# users.claimable_offer). The only new state is one timestamp per account,
+# `inbox_read_at`, for the unread badge. An item is read once it was
+# acknowledged anywhere: "Got it" / "Not now" / Claim on its popup, or the bell
+# being opened after it arrived.
+
+def _inbox_for(user: dict) -> dict:
+    from src.auth import users as user_store
+    from src.dashboard import announcements
+    read_at = float(user.get("inbox_read_at") or 0)
+    seen = set(user.get("announcements_seen") or [])
+    items = []
+    for a in announcements.active():
+        at = float(a.get("created_at") or 0)
+        items.append({"id": "a-" + str(a.get("id")), "kind": announcements.kind_of(a),
+                      "title": a.get("title", ""), "body": a.get("body", ""), "at": at,
+                      "read": a.get("id") in seen or at <= read_at})
+    offer = user_store.claimable_offer(user)
+    if offer:
+        raw = user.get("offer") or {}
+        at = float(raw.get("created_at") or 0)
+        # The id carries when it was sent, so a re-sent offer is new again.
+        items.append({"id": f"offer-{int(at)}", "kind": "offer", "code": offer["code"],
+                      "plan": offer["plan"], "headline": offer["headline"], "at": at,
+                      "read": bool(raw.get("dismissed_at") or raw.get("claimed_at"))
+                              or at <= read_at})
+    items.sort(key=lambda i: i["at"], reverse=True)
+    return {"items": items, "unread": sum(1 for i in items if not i["read"])}
+
+
+@app.get("/inbox")
+async def my_inbox(request: Request):
+    """Everything in the bell, newest first. Pulled in refetchAll and re-read
+    on every event that can change it (an announcement sent, retired or
+    dismissed; offer_changed; inbox_changed), so an open tab never needs a
+    reload to see a new item or a cleared badge."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    return _inbox_for(user_store.get_by_id(uid) or {})
+
+
+@app.post("/inbox/read")
+async def inbox_read(request: Request):
+    """The bell was opened: everything in it is read. Broadcast so the badge
+    clears in the user's other tabs as well."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user_store.mark_inbox_read(uid)
+    await broadcast({"event": "inbox_changed"}, user_id=uid)
     return {"ok": True}
 
 
@@ -14016,12 +14081,18 @@ ADMIN_HTML = """<!DOCTYPE html>
     <h2>Announce to everyone</h2>
     <p class="sub">A message that pops up in front of the dashboard for every signed-up
       account &mdash; live in every open tab the moment you send it, and on next open for
-      everyone else &mdash; until each person presses Got it.</p>
+      everyone else &mdash; until each person presses Got it. It also stays in everyone's
+      notifications bell (top right of the dashboard) until it expires or you retire it,
+      so people can read it again.</p>
     <div style="display:grid;gap:var(--s-3);max-width:640px;margin:var(--s-4) 0">
       <input class="field" id="an-title" maxlength="80" placeholder="Title (up to 80 characters)">
       <textarea class="field" id="an-body" rows="5" maxlength="1000"
         placeholder="The message. Line breaks are kept. Up to 1,000 characters."></textarea>
       <div style="display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">
+        <select class="btn" id="an-kind" title="How it is labelled in the popup and the bell">
+          <option value="announcement" selected>Announcement</option>
+          <option value="update">Update (new feature or change)</option>
+        </select>
         <select class="btn" id="an-days">
           <option value="7">Show for 7 days</option>
           <option value="14" selected>Show for 14 days</option>
@@ -14036,8 +14107,10 @@ ADMIN_HTML = """<!DOCTYPE html>
     <p class="sub">Pops up for every account that is not paying &mdash; free, lapsed, left at
       checkout &mdash; with a <b>Claim it</b> button that opens checkout with the code already
       applied. Live in open tabs, on next open for everyone else, until they claim it, press
-      Not now, or subscribe. Trial accounts see it when their trial ends. The code must exist
-      in Stripe as an active promotion code with the discount you describe here.</p>
+      Not now, or subscribe. After Not now it stays in their notifications bell, Claim button
+      and all, until they subscribe or you take the code back. Trial accounts see it when
+      their trial ends. The code must exist in Stripe as an active promotion code with the
+      discount you describe here.</p>
     <div style="display:grid;gap:var(--s-3);max-width:640px;margin:var(--s-4) 0">
       <div style="display:flex;gap:var(--s-3);flex-wrap:wrap">
         <input class="field" id="bo-code" maxlength="40" value="CLIPPER" placeholder="Stripe code" style="width:160px">
@@ -14627,7 +14700,8 @@ async function loadAnnouncements(){
   let html = '<table><thead><tr><th>Sent</th><th>Message</th><th>Seen</th><th>Until</th><th></th></tr></thead><tbody>';
   rows.forEach(function(r){
     html += '<tr><td>' + new Date(r.created_at*1000).toLocaleString() + '</td>'
-      + '<td><b>' + esc(r.title) + '</b><div class="sub" style="white-space:pre-wrap">' + esc(r.body) + '</div></td>'
+      + '<td><span class="sub">' + (r.kind === 'update' ? 'Update' : 'Announcement') + '</span><br>'
+      + '<b>' + esc(r.title) + '</b><div class="sub" style="white-space:pre-wrap">' + esc(r.body) + '</div></td>'
       // The only read receipt a modal can honestly give: who pressed Got it.
       + '<td>' + n0(r.seen) + ' / ' + n0(d.users) + '</td>'
       + '<td>' + new Date(r.expires_at*1000).toLocaleDateString() + '</td>'
@@ -14650,12 +14724,13 @@ document.getElementById('an-send').addEventListener('click', async function(){
   const title = document.getElementById('an-title').value.trim();
   const body  = document.getElementById('an-body').value.trim();
   const days  = +document.getElementById('an-days').value;
+  const kind  = document.getElementById('an-kind').value;
   if(!title || !body){ msg.textContent = 'A title and a message are both needed.'; return; }
   if(!confirm('Send this to every signed-up account? It pops up in front of their dashboard.')) return;
   btn.disabled = true; msg.textContent = 'Sending…';
   try {
     const r = await fetch('/admin/announcements', { method:'POST',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, days}) });
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, days, kind}) });
     if(!r.ok){ const e = await r.json().catch(()=>({})); msg.textContent = e.detail || ('Failed (' + r.status + ')'); return; }
     document.getElementById('an-title').value = '';
     document.getElementById('an-body').value = '';
