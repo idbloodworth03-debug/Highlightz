@@ -5191,8 +5191,9 @@ async def _adopt_orphaned_subscriptions() -> int:
 
 
 async def idle_stream_reaper() -> None:
-    """Background task: stop stream workers for users idle longer than 8 hours,
-    and enforce subscription/trial expiry for any user with active streams.
+    """Background task: pause the channels of FREE accounts idle longer than 8
+    hours (paid plans keep watching — plans.pauses_when_idle), and enforce
+    subscription/trial expiry for any user with active streams.
 
     Runs every 5 minutes.
     """
@@ -5222,11 +5223,24 @@ async def idle_stream_reaper() -> None:
                         await broadcast({"event": "subscription_expired"}, user_id=uid)
                         continue
                     # Trim a lapsed subscriber to the free allowance. NOT a
-                    # shutdown: they keep using the product on free.
+                    # shutdown: they keep using the product on free — idle
+                    # check below included. This branch used to end in
+                    # `continue`, a leftover from when lapsing stopped
+                    # everything, so free accounts never reached the idle
+                    # check and never paused, while paying ones always did.
                     if status not in ("active", "trialing") and not db_user.get("is_admin"):
                         if await _enforce_stream_limit(uid):
                             log.info("reaper_subscription_lapsed", user=uid, status=status)
                             await broadcast({"event": "subscription_expired"}, user_id=uid)
+
+                    # PAID PLANS KEEP WATCHING (owner, 2026-10-15). Starter and
+                    # Pro pay for Highlightz to watch while they are away, so
+                    # only free channels pause (plans._IDLE_PAUSE). A paid
+                    # account that an earlier idle pause left paused is
+                    # resumed here, rather than waiting for its next visit.
+                    if not _plans.pauses_when_idle(db_user):
+                        if uid in _paused_users and await _resume_user_streams(uid):
+                            log.info("idle_pause_lifted_paid_plan", user=uid)
                         continue
 
                 # Idle timeout — stop if no HTTP activity in 8 hours.
@@ -8961,8 +8975,9 @@ comparison — is at https://highlightz.app/llms-full.txt.
 
 - Monitors live Twitch and Kick channels continuously and clips automatically,
   with no one watching the stream. Add a channel before it goes live and it is
-  rechecked every 30 seconds; monitoring stops after 8 hours without the
-  dashboard being opened.
+  rechecked every 30 seconds. Starter and Pro keep watching while you are away;
+  on Free, monitoring pauses after 8 hours without the dashboard being opened
+  and resumes on the next visit.
 - Scores each second from seven live signals ({sig}) against that channel's
   own threshold, so a small channel and a huge one are judged the same way.
 - On Twitch, creates a real Twitch clip through the official Clips API using
@@ -12669,8 +12684,9 @@ def _faq() -> str:
         ("Do I have to leave anything running?",
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
-         "until it is. Monitoring stops after 8 hours without you opening the dashboard, so a "
-         "forgotten tab does not run forever."),
+         "until it is. On Starter and Pro it keeps watching for as long as the channel is in "
+         "your list. On Free, monitoring pauses after 8 hours without you opening the dashboard "
+         "and picks up again on your next visit."),
         ("How many channels can it watch at once?",
          f"<b>{free['max_streams']}</b> on Free, <b>{st['max_streams']}</b> on Starter, "
          f"<b>{pro['max_streams']}</b> on Pro. At the same time, not in rotation, and each one "

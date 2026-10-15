@@ -4964,3 +4964,50 @@ Tests: `tests/test_inbox.py` (26). Mutation-checked: 12 deliberate breakages
 (checkout ignoring the bell, dismissed items dropped, read logic, global
 broadcast, refetchAll, offer_changed, header placement, kind, offer to paying
 accounts, popup returning after Not now), all caught.
+
+## luclips, third look: Kick webhooks were off; idle pause ran backwards (2026-10-15)
+
+Owner: "It still looks like this luclips guy is not getting clips. It also says
+he has 1 accepted and I cannot see it." Diagnosed on prod first
+(`scratchpad/westcol/luclips2.py`, pasted output):
+
+- **Kick chat:** the webhook code was live, but every subscription was refused
+  — `kick_events_subscribe_failed` x733 in a day, Kick answering HTTP 400
+  `"webhook not enabled for app"`; no `POST /kick/webhook` in nginx. The Kick
+  developer app's **Enable webhooks** toggle was off with no URL. Owner turned
+  it on with `https://highlightz.app/kick/webhook`; within minutes
+  `kick_events_subscribed`, `kick_chat_flowing` and 253 deliveries, none
+  rejected. Live channels picked it up with no restart (the quiet-chat retry).
+  This also confirmed on prod what the 2026-10-14 entry listed as unverified:
+  the public-key fetch and parse (`kick_public_key_loaded`) and the create
+  body (Kick's 400 was about the toggle, not the request).
+- **"1 accepted":** the admin drawer's "Clip decisions (all time)" reads the
+  ledger, so it keeps counting a clip after it is deleted. His one approval
+  (f61eca33, Oct 13 03:15, a Kick clip whose video was never cut) was deleted
+  BY HIM 15 seconds later — nginx: `DELETE /clips/f61eca33… 204` at 03:15:15
+  (only the clip's owner can call that route). Nothing lost, nothing to fix.
+- **His channels were `paused`:** the 8-hour idle pause. Reading the reaper
+  showed it ran BACKWARDS since the free tier (2026-08-03): the lapsed-account
+  branch ended in `continue`, a leftover from when lapsing stopped everything,
+  so free accounts never reached the idle check and never paused, while
+  paying ones always did — mid-stream too.
+
+**Owner decision (asked):** paid plans keep watching; only Free pauses.
+- `PLAN_LIMITS[...]["pauses_when_idle"]` (`plans._IDLE_PAUSE`): True for
+  locked/free, False for starter/pro; `plans.pauses_when_idle(user)` goes
+  through `limits_for`, so trials, grace statuses and staff (all resolving to
+  a paid plan) keep watching and an ENDED trial pauses.
+- `idle_stream_reaper`: the stray `continue` is gone (free accounts are trimmed
+  to the allowance and then idle-checked); a paid account skips the idle check
+  and, if an earlier pause left it paused, is resumed on the tick
+  (`idle_pause_lifted_paid_plan`; `_resume_user_streams` broadcasts
+  `stream_updated`). So luclips' channels came back within 5 minutes of the
+  deploy without him visiting.
+- **Visible change for Free:** idle free accounts now pause after 8 hours and
+  resume on the next visit — what the FAQ always said. Copy now says it: the
+  FAQ ("On Starter and Pro it keeps watching… On Free, monitoring pauses after
+  8 hours…"), llms.txt, and the pause toast ("Starter and Pro keep watching
+  while you are away.").
+
+Tests: `tests/test_idle_pause_paid.py` (one real reaper tick per scene).
+Mutation-checked: 6 deliberate breakages, all caught.

@@ -129,27 +129,42 @@ _LIB_WEEK = "max_library_week"
 # and it tells the tab it happened. See notify_clip_ready.
 _HL_PRIORITY = "highlight_priority"
 
+# WHETHER CHANNELS PAUSE WHEN THE ACCOUNT GOES QUIET (owner, 2026-10-15).
+#
+# The idle reaper pauses an account's channels after eight hours without the
+# person using the site; the next visit resumes them. Free only. Somebody on
+# Starter or Pro is paying for Highlightz to watch while they sleep — a Pro
+# customer's channels sat paused while the streamer they follow went live —
+# so a paid plan, trials and staff included (they resolve to one), keeps
+# watching for as long as the channel is in the list. The live-slot cap still
+# bounds what the box runs at once.
+#
+# Before this the reaper's early exit for non-paying accounts sat ABOVE its
+# idle check (a leftover from when lapsing stopped everything), so the rule
+# ran backwards: free never paused and paid always did.
+_IDLE_PAUSE = "pauses_when_idle"
+
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
     # It is not any more, and with free reopened nothing lands here at all —
     # the label survives for the one caller that can still reach it.
     "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
                 "max_pending": 0, _SUGGESTED: 0, _LIB_WEEK: 0,
-                "vod": False, "uploads": False, _HL_PRIORITY: False},
+                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: True},
     # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
     # the product that still proves it works: one channel, twenty clips in the
     # queue, and five suggested clips on top of those — see _SUGGESTED.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
                 "max_pending": 20, _SUGGESTED: 5, _LIB_WEEK: 30,
-                "vod": False, "uploads": False, _HL_PRIORITY: True},
+                "vod": False, "uploads": False, _HL_PRIORITY: True, _IDLE_PAUSE: True},
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
                 "max_pending": 50, _SUGGESTED: 25, _LIB_WEEK: 100,
-                "vod": False, "uploads": False, _HL_PRIORITY: False},
+                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: False},
     # Pro is the tier with no ceiling on what you keep, which is most of why
     # somebody moves up from Starter.
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
                 "max_pending": 200, _SUGGESTED: 75, _LIB_WEEK: UNLIMITED_PENDING,
-                "vod": True, "uploads": True, _HL_PRIORITY: False},
+                "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False},
 }
 
 PAID_PLANS = ("starter", "pro")
@@ -408,6 +423,13 @@ def limits_for(user: dict | None) -> dict:
         return {**limits, "max_pending": UNLIMITED_PENDING,
                 _LIB_WEEK: UNLIMITED_PENDING}
     return limits
+
+
+def pauses_when_idle(user: dict | None) -> bool:
+    """May the idle reaper pause this account's channels? Free and locked yes;
+    Starter and Pro (paid, comped, trialing, in a payment grace period) and
+    staff no. See _IDLE_PAUSE."""
+    return bool(limits_for(user).get(_IDLE_PAUSE, True))
 
 
 def is_paid(user: dict | None) -> bool:

@@ -10875,7 +10875,7 @@ function RdApp() {
           refetchAll();
           flash('Your account roles were updated.');
         }
-        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz.');}
+        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz. Starter and Pro keep watching while you are away.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is
         // indistinguishable from a bug to the person it happens to.
