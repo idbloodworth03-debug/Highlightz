@@ -5011,3 +5011,66 @@ he has 1 accepted and I cannot see it." Diagnosed on prod first
 
 Tests: `tests/test_idle_pause_paid.py` (one real reaper tick per scene).
 Mutation-checked: 6 deliberate breakages, all caught.
+
+## Kick thumbnails: a frame of our own video (2026-10-15)
+
+Owner: "Fix the thumbnails for Kick I need those to not be the ugly brown
+images".
+
+- **Why brown:** Kick has no clip API, so a Kick clip has no `thumbnail_url`
+  (the clip IS the MP4 we cut from the live capture). Every Kick card fell
+  back to `thumbFor(channel)`: a gradient hashed from the channel name over
+  the whole colour wheel at 22% lightness, and a big share of hues come out
+  dark brown at that lightness.
+- **Now a frame of the clip:** `src/clips/thumbs.py`, using the editor
+  filmstrip's ffmpeg recipe: keyframe seek, one thread, one frame, 640 px
+  wide, MJPEG, about 25 KB. It takes the frame from the middle of the clip,
+  or the first frame if that fails. The file is `clipfiles/<id>.jpg`, beside
+  the MP4.
+  - `on_clip_file_ready` (a cut or a Twitch fetch just finished) starts one
+    in the background when the clip has no platform thumbnail.
+  - `GET /clips/{id}/thumb` (owner only, `private, max-age=86400`) serves it.
+    It makes one on first view for clips whose video predates this.
+  - At most 2 ffmpeg runs at once, and one per clip (the eager call and the
+    browser's request share it).
+  - If ffmpeg fails, the card keeps the placeholder. Nothing else is touched:
+    no trigger, scoring or cutting code changed.
+- **Outlives the video, not the retention:**
+  - The size cap evicts MP4s (prod horizon ~21 h) but leaves the JPEG, so a
+    clip reviewed the next day still shows the moment.
+  - But a frame is "a file saved from" the broadcast, and the Terms and the
+    Privacy Policy promise deletion within `clip_file_max_age_days`. So
+    `_make` stamps the JPEG with its MP4's mtime, and `files.sweep` ages JPEGs
+    on that clock, as it does videos (also when it has no record list).
+  - Clip delete, reject, expiry and account deletion all go through
+    `clip_files.delete`, which removes the picture. The sweep's orphan half
+    catches the rest.
+  - `_clip_out` reports `has_thumb`; for listings it comes from the cached
+    store scan (`thumb_ids()`), so there is no stat per card.
+- **Frontend:**
+  - `clipPic(c)` returns `/clips/<id>/thumb` when the clip has a video
+    (`has_file`) or a saved picture (`has_thumb`). RdClip and ClipModal use it
+    when `thumbnail_url` is empty, and the modal's `<video>` uses it as its
+    `poster`.
+  - Realtime: the existing `clip_file_ready` handler already sets `has_file`,
+    so a card swaps its placeholder for the frame live, with no refresh.
+  - A Twitch clip whose preview 404s now tries our frame (`data-local` in
+    `thumbFallback`) before the gradient.
+  - The placeholder that remains (a clip that never had a video, or lost it
+    before this shipped) is now held to hue 235–349 (violet to magenta) at
+    26% lightness, so it is never brown.
+- **Verified:**
+  - Real ffmpeg 6.1 produced a 640×360 JPEG from an H.264 clip.
+  - Chromium against the real server on seeded data:
+    - a Kick card showed the frame (`/thumb` 200, 640 wide);
+    - a Kick card with no video showed the violet placeholder;
+    - a Twitch card with a dead preview fell back to our frame.
+  - It runs `settings.ffmpeg_path`, the binary the capture is configured
+    with, so it works on prod wherever clips are being cut.
+  - Old Kick clips whose MP4 was already evicted have nothing to take a frame
+    from, so they show the violet placeholder; they cannot be recovered.
+
+Tests: `tests/test_clip_thumbs.py` (18). Mutation-checked: 14 deliberate
+breakages, all caught. These include the retention clock (no mtime stamp, no
+age check on pictures, no age check without a record list) and a bare
+`ffmpeg` in place of the configured path.

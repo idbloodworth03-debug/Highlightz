@@ -3118,11 +3118,18 @@ def _clip_out(clip: dict, listing=None) -> dict:
     Pass `listing` when serialising MORE THAN ONE clip — see `_file_state`.
     """
     from src.clips import fetch as clip_fetch
+    from src.clips import files as clip_files
     state = _file_state(clip, listing)
+    cid = clip.get("id", "")
     return {**clip, "has_file": state == "ready", "file_state": state,
             # Only meaningful without a file: it is what turns "no file" from
             # an explanation into a Download button.
-            "fetchable": state != "ready" and clip_fetch.fetchable(clip)}
+            "fetchable": state != "ready" and clip_fetch.fetchable(clip),
+            # A frame of our own video exists for it (src/clips/thumbs.py) —
+            # the card's picture when there is no platform thumbnail, even
+            # after the video itself has been evicted.
+            "has_thumb": (cid in clip_files.thumb_ids()) if listing is not None
+                         else clip_files.thumb_exists(cid)}
 
 
 # Background fetches hold a strong reference here; a bare create_task can be
@@ -3160,6 +3167,13 @@ async def on_clip_file_ready(clip_id: str) -> None:
     approved clip whose file arrived after the approval is Autopilot's cue,
     and the moment it can populate the Clip Editor."""
     from src.autopilot import runner as _autopilot
+    # A clip with no platform thumbnail (every Kick clip) gets a frame of its
+    # own video, made now while the video is certainly on disk. In the
+    # background; the card asks for it too and the two share one run.
+    clip = _clips.get(clip_id)
+    if clip and not clip.get("thumbnail_url"):
+        from src.clips import thumbs as clip_thumbs
+        clip_thumbs.make_soon(clip_id, float(clip.get("duration_seconds") or 0) / 2)
     await library_copy_if_approved(clip_id)
     # IN THE BACKGROUND, never awaited. Awaiting it made every caller wait for
     # Autopilot's whole edit of this clip (captions + render, queued behind
@@ -3223,6 +3237,26 @@ async def list_clips(request: Request, status: str | None = None, channel: str |
     except Exception:
         listing = None          # fall back to the exact per-clip check
     return [_clip_out(c, listing) for c in clips]
+
+
+@app.get("/clips/{clip_id}/thumb")
+async def get_clip_thumb(request: Request, clip_id: str):
+    """A frame of the clip's own video, for a card with no platform thumbnail
+    (src/clips/thumbs.py). Made on first request for clips that predate it.
+    The owner only, like the file itself; 404 when there is no video to take a
+    frame from and none was taken before — the card falls back to its
+    placeholder on that."""
+    uid = _current_user_id(request)
+    clip = _clips.get(clip_id)
+    if not clip or clip.get("user_id") != uid:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    from src.clips import thumbs as clip_thumbs
+    path = await clip_thumbs.ensure(clip_id, float(clip.get("duration_seconds") or 0) / 2)
+    if not path:
+        raise HTTPException(status_code=404, detail="No picture for this clip")
+    # The picture of a clip never changes, so the browser may keep it.
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/clips/{clip_id}/file")

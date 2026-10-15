@@ -2430,7 +2430,16 @@ const scoreFill  = s => s >= 75 ? 'var(--live)' : s >= 50 ? 'var(--pending)' : '
 const initials   = s => (s||'').slice(0,2).toUpperCase();
 const fmtTime    = ts => ts ? new Date(ts*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : '';
 const fmtDur     = s  => s  ? Math.round(s)+'s' : '';
-const thumbFor   = ch => { let h=0; for(const c of (ch||'')) h=(h*31+c.charCodeAt(0))%360; return `linear-gradient(135deg,hsl(${h} 55% 22%),hsl(${(h+42)%360} 60% 11%))`; };
+// The placeholder when a clip has no picture at all. Still one colour per
+// channel, but only from the brand's side of the wheel (blue to magenta): the
+// hash used to land anywhere, and at this darkness most of the warm half
+// reads as brown — the owner's "ugly brown images".
+const thumbFor   = ch => { let h=0; for(const c of (ch||'')) h=(h*31+c.charCodeAt(0))%360; const hue=235+h%85; return `linear-gradient(135deg,hsl(${hue} 52% 26%),hsl(${hue+30} 58% 12%))`; };
+// A clip's own picture when the platform gave none (every Kick clip): a frame
+// of the video Highlightz cut, from /clips/<id>/thumb (src/clips/thumbs.py).
+// has_file flips live on clip_file_ready, so a card swaps its placeholder for
+// the frame with no refresh; has_thumb keeps it after the video is evicted.
+const clipPic    = c => (c && c.id && (c.has_file || c.has_thumb)) ? '/clips/' + c.id + '/thumb' : '';
 // Twitch hands us a small ~480px preview; request a 1280x720 variant for crisp
 // cards. If that size 404s, the <img> onError falls back to the original URL.
 const RE_PREVIEW = new RegExp('-preview-[0-9]+x[0-9]+[.]');
@@ -2441,8 +2450,9 @@ const RE_EXT = new RegExp('[.][^.]+$');
 
 // Thumbnail load failed. Freshly-created Twitch clips 404 until Twitch finishes
 // generating the preview frame (and the 1280x720 upscale may never exist), so we
-// step down: hi-res -> original -> gradient placeholder. We track progress on a
-// data attribute because e.target.src returns the *resolved* absolute URL, which
+// step down: hi-res -> original -> our own frame of the clip (data-local, when
+// we hold its video) -> gradient placeholder. We track progress on data
+// attributes because e.target.src returns the *resolved* absolute URL, which
 // can differ from the stored URL by encoding and break a naive string compare.
 function thumbFallback(e, channel) {
   const img = e.target;
@@ -2450,6 +2460,12 @@ function thumbFallback(e, channel) {
   if (orig && img.getAttribute('data-tried') !== '1') {
     img.setAttribute('data-tried', '1');
     img.src = orig;
+    return;
+  }
+  const local = img.getAttribute('data-local') || '';
+  if (local && img.getAttribute('data-tried-local') !== '1') {
+    img.setAttribute('data-tried-local', '1');
+    img.src = local;
     return;
   }
   img.style.display = 'none';
@@ -2825,7 +2841,8 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
   const dur = fmtDur(clip.duration_seconds);
   const time = fmtTime(clip.created_at);
   const title = clip.clip_title||clip.stream_title||'Live Stream';
-  const thumb = clip.thumbnail_url || '';
+  const pic = clipPic(clip);
+  const thumb = clip.thumbnail_url || pic;
   const twHref = clip.twitch_url || '';
   // A Kick clip has no hosted clip page; it links to the channel instead.
   const outHref = twHref || clip.platform_url || '';
@@ -2890,8 +2907,11 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
   return (
     <div className={'rd-clip'+(sug?' suggested':'')}>
       <div className="rd-media" style={{cursor:'pointer'}} onClick={()=>onOpen&&onOpen(clip)}>
+        {/* Keyed on both sources: thumbFallback edits the element directly,
+            so a frame that becomes available later needs a fresh element. */}
         {thumb
-          ? <img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+          ? <img key={thumb + '|' + pic} src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''}
+              data-local={pic && pic!==thumb ? pic : ''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
           : <div className="rd-thumb" style={{background:thumbFor(clip.channel)}}/>}
         <div className="rd-play"><span className="ring"><Icon name="play" size={20}/></span></div>
         {/* BOTH badges say what they are. Every card carried two bare
@@ -3447,7 +3467,8 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
   const title = clip.clip_title||clip.stream_title||'Live Stream';
   const embed = clip.embed_url || '';
   const twHref = clip.twitch_url || '';
-  const thumb = clip.thumbnail_url || '';
+  const pic = clipPic(clip);
+  const thumb = clip.thumbnail_url || pic;
   // Inline playback everywhere, phones included. (The old ≤700px thumbnail
   // fallback dated from Twitch's autoplay-related #4000 mobile error; with
   // autoplay=false + tap-to-play the embed works on modern mobile browsers,
@@ -3494,9 +3515,9 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
           {embedSrc
             ? <iframe key={playerTry} src={embedSrc+'&_r='+playerTry} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen frameBorder="0" scrolling="no" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000'}}/>
             : fileSrc
-              ? <video src={fileSrc} controls playsInline preload="metadata" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000',objectFit:'contain'}}/>
+              ? <video src={fileSrc} poster={pic || undefined} controls playsInline preload="metadata" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000',objectFit:'contain'}}/>
             : thumb
-              ? <><img src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{outHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
+              ? <><img key={thumb + '|' + pic} src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} data-local={pic && pic!==thumb ? pic : ''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{outHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
               : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           {sug

@@ -63,6 +63,35 @@ def exists(clip_id: str) -> bool:
         return False
 
 
+# A clip's picture, for clips that arrive without one (Kick): one frame of its
+# video, made by src/clips/thumbs.py and kept beside it. It deliberately
+# OUTLIVES the MP4 under the size cap — a few tens of KB that keep the card
+# looking like the clip after its video is evicted — and goes when the clip
+# does: delete() below and the orphan half of sweep(). Never past the age
+# ceiling: sweep() ages it on its video's clock (the retention the Terms state).
+def thumb_path_for(clip_id: str) -> Path | None:
+    p = path_for(clip_id)
+    return p.with_suffix(".jpg") if p else None
+
+
+def thumb_exists(clip_id: str) -> bool:
+    p = thumb_path_for(clip_id)
+    try:
+        return bool(p and p.is_file() and p.stat().st_size > 0)
+    except OSError:
+        return False
+
+
+def _drop_thumb(clip_id: str) -> None:
+    p = thumb_path_for(clip_id)
+    try:
+        if p and p.is_file():
+            p.unlink()
+            _forget_scan()
+    except OSError:
+        pass
+
+
 def size_of(clip_id: str) -> int:
     p = path_for(clip_id)
     try:
@@ -72,10 +101,12 @@ def size_of(clip_id: str) -> int:
 
 
 def delete(clip_id: str) -> bool:
-    """Remove a clip's file. Safe to call for a clip that never had one."""
+    """Remove a clip's file, and its picture. Safe to call for a clip that
+    never had either. True when a video was removed."""
     p = path_for(clip_id)
     if not p:
         return False
+    _drop_thumb(clip_id)
     try:
         if p.is_file():
             p.unlink()
@@ -149,23 +180,31 @@ def total_bytes() -> int:
 # next page load, and the socket event only reaches tabs that are already open.
 # One scan of ~900 entries is about 1.5 ms, so even continuous traffic costs
 # nothing measurable.
-_scan: tuple[str, float, frozenset, float] = ("", 0.0, frozenset(), 0.0)
+_scan: tuple[str, float, frozenset, float, frozenset] = ("", 0.0, frozenset(), 0.0, frozenset())
 _SCAN_TTL_S = 5.0
 
 
 def _read_store() -> tuple[frozenset, float]:
-    """(ids with a usable file, mtime of the oldest file). Cached."""
+    """(ids with a usable file, mtime of the oldest file). Cached. The same
+    read also notes which clips have a picture — see thumb_ids()."""
     global _scan
     now = time.time()
     root = str(_ROOT)
-    where, when, ids, oldest = _scan
+    where, when, ids, oldest, _thumbs = _scan
     if where == root and when and now - when < _SCAN_TTL_S:
         return ids, oldest
 
-    found, oldest = set(), 0.0
+    found, oldest, pics = set(), 0.0, set()
     try:
         with os.scandir(_ROOT) as it:
             for e in it:
+                if e.name.endswith(".jpg"):
+                    try:
+                        if e.is_file() and e.stat().st_size > 0:
+                            pics.add(e.name[:-4])
+                    except OSError:
+                        pass
+                    continue
                 if not e.name.endswith(".mp4"):
                     continue
                 try:
@@ -191,9 +230,17 @@ def _read_store() -> tuple[frozenset, float]:
     # so there is no saving to bank — and caching "no files" would hide the
     # first cut to land in a fresh store for the length of the TTL, which is
     # exactly the moment somebody is watching for it.
-    if out or oldest:
-        _scan = (root, now, out, oldest)
+    if out or oldest or pics:
+        _scan = (root, now, out, oldest, frozenset(pics))
     return out, oldest
+
+
+def thumb_ids() -> frozenset:
+    """Every clip id that has a picture, from the same cached directory read
+    as existing_ids()."""
+    _read_store()
+    where, _when, _ids, _oldest, pics = _scan
+    return pics if where == str(_ROOT) else frozenset()
 
 
 def existing_ids() -> frozenset:
@@ -233,7 +280,7 @@ def _forget_scan() -> None:
     so a cut is downloadable on the next request and a trim does not leave a
     stale horizon behind it."""
     global _scan
-    _scan = ("", 0.0, frozenset(), 0.0)
+    _scan = ("", 0.0, frozenset(), 0.0, frozenset())
 
 
 def headroom_ok() -> bool:
@@ -430,7 +477,27 @@ def sweep(live_ids: set[str] | None = None) -> int:
                          reason="age" if too_old else "orphan")
         except OSError:
             continue
-    if removed:
+    # Pictures: kept when the size cap evicts their video (that is what they
+    # are for), but on the same AGE clock — a frame is saved from the
+    # broadcast, and the Terms promise such a file is gone within
+    # clip_file_max_age_days. thumbs._make stamps each one with its video's
+    # mtime, so the clock started at the recording. Orphans go too. Not
+    # counted in the return, which is about video.
+    pictures = 0
+    try:
+        shots = list(_ROOT.glob("*.jpg"))
+    except OSError:
+        shots = []
+    for p in shots:
+        try:
+            too_old = p.stat().st_mtime < cutoff
+            orphan = live_ids is not None and p.stem not in live_ids
+            if too_old or orphan:
+                p.unlink()
+                pictures += 1
+        except OSError:
+            continue
+    if removed or pictures:
         _forget_scan()
     return removed
 
