@@ -57,6 +57,7 @@ from src.dashboard import undo
 from src.dashboard import funnel
 from src.trigger import dismissed_suggestions as _dismissed
 from src.billing import plans as _plans
+from src.publish.release import live_platforms as _release_live_platforms
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
@@ -1610,6 +1611,10 @@ async def me(request: Request):
                                 "clip_import": settings.clip_import_enabled,
                                 "campaigns": settings.campaigns_enabled,
                                 "captions": settings.captions_enabled,
+                                # The posting platforms open to ordinary
+                                # accounts (PUBLIC_PLATFORMS, once uploads are
+                                # released), so upgrade copy promises only those.
+                                "posting": list(_release_live_platforms()),
                                 # Exposed so the VOD screen can describe what a
                                 # scan actually does. With audio on it decodes
                                 # the stream's sound, which the old copy ("no

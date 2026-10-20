@@ -5148,9 +5148,10 @@ Mutation-checked: 17 deliberate breakages, all caught.
   ALERT_EMAIL_TO.
 - ~~Kick broadcasters cannot opt out~~ — fixed 2026-10-20, see "Kick
   opt-out" below.
-- **The Scheduler's Pro card promises YouTube/Instagram posting**
-  (aurora_html.py, "Connect YouTube and Instagram and have every clip…").
-  It is unconditional on `PUBLIC_PLATFORMS`.
+- ~~The Scheduler's Pro card promises YouTube/Instagram posting~~ — fixed
+  2026-10-20: `/me.features.posting` (= `release.live_platforms()`) feeds
+  `schedulerPitch()`. With TikTok only, it reads "…post it to TikTok with
+  one press. YouTube and Instagram are coming soon."
 - **Dependency advisories:** aiohttp 3.13.5 (client-side use only),
   cryptography 48.0.0 (bundled OpenSSL; fixed in 48.0.1), python-multipart
   0.0.28, pydantic-settings 2.14.1 (secrets_dir unused). The python-multipart
@@ -5161,8 +5162,12 @@ Mutation-checked: 17 deliberate breakages, all caught.
     left a 295 MB temp file, then 403; nginx's limit is unverified).
   - Scheduled posts go out after Pro lapses; Autopilot re-checks, the
     Scheduler does not.
-  - The Campaigns screen pans 87 px sideways at 360 px (the `.apx-tabs` row);
-    Tutorial pans 6 px.
+  - ~~Campaigns pans 87 px sideways at 360 px, Tutorial 6 px~~ — fixed
+    2026-10-20. Under 700 px `.apx-tabs` scrolls inside its own pill, and
+    `.tut-main` has `overflow-wrap:anywhere` for the long example VOD URL.
+    Re-measured: no screen pans at 320/360/390 px, admin or Free.
+    Tests: `tests/test_scheduler_pitch.py` (8, the pitch run in node);
+    6 deliberate breakages, all caught.
   - Signed-out unknown URLs redirect to /login, not the 404 page.
   - The admin page's `esc()` does not escape quotes. No exploitable
     attribute use found.

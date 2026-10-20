@@ -717,6 +717,9 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .apx-tabs button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:99px;font-size:14px;font-weight:700;color:var(--fg-3)}
 .apx-tabs button:hover{color:var(--fg)}
 .apx-tabs button.on{background:var(--grad-soft);color:#fff;box-shadow:inset 0 0 0 1px rgba(196,137,228,.4)}
+/* On a phone a row of four pills (the Campaigns filter) is wider than the
+   screen; it scrolls inside its own pill instead of panning the page. */
+@media(max-width:700px){.apx-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.apx-tabs::-webkit-scrollbar{display:none}.apx-tabs button{flex-shrink:0;white-space:nowrap}}
 .apx-hero{padding:24px;border-radius:24px;border:1px solid var(--hair);display:flex;flex-direction:column;gap:24px;
   background:linear-gradient(135deg,rgba(184,106,220,.12),rgba(255,255,255,.03))}
 .apx-hero.on{border-color:rgba(184,106,220,.5)}
@@ -1064,7 +1067,7 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .tut-toc-l.on{color:var(--acc);border-left-color:var(--acc);background:rgba(184,106,220,.10);font-weight:600}
 .tut-toc-out{margin-top:12px;font-size:14px;color:var(--fg-3);text-decoration:none;padding:8px 12px}
 .tut-toc-out:hover{color:var(--acc)}
-.tut-main{min-width:0;display:flex;flex-direction:column;gap:32px;padding-bottom:64px}
+.tut-main{min-width:0;display:flex;flex-direction:column;gap:32px;padding-bottom:64px;overflow-wrap:anywhere}
 /* scroll-margin so a jumped-to heading is not welded to the top edge */
 .tut-sec{scroll-margin-top:12px;min-width:0}
 .tut-title{font-size:30px;font-weight:800;letter-spacing:-.025em;margin-bottom:8px}
@@ -9388,6 +9391,24 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   );
 }
 
+// What the Pro card on the Scheduler may promise: only the posting platforms
+// open to ordinary accounts (/me.features.posting, from PUBLIC_PLATFORMS). It
+// used to promise YouTube and Instagram auto-posting to Free users while both
+// were still "coming soon" (audit, 2026-10-20).
+const PITCH_NAMES = {youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok'};
+function pitchList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+function schedulerPitch(open) {
+  const auto = ['youtube', 'instagram'].filter(p => open.includes(p)).map(p => PITCH_NAMES[p]);
+  const tiktok = open.includes('tiktok');
+  const soon = ['youtube', 'tiktok', 'instagram'].filter(p => !open.includes(p)).map(p => PITCH_NAMES[p]);
+  let s;
+  if (auto.length) s = 'Connect ' + pitchList(auto) + ' and have every clip you export posted for you at the time you pick' + (tiktok ? ', and post to TikTok with one press.' : '.');
+  else if (tiktok) s = 'Give every clip you export a time and a caption, and post it to TikTok with one press.';
+  else s = 'Give every clip you export a time and a caption, ready for when posting opens.';
+  if (soon.length) s += ' ' + pitchList(soon) + (soon.length > 1 ? ' are' : ' is') + ' coming soon.';
+  return s + ' Included with Pro, with the Clip Editor and the VOD scanner.';
+}
+
 function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connections = [], uploadsOn = true, autopilot = null, onAutopilot = null, captionsOn = false, onPostNow = null, onOpenAutopilot = null }) {
   const [weekStart, setWeekStart] = useState(()=>weekStartOf(new Date()));
   const [openId, setOpenId] = useState(null);
@@ -9442,9 +9463,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
           <div style={{marginBottom:12,color:'var(--acc)'}}><Icon name="clock" size={40}/></div>
           <h3 style={{fontSize:17,marginBottom:8,justifyContent:'center'}}>Scheduler is a Pro feature</h3>
           <div className="desc" style={{maxWidth:460,margin:'0 auto 20px'}}>
-            Connect YouTube and Instagram and have every clip you export posted
-            for you at the time you pick, and post to TikTok with one press.
-            Included with Pro, with the Clip Editor and the VOD scanner.
+            {schedulerPitch((me.features || {}).posting || [])}
           </div>
           <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
             <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
