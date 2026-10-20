@@ -445,10 +445,15 @@ async def run_clip_processor() -> None:
             continue
         except Exception as exc:
             import traceback as _tb
-            log.error("clip_processor_error", error=str(exc),
-                      channel=getattr(job, "channel", "?") if job else "?",
-                      user_id=getattr(job, "user_id", "?") if job else "?",
-                      traceback=_tb.format_exc())
+            # Twitch never finishing a clip is not an error of ours (see
+            # ClipNotReadyError): get_clip has already logged it as the warning
+            # twitch_clip_not_ready, so a burst still alerts. Logged here as an
+            # error, each one emailed the owner. The user is told below either way.
+            if not isinstance(exc, twitch_clips.ClipNotReadyError):
+                log.error("clip_processor_error", error=str(exc),
+                          channel=getattr(job, "channel", "?") if job else "?",
+                          user_id=getattr(job, "user_id", "?") if job else "?",
+                          traceback=_tb.format_exc())
             # Surface the failure to the user's open tab. Without this a triggered
             # clip that fails to capture (ghost clip, rate-limit, token expiry)
             # silently never appears, with no explanation — the realtime contract

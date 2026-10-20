@@ -98,6 +98,25 @@ class ClipClassificationError(RuntimeError):
     """
 
 
+class ClipNotReadyError(RuntimeError):
+    """Twitch accepted the clip (202) but never finished making it.
+
+    get_clip polled for ~50s and the clip never became playable: the
+    broadcast buffer was too short, VODs are off, or Twitch hiccuped. The
+    generic path's "it'll try again on the next moment" is TRUE here, so the
+    user is told exactly that, as before.
+
+    Its own class so the processor logs it as a warning, not an error. On
+    prod it is ~2.6% of clips (107 of 4,076 in the 7 days to 2026-10-20,
+    about 15 a day), and as an error every one emailed the owner. A burst
+    still emails, under the alerts' repeated-warning rule; that is what a
+    Twitch outage, or a channel where every clip fails, looks like. The same
+    week showed waiting longer would not help: of the 3,969 clips that did
+    finish, the slowest took 42.5s, and none finished in the last 7s before
+    the cutoff.
+    """
+
+
 def is_classification_error(status: int, body: str) -> bool:
     """True for the CCL refusal.
 
@@ -497,7 +516,8 @@ async def get_existing_clip_ids(slugs: list[str]) -> set[str] | None:
     return found
 
 
-async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5) -> dict | None:
+async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5, *,
+                   channel: str = "") -> dict | None:
     """Poll Get Clips until the freshly-created clip is queryable.
     Returns the clip object (url, embed_url, thumbnail_url, duration, title), or
     None if the clip never materialized (Twitch accepted the request but the
@@ -528,7 +548,9 @@ async def get_clip(slug: str, attempts: int = 20, delay: float = 2.5) -> dict | 
                                  seconds=round(attempt * delay, 1))
                         return c
             await asyncio.sleep(delay)
-    log.warning("twitch_clip_not_ready", slug=slug,
+    # The channel lets maintenance.why_no_clips count these per channel; they
+    # used to land in its "(no channel)" row.
+    log.warning("twitch_clip_not_ready", slug=slug, channel=channel,
                 waited_seconds=round(attempts * delay, 1),
                 hint="Clip capture likely failed — broadcast buffer too short or VODs disabled")
     return None

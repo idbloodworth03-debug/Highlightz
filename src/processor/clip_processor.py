@@ -100,14 +100,14 @@ class ClipProcessor:
         if not slug:
             raise RuntimeError(f"Twitch clip creation failed for '{channel}'")
 
-        clip = await twitch_clips.get_clip(slug)
+        clip = await twitch_clips.get_clip(slug, channel=channel)
         if not clip:
             # Twitch accepted the clip request (202) but the clip never became
             # queryable — the capture failed (broadcast buffer too short, VODs
             # disabled, etc.). Fabricating a clips.twitch.tv/{slug} link here just
             # produces a "Clip is no longer available" page, so fail the job
             # instead and let a future trigger try again.
-            raise RuntimeError(
+            raise twitch_clips.ClipNotReadyError(
                 f"Twitch clip '{slug}' for '{channel}' never finished processing — "
                 "capture failed (broadcast too short or VODs disabled on the channel)"
             )

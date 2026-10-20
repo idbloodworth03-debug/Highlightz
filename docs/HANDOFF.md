@@ -5415,3 +5415,31 @@ day; owner: "add it and I will deploy again").
 - Not verified on prod. The journal from before the fix would show it:
   `journalctl -u highlightz --since "2026-10-20 13:55 UTC" --until "2026-10-20 14:12 UTC" -o short-iso | grep -E 'superclipbot_started|streams_paused_idle'`
   should print a start, then a batch of pauses about 5 minutes later.
+
+**A clip Twitch never finished is a warning, not an error** (2026-10-20, from
+the third alert email: `clip_processor_error ... Twitch clip '...' for
+'jynxzi' never finished processing`).
+- Measured on prod first (owner ran it, 7 days): 107 `twitch_clip_not_ready`
+  against 3,969 `twitch_clip_ready_after`. That is ~2.6% of clips, about 15
+  a day.
+- The successful clips' ready times end at 42.5s. The tail: 30s x3, 32.5 x2,
+  35 x2, 40 x1, 42.5 x1, and nothing at 45 or 47.5 before the ~50s cutoff.
+  So waiting longer would recover about none of them; the 50s poll stays.
+- Change:
+  - `_process_twitch` raises `twitch_clips.ClipNotReadyError` (a
+    RuntimeError, deliberately none of the three refusal types, which back
+    a channel off or stop it).
+  - `run_clip_processor` skips the `clip_processor_error` ERROR for it.
+    get_clip's `twitch_clip_not_ready` warning, which now carries `channel`,
+    is the log of it. One no longer emails; 20+ in an hour still does.
+  - The user's `clip_failed` toast and the file discard are unchanged.
+  - `maintenance.why_no_clips` now gets the channel for `not_ready` (new
+    lines only).
+- Tests: `tests/test_clip_not_ready.py` (5). It runs the real processor loop
+  and checks that any other failure is still an ERROR. 6 deliberate
+  breakages, all caught. Full suite 3799 passed.
+- Open, not done: whether the 107 cluster on a few channels (VODs off would
+  fail every clip, and deserves the automod-style back-off and message). It
+  is answerable from the logs once `channel` has been on the warning for a
+  few days:
+  `journalctl -u highlightz --since "3 days ago" --no-pager | venv/bin/python -m src.maintenance.why_no_clips`
