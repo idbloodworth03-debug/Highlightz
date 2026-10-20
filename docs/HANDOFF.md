@@ -5269,7 +5269,11 @@ only through customer tickets. The log lines had no level either.
 - **Sending:** `RESEND_API_KEY` → Resend's HTTPS API. DigitalOcean blocks
   outgoing SMTP on most droplets, so this is the recommended route. Else
   `SMTP_HOST`/`SMTP_PORT` (587 STARTTLS, 465 TLS)/`SMTP_USER`/`SMTP_PASSWORD`
-  via smtplib on a thread. `ALERT_EMAIL_FROM` defaults to Resend's
+  via smtplib on a thread, with `ssl.create_default_context()`. smtplib's own
+  default context does NOT verify the server's certificate, and this
+  connection carries the mail account's password. The owner's own Gmail
+  works this way (smtp.gmail.com, 587, a Google App Password), if the
+  droplet can reach port 587. `ALERT_EMAIL_FROM` defaults to Resend's
   `onboarding@resend.dev`, which Resend only delivers to the address the
   Resend account was made with. Unconfigured, it logs
   `alert_email_unconfigured` once and sends nothing.

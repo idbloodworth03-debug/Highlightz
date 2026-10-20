@@ -274,7 +274,14 @@ def test_resend_is_called_over_https(monkeypatch):
     assert not ok and "403" in why and "domain not verified" in why
 
 
-def test_smtp_is_the_fallback_and_logs_in(monkeypatch):
+def _verifies(context) -> bool:
+    import ssl
+    return context is not None and context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+
+
+def test_smtp_is_the_fallback_logs_in_and_checks_the_certificate(monkeypatch):
+    """The connection carries the mail account's password, and smtplib's own
+    default TLS context does not verify the server."""
     import smtplib
     log = []
 
@@ -282,18 +289,37 @@ def test_smtp_is_the_fallback_and_logs_in(monkeypatch):
         def __init__(self, host, port, timeout=None): log.append(("connect", host, port))
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def starttls(self): log.append(("starttls",))
+        def starttls(self, context=None): log.append(("starttls", _verifies(context)))
         def login(self, u, p): log.append(("login", u))
         def send_message(self, msg): log.append(("send", msg["To"], msg["From"], msg["Subject"]))
     monkeypatch.setattr(smtplib, "SMTP", _SMTP)
     monkeypatch.setattr(settings, "resend_api_key", "")
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
-    monkeypatch.setattr(settings, "smtp_user", "me@example.com")
+    monkeypatch.setattr(settings, "smtp_host", "smtp.gmail.com")
+    monkeypatch.setattr(settings, "smtp_user", "me@gmail.com")
     monkeypatch.setattr(settings, "smtp_password", "app-password")
     ok, _ = asyncio.run(alerts.send("Highlightz: x", "body"))
     assert ok
-    assert log == [("connect", "smtp.example.com", 587), ("starttls",), ("login", "me@example.com"),
-                   ("send", "owner@example.com", "me@example.com", "Highlightz: x")]
+    assert log == [("connect", "smtp.gmail.com", 587), ("starttls", True), ("login", "me@gmail.com"),
+                   ("send", "owner@example.com", "me@gmail.com", "Highlightz: x")]
+
+
+def test_smtp_on_465_checks_the_certificate_too(monkeypatch):
+    import smtplib
+    seen = {}
+
+    class _SSL:
+        def __init__(self, host, port, timeout=None, context=None): seen["verified"] = _verifies(context)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def login(self, u, p): pass
+        def send_message(self, msg): seen["sent"] = True
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _SSL)
+    monkeypatch.setattr(settings, "resend_api_key", "")
+    monkeypatch.setattr(settings, "smtp_host", "smtp.gmail.com")
+    monkeypatch.setattr(settings, "smtp_port", 465)
+    monkeypatch.setattr(settings, "smtp_user", "me@gmail.com")
+    ok, _ = asyncio.run(alerts.send("s", "b"))
+    assert ok and seen == {"verified": True, "sent": True}
 
 
 def test_the_test_command_says_why_it_did_not_send(monkeypatch, capsys):

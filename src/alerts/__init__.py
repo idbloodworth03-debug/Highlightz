@@ -258,6 +258,7 @@ async def _send_resend(to: str, subject: str, text: str) -> tuple[bool, str]:
 
 def _send_smtp(to: str, subject: str, text: str) -> tuple[bool, str]:
     import smtplib
+    import ssl
     from email.message import EmailMessage
     sender = settings.alert_email_from
     if "resend.dev" in sender:
@@ -266,15 +267,18 @@ def _send_smtp(to: str, subject: str, text: str) -> tuple[bool, str]:
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, to, subject
     msg.set_content(text)
+    # A context that checks the server's certificate. smtplib's own default
+    # does not, and this connection carries the mail account's password.
+    tls = ssl.create_default_context()
     try:
         if settings.smtp_port == 465:
-            with smtplib.SMTP_SSL(settings.smtp_host, 465, timeout=20) as s:
+            with smtplib.SMTP_SSL(settings.smtp_host, 465, timeout=20, context=tls) as s:
                 if settings.smtp_user:
                     s.login(settings.smtp_user, settings.smtp_password)
                 s.send_message(msg)
         else:
             with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
-                s.starttls()
+                s.starttls(context=tls)
                 if settings.smtp_user:
                     s.login(settings.smtp_user, settings.smtp_password)
                 s.send_message(msg)
