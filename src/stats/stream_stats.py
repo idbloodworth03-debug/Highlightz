@@ -222,10 +222,79 @@ def for_user(user_id: str) -> list[dict]:
     return sorted(out, key=lambda c: -c["last_at"])
 
 
+# ── Reading only the recent end (audit, 2026-10-20) ───────────────────────────
+# /me asks for the last 24 hours' misses on every page load and every
+# reconnect (after a deploy, every open tab at once), and that used to read the
+# WHOLE log — which is append-only and never trimmed, so the cost grew with
+# every clip ever caught. Rows are appended in time order, so the last day is
+# at the end: read backwards in blocks and stop at the first row older than
+# the window (less a margin for a clock that stepped back). A row's ts is read
+# straight off the line — record() writes it first — so only this user's rows
+# are fully parsed.
+_TAIL_BLOCK = 256 * 1024
+_TAIL_SKEW_S = 3600
+_TS_PREFIX = b'{"ts": '
+
+
+def _row_ts(raw: bytes) -> float | None:
+    if raw.startswith(_TS_PREFIX):
+        end = raw.find(b",", len(_TS_PREFIX))
+        if end > 0:
+            try:
+                return float(raw[len(_TS_PREFIX):end])
+            except ValueError:
+                pass
+    try:
+        return float(json.loads(raw).get("ts") or 0)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _read_since(user_id: str, since_ts: float) -> list[dict]:
+    """This user's rows with ts >= since_ts, oldest first, reading only the
+    end of the log that can hold them."""
+    if not _LOG_FILE.exists():
+        return []
+    needle = json.dumps(user_id).encode()
+    stop_at = since_ts - _TAIL_SKEW_S
+    out: list[dict] = []
+    try:
+        with _LOG_FILE.open("rb") as f:
+            f.seek(0, 2)
+            pos, carry, done = f.tell(), b"", False
+            while pos > 0 and not done:
+                step = min(_TAIL_BLOCK, pos)
+                pos -= step
+                f.seek(pos)
+                lines = (f.read(step) + carry).split(b"\n")
+                # The first piece may be the end of a line that started in the
+                # block before; it is finished on the next pass.
+                carry = lines[0] if pos > 0 else b""
+                for raw in reversed(lines[1:] if pos > 0 else lines):
+                    if not raw.strip():
+                        continue
+                    ts = _row_ts(raw)
+                    if ts is None:
+                        continue                  # one bad line must not lose the rest
+                    if ts < stop_at:
+                        done = True
+                        break
+                    if ts >= since_ts and needle in raw:
+                        try:
+                            r = json.loads(raw)
+                        except ValueError:
+                            continue
+                        if r.get("user_id") == user_id:
+                            out.append(r)
+    except OSError as exc:
+        log.warning("stream_stats_read_failed", error=str(exc))
+    out.reverse()
+    return out
+
+
 def missed_since(user_id: str, since_ts: float) -> int:
     """Moments not clipped at all because the queue was full."""
-    return sum(1 for r in _read(user_id)
-               if r.get("event") == MISSED and (r.get("ts") or 0) >= since_ts)
+    return sum(1 for r in _read_since(user_id, since_ts) if r.get("event") == MISSED)
 
 
 def evictions_since(user_id: str, since_ts: float) -> int:
@@ -236,8 +305,7 @@ def evictions_since(user_id: str, since_ts: float) -> int:
     Used for the "your queue is full" notice, so the number a user is shown is
     the same one the ledger holds.
     """
-    return sum(1 for r in _read(user_id)
-               if r.get("event") == EXPIRED and (r.get("ts") or 0) >= since_ts)
+    return sum(1 for r in _read_since(user_id, since_ts) if r.get("event") == EXPIRED)
 
 
 def all_rows() -> list[dict]:

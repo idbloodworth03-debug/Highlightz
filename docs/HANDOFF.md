@@ -5141,12 +5141,8 @@ Mutation-checked: 17 deliberate breakages, all caught.
 
 - **Off-site backups** (July item): unverified whether `BACKUP_S3_BUCKET` is
   set. The diagnostic prints it.
-- **Every user lookup re-reads users.json.** `get_by_id` and friends call
-  `_load()`, several times per request, on the loop. Measured ~10 ms per
-  lookup at 1,000 users and ~37 ms at 3,000.
-- **`/me` reads all of `stream_stats.jsonl`** (never trimmed) for Free and
-  Starter users via `_clips_lost_24h`. It runs on every load and every
-  reconnect, so all at once after a deploy.
+- ~~Every user lookup re-reads users.json~~ and ~~/me reads the whole
+  stream_stats.jsonl~~ — fixed 2026-10-20, see "Lookup speed" below.
 - ~~Logs carry no level, nothing alerts~~ — fixed 2026-10-20, see "Email
   alerts" below. Alerts stay silent until the owner sets RESEND_API_KEY and
   ALERT_EMAIL_TO.
@@ -5284,3 +5280,38 @@ only through customer tickets. The log lines had no level either.
 
 Tests: `tests/test_alerts.py` (20). Mutation-checked: 15 deliberate breakages,
 all caught.
+
+## Lookup speed: users.json and the stats log (2026-10-20)
+
+From the audit: both reads grew with the business and ran on the event loop
+that scores live channels.
+
+- **`users._snapshot()`:** the parsed users, kept with the exact bytes they
+  came from, an id index, and a pickle of the list.
+  - Every call reads the file (page cache, ~0.3 ms at 1,000 users) and
+    compares bytes. It re-parses only when they differ. Bytes rather than
+    mtimes, because a same-size rewrite inside one timestamp tick would look
+    unchanged.
+  - `_load()` returns `pickle.loads` of the snapshot (fresh objects, ~2.5x
+    faster than json). `get_by_id` returns a deep copy of one record. Nothing
+    cached is ever handed out, so callers mutate as before.
+  - A snapshot is never changed after it is built; a new one is swapped in
+    whole, so threads (`to_thread(password_in_use)`) are safe.
+  - A missing or unusable file (bad JSON, or JSON that is not a list) goes
+    through `_load_uncached`: the old code, with its backup fallback and
+    logging.
+  - Measured: GET /me with 1,000 users, 57.3 ms → 5.9 ms.
+- **`stream_stats._read_since`** (used by `missed_since`, i.e. /me's
+  `clips_lost_24h`, and by `evictions_since`):
+  - Reads the log backwards in 256 KB blocks and stops at the first row older
+    than the window minus one hour (margin for a clock that stepped back).
+  - It takes `ts` straight off the line (record() writes it first) and fully
+    parses only lines carrying this user id, then re-checks `user_id`.
+  - The admin and per-user readers still scan the whole file; they are on
+    demand.
+- **Tests:** `test_autopilot_sweeper` now stubs `get_by_id` as the other 14
+  `_load`-stubbing tests do (get_by_id no longer goes through `_load`).
+
+Tests: `tests/test_lookup_speed.py` (16). Mutation-checked: 9 deliberate
+breakages, all caught (three tests were added after the first pass missed
+them).

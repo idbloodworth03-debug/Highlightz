@@ -45,6 +45,9 @@ def env(tmp_path, monkeypatch):
         {"id": "free", "subscription_status": "none", "autopilot": {"enabled": True}},
     ]
     monkeypatch.setattr(user_store, "_load", lambda: people)
+    # get_by_id reads its own cached index (not _load) since 2026-10-20.
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: next((p for p in people if p["id"] == uid), None))
     kicked, fetched = [], []
     monkeypatch.setattr(runner, "kick", lambda coro: (kicked.append(coro.cr_frame.f_locals.get("uid")), coro.close()))
     monkeypatch.setattr(api, "_start_fetch", lambda c: fetched.append(c["id"]))

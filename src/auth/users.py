@@ -6,11 +6,13 @@ Their Twitch access/refresh tokens are encrypted at rest.
 """
 
 import base64
+import copy
 import hashlib
 import hmac
 import json
 import logging
 import os
+import pickle
 import secrets
 
 # The trial length lives with the plans, so the signup path and the landing
@@ -79,7 +81,59 @@ _ulog = logging.getLogger(__name__)
 
 _BACKUP_FILE = Path(settings.local_storage_path) / "users.json.bak"
 
+# ── Reading the file once, not on every lookup (audit, 2026-10-20) ────────────
+# Every lookup used to re-read and re-parse the whole file. get_by_id runs in
+# the auth middleware on every request and several times inside most handlers,
+# on the event loop that also scores live channels: ~10 ms a lookup at 1,000
+# users, ~37 ms at 3,000. Now the parsed users are kept with the exact bytes
+# they came from. A lookup reads the file (cheap: it is in the page cache),
+# compares bytes, and parses only when they changed — by _save, a maintenance
+# script or another process. Bytes, not mtimes: a timestamp only moves every
+# few ms, and a same-size rewrite inside that tick would read as unchanged.
+#
+# NOTHING CACHED IS HANDED OUT. _load returns a fresh copy (unpickled — about
+# 2.5x faster than parsing the JSON) and get_by_id a deep copy of one record,
+# so callers mutate what they get exactly as before. A snapshot is never
+# changed once built; a new file means a new snapshot, swapped in whole.
+_snap: dict | None = None
+
+
+def _snapshot() -> dict | None:
+    """The parsed users for the file as it is now; None when the file is
+    missing or unusable, and the slow path (backup fallback, logging) decides."""
+    global _snap
+    path = _USERS_FILE
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    s = _snap
+    if s is not None and s["path"] == path and s["raw"] == raw:
+        return s
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+    index: dict[str, dict] = {}
+    for u in data:
+        if isinstance(u, dict) and "id" in u and u["id"] not in index:
+            index[u["id"]] = u
+    s = {"path": path, "raw": raw, "index": index,
+         "blob": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)}
+    _snap = s
+    return s
+
+
 def _load() -> list[dict]:
+    s = _snapshot()
+    if s is not None:
+        return pickle.loads(s["blob"])
+    return _load_uncached()
+
+
+def _load_uncached() -> list[dict]:
     for path in (_USERS_FILE, _BACKUP_FILE):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -121,7 +175,11 @@ def get_all() -> list[dict]:
 
 
 def get_by_id(user_id: str) -> dict | None:
-    return next((u for u in _load() if u["id"] == user_id), None)
+    s = _snapshot()
+    if s is None:
+        return next((u for u in _load() if u["id"] == user_id), None)
+    u = s["index"].get(user_id)
+    return copy.deepcopy(u) if u is not None else None
 
 
 def get_by_username(username: str) -> dict | None:
