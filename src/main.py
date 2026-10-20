@@ -608,6 +608,9 @@ async def run_dashboard() -> None:
         port=settings.dashboard_port,
         log_level="warning",
     )
+    # After Config: building it re-applies uvicorn's logging setup.
+    from src import alerts
+    alerts.install_uvicorn_tap()
     server = uvicorn.Server(config)
     await server.serve()
 
@@ -617,12 +620,20 @@ async def run_dashboard() -> None:
 async def main() -> None:
     global _queue
 
+    # The level on every line, so an error can be told from routine output
+    # (it was missing until 2026-10-20), the traceback of a log.exception, and
+    # the alert tap that emails the owner when something breaks (src/alerts).
+    from src import alerts
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.add_log_level,
+            structlog.processors.format_exc_info,
+            alerts.processor,
             structlog.processors.JSONRenderer(),
         ]
     )
+    alerts.install_stdlib_taps()
 
     _queue = JobQueue()
     await _queue.connect()
@@ -725,6 +736,8 @@ async def main() -> None:
                      for s in list(dashboard_api._streams.values())
                      if s.get("platform") == "kick"}),
             name="kick-events-prune"),
+        # Email the owner when something breaks (src/alerts). Never raises.
+        asyncio.create_task(alerts.run(), name="alerts"),
     ]
 
     # Restore streams that were running before the last shutdown

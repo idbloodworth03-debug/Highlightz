@@ -5147,9 +5147,9 @@ Mutation-checked: 17 deliberate breakages, all caught.
 - **`/me` reads all of `stream_stats.jsonl`** (never trimmed) for Free and
   Starter users via `_clips_lost_24h`. It runs on every load and every
   reconnect, so all at once after a deploy.
-- **Logs carry no level.** structlog has no `add_log_level`, and nothing
-  alerts. That is how a week of Stripe webhook 500s and 733 refused Kick
-  subscriptions a day went unnoticed until customer tickets.
+- ~~Logs carry no level, nothing alerts~~ — fixed 2026-10-20, see "Email
+  alerts" below. Alerts stay silent until the owner sets RESEND_API_KEY and
+  ALERT_EMAIL_TO.
 - ~~Kick broadcasters cannot opt out~~ — fixed 2026-10-20, see "Kick
   opt-out" below.
 - **The Scheduler's Pro card promises YouTube/Instagram posting**
@@ -5234,3 +5234,53 @@ opt-out terms", but /opt-out only took a Twitch sign-in.
 
 Tests: `tests/test_kick_optout.py` (15); `test_admin_panel` now expects the
 "Platform" column label. Mutation-checked: 9 deliberate breakages, all caught.
+
+## Email alerts, and every log line has a level (2026-10-20)
+
+Owner: "alerts to email". A week of Stripe webhook 500s (Oct 13) and 733
+refused Kick subscriptions a day (Oct 15) were in the journal and noticed
+only through customer tickets. The log lines had no level either.
+
+- **Log format** (`main.main`): structlog now runs `add_log_level` (every JSON
+  line has `"level"`) and `format_exc_info` (`log.exception` keeps its
+  traceback; until now it logged `"exc_info": true` and nothing else).
+- **`src/alerts`:**
+  - `processor` (in the structlog chain) notes every warning and error.
+  - `_Tap` handlers note stdlib ERRORs: on the root logger for asyncio's lost
+    task exceptions, and on `uvicorn.error`, attached after `uvicorn.Config`
+    because building it re-applies uvicorn's logging config. On the root
+    logger the tap also echoes to stderr, because adding any root handler
+    silences Python's last-resort output.
+  - `run()`, in main's gather, checks each minute and never raises.
+- **What alerts:**
+  - any error;
+  - `request_failed` (unhandled exceptions in requests);
+  - a warning repeated `ALERT_WARNING_BURST` (20) times in an hour.
+  Never: `alert_*` events, or names in `ALERT_IGNORE` (comma-separated).
+- **Limits:** one email per check naming everything due; each event once per
+  `ALERT_COOLDOWN_MINUTES` (360); at most `ALERT_MAX_PER_DAY` (12); 10 min of
+  back-off after a failed send.
+- **Email contents:** each event with its count, first and last time, and up
+  to 12 fields cut to 200 characters (a traceback is reduced to its last
+  line). Fields whose names look secret (token, secret, password, cookie,
+  email, signature, key, code…) are dropped. It ends with the journalctl line
+  to read more.
+- **Sending:** `RESEND_API_KEY` → Resend's HTTPS API. DigitalOcean blocks
+  outgoing SMTP on most droplets, so this is the recommended route. Else
+  `SMTP_HOST`/`SMTP_PORT` (587 STARTTLS, 465 TLS)/`SMTP_USER`/`SMTP_PASSWORD`
+  via smtplib on a thread. `ALERT_EMAIL_FROM` defaults to Resend's
+  `onboarding@resend.dev`, which Resend only delivers to the address the
+  Resend account was made with. Unconfigured, it logs
+  `alert_email_unconfigured` once and sends nothing.
+- **Owner setup (not done yet):** make a free Resend account with the address
+  the alerts should go to, create an API key, and add `RESEND_API_KEY=` and
+  `ALERT_EMAIL_TO=` to `/opt/highlightz/.env`. Restart, then run
+  `venv/bin/python -m src.alerts`, which sends a test email and prints why if
+  it could not. No pip install is needed: httpx and smtplib are already
+  there.
+- **Unverified:** a real send through Resend (no network from the dev
+  container). The request shape follows Resend's documented
+  `POST /emails {from, to, subject, text}`.
+
+Tests: `tests/test_alerts.py` (20). Mutation-checked: 15 deliberate breakages,
+all caught.

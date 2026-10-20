@@ -122,6 +122,22 @@ class Settings(BaseSettings):
     backup_s3_endpoint: str = ""
     backup_keep_local: int = 14     # newest N local archives kept by rotation
 
+    # Email alerts when something breaks (src/alerts). Off until ALERT_EMAIL_TO
+    # and one way of sending are set: RESEND_API_KEY (an HTTPS API — use this
+    # on DigitalOcean, which blocks outgoing SMTP on most droplets) or
+    # SMTP_HOST/SMTP_USER/SMTP_PASSWORD. `python -m src.alerts` sends a test.
+    alert_email_to: str = ""
+    alert_email_from: str = "Highlightz alerts <onboarding@resend.dev>"
+    resend_api_key: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587            # 587 STARTTLS, 465 implicit TLS
+    smtp_user: str = ""
+    smtp_password: str = ""
+    alert_warning_burst: int = 20   # the same warning this many times in an hour
+    alert_cooldown_minutes: int = 360
+    alert_max_per_day: int = 12
+    alert_ignore: str = ""          # comma-separated event names never alerted on
+
     # FFmpeg / streamlink
     ffmpeg_path: str = "ffmpeg"
     streamlink_path: str = "streamlink"
