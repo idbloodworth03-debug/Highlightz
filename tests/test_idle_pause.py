@@ -125,6 +125,37 @@ def test_the_slot_is_not_taken_back_by_the_resume_itself(scene):
     assert api._live_slots == set()
 
 
+# ── restarting ───────────────────────────────────────────────────────────────
+
+def test_a_restart_leaves_paused_channels_paused(scene, monkeypatch):
+    """main.restore_streams starts the saved channels at boot. It used to start
+    paused ones too. The worker then overwrote "paused" with "offline" in the
+    user's tab, a live one took a slot, and the reaper's first pass five minutes
+    later paused them all again at once: the burst of 15 "Unclosed client
+    session" in the first alert email, after a deploy (2026-10-20)."""
+    from src import main
+    spawned = []
+
+    async def _spawn(channel, platform, uid="", preset="default"):
+        spawned.append((channel, platform, uid, preset))
+    monkeypatch.setattr(main, "spawn_worker", _spawn)
+    scene.add("u1", "jynxzi", status="paused")
+    scene.add("u1", "xqc", platform="kick", preset="variety", status="paused")
+    scene.add("u2", "kestrel", status="live")
+    scene.add("u3", "nova", platform="kick", status="offline")
+
+    assert asyncio.run(main.restore_streams()) == 2
+    assert sorted(spawned) == [("kestrel", "twitch", "u2", "fps"),
+                               ("nova", "kick", "u3", "fps")]
+    assert api._streams["u1:jynxzi"]["status"] == "paused"
+    assert api._streams["u1:xqc"]["status"] == "paused"
+
+    # And nothing else changes: the user coming back still restarts both.
+    assert asyncio.run(api._resume_user_streams("u1")) == 2
+    assert sorted(scene.started) == [("jynxzi", "twitch", "fps", "u1"),
+                                     ("xqc", "kick", "variety", "u1")]
+
+
 # ── the wiring ───────────────────────────────────────────────────────────────
 
 def test_the_reaper_pauses_and_access_loss_still_deletes():

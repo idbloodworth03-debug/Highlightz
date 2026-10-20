@@ -112,6 +112,31 @@ async def stop_worker(channel: str, user_id: str = "") -> None:
     SHARED_BUFFERS.pop(channel, None)
 
 
+async def restore_streams() -> int:
+    """At startup, start a worker for every saved channel except paused ones.
+
+    Paused channels used to be started too. The worker then overwrote the
+    record's "paused" with "offline" or "live", which the user's tab showed,
+    and a live one took a live slot and spawned its capture. Five minutes
+    later the idle reaper found them unpaused and paused them all again, at
+    once. That burst was the "Unclosed client session" x15 in the first alert
+    email, a few minutes after a deploy (2026-10-20). It happened on every
+    deploy.
+
+    Skipping them changes nothing else. _paused_users is rebuilt from the same
+    records, so the user's next visit resumes them, and the reaper's first pass
+    resumes the channels of a paid account.
+    """
+    n = 0
+    for stream in list(dashboard_api._streams.values()):
+        if stream.get("status") == "paused":
+            continue
+        await spawn_worker(stream["channel"], stream.get("platform", "twitch"),
+                           stream.get("user_id", ""), stream.get("preset", "default"))
+        n += 1
+    return n
+
+
 # ── Redis pub/sub listener ────────────────────────────────────────────────────
 
 async def listen_for_new_streams(redis) -> None:
@@ -741,9 +766,7 @@ async def main() -> None:
     ]
 
     # Restore streams that were running before the last shutdown
-    for stream in list(dashboard_api._streams.values()):
-        await spawn_worker(stream["channel"], stream.get("platform", "twitch"),
-                           stream.get("user_id", ""), stream.get("preset", "default"))
+    await restore_streams()
 
     log.info("superclipbot_started", version="1.0.0")
     try:

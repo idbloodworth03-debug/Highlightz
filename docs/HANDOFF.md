@@ -5390,3 +5390,28 @@ re-run against the same reproductions.
   - Full suite 3793 passed, with no container-only failures left.
   - After deploy, prod should stop logging both. Check with
     `journalctl -u highlightz --since "1 day ago" -o cat | grep -c "Unclosed client session\|shorter than Content-Length"`.
+
+**Why 15 at once: every deploy un-paused the paused channels** (fixed the same
+day; owner: "add it and I will deploy again").
+- What happened: `main.py` started a worker for EVERY saved channel at boot,
+  paused ones included. The worker overwrote the record's "paused" with
+  "offline" or "live", which the user's open tab showed, and a live one took
+  a live slot and spawned its capture. The reaper's first pass, 5 minutes
+  after boot, then found them unpaused and paused them all again at once.
+  With the leak above, that batch of stops was the 15 sessions. The alert
+  came a few minutes after a deploy.
+- Fix: the boot loop is now `main.restore_streams()`, which skips status
+  "paused". Nothing else changes:
+  - `_paused_users` is rebuilt from the same records, so the user's next
+    visit resumes them;
+  - the reaper's first pass resumes a paid account's paused channels, as
+    before.
+- Test: `test_a_restart_leaves_paused_channels_paused` in
+  `tests/test_idle_pause.py`. Paused records stay paused and unspawned, the
+  others spawn with their platform and preset, and a return resumes both.
+  Removing the skip fails it.
+- Blast radius: boot only, and only records whose status is "paused".
+  Full suite 3794 passed.
+- Not verified on prod. The journal from before the fix would show it:
+  `journalctl -u highlightz --since "2026-10-20 13:55 UTC" --until "2026-10-20 14:12 UTC" -o short-iso | grep -E 'superclipbot_started|streams_paused_idle'`
+  should print a start, then a batch of pauses about 5 minutes later.
