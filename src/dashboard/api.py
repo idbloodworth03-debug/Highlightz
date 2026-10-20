@@ -694,6 +694,77 @@ async def _clear_login_rate(ip: str) -> None:
     async with _login_rate_lock:
         _login_attempts.pop(ip, None)
 
+
+# ── Password sign-in without freezing the site (audit, 2026-10-20) ────────────
+# The slow hash (PBKDF2, ~0.12 s) used to run on the event loop against every
+# password account for every guess: ten wrong guesses from one IP — inside the
+# limit above — stopped every page, socket and live channel for over five
+# seconds. Now:
+#   - the account is found by its fingerprint (users.password_candidates), so a
+#     wrong guess runs no slow hash at all once every password account has one;
+#   - every slow hash runs on a worker thread, one at a time, so the loop never
+#     waits on one and at most one core is spent on them;
+#   - accounts not fingerprinted yet are checked the old way, but those checks
+#     are capped across all IPs together, and a sign-in that would exceed the
+#     cap is told to wait instead of queueing.
+_PW_SLOW_PER_MIN = 60     # slow hashes per minute for unfingerprinted accounts
+_PW_MAX_WAITING  = 4      # slow checks allowed to queue behind the running one
+_pw_slow_spent: list[tuple[float, int]] = []
+_pw_waiting = 0
+_pw_gate: asyncio.Semaphore | None = None
+_pw_gate_loop = None
+
+
+class _SignInBusy(Exception):
+    """More slow sign-in checks than the cap allows right now."""
+
+
+def _pw_semaphore() -> asyncio.Semaphore:
+    # One per event loop: a Semaphore remembers the loop it first waited on,
+    # and the test suite runs many loops in one process.
+    global _pw_gate, _pw_gate_loop
+    loop = asyncio.get_running_loop()
+    if _pw_gate is None or _pw_gate_loop is not loop:
+        _pw_gate, _pw_gate_loop = asyncio.Semaphore(1), loop
+    return _pw_gate
+
+
+def _spend_slow_checks(n: int, now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    _pw_slow_spent[:] = [(t, k) for t, k in _pw_slow_spent if now - t < 60]
+    if sum(k for _, k in _pw_slow_spent) + n > _PW_SLOW_PER_MIN:
+        raise _SignInBusy()
+    _pw_slow_spent.append((now, n))
+
+
+async def _password_account(password: str) -> dict | None:
+    """The password account this password signs in to, or None. Raises
+    _SignInBusy when unfingerprinted accounts would have to be checked and the
+    cap is spent."""
+    global _pw_waiting
+    from src.auth import users as user_store
+    matched, unchecked = user_store.password_candidates(password)
+    if matched is not None:
+        # Only the right password reaches this, so it is never refused for load.
+        async with _pw_semaphore():
+            ok = await asyncio.to_thread(user_store.verify, matched, password)
+        return matched if ok else None
+    if not unchecked:
+        return None
+    if _pw_waiting >= _PW_MAX_WAITING:
+        raise _SignInBusy()
+    _spend_slow_checks(len(unchecked))
+    _pw_waiting += 1
+    try:
+        async with _pw_semaphore():
+            user = await asyncio.to_thread(
+                lambda: next((u for u in unchecked if user_store.verify(u, password)), None))
+    finally:
+        _pw_waiting -= 1
+    if user is not None:
+        user_store.remember_password_lookup(user["id"], password)
+    return user
+
 # Per-user force-clip rate limit
 _force_clip_hits: dict[str, tuple[int, float]] = {}
 _FORCE_CLIP_MAX      = 6
@@ -2553,9 +2624,9 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
 
     Billing starts immediately — no self-serve trial. A user on an app-managed
     admin-granted trial (status 'trialing', no Stripe subscription) is allowed
-    through so they can subscribe before the trial runs out. Plan switching
-    for ALREADY-subscribed users happens in the Stripe portal, not here (the
-    active-subscription guard below sends them into the app).
+    through so they can subscribe before the trial runs out. An ALREADY-
+    subscribed user choosing the other tier is sent to /billing/change, which
+    says what the switch costs and makes it only when they confirm.
     """
     from src.billing.stripe_billing import create_checkout_url
     from src.billing.plans import get_plan
@@ -2579,33 +2650,20 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
     # with no Stripe subscription behind it, so it may proceed to checkout —
     # the live-status check below still catches any real Stripe subscription.)
     if db_user and db_user.get("subscription_status") == "active":
-        # ALREADY SUBSCRIBED. This used to redirect to "/" and do nothing, which
-        # is why upgrades never landed: a Starter customer clicked Go Pro, was
-        # bounced back to the dashboard, and stayed on Starter with no error and
-        # no charge. The comment said tier changes happen in the Stripe portal,
-        # but the pricing card points here.
+        # ALREADY SUBSCRIBED: a tier change, made on the subscription they
+        # already have. A second Checkout would mint a second subscription and
+        # bill them twice (tests/test_no_double_billing.py).
         #
-        # A second Checkout is NOT the fix — that mints a second subscription
-        # and bills them twice. Change the price on the subscription they
-        # already have.
-        from src.billing.stripe_billing import change_subscription_price
-        cust = db_user.get("stripe_customer_id") or ""
-        current = get_plan(db_user)
-        if current == plan:
+        # BUT NOT ON THIS REQUEST (audit, 2026-10-20). This is a GET — a link —
+        # and it used to change the price right here, and Stripe bills the
+        # prorated difference the moment the price changes. So any link to
+        # /billing/checkout?plan=pro — the paywall's own "Choose Pro", or one
+        # posted anywhere — charged a Starter customer with nothing on screen
+        # saying so, and ?plan=starter downgraded a Pro one. The change now
+        # happens only from the page that says what it costs.
+        if get_plan(db_user) == plan:
             return RedirectResponse("/?plan=unchanged")
-        changed = await change_subscription_price(cust, price_id) if cust else None
-        if not changed:
-            # Never report success we did not get. Send them to the portal,
-            # where they can change tier themselves, rather than back to a
-            # dashboard that still shows the old plan.
-            log.error("upgrade_failed", user=uid, from_plan=current, to_plan=plan,
-                      customer=cust)
-            return RedirectResponse("/billing/portal")
-        user_store.set_plan(uid, plan)
-        log.info("plan_changed_in_place", user=uid, from_plan=current, to_plan=plan)
-        await broadcast({"event": "subscription_active",
-                         "message": f"You are on {plan.title()} now."}, user_id=uid)
-        return RedirectResponse("/?plan=" + plan)
+        return RedirectResponse("/billing/change?plan=" + plan)
     # Webhook-latency window: the user may have JUST paid (Stripe knows, our DB
     # doesn't yet). Ask Stripe live before selling them a second subscription —
     # and self-heal the DB so they get straight into the app.
@@ -2647,6 +2705,130 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
     # reached the card form and walked away — the opposite conclusion.
     user_store.mark_checkout_started(uid)
     return RedirectResponse(url)
+
+
+# ── Changing tier on a live subscription: say the cost, then ask ──────────────
+# GET /billing/change shows the switch and what it costs; only the POST from
+# that page makes it. The page puts a one-time token in the session and in the
+# form, so the POST must come from the page this person was just shown — a
+# form on another site could not send the session cookie (SameSite=Lax) and
+# could not know the token. A token is good for one POST, for 15 minutes.
+_PLAN_CHANGE_TTL_S = 15 * 60
+
+_PLAN_CHANGE_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>{title} &mdash; Highlightz</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b12;color:#e8e8f0;font:15px/1.6 'Sora','Sora Fallback',system-ui,sans-serif;padding:16px;box-sizing:border-box}
+.card{max-width:440px;width:100%;padding:32px;background:#14141f;border:1px solid #26263a;border-radius:16px;box-sizing:border-box}
+h1{font-size:19px;margin:0 0 16px}p{color:#b4b4c6;margin:0 0 16px}
+.row{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid #26263a;color:#e8e8f0}
+.row span:first-child{color:#9a9aae}.row:last-of-type{border-bottom:1px solid #26263a;margin-bottom:16px}
+button{all:unset;box-sizing:border-box;display:block;width:100%;text-align:center;cursor:pointer;padding:12px 24px;border-radius:10px;
+background:linear-gradient(135deg,#7c3aed,#b86adc);color:#fff;font-weight:600;margin-bottom:12px}
+button:focus-visible,a:focus-visible{outline:2px solid #c489e4;outline-offset:2px}
+a{display:block;text-align:center;color:#9a9aae;text-decoration:none;padding:8px}</style></head>
+<body><div class="card"><h1>{title}</h1>
+<div class="row"><span>Now</span><span>{current_label} &middot; ${current_price}/month</span></div>
+<div class="row"><span>After</span><span>{new_label} &middot; ${new_price}/month</span></div>
+<p>{what}</p>
+<form method="post" action="/billing/change">
+<input type="hidden" name="plan" value="{plan}"><input type="hidden" name="token" value="{token}">
+<button type="submit">Confirm &mdash; switch to {new_label}</button></form>
+<a href="/">Not now</a></div></body></html>"""
+
+
+def _plan_change_html(current: str, plan: str, token: str) -> str:
+    import html as _html
+    from src.billing.plans import PLAN_LIMITS
+    cur, new = PLAN_LIMITS[current], PLAN_LIMITS[plan]
+    if new["price"] > cur["price"]:
+        what = ("When you confirm, Stripe charges the card on your subscription "
+                "today for the difference, for the rest of this billing period "
+                "(worked out to the day). From your next renewal it is "
+                f"${new['price']}/month.")
+    else:
+        what = (f"When you confirm, you move to {new['label']} now. The unused part "
+                f"of {cur['label']} this billing period becomes a credit on your "
+                "account, used against your next invoices. From your next renewal "
+                f"it is ${new['price']}/month.")
+    fields = {"title": f"Switch to {new['label']}?", "current_label": cur["label"],
+              "current_price": str(cur["price"]), "new_label": new["label"],
+              "new_price": str(new["price"]), "what": what, "plan": plan, "token": token}
+    page = _PLAN_CHANGE_HTML
+    for k, v in fields.items():
+        page = page.replace("{" + k + "}", _html.escape(v))
+    return page
+
+
+@app.get("/billing/change", response_class=HTMLResponse)
+async def billing_change_page(request: Request, plan: str = ""):
+    """What switching tier costs, and the button that does it."""
+    from src.billing.plans import get_plan
+    from src.auth import users as user_store
+    if plan not in ("starter", "pro"):
+        raise HTTPException(status_code=400, detail="Unknown plan")
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    if not db_user:
+        return RedirectResponse("/login")
+    if db_user.get("subscription_status") != "active":
+        # No subscription to change: a new one goes through Stripe Checkout,
+        # whose own page is where the person confirms paying.
+        return RedirectResponse("/billing/checkout?plan=" + plan)
+    current = get_plan(db_user)
+    if current == plan:
+        return RedirectResponse("/?plan=unchanged")
+    token = secrets.token_urlsafe(24)
+    request.session["plan_change"] = {"plan": plan, "token": token, "at": time.time()}
+    return HTMLResponse(_plan_change_html(current, plan, token),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/billing/change")
+async def billing_change_confirm(request: Request, plan: str = Form(""), token: str = Form("")):
+    """Make the switch the person just confirmed. 303s throughout, so the
+    browser follows each redirect with a GET instead of re-sending the form."""
+    from src.billing.plans import get_plan
+    from src.billing.stripe_billing import change_subscription_price
+    from src.auth import users as user_store
+    uid = request.session.get("user_id", "")
+    db_user = user_store.get_by_id(uid) if uid else None
+    if not db_user:
+        return RedirectResponse("/login", status_code=303)
+    pending = request.session.pop("plan_change", None) or {}
+    known = plan in ("starter", "pro")
+    fresh = time.time() - float(pending.get("at") or 0) <= _PLAN_CHANGE_TTL_S
+    if not (known and fresh and pending.get("plan") == plan
+            and hmac.compare_digest(str(pending.get("token") or "").encode(), token.encode())):
+        # Not from the page we showed, or too long ago: show it again rather
+        # than charge anyone.
+        log.warning("plan_change_unconfirmed", user=uid, plan=plan[:16])
+        return RedirectResponse(("/billing/change?plan=" + plan) if known else "/billing/paywall",
+                                status_code=303)
+    price_id = (settings.stripe_price_id_starter if plan == "starter"
+                else settings.stripe_price_id_pro)
+    if not settings.stripe_secret_key or not price_id:
+        raise HTTPException(status_code=503, detail=f"{plan} price not configured")
+    if db_user.get("subscription_status") != "active":
+        return RedirectResponse("/billing/checkout?plan=" + plan, status_code=303)
+    current = get_plan(db_user)
+    if current == plan:
+        return RedirectResponse("/?plan=unchanged", status_code=303)
+    cust = db_user.get("stripe_customer_id") or ""
+    changed = await change_subscription_price(cust, price_id) if cust else None
+    if not changed:
+        # Never report success we did not get. Send them to the portal, where
+        # they can change tier themselves, rather than back to a dashboard
+        # that still shows the old plan.
+        log.error("upgrade_failed", user=uid, from_plan=current, to_plan=plan,
+                  customer=cust)
+        return RedirectResponse("/billing/portal", status_code=303)
+    user_store.set_plan(uid, plan)
+    log.info("plan_changed_in_place", user=uid, from_plan=current, to_plan=plan)
+    await broadcast({"event": "subscription_active",
+                     "message": f"You are on {plan.title()} now."}, user_id=uid)
+    return RedirectResponse("/?plan=" + plan, status_code=303)
 
 
 # Shown when Stripe refuses to open a portal session even after the
@@ -8541,6 +8723,7 @@ _ERROR_MESSAGES = {
     "kick_signin_disabled": "Sign in with Twitch. You can link a Kick account from Settings after signing in.",
     "invalid_state":      "Login session expired. Please try again.",
     "incorrect_password": "Incorrect password. Please try again.",
+    "too_many_attempts":  "Too many sign-in attempts. Wait a minute and try again.",
     "account_deleted":    "Account deleted successfully.",
     "account_removed":    "This account has been deleted.",
 }
@@ -8578,11 +8761,20 @@ async def demo_page():
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    from src.auth import users as user_store
     ip = request.client.host if request.client else "unknown"
-    await _check_login_rate(ip)
-    # Only scan users with a password hash (admins); Twitch OAuth users never match
-    user = next((u for u in user_store._load() if u.get("password_hash") and user_store.verify(u, password)), None)
+    # A person at the form, so a page rather than JSON when told to wait.
+    too_many = RedirectResponse("/login?error=too_many_attempts", status_code=302)
+    try:
+        await _check_login_rate(ip)
+    except HTTPException as exc:
+        if exc.status_code == 429:
+            return too_many
+        raise
+    try:
+        user = await _password_account(password)
+    except _SignInBusy:
+        log.warning("login_busy", ip=ip)
+        return too_many
     if user:
         await _clear_login_rate(ip)
         # Fix 10: clear any existing session before setting new auth data (session fixation)
@@ -8637,7 +8829,8 @@ class _CreateUserRequest(BaseModel):
 async def create_user(request: Request, body: _CreateUserRequest):
     _require_admin(request)
     from src.auth import users as user_store
-    if user_store.password_in_use(body.password):
+    # Read-only and possibly several slow hashes: off the event loop.
+    if await asyncio.to_thread(user_store.password_in_use, body.password):
         raise HTTPException(status_code=409, detail=(
             "Another password account already uses that password. Sign-in is by "
             "password alone, so each one needs its own — pick a different one."))

@@ -7,6 +7,7 @@ Their Twitch access/refresh tokens are encrypted at rest.
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -107,7 +108,8 @@ def _save(users: list[dict]) -> None:
 # encrypted values until the purge script has run, and _public() is what keeps
 # them out of every API response in the meantime. Drop them from this tuple only
 # once no user record contains either field.
-_SECRET_FIELDS = ("password_hash", "salt", "tw_access", "tw_refresh", "kick_access", "kick_refresh")
+_SECRET_FIELDS = ("password_hash", "salt", "pw_lookup", "pw_lookup_kid",
+                  "tw_access", "tw_refresh", "kick_access", "kick_refresh")
 
 
 def _public(user: dict) -> dict:
@@ -137,12 +139,79 @@ def verify(user: dict, password: str) -> bool:
     return secrets.compare_digest(dk, user["password_hash"])
 
 
+# ── Which account is this password? ──────────────────────────────────────────
+# POST /login takes a password and nothing else (the reviewers' instructions
+# name that form, so it stays that way), so the server has to work out which
+# password account a password belongs to. It used to run the slow hash
+# (PBKDF2, ~0.12 s) against every password account in turn, on the event loop:
+# ten wrong guesses froze the whole site, clip detection included, for over
+# five seconds (audit, 2026-10-20).
+#
+# So each password account also carries `pw_lookup`, an HMAC of its password
+# under a key derived from the server secret. A guess is fingerprinted once
+# (microseconds) and compared with those, and the slow hash runs only for the
+# one account whose fingerprint matches — a wrong guess costs no slow hash at
+# all. The fingerprint is useless without the server secret, which is in .env,
+# not in users.json or the backups. The slow hash still decides every sign-in.
+#
+# `pw_lookup_kid` names the key a fingerprint was made with. An account made
+# before fingerprints existed, or fingerprinted under a key since rotated, has
+# no current one: it is checked the slow way, and fingerprinted the next time
+# it signs in (api._password_account).
+
+def _lookup_key() -> bytes:
+    secret = settings.token_encryption_key or settings.dashboard_secret_key
+    return hmac.new(secret.encode(), b"highlightz password lookup v1", hashlib.sha256).digest()
+
+
+def password_lookup(password: str) -> tuple[str, str]:
+    """(fingerprint, key id) for a password."""
+    key = _lookup_key()
+    return (hmac.new(key, password.encode(), hashlib.sha256).hexdigest(),
+            hashlib.sha256(key).hexdigest()[:12])
+
+
+def password_candidates(password: str) -> tuple[dict | None, list[dict]]:
+    """(the account whose fingerprint matches, the accounts with no current
+    fingerprint). Cheap — no slow hash. The first is the only account this
+    password can be; the second is everything that must still be checked the
+    slow way, and is empty once every password account has signed in since
+    fingerprints existed."""
+    tag, kid = password_lookup(password)
+    unchecked = []
+    for u in _load():
+        if not u.get("password_hash"):
+            continue
+        if u.get("pw_lookup_kid") == kid and u.get("pw_lookup"):
+            if hmac.compare_digest(u["pw_lookup"], tag):
+                return u, []
+            continue                    # fingerprinted, and not with this password
+        unchecked.append(u)
+    return None, unchecked
+
+
+def remember_password_lookup(user_id: str, password: str) -> None:
+    """Fingerprint an account that just proved this password is its own."""
+    tag, kid = password_lookup(password)
+    users = _load()
+    for u in users:
+        if u["id"] == user_id and u.get("password_hash"):
+            if u.get("pw_lookup") == tag and u.get("pw_lookup_kid") == kid:
+                return
+            u["pw_lookup"], u["pw_lookup_kid"] = tag, kid
+            _save(users)
+            return
+
+
 def password_in_use(password: str) -> bool:
     """Is this password already some password account's? Sign-in is
     password-only (POST /login matches the first account it verifies
     against), so two accounts sharing one would log the second person in as
     the first. Checked when an admin creates a password account."""
-    return any(u.get("password_hash") and verify(u, password) for u in _load())
+    matched, unchecked = password_candidates(password)
+    if matched is not None:
+        return verify(matched, password)
+    return any(verify(u, password) for u in unchecked)
 
 
 def create(username: str, password: str, is_admin: bool = False) -> dict:
@@ -150,11 +219,14 @@ def create(username: str, password: str, is_admin: bool = False) -> dict:
     if any(u["username"].lower() == username.lower() for u in users):
         raise ValueError(f"Username '{username}' already exists")
     dk, salt = _hash_password(password)
+    tag, kid = password_lookup(password)
     user: dict = {
         "id":                   secrets.token_urlsafe(16),
         "username":             username,
         "password_hash":        dk,
         "salt":                 salt,
+        "pw_lookup":            tag,
+        "pw_lookup_kid":        kid,
         "is_admin":             is_admin,
         "avatar_url":           "",
         "stripe_customer_id":   None,

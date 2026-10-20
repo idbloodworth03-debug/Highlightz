@@ -14,10 +14,15 @@
 
 The fix is one subscription, always: change the price in place, and sweep any
 duplicate the moment Stripe says one was created.
+
+Since 2026-10-20 the in-place change is made from a confirmation page
+(/billing/change, see tests/test_plan_change_confirm.py), never by the link
+itself, so these walk through it: link, page, confirm.
 """
 
 import base64
 import json as _j
+import re
 import time
 
 import pytest
@@ -44,7 +49,9 @@ def client(monkeypatch, tmp_path):
         {"id": "u1", "username": "starter_user", "subscription_status": "active",
          "plan": "starter", "stripe_customer_id": "cus_A", "created_at": now},
     ]))
-    c = TestClient(api.app)
+    # https: the confirmation page re-sets the session cookie, which is Secure,
+    # and a client on plain http would not send it back.
+    c = TestClient(api.app, base_url="https://testserver")
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     c.cookies.set("session", signer.sign(base64.b64encode(_j.dumps(
         {"auth": True, "user_id": "u1", "username": "starter_user",
@@ -64,6 +71,17 @@ def _stub_change(monkeypatch, result):
     return calls
 
 
+def _confirm(client, plan):
+    """The whole path a person takes: the pricing link, the page that says what
+    it costs, and the Confirm button."""
+    r = client.get(f"/billing/checkout?plan={plan}", follow_redirects=False)
+    assert r.headers["location"] == f"/billing/change?plan={plan}"
+    page = client.get(f"/billing/change?plan={plan}").text
+    token = re.search(r'name="token" value="([^"]+)"', page).group(1)
+    return client.post("/billing/change", data={"plan": plan, "token": token},
+                       follow_redirects=False)
+
+
 def _no_checkout(monkeypatch):
     """Explode if anything opens a Checkout session — that is the double-charge."""
     from src.billing import stripe_billing
@@ -78,8 +96,8 @@ def _no_checkout(monkeypatch):
 def test_upgrading_changes_the_price_in_place(client, monkeypatch):
     calls = _stub_change(monkeypatch, "sub_123")
     _no_checkout(monkeypatch)
-    r = client.get("/billing/checkout?plan=pro", follow_redirects=False)
-    assert r.status_code in (302, 307)
+    r = _confirm(client, "pro")
+    assert r.status_code == 303
     assert calls == [("cus_A", "price_pro")], "the subscription price was never changed"
 
 
@@ -87,7 +105,7 @@ def test_the_stored_plan_follows_the_upgrade(client, monkeypatch):
     """The bug the user actually saw: they pay, and the app still says Starter."""
     _stub_change(monkeypatch, "sub_123")
     _no_checkout(monkeypatch)
-    client.get("/billing/checkout?plan=pro", follow_redirects=False)
+    _confirm(client, "pro")
     from src.auth import users as user_store
     assert user_store.get_by_id("u1")["plan"] == "pro"
 
@@ -97,7 +115,7 @@ def test_an_upgrade_never_opens_a_second_checkout(client, monkeypatch):
     already has one, that is the double charge."""
     _stub_change(monkeypatch, "sub_123")
     _no_checkout(monkeypatch)          # asserts inside if it is ever called
-    client.get("/billing/checkout?plan=pro", follow_redirects=False)
+    _confirm(client, "pro")
 
 
 def test_a_failed_upgrade_does_not_claim_success(client, monkeypatch):
@@ -105,7 +123,7 @@ def test_a_failed_upgrade_does_not_claim_success(client, monkeypatch):
     free and hide the failure."""
     _stub_change(monkeypatch, None)    # Stripe unreachable / nothing to change
     _no_checkout(monkeypatch)
-    r = client.get("/billing/checkout?plan=pro", follow_redirects=False)
+    r = _confirm(client, "pro")
     assert "/billing/portal" in r.headers.get("location", ""), \
         "a failed upgrade should route to the portal, not back to a stale dashboard"
     from src.auth import users as user_store

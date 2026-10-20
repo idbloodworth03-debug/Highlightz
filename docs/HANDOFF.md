@@ -5074,3 +5074,103 @@ Tests: `tests/test_clip_thumbs.py` (18). Mutation-checked: 14 deliberate
 breakages, all caught. These include the retention clock (no mtime stamp, no
 age check on pictures, no age check without a record list) and a bare
 `ffmpeg` in place of the configured path.
+
+## Full audit (2026-10-20); fixed: sign-in freeze, upgrade on a link
+
+Owner: "can we run a full audit on the site", then "yes fix those two". The
+audit was read-only (all 193 routes, billing, data safety, dependencies,
+tests, every screen in Chromium at 1440/375 px as admin-Pro and Free). The
+owner was given a read-only server diagnostic; **its output has not come back
+yet**, so the server-dependent items below are unverified.
+
+**Fixed in this commit:**
+
+1. **Password sign-in froze the site.** `POST /login` ran PBKDF2 (~0.12 s)
+   against every password account, on the event loop. Measured on a copy: 10
+   wrong guesses (inside the per-IP limit) froze every page, socket and live
+   channel for 5.4 s.
+   - Each password account now carries `pw_lookup`, an HMAC of its password
+     under a key derived from TOKEN_ENCRYPTION_KEY (or the session secret),
+     and `pw_lookup_kid` naming that key. Both are in `_SECRET_FIELDS`.
+     `users.password_candidates` finds the one account a password can be
+     without the slow hash; PBKDF2 then runs once and still decides. A wrong
+     guess runs no slow hash once every account is fingerprinted.
+   - An account without a current fingerprint (made before this, or after
+     a key rotation) is checked the old way and fingerprinted when it signs
+     in. Those checks run on a worker thread, one at a time (`_pw_semaphore`),
+     capped at `_PW_SLOW_PER_MIN` = 60 hashes a minute across all IPs, with at
+     most `_PW_MAX_WAITING` = 4 queued. Past either cap the person gets
+     `/login?error=too_many_attempts`, as does the per-IP limit, which used
+     to answer raw JSON. A correct password for a fingerprinted account is
+     never refused for load.
+   - The form is unchanged: one password field, "Admin sign-in" (Meta's
+     reviewer instructions name it). `password_in_use` runs off the loop.
+   - Measured after: 10 wrong guesses, /health stayed at ~2 ms, with 5
+     fingerprinted accounts and with 5 unfingerprinted ones. With the
+     unfingerprinted ones, 4 attempts ran in turn and the rest were told to
+     wait.
+   - **On prod right after the deploy, every existing password account is
+     unfingerprinted** until it signs in once. Hashing is already off the loop
+     and capped then; the slow path disappears as each one signs in.
+   - Trade-off, stated: with BOTH users.json and .env, the fingerprint lets
+     an attacker test password guesses fast. With .env alone they can already
+     forge an admin session, so only password reuse elsewhere is exposed.
+2. **A plain link changed a paying customer's plan.** GET
+   `/billing/checkout?plan=pro` changed an active subscriber's price in place,
+   and Stripe bills the prorated difference immediately (`always_invoice`).
+   So the paywall's own "Choose Pro", or any link, charged a Starter customer
+   with no confirmation; `?plan=starter` downgraded a Pro one.
+   - The link now redirects to `GET /billing/change?plan=`: Now/After plans
+     and prices from PLAN_LIMITS, what happens (an upgrade charges the
+     difference today, a downgrade becomes credit), Confirm and "Not now".
+     `no-store`, `noindex`.
+   - Only `POST /billing/change` changes anything. It carries a one-time
+     token from that page (session `plan_change`; single use, tied to the
+     plan, 15 minutes). Every redirect after the POST is a 303.
+   - On success it broadcasts the same `subscription_active` (scoped) as
+     before, and the same portal fallback applies when Stripe refuses.
+   - Not subscribed → Checkout; same plan → `/?plan=unchanged`.
+
+Tests: `tests/test_signin_load.py` (14), `tests/test_plan_change_confirm.py`
+(16), and `tests/test_no_double_billing.py`, which now walks link, page,
+Confirm on an https client (the page re-sets the Secure session cookie).
+Mutation-checked: 17 deliberate breakages, all caught.
+
+**Still OPEN from the audit (owner has the list):**
+
+- **Off-site backups** (July item): unverified whether `BACKUP_S3_BUCKET` is
+  set. The diagnostic prints it.
+- **Every user lookup re-reads users.json.** `get_by_id` and friends call
+  `_load()`, several times per request, on the loop. Measured ~10 ms per
+  lookup at 1,000 users and ~37 ms at 3,000.
+- **`/me` reads all of `stream_stats.jsonl`** (never trimmed) for Free and
+  Starter users via `_clips_lost_24h`. It runs on every load and every
+  reconnect, so all at once after a deploy.
+- **Logs carry no level.** structlog has no `add_log_level`, and nothing
+  alerts. That is how a week of Stripe webhook 500s and 733 refused Kick
+  subscriptions a day went unnoticed until customer tickets.
+- **Kick broadcasters cannot opt out.** ToS §5 says "Any broadcaster can
+  remove their channel" at /opt-out, which needs a Twitch sign-in.
+- **The Scheduler's Pro card promises YouTube/Instagram posting**
+  (aurora_html.py, "Connect YouTube and Instagram and have every clip…").
+  It is unconditional on `PUBLIC_PLATFORMS`.
+- **Dependency advisories:** aiohttp 3.13.5 (client-side use only),
+  cryptography 48.0.0 (bundled OpenSSL; fixed in 48.0.1), python-multipart
+  0.0.28, pydantic-settings 2.14.1 (secrets_dir unused). The python-multipart
+  form DoS was tested and is blocked by Starlette's 1,000-field limit.
+  Deploys do not `pip install`.
+- **Lower:**
+  - Uploads are spooled whole before the plan check (a Free 300 MB upload
+    left a 295 MB temp file, then 403; nginx's limit is unverified).
+  - Scheduled posts go out after Pro lapses; Autopilot re-checks, the
+    Scheduler does not.
+  - The Campaigns screen pans 87 px sideways at 360 px (the `.apx-tabs` row);
+    Tutorial pans 6 px.
+  - Signed-out unknown URLs redirect to /login, not the 404 page.
+  - The admin page's `esc()` does not escape quotes. No exploitable
+    attribute use found.
+  - A Redis blip ends the process (July item).
+  - The duplicate-email refund misses on the newer Stripe API (Oct 13 note).
+  - "Search a streamer on the left" is wrong on phones.
+  - `/billing/portal` answers raw 401 JSON when signed out (linked from the
+    paywall).
