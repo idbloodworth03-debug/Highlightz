@@ -229,8 +229,9 @@ grep before relying on either. Every public page — /compare, /llms.txt,
   - **Not on Kick**: Highlight clips / viewer-clip learning
     (`_record_viewer_clips` returns for non-Twitch — it would look up a
     Twitch user of the same name), auto-preset (Twitch category lookup),
-    the opt-out page (Twitch identities), the landing showcase (Twitch clips
-    only), Twitch-refusal notices. Kick stays **unmarketed** (nobody asked).
+    the landing showcase (Twitch clips only), Twitch-refusal notices. (The
+    opt-out page takes Kick too since 2026-10-20 — see "Kick opt-out" at the
+    end.) Kick stays **unmarketed** (nobody asked).
   - **Same-name collision**: stream keys, profiles and recorders are keyed
     by channel name without platform, so `xqc` on Twitch and `xqc` on Kick
     are one channel to the store. Known, not fixed.
@@ -5149,8 +5150,8 @@ Mutation-checked: 17 deliberate breakages, all caught.
 - **Logs carry no level.** structlog has no `add_log_level`, and nothing
   alerts. That is how a week of Stripe webhook 500s and 733 refused Kick
   subscriptions a day went unnoticed until customer tickets.
-- **Kick broadcasters cannot opt out.** ToS §5 says "Any broadcaster can
-  remove their channel" at /opt-out, which needs a Twitch sign-in.
+- ~~Kick broadcasters cannot opt out~~ — fixed 2026-10-20, see "Kick
+  opt-out" below.
 - **The Scheduler's Pro card promises YouTube/Instagram posting**
   (aurora_html.py, "Connect YouTube and Instagram and have every clip…").
   It is unconditional on `PUBLIC_PLATFORMS`.
@@ -5174,3 +5175,62 @@ Mutation-checked: 17 deliberate breakages, all caught.
   - "Search a streamer on the left" is wrong on phones.
   - `/billing/portal` answers raw 401 JSON when signed out (linked from the
     paywall).
+
+## Kick opt-out: verify with Kick (2026-10-20)
+
+Owner: "kick opt-out option a". ToS §5 says "Any broadcaster can remove their
+channel" at /opt-out, and the Privacy Policy puts Kick under "the same
+opt-out terms", but /opt-out only took a Twitch sign-in.
+
+- **Flow:** /opt-out shows "Verify with Kick" next to Twitch, only while
+  Kick OAuth is configured (`/auth/kick?intent=optout` bounces back to
+  /opt-out otherwise).
+  - The Kick callback with `kick_optout_intent` stores `optout_platform=kick`,
+    `optout_kick_id`, `optout_kick_slug`, the display name and the avatar in
+    the session, then goes to /opt-out/confirm. It signs nobody in and keeps
+    no token. A failed Kick verification goes back to /opt-out.
+  - The confirm page is shared: `{handle}` is `@login` or `kick.com/slug`.
+- **Store** (`src/auth/optout.py`):
+  - Kick entries are `{platform: "kick", kick_id, kick_slugs, display_name,
+    opted_out_at}`. An entry with no `platform` is Twitch, so old data reads
+    unchanged.
+  - `is_opted_out(name, platform=None)`. With a platform it matches only that
+    platform. Without one it matches EITHER: the recorder knows only a name,
+    so it may refuse a same-named channel on the other platform, never record
+    one that said no.
+  - `kick_user_opted_out(id)`, `opt_out_kick`, `remove_opt_out(id, platform)`.
+    The old check read `e["twitch_login"]` on every entry and would have
+    raised on a Kick one.
+- **Two slugs:** the one derived from the username at sign-in
+  (`kick_oauth.slug_for`) and the one Kick's API reports for that user id.
+  The latter comes from `kick.channel_slug_for_user`, i.e.
+  `channels?broadcaster_user_id=`, the same endpoint and app token as the
+  slug lookup verified on prod 2026-09-15.
+  - **The by-id form is unverified against live Kick.** On failure it returns
+    "" and the sign-in slug alone is blocked.
+- **Enforcement:**
+  - `add_stream` checks the requested platform; it was Twitch-only.
+  - Confirm stops every Kick monitor of each slug through
+    `_stop_monitors_for_channel(slug, platform="kick")`, which broadcasts per
+    user. A same-named Twitch monitor is left alone.
+  - `clip_recorder.ensure` refuses by name, and for Kick also by owner id
+    (the worker now passes `platform` and `broadcaster_id`).
+  - Showcase and featuring pass "twitch".
+- **Admin opt-out list:**
+  - Shows "Twitch · id" or "Kick · id".
+  - `DELETE /admin/optout/{id}?platform=`.
+  - Its Remove button had never worked: JSON.stringify output inside a
+    double-quoted onclick closed the attribute. It now uses data- attributes
+    and one click handler, and this page's `esc()` escapes quotes.
+- **Copy:**
+  - Opt-out landing and meta: Twitch or Kick, with the wrong "Enter the
+    channel name" removed.
+  - Confirm warning: monitoring "stops now", which is what happens.
+  - Privacy Policy: "their Twitch or Kick user id, channel name and display
+    name".
+- **Verified in Chromium:** both buttons at 1280/360, no sideways scroll; the
+  Kick confirm page; admin Remove on a Kick row → DELETE 200 and the row
+  goes.
+
+Tests: `tests/test_kick_optout.py` (15); `test_admin_panel` now expects the
+"Platform" column label. Mutation-checked: 9 deliberate breakages, all caught.

@@ -471,11 +471,14 @@ def get(channel: str) -> ClipRecorder | None:
     return _recorders.get((channel or "").lower())
 
 
-async def ensure(channel: str, stream_url: str) -> ClipRecorder | None:
+async def ensure(channel: str, stream_url: str, platform: str = "",
+                 broadcaster_id: str = "") -> ClipRecorder | None:
     """Start recording a channel, or join the recording already running.
 
     Returns None when capture is switched off or the channel has opted out —
-    both of which callers treat as "no local file", never as an error.
+    both of which callers treat as "no local file", never as an error. A Kick
+    channel is also refused by its owner's id, which holds even if the channel
+    is known by a slug the opt-out did not record.
     """
     if not settings.clip_capture_enabled:
         return None
@@ -490,6 +493,9 @@ async def ensure(channel: str, stream_url: str) -> ClipRecorder | None:
         from src.auth import optout
         if optout.is_opted_out(key):
             log.info("clip_capture_refused_opted_out", channel=key)
+            return None
+        if platform == "kick" and broadcaster_id and optout.kick_user_opted_out(broadcaster_id):
+            log.info("clip_capture_refused_opted_out", channel=key, by="kick_id")
             return None
     except Exception:
         pass

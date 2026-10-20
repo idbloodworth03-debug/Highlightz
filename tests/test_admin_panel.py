@@ -653,6 +653,7 @@ def test_the_sub_pages_define_every_custom_property_they_use():
 
 def test_the_optout_table_stacks_with_labels_on_a_phone():
     from src.dashboard.api import _ADMIN_OPTOUT_HTML as h
-    assert 'data-l="Twitch ID"' in h and 'data-l="Opted out"' in h
+    # "Platform" since Kick opt-outs (2026-10-20): the column is "Twitch · id" or "Kick · id".
+    assert 'data-l="Platform"' in h and 'data-l="Opted out"' in h
     assert "attr(data-l)" in h
     assert '<div class="tw"><div id="wrap">' in h

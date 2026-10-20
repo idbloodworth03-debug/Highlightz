@@ -974,7 +974,7 @@ def _load_showcase() -> list[dict]:
     # one place it would be most visible. Filtered at read time so an opt-out
     # takes effect on the next render without anyone re-curating.
     from src.auth.optout import is_opted_out
-    return [e for e in data if not is_opted_out(str(e.get("channel") or ""))]
+    return [e for e in data if not is_opted_out(str(e.get("channel") or ""), "twitch")]
 
 
 def _save_showcase(items: list[dict]) -> None:
@@ -1297,6 +1297,8 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
 
     # Opt-out flow: verify identity then redirect to confirmation page
     if request.session.pop("optout_intent", False):
+        for k in ("optout_platform", "optout_kick_id", "optout_kick_slug"):
+            request.session.pop(k, None)          # a Kick opt-out left half done
         request.session["optout_twitch_id"]      = tuser["id"]
         request.session["optout_twitch_login"]   = tuser["login"]
         request.session["optout_display_name"]   = tuser.get("display_name") or tuser["login"]
@@ -1395,13 +1397,19 @@ async def kick_login(request: Request, intent: str = ""):
     from src.auth import kick_oauth
     _fn_record(request, "oauth_start")
     if not kick_oauth.configured():
-        return RedirectResponse("/login?error=kick_signin_disabled")
+        return RedirectResponse("/opt-out" if intent == "optout"
+                                else "/login?error=kick_signin_disabled")
     state = secrets.token_urlsafe(16)
     verifier = kick_oauth.make_verifier()
     request.session["kick_oauth_state"] = state
     request.session["kick_pkce"] = verifier
     if intent == "link" and request.session.get("user_id"):
         request.session["kick_link_intent"] = request.session["user_id"]
+    # A broadcaster proving they own a Kick channel to opt it out (owner,
+    # 2026-10-20). Like Twitch's: the callback confirms who they are and
+    # signs nobody in.
+    if intent == "optout":
+        request.session["kick_optout_intent"] = True
     return RedirectResponse(kick_oauth.authorization_url(state, verifier))
 
 
@@ -1411,18 +1419,36 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
     _fn_record(request, "oauth_return")
     verifier = request.session.pop("kick_pkce", "")
     link_uid = request.session.pop("kick_link_intent", None)
+    optout = request.session.pop("kick_optout_intent", False)
+
+    def failed(kind: str) -> RedirectResponse:
+        if optout:
+            return RedirectResponse("/opt-out")
+        return RedirectResponse("/?link_error=kick" if link_uid else f"/login?error={kind}")
     if error:
-        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=kick_failed")
+        return failed("kick_failed")
     if not code or not verifier or state != request.session.pop("kick_oauth_state", None):
-        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=invalid_state")
+        return failed("invalid_state")
     try:
         tokens = await kick_oauth.exchange_code(code, verifier)
         kuser = await kick_oauth.get_user(tokens["access_token"])
     except Exception as exc:
         log.warning("kick_oauth_failed", error=str(exc))
-        return RedirectResponse("/?link_error=kick" if link_uid else "/login?error=kick_failed")
+        return failed("kick_failed")
     # The token has done its one job. Nothing below keeps it.
     del tokens
+
+    if optout:
+        # Who owns this Kick channel, for the confirm page — and nothing else:
+        # no sign-in, no account, the session's own sign-in untouched.
+        for k in ("optout_twitch_id", "optout_twitch_login"):
+            request.session.pop(k, None)
+        request.session["optout_platform"]     = "kick"
+        request.session["optout_kick_id"]      = kuser["id"]
+        request.session["optout_kick_slug"]    = kuser["slug"]
+        request.session["optout_display_name"] = kuser["username"] or kuser["slug"]
+        request.session["optout_avatar"]       = kuser.get("avatar_url", "")
+        return RedirectResponse("/opt-out/confirm")
 
     if link_uid and request.session.get("user_id") == link_uid:
         linked = user_store.link_kick_identity(link_uid, kuser["id"], kuser["slug"],
@@ -1703,19 +1729,36 @@ async def delete_account(request: Request):
 
 # ── Streamer opt-out ──────────────────────────────────────────────────────────
 
+_KICK_OPTOUT_BUTTON = (
+    '<a href="/auth/kick?intent=optout" class="btn btn-kick">'
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'
+    '<path d="M3 2h6v6h2V6h2V4h2V2h6v6h-2v2h-2v2h2v2h2v6h-6v-2h-2v-2h-2v2H9v2H3z"/></svg>'
+    'Verify with Kick</a>')
+
+
 @app.get("/opt-out", response_class=HTMLResponse)
 async def optout_landing():
-    return HTMLResponse(_OPTOUT_LANDING_HTML)
+    # The Kick button only where Kick sign-in is set up — a button that
+    # bounces straight back here would read as broken.
+    from src.auth import kick_oauth
+    return HTMLResponse(_OPTOUT_LANDING_HTML.replace(
+        "<!--KICK_OPTOUT-->", _KICK_OPTOUT_BUTTON if kick_oauth.configured() else "", 1))
 
 
 @app.get("/opt-out/confirm", response_class=HTMLResponse)
 async def optout_confirm_page(request: Request):
     import html as _html
-    twitch_id    = request.session.get("optout_twitch_id")
-    twitch_login = request.session.get("optout_twitch_login", "")
-    display_name = request.session.get("optout_display_name", twitch_login)
+    if request.session.get("optout_platform") == "kick":
+        ident  = request.session.get("optout_kick_id")
+        login  = request.session.get("optout_kick_slug", "")
+        handle = "kick.com/" + login
+    else:
+        ident  = request.session.get("optout_twitch_id")
+        login  = request.session.get("optout_twitch_login", "")
+        handle = "@" + login
+    display_name = request.session.get("optout_display_name", login)
     avatar       = request.session.get("optout_avatar", "")
-    if not twitch_id:
+    if not ident:
         return RedirectResponse("/opt-out")
     avatar_section = (
         f'<img class="avatar" src="{_html.escape(avatar)}" alt="">'
@@ -1726,17 +1769,24 @@ async def optout_confirm_page(request: Request):
         _OPTOUT_CONFIRM_HTML
         .replace("{avatar_section}", avatar_section)
         .replace("{display_name}",  _html.escape(display_name))
-        .replace("{twitch_login}",  _html.escape(twitch_login))
+        .replace("{handle}",        _html.escape(handle))
     )
     return HTMLResponse(html_out)
 
 
 @app.post("/opt-out/confirm")
 async def optout_confirm_submit(request: Request):
+    platform     = request.session.pop("optout_platform", None) or "twitch"
     twitch_id    = request.session.pop("optout_twitch_id",    None)
     twitch_login = request.session.pop("optout_twitch_login", None)
+    kick_id      = request.session.pop("optout_kick_id", None)
+    kick_slug    = request.session.pop("optout_kick_slug", None)
     display_name = request.session.pop("optout_display_name", None)
     request.session.pop("optout_avatar", None)
+    if platform == "kick":
+        if not kick_id or not kick_slug:
+            return RedirectResponse("/opt-out", status_code=302)
+        return await _opt_out_kick_channel(kick_id, kick_slug, display_name)
     if not twitch_id or not twitch_login:
         return RedirectResponse("/opt-out", status_code=302)
     from src.auth.optout import opt_out
@@ -1753,8 +1803,34 @@ async def optout_confirm_submit(request: Request):
     return RedirectResponse("/opt-out/success", status_code=302)
 
 
-async def _stop_monitors_for_channel(channel: str) -> int:
-    """Stop every user's monitor on one Twitch channel. Returns how many.
+async def _opt_out_kick_channel(kick_id: str, slug: str, display_name: str | None):
+    """Record a Kick opt-out and stop every monitor of that channel now.
+
+    The slug from sign-in is derived from the username; Kick's API is asked
+    for the slug that id's channel actually has, and both are blocked, so the
+    opt-out holds whichever name users add the channel under. The recorder
+    also refuses that owner's id (clip_recorder.ensure)."""
+    from src.auth.optout import opt_out_kick
+    from src.ingestion.platform.kick import channel_slug_for_user
+    slugs = {slug}
+    real = await channel_slug_for_user(kick_id)
+    if real:
+        slugs.add(real)
+    opt_out_kick(kick_id, slugs, display_name or slug)
+    log.info("streamer_opted_out", platform="kick", kick_id=kick_id, slugs=sorted(slugs))
+    stopped = 0
+    for s in sorted(slugs):
+        try:
+            stopped += await _stop_monitors_for_channel(s, platform="kick")
+        except HTTPException:
+            log.warning("optout_slug_unusable", slug=s[:64])
+    if stopped:
+        log.info("streamer_opted_out_monitors_stopped", platform="kick", count=stopped)
+    return RedirectResponse("/opt-out/success", status_code=302)
+
+
+async def _stop_monitors_for_channel(channel: str, platform: str = "twitch") -> int:
+    """Stop every user's monitor on one channel of one platform. Returns how many.
 
     Each stop goes through stop_stream_internal, so every affected user's
     open tabs drop the row live (the realtime contract) and each worker is
@@ -1763,7 +1839,7 @@ async def _stop_monitors_for_channel(channel: str) -> int:
     channel = _clean_channel(channel)
     keys = [k for k, v in list(_streams.items())
             if k.split(":", 1)[-1] == channel
-            and (v.get("platform") or "twitch") == "twitch"]
+            and (v.get("platform") or "twitch") == platform]
     stopped = 0
     for key in keys:
         uid = key.split(":", 1)[0] if ":" in key else ""
@@ -1799,14 +1875,17 @@ async def admin_optout_list(request: Request):
     return get_all()
 
 
-@app.delete("/admin/optout/{twitch_id}")
-async def admin_optout_remove(request: Request, twitch_id: str):
+@app.delete("/admin/optout/{entry_id}")
+async def admin_optout_remove(request: Request, entry_id: str, platform: str = "twitch"):
     _require_admin(request)
     from src.auth.optout import remove_opt_out
-    removed = remove_opt_out(twitch_id)
+    if platform not in ("twitch", "kick"):
+        raise HTTPException(status_code=400, detail="Unknown platform")
+    removed = remove_opt_out(entry_id, platform)
     if not removed:
         raise HTTPException(status_code=404, detail="Not found")
-    log.info("optout_removed_by_admin", twitch_id=twitch_id, by=request.session.get("user_id"))
+    log.info("optout_removed_by_admin", platform=platform, entry_id=entry_id,
+             by=request.session.get("user_id"))
     return {"ok": True}
 
 
@@ -4769,7 +4848,7 @@ async def add_stream(request: Request, req: StreamRequest):
                        "channels. Twitch clips are made under your own Twitch login.",
             )
     from src.auth.optout import is_opted_out
-    if req.platform == "twitch" and is_opted_out(req.channel):
+    if is_opted_out(req.channel, req.platform):
         raise HTTPException(status_code=403, detail=f"{req.channel} has opted out of clipping on Highlightz")
     # AUTO-PRESET, resolved before the lock — this makes a Twitch call, and
     # awaiting a network round-trip while holding _data_lock would stall every
@@ -9503,7 +9582,7 @@ async def admin_toggle_showcase(request: Request, clip_id: str):
     if clip.get("platform") != "twitch" or not clip.get("twitch_url"):
         raise HTTPException(status_code=400, detail="Only Twitch clips can be featured")
     from src.auth.optout import is_opted_out
-    if is_opted_out(str(clip.get("channel") or "")):
+    if is_opted_out(str(clip.get("channel") or ""), "twitch"):
         raise HTTPException(
             status_code=400,
             detail="This broadcaster has opted out of Highlightz, so their clips "
@@ -13546,7 +13625,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
-    <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch id, login and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
+    <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch or Kick user id, channel name and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
   <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. Monitoring a Kick channel needs no Kick account. If you sign in with Kick we keep your Kick user ID, username and avatar URL (Section 1) and do not keep the Kick access token. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
 
@@ -16339,6 +16418,9 @@ p{font-size:15px;color:#B9AEC4;line-height:1.55;margin-bottom:16px}
   cursor:pointer;border:1px solid transparent;text-decoration:none;transition:background 150ms,border-color 150ms,color 150ms}
 .btn-twitch{background:#9146ff;border-color:#9146ff;color:#fff}
 .btn-twitch:hover{background:#7c39d4;border-color:#7c39d4}
+.btn-kick{background:#53fc18;border-color:#53fc18;color:#0a0a0e}
+.btn-kick:hover{background:#46d914;border-color:#46d914}
+.verify{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
 .btn-confirm{background:#F7A745;border-color:#F7A745;color:#0A0A0C;width:100%}
 .btn-confirm:hover{background:#FFB65A;border-color:#FFB65A}
 .btn-back{background:transparent;border-color:rgba(255,255,255,.35);color:#F2EAF7;font-size:14px}
@@ -16363,7 +16445,7 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Streamer Opt-Out — Highlightz</title>
-<meta name="description" content="Any Twitch broadcaster can remove their channel from Highlightz here. Enter the channel name and confirm — no account needed, and it takes effect immediately.">
+<meta name="description" content="Any Twitch or Kick broadcaster can remove their channel from Highlightz here. Verify with Twitch or Kick and confirm — no Highlightz account needed, and it takes effect immediately.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <!--SOCIAL_OPTOUT-->
 <style>""" + _OPTOUT_BASE_STYLE + """</style>
@@ -16372,18 +16454,21 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 <div class="card">
   <div class="logo">Highlightz</div>
   <h1>Streamer Opt-Out</h1>
-  <p>Highlightz lets users automatically clip live Twitch streams: it creates clips using Twitch's official Clips API and records the clipped moment from the live public broadcast so it can be edited and posted. If you are a streamer and do not want your channel to be clipped or recorded through this platform, you can opt out below.</p>
+  <p>Highlightz lets users automatically clip live Twitch and Kick streams: on Twitch it creates clips using Twitch's official Clips API, and on both it records the clipped moment from the live public broadcast so it can be edited and posted. If you are a streamer and do not want your channel to be clipped or recorded through this platform, you can opt out below.</p>
   <ul class="steps">
-    <li>Verify your identity by signing in with Twitch</li>
+    <li>Verify your identity by signing in with Twitch or Kick</li>
     <li>Confirm your opt-out on the next screen</li>
     <li>Your channel will be permanently blacklisted — no users will be able to add it</li>
   </ul>
   <div class="divider"></div>
-  <p style="font-size:12px;margin-bottom:20px">You must be the actual owner of the Twitch channel. We verify this through Twitch's official login — you cannot opt out someone else's channel.</p>
+  <p style="font-size:12px;margin-bottom:20px">You must be the actual owner of the channel. We verify this through Twitch's or Kick's official login — you cannot opt out someone else's channel.</p>
+  <div class="verify">
   <a href="/auth/twitch?intent=optout" class="btn btn-twitch">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
     Verify with Twitch
   </a>
+  <!--KICK_OPTOUT-->
+  </div>
   <div class="divider"></div>
   <p style="font-size:12px;color:#6b6b7b;margin-bottom:0">Already a Highlightz user? <a href="/login" style="color:#b86adc;text-decoration:none">Log in here</a></p>
 </div>
@@ -16392,8 +16477,8 @@ _OPTOUT_LANDING_HTML = """<!DOCTYPE html>
 
 _OPTOUT_LANDING_HTML = _OPTOUT_LANDING_HTML.replace("<!--SOCIAL_OPTOUT-->", _social_head(
     "/opt-out", "Streamer Opt-Out — Highlightz",
-    "Any Twitch broadcaster can remove their channel from Highlightz here. "
-    "Enter the channel name and confirm — no account needed."), 1)
+    "Any Twitch or Kick broadcaster can remove their channel from Highlightz here. "
+    "Verify with Twitch or Kick and confirm — no Highlightz account needed."), 1)
 
 _OPTOUT_CONFIRM_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -16412,12 +16497,12 @@ _OPTOUT_CONFIRM_HTML = """<!DOCTYPE html>
   <p>You are opting out the following channel:</p>
   {avatar_section}
   <div class="name">{display_name}</div>
-  <div class="handle">@{twitch_login}</div>
+  <div class="handle">{handle}</div>
   <div class="warning">
-    <strong>This is permanent.</strong> Once confirmed, no Highlightz user will be able to add <strong>@{twitch_login}</strong> as a monitored channel. Any existing monitoring will be blocked on the next attempt.
+    <strong>This is permanent.</strong> Once confirmed, no Highlightz user will be able to add <strong>{handle}</strong> as a monitored channel, and any monitoring of it already running stops now.
   </div>
   <form method="POST" action="/opt-out/confirm">
-    <button type="submit" class="btn btn-confirm">Yes, opt out @{twitch_login}</button>
+    <button type="submit" class="btn btn-confirm">Yes, opt out {handle}</button>
   </form>
   <div style="margin-top:14px">
     <a href="/opt-out" class="btn btn-back">Cancel</a>
@@ -16928,25 +17013,40 @@ _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <div class="wrap">
 <div class="k">Control room</div>
 <h1>Opt-out registry</h1>
-<p class="meta">Streamers who verified with Twitch and asked not to be clipped on Highlightz. Removing someone makes their channel clippable again.</p>
+<p class="meta">Streamers who verified with Twitch or Kick and asked not to be clipped on Highlightz. Removing someone makes their channel clippable again.</p>
 <div class="tw"><div id="wrap"><div class="empty">Loading...</div></div></div>
 </div>
 <div class="toast" id="toast"></div>
 <script>
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
-function esc(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML.replace(/"/g,'&quot;')}
 async function api(url,method='GET'){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'}});if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||r.status)}return r.json()}
 function fmt(ts){if(!ts)return'—';return new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
-async function remove(id,name){
-  if(!confirm('Remove @'+name+' from the opt-out list? They will be clippable again.'))return;
-  try{await api('/admin/optout/'+id,'DELETE');toast('@'+name+' removed');load()}
+async function remove(id,platform,name){
+  if(!confirm('Remove '+name+' from the opt-out list? They will be clippable again.'))return;
+  try{await api('/admin/optout/'+encodeURIComponent(id)+'?platform='+platform,'DELETE');toast(name+' removed');load()}
   catch(e){toast('Error: '+e.message)}
+}
+// Ids and names go in data- attributes and are read back by the click
+// handler: putting JSON.stringify output inside onclick="..." closed the
+// attribute at its first double quote, so Remove never worked.
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button[data-rm]');
+  if(b)remove(b.dataset.rm,b.dataset.platform,b.dataset.name);
+});
+function row(i){
+  const kick=i.platform==='kick';
+  const handle=kick?'kick.com/'+((i.kick_slugs||[])[0]||''):'@'+(i.twitch_login||'');
+  const id=kick?i.kick_id:i.twitch_id;
+  return '<tr><td class="who"><b>'+esc(i.display_name)+'</b><span class="sub">'+esc(handle)+'</span></td>'
+    +'<td class="mono dim" data-l="Platform">'+(kick?'Kick':'Twitch')+' &middot; '+esc(id)+'</td>'
+    +'<td data-l="Opted out">'+fmt(i.opted_out_at)+'</td>'
+    +'<td data-l=""><button class="btn btn-bad" data-rm="'+esc(id)+'" data-platform="'+(kick?'kick':'twitch')+'" data-name="'+esc(handle)+'">Remove</button></td></tr>';
 }
 async function load(){
   const items=await api('/admin/optout/list');
   if(!items.length){document.getElementById('wrap').innerHTML='<div class="empty">No streamers have opted out yet.</div>';return}
-  const rows=items.map(i=>'<tr><td class="who"><b>'+esc(i.display_name)+'</b><span class="sub">@'+esc(i.twitch_login)+'</span></td><td class="mono dim" data-l="Twitch ID">'+esc(i.twitch_id)+'</td><td data-l="Opted out">'+fmt(i.opted_out_at)+'</td><td data-l=""><button class="btn btn-bad" onclick="remove('+JSON.stringify(i.twitch_id)+','+JSON.stringify(i.twitch_login)+')">Remove</button></td></tr>').join('');
-  document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Twitch ID</th><th>Opted out</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+  document.getElementById('wrap').innerHTML='<table><thead><tr><th>Streamer</th><th>Platform &middot; ID</th><th>Opted out</th><th></th></tr></thead><tbody>'+items.map(row).join('')+'</tbody></table>';
 }
 load();
 </script>

@@ -350,7 +350,9 @@ class StreamWorker:
         from src.ingestion import clip_recorder
         try:
             self._recorder = await clip_recorder.ensure(
-                channel, self._stream_info.stream_url)
+                channel, self._stream_info.stream_url,
+                platform=self._stream_info.platform,
+                broadcaster_id=self._stream_info.broadcaster_id)
         except Exception as exc:
             # Capture is an enhancement. It must never be able to stop a
             # channel being monitored.

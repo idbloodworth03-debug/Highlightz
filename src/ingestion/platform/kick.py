@@ -182,6 +182,28 @@ class KickPlatform(BasePlatform):
             raise ChannelOffline(f"Channel '{slug}' not found on Kick")
         return row if isinstance(row, dict) else None
 
+    async def slug_for_broadcaster(self, broadcaster_id: str) -> str:
+        """The slug of the channel this Kick user owns, from the public API
+        (channels?broadcaster_user_id=, the same endpoint and token as the
+        slug lookup above). "" when it cannot be told: not configured,
+        refused, or no channel for that id. Used by the opt-out, which must
+        block the channel by the name users actually add it under."""
+        bid = str(broadcaster_id or "")
+        if not self.configured() or not bid:
+            return ""
+        token = await self._get_app_token()
+        status, body = await self._get_json(
+            f"{KICK_API_BASE}/channels", params={"broadcaster_user_id": bid},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        if status == 401:
+            self._app_token = ""
+        if status != 200 or not isinstance(body, dict):
+            return ""
+        for row in body.get("data") or []:
+            if isinstance(row, dict) and str(row.get("broadcaster_user_id") or "") == bid:
+                return str(row.get("slug") or "").strip().lower()
+        return ""
+
     # ── the site endpoint (chatroom id, liveness fallback) ───────────────
     async def _site_channel(self, slug: str) -> dict | None:
         status, body = await self._get_json(KICK_SITE_API.format(slug=slug),
@@ -307,6 +329,15 @@ def _client() -> KickPlatform:
     if _shared is None:
         _shared = KickPlatform()
     return _shared
+
+
+async def channel_slug_for_user(broadcaster_id: str) -> str:
+    """KickPlatform.slug_for_broadcaster on the shared client; "" on any failure."""
+    try:
+        return await _client().slug_for_broadcaster(broadcaster_id)
+    except Exception as exc:
+        log.warning("kick_slug_lookup_failed", broadcaster_id=str(broadcaster_id), error=str(exc))
+        return ""
 
 
 def _search_row(ch: dict) -> dict | None:
