@@ -322,6 +322,26 @@ def test_smtp_on_465_checks_the_certificate_too(monkeypatch):
     assert ok and seen == {"verified": True, "sent": True}
 
 
+def test_alerts_go_to_the_business_inbox_unless_told_otherwise(monkeypatch, tmp_path):
+    """Owner, 2026-10-20: "make it send to business@highlightz.app". Read from
+    real .env files: no line → that inbox, an address → that address, an
+    empty line → off."""
+    from config.settings import Settings
+    monkeypatch.delenv("ALERT_EMAIL_TO", raising=False)
+
+    def to(name, env):
+        (tmp_path / name).write_text(env)
+        return Settings(_env_file=tmp_path / name).alert_email_to
+
+    assert to("none.env", "# nothing\n") == "business@highlightz.app"
+    assert to("set.env", "ALERT_EMAIL_TO=me@example.com\n") == "me@example.com"
+    assert to("empty.env", "ALERT_EMAIL_TO=\n") == ""
+    monkeypatch.setattr(settings, "alert_email_to", "")
+    assert not alerts.configured()
+    ok, why = asyncio.run(alerts.send("s", "t"))
+    assert not ok and "ALERT_EMAIL_TO is empty" in why
+
+
 def test_the_test_command_says_why_it_did_not_send(monkeypatch, capsys):
     from src.alerts import __main__ as cli
     monkeypatch.setattr(settings, "resend_api_key", "")

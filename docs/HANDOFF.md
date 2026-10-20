@@ -5144,8 +5144,8 @@ Mutation-checked: 17 deliberate breakages, all caught.
 - ~~Every user lookup re-reads users.json~~ and ~~/me reads the whole
   stream_stats.jsonl~~ — fixed 2026-10-20, see "Lookup speed" below.
 - ~~Logs carry no level, nothing alerts~~ — fixed 2026-10-20, see "Email
-  alerts" below. Alerts stay silent until the owner sets RESEND_API_KEY and
-  ALERT_EMAIL_TO.
+  alerts" below. Alerts go to business@highlightz.app and stay silent until
+  the owner sets RESEND_API_KEY (or SMTP).
 - ~~Kick broadcasters cannot opt out~~ — fixed 2026-10-20, see "Kick
   opt-out" below.
 - ~~The Scheduler's Pro card promises YouTube/Instagram posting~~ — fixed
@@ -5277,17 +5277,24 @@ only through customer tickets. The log lines had no level either.
   `onboarding@resend.dev`, which Resend only delivers to the address the
   Resend account was made with. Unconfigured, it logs
   `alert_email_unconfigured` once and sends nothing.
-- **Owner setup (not done yet):** make a free Resend account with the address
-  the alerts should go to, create an API key, and add `RESEND_API_KEY=` and
-  `ALERT_EMAIL_TO=` to `/opt/highlightz/.env`. Restart, then run
-  `venv/bin/python -m src.alerts`, which sends a test email and prints why if
-  it could not. No pip install is needed: httpx and smtplib are already
-  there.
+- **Where they go:** `business@highlightz.app` by default (owner, 2026-10-20:
+  "make it send to business@highlightz.app"). An `ALERT_EMAIL_TO=` line in
+  `.env` overrides it; an empty one turns alerts off. Checked with real
+  `.env` files: no line → business@, empty → off, an address → that address.
+  Unverified: whether that mailbox receives mail (DNS lookups are blocked
+  from the dev container); the test email shows it.
+- **Owner setup (not done yet):** a way of sending. Either a free Resend
+  account made with business@highlightz.app itself (Resend's default sender
+  only delivers to the account's own address), an API key, and
+  `RESEND_API_KEY=` in `/opt/highlightz/.env`; or the Gmail SMTP lines above.
+  Restart, then run `venv/bin/python -m src.alerts`, which sends a test email
+  and prints why if it could not. No pip install is needed: httpx and
+  smtplib are already there.
 - **Unverified:** a real send through Resend (no network from the dev
   container). The request shape follows Resend's documented
   `POST /emails {from, to, subject, text}`.
 
-Tests: `tests/test_alerts.py` (20). Mutation-checked: 15 deliberate breakages,
+Tests: `tests/test_alerts.py` (22). Mutation-checked: 15 deliberate breakages,
 all caught.
 
 ## Lookup speed: users.json and the stats log (2026-10-20)

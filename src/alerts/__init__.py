@@ -232,7 +232,7 @@ async def send(subject: str, text: str) -> tuple[bool, str]:
     """(sent, what happened). Never raises."""
     to = settings.alert_email_to.strip()
     if not to:
-        return False, "ALERT_EMAIL_TO is not set"
+        return False, "ALERT_EMAIL_TO is empty in .env (delete the line to use the default)"
     if settings.resend_api_key:
         return await _send_resend(to, subject, text)
     if settings.smtp_host:
@@ -299,7 +299,7 @@ async def check_and_send(now: float | None = None) -> bool:
             _said_unconfigured = True
             log.warning("alert_email_unconfigured",
                         waiting=[ev for ev, _ in items][:10],
-                        hint="set ALERT_EMAIL_TO and RESEND_API_KEY in .env")
+                        hint="set RESEND_API_KEY (or SMTP_HOST, SMTP_USER, SMTP_PASSWORD) in .env")
         return False
     _sent[:] = [t for t in _sent if now - t < 86400]
     if len(_sent) >= settings.alert_max_per_day:

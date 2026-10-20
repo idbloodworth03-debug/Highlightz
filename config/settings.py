@@ -122,11 +122,13 @@ class Settings(BaseSettings):
     backup_s3_endpoint: str = ""
     backup_keep_local: int = 14     # newest N local archives kept by rotation
 
-    # Email alerts when something breaks (src/alerts). Off until ALERT_EMAIL_TO
-    # and one way of sending are set: RESEND_API_KEY (an HTTPS API — use this
-    # on DigitalOcean, which blocks outgoing SMTP on most droplets) or
-    # SMTP_HOST/SMTP_USER/SMTP_PASSWORD. `python -m src.alerts` sends a test.
-    alert_email_to: str = ""
+    # Email alerts when something breaks (src/alerts). Off until one way of
+    # sending is set: RESEND_API_KEY (an HTTPS API — use this on DigitalOcean,
+    # which blocks outgoing SMTP on most droplets) or SMTP_HOST/SMTP_USER/
+    # SMTP_PASSWORD. `python -m src.alerts` sends a test. They go to the
+    # business inbox unless ALERT_EMAIL_TO says otherwise (owner, 2026-10-20:
+    # "make it send to business@highlightz.app").
+    alert_email_to: str = "business@highlightz.app"
     alert_email_from: str = "Highlightz alerts <onboarding@resend.dev>"
     resend_api_key: str = ""
     smtp_host: str = ""
