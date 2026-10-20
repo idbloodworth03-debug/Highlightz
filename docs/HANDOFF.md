@@ -5144,8 +5144,8 @@ Mutation-checked: 17 deliberate breakages, all caught.
 - ~~Every user lookup re-reads users.json~~ and ~~/me reads the whole
   stream_stats.jsonl~~ — fixed 2026-10-20, see "Lookup speed" below.
 - ~~Logs carry no level, nothing alerts~~ — fixed 2026-10-20, see "Email
-  alerts" below. Alerts go to business@highlightz.app and stay silent until
-  the owner sets RESEND_API_KEY (or SMTP).
+  alerts" below. Live on prod since 2026-10-20: sent through Resend to
+  business@highlightz.app.
 - ~~Kick broadcasters cannot opt out~~ — fixed 2026-10-20, see "Kick
   opt-out" below.
 - ~~The Scheduler's Pro card promises YouTube/Instagram posting~~ — fixed
@@ -5281,18 +5281,17 @@ only through customer tickets. The log lines had no level either.
   "make it send to business@highlightz.app"). An `ALERT_EMAIL_TO=` line in
   `.env` overrides it; an empty one turns alerts off. Checked with real
   `.env` files: no line → business@, empty → off, an address → that address.
-  Unverified: whether that mailbox receives mail (DNS lookups are blocked
-  from the dev container); the test email shows it.
-- **Owner setup (not done yet):** a way of sending. Either a free Resend
-  account made with business@highlightz.app itself (Resend's default sender
-  only delivers to the account's own address), an API key, and
-  `RESEND_API_KEY=` in `/opt/highlightz/.env`; or the Gmail SMTP lines above.
-  Restart, then run `venv/bin/python -m src.alerts`, which sends a test email
-  and prints why if it could not. No pip install is needed: httpx and
-  smtplib are already there.
-- **Unverified:** a real send through Resend (no network from the dev
-  container). The request shape follows Resend's documented
-  `POST /emails {from, to, subject, text}`.
+- **Prod setup (done 2026-10-20, verified):**
+  - A free Resend account made with business@highlightz.app itself.
+    Resend's default sender (`onboarding@resend.dev`) only delivers to the
+    account's own address, so sending anywhere else would first need a
+    domain verified in Resend.
+  - A "Sending access" API key (all domains) is in `/opt/highlightz/.env`
+    as `RESEND_API_KEY`. No `ALERT_EMAIL_TO` line.
+  - Deployed at `63430c4`. `venv/bin/python -m src.alerts` sent the test
+    email; the owner confirmed: "it is working now". Run it again any time
+    to re-check; it prints why if it could not send.
+  - No pip install was needed: httpx and smtplib were already there.
 
 Tests: `tests/test_alerts.py` (22). Mutation-checked: 15 deliberate breakages,
 all caught.
