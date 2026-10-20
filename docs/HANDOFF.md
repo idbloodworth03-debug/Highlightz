@@ -5330,3 +5330,63 @@ that scores live channels.
 Tests: `tests/test_lookup_speed.py` (16). Mutation-checked: 9 deliberate
 breakages, all caught (three tests were added after the first pass missed
 them).
+
+## The first alert emails: HEAD requests, unclosed sessions (2026-10-20)
+
+The day alerts went live, the owner got two. Both were old bugs that only the
+journal had seen. Both were reproduced here before fixing, and the fixes were
+re-run against the same reproductions.
+
+- **"Response content shorter than Content-Length"** (HEAD
+  /blog/clipping-platforms, logged as GET).
+  - Cause: `HeadRequestMiddleware` (a BaseHTTPMiddleware) set
+    `request.scope["method"] = "GET"`. That is the same dict uvicorn keeps for
+    the connection, and uvicorn's httptools protocol reads it to decide
+    whether a response has a body. It saw a GET promising Content-Length
+    bytes and sending none, raised, logged "Exception in ASGI application"
+    and dropped the connection. That happened on EVERY HEAD request: crawlers,
+    link checkers, uptime monitors.
+  - Why nobody noticed: the client still got the right answer, and the test
+    client and raw ASGI calls never run uvicorn's bookkeeping.
+  - It also explains, most likely, the two identical tracebacks on 2026-09-29.
+    `RequestFailureLogMiddleware`'s docstring had guessed "a file shrank
+    while being sent"; it now says so.
+  - Fix: a plain ASGI middleware. The routes get a COPY of the scope that
+    says GET, the server keeps HEAD, and the body is dropped. Auth and
+    everything outside it now see HEAD too (it sits inside AuthMiddleware;
+    the old comment claimed the opposite order).
+  - Tests (`tests/test_head_requests.py`):
+    - one runs the real app under uvicorn + httptools in a thread, sending
+      HEAD then GET on one keep-alive connection per page, and asserts no
+      uvicorn error and equal Content-Length;
+    - one asserts the server's scope still says HEAD.
+    - The raw-ASGI helper's fake `receive` now behaves like a server
+      (request once, then disconnect). That is what made the favicon/icon
+      HEAD tests fail only in the dev container; they pass now.
+- **"Unclosed client session" x15** (asyncio, via the stdlib tap).
+  - Cause: a worker's platform opens its aiohttp session on the first
+    `get_stream_info`. The only close was in `_cleanup`, after a LIVE
+    session. A worker stopped while its channel was offline or queued
+    (removed, idle-paused, plan lapsed, shutdown) dropped the session for
+    the garbage collector, which reports each one. Several get collected
+    together, hence 15 at once.
+  - Fix: `StreamWorker.start()` closes the platform in a `finally`
+    (`_close_platform`, shared with `_cleanup`, idempotent). The diff is
+    mostly re-indentation (`git diff -w`). The loop stayed inside `start()`
+    because tests read its source.
+  - Tests: `tests/test_worker_closes_its_session.py` (3), using the real
+    worker and a Kick platform that opens its session and answers offline:
+    stopped the way `stop_worker` does it, ended on its own, and nothing
+    logged after `gc.collect()`.
+- **Blast radius.**
+  - HEAD handling: GET and every other method take the `!= "HEAD"` branch
+    unchanged.
+  - Worker shutdown: closing a session that is already closed, or never
+    opened, does nothing.
+  - Neither touches triggers, scoring or clips.
+- **Verified.**
+  - Mutation-checked, 6 deliberate breakages, all caught; the original
+    middleware fails 2 of the new tests.
+  - Full suite 3793 passed, with no container-only failures left.
+  - After deploy, prod should stop logging both. Check with
+    `journalctl -u highlightz --since "1 day ago" -o cat | grep -c "Unclosed client session\|shorter than Content-Length"`.

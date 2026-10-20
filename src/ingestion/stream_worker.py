@@ -138,70 +138,81 @@ class StreamWorker:
 
     async def start(self) -> None:
         self._running = True
-        _pm = get_profile_manager(self._config.user_id)
-        self._profile = await _pm.load(
-            self._config.channel, self._config.platform_name
-        )
-        await self._research_if_new(_pm)
-        log.info("worker_starting", channel=self._config.channel,
-                 sessions=self._profile.total_sessions,
-                 threshold=round(self._profile.trigger_threshold, 3))
+        try:
+            _pm = get_profile_manager(self._config.user_id)
+            self._profile = await _pm.load(
+                self._config.channel, self._config.platform_name
+            )
+            await self._research_if_new(_pm)
+            log.info("worker_starting", channel=self._config.channel,
+                     sessions=self._profile.total_sessions,
+                     threshold=round(self._profile.trigger_threshold, 3))
 
-        while self._running:
-            # Offline is the expected outcome, not a fault — see ChannelOffline.
-            # Separating the two is what stops a waiting channel from logging a
-            # traceback and flashing "a stream hit an error" at the user every
-            # 30 seconds, while a genuine fault still says so loudly.
-            offline = False
-            queued  = False
-            try:
+            while self._running:
+                # Offline is the expected outcome, not a fault — see ChannelOffline.
+                # Separating the two is what stops a waiting channel from logging a
+                # traceback and flashing "a stream hit an error" at the user every
+                # 30 seconds, while a genuine fault still says so loudly.
+                offline = False
+                queued  = False
                 try:
-                    await self._run_session()
-                finally:
-                    # UNCONDITIONAL. A slot leaked on an error path is capacity
-                    # this process never sees again until it restarts, and the
-                    # box would slowly starve with nothing in the logs to say
-                    # why. Idempotent, so releasing one we never took is fine —
-                    # which is the case for every ChannelOffline, since the
-                    # slot is taken after the liveness check.
-                    from src.dashboard import api as _api
-                    _api.release_live_slot(self._stream_key)
-            except asyncio.CancelledError:
-                break
-            except ChannelOffline:
-                offline = True
-                log.info("stream_not_live", channel=self._config.channel,
-                         retry_in=30)
-            except CapacityQueued:
-                queued = True
-                log.info("stream_queued_for_capacity",
-                         channel=self._config.channel, retry_in=30)
-            except Exception as exc:
-                log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
-                from src.dashboard import api as dashboard_api
-                await dashboard_api.broadcast({
-                    "event": "stream_error",
-                    "channel": self._config.channel,
-                    "error": "Stream session ended unexpectedly. Reconnecting…",
-                }, user_id=self._config.user_id)
-            if self._running:
-                # "offline" is an existing status the card already renders, so
-                # this needs no new event and no new frontend branch — it just
-                # stops mislabelling a waiting channel as reconnecting.
-                status = ("queued" if queued else
-                          "offline" if offline else "reconnecting")
-                if not offline and not queued:
-                    log.info("worker_reconnecting", channel=self._config.channel, delay=30)
-                from src.dashboard import api as dashboard_api
-                _sk = self._stream_key
-                if _sk in dashboard_api._streams:
-                    dashboard_api._streams[_sk]["status"] = status
-                await dashboard_api.broadcast({
-                    "event": "stream_status",
-                    "channel": self._config.channel,
-                    "status": status,
-                }, user_id=self._config.user_id)
-                await asyncio.sleep(30)
+                    try:
+                        await self._run_session()
+                    finally:
+                        # UNCONDITIONAL. A slot leaked on an error path is capacity
+                        # this process never sees again until it restarts, and the
+                        # box would slowly starve with nothing in the logs to say
+                        # why. Idempotent, so releasing one we never took is fine —
+                        # which is the case for every ChannelOffline, since the
+                        # slot is taken after the liveness check.
+                        from src.dashboard import api as _api
+                        _api.release_live_slot(self._stream_key)
+                except asyncio.CancelledError:
+                    break
+                except ChannelOffline:
+                    offline = True
+                    log.info("stream_not_live", channel=self._config.channel,
+                             retry_in=30)
+                except CapacityQueued:
+                    queued = True
+                    log.info("stream_queued_for_capacity",
+                             channel=self._config.channel, retry_in=30)
+                except Exception as exc:
+                    log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
+                    from src.dashboard import api as dashboard_api
+                    await dashboard_api.broadcast({
+                        "event": "stream_error",
+                        "channel": self._config.channel,
+                        "error": "Stream session ended unexpectedly. Reconnecting…",
+                    }, user_id=self._config.user_id)
+                if self._running:
+                    # "offline" is an existing status the card already renders, so
+                    # this needs no new event and no new frontend branch — it just
+                    # stops mislabelling a waiting channel as reconnecting.
+                    status = ("queued" if queued else
+                              "offline" if offline else "reconnecting")
+                    if not offline and not queued:
+                        log.info("worker_reconnecting", channel=self._config.channel, delay=30)
+                    from src.dashboard import api as dashboard_api
+                    _sk = self._stream_key
+                    if _sk in dashboard_api._streams:
+                        dashboard_api._streams[_sk]["status"] = status
+                    await dashboard_api.broadcast({
+                        "event": "stream_status",
+                        "channel": self._config.channel,
+                        "status": status,
+                    }, user_id=self._config.user_id)
+                    await asyncio.sleep(30)
+        finally:
+            # However the worker ends — stopped, crashed or cancelled — its
+            # platform's HTTP session ends with it. _cleanup closes it after a
+            # LIVE session, but get_stream_info opens it before that session
+            # exists, so a worker stopped while its channel was offline or
+            # queued (removed, paused for idling, plan lapsed, shutdown) left
+            # it to the garbage collector, which logs asyncio's "Unclosed
+            # client session": 15 at once in the first alert email
+            # (2026-10-20). Idempotent, so after a live session it is a no-op.
+            await self._close_platform()
 
     async def _research_if_new(self, pm) -> None:
         """One-time pre-flight research for channels we've never watched.
@@ -802,6 +813,9 @@ class StreamWorker:
         if self._engine:
             self._engine.stop()
             self._engine = None
+        await self._close_platform()
+
+    async def _close_platform(self) -> None:
         if self._platform:
             try:
                 await self._platform.close()

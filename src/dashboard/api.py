@@ -356,7 +356,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 # Middleware stack is LIFO — SessionMiddleware added last runs first,
 # so the cookie is parsed before AuthMiddleware inspects the session.
-class HeadRequestMiddleware(BaseHTTPMiddleware):
+class HeadRequestMiddleware:
     """Answer HEAD wherever GET is answered.
 
     FastAPI's @app.get registers GET only. Plain Starlette Routes add HEAD
@@ -369,34 +369,42 @@ class HeadRequestMiddleware(BaseHTTPMiddleware):
     broken. It was found by running `curl -sI https://highlightz.app/favicon.ico`
     to confirm the favicon fix and getting 405 instead of 200.
 
-    HEAD is dispatched as GET and the body dropped, keeping the original
-    Content-Length, which is what RFC 9110 asks for: identical headers to the
-    GET, no body.
+    HEAD is dispatched as GET and the body dropped, keeping the GET's headers
+    (Content-Length included), which is what RFC 9110 asks for: identical
+    headers to the GET, no body.
+
+    THE ROUTES GET A COPY OF THE SCOPE. This was a BaseHTTPMiddleware that set
+    request.scope["method"] = "GET" — on the very dict uvicorn keeps for the
+    connection, and uvicorn reads that dict to decide whether a response
+    carries a body. So it saw a GET promising Content-Length bytes and sending
+    none, and every HEAD request ended in "Exception in ASGI application ...
+    Response content shorter than Content-Length" and a dropped connection.
+    The answer itself was right, so only the log noticed — until the first
+    alert email (2026-10-20, HEAD /blog/clipping-platforms, logged as GET for
+    the same reason). Reproduced under uvicorn + httptools, which is what prod
+    runs; the test client never sees it.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        if request.method != "HEAD":
-            return await call_next(request)
-        request.scope["method"] = "GET"
-        response = await call_next(request)
+    def __init__(self, app):
+        self.app = app
 
-        # Drain the body so the length is known, then discard it.
-        body = b""
-        if hasattr(response, "body_iterator"):
-            async for chunk in response.body_iterator:
-                body += chunk if isinstance(chunk, bytes) else chunk.encode()
-        else:
-            body = getattr(response, "body", b"") or b""
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("method") != "HEAD":
+            return await self.app(scope, receive, send)
 
-        headers = dict(response.headers)
-        headers["content-length"] = str(len(body))
-        return Response(content=b"", status_code=response.status_code,
-                        headers=headers)
+        async def headers_only(message):
+            if message["type"] == "http.response.body":
+                if message.get("more_body", False):
+                    return
+                message = {"type": "http.response.body", "body": b"", "more_body": False}
+            await send(message)
+
+        await self.app({**scope, "method": "GET"}, receive, headers_only)
 
 
-# Registered AFTER AuthMiddleware so it runs BEFORE it: Starlette applies
-# middleware in reverse, and the method has to read as GET by the time the auth
-# gate and the routes see it.
+# Added before AuthMiddleware, so it sits INSIDE it (Starlette wraps in reverse
+# order of add_middleware): auth and everything outside see the real HEAD, and
+# only the router and the routes see GET.
 app.add_middleware(HeadRequestMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
@@ -447,9 +455,10 @@ class RequestFailureLogMiddleware:
     Owner's journal (2026-09-29): two "Exception in ASGI application ...
     RuntimeError: Response content shorter than Content-Length" tracebacks, 7
     hours apart, and nothing in either names the route — uvicorn's traceback is
-    all framework frames. That error means a file was served whose size shrank
-    between being measured and being sent (a clip or upload being re-written, or
-    the admin preview file being replaced), and WHICH file is the whole question.
+    all framework frames. The guess then was a file whose size shrank between
+    being measured and being sent. The first path this logged (2026-10-20) was
+    an in-memory blog page: every HEAD request raised it, through
+    HeadRequestMiddleware, and the two on 09-29 were most likely that too.
 
     A plain ASGI wrapper rather than BaseHTTPMiddleware: the failure happens
     while the body is streaming, after the response has started, where a
