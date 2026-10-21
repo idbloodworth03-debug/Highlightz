@@ -27,6 +27,7 @@ does exactly that.
 """
 
 import asyncio
+import functools
 import json
 import subprocess
 import time
@@ -36,12 +37,14 @@ from pathlib import Path
 import structlog
 
 from config.settings import settings
+from src import language as _language
 
 log = structlog.get_logger(__name__)
 
 # Process-wide: only one clip is ever transcribed at a time. See module docs.
 _slot = asyncio.Semaphore(1)
-_model = None
+_model = None           # settings.captions_model: English accounts
+_ml_model = None        # settings.captions_model_multilingual: every other language
 _model_lock = asyncio.Lock()
 
 
@@ -132,12 +135,20 @@ def extract_audio(video: Path, out_wav: Path, timeout: float = 60.0) -> None:
             + (f" ({proc.stderr.decode(errors='replace')[-160:]})" if proc.stderr else ""))
 
 
-def _load_model():
-    """Import and construct the model. Kept separate so tests can replace it
+def model_for(language: str) -> str:
+    """Which model captions `language`. English keeps the English-only model
+    the defaults were tuned on; any other language needs the multilingual
+    one, because an .en model given Spanish writes English."""
+    return (settings.captions_model if _language.normalize(language) == "en"
+            else settings.captions_model_multilingual)
+
+
+def _load_model(name: str | None = None):
+    """Import and construct a model. Kept separate so tests can replace it
     without faster-whisper being installed at all."""
     from faster_whisper import WhisperModel
     return WhisperModel(
-        settings.captions_model,
+        name or settings.captions_model,
         device="cpu",
         compute_type="int8",        # 4x smaller and faster than float32 on CPU
         cpu_threads=1,              # never take the only core
@@ -147,7 +158,8 @@ def _load_model():
 
 def _run_whisper(wav: Path, vad: bool | None = None, *, model=None,
                  beam: int | None = None,
-                 prompt: str | None = None) -> tuple[list[Segment], str]:
+                 prompt: str | None = None,
+                 language: str | None = None) -> tuple[list[Segment], str]:
     """The only part that touches Whisper. Synchronous and CPU-bound — callers
     run it in an executor.
 
@@ -155,48 +167,70 @@ def _run_whisper(wav: Path, vad: bool | None = None, *, model=None,
     src/maintenance/caption_vad_test.py so the choice can be made against a
     real clip instead of by argument.
 
+    `language` other than English (the account's, src/language.py) uses the
+    multilingual model with that language FORCED rather than detected, and
+    no default prompt: the prompt is an English sentence, and it pulls a
+    transcript toward English.
+
     UNVERIFIED IN DEV: the weights host is unreachable from the dev container,
     so this path has never actually executed there. Confirm on prod with
-    `python -m src.captions.transcribe --selftest` before trusting it.
+    `python -m src.captions.transcribe --selftest` (add `--language es` for
+    the multilingual model) before trusting it.
     """
-    global _model
+    global _model, _ml_model
+    other = _language.normalize(language) != "en"
     # `model` is for the comparison tool, which needs several sizes in one
-    # process. The service path passes nothing and keeps the single cached one.
+    # process. The service path passes nothing and keeps one cached model per
+    # kind: the English one, and the multilingual one only once it is needed.
     if model is None:
-        if _model is None:
-            _model = _load_model()
-        model = _model
+        if other:
+            if _ml_model is None:
+                _ml_model = _load_model(settings.captions_model_multilingual)
+            model = _ml_model
+        else:
+            if _model is None:
+                _model = _load_model()
+            model = _model
+    if prompt is None:
+        prompt = "" if other else settings.captions_initial_prompt
+    forced = {"language": _language.normalize(language)} if other else {}
     segs, info = model.transcribe(
         str(wav),
         # Greedy (1) by default — cheaper, and less accurate. See
         # config/settings.py; src/maintenance/caption_model_test.py measures
         # what raising it actually buys on a real clip.
         beam_size=max(1, int(beam or settings.captions_beam_size)),
-        initial_prompt=(prompt if prompt is not None
-                        else settings.captions_initial_prompt) or None,
+        initial_prompt=prompt or None,
         # See config/settings.py: VAD discards audio before transcription, so a
         # false negative silently deletes speech. Default off.
         vad_filter=settings.captions_vad if vad is None else vad,
         condition_on_previous_text=False,   # stops one bad guess cascading
         word_timestamps=True,        # REQUIRED: segment timings alone give one
                                      # caption for the whole clip (see _cues_from_words)
+        **forced,
     )
     out = _cues_from_words(segs)
     return out, getattr(info, "language", "") or ""
 
 
-async def transcribe(video: Path, on_progress=None) -> dict:
-    """Caption one clip. Returns the payload that gets stored and served.
+async def transcribe(video: Path, on_progress=None, language: str = "en") -> dict:
+    """Caption one clip, in `language` (the account's). Returns the payload
+    that gets stored and served.
 
     Serialised process-wide: a second caller waits rather than competing for
     the core with the first one AND with live clip detection.
     """
     if not video.exists():
         raise RuntimeError("That clip is no longer on disk.")
+    language = _language.normalize(language)
+    wav = video.with_suffix(".caption.wav")
+    # English makes exactly the call it always has; another language names
+    # itself, which picks the multilingual model and forces the language.
+    run = (functools.partial(_run_whisper, wav) if language == "en"
+           else functools.partial(_run_whisper, wav, language=language))
 
     async with _slot:
         started = time.time()
-        wav = video.with_suffix(".caption.wav")
         try:
             if on_progress:
                 await on_progress(10, "extracting audio")
@@ -206,7 +240,7 @@ async def transcribe(video: Path, on_progress=None) -> dict:
             if on_progress:
                 await on_progress(30, "transcribing")
             segs, lang = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(None, _run_whisper, wav),
+                asyncio.get_running_loop().run_in_executor(None, run),
                 timeout=settings.captions_timeout_s,
             )
         except asyncio.TimeoutError:
@@ -218,8 +252,8 @@ async def transcribe(video: Path, on_progress=None) -> dict:
 
         payload = {
             "segments": [asdict(s) for s in segs],
-            "language": lang,
-            "model": settings.captions_model,
+            "language": lang or language,
+            "model": model_for(language),
             "created_at": time.time(),
             "took_s": round(time.time() - started, 1),
         }
@@ -245,11 +279,25 @@ def load(video: Path) -> dict | None:
         return None
 
 
-def _selftest() -> int:
+def load_for(video: Path, language: str) -> dict | None:
+    """The cached captions, only if they are in `language`. Captions made
+    before an account switched language are made again in the new one,
+    instead of every later edit reusing the English (luclips, 2026-10-21).
+    A file from before the language was recorded was made by base.en."""
+    payload = load(video)
+    if payload and (payload.get("language") or "en") == _language.normalize(language):
+        return payload
+    return None
+
+
+def _selftest(language: str = "en") -> int:
     """Prove on PROD that the model loads and transcribes — the one thing the
-    dev container cannot check."""
+    dev container cannot check. `--language es` (any non-English) loads the
+    multilingual model, which also downloads it ahead of the first account
+    that needs it."""
     import wave, math, struct, tempfile
-    print(f"model={settings.captions_model} timeout={settings.captions_timeout_s}s")
+    language = _language.normalize(language)
+    print(f"model={model_for(language)} language={language} timeout={settings.captions_timeout_s}s")
     with tempfile.TemporaryDirectory() as d:
         wav = Path(d) / "tone.wav"
         with wave.open(str(wav), "w") as w:
@@ -258,7 +306,7 @@ def _selftest() -> int:
                                    for i in range(16000 * 2)))
         t0 = time.time()
         try:
-            segs, lang = _run_whisper(wav)
+            segs, lang = _run_whisper(wav, language=language)
         except Exception as exc:
             print(f"FAILED: {type(exc).__name__}: {exc}")
             print("If this is a download error, the droplet cannot reach the "
@@ -272,5 +320,6 @@ def _selftest() -> int:
 
 if __name__ == "__main__":
     import sys
-    raise SystemExit(_selftest() if "--selftest" in sys.argv else
-                     print("usage: python -m src.captions.transcribe --selftest") or 2)
+    lang = sys.argv[sys.argv.index("--language") + 1] if "--language" in sys.argv[:-1] else "en"
+    raise SystemExit(_selftest(lang) if "--selftest" in sys.argv else
+                     print("usage: python -m src.captions.transcribe --selftest [--language es]") or 2)

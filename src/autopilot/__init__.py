@@ -150,10 +150,20 @@ class _Safe(dict):
         return ""
 
 
-def caption_for(cfg: dict, clip: dict) -> str:
+def _clip_title(clip: dict, language: str) -> str:
+    """The clip's title for a post, in the account's language: a title the
+    detector generated in English before the account switched is translated
+    here (src/language.py); any other title is used as it is."""
+    from src import language as _language
+    return _language.localize_title(
+        str(clip.get("clip_title") or clip.get("stream_title") or "").strip(),
+        str(clip.get("channel") or ""), language)
+
+
+def caption_for(cfg: dict, clip: dict, language: str = "en") -> str:
     """The caption from the user's template. {title} {channel} {game}
     {platform} are filled; anything else is blank rather than an error."""
-    title = str(clip.get("clip_title") or clip.get("stream_title") or "").strip()
+    title = _clip_title(clip, language)
     fields = _Safe(title=title, channel=str(clip.get("channel") or ""),
                    game=str(clip.get("game") or "").replace(" ", ""),
                    platform=str(clip.get("platform") or ""))
@@ -165,8 +175,9 @@ def caption_for(cfg: dict, clip: dict) -> str:
     return out[:CAPTION_MAX]
 
 
-def title_for(cfg: dict, clip: dict) -> str:
+def title_for(cfg: dict, clip: dict, language: str = "en") -> str:
+    """The title burned onto the video (the "hook"), in the account's
+    language; empty when the account turned titles off."""
     if not cfg["title"]:
         return ""
-    t = str(clip.get("clip_title") or clip.get("stream_title") or "").strip()
-    return t[:TITLE_MAX]
+    return _clip_title(clip, language)[:TITLE_MAX]

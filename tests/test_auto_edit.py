@@ -234,7 +234,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(ap_render, "render", old)
 
     async def new(clip, dst, *, captions, mode="clipper", template="suggested", title="",
-                  on_stage=None):
+                  on_stage=None, language="en"):
         calls.append(("new", clip.get("hook"), mode, template, title, captions))
         if on_stage:
             await on_stage("captions"); await on_stage("render")

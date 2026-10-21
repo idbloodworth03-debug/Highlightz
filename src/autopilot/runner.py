@@ -74,15 +74,16 @@ def _safe_name(raw: str) -> str:
     return (re.sub(r"[^A-Za-z0-9 ._-]", "", raw)[:60].strip(" .") or "clip")
 
 
-async def _captions_for(path: Path) -> list:
-    """[(start, end, text)] from the server's Whisper pass, cached on disk
-    beside the file the way the editor's captions are. Any failure is an
-    empty list: captions are a bonus, never the reason a post is missed."""
+async def _captions_for(path: Path, language: str = "en") -> list:
+    """[(start, end, text)] from the server's Whisper pass in the account's
+    `language`, cached on disk beside the file the way the editor's captions
+    are. Any failure is an empty list: captions are a bonus, never the reason
+    a post is missed."""
     from src.captions import transcribe as cap
     try:
-        payload = cap.load(path)
+        payload = cap.load_for(path, language)
         if payload is None:
-            payload = await cap.transcribe(path)
+            payload = await cap.transcribe(path, language=language)
             cap.save(path, payload)
         return [(s["start"], s["end"], s["text"]) for s in (payload.get("segments") or [])
                 if s.get("text")]
@@ -150,6 +151,9 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
         dst = out_dir / f"{cid}.mp4"
         from src.auth import users as user_store
         from src.autopilot import auto_edit
+        from src import language as _language
+        # Captions and the title in the account's language (src/language.py).
+        lang = _language.for_user_id(uid)
         if auto_edit.uses_new_edit(user_store.get_by_id(uid)):
             # ADMINS: the plan-based edit (blur frame, slides + whoosh, the
             # user's hook if they picked one), owner 2026-09-23: "implemented
@@ -169,17 +173,17 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
             plan = await auto_edit.make(clip, dst, captions=bool(cfg.get("edit_captions", True)),
                                         mode=cfg.get("mode") or "clipper",
                                         template=cfg.get("edit_template") or "suggested",
-                                        title=title_for({**cfg, "title": cfg.get("edit_title", False)}, clip),
-                                        on_stage=on_stage)
+                                        title=title_for({**cfg, "title": cfg.get("edit_title", False)}, clip, lang),
+                                        on_stage=on_stage, language=lang)
             duration = _plan_seconds(plan)
             caption_note = getattr(plan, "caption_note", "") or ""
         else:
             captions = []
             if cfg.get("captions") and settings.captions_enabled:
-                captions = await _captions_for(src)
+                captions = await _captions_for(src, lang)
             if cid in _cancelled:
                 raise _Removed()
-            await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip),
+            await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip, lang),
                                    captions=captions, duration=duration)
 
         if cid in _cancelled:
@@ -189,7 +193,7 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
 
         platforms = [p for p in cfg["platforms"] if p in connected]
         due = next_due(cfg, time.time(), sched.last_due_from(uid, "autopilot"))
-        item = sched.add(uid, up.id, up.filename, caption_for(cfg, clip), platforms, due,
+        item = sched.add(uid, up.id, up.filename, caption_for(cfg, clip, lang), platforms, due,
                          duration_s=duration, ratio="9:16", fmt="mp4", source="autopilot")
         await notify({"event": "schedule_added", "item": item.public()}, uid)
         await notify({"event": "upload_added", "upload": up.public(),

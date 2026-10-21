@@ -149,6 +149,7 @@ COPY
 - title: under {60} characters, burned onto the video. It is a hook, not a summary. No quotation marks around it, no emoji, no clickbait that the clip does not pay off.
 - caption: the post text. One or two short lines in the voice of somebody who made the clip.
 - hashtags: 3-6, without the # character, lowercase, specific to the game and the streamer before anything generic.
+- LANGUAGE: write the title, captions, thumbnail text, caption and hashtags in the brief's `language` — the language the account posts in. Captions keep what the transcript says; it is already in that language.
 
 Write for a viewer who has never heard of this streamer. Never invent something that happened — you only know what the metadata and transcript say."""
 
@@ -194,8 +195,11 @@ def _lines(transcript: list | None) -> list:
 
 
 def brief(clips: list[dict], sources: dict, transcripts: dict | None = None,
-          facecams: dict | None = None) -> dict:
+          facecams: dict | None = None, *, language: str = "en") -> dict:
     """What the model is told, as plain data so a test can read it.
+
+    `language` is the account's (src/language.py), named in English for the
+    model: the title it writes is burned onto a video posted in it.
 
     Ranked the way the product ranks things, and capped — a model given
     twenty candidates spends its budget comparing them instead of cutting.
@@ -232,8 +236,9 @@ def brief(clips: list[dict], sources: dict, transcripts: dict | None = None,
         out.append(row)
         if len(out) >= MAX_CANDIDATES:
             break
+    from src import language as _language
     return {"target_seconds": P.TARGET_S, "transition_duration": P.TRANS_DUR,
-            "candidates": out}
+            "language": _language.english_name(language), "candidates": out}
 
 
 # ── the model's answer, made safe ────────────────────────────────────────────

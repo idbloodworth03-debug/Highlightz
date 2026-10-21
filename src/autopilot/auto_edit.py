@@ -70,21 +70,21 @@ async def probe_duration(path: Path) -> float:
 CAPTION_STEP_EXTRA_S = 90.0
 
 
-async def _transcript(path: Path) -> tuple[list, str]:
-    """Whisper's cues for the clip, cached beside the file, and — when there
-    are none — the REASON, in words the person can act on. Never raises: a
-    missing caption must not cost the edit, but it must not be silent either
-    ("The auto captions are being held up and it is stuck. No words are
-    coming out", owner 2026-09-28)."""
+async def _transcript(path: Path, language: str = "en") -> tuple[list, str]:
+    """Whisper's cues for the clip in the account's `language`, cached beside
+    the file, and — when there are none — the REASON, in words the person can
+    act on. Never raises: a missing caption must not cost the edit, but it
+    must not be silent either ("The auto captions are being held up and it is
+    stuck. No words are coming out", owner 2026-09-28)."""
     from src.captions import transcribe as cap
     if not settings.captions_enabled:
         return [], ("Captions are switched off on the server (CAPTIONS_ENABLED is not set), "
                     "so this edit has none.")
 
     async def work() -> list:
-        payload = cap.load(path)
+        payload = cap.load_for(path, language)
         if payload is None:
-            payload = await cap.transcribe(path)
+            payload = await cap.transcribe(path, language=language)
             cap.save(path, payload)
         return payload.get("segments") or []
 
@@ -125,8 +125,10 @@ def apply_template(plan: P.EditPlan, name: str) -> P.EditPlan:
 
 async def build_plan(clip: dict, src: Path, *, captions: bool,
                      mode: str = "clipper", template: str = "suggested",
-                     title: str = "", on_stage=None) -> tuple[P.EditPlan, dict]:
-    """The plan for this one clip — with its hook, if it has one."""
+                     title: str = "", on_stage=None,
+                     language: str = "en") -> tuple[P.EditPlan, dict]:
+    """The plan for this one clip — with its hook, if it has one. Captions
+    and any AI-written text are in the account's `language`."""
     from src.autopilot import builder, llm_common
     duration = await probe_duration(src)
     if duration <= 0:
@@ -139,10 +141,11 @@ async def build_plan(clip: dict, src: Path, *, captions: bool,
     if captions:
         if on_stage:
             await on_stage("captions")
-        segs, caption_note = await _transcript(src)
+        segs, caption_note = await _transcript(src, language)
         if segs:
             transcripts = {clip["id"]: segs}
-    plan, meta = await builder.build([clip], sources, transcripts=transcripts, mode=mode)
+    plan, meta = await builder.build([clip], sources, transcripts=transcripts, mode=mode,
+                                     language=language)
     if captions and transcripts and not plan.captions:
         plan.captions = llm_common.captions_for_plan(plan, transcripts)
     apply_template(plan, template)
@@ -187,7 +190,8 @@ async def render_plan(plan: P.EditPlan, dst: Path) -> Path:
 
 
 async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper",
-                template: str = "suggested", title: str = "", on_stage=None) -> P.EditPlan:
+                template: str = "suggested", title: str = "", on_stage=None,
+                language: str = "en") -> P.EditPlan:
     """Plan and render one CAUGHT clip's edit to `dst`. Raises RenderError
     with a message safe to show the user.
 
@@ -203,12 +207,13 @@ async def make(clip: dict, dst: Path, *, captions: bool, mode: str = "clipper",
         raise RenderError("This clip has no video file to edit.")
     rec = {k: v for k, v in clip.items() if k != "hook"}
     return await make_from(src, rec, dst, captions=captions, mode=mode,
-                           template=template, title=title, on_stage=on_stage)
+                           template=template, title=title, on_stage=on_stage,
+                           language=language)
 
 
 async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
                     mode: str = "clipper", template: str = "suggested",
-                    title: str = "", on_stage=None) -> P.EditPlan:
+                    title: str = "", on_stage=None, language: str = "en") -> P.EditPlan:
     """Plan and render the edit of ANY video file — a caught clip or a file
     in the library (the Clip Editor's Auto Edit style). `rec` carries what
     the builder reads: an `id`, a `channel` for the log, and the `hook`."""
@@ -216,7 +221,8 @@ async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
         raise RenderError("There is no video file to edit.")
     clip = rec
     plan, meta = await build_plan(clip, Path(src), captions=captions, mode=mode,
-                                  template=template, title=title, on_stage=on_stage)
+                                  template=template, title=title, on_stage=on_stage,
+                                  language=language)
     # Why there are no captions, when there are none. An attribute rather than a
     # new return type: every caller (and every test double) returns the plan.
     plan.caption_note = meta.get("caption_note", "")

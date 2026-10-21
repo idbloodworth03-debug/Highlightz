@@ -257,6 +257,12 @@ class Settings(BaseSettings):
     # detection always wins the core. CAPTIONS_MODEL=tiny.en puts it back.
     captions_enabled: bool = False
     captions_model: str = "base.en"
+    # For an account whose language (prefs.language, src/language.py) is not
+    # English. The .en models know only English: given Spanish they write
+    # English (luclips, 2026-10-21). `base` is the same size and cost as
+    # base.en; `small` hears better and takes ~2.5x the CPU. Loaded only the
+    # first time such an account needs captions, beside the English one.
+    captions_model_multilingual: str = "base"
     captions_timeout_s: float = 240.0
     # Whisper's voice-activity filter drops audio it judges to be non-speech
     # BEFORE transcription, so anything it gets wrong is gone — there is no

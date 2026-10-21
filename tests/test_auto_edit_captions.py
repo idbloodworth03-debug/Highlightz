@@ -37,7 +37,7 @@ def test_a_transcription_that_fails_says_why_and_does_not_cost_the_edit(monkeypa
     monkeypatch.setattr(settings, "captions_enabled", True)
     monkeypatch.setattr(cap, "load", lambda p: None)
 
-    async def boom(p, on_progress=None): raise RuntimeError("the model would not load")
+    async def boom(p, on_progress=None, language="en"): raise RuntimeError("the model would not load")
     monkeypatch.setattr(cap, "transcribe", boom)
     segs, why = _run(auto_edit._transcript(tmp_path / "c.mp4"))
     assert segs == [] and "would not load" in why
@@ -50,7 +50,7 @@ def test_a_stuck_caption_step_is_given_up_on_instead_of_holding_the_edit(monkeyp
     monkeypatch.setattr(auto_edit, "CAPTION_STEP_EXTRA_S", 0.05)
     monkeypatch.setattr(cap, "load", lambda p: None)
 
-    async def hang(p, on_progress=None): await asyncio.sleep(30)
+    async def hang(p, on_progress=None, language="en"): await asyncio.sleep(30)
     monkeypatch.setattr(cap, "transcribe", hang)
     t0 = time.time()
     segs, why = _run(auto_edit._transcript(tmp_path / "c.mp4"))

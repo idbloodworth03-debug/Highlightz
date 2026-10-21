@@ -61,11 +61,12 @@ def status() -> dict:
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
                 target_s: float = P.TARGET_S, mode: str = "clipper",
-                facecams: dict | None = None):
+                facecams: dict | None = None, language: str = "en"):
     """The edit plan for these clips, from whichever builder is configured.
 
     Returns (EditPlan, meta) exactly as each provider does, so a caller that
-    only wants a plan can ignore the second half.
+    only wants a plan can ignore the second half. `language` is the
+    account's; only a model writes words, so the formula has no use for it.
     """
     name = provider()
     if name == "none":
@@ -87,7 +88,7 @@ async def build(clips: list[dict], sources: dict, *,
 
     plan, meta = await impl.build(clips, sources, transcripts=transcripts,
                                   target_s=target_s, mode=mode,
-                                  facecams=facecams)
+                                  facecams=facecams, language=language)
     if meta.get("source") == "formula" and meta.get("reason"):
         # Logged once, here, so a provider quietly failing on every clip is
         # visible in one place rather than in three different modules' logs.

@@ -299,6 +299,11 @@ button{font-family:inherit;cursor:pointer}
 .rd-select{background:rgba(255,255,255,.04);border:1px solid var(--hair);border-radius:var(--r-md);
   color:var(--fg);font-size:12px;padding:0 8px;outline:none;cursor:pointer}
 .rd-select option{background:#15151c}
+/* The account language picker (LanguagePicker): in the editor's Captions
+   panel and the Auto Edit tab. A label and a select on one line. */
+.lang-pick{margin:8px 0}
+.lang-pick label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-3)}
+.lang-pick .rd-select{flex:1;min-width:0;max-width:260px;height:32px}
 /* Settings tab (2026-09-16): one row per monitored channel with its preset
    and sensitivity dial, and a collapsible reference card. */
 .rd-chan-row{display:grid;grid-template-columns:minmax(120px,1fr) 160px minmax(200px,1.4fr);gap:16px;align-items:center;
@@ -4679,6 +4684,44 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, ba
 // descriptions folded away as reference. State is the App's: streams,
 // profiles and me.prefs all arrive over the socket and refetchAll, so a
 // change made in another tab shows up here without a reload.
+// The account's language (prefs.language, src/language.py): what auto-captions
+// are written in and the titles on auto-edits. ONE setting, offered wherever
+// captions are made as well as in Settings, because the person looking for it
+// looks there (luclips, 2026-10-20: "I have checked the subtitle settings in
+// the editor, but I haven't found an option to select Spanish"). Saved through
+// /prefs, whose prefs_changed broadcast updates every tab, this one included.
+function langName(me, code) {
+  const row = ((me && me.languages) || []).find(([k]) => k === code);
+  return row ? row[1] : 'English';
+}
+function LanguagePicker({ me, label = 'Language' }) {
+  const langs = (me && me.languages) || [['en', 'English']];
+  const cur = ((me && me.prefs) || {}).language || 'en';
+  const [val, setVal] = useState(cur);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setVal(cur); }, [cur]);
+  const pick = async (code) => {
+    setVal(code); setBusy(true); setErr('');
+    try {
+      const r = await fetch('/prefs', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({language: code})});
+      if (!r.ok) { setVal(cur); setErr('Could not save the language'); }
+    } catch { setVal(cur); setErr('Could not reach the server'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="lang-pick">
+      <label><span>{label}</span>
+        <select className="rd-select" value={val} disabled={busy} onChange={e => pick(e.target.value)}>
+          {langs.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+        </select>
+      </label>
+      {err && <div className="ed-warn">{err}</div>}
+    </div>
+  );
+}
+
 function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 'twitch', embedded = false }) {
   const prefs = (me && me.prefs) || {};
   const canEditor = canPublishFor(me);
@@ -4810,6 +4853,22 @@ function SettingsScreen({ streams, profiles = {}, me = null, activePlatform = 't
           <Toggle k="reduce_motion" label="Reduce motion"
             sub="Skip the platform-switch sweep and the wake-up animation when a channel is added."
             on={!!prefs.reduce_motion} onClick={() => putPref({reduce_motion: !prefs.reduce_motion})}/>
+        </div>
+
+        {/* ── Language: captions and auto-edit titles (src/language.py). */}
+        <div className="rd-card glass">
+          <h3><span className="si"><Icon name="chat" size={15}/></span>Language</h3>
+          <div className="desc">What auto-captions are written in, and the titles on your auto-edits. Pick the language of the streamers you clip.</div>
+          <div className="rd-field" style={{alignItems: 'center'}}>
+            <div style={{flex: 1, minWidth: 0}}>
+              <div className="fl">Captions and titles</div>
+              <div style={{fontSize: 12, color: 'var(--fg-3)', marginTop: 4}}>Clips already captioned in another language are captioned again the next time they are edited.</div>
+            </div>
+            <select className="rd-select" value={prefs.language || 'en'} disabled={!!saving.language}
+              onChange={e => putPref({language: e.target.value})}>
+              {((me && me.languages) || [['en', 'English']]).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+            </select>
+          </div>
         </div>
 
         {/* ── Notifications: a browser notification when a clip lands. */}
@@ -6971,7 +7030,7 @@ function EdTimeline({ dur, inPt, outPt, thumbs, headRef, disabled, onIn, onOut, 
   );
 }
 
-function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [], schedulerOn = false, autoEditOn = false }) {
+function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms = [], schedulerOn = false, autoEditOn = false, me = null }) {
   // captionsOn is the RELEASE flag, not a plan gate. With it false the panel is
   // hidden entirely rather than rendered as a button that 503s on every click —
   // a visible control that always fails is the Kick-tab mistake again, and this
@@ -7037,6 +7096,10 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
   const [caps, setCaps]     = useState(null);   // [{start,end,text}]
   const [capOn, setCapOn]   = useState(true);
+  // The language the captions on screen were made in, against the account's:
+  // captions from before a language change say so and offer ↻.
+  const [capLang, setCapLang] = useState('');
+  const accountLang = ((me && me.prefs) || {}).language || 'en';
   const [capJob, setCapJob] = useState(null);   // {status,pct} while running
   const [capErr, setCapErr] = useState('');
 
@@ -7128,7 +7191,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const load = ()=>{
       fetch('/uploads/'+clip.id+'/captions').then(r=>r.ok?r.json():null).then(d=>{
         if(gone||!d) return;
-        if(d.captions) setCaps(d.captions.segments||[]);
+        if(d.captions){ setCaps(d.captions.segments||[]); setCapLang(d.captions.language||'en'); }
         const live = d.job && d.job.status==='running';
         if(live) setCapJob(d.job);
         else setCapJob(prev=>{
@@ -7150,7 +7213,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         if(m.upload_id !== clip.id) return;
         if(m.event==='captions_progress') setCapJob(p=>({status:'running',pct:m.pct,startedAt:(p&&p.startedAt)||Date.now()}));
         else if(m.event==='captions_ready'){
-          setCaps((m.captions&&m.captions.segments)||[]); setCapJob(null); setCapErr('');
+          setCaps((m.captions&&m.captions.segments)||[]); setCapLang((m.captions&&m.captions.language)||'en');
+          setCapJob(null); setCapErr('');
         }
         else if(m.event==='captions_failed'){ setCapJob(null); setCapErr(m.message||'Captioning failed'); }
       }catch{}
@@ -7843,6 +7907,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
 
             {captionsOn && <div className="ed-quick">
               <div className="ed-sec-t">Captions</div>
+              <LanguagePicker me={me}/>
               {!caps && !capJob &&
                 <button className="rd-btn sm ed-wide" onClick={makeCaptions} disabled={busy}>
                   <Icon name="sparkles" size={13}/>&nbsp;Add captions
@@ -7859,6 +7924,8 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                   </button>
                   <button className="rd-btn sm" onClick={makeCaptions} disabled={busy} title="Listen again">↻</button>
                 </div>}
+              {caps && !capJob && capLang && capLang !== accountLang &&
+                <div className="ed-note">These captions are in {langName(me, capLang)}. Press ↻ to make them in {langName(me, accountLang)}.</div>}
               {capErr && <div className="ed-warn">{capErr}</div>}
             </div>}
 
@@ -9380,6 +9447,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                 </button>}
               </div>
               {isAdmin && <div className="hint">Used by Autopilot and by Auto Edit in the Clip Editor. Captions are on by default; the title is off.</div>}
+              <LanguagePicker me={me} label="Captions and titles in"/>
               {isAdmin && cfg.edit_captions && ap && ap.captions_available === false && <div className="ed-warn">
                 Captions are switched off on the server (CAPTIONS_ENABLED), so edits are made without them.</div>}
             </div>
@@ -9821,7 +9889,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
         {importOn && <TwitchImport/>}
       </div>
       {editing && <ClipEditor clip={editing} onClose={()=>setEditing(null)} captionsOn={captionsOn} platforms={platforms}
-        schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))} autoEditOn={!!(me && me.is_admin)}/>}
+        schedulerOn={!!(me && (me.plan_limits?.uploads || me.is_admin))} autoEditOn={!!(me && me.is_admin)} me={me}/>}
     </div>
   );
 }

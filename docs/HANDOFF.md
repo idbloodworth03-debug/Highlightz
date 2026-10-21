@@ -5443,3 +5443,95 @@ the third alert email: `clip_processor_error ... Twitch clip '...' for
   is answerable from the logs once `channel` has been on the warning for a
   few days:
   `journalctl -u highlightz --since "3 days ago" --no-pager | venv/bin/python -m src.maintenance.why_no_clips`
+
+## Per-account language: captions and hook titles (2026-10-21)
+
+From luclips' fourth ticket (black screen on iPhone, English subtitles on
+Spanish audio, titles not as expected). Owner: "Do the language to
+per-account setting. Change the hooks to match the account language setting."
+
+**Verified on prod first** (owner ran `scratchpad/westcol/luclips3.py`, read-only):
+- Luc: Pro, `admin=False early_access=False`, so the LEGACY Autopilot edit.
+  Saved: `template=hook, title=true, captions=true`. The early-access
+  theory (toggles shown ≠ toggles read) was WRONG for him. It is still true
+  that `AutopilotScreen`'s `isAdmin` ignores `early_access` while
+  `auto_edit.uses_new_edit` honours it; that bites a non-admin early-access
+  account, of which there may be none.
+- `CAPTIONS_MODEL` unset, so `base.en`. Both of his caption files are
+  `lang=en model=base.en`, with English text for Spanish audio.
+- `LLM_PROVIDER` unset, so no AI-written titles. The title on his videos is
+  `clip_title`: the detector's ENGLISH label ("westcol — Hype Moment").
+- Not explained yet: the script found **0 clips** for him in clips.json,
+  while the same day's journal shows 7 `autopilot_scheduled` for his account
+  and nginx shows his phone opening /clips/<id>/file (206). Either the read
+  failed or his clips live elsewhere. Next check:
+  `python3 -c "import json,collections;c=json.load(open('/opt/highlightz/clips/clips.json'));print(len(c));print(collections.Counter(str(x.get('user_id',''))[:8] for x in c).most_common(5))"`
+- iPhone (CriOS 155 on iOS 26.6.2): 35 page loads in the window, nearly all
+  right after opening a video in the editor or player. So the page reloads
+  after a video is opened, by the phone itself: no code path reloads the
+  page (only /login and download redirects). That fits iOS killing the tab
+  for memory, or him refreshing a black screen. His one browser export
+  POST `/uploads?source=render` got **400** (reason not logged). The
+  `render` uploads at 23:32-23:37 are Autopilot's, not exports. Not fixed;
+  see the plan in that day's notes to the owner.
+
+**What changed**
+- **The setting:** `prefs.language` (src/language.py): `en` (default, so
+  every existing account is unchanged), `es`, `pt`, `fr`, `de`, `it`
+  (Whisper codes). It rides the existing `PUT /prefs` → `prefs_changed`
+  broadcast → `/me` (in refetchAll), so the realtime contract needed no new
+  event. `/me.languages` lists `[code, name]` for the pickers.
+- **Captions** (src/captions/transcribe.py):
+  - `transcribe(video, language=)` and `_run_whisper(language=)`. English
+    makes the exact call it always made (base.en, the English prompt, no
+    `language` kw).
+  - Any other language uses `settings.captions_model_multilingual`
+    (`CAPTIONS_MODEL_MULTILINGUAL`, default `base`) with the language FORCED,
+    not detected, and no default prompt: that prompt is an English sentence
+    and pulls a transcript to English.
+  - The two models are cached separately (`_model`, `_ml_model`); the
+    multilingual one loads only when an account needs it, which costs a few
+    hundred MB of RAM.
+  - `load_for(video, language)`: a cached caption in another language is not
+    reused. Autopilot (both paths) and Auto Edit re-transcribe it; the
+    editor shows it with "These captions are in English. Press ↻ to make
+    them in Español." A file with no language recorded counts as English.
+  - `--selftest --language es` loads (and first downloads) the multilingual
+    model on prod.
+- **Hook titles:**
+  - `language.localize_title` translates only the detector's own shapes
+    (`{channel} — {label}`, `Clip from {channel}`; the channel must match).
+    VOD timestamp titles, Twitch titles, typed and already-translated titles
+    pass through.
+  - Applied when a clip is caught (`StreamWorker._on_trigger`, from the
+    account's language), and again where a title leaves the product
+    (`autopilot.title_for` / `caption_for`, both editors' auto-edit). So
+    clips caught in English before the switch come out translated too.
+  - Labels for every language are in `_LABELS`. A new English label without
+    translations fails `test_every_detector_label_exists_in_every_language`,
+    and every translation is run through `tests/ffparse.py` (French has an
+    apostrophe).
+- **The AI editor** (only if `LLM_PROVIDER` is set): `brief()` carries
+  `"language": "Spanish"`, and SYSTEM tells the model to write the title,
+  text, caption and hashtags in it. `builder.build(language=)` passes it to
+  both providers.
+- **UI:** `LanguagePicker` in the editor's Captions panel (where Luc looked
+  for it), in the Auto Edit tab ("Captions and titles in"), and a Language
+  card in Settings. All save the one pref. The editor now receives `me`.
+
+**Verified here**
+- `tests/test_account_language.py` (16): the real `_run_whisper` with a fake
+  model, the real `process_clip` legacy path for a Spanish account (Spanish
+  title, captions requested in `es`, Spanish post caption), the real stream
+  worker, PUT /prefs plus the broadcast plus /me, and the drawtext parse.
+  Three test doubles gained the new `language` argument.
+- 17 deliberate breakages, all caught. Full suite 3815 passed; JSX parses.
+- In Chromium on seeded data: all three pickers show `Español`. Picking
+  Português in one tab updated a second open tab's Settings within a second.
+  The editor shows the English-captions note, and nothing overflows at 390 px.
+- **Not verified:** the multilingual model on prod (weights download and
+  speed), and how well `base` hears Spanish. If it is weak,
+  `CAPTIONS_MODEL_MULTILINGUAL=small` hears better for ~2.5x the CPU. Kick
+  stream titles are stored through `kick._ascii()`, which strips accents
+  ("Campeón" → "Campen"); not touched, because the title on his videos is
+  `clip_title` first.

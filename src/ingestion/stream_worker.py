@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from config.settings import settings
+from src import language as _language
 from src.ingestion.audio_meter import AudioMeter
 
 
@@ -653,7 +654,10 @@ class StreamWorker:
             post_roll=event.post_roll,
             clip_post_roll=event.clip_post_roll,
             virality_score=event.virality_score,
-            clip_title=event.clip_title,
+            # The detector titles in English; the clip is titled in its
+            # account's language (owner, 2026-10-21; src/language.py).
+            clip_title=_language.localize_title(event.clip_title, event.channel,
+                                                _language.for_user_id(self._config.user_id)),
             user_id=self._config.user_id,
         )
         await self._queue.push(job)

@@ -142,7 +142,8 @@ def configured() -> bool:
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
                 target_s: float = P.TARGET_S, mode: str = "clipper",
-                facecams: dict | None = None) -> tuple[P.EditPlan, dict]:
+                facecams: dict | None = None,
+                language: str = "en") -> tuple[P.EditPlan, dict]:
     """An EditPlan from Claude, or the formula's if anything goes wrong.
 
     Returns (plan, meta). `meta["source"]` is "llm" or "formula" and
@@ -157,7 +158,7 @@ async def build(clips: list[dict], sources: dict, *,
 
     import anthropic
 
-    payload = brief(clips, sources, transcripts, facecams)
+    payload = brief(clips, sources, transcripts, facecams, language=language)
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     model = settings.llm_model
     t0 = time.time()

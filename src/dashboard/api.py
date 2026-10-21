@@ -58,6 +58,7 @@ from src.dashboard import funnel
 from src.trigger import dismissed_suggestions as _dismissed
 from src.billing import plans as _plans
 from src.publish.release import live_platforms as _release_live_platforms
+from src import language as _language
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
@@ -1658,6 +1659,9 @@ async def me(request: Request):
         "kick_signin":         bool(settings.kick_client_id and settings.kick_client_secret),
         # The Settings tab's preferences, always complete (defaults filled).
         "prefs":               user_store.prefs_for(uid) if uid else dict(user_store.PREF_DEFAULTS),
+        # The languages captions and hook titles can be in, for the pickers
+        # (prefs.language holds the account's choice). src/language.py.
+        "languages":           _language.choices(),
         # A personal discount an admin gave this account (None when there is
         # none, it was dismissed, or they already pay). Kept live by the
         # `offer_changed` event; refetchAll reads /me on every reconnect.
@@ -3687,10 +3691,12 @@ async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
         # The user's Auto Edit settings decide, not the request: the same
         # captions-at-the-bottom preset as Autopilot. `captions` stays in the
         # signature as a way to turn them off for one render.
+        from src.autopilot import title_for
+        lang = _language.for_user_id(uid)
         plan = await auto_edit.make(clip, dst, captions=captions and cfg["edit_captions"],
                                     template=cfg["edit_template"],
-                                    title=(str(clip.get("clip_title") or clip.get("stream_title") or "")[:60]
-                                           if cfg["edit_title"] else ""))
+                                    title=title_for({**cfg, "title": cfg["edit_title"]}, clip, lang),
+                                    language=lang)
         up = await runner.save_render(uid, clip, dst)
         await broadcast({"event": "upload_added", "upload": up.public(),
                          "quota": upload_lib.quota(uid)}, user_id=uid)
@@ -3825,7 +3831,8 @@ async def _run_upload_auto_edit(upload_id: str, uid: str, filename: str, path: P
         cfg = _users.autopilot_for(uid)
         plan = await auto_edit.make_from(path, rec, dst, captions=captions and cfg["edit_captions"],
                                          template=cfg["edit_template"],
-                                         title=stem[:60] if cfg["edit_title"] else "")
+                                         title=stem[:60] if cfg["edit_title"] else "",
+                                         language=_language.for_user_id(uid))
         name = runner._safe_name(stem + "-auto-edit") + "-9x16.mp4"
         new_up = await runner.save_render(uid, rec, dst, name=name)
         await broadcast({"event": "upload_added", "upload": new_up.public(),
@@ -7260,6 +7267,9 @@ async def start_captions(request: Request, upload_id: str):
     job = {"status": "running", "pct": 0, "error": "", "user_id": uid,
            "upload_id": upload_id}
     _caption_jobs[upload_id] = job
+    # The account's language (Settings, or the picker beside this button),
+    # read when the run starts.
+    lang = _language.for_user_id(uid)
 
     async def _progress(pct: int, note: str) -> None:
         job["pct"] = pct
@@ -7269,7 +7279,7 @@ async def start_captions(request: Request, upload_id: str):
     async def _work() -> None:
         path = upload_lib.path_for(up)
         try:
-            payload = await cap.transcribe(path, on_progress=_progress)
+            payload = await cap.transcribe(path, on_progress=_progress, language=lang)
             cap.save(path, payload)
             job.update(status="done", pct=100, finished_at=time.time())
             await broadcast({"event": "captions_ready", "upload_id": upload_id,

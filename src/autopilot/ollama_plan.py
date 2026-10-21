@@ -126,7 +126,8 @@ async def tags() -> list[dict]:
 async def build(clips: list[dict], sources: dict, *,
                 transcripts: dict | None = None,
                 target_s: float = P.TARGET_S, mode: str = "clipper",
-                facecams: dict | None = None) -> tuple[P.EditPlan, dict]:
+                facecams: dict | None = None,
+                language: str = "en") -> tuple[P.EditPlan, dict]:
     """An EditPlan from your own model, or the formula's if anything goes wrong.
 
     The contract is identical to llm_plan.build — same arguments, same
@@ -140,7 +141,7 @@ async def build(clips: list[dict], sources: dict, *,
         return formula(clips, sources, "no clip has a file", target_s=target_s, mode=mode,
                        facecams=facecams)
 
-    payload = brief(clips, sources, transcripts, facecams)
+    payload = brief(clips, sources, transcripts, facecams, language=language)
     body = {
         "model": settings.ollama_model,
         "messages": [{"role": "system", "content": SYSTEM},

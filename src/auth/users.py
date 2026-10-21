@@ -608,6 +608,7 @@ PREF_DEFAULTS = {
     "auto_editor":    True,        # approved clips copy into the Clip Editor
     "notify_clips":   False,       # browser notification when a clip lands
     "reduce_motion":  False,       # skip the sweep and the wake animation
+    "language":       "en",        # captions and hook titles; see src/language.py
     # ── onboarding (asked once, after Twitch is attached) ────────────────
     # What they are here for. Sets the Autopilot mode. Both modes post one
     # clip per video since 2026-09-23, so it does not change the cut today
@@ -644,6 +645,8 @@ def normalize_prefs(raw: dict | None) -> dict:
     for k in ("auto_editor", "notify_clips", "reduce_motion"):
         if k in raw:
             out[k] = bool(raw[k])
+    from src import language
+    out["language"] = language.normalize(raw.get("language"))
     uc = str(raw.get("use_case", "") or "").lower()
     out["use_case"] = uc if uc in USE_CASES else ""
     # Order-preserving and de-duplicated, so a count of these is a count of
