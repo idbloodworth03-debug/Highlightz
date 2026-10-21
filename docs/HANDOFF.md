@@ -5461,11 +5461,18 @@ per-account setting. Change the hooks to match the account language setting."
   `lang=en model=base.en`, with English text for Spanish audio.
 - `LLM_PROVIDER` unset, so no AI-written titles. The title on his videos is
   `clip_title`: the detector's ENGLISH label ("westcol — Hype Moment").
-- Not explained yet: the script found **0 clips** for him in clips.json,
-  while the same day's journal shows 7 `autopilot_scheduled` for his account
-  and nginx shows his phone opening /clips/<id>/file (206). Either the read
-  failed or his clips live elsewhere. Next check:
-  `python3 -c "import json,collections;c=json.load(open('/opt/highlightz/clips/clips.json'));print(len(c));print(collections.Counter(str(x.get('user_id',''))[:8] for x in c).most_common(5))"`
+- **0 clips** for him in clips.json (6,672 clips, read fine): HE removed
+  them, and nothing of ours did. Checked on prod 2026-10-21:
+  - nginx from his IP shows ~25 `POST /clips/{id}/reject` (reject deletes
+    by design), 7 `DELETE /clips/{id}` and 2 `POST /clips/clear-pending`.
+  - The journal's `clips_cleared` for his uid: 111, 52, 7, 54 and 200 clips
+    in 3 days, the last at 10-21 11:13Z.
+  - Each sampled clip id matches one of his requests.
+  - His Clip Editor library still holds 7 `clip` copies and 5 Autopilot
+    renders; those copies outlive the clip records.
+  - Side note: one reject was sent 4x in the same second (200, then 404 x3).
+    The Reject button does not lock while its request is in flight, so a
+    phone double-tap repeats it. Harmless.
 - iPhone (CriOS 155 on iOS 26.6.2): 35 page loads in the window, nearly all
   right after opening a video in the editor or player. So the page reloads
   after a video is opened, by the phone itself: no code path reloads the
