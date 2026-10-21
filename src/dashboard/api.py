@@ -33,9 +33,11 @@ import structlog
 from fastapi import (FastAPI, WebSocket, WebSocketDisconnect, HTTPException,
                      Request, Form, File, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exception_handlers import http_exception_handler as _fastapi_http_exception_handler
 from fastapi.responses import (HTMLResponse, RedirectResponse, JSONResponse,
                                PlainTextResponse, Response, FileResponse)
 from pydantic import BaseModel, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -1905,6 +1907,72 @@ async def admin_optout_remove(request: Request, entry_id: str, platform: str = "
     log.info("optout_removed_by_admin", platform=platform, entry_id=entry_id,
              by=request.session.get("user_id"))
     return {"ok": True}
+
+
+# ── Crash reports from the dashboard (2026-10-21) ────────────────────────────
+#
+# A screen that broke in someone's browser used to leave a blank page there
+# and nothing here: luclips reported a black screen on his iPhone, the
+# dashboard was loaded 35 times in the log window, and all the journal could
+# say was that pages were loaded.
+# The page now catches a crashed screen (ErrorBoundary in aurora_html.py) and
+# sends what broke, as it does for uncaught errors and rejections (hzReport).
+# Logged as the `client_error` warning: one person's crash is in the journal,
+# and a deploy that breaks a screen for many crosses the alert burst and
+# emails.
+#
+# Untrusted input from a signed-in browser, so the body is read with a cap
+# before it is parsed, every field is cut short, and each account gets a few
+# per window. A page stuck in a crash loop must not become a log flood.
+
+_CLIENT_ERROR_MAX_BODY = 16_384
+_CLIENT_ERROR_MAX      = 10        # reports per account per window
+_CLIENT_ERROR_WINDOW   = 600       # seconds
+_client_error_hits: dict[str, tuple[int, float]] = {}
+
+
+@app.post("/client-error", status_code=204)
+async def client_error(request: Request):
+    uid = _current_user_id(request)
+    size = request.headers.get("content-length", "")
+    if size.isdigit() and int(size) > _CLIENT_ERROR_MAX_BODY:
+        return Response(status_code=413)
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > _CLIENT_ERROR_MAX_BODY:
+            return Response(status_code=413)
+
+    # Nothing awaits between the read and the write below, so on one event
+    # loop this needs no lock.
+    now = time.time()
+    if len(_client_error_hits) > 1000:
+        for k in [k for k, (_, start) in _client_error_hits.items()
+                  if now - start > _CLIENT_ERROR_WINDOW]:
+            _client_error_hits.pop(k, None)
+    count, start = _client_error_hits.get(uid, (0, now))
+    if now - start > _CLIENT_ERROR_WINDOW:
+        count, start = 0, now
+    if count >= _CLIENT_ERROR_MAX:
+        # Dropped quietly: the page could do nothing with a refusal.
+        return Response(status_code=204)
+    _client_error_hits[uid] = (count + 1, start)
+
+    try:
+        data = json.loads(body or b"{}")
+    except ValueError:
+        return Response(status_code=400)
+    if not isinstance(data, dict):
+        return Response(status_code=400)
+
+    def text(name: str, cap: int) -> str:
+        return str(data.get(name) or "")[:cap]
+
+    log.warning("client_error", user_id=uid, kind=text("kind", 20),
+                where=text("where", 40), message=text("message", 300),
+                stack=text("stack", 1500),
+                ua=request.headers.get("user-agent", "")[:160])
+    return Response(status_code=204)
 
 
 # ── Feedback ──────────────────────────────────────────────────────────────────
@@ -5905,9 +5973,44 @@ async def create_upload(request: Request, file: UploadFile = File(...),
     return payload
 
 
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_logged(request: Request, exc: StarletteHTTPException):
+    """FastAPI's own error response, unchanged, plus one log line when an
+    upload is refused.
+
+    WHY HERE AND NOT IN create_upload. An iPhone export's save came back 400
+    (luclips, 2026-10-21) and nothing said why, because one of the two ways
+    to get there never reaches the endpoint: FastAPI parses the multipart body
+    first, and ANY failure doing that becomes "There was an error parsing the
+    body" before create_upload runs. A phone dropping the upload halfway is
+    one: reproduced against this app, the server answers exactly that 400 and
+    the cause is ClientDisconnect. The UploadError refusals (empty, not a
+    video, over a cap) and the access refusals do run it. All of them pass
+    through here, so each is logged once, with what the user was told and,
+    for a parse failure, what actually broke. (A request with no file part at
+    all is FastAPI's 422, a different handler; the page always sends one.)
+    Every other route only gets FastAPI's default handler, called as before.
+    404s never come here: the 404 handler below is matched by status first.
+    """
+    if request.method == "POST" and request.url.path == "/uploads":
+        cause = exc.__cause__
+        log.warning(
+            "upload_rejected",
+            user_id=request.session.get("user_id") if "session" in request.scope else None,
+            status=exc.status_code,
+            reason=str(exc.detail)[:200],
+            cause=f"{type(cause).__name__}: {str(cause)[:160]}" if cause else "",
+            source=request.query_params.get("source", "")[:20],
+            declared_bytes=request.headers.get("content-length", ""),
+            ua=request.headers.get("user-agent", "")[:160],
+        )
+    return await _fastapi_http_exception_handler(request, exc)
+
+
 @app.get("/uploads/{upload_id}/file")
-async def get_upload_file(request: Request, upload_id: str):
-    """Serve an upload back to its owner for in-page playback.
+async def get_upload_file(request: Request, upload_id: str, download: int = 0):
+    """Serve an upload back to its owner, inline for in-page playback or, with
+    `?download=1`, as an attachment for the Download buttons.
 
     `library.get` scopes by owner, so another user's id is a 404 rather than a
     file. The path comes from the stored record (UUID + whitelisted
@@ -5925,11 +6028,23 @@ async def get_upload_file(request: Request, upload_id: str):
         raise HTTPException(status_code=404, detail="Upload file is missing")
     media = {"mp4": "video/mp4", "mov": "video/quicktime",
              "webm": "video/webm"}[up.kind]
+    # THE DOWNLOAD BUTTONS SAY ATTACHMENT. Served inline, a tap on Download on
+    # an iPhone can open the bare video in the tab instead: a black player,
+    # and the way back reloads the dashboard, which is one of the two
+    # explanations that fit luclips' reloads (2026-10-21). The `download`
+    # attribute is a request a browser may ignore; this header is not. The
+    # name is the stored display name, already reduced to [A-Za-z0-9._ -],
+    # with the real container's extension so the saved file opens.
+    name = up.filename
+    ext = upload_lib.EXT_FOR_KIND[up.kind]
+    if not name.lower().endswith(ext):
+        name += ext
+    disposition = "attachment" if download else "inline"
     return FileResponse(
         path, media_type=media,
-        # inline + a fixed safe type: the browser plays it rather than being
-        # invited to sniff it into something executable.
-        headers={"Content-Disposition": f'inline; filename="{up.filename}"',
+        # A fixed safe type either way: the browser plays or saves it rather
+        # than being invited to sniff it into something executable.
+        headers={"Content-Disposition": f'{disposition}; filename="{name}"',
                  "X-Content-Type-Options": "nosniff"},
     )
 

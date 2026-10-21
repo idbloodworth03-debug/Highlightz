@@ -2150,10 +2150,56 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-header .htitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .rd-header .rd-menubtn,.rd-header .plat-switch,.rd-header .rd-inbox,.rd-header .rd-user-chip{flex-shrink:0}
 }
+/* A screen that crashed (ErrorBoundary): what happened and a way out, in
+   place of a blank page. Tokens from :root, so the whole-app fallback, which
+   renders outside .rd-app, looks the same. */
+.rd-crash{max-width:440px;width:calc(100% - 32px);box-sizing:border-box;margin:48px auto;padding:24px;
+  border-radius:14px;background:var(--rd-bg-2);
+  border:1px solid rgba(255,255,255,.08);color:var(--fg);text-align:center}
+.rd-crash h3{margin:0 0 8px;font-size:17px}
+.rd-crash p{margin:0 0 16px;color:var(--fg-2);font-size:13px;line-height:1.5}
+.rd-crash-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* ── Crash reports ────────────────────────────────────────────────────────────
+   Uncaught errors, unhandled rejections and a screen the ErrorBoundary caught
+   go to POST /client-error (api.py), which logs them as client_error. Before
+   this, a page that broke on someone's phone left nothing on our side at all
+   (luclips, 2026-10-21). A plain script ahead of React and Babel, so even a
+   page that never starts (a syntax error white-screens the whole app) says
+   why. At most 8 a page, each message once, and nothing for what the page
+   cannot act on: a dropped network (every deploy restarts the server under
+   every open tab), a cross-origin "Script error.", the ResizeObserver loop
+   warning, or a reply that was not JSON because the server was restarting. */
+(function(){
+  var sent = {}, count = 0;
+  var NOISE = /ResizeObserver loop|Failed to fetch|Load failed|NetworkError|network connection was lost|AbortError|operation was aborted|not valid JSON|Unexpected token|JSON.parse|did not match the expected pattern/i;
+  window.hzReport = function(kind, message, stack, where){
+    try {
+      var m = String(message || '').slice(0, 300);
+      if (!m || m.indexOf('Script error') === 0 || NOISE.test(m) || count >= 8) return;
+      var key = kind + '|' + m;
+      if (sent[key]) return;
+      sent[key] = 1; count++;
+      fetch('/client-error', {method: 'POST', keepalive: true,
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({kind: kind, message: m, stack: String(stack || '').slice(0, 1500),
+                              where: String(where || window.hzWhere || '').slice(0, 40)})
+      }).catch(function(){});
+    } catch (e) {}
+  };
+  window.addEventListener('error', function(e){
+    window.hzReport('error', e && e.message, e && e.error && e.error.stack);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e && e.reason;
+    window.hzReport('rejection', (r && r.message) || String(r), r && r.stack);
+  });
+})();
+</script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"></script>
@@ -3450,7 +3496,7 @@ function AutoEditPanel({ clip }) {
           {ae.seconds ? <div>{ae.seconds}s{ae.captions ? ', ' + ae.captions + ' captions' : ''}.</div> : null}
           {ae.note ? <div style={{color:'var(--pending)'}}>{ae.note}</div> : null}
           <div>Saved to your library — nothing was posted.</div>
-          <a href={'/uploads/' + ae.upload_id + '/file'} download className="rd-btn sm"
+          <a href={'/uploads/' + ae.upload_id + '/file?download=1'} download className="rd-btn sm"
             style={{textDecoration:'none',marginTop:8,display:'inline-flex'}}><Icon name="download" size={13}/>Download</a>
         </div>
       </div>}
@@ -4931,7 +4977,7 @@ function TutMedia({ m }){
   );
   if(m.kind==='video') return (
     <figure className="tut-fig">
-      <video className="tut-media" controls preload="none" poster={m.poster} width={m.width} height={m.height}>
+      <video className="tut-media" controls playsInline preload="none" poster={m.poster} width={m.width} height={m.height}>
         <source src={m.src}/>
       </video>
       {m.caption && <figcaption className="tut-cap">{m.caption}</figcaption>}
@@ -6953,17 +6999,34 @@ function buildThumbs(url, dur, onBatch, isGone) {
   run();
 }
 
+/* iPhones and iPads. Every browser there is WebKit (Chrome on an iPhone is
+   WebKit underneath), and WebKit deals with a tab that uses too much memory
+   by killing it and loading the page again: a black screen, then the
+   dashboard from the top. That fits luclips' reloads (2026-10-21, Chrome on
+   iOS 26). iPadOS reports itself as a Mac, so touch points decide there. */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '')
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// The exports that get the light profile below: iOS, and Android phones,
+// whose tabs are killed for memory the same way.
+const LIGHT_EXPORT = IS_IOS || /Android.+Mobile/i.test(navigator.userAgent || '');
+
 /* Output size per shape: 1080x1920, 1080x1080 or 1920x1080 for any source of
    720p and up, the 720 class only below that. This DOES upscale a 720p clip,
    on purpose: TikTok, Shorts and Reels re-encode every upload to 1080x1920
    with their own scaler, and a 720x1280 file handed to that pipeline comes
    out visibly softer than the same picture delivered at 1080x1920 — the
    scaling happens either way; doing it here with a high-quality resampler
-   keeps it out of theirs. Even dimensions, always — H.264 refuses odd ones. */
-function outputSize(ratio, vw, vh) {
+   keeps it out of theirs. Even dimensions, always — H.264 refuses odd ones.
+
+   `light` (a phone, LIGHT_EXPORT) takes the 720 class at 30 fps whatever the
+   source. The export holds the whole file in memory while it is written, and
+   a 1080p60 export is more than twice the pixels at twice the rate: this is
+   half the frames, under half the pixels and about 60% of the bytes. A
+   slightly softer upload beats a tab that dies at 80%. */
+function outputSize(ratio, vw, vh, light = false) {
   const aspect = (RATIOS.find(r => r[0] === ratio) || RATIOS[0])[1];
   const srcShort = Math.min(vw || 1080, vh || 1920);
-  const hd = srcShort >= 720;
+  const hd = !light && srcShort >= 720;
   let w, h;
   if (aspect < 1)       { h = hd ? 1920 : 1280; w = h * aspect; }
   else if (aspect === 1){ h = hd ? 1080 : 720;  w = h; }
@@ -7128,7 +7191,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
   const pendingSeek = useRef(null);
   const pinch = useRef(null);
 
-  const out = outputSize(ratio, srcDims[0], srcDims[1]);
+  const out = outputSize(ratio, srcDims[0], srcDims[1], LIGHT_EXPORT);
   const outW = out.w, outH = out.h;
 
   const opts = () => ({ w: outW, h: outH, zoom, offX, offY, text, textSize, textPos,
@@ -7589,6 +7652,28 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
+  // The iPhone's Save video (see runExport). The share sheet has to open from
+  // the tap itself, so nothing is awaited before navigator.share. Where the
+  // sheet cannot take a file, the server's copy downloads instead, as a real
+  // attachment; the blob download is the last resort, for a save that never
+  // reached the server.
+  const saveToPhone = async () => {
+    if (!outFile) return;
+    setErr('');
+    let f = null;
+    try { f = new File([outFile.blob], outFile.name, { type: outFile.blob.type || 'video/mp4' }); } catch (e) {}
+    if (f && navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f] }); }
+      catch (e) {
+        if (!e || e.name !== 'AbortError')       // AbortError: they closed the sheet
+          setErr('Could not open the share sheet' + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+      }
+      return;
+    }
+    if (outFile.id) window.location.assign('/uploads/' + outFile.id + '/file?download=1');
+    else download(outFile.blob, outFile.ext);
+  };
+
   // Every wait in the export is time-boxed. The first version awaited a
   // 'seeked' that never came and an AudioContext.resume() that could stall,
   // and an export that hangs at 0% with a Cancel button is the worst outcome
@@ -7605,7 +7690,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
     const v = videoRef.current, c = canvRef.current;
     const type = pickRecorderType();
     if (!type) throw new Error('This browser cannot export video. Try Chrome.');
-    const hd = outputSize(ratio, srcDims[0], srcDims[1]).hd;
+    const hd = out.hd;
     // The preview canvas is sized to the stage, not to the export. Size it to
     // the real output HERE, synchronously, before captureStream — the paint
     // loop would do it on its next tick, but by then the capture track would
@@ -7741,7 +7826,13 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
       const name = (clip.filename || 'clip').replace(RE_EXT, '')
                    + '-' + ratio.replace(':', 'x') + '.' + ext;
       setOutFile({ blob, ext, name });
-      download(blob, ext);
+      // NOT ON AN iPHONE. A blob download clicked by script is unreliable
+      // there: depending on the browser it is dropped, asks first, or takes
+      // the tab to the file, and it would happen while the save below is
+      // still uploading. The phone gets a Save video button instead
+      // (saveToPhone): the share sheet, opened by a tap, where Save Video
+      // puts the file in Photos.
+      if (!IS_IOS) download(blob, ext);
       setPct(100);
       // The render goes to the server as well as to the downloads folder. Not
       // for our benefit — it is what lets the Scheduler tab, and the user's
@@ -7760,20 +7851,26 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
         const ur = await fetch('/uploads?source=render', { method: 'POST', body: fd });
         if (!ur.ok) throw new Error((await ur.json().catch(()=>({}))).detail || 'save failed');
         const saved = await ur.json();
+        // The server's copy is Save video's fallback on a phone whose share
+        // sheet cannot take a file.
+        setOutFile(f => (f && f.blob === blob) ? { ...f, id: saved.id } : f);
         if (schedulerOn) {
           await fetch('/publish/schedule', { method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ upload_id: saved.id, caption: '', platforms: [],
                                    due_at: 0, duration_s: clipSecs, ratio, fmt: ext }) });
         }
-        setDone(schedulerOn ? 'Exported and added to your Scheduler.'
-                            : 'Exported and saved to your Clip Editor library.');
+        setDone((schedulerOn ? 'Exported and added to your Scheduler.'
+                             : 'Exported and saved to your Clip Editor library.')
+                + (IS_IOS ? ' Tap Save video to keep it on this phone.' : ''));
       } catch (e) {
-        // The user still HAS the file — it downloaded. Say what did and did
-        // not happen rather than reporting a failed export.
+        // The user still HAS the file: in their downloads, or on an iPhone
+        // behind Save video. Say what did and did not happen rather than
+        // reporting a failed export.
         setDone('');
-        setErr('Exported to your downloads, but saving it to the ' + where + ' failed'
-               + (e && e.message ? ' (' + e.message + ')' : '') + '.');
+        setErr((IS_IOS ? 'Exported' : 'Exported to your downloads') + ', but saving it to the ' + where + ' failed'
+               + (e && e.message ? ' (' + e.message + ')' : '') + '.'
+               + (IS_IOS ? ' Tap Save video to keep it.' : ''));
       }
       if (onExported) onExported(blob, ext);
     } catch (e) {
@@ -8150,7 +8247,7 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
                 <div style={{flex:1}}>
                   <div className="ed-note ok">Your auto-edit is ready — {aeJob.seconds}s{aeJob.captions ? ', ' + aeJob.captions + ' captions' : ''}. It is in your library.</div>
                   {aeJob.note && <div className="ed-note">{aeJob.note}</div>}
-                  <a className="rd-btn sm" href={'/uploads/' + aeJob.result.id + '/file'} download
+                  <a className="rd-btn sm" href={'/uploads/' + aeJob.result.id + '/file?download=1'} download
                     style={{textDecoration:'none',display:'inline-flex',marginTop:8}}><Icon name="download" size={13}/>&nbsp;Download</a>
                 </div>
               </div>}
@@ -8175,7 +8272,9 @@ function ClipEditor({ clip, onClose, onExported, captionsOn = false, platforms =
           {done && <div className="ed-note ok">{done}</div>}
           {err && <div className="ed-warn">{err}</div>}
           {outFile && !busy && <div className="ed-row">
-            <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>Download again</button>
+            {IS_IOS
+              ? <button className="rd-btn sm grad" onClick={saveToPhone}><Icon name="download" size={13}/>&nbsp;Save video</button>
+              : <button className="rd-btn sm" onClick={()=>download(outFile.blob, outFile.ext)}>Download again</button>}
             {/* The render is in the Scheduler now — that is where posting
                 lives, so the editor stays about editing. */}
             <span className="ed-note">Caption it and post from the <b>Scheduler</b> tab.</span>
@@ -9007,7 +9106,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           <button className="sc-cal-nav" onClick={onClose} aria-label="Close"><Icon name="x" size={14}/></button>
         </div>
         <div className="sc-dr-body">
-          <video src={'/uploads/'+item.upload_id+'/file'} controls preload="metadata"/>
+          <video src={'/uploads/'+item.upload_id+'/file'} controls playsInline preload="metadata"/>
 
           <div className="sc-lbl">Caption</div>
           <textarea className="ed-in" rows="3" value={cap} disabled={posting}
@@ -9075,7 +9174,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
             <Icon name="upload" size={13}/>&nbsp;Share to an app
           </button>}
-          <a className="rd-btn sm" href={'/uploads/'+item.upload_id+'/file'}
+          <a className="rd-btn sm" href={'/uploads/'+item.upload_id+'/file?download=1'}
              download={item.filename}>Download</a>
           <button className="rd-btn sm" onClick={copy} disabled={!cap}>
             {copied ? 'Copied' : 'Copy caption'}
@@ -9857,7 +9956,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             <div className="rd-lib-grid">
               {uploads.map(u=>(
                 <div className="rd-up" key={u.id}>
-                  <video src={u.url} controls preload="metadata"/>
+                  <video src={u.url} controls playsInline preload="metadata"/>
                   <div className="ub">
                     <div style={{minWidth:0,flex:1}}>
                       <div className="un" title={u.filename}>{u.filename}</div>
@@ -10565,8 +10664,56 @@ function canPublishFor(me) {
             && ((me.features || {}).uploads || me.is_admin));
 }
 
+/* ── A crashed screen gets a way out ─────────────────────────────────────────
+   React takes down everything under a component that throws while rendering.
+   With nothing to catch it that was the whole app: a blank page, and nothing
+   on our side to say why. There are two of these. One wraps the screen, keyed
+   by the section, so a screen that breaks leaves the nav working and moving
+   to another section starts fresh; the other wraps the whole app, for
+   anything outside a screen. Each sends what broke to hzReport. "Try again"
+   draws it again from scratch, which reloads that part's data. */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) {
+    if (window.hzReport) window.hzReport('render', (err && err.message) || String(err),
+      ((err && err.stack) || '') + ((info && info.componentStack) || ''), this.props.where);
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const onHome = this.props.onHome;
+    return (
+      <div className="rd-crash" role="alert">
+        <h3>Something went wrong on this screen</h3>
+        <p>Your clips, uploads and settings are saved on our server, so nothing there is lost. We have been sent the details.</p>
+        <div className="rd-crash-row">
+          <button className="rd-btn grad sm" onClick={()=>this.setState({ err: null })}>Try again</button>
+          {onHome && <button className="rd-btn sm" onClick={()=>{ this.setState({ err: null }); onHome(); }}>Go to Clip Review</button>}
+        </div>
+      </div>
+    );
+  }
+}
+
+// The section this tab was on, so a reload comes back to it instead of to
+// Clip Review. An iPhone reloads a tab on its own when it runs short of
+// memory, and landing on Clip Review after one looks like the work is gone
+// (luclips asked whether his clips and settings were safe, 2026-10-21). sessionStorage, so it is this tab's and nothing is kept
+// between visits. Checked against HEAD, which every route has an entry in
+// and the header reads, so a stale or edited value cannot reach a screen.
+// Only the section: an editor that was open is NOT reopened, because if the
+// editor is what used up the memory, reopening it would reload the tab again.
+function savedRoute() {
+  try {
+    const r = sessionStorage.getItem('hz_route');
+    if (r && Object.prototype.hasOwnProperty.call(HEAD, r)) return r;
+  } catch (e) {}
+  return 'review';
+}
+
 function RdApp() {
-  const [route, setRoute] = useState('review');
+  const [route, setRoute] = useState(savedRoute);
+  useEffect(()=>{ try { sessionStorage.setItem('hz_route', route); } catch (e) {} }, [route]);
   // The Account tab became the lower half of Settings (2026-10-05). Anything
   // that used to open it opens Settings and scrolls to that half.
   const openAccount = useCallback(()=>{
@@ -11184,25 +11331,39 @@ function RdApp() {
     const r=await fetch(`/streams/${encodeURIComponent(channel)}/force-clip`,{method:'POST'});
     flash(r.ok?'Test clip queued for '+channel:'Failed — is stream active?');
   };
+  // ONE REQUEST PER CLIP AT A TIME. The card stays up until the server
+  // answers, so a double tap on a phone sent the same request again: luclips'
+  // journal has one reject four times in one second (a 200, then three 404s
+  // that read like faults). Approve and Reject share the lock, because both
+  // at once on one clip is the same race.
+  const clipBusy = useRef(new Set());
   const approveClip = async(id)=>{
-    const r=await fetch(`/clips/${id}/approve`,{method:'POST'});
-    if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));return true;}
-    // A 403 is the weekly library cap, and it is the one failure here that is
-    // not an error: the clip is fine, it is still in review, and the server
-    // already wrote the sentence explaining that. Showing "it may have been
-    // removed. Refreshing..." would say the opposite of what happened and
-    // throw away a queue position the user can still use.
-    if(r.status===403){
-      const d=await r.json().catch(()=>null);
-      flash((d&&d.detail)||'You have kept all the clips your plan allows this week.');
+    if(clipBusy.current.has(id)) return false;
+    clipBusy.current.add(id);
+    try{
+      const r=await fetch(`/clips/${id}/approve`,{method:'POST'});
+      if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));return true;}
+      // A 403 is the weekly library cap, and it is the one failure here that is
+      // not an error: the clip is fine, it is still in review, and the server
+      // already wrote the sentence explaining that. Showing "it may have been
+      // removed. Refreshing..." would say the opposite of what happened and
+      // throw away a queue position the user can still use.
+      if(r.status===403){
+        const d=await r.json().catch(()=>null);
+        flash((d&&d.detail)||'You have kept all the clips your plan allows this week.');
+        return false;
+      }
+      flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();
       return false;
-    }
-    flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();
-    return false;
+    } finally { clipBusy.current.delete(id); }
   };
   const rejectClip = async(id)=>{
-    await fetch(`/clips/${id}/reject`,{method:'POST'});
-    setClips(p=>{const n={...p};delete n[id];return n;});
+    if(clipBusy.current.has(id)) return;
+    clipBusy.current.add(id);
+    try{
+      await fetch(`/clips/${id}/reject`,{method:'POST'});
+      setClips(p=>{const n={...p};delete n[id];return n;});
+    } finally { clipBusy.current.delete(id); }
   };
   // Which Twitch clips this admin already has, so the Grab button can say
   // "In yours" instead of offering an action the server will refuse.
@@ -11407,12 +11568,14 @@ function RdApp() {
   // endpoint refuses independently, this only stops us offering a dead end.
   const [postClip, setPostClip] = useState(null);
   const onPostClip = editorOn ? setPostClip : null;
-  // The screen actually rendered. The nav is the only way in today (`route`
-  // lives in React state alone), but that is a property of the current code,
-  // not a guarantee — normalise so a future deep link or restored route cannot
-  // walk into one of these. Falls back to the review queue.
+  // The screen actually rendered. The nav is one way in and savedRoute() is
+  // the other (a reload comes back to the section it left), so normalise:
+  // neither a future deep link nor a restored route may walk into one of
+  // these. Falls back to the review queue.
   const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review'
              : (route === 'campaigns' && !canCampaigns) ? 'review' : route;
+  // Which section a crash report came from (hzReport, at the top of the page).
+  useEffect(()=>{ window.hzWhere = view; }, [view]);
 
   // Over the Clip Library while posting for a campaign (see CampaignPostBanner).
   const postForCamp = postFor && (campaigns||[]).find(c=>c.id===postFor && c.status==='live');
@@ -11525,7 +11688,9 @@ function RdApp() {
           <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'var(--fg-2)',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
           <a href={me.trial_converts?'/billing/portal':'/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
         </div>}
-        <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>{screen}</main>
+        <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>
+          <ErrorBoundary key={view} where={view} onHome={view!=='review' ? ()=>setRoute('review') : null}>{screen}</ErrorBoundary>
+        </main>
         {/* The platform-switch sweep. Keyed by n so a fresh switch restarts
             the animation; pointer-events none so nothing under it is blocked
             for longer than the band covers it. */}
@@ -11565,7 +11730,7 @@ function RdApp() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<RdApp/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary where="app"><RdApp/></ErrorBoundary>);
 </script>
 </body>
 </html>"""

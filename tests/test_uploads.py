@@ -349,6 +349,152 @@ def test_playback_supports_range_requests(client):
     assert r.headers["content-range"] == f"bytes 4-11/{len(MP4)}"
 
 
+# ── iPhone (luclips, 2026-10-21) ──────────────────────────────────────────────
+#
+# Served inline, a tap on Download on an iPhone opened the bare video in the
+# tab, and the way back reloaded the dashboard. And one export's save came
+# back 400 with nothing in the journal to say why.
+
+def test_the_download_button_gets_an_attachment_and_playback_stays_inline(client):
+    c = client.login("pro_user")
+    up = c.post("/uploads", files={"file": ("my edit.mp4", MP4, "video/mp4")}).json()
+    play = c.get(f"/uploads/{up['id']}/file")
+    assert play.headers["content-disposition"] == 'inline; filename="my edit.mp4"'
+    got = c.get(f"/uploads/{up['id']}/file?download=1")
+    assert got.status_code == 200 and got.content == MP4
+    assert got.headers["content-disposition"] == 'attachment; filename="my edit.mp4"'
+    # Still a fixed, unsniffable type: an attachment is not a reason to relax it.
+    assert got.headers["content-type"].startswith("video/mp4")
+    assert got.headers["x-content-type-options"] == "nosniff"
+
+
+def test_a_downloaded_file_is_named_with_the_extension_of_what_it_really_is(client):
+    """The display name is the client's and may say nothing, or the wrong
+    thing: the saved file has to open, so the sniffed container decides."""
+    c = client.login("pro_user")
+    bare = c.post("/uploads", files={"file": ("clip", MOV, "video/mp4")}).json()
+    r = c.get(f"/uploads/{bare['id']}/file?download=1")
+    assert r.headers["content-disposition"] == 'attachment; filename="clip.mov"'
+    webm = c.post("/uploads", files={"file": ("CLIP.WEBM", WEBM, "video/webm")}).json()
+    r = c.get(f"/uploads/{webm['id']}/file?download=1")
+    assert r.headers["content-disposition"] == 'attachment; filename="CLIP.WEBM"'
+
+
+def test_another_users_upload_is_still_a_404_as_a_download(client):
+    c = client.login("pro_user")
+    up = c.post("/uploads", files={"file": ("mine.mp4", MP4, "video/mp4")}).json()
+    c2 = client.login("other_pro")
+    assert c2.get(f"/uploads/{up['id']}/file?download=1").status_code == 404
+
+
+class _Log:
+    """Records what api logs, by level."""
+
+    def __init__(self):
+        self.lines = []
+
+    def __getattr__(self, level):
+        def _log(event, **kw):
+            self.lines.append((level, event, kw))
+        return _log
+
+    def named(self, event):
+        return [(lv, kw) for lv, e, kw in self.lines if e == event]
+
+
+@pytest.fixture
+def api_log(monkeypatch):
+    from src.dashboard import api
+    rec = _Log()
+    monkeypatch.setattr(api, "log", rec)
+    return rec
+
+
+def test_a_refused_upload_is_logged_with_what_the_user_was_told(client, api_log):
+    c = client.login("pro_user")
+    r = c.post("/uploads?source=render", files={"file": ("x.mp4", EXE, "video/mp4")},
+               headers={"user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) CriOS/155"})
+    assert r.status_code == 400
+    # The response is FastAPI's own shape, untouched by the logging.
+    assert r.json() == {"detail": "That doesn't look like a video file. Upload an MP4, MOV or WebM."}
+    [(level, kw)] = api_log.named("upload_rejected")
+    assert level == "warning"
+    assert kw["user_id"] == "pro_user" and kw["status"] == 400 and kw["source"] == "render"
+    assert kw["reason"].startswith("That doesn't look like a video file")
+    assert kw["cause"] == "" and "iPhone" in kw["ua"]
+    assert int(kw["declared_bytes"]) > 0
+
+
+def test_a_cap_refusal_is_logged_with_its_own_status(client, api_log, monkeypatch):
+    monkeypatch.setattr(settings, "upload_max_user_mb", 0)
+    c = client.login("pro_user")
+    assert c.post("/uploads", files={"file": ("x.mp4", MP4, "video/mp4")}).status_code == 507
+    [(_, kw)] = api_log.named("upload_rejected")
+    assert kw["status"] == 507 and "upload space" in kw["reason"]
+
+
+def test_an_upload_the_phone_dropped_halfway_is_logged_with_the_cause(client, api_log):
+    """THE ONE THE ENDPOINT NEVER SEES. Driven as raw ASGI because that is
+    how a dropped upload arrives: part of the body, then a disconnect.
+    FastAPI fails the body parse and answers 400 before create_upload runs,
+    which is why nothing logged it before."""
+    import base64
+    import json as _j
+    from itsdangerous import TimestampSigner
+    from src.dashboard import api
+
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    data = base64.b64encode(_j.dumps({"auth": True, "user_id": "pro_user",
+                                      "subscription_status": "active"}).encode())
+    part = (b'--XyZ\r\nContent-Disposition: form-data; name="file"; filename="a.mp4"\r\n'
+            b"Content-Type: video/mp4\r\n\r\n" + MP4 + b"\x00" * 4096)
+    queue = [{"type": "http.request", "body": part, "more_body": True}]
+
+    async def receive():
+        if queue:
+            return queue.pop(0)
+        await asyncio.sleep(0.01)
+        return {"type": "http.disconnect"}
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+             "method": "POST", "scheme": "http", "path": "/uploads", "raw_path": b"/uploads",
+             "query_string": b"source=render", "root_path": "",
+             "server": ("testserver", 80), "client": ("203.0.113.9", 50000),
+             "headers": [(b"host", b"testserver"),
+                         (b"cookie", b"session=" + signer.sign(data)),
+                         (b"user-agent", b"iPhone"),
+                         (b"content-type", b"multipart/form-data; boundary=XyZ"),
+                         (b"content-length", b"52428800")]}
+    asyncio.run(api.app(scope, receive, send))
+
+    assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 400
+    [(_, kw)] = api_log.named("upload_rejected")
+    assert kw["reason"] == "There was an error parsing the body"
+    assert kw["cause"].startswith("ClientDisconnect")
+    assert kw["declared_bytes"] == "52428800" and kw["source"] == "render"
+    assert lib.for_user("pro_user") == [], "a dropped upload left a record behind"
+
+
+def test_errors_on_every_other_route_are_untouched_and_unlogged(client, api_log):
+    c = client.login("starter_user")
+    r = c.get("/uploads")
+    assert r.status_code == 403 and r.json() == {
+        "detail": "The Clip Editor is a Pro feature — upgrade to edit and publish clips."}
+    # The 404 handler still wins on status, with its own body.
+    nf = c.get("/no-such-page", headers={"accept": "application/json"})
+    assert nf.status_code == 404 and nf.json() == {"detail": "Not found"}
+    assert api_log.named("upload_rejected") == []
+    # A refused upload for an access reason is still a refused upload.
+    assert c.post("/uploads", files={"file": ("c.mp4", MP4, "video/mp4")}).status_code == 403
+    [(_, kw)] = api_log.named("upload_rejected")
+    assert kw["status"] == 403
+
+
 # ── Release flag ──────────────────────────────────────────────────────────────
 #
 # Clip Upload is finished on the storage side but held back until editing and
@@ -438,9 +584,10 @@ def test_the_gate_does_not_depend_on_a_release_flag():
 
 
 def test_the_route_is_normalised_so_a_hidden_screen_cannot_be_rendered():
-    """Defence in depth. `route` lives only in React state today, so the nav is
-    the sole way in — but that is a property of the current code, not a
-    guarantee. A deep link or restored route must not reach these screens."""
+    """Defence in depth. The nav is one way in and, since 2026-10-21, a reload
+    restoring the last section is another (savedRoute, which only accepts a
+    known section). A deep link or restored route must not reach these
+    screens."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as html
     flat = html.replace(" ", "").replace("\n", "")
     # 'uploads' left this list on 2026-09-15 when the editor was released to

@@ -5471,16 +5471,16 @@ per-account setting. Change the hooks to match the account language setting."
   - His Clip Editor library still holds 7 `clip` copies and 5 Autopilot
     renders; those copies outlive the clip records.
   - Side note: one reject was sent 4x in the same second (200, then 404 x3).
-    The Reject button does not lock while its request is in flight, so a
-    phone double-tap repeats it. Harmless.
+    The Reject button did not lock while its request was in flight, so a
+    phone double-tap repeated it. Harmless; locked since (next section).
 - iPhone (CriOS 155 on iOS 26.6.2): 35 page loads in the window, nearly all
   right after opening a video in the editor or player. So the page reloads
   after a video is opened, by the phone itself: no code path reloads the
   page (only /login and download redirects). That fits iOS killing the tab
   for memory, or him refreshing a black screen. His one browser export
   POST `/uploads?source=render` got **400** (reason not logged). The
-  `render` uploads at 23:32-23:37 are Autopilot's, not exports. Not fixed;
-  see the plan in that day's notes to the owner.
+  `render` uploads at 23:32-23:37 are Autopilot's, not exports. Fixes in
+  the next section.
 
 **What changed**
 - **The setting:** `prefs.language` (src/language.py): `en` (default, so
@@ -5542,3 +5542,113 @@ per-account setting. Change the hooks to match the account language setting."
   stream titles are stored through `kick._ascii()`, which strips accents
   ("Campeón" → "Campen"); not touched, because the title on his videos is
   `clip_title` first.
+
+## iPhone: real downloads, Save video, light export, crash screen (2026-10-21)
+
+Owner: "Yes make the fixes" (the iPhone plan from luclips' black-screen
+ticket, plus the Reject double-tap lock). What was known: Chrome on iOS
+26.6.2 loaded the dashboard 35 times, nearly always right after a video was
+opened, and one export's save got a 400 with no reason logged. Two
+mechanisms fit: iOS killing the tab for memory, and the tab being sent to a
+bare video file. Both are addressed below. Neither is proven on his phone.
+
+**What changed**
+- **Real downloads.** `GET /uploads/{id}/file?download=1` sends
+  `Content-Disposition: attachment` with the stored display name, plus the
+  sniffed container's extension when the name lacks it. Without the
+  parameter it is inline, as before. The three upload Download links use
+  it: the Scheduler drawer, Auto Edit in the editor, and Auto Edit on a
+  clip. Served inline, a tap on Download on an iPhone can open the bare
+  video in the tab instead, and going back reloads the dashboard. Clip
+  downloads already had this.
+- **Save video (iPhone only, `IS_IOS`).** The export is no longer handed to
+  a script-clicked blob download. The render still uploads to the server.
+  Then "Save video" opens the share sheet from the tap, with nothing awaited
+  first; Save Video there puts it in Photos. If the browser cannot share a
+  file, the button downloads the server copy as an attachment, and the blob
+  download is the last resort. Desktop is unchanged: it still downloads and
+  shows "Download again". `IS_IOS` also catches iPadOS, which reports a Mac,
+  by its touch points.
+- **Light export on phones (`LIGHT_EXPORT`: iOS, plus Android phones).**
+  `outputSize(..., light)` gives the 720 class and `hd=false`, so 30 fps and
+  10 Mbps on both export paths. That is under half the pixels and half the
+  frames of 1080p60, and the muxer holds the whole file in memory. Desktop
+  stays at 1080x1920.
+- **The section survives a reload.** `savedRoute()` reads sessionStorage
+  `hz_route` and accepts only a key of `HEAD` (own property, so `__proto__`
+  is refused); blocked storage falls back to Clip Review. An open editor is
+  deliberately not reopened: if it is what ran the phone out of memory,
+  reopening it would reload again. OAuth returns still override it.
+- **Crash screen and reports.**
+  - `ErrorBoundary` wraps the screen, keyed by `view`, so the nav keeps
+    working and changing section starts fresh. It also wraps the whole app at
+    the root render. It shows "Try again" and "Go to Clip Review"; no reload.
+  - `window.hzReport` is a plain `<script>` ahead of React and Babel, so even
+    a page that never starts reports. It posts to `POST /client-error` with
+    `keepalive` and sends at most 8 reports a page, each message once. It
+    drops noise: dropped networks and non-JSON replies, which every deploy
+    causes under every open tab, plus "Script error." and the ResizeObserver
+    warning.
+  - The endpoint is signed-in only. It caps the body at 16 KB (counted as
+    read, not trusted from the header) and cuts each field short. It accepts
+    10 reports per account per 10 minutes and drops the rest with a quiet
+    204.
+  - Each report is logged as the `client_error` warning. One person's crash
+    is only in the journal; 20+ in an hour (a deploy that broke a screen)
+    emails.
+- **Refused uploads are logged** as the `upload_rejected` warning. It records
+  user, status, the reason the user saw, the parse failure's cause, source,
+  declared size and UA.
+  - This lives in a `StarletteHTTPException` handler that delegates to
+    FastAPI's own, so every response is unchanged, and it logs only POST
+    /uploads.
+  - The handler is needed because one path never reaches `create_upload`:
+    FastAPI parses the multipart body first.
+  - **Reproduced here:** a phone dropping an upload halfway gets exactly a
+    400, "There was an error parsing the body", caused by `ClientDisconnect`.
+    Luc's 400 fits that, but it is not proven.
+  - A request with no file part is FastAPI's 422 and is not logged.
+- **Approve and Reject lock per clip** while their request is in flight
+  (`clipBusy`, shared). This is what sent the 4x reject.
+- `playsInline` on the three `<video>` elements that lacked it: the Scheduler
+  drawer, the Clip Editor library and the Tutorial. Without it, iOS opens its
+  own full-screen black player.
+
+**Blast radius.** No change to clip capture, scoring, triggers or posting.
+- The new exception handler applies app-wide but calls FastAPI's default
+  handler. A test pins an unrelated 403 and the 404 JSON body.
+- Desktop export output, downloads and buttons are unchanged, verified in
+  Chromium.
+- No new WebSocket event and no user-visible server state, so the realtime
+  contract is untouched. The crash screen's "Try again" remounts the screen,
+  which refetches through its own mount effects.
+
+**Verified here**
+- New tests:
+  - `tests/test_iphone_black_screen.py` (42) runs the real reporter,
+    `savedRoute`, the phone detection, `outputSize` and `saveToPhone` in node.
+  - `tests/test_client_errors.py` (8).
+  - `tests/test_uploads.py` (+7). These include a raw-ASGI dropped upload,
+    which logs `cause=ClientDisconnect`.
+- 40 deliberate breakages, all caught. Full suite 3872 passed. JSX parses,
+  and the plain script passes `node --check`.
+- Chromium with an iPhone profile (Chrome-on-iOS UA, 390x844, touch), on the
+  real server: 25 checks passed (`scratchpad/visual/iphone/check.js`).
+  - A reload returned to Clip Editor with the editor closed.
+  - The export was 720×1280, with no blob download, saved 201, and "Save
+    video" shown.
+  - Save video handed the file to a stubbed share sheet, and with no sheet
+    it downloaded `?download=1`.
+  - A forced crash on Feedback showed the card. It was reported with
+    `where=feedback` and a stack naming `FeedbackScreen`, and "Go to Clip
+    Review" recovered.
+  - A double-tap on Reject sent one request.
+  - On desktop, the export was still 1080×1920 and still downloaded.
+- **Not verified:** a real iPhone. Still unknown:
+  - whether WebKit's share sheet takes the file in Chrome on iOS (the
+    fallback covers it if not);
+  - whether 720p30 is enough to stop the memory reloads;
+  - what Luc's 400 was. The next one is logged.
+
+**Reading it on prod**
+`journalctl -u highlightz -o cat | grep -E '"event": "(client_error|upload_rejected)"'`
