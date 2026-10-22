@@ -5909,3 +5909,41 @@ works there with urllib3 2.8.0. Moving both together is the route back to
 the urllib3 fixes. But 8.6 also changes the Twitch and Kick plugins, so try
 it against a live stream before it goes in the lock. The new test file
 guards the pair either way.
+
+## Open: "way too many clips rejected recently" (2026-10-22)
+
+Owner: "we are getting way too many clips rejected recently". Still an
+audit: nothing in detection has changed, and nothing will until data says
+what to change.
+
+**What changed recently that touches which moments become clips:**
+- No change to the scoring formula, weights or thresholds in the last 21
+  days (`git log -- src/trigger src/ingestion …`).
+- Kick chat moved to signed webhooks on 2026-10-14 (67ca770), so Kick's chat
+  rate now comes from a different source.
+- On 2026-10-22, the streamlink outage (previous section) killed the audio
+  meter. A dead meter scores audio 0 (`engine._build_signals`), so on its
+  own it means fewer triggers, not worse ones. It does leave Kick moments
+  with no video, which a user can only reject.
+- Users' own clear-outs: luclips rejected about 25 and cleared about 420 in
+  three days (the 2026-10-21 notes).
+
+**The tool:** `venv/bin/python -m src.maintenance.rejection_report
+[--days 7] [--before 14]`. Read-only; it reads `stream_stats.jsonl`,
+`training_log.jsonl` and the account names. For the last N days against
+the M before, it reports:
+- per-day caught, kept, rejected, cleared, aged out and keep rate;
+- the channels with the most rejections, each with its keep rate before and
+  after and the median time from capture to reject (seconds is a clear-out,
+  hours is a verdict);
+- keep rate by platform;
+- trigger score, leading signal and "no audio" share, for kept against
+  rejected clips.
+
+Then `analyze_training_log --days 7` gives per-signal separation.
+`tests/test_rejection_report.py` (6) covers it on a made-up ledger,
+including a window across New Year.
+
+**Next:** the owner runs both on the droplet. Decide from the output
+whether this is one account, one platform (Kick after the webhooks), the
+outage window, or the formula.
