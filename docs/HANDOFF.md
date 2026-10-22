@@ -5985,20 +5985,22 @@ beyond one account's three channels.
 
 ## iPhone exports had no sound: WebKit's AAC config (2026-10-22)
 
-luclips' support email, forwarded by the owner: "The clips have audio when I
-preview them inside Highlightz. After downloading them, the video files have
-no sound … This happens with all my Kick clips."
+Found while chasing luclips' support email, forwarded by the owner: "The
+clips have audio when I preview them inside Highlightz. After downloading
+them, the video files have no sound … This happens with all my Kick clips."
+**The prod check then ruled it out as his cause** (see "Prod result" at the
+end). The bug is real for anyone exporting from the Clip Editor on an iPhone
+or in Safari, and the fix stands on its own.
 
-**Not Kick: exports made on an iPhone.** luclips only clips Kick channels.
+**Where a download could lose its sound**
 - The preview plays the clip's own file (`/clips/{id}/file`). The card's
   Download serves the same bytes with `?download=1`, so a clip downloaded
   from its card cannot lack sound its preview has.
 - Autopilot's render maps `[0:a]` and encodes AAC with ffmpeg. With no audio
   in the source it fails instead of going silent.
-- The Clip Editor's export is encoded in the browser. On an iPhone
-  (luclips: Chrome 155 on iOS 26.6.2, and every iPhone browser is WebKit),
-  `frameAccurateSupport` picks MP4: VideoEncoder for H.264, AudioEncoder for
-  AAC, and the vendored mp4-muxer.
+- The Clip Editor's export is encoded in the browser. On an iPhone (every
+  iPhone browser is WebKit), `frameAccurateSupport` picks MP4: VideoEncoder
+  for H.264, AudioEncoder for AAC, and the vendored mp4-muxer.
 
 **The mechanism**
 - mp4-muxer builds a correct AAC config itself, then `Object.assign`s the
@@ -6016,10 +6018,6 @@ no sound … This happens with all my Kick clips."
   channels, and nothing decodes it. So every MP4 that WebKit encoded (iPhone,
   or Safari on a Mac) has a sound track nothing can open: silent in Photos,
   editors and every upload pipeline.
-- **Why now:** until 2026-10-21 his iPhone exports mostly never finished
-  (memory reloads, and a 400 on save). The light export and Save video (see
-  "iPhone: real downloads, Save video, light export, crash screen") let them
-  finish, into this.
 - **Why it was never seen here:** this container's Chromium has no AAC
   encoder, so every export test ran the WebM branch (VP9 + Opus). The MP4
   branch was "unverified here, on purpose stated" since 2026-09-15.
@@ -6069,12 +6067,11 @@ no sound … This happens with all my Kick clips."
 **Not verified:** a real iPhone.
 - That iOS 26.6.2 hands over the descriptor comes from WebKit's bug and fix;
   it was not run here.
-- Whether luclips' files are these is what the check below answers.
 - WebKit's Opus description was not examined. The WebM branch only runs
   where AAC encoding is missing.
 
-**On prod: which of his files are these** (read-only):
-`cd /opt/highlightz && venv/bin/python -m src.maintenance.export_audio_check luclips`
+**The check** (read-only):
+`cd /opt/highlightz && venv/bin/python -m src.maintenance.export_audio_check <username>`
 - It lists the edited videos in his library, each marked as a browser export
   or a server render by the ffmpeg tag. It also lists the clip files he
   downloaded.
@@ -6085,3 +6082,21 @@ no sound … This happens with all my Kick clips."
   after his next export.
 - **Existing files stay broken; re-export them.** The source clips are fine.
   A broken file flagged in the Scheduler would post silent.
+
+**Prod result (owner ran the check for luclips, 2026-10-22): not his.**
+- No edited videos in his library in 14 days: no Clip Editor export of his
+  reached the server, and no Autopilot render is left either.
+- His downloads were the clip files themselves (the Download button), 5 in
+  14 days, all Kick. Four were evicted since.
+- The one still on disk (westcol, 10-22 16:55 UTC) is AAC-LC 48 kHz stereo,
+  mean −17 dB, peak 0 dB. The sound is in the file, and it is the same file
+  the clip modal's preview plays (a plain `<video src=/clips/{id}/file>`,
+  no Web Audio).
+- **Open: where it goes silent.** Leading guess, unverified: the iPhone's
+  silent mode.
+  - A `<video>` element plays through the ringer switch. WebKit bug 237322
+    records the split: media elements audible, Web Audio muted.
+  - The Photos app starts videos muted when the phone is silenced.
+  - The owner is asking luclips which device and app play it silent, and
+    whether TikTok gets it silent too. nginx's user agent on the 16:55
+    download says which device made it.
