@@ -351,7 +351,7 @@ def test_the_landing_page_does_not_count_its_own_users_at_visitors():
     assert "bignums" in html
     src = inspect.getsource(api.render_landing)
     assert "_users._load()" not in src, "the landing page still counts accounts"
-    assert "_bignums_html(get_clip_counter(), kept_now)" in src
+    assert "_bignums_html(get_clip_counter())" in src
 
 
 def test_an_unhandled_request_error_is_logged_with_its_path_and_not_swallowed():

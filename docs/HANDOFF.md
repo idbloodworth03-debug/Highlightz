@@ -3644,7 +3644,8 @@ three minutes later forms a fresh cluster and suggests it again.
    fire LESS on exactly the channel where the crowd is finding what it missed.
    They are also excluded from CAUGHT and from the public clip counter, because
    the keep rate published beside it already excludes them and counting at one
-   end of a ratio only is worse than either.
+   end of a ratio only is worse than either. (The public keep rate was removed
+   from the landing page on 2026-10-22; the exclusions stand.)
 
 **UI.** Gold glow + "Suggested" badge, and the trigger badge is SUPPRESSED — a
 suggestion carries `trigger_score` 0, so the unconditional badge rendered
@@ -5778,3 +5779,46 @@ printed `400`. So the CVE-2026-48710 gate bypass was never reachable from
 the internet, and the code fix is a second layer. The form flood
 (CVE-2026-54283) is NOT stopped by nginx; that one needs the pip install.
 Still unverified: nginx's `client_max_body_size` outside /uploads.
+
+## Landing page: keep rate removed (2026-10-22)
+
+Owner: "lets remove the keep rate statistic from the landing page".
+
+**What was removed.** The share of judged clips that streamers kept, all
+users together, published once 50 clips had been judged. Every place it
+reached a visitor is gone:
+- It was the second of the three big figures (`_bignums_html`). "7 live
+  signals in every score" takes the slot, as it always did whenever the
+  rate was withheld. The figures are now clips captured, channels on Pro
+  and live signals.
+- The hidden `#stat-kept` tile in the stats band, the server-side reveal in
+  `render_landing`, and the page script that refreshed it.
+- `kept_pct` and `kept_sample` from the public `GET /landing/stats`, which now
+  returns `{"clips_total": N}` only. A public endpoint still serving the
+  number would still be publishing it.
+- `public_keep_rate()` with its cache and 50-clip floor, and
+  `stream_stats.overall_totals()`, which nothing else used. They are in git
+  history before this commit if the number is ever wanted back.
+
+**Kept:** the per-user and per-channel keep rates in the admin console
+(`totals_by_user`, the Users table and the channel breakdown). They were
+never public. The ledger records exactly what it did. The landing page no
+longer reads the stats ledger at all, so a render is a little cheaper.
+
+**Verified**
+- `tests/test_landing_keep_rate.py` was rewritten to pin the removal (5
+  tests). It seeds a ledger the old code would have published (67%) and
+  checks:
+  - no figure, tile or `data-kept` on the page;
+  - the three captions in order;
+  - `/landing/stats` is exactly `{"clips_total": N}`;
+  - the script no longer reads `kept_pct`;
+  - the admin rate is still 67%.
+- 3 deliberate breakages caught: the figure back, the endpoint field back,
+  the tile back.
+- The two tests that pinned the old markup were updated
+  (`test_landing_hero`, `test_public_exposure`).
+- In Chromium at 1440 and 390 px: the stats band shows four tiles, the big
+  numbers show 48,213 / 10 / 7, no "kept" text anywhere on the page, no
+  sideways scroll and no script errors. The landing scripts pass
+  `node --check`.

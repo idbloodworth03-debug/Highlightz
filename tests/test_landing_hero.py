@@ -371,7 +371,7 @@ def test_the_stats_band_is_on_the_cover_and_only_there():
     """It was moved, not copied. Two stats bands would mean two elements with
     id=stat-clips, and the render-time reveal would only ever find the first."""
     assert HTML.count('class="stats"') == 1, "the stats band exists twice"
-    for one_id in ("stat-clips", "stat-kept", "lp-count", "lp-kept"):
+    for one_id in ("stat-clips", "lp-count"):
         assert HTML.count(f'id="{one_id}"') == 1, f"{one_id} is duplicated"
 
 
@@ -384,9 +384,7 @@ def test_the_live_numbers_still_get_revealed_after_the_move():
     src = inspect.getsource(api)
     for needle in (
         '<div class="stat stat-big" id="stat-clips" style="display:none">',
-        '<div class="stat stat-big" id="stat-kept" style="display:none">',
         '<span id="lp-count" data-count="0">0</span>',
-        '<span id="lp-kept" data-kept="0">0%</span>',
     ):
         assert needle in HTML, f"the markup no longer contains {needle!r}"
         assert src.count(needle) >= 2, \

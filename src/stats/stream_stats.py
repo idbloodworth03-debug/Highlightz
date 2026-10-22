@@ -392,36 +392,6 @@ def totals_by_user() -> dict[str, dict]:
     return out
 
 
-def overall_totals() -> dict:
-    """Every account's counts added together — the keep rate the landing page
-    publishes.
-
-    Built by summing totals_by_user() rather than counting straight off the
-    file, because the undo retraction set is scoped to one user's one channel.
-    A single global set would let one person's undo cancel a different person's
-    rejection the moment two accounts happened to share a clip id, and clip ids
-    come from Twitch, not from us — they are not ours to assume unique across
-    the whole ledger.
-
-    `reviewed` is returned alongside the rate on purpose. A percentage with no
-    sample size behind it is the easiest number on a marketing page to publish
-    by accident off six clips; the caller is expected to look at it.
-    """
-    tot = {"caught": 0, "approved": 0, "rejected": 0,
-           "cleared": 0, "expired": 0}
-    for t in totals_by_user().values():
-        for k in tot:
-            tot[k] += t[k]
-    reviewed = tot["approved"] + tot["rejected"]
-    tot["reviewed"] = reviewed
-    # Of the ones a human actually judged. Clips still sitting in a review
-    # queue were not turned down, and clips dropped with Clear queue say
-    # "I am not getting to these" rather than "these were bad" — counting
-    # either as a rejection would understate the formula it is describing.
-    tot["kept_pct"] = round(100 * tot["approved"] / reviewed) if reviewed else 0
-    return tot
-
-
 def for_channel(user_id: str, channel: str) -> dict | None:
     for c in for_user(user_id):
         if c["channel"].lower() == channel.lower():

@@ -926,48 +926,6 @@ def increment_clip_counter(n: int = 1) -> None:
     _persist_clip_counter()
 
 
-# ── Public keep rate (the landing page's second number) ───────────────────────
-# What share of the clips the formula catches do streamers actually keep. Only
-# meaningful next to the raw count: the count says how much it caught, this
-# says how much of it was worth catching.
-#
-# Below this many judged clips the rate is not published at all. A percentage
-# taken off a handful of decisions is noise dressed as evidence, and this is a
-# marketing page — the floor is what stops one good afternoon from becoming a
-# public claim. Raise it as the ledger grows; do not lower it to make a number
-# appear.
-_KEEP_MIN_SAMPLE = 50
-# The landing page is the highest-traffic route on the server and this scans the
-# whole ledger, so it is cached. The number moves in hours, not seconds; serving
-# it five minutes stale costs nothing and keeps a crawler burst off the disk.
-_KEEP_TTL_S = 300
-_keep_cache: tuple[float, int | None, int] | None = None
-
-
-def public_keep_rate(force: bool = False) -> tuple[int | None, int]:
-    """(kept_pct, sample) for the landing page. kept_pct is None below the floor.
-
-    Never raises: a stats read that fails must not take the marketing page with
-    it. On any error the rate is simply withheld, which is the same thing the
-    page does before there is enough data — so the failure mode is a tile that
-    does not appear, not a page that does not load.
-    """
-    global _keep_cache
-    now = time.time()
-    if not force and _keep_cache and now - _keep_cache[0] < _KEEP_TTL_S:
-        return _keep_cache[1], _keep_cache[2]
-    try:
-        from src.stats import stream_stats
-        t = stream_stats.overall_totals()
-        sample = t["reviewed"]
-        kept = t["kept_pct"] if sample >= _KEEP_MIN_SAMPLE else None
-    except Exception as exc:
-        log.warning("keep_rate_failed", error=str(exc))
-        kept, sample = None, 0
-    _keep_cache = (now, kept, sample)
-    return kept, sample
-
-
 # ── Landing-page showcase (admin-curated example clips) ───────────────────────
 # The owner hand-picks approved clips to feature publicly on the landing page.
 # Curated (never automatic) so no other user's activity leaks, and only a
@@ -9223,23 +9181,10 @@ def render_landing(html: str | None = None) -> str:
                 .replace("<!--SHELF-->", _shelf_html(_frames("gallery")), 1))
     # No account count here any more: the only thing that read the whole user
     # store on every landing render was the "Join the N streamers" line, and
-    # that line is gone.
-    kept_now, _n = public_keep_rate()
-    html = html.replace("<!--BIGNUMS-->",
-                        _bignums_html(get_clip_counter(), kept_now), 1)
-
-    # The keep rate is baked in for the same reason and is independent of the
-    # count: it can be publishable while the count is still zero (a fresh
-    # counter file) and withheld while the count is large (not enough judged).
-    # Nesting it under the `total <= 0` return would have tied the two together
-    # for no reason other than where the code sat.
-    kept, _sample = public_keep_rate()
-    if kept is not None:
-        html = html.replace(
-            '<div class="stat stat-big" id="stat-kept" style="display:none">',
-            '<div class="stat stat-big" id="stat-kept">', 1)
-        html = html.replace('<span id="lp-kept" data-kept="0">0%</span>',
-                            f'<span id="lp-kept" data-kept="{kept}">{kept}%</span>', 1)
+    # that line is gone. No keep rate either (owner, 2026-10-22: "lets remove
+    # the keep rate statistic from the landing page"), so the landing page no
+    # longer reads the stats ledger at all.
+    html = html.replace("<!--BIGNUMS-->", _bignums_html(get_clip_counter()), 1)
 
     total = get_clip_counter()
     if total <= 0:
@@ -9276,14 +9221,10 @@ async def dashboard(request: Request):
 @app.get("/landing/stats")
 async def landing_stats():
     """Public stats for the landing page (in _OPEN_PATHS — no auth).
-    Exposes only aggregates; nothing user-identifying."""
-    kept, sample = public_keep_rate()
-    return {"clips_total": get_clip_counter(),
-            # null, not 0, below the sample floor. A landing page that prints
-            # "0% kept" because nobody has reviewed anything yet is worse than
-            # one that prints nothing, and the client tells them apart by type.
-            "kept_pct": kept,
-            "kept_sample": sample}
+    Exposes only aggregates; nothing user-identifying. The clip count only:
+    the keep rate left the landing page on 2026-10-22, and a public endpoint
+    still serving it would still be publishing it."""
+    return {"clips_total": get_clip_counter()}
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -11118,13 +11059,6 @@ LANDING_HTML = """<!DOCTYPE html>
         <div class="n"><span id="lp-count" data-count="0">0</span></div>
         <div class="k">clips captured and counting</div>
       </div>
-      <!-- Beside the count, and only ever beside it: how many of those clips
-           streamers actually kept. Hidden until enough have been judged for the
-           percentage to mean anything. -->
-      <div class="stat stat-big" id="stat-kept" style="display:none">
-        <div class="n"><span id="lp-kept" data-kept="0">0%</span></div>
-        <div class="k">kept reviewed clips</div>
-      </div>
     </div>
   </div>
   <div class="cover-cue" id="cover-cue" aria-hidden="true">
@@ -11335,15 +11269,6 @@ LANDING_HTML = """<!DOCTYPE html>
   // in the DOM — which is the state a crawler might sample.
   var from=parseInt((el.textContent||'0').replace(/[^0-9]/g,''),10)||0;
   fetch('/landing/stats').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    // The keep rate is a separate number with its own gate — the server sends
-    // null below the sample floor, so `typeof` and not truthiness: a genuine
-    // 0 is a number we would show, and null is one we must not.
-    var ktile=document.getElementById('stat-kept'), kel=document.getElementById('lp-kept');
-    if(ktile&&kel&&d&&typeof d.kept_pct==='number'){
-      kel.textContent=d.kept_pct+'%';
-      kel.setAttribute('data-kept',String(d.kept_pct));
-      ktile.style.display='';
-    }
     if(!d||typeof d.clips_total!=='number'||d.clips_total<=0) return;
     tile.style.display='';
     var target=d.clips_total;
@@ -12808,7 +12733,7 @@ def _shelf_html(frames: list[dict]) -> str:
     return "".join(out)
 
 
-def _bignums_html(total: int, kept: int | None) -> str:
+def _bignums_html(total: int) -> str:
     """The three figures under the cover.
 
     NO LEAD LINE ABOVE THEM (owner, 2026-09-19: "get rid of this it is not
@@ -12816,18 +12741,20 @@ def _bignums_html(total: int, kept: int | None) -> str:
     who stopped scrubbing eight-hour VODs…", and social proof that names a
     small number argues against itself: a visitor deciding whether this is
     worth trying is told, in the largest prose on the page, that 66 people
-    use it. The figures below stand on their own — clips captured, keep
-    rate, channels on Pro — and none of them depends on how many accounts
+    use it. The figures below stand on their own — clips captured, channels
+    on Pro, live signals — and none of them depends on how many accounts
     exist.
+
+    NO KEEP RATE (owner, 2026-10-22: "lets remove the keep rate statistic
+    from the landing page"). It was the second figure whenever enough clips
+    had been judged; "live signals in every score" takes its place, as it
+    always did when the rate was withheld.
     """
     from src.billing.plans import PLAN_LIMITS
     figs: list[tuple[str, str, str]] = []   # (number markup, caption, attrs)
     if total > 0:
         figs.append((f"{total:,}", "clips captured and counting",
                      ' id="bn-clips" data-count="' + str(total) + '"'))
-    if kept is not None:
-        figs.append((str(kept) + "<i>%</i>", "of reviewed clips kept",
-                     ' data-count="' + str(kept) + '" data-suffix="%"'))
     figs.append((str(PLAN_LIMITS["pro"]["max_streams"]), "channels watched at once on Pro",
                  ' data-count="' + str(PLAN_LIMITS["pro"]["max_streams"]) + '"'))
     if len(figs) < 3:
