@@ -5677,10 +5677,12 @@ about the exploits that were recently discovered in the news".
   PHPUnit eval-stdin, ThinkPHP, PHP-CGI `%AD`, `.env`, `.git`, traversal,
   null bytes, odd methods). Every one got 302/404/405/400. No 500, no leak,
   nothing alerting.
-- **Unverified on the droplet:** whether some PHP package was ever installed
-  there. Check with
-  `dpkg -l | grep -i php; grep -Rn "fastcgi_pass\|php" /etc/nginx/`.
-  If PHP is installed and unused, remove it. If it is used, update it.
+- **Checked on the droplet, 2026-10-22** (owner ran
+  `dpkg -l | grep -i php; grep -Rn "fastcgi_pass\|php" /etc/nginx/`):
+  - No PHP package is installed.
+  - The only nginx matches are stock files: `snippets/fastcgi-php.conf`,
+    and commented-out lines in `sites-available/default` and `nginx.conf`.
+  - Nothing passes requests to PHP. PHP2Shell cannot reach this server.
 
 **The real exposure was in the app's own libraries.**
 - The 10-20 audit ran pip-audit on `requirements.txt`. That resolves each
@@ -5761,6 +5763,9 @@ fix needs the new Starlette.
   sessions, websockets, uploads, export, downloads and the crash screen.
   The scanner probes give no 500 and no leak.
 
-**Not verified (droplet):** whether PHP is present (above); that nginx
-refuses the forged Host, `curl -s -o /dev/null -w "%{http_code}\n" -H "Host: x/login?" http://127.0.0.1/me`
-(expect 400); and nginx's `client_max_body_size` outside /uploads.
+**Checked on the droplet, 2026-10-22:** nginx refuses the forged Host:
+`curl -s -o /dev/null -w "%{http_code}\n" -H "Host: x/login?" http://127.0.0.1/me`
+printed `400`. So the CVE-2026-48710 gate bypass was never reachable from
+the internet, and the code fix is a second layer. The form flood
+(CVE-2026-54283) is NOT stopped by nginx; that one needs the pip install.
+Still unverified: nginx's `client_max_body_size` outside /uploads.
