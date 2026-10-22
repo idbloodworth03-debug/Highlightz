@@ -9,7 +9,7 @@
 # Deploys do NOT run pip install, so the droplet keeps whatever it has until
 # someone reinstalls. To make it match: venv/bin/pip install -r requirements.lock
 # Core async
-aiohttp==3.13.5
+aiohttp==3.14.4
 websockets==16.0
 
 # Stream handling
@@ -24,7 +24,7 @@ google-auth-oauthlib==1.4.0
 vaderSentiment==3.3.2
 
 # Cryptography (Fernet token encryption)
-cryptography==48.0.0
+cryptography==50.0.0
 
 # Queue & cache
 redis==7.4.0
@@ -35,8 +35,14 @@ google-cloud-storage==3.10.1
 
 # Web / dashboard API
 fastapi==0.136.1
+# Pinned here, not left to fastapi's open range (>=0.46): 1.0.0 had
+# CVE-2026-48710 (request.url trusted a forged Host header) and
+# CVE-2026-54283 (form limits ignored for urlencoded bodies, so one POST to
+# /login could hold the event loop and the memory). Both reproduced on
+# production's set 2026-10-22; see HANDOFF.
+starlette==1.3.1
 uvicorn[standard]==0.46.0
-python-multipart==0.0.28
+python-multipart==0.0.31
 itsdangerous==2.2.0
 
 # Auto-captions (Whisper on the droplet). NOT imported at startup — the model
@@ -56,7 +62,7 @@ anthropic==1.7.0
 
 # Utilities
 pydantic==2.13.4
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
 python-dotenv==1.2.2
 structlog==25.5.0
 tenacity==9.1.4

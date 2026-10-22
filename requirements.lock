@@ -1,5 +1,8 @@
 # PRODUCTION's installed packages, exactly: the droplet's
 #   /opt/highlightz/venv/bin/pip freeze   (Python 3.12.3), 2026-09-30.
+# Then 12 security upgrades on 2026-10-22 (HANDOFF, "Security: dependency
+# advisories"): starlette, aiohttp, cryptography and 9 more. The droplet
+# has them once someone runs the pip install below.
 # The full suite (3500 tests) passes on this set under Python 3.12.
 # It includes a few packages nothing imports any more (aioredis, rq,
 # twitchAPI, ...) because the point is to reproduce what is running.
@@ -9,25 +12,25 @@
 # the suite, then pip freeze > requirements.lock (keep this header) and install
 # the same lock on the droplet: venv/bin/pip install -r requirements.lock
 aiohappyeyeballs==2.6.1
-aiohttp==3.13.5
+aiohttp==3.14.4
 aioredis==2.0.1
 aiosignal==1.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anthropic==1.7.0
-anyio==4.13.0
+anyio==4.14.2
 async-timeout==5.0.1
 asyncio-mqtt==0.16.2
 attrs==26.1.0
 av==18.0.0
 boto3==1.43.6
 botocore==1.43.6
-certifi==2026.4.22
+certifi==2026.10.19
 cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.4.2
 croniter==6.2.2
-cryptography==48.0.0
+cryptography==50.0.0
 ctranslate2==4.8.1
 docstring_parser==0.18.0
 ecdsa==0.19.2
@@ -54,7 +57,7 @@ h11==0.16.0
 hf-xet==1.5.2
 httpcore==1.0.9
 httpcore2==2.13.0
-httplib2==0.31.2
+httplib2==0.32.0
 httptools==0.7.1
 httpx==0.28.1
 httpx2==2.13.0
@@ -66,7 +69,7 @@ itsdangerous==2.2.0
 jiter==0.17.0
 jmespath==1.1.0
 lxml==6.1.0
-multidict==6.7.1
+multidict==6.9.1
 numpy==2.5.1
 oauthlib==3.3.1
 onnxruntime==1.28.0
@@ -77,13 +80,13 @@ pluggy==1.6.0
 propcache==0.5.2
 proto-plus==1.28.0
 protobuf==7.34.1
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycountry==26.2.16
 pycparser==3.0
 pycryptodome==3.23.0
 pydantic==2.13.4
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
 pydantic_core==2.46.4
 Pygments==2.20.0
 pyparsing==3.3.2
@@ -94,7 +97,7 @@ pytest-mock==3.15.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-jose==3.5.0
-python-multipart==0.0.28
+python-multipart==0.0.31
 PyYAML==6.0.3
 redis==7.4.0
 requests==2.34.0
@@ -106,7 +109,7 @@ setuptools==83.0.0
 six==1.17.0
 sniffio==1.3.1
 sortedcontainers==2.4.0
-starlette==1.0.0
+starlette==1.3.1
 streamlink==8.4.0
 stripe==15.2.0
 structlog==25.5.0
@@ -120,7 +123,7 @@ twitchAPI==4.5.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uritemplate==4.2.0
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.46.0
 uvloop==0.22.1
 vaderSentiment==3.3.2
@@ -128,4 +131,4 @@ watchfiles==1.1.1
 websocket-client==1.9.0
 websockets==16.0
 wsproto==1.3.2
-yarl==1.23.0
+yarl==1.25.1

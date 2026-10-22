@@ -5154,9 +5154,14 @@ Mutation-checked: 17 deliberate breakages, all caught.
   one press. YouTube and Instagram are coming soon."
 - **Dependency advisories:** aiohttp 3.13.5 (client-side use only),
   cryptography 48.0.0 (bundled OpenSSL; fixed in 48.0.1), python-multipart
-  0.0.28, pydantic-settings 2.14.1 (secrets_dir unused). The python-multipart
-  form DoS was tested and is blocked by Starlette's 1,000-field limit.
-  Deploys do not `pip install`.
+  0.0.28, pydantic-settings 2.14.1 (secrets_dir unused). ~~The python-multipart
+  form DoS was tested and is blocked by Starlette's 1,000-field limit.~~
+  **Corrected 2026-10-22:** that limit was only applied to multipart
+  bodies. A urlencoded POST to /login got past it (reproduced: 1,000,000
+  fields, 6.8 s, +102 MB). This list also missed every transitive package,
+  Starlette among them, because only requirements.txt was audited. All of
+  it was fixed on 2026-10-22: see "Security: dependency advisories, and
+  PHP2Shell". Deploys do not `pip install`.
 - **Lower:**
   - Uploads are spooled whole before the plan check (a Free 300 MB upload
     left a 295 MB temp file, then 403; nginx's limit is unverified).
@@ -5652,3 +5657,110 @@ bare video file. Both are addressed below. Neither is proven on his phone.
 
 **Reading it on prod**
 `journalctl -u highlightz -o cat | grep -E '"event": "(client_error|upload_rejected)"'`
+
+## Security: dependency advisories, and PHP2Shell (2026-10-22)
+
+Owner: "look into the php problem that occurred today and make adjustments
+for the vulnerabilities I need my site to be secure", then "I am talking
+about the exploits that were recently discovered in the news".
+
+**PHP2Shell does not apply to the app.**
+- What it is: CVE-2026-109618 and CVE-2026-109619, unauthenticated remote
+  code execution in the PHP engine itself, PHP 5.4 through 8.5.11. Fixed in
+  8.2.35, 8.3.36, 8.4.27 and 8.5.12, released 2026-10-21, with exploitation
+  attempts reported.
+- It is reachable only where PHP serves web requests: Apache mod_php (the
+  worst case) or PHP-FPM behind nginx.
+- Highlightz has no PHP anywhere in the repo. `deploy/setup.sh` installs
+  none, and nginx proxies every request to the Python app.
+- Replayed against the app: about 80 scanner probes (WordPress/xmlrpc,
+  PHPUnit eval-stdin, ThinkPHP, PHP-CGI `%AD`, `.env`, `.git`, traversal,
+  null bytes, odd methods). Every one got 302/404/405/400. No 500, no leak,
+  nothing alerting.
+- **Unverified on the droplet:** whether some PHP package was ever installed
+  there. Check with
+  `dpkg -l | grep -i php; grep -Rn "fastcgi_pass\|php" /etc/nginx/`.
+  If PHP is installed and unused, remove it. If it is used, update it.
+
+**The real exposure was in the app's own libraries.**
+- The 10-20 audit ran pip-audit on `requirements.txt`. That resolves each
+  dependency to the newest version, so it never saw the versions
+  production actually pins underneath.
+- Auditing the whole lock found 80 advisories in 14 packages:
+  `pip-audit -r requirements.lock --no-deps --disable-pip`.
+- Two of them, in Starlette 1.0.0 (the framework under FastAPI), were
+  reproduced against production's exact set on Python 3.12:
+  1. **CVE-2026-48710.** `request.url` was rebuilt from an unchecked Host
+     header, and `AuthMiddleware` decided on `request.url.path`. So
+     `Host: x/login?` on a signed-out `GET /me` read as /login at the gate,
+     while the router ran /me.
+     - 9 of 84 GET routes opened: /me, /openapi.json, /docs, /redoc,
+       /docs/oauth2-redirect, /demo, /portal, /tutorial/content and
+       /feedback/unread-count.
+     - Nothing private: every data endpoint checks the session itself, and
+       /me returned an empty guest profile.
+     - nginx should refuse a Host containing "/". That is unverified on the
+       droplet (check below).
+  2. **CVE-2026-54283.** `request.form()`'s 1,000-field and 1 MB-per-field
+     limits were skipped for urlencoded bodies. One 4 MB POST to the public
+     /login (1,000,000 fields) took 6.8 s of the one event loop the site
+     and every stream worker share, and +102 MB. nginx allows large bodies,
+     so a bigger one can exhaust memory.
+
+**What changed**
+- `AuthMiddleware` decides on `request.scope["path"]`, the path the router
+  runs. On Starlette 1.0.0 with only this change, the forged Host opened 0
+  routes. The upload_rejected log uses the same.
+- The lock moves 12 packages to patched releases:
+  - starlette 1.0.0 → 1.3.1 (now pinned directly in requirements.txt, not
+    left to fastapi's open `>=0.46` range);
+  - aiohttp 3.13.5 → 3.14.4, with yarl 1.23.0 → 1.25.1, which it requires;
+  - cryptography 48.0.0 → 50.0.0;
+  - python-multipart 0.0.28 → 0.0.31;
+  - pydantic-settings 2.14.1 → 2.14.2;
+  - certifi 2026.4.22 → 2026.10.19 (compromised emSign intermediates);
+  - urllib3 2.7.0 → 2.8.0;
+  - anyio 4.13.0 → 4.14.2;
+  - multidict 6.7.1 → 6.9.1;
+  - httplib2 0.31.2 → 0.32.0;
+  - pyasn1 0.6.3 → 0.6.4.
+
+  Everything else in the lock is unchanged.
+- Left alone, deliberately:
+  - python-jose 3.5.0 and ecdsa 0.19.2: no fix exists, nothing requires or
+    imports them, so they are leftovers that can't be reached.
+  - oauthlib 3.3.1: the advisory is PKCE verification on an OAuth server;
+    this app is only a client, and 4.0.0 is a major version.
+- Audit of the new set: 5 advisories, exactly those three packages.
+
+**DEPLOY NEEDS A PIP INSTALL THIS TIME.** The usual deploy only resets the code:
+```
+cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && venv/bin/pip install -r requirements.lock && systemctl restart highlightz
+```
+Rollback (the previous code and its exact packages):
+`git reset --hard 99eeada && venv/bin/pip install -r requirements.lock && systemctl restart highlightz`.
+The login-gate fix works even if the pip step is skipped; the form-flood
+fix needs the new Starlette.
+
+**Verified here**
+- After the fix: forged Host 0 of 84 routes. The 1,000,000-field POST
+  gets 400 "Too many fields" in 0.01 s with no memory growth. A 5 MB
+  field gets 400. A normal sign-in is unchanged (302).
+- `tests/test_dependency_advisories.py` (22) covers:
+  - the gate on the routed path, with `request.url` patched to lie;
+  - the forged Host request itself;
+  - field-flood and huge-field refusals;
+  - version floors for the 11 packages with applicable fixes;
+  - Starlette pinned directly.
+- 7 deliberate breakages, all caught. One of them was production's old
+  Starlette put back under the form tests.
+- The lock installs cleanly from scratch (122 packages resolve), and
+  `pip check` is clean. Full suite 3894 passed on Python 3.12 with the new
+  lock. JSX parses.
+- In Chromium on the new packages, the iPhone check passes 25/25:
+  sessions, websockets, uploads, export, downloads and the crash screen.
+  The scanner probes give no 500 and no leak.
+
+**Not verified (droplet):** whether PHP is present (above); that nginx
+refuses the forged Host, `curl -s -o /dev/null -w "%{http_code}\n" -H "Host: x/login?" http://127.0.0.1/me`
+(expect 400); and nginx's `client_max_body_size` outside /uploads.

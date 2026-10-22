@@ -254,7 +254,15 @@ def _is_api_request(request: Request) -> bool:
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        path = request.url.path
+        # THE PATH THE ROUTER WILL RUN, not request.url.path. Starlette builds
+        # request.url from the Host header plus the path, and up to 1.0.0 it
+        # did not check the header (CVE-2026-48710), so `Host: x/login?` made
+        # a signed-out GET /me read as /login here while the router still ran
+        # /me. Reproduced on production's packages 2026-10-22: nine pages,
+        # /openapi.json among them, opened that way. Every data endpoint
+        # checked the session itself, so nothing private leaked, but the gate
+        # must decide on what is actually served. Starlette is upgraded too.
+        path = request.scope["path"]
         if (path in _OPEN_PATHS or path == "/login"
                 or path.startswith(_STATIC_PREFIX)
                 or path.rstrip("/").lower() in _referral_paths()
@@ -5992,7 +6000,7 @@ async def _http_exception_logged(request: Request, exc: StarletteHTTPException):
     Every other route only gets FastAPI's default handler, called as before.
     404s never come here: the 404 handler below is matched by status first.
     """
-    if request.method == "POST" and request.url.path == "/uploads":
+    if request.method == "POST" and request.scope["path"] == "/uploads":
         cause = exc.__cause__
         log.warning(
             "upload_rejected",
