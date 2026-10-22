@@ -5887,6 +5887,23 @@ Then `venv/bin/pip show urllib3 | grep Version` should print 2.7.0. Each
 live channel logs `clip_recorder_pipeline_up`, and
 `clip_recorder_streamlink_stderr` stops.
 
+**The follow-on alert** was `clip_file_skipped why=buffer_miss`, 20 times on
+korekore_ch between 14:34 and 14:46 UTC. It is the same outage: each caught
+moment's video is cut from the recorder's rolling buffer
+(`StreamWorker._cut_clip_file`), and a dead recorder leaves nothing to cut.
+Recovery is per platform:
+- **Twitch:** the clips exist (made through the API), and their video can be
+  fetched from Twitch after the fix (`src/clips/fetch.py`, also streamlink).
+  Autopilot's sweep (`_fetch_missing`) does it for approved clips; for any
+  other clip, Download does it.
+- **Kick:** there is no clip API, so the buffer is the only source and
+  those moments have no video. korekore_ch's stream is on
+  `*.playback.live-video.net` (Amazon IVS, which is Kick's).
+
+A few `buffer_miss` right after any restart are normal, because the buffer
+starts empty. They should stop within a clip length, and `clip_file_ready`
+should follow.
+
 **Way forward:** streamlink 8.6.2 reworked the override, and `parse_url`
 works there with urllib3 2.8.0. Moving both together is the route back to
 the urllib3 fixes. But 8.6 also changes the Twitch and Kick plugins, so try
