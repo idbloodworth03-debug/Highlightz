@@ -1,8 +1,8 @@
 # PRODUCTION's installed packages, exactly: the droplet's
 #   /opt/highlightz/venv/bin/pip freeze   (Python 3.12.3), 2026-09-30.
 # Then 12 security upgrades on 2026-10-22 (HANDOFF, "Security: dependency
-# advisories"): starlette, aiohttp, cryptography and 9 more. The droplet
-# has them once someone runs the pip install below.
+# advisories"): starlette, aiohttp, cryptography and 9 more, installed on
+# the droplet the same day (verified: starlette 1.3.1 running).
 # The full suite (3500 tests) passes on this set under Python 3.12.
 # It includes a few packages nothing imports any more (aioredis, rq,
 # twitchAPI, ...) because the point is to reproduce what is running.

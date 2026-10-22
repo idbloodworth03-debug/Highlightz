@@ -5744,6 +5744,15 @@ Rollback (the previous code and its exact packages):
 The login-gate fix works even if the pip step is skipped; the form-flood
 fix needs the new Starlette.
 
+**Deployed 2026-10-22, verified on the droplet:**
+- `git log` shows 6b373df.
+- `venv/bin/pip show starlette` shows 1.3.1.
+- A 2,000-field urlencoded POST to `http://127.0.0.1:8000/login` returns
+  400. Before the fix, the old Starlette parsed every field and returned 422.
+
+The droplet now runs `requirements.lock` as committed. A future deploy only
+needs the pip step again if the lock changes.
+
 **Verified here**
 - After the fix: forged Host 0 of 84 routes. The 1,000,000-field POST
   gets 400 "Too many fields" in 0.01 s with no memory growth. A 5 MB
