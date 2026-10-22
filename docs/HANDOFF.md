@@ -5944,6 +5944,41 @@ Then `analyze_training_log --days 7` gives per-signal separation.
 `tests/test_rejection_report.py` (6) covers it on a made-up ledger,
 including a window across New Year.
 
-**Next:** the owner runs both on the droplet. Decide from the output
-whether this is one account, one platform (Kick after the webhooks), the
-outage window, or the formula.
+**Result (owner ran both, 2026-10-22; last 7 days vs the 14 before):**
+- **The rate did not change.** 8% of judged clips were kept (20 of 255),
+  against 9% (6 of 68) before; July was 0.6%. What changed is the number of
+  verdicts.
+- **One account.** luclips made 219 of the 235 rejections, on three large
+  Spanish-language Kick channels: davooxeneize 152 (7% kept), lacobraaa 37
+  (5%), westcol 30 (17%, up from 4%). These are verdicts, not clear-outs:
+  the median capture-to-reject time is 11–67 h. The rest is hamdisn (14 on
+  Twitch) and gg323288 (2).
+- **Chat-led clips are the junk.** Clips led by CHAT_VELOCITY were kept
+  5.7% of the time (12 of 209), AUDIO_SPIKE-led 20.8% (5 of 24). AUC:
+  SENTIMENT 0.64, AUDIO 0.60, trigger_score 0.60, virality 0.66,
+  CHAT_VELOCITY 0.40 and KEYWORD 0.41 (both inverted). Chat velocity
+  averages about 0.96 on kept and rejected clips alike, the July
+  "saturated for everything that fires" finding again. That is selection,
+  not proof that chat is always pinned.
+- **Score does not separate them** (median 80.7 kept vs 79.2 rejected), so a
+  higher bar cuts keepers as fast as junk: at T=80, 11 of 20 keepers are
+  left and 127 of 235 rejects cut. The per-channel sensitivity dial (−3..+3,
+  ±8% per step) therefore buys fewer clips, not better ones.
+- **Most output is never judged.** About 11,600 caught in 7 days, 3,425
+  cleared with Clear queue, 255 reviewed.
+- 9% of the rejected clips had a zero audio signal (the outage window, or
+  silence).
+
+**Open decision (owner's):** July's "volume must not fall" is the reason
+CHAT_VELOCITY carries 38 of the 110 points. The options are:
+1. Leave the formula and turn sensitivity down on luclips' three channels
+   (fewer clips, the same ratio).
+2. A pool-preserving shift from chat toward audio, sentiment and viewers.
+   It costs volume on chat-driven channels. It needs 60+ keepers first: run
+   `analyze_training_log --days 30` and with no `--days`, then
+   `simulate_weights` with a candidate added to its CANDIDATES table.
+3. Make per-channel learning lean off the signal its owner keeps rejecting.
+   This was softened in July ("it adjusts too hard").
+
+Recommended: 1 now, and the data step of 2, to see whether the pattern holds
+beyond one account's three channels.
