@@ -5982,3 +5982,106 @@ CHAT_VELOCITY carries 38 of the 110 points. The options are:
 
 Recommended: 1 now, and the data step of 2, to see whether the pattern holds
 beyond one account's three channels.
+
+## iPhone exports had no sound: WebKit's AAC config (2026-10-22)
+
+luclips' support email, forwarded by the owner: "The clips have audio when I
+preview them inside Highlightz. After downloading them, the video files have
+no sound … This happens with all my Kick clips."
+
+**Not Kick: exports made on an iPhone.** luclips only clips Kick channels.
+- The preview plays the clip's own file (`/clips/{id}/file`). The card's
+  Download serves the same bytes with `?download=1`, so a clip downloaded
+  from its card cannot lack sound its preview has.
+- Autopilot's render maps `[0:a]` and encodes AAC with ffmpeg. With no audio
+  in the source it fails instead of going silent.
+- The Clip Editor's export is encoded in the browser. On an iPhone
+  (luclips: Chrome 155 on iOS 26.6.2, and every iPhone browser is WebKit),
+  `frameAccurateSupport` picks MP4: VideoEncoder for H.264, AudioEncoder for
+  AAC, and the vendored mp4-muxer.
+
+**The mechanism**
+- mp4-muxer builds a correct AAC config itself, then `Object.assign`s the
+  encoder's `decoderConfig` over it. It writes the encoder's `description`
+  verbatim as the track's AudioSpecificConfig (the DecoderSpecificInfo in
+  `esds`).
+- Chrome's description is that 2-byte config: `11 90` means AAC-LC, 48 kHz,
+  stereo.
+- WebKit's is the whole CoreAudio magic cookie, an MPEG-4 ES_Descriptor (tag
+  `03`) wrapped around it. That is WebKit bug 302253, filed 2025-11. It was
+  fixed in WebKit main on 2026-10-22 (PR 77282,
+  `extractAudioSpecificConfigFromESDescriptor`) and is in no shipping iOS.
+- Read as an AudioSpecificConfig, `03 …` is audio object type 0. ffmpeg says
+  "Audio object type 0 is not implemented"; the track reads 22050 Hz, 0
+  channels, and nothing decodes it. So every MP4 that WebKit encoded (iPhone,
+  or Safari on a Mac) has a sound track nothing can open: silent in Photos,
+  editors and every upload pipeline.
+- **Why now:** until 2026-10-21 his iPhone exports mostly never finished
+  (memory reloads, and a 400 on save). The light export and Save video (see
+  "iPhone: real downloads, Save video, light export, crash screen") let them
+  finish, into this.
+- **Why it was never seen here:** this container's Chromium has no AAC
+  encoder, so every export test ran the WebM branch (VP9 + Opus). The MP4
+  branch was "unverified here, on purpose stated" since 2026-09-15.
+
+**The fix (`aurora_html.py`)**
+- `aacAudioSpecificConfig(desc)`:
+  - a description that is an AudioSpecificConfig passes untouched;
+  - an ES_Descriptor, DecoderConfigDescriptor or bare DecoderSpecificInfo is
+    unwrapped, the way WebKit's fix does it;
+  - anything else returns null.
+- `aacExportMeta(meta)` applies that to each audio chunk's metadata on the
+  MP4 branch only. With no usable description it removes the key, so
+  mp4-muxer keeps its own AAC-LC config. Setting `undefined` instead would
+  overwrite that config with nothing.
+- `_reportExportAudio`: a failed decode or encode of the export's audio used
+  to be swallowed, and the export went out without sound and said nothing.
+  It now also sends `client_error kind=export_audio` through `hzReport`. The
+  output is the same as before; only the journal line is new.
+
+**Blast radius.**
+- Changed: only the frame-accurate export's MP4 branch, and only its audio
+  config.
+- Chrome's description passes through, and its MP4 is byte-identical with or
+  without the fix (tested).
+- Unchanged: the WebM branch, the MediaRecorder path, server renders, clip
+  files, capture and scoring.
+- No server state and no WebSocket event.
+
+**Verified here**
+- Reproduced at the file level: real AAC-LC frames from ffmpeg, muxed by the
+  vendored mp4-muxer.
+  - With WebKit's description, ffmpeg cannot open the track.
+  - With Chrome's, it decodes, with the tone at −21 dB.
+  - With WebKit's passed through the shipped `aacExportMeta`, the file is
+    byte-identical to Chrome's (creation times pinned).
+- `tests/test_export_audio_config.py` (6) runs the real JS cut out of
+  `aurora_html.py`. It covers:
+  - every descriptor shape the spec allows, and the refusals;
+  - the metadata key handling and the wiring;
+  - the end-to-end mux.
+- Three deliberate breakages, each caught: no unwrap, not wired, and
+  `undefined` instead of removing the key.
+- `tests/test_export_audio_check.py` (5) covers the prod check on real files
+  of each kind, and that it writes nothing.
+- Full suite 3894 passed. JSX parses.
+
+**Not verified:** a real iPhone.
+- That iOS 26.6.2 hands over the descriptor comes from WebKit's bug and fix;
+  it was not run here.
+- Whether luclips' files are these is what the check below answers.
+- WebKit's Opus description was not examined. The WebM branch only runs
+  where AAC encoding is missing.
+
+**On prod: which of his files are these** (read-only):
+`cd /opt/highlightz && venv/bin/python -m src.maintenance.export_audio_check luclips`
+- It lists the edited videos in his library, each marked as a browser export
+  or a server render by the ffmpeg tag. It also lists the clip files he
+  downloaded.
+- For each file it gives the AAC config and the result of decoding 20 seconds
+  under `nice`. `BROKEN (WebKit)` is this bug.
+- A browser export showing `no audio track` or `silent` is a different
+  mechanism. Then run `journalctl -u highlightz -o cat | grep export_audio`
+  after his next export.
+- **Existing files stay broken; re-export them.** The source clips are fine.
+  A broken file flagged in the Scheduler would post silent.

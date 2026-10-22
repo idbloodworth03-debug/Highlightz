@@ -6205,6 +6205,93 @@ function _makeMuxer(sup, w, h, fps, audio) {
   });
 }
 
+// THE AAC SETUP BYTES, as an MP4 needs them (luclips, 2026-10-22: "After
+// downloading them, the video files have no sound").
+//
+// mp4-muxer writes the encoder's `description` verbatim as the track's
+// AudioSpecificConfig: two bytes that say "AAC-LC, 48 kHz, stereo" (11 90).
+// Chrome's AudioEncoder hands over exactly that. WebKit's (Safari, and every
+// browser on an iPhone, Chrome included) hands over the whole MPEG-4
+// ES_Descriptor those two bytes sit inside: WebKit bug 302253, fixed upstream
+// on 2026-10-22 and in no shipping iOS yet. Written as-is, the first byte is
+// the descriptor tag 03, which reads as audio object type 0. ffmpeg will not
+// open it ("Audio object type 0 is not implemented"; the track reads 22050 Hz,
+// 0 channels), and neither will a phone, an editor or an upload pipeline. So
+// every export made on an iPhone carried a sound track nothing could play,
+// while the preview, which plays the source file, still had its sound.
+//
+// A description that IS an AudioSpecificConfig passes untouched, so Chrome is
+// unchanged byte for byte. One wrapped in descriptors is unwrapped the way
+// WebKit's own fix does it. Anything else is dropped, and the muxer keeps the
+// config it built itself from what the encoder was asked for (AAC-LC, 48 kHz,
+// the channel count).
+function aacAudioSpecificConfig(desc) {
+  let b;
+  try { b = ArrayBuffer.isView(desc) ? new Uint8Array(desc.buffer, desc.byteOffset, desc.byteLength) : new Uint8Array(desc); }
+  catch (e) { return null; }
+  // The object type is the top 5 bits (0 is invalid, and a descriptor tag
+  // lands there), then a 4-bit rate index: 0-12 name a rate, 15 says the rate
+  // follows in 24 bits.
+  const isAsc = x => {
+    if (x.length < 2 || !(x[0] >> 3)) return false;
+    const rate = ((x[0] & 7) << 1) | (x[1] >> 7);
+    return rate <= 12 || (rate === 15 && x.length >= 5);
+  };
+  if (isAsc(b)) return b;
+  let i = 0;
+  // ISO 14496-1 8.3.3: a size is 1 to 4 bytes of 7 bits each, high bit = more.
+  const size = () => {
+    let n = 0;
+    for (let k = 0; k < 4 && i < b.length; k++) {
+      const v = b[i++];
+      n = n * 128 + (v & 127);
+      if (v < 128) return n;
+    }
+    return -1;
+  };
+  if (b[i] === 3) {                          // ES_Descriptor
+    i++;
+    if (size() < 0 || i + 3 > b.length) return null;
+    const flags = b[i + 2];
+    i += 3;                                  // ES_ID, flags
+    if (flags & 128) i += 2;                 // dependsOn_ES_ID
+    if (flags & 64) i += 1 + (b[i] || 0);    // URL length, URL
+    if (flags & 32) i += 2;                  // OCR_ES_Id
+  }
+  if (b[i] === 4) {                          // DecoderConfigDescriptor
+    i++;
+    if (size() < 0) return null;
+    i += 13;                                 // object and stream type, buffer size, two bitrates
+  }
+  if (b[i] !== 5) return null;               // DecoderSpecificInfo: the config itself
+  i++;
+  const n = size();
+  if (n < 2 || i + n > b.length) return null;
+  const asc = b.slice(i, i + n);
+  return isAsc(asc) ? asc : null;
+}
+
+// An encoder chunk's metadata with its description made into what the MP4
+// needs (see above). Without a usable one the key goes entirely: absent, it
+// leaves the muxer's own config in place, where `undefined` would overwrite
+// it with nothing.
+function aacExportMeta(meta) {
+  const dc = meta && meta.decoderConfig;
+  if (!dc || !dc.description) return meta;
+  const { description, ...rest } = dc;
+  const asc = aacAudioSpecificConfig(description);
+  return { ...meta, decoderConfig: asc ? { ...rest, description: asc } : rest };
+}
+
+// An export that loses its sound must not lose it quietly. The journal gets a
+// client_error line; before, nothing anywhere said the sound was gone.
+function _reportExportAudio(stage, e) {
+  try {
+    if (window.hzReport) window.hzReport('export_audio', stage + ': ' + (e && e.name ? e.name + ' ' : '') + ((e && e.message) || String(e)),
+                                         (e && e.stack) || '', 'editor');
+  } catch (x) {}
+}
+
 // The clip's own sound for the cut, encoded OFFLINE: fetch the source, decode
 // it, render just [inPt, outPt] to 48 kHz through an OfflineAudioContext, and
 // feed that to an AudioEncoder in 1024-frame pieces. Nothing here is real
@@ -6216,7 +6303,7 @@ async function _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx) {
     const ab = await (await fetch(srcUrl)).arrayBuffer();
     const actx = new (window.AudioContext || window.webkitAudioContext)();
     try { decoded = await actx.decodeAudioData(ab); } finally { actx.close().catch(() => {}); }
-  } catch (e) { decoded = null; }
+  } catch (e) { decoded = null; _reportExportAudio('decode', e); }
   if (decoded && !decoded.numberOfChannels) decoded = null;
   const haveSfx = !!(sfx && sfx.length);
   if (!decoded && !haveSfx) return null;
@@ -6259,10 +6346,10 @@ async function _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx) {
 //   onPct   progress 0..99
 //   cancel  a ref; true aborts
 async function exportFrameAccurate(sup, { v, c, paint, inPt, outPt, outW, outH, fps, hd, srcUrl, onPct, cancel, sfx }) {
-  const audio = await _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx).catch(() => null);
+  const audio = await _encodeAudioOffline(sup, srcUrl, inPt, outPt, sfx).catch(e => { _reportExportAudio('encode', e); return null; });
   if (cancel.current) return null;
   const muxer = _makeMuxer(sup, outW, outH, fps, audio);
-  if (audio) for (const [chunk, meta] of audio.chunks) muxer.addAudioChunk(chunk, meta);
+  if (audio) for (const [chunk, meta] of audio.chunks) muxer.addAudioChunk(chunk, sup.mux === 'mp4' ? aacExportMeta(meta) : meta);
 
   let encErr = null;
   const enc = new VideoEncoder({
