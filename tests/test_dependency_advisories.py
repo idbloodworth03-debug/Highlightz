@@ -21,7 +21,8 @@ under FastAPI, were reproduced against production's exact package set:
 
 The fix is both: the gate reads the routed path (request.scope["path"]),
 which closes the first on any Starlette, and the lock moves to patched
-versions of Starlette and eleven more packages.
+versions of Starlette and ten more packages (urllib3 was the eleventh and
+went back the same day; see FLOORS).
 """
 
 import base64
@@ -121,7 +122,13 @@ FLOORS = {
     "cryptography": "48.0.1",      # bundled OpenSSL (Kick webhook signatures are verified with it)
     "certifi": "2026.10.19",       # revoked, compromised emSign intermediates
     "aiohttp": "3.14.4",           # client response parser and connection pool fixes
-    "urllib3": "2.8.0",            # streaming and proxy TLS fixes
+    # NOT urllib3. 2.8.0 calls _PERCENT_RE.sub, and streamlink 8.4.0 replaces
+    # _PERCENT_RE with a class that only has subn: every stream URL failed to
+    # parse, and every recorder, audio meter and clip fetch died with it
+    # (2026-10-22, tests/test_streamlink_urllib3.py). Its advisories are about
+    # malicious servers answering a streaming or proxied client; here it
+    # talks to Twitch's and Kick's CDNs, AWS and Google. It moves to 2.8.0
+    # with streamlink 8.6.2, which works with it, once that is tried live.
     "anyio": "4.14.2",
     "multidict": "6.9.1",
     "httplib2": "0.32.0",          # decompression bomb (YouTube client)

@@ -5722,7 +5722,9 @@ about the exploits that were recently discovered in the news".
   - python-multipart 0.0.28 → 0.0.31;
   - pydantic-settings 2.14.1 → 2.14.2;
   - certifi 2026.4.22 → 2026.10.19 (compromised emSign intermediates);
-  - urllib3 2.7.0 → 2.8.0;
+  - ~~urllib3 2.7.0 → 2.8.0;~~ **reverted the same day:** it broke
+    streamlink and with it every recorder (see "Incident: urllib3 2.8.0
+    broke streamlink");
   - anyio 4.13.0 → 4.14.2;
   - multidict 6.7.1 → 6.9.1;
   - httplib2 0.31.2 → 0.32.0;
@@ -5822,3 +5824,71 @@ longer reads the stats ledger at all, so a render is a little cheaper.
   numbers show 48,213 / 10 / 7, no "kept" text anywhere on the page, no
   sideways scroll and no script errors. The landing scripts pass
   `node --check`.
+
+## Incident: urllib3 2.8.0 broke streamlink (2026-10-22)
+
+**The alert:** `clip_recorder_streamlink_stderr` and
+`clip_recorder_process_died`, 20 each between 14:33 and 14:37 UTC, on
+korekore_ch:
+
+`error: Unable to open URL: https://….playback.live-video.net/….m3u8
+(type object 'Urllib3UtilUrlPercentReOverride' has no attribute 'sub')`
+
+The exit codes were streamlink_rc 1 and ffmpeg_rc 183. 183 is ffmpeg's
+AVERROR_INVALIDDATA: its input was empty.
+
+**Cause: the security upgrade above.** It moved urllib3 2.7.0 → 2.8.0.
+- streamlink 8.4.0 (`streamlink/session/http.py`) replaces urllib3's
+  private `_PERCENT_RE` with a class that implements only `subn`, the one
+  method urllib3 2.0–2.7 called on it. 2.8.0 also calls `_PERCENT_RE.sub`
+  in `_idna_encode` while normalizing any host name. So inside streamlink,
+  every URL with a host name failed to parse.
+- Every process that runs streamlink failed on every channel, not just
+  korekore_ch:
+  - clip recorder: no video files; Kick clips depend on it entirely;
+  - audio meter: the detector ran on chat without its audio signal;
+  - clip fetch (Download/fetch);
+  - VOD Scanner audio.
+- Twitch clip creation kept working; it calls the API through aiohttp.
+- Window: from the 6b373df deploy with its pip install until this fix is
+  deployed.
+
+**Why nothing caught it:** no test ran streamlink against a host name.
+- The suite only checks the recorder's own logic.
+- The browser pass does not run live capture.
+- The security check added before the upgrade was a vulnerability scan; it
+  never checks compatibility.
+
+**Proven both ways, on production's package set:**
+- `parse_url` of the alert's URL under streamlink's patch: AttributeError on
+  2.8.0, fine on 2.7.0.
+- The real CLI (`streamlink --stdout hls://http://localhost/…m3u8 best`)
+  against a local HLS stream:
+  - 2.8.0: exit 1, 0 bytes, the alert's exact line;
+  - 2.7.0: exit 0, the whole 79,524-byte segment.
+
+**Fix:** urllib3 back to 2.7.0 in the lock, which is what recorded fine
+until that morning. Its three advisories are accepted for now: they concern
+malicious servers answering a streaming or proxied client, and here it
+talks to Twitch's and Kick's CDNs, AWS and Google. The floor test no longer
+covers urllib3, with the reason in a comment.
+- `tests/test_streamlink_urllib3.py` (2) checks two things through
+  streamlink's own patched session:
+  - the alert's exact URL shape parses;
+  - a playlist fetched by host name from a local server comes back.
+- Both fail on 2.8.0 with the production error and pass on 2.7.0.
+- Full suite 3877 passed. The test env equals the lock.
+
+**Deploy with the pip step:**
+```
+cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && venv/bin/pip install -r requirements.lock && systemctl restart highlightz
+```
+Then `venv/bin/pip show urllib3 | grep Version` should print 2.7.0. Each
+live channel logs `clip_recorder_pipeline_up`, and
+`clip_recorder_streamlink_stderr` stops.
+
+**Way forward:** streamlink 8.6.2 reworked the override, and `parse_url`
+works there with urllib3 2.8.0. Moving both together is the route back to
+the urllib3 fixes. But 8.6 also changes the Twitch and Kick plugins, so try
+it against a live stream before it goes in the lock. The new test file
+guards the pair either way.
