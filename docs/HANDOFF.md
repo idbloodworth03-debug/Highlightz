@@ -6465,3 +6465,110 @@ this server verifies one.
 - Worth confirming with Stripe before volume grows: collecting a prize pool
   and paying it out to winners is a platform pattern Stripe normally runs
   through Connect. Winners are paid by hand today.
+
+## Campaign results: leaderboard, winners and payouts (2026-10-23)
+
+Owner asked "How can I make tracking easier within the campaigns"; of the four
+ideas offered (1 entry links + automatic checks, 2 view counts from the
+platforms, 3 a live leaderboard, 4 winner and payout tools) the answer was
+"lets add 3 and 4". `src/campaigns/results.py`; store `campaign_results.json`.
+
+**What each person sees.**
+- *Clippers* (Campaigns → a campaign): the leaderboard (rank, name, score,
+  clips, "N not counted yet"), their own row highlighted (appended under the
+  top 10 if lower), then once winners stand the Winners list with Paid marks.
+  A winner gets a "Your prize" box asking where to send it (PayPal / Venmo /
+  Cash App / Bank transfer / Other + an address or handle, never card or bank
+  numbers), then "We will send it by …", then "Sent by … on …". An unanswered
+  prize is also a banner at the top of the Campaigns grid (an ended campaign
+  sits under the Ended filter, where nobody looks). On a phone the prize box
+  is first on the campaign page.
+- *The streamer who paid* (Promote card, once live): entries, clippers, views
+  counted, the top 5 clips with links, the winners with paid / being paid,
+  and the unwon prizes and their refund.
+- *Admins* (Admin → Campaigns → **Results** on any campaign): every entry with
+  its link, inputs for views / likes / comments, disqualify + reason, Save
+  counts; the standings; once ended, one select per prize place (the
+  standings' order, any place changeable or left unfilled) and Confirm
+  winners; then per winner where to send it, Mark paid (method + reference)
+  / Undo, the unwon amount with Mark refunded (Stripe refund id) / Undo,
+  Reopen winners, and a CSV of everything. The list shows "N to count",
+  "pick winners", "prizes to pay", "refund due".
+
+**Where the numbers come from (until ideas 1 and 2).** An admin types the
+counts from the post itself. Only clips posted for the campaign through
+Highlightz are entries. A clipper sees "0 views" until an entry is counted.
+
+**Rules.** An entry counts if posted, inside the dates, to a platform the
+campaign names, and not disqualified (tags were already enforced at post
+time). Scores: `top_clip_views` best clip; `best_n_views` best N added;
+`best_n_engagement` views + likes + comments of the best N; `custom` total
+views as a guide, winners by hand. Ties go to whoever posted first. Winners
+only after the end (to close early, move the end to now). Confirming freezes
+the counts; reopening is refused once a prize or the refund is marked as
+sent. An admin-picked place can differ from the standings (the admin's call,
+per Terms 4A "Our decision on the winners is final"). A campaign with
+confirmed winners cannot be deleted (it is the record of its prizes; untick
+Published to hide it); deleting one without takes its results with it.
+**Unwon prizes are owed back only when the streamer paid by card** (Terms
+4A); an admin-made or comped campaign records the unwon amount and owes
+nobody. Refunds are made in Stripe by hand, then marked here.
+
+**An entry stays an entry.** The poster records each post that lands for a
+campaign into the results store (`record_entry`), and stamps the campaign on
+the platform's result row (`schedule.mark_result`). Before this, entries
+were read from the posting queue only, so a clipper who tidied the queue
+(it caps at 200) or deleted the clip fell off the board, and re-posting the
+same clip for another campaign moved its old post too. Posts still on their
+way, and any that landed before this change, are still read from the queue.
+A recording failure never fails the post (it would be posted again); it
+logs `campaign_entry_not_recorded` (an error, so it emails).
+
+**Privacy.** Boards carry names and scores only: never another clipper's id,
+links or payout details (pinned by a test). Payout details are seen by the
+winner and admins; the owner's email about them leaves the address out.
+Account deletion takes the account's entries, counts and payout details;
+confirmed winners stay. Terms 4A "Taking part" and Privacy §1 "Campaign
+entries and prizes" say so.
+
+**Realtime.** Every change sends `campaigns_changed` (the boards ride in the
+`/campaigns` listing, the streamer's results in `/campaign-requests`, both
+already in `refetchAll`): counts saved, winners confirmed or reopened, a
+prize or refund marked, a winner's details saved (theirs only), an entry
+landing (the poster), a campaign deleted, an account with entries deleted.
+A winner also gets `campaign_notice` (a toast) when they win and when their
+prize is sent; the streamer gets `campaign_request_updated` when winners are
+picked and when the refund is made. Reopening tells nobody. The admin page
+still polls (30 s), and skips a re-read while anything in Results is typed
+and unsaved.
+
+**Verified:**
+- `tests/test_campaign_results.py` (31): eligibility, each scoring rule,
+  ties, count parsing, one bad row saving nothing, entries surviving queue
+  tidying / clip deletion / a reload, a re-tagged clip, deleted accounts
+  (theirs go, the win stays, boards told), the poster recording and
+  broadcasting (and a store failure not failing the post), confirm rules,
+  reopen, payouts, refunds owed only when paid, delete refused with winners,
+  board privacy, the streamer's summary, the CSV, the whole API flow with
+  scoped broadcasts, and the dashboard/admin wiring. `test_campaigns` now
+  reads entries from Results (the old Entries endpoint is gone).
+- Browser (Chromium, throwaway server, two clippers, a paying streamer, an
+  admin): counts typed in Admin (a typo refused, naming the row) reached
+  both clippers' boards and the streamer's card with no reload; the
+  campaign was ended, the proposal matched the standings, Confirm told both
+  winners at once (toast + prize box + grid banner on the phone), the
+  streamer heard about $100 unwon; a winner saved PayPal details, the admin
+  saw them, marked the prize paid → the winner's box said "Sent by PayPal";
+  Mark refunded → the streamer's card said so. No console errors, no other
+  failed requests, no sideways overflow at 390.
+- JSX parse, admin script parse (no backslashes), realtime contract, design
+  tokens, full suite.
+
+**Open:**
+- Ideas 1 (entry links, so clips posted outside Highlightz can enter) and 2
+  (view counts read from YouTube with an API key; TikTok needs `video.list`,
+  Instagram views the insights permission, both app reviews) are not built.
+- Found, not changed: the admin's account delete (`DELETE
+  /admin/users/{id}`) leaves the account's posting queue, uploads, publish
+  tokens, reviews and stats (the self-service delete takes them all). Boards hide entries from accounts that are gone, so this
+  does not show there, but the files stay on disk.

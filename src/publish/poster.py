@@ -29,7 +29,7 @@ from src.publish import connections, providers, schedule as sched
 
 log = structlog.get_logger(__name__)
 
-Notify = Callable[[dict, str], Awaitable[None]]
+Notify = Callable[[dict, str | None], Awaitable[None]]      # user id, or None for every socket
 
 # Items being posted right now, so a "Post now" click during the worker's
 # pass (or two clicks) cannot upload the same clip twice.
@@ -59,6 +59,26 @@ async def _say(notify: Notify | None, item: sched.Item) -> None:
         await notify({"event": "schedule_updated", "item": item.public()}, item.user_id)
     except Exception as exc:                        # a dead socket is not a failed post
         log.warning("poster_notify_failed", error=str(exc))
+
+
+async def _campaign_entry(item: sched.Item, platform: str, notify: Notify | None) -> None:
+    """A post that landed for a campaign is an entry in it: the campaign keeps
+    its own copy (src/campaigns/results), so tidying the queue or deleting the
+    clip cannot take it off the leaderboard. Every board shows entrants, so
+    every tab that can see the marketplace re-reads it. Never raises: the post
+    is out, and an exception here would mark it failed and post it again."""
+    try:
+        from src.campaigns import results
+        results.record_entry(item, platform)
+    except Exception:
+        log.exception("campaign_entry_not_recorded", item=item.id, platform=platform,
+                      campaign=item.campaign_id)
+        return
+    if notify is not None:
+        try:
+            await notify({"event": "campaigns_changed"}, None)
+        except Exception as exc:
+            log.warning("poster_notify_failed", error=str(exc))
 
 
 async def post_item(item: sched.Item, notify: Notify | None = None) -> sched.Item | None:
@@ -99,6 +119,8 @@ async def post_item(item: sched.Item, notify: Notify | None = None) -> sched.Ite
                 item = sched.mark_result(item.id, uid, p, sched.R_POSTED, url=res.url,
                                          remote_id=res.remote_id, note=res.note)
                 log.info("post_published", item=item.id, platform=p, url=res.url)
+                if item.campaign_id:
+                    await _campaign_entry(item, p, notify)
             except providers.ProviderError as exc:
                 item = sched.mark_result(item.id, uid, p, sched.R_FAILED,
                                          error=exc.message, retryable=exc.retryable)

@@ -819,7 +819,30 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .pn-req{display:flex;gap:8px;flex-wrap:wrap}
 .pn-req span{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:rgba(46,224,138,.14);color:var(--live)}
 .pn-req span.miss{background:var(--danger-soft);color:var(--danger)}
-@media (max-width:900px){.cmp-cols{grid-template-columns:1fr}.cmp-side{position:static}.cmp-main h2{font-size:24px}.cmp-hero{aspect-ratio:16/9}}
+/* The leaderboard, the winners and a winner's own prize. */
+.cmp-board-sub{margin:0;font-size:14px;color:var(--fg-2);line-height:1.5}
+.cmp-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.cmp-row{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 12px;
+  border-radius:12px;background:rgba(255,255,255,.03);border:1px solid transparent;font-size:14px}
+.cmp-row.you{background:var(--grad-soft);border-color:rgba(196,137,228,.4)}
+.cmp-rank{font-weight:800;color:var(--fg-3);text-align:center;font-variant-numeric:tabular-nums}
+.cmp-row.top .cmp-rank{color:var(--live)}
+.cmp-who{display:flex;flex-direction:column;min-width:0}
+.cmp-who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp-who small{font-size:12px;color:var(--fg-3)}
+.cmp-you{font-style:normal;font-size:12px;font-weight:700;color:var(--acc);margin-left:8px}
+.cmp-score{font-weight:800;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cmp-score small{display:block;font-size:12px;font-weight:600;color:var(--fg-3)}
+.cmp-gap{text-align:center;font-size:12px;color:var(--fg-3);letter-spacing:.2em}
+.cmp-paid{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:var(--live-soft);color:var(--live);margin-left:8px}
+.cmp-box.cmp-prize{border-color:rgba(46,224,138,.45);background:linear-gradient(180deg,rgba(46,224,138,.1),rgba(255,255,255,.03))}
+.cmp-pay{display:flex;flex-direction:column;gap:8px}
+.cmp-pay small{font-size:12px;color:var(--fg-3);line-height:1.5}
+.cmp-pay small.bad{color:var(--danger)}
+.cmp-won{color:var(--live);font-weight:800}
+/* One column on a phone: the side boxes follow the page, except a winner's
+   prize, which goes first (it asks them where to send the money). */
+@media (max-width:900px){.cmp-cols{grid-template-columns:1fr}.cmp-side{display:contents}.cmp-prize{order:-1}.cmp-main h2{font-size:24px}.cmp-hero{aspect-ratio:16/9}}
 /* ── Promote: streamers ask for (and pay for) campaigns ── */
 .pm{max-width:1180px;margin:0 auto;padding:8px 0 48px;display:flex;flex-direction:column;gap:24px}
 .pm-fee{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
@@ -869,6 +892,18 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .pm-det > div > span{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
 .pm-det p{margin:0;font-size:14px;color:var(--fg-2);line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 .pm-det .wide{grid-column:1/-1}
+/* A published request's results: entries, views, the best clips, winners. */
+.pm-res{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(0,0,0,.2)}
+.pm-res-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.pm-res-stats div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pm-res-stats b{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+.pm-res-stats span,.pm-res-k{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.pm-res ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pm-res li{display:flex;gap:8px;align-items:baseline;font-size:14px;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.04);min-width:0}
+.pm-res li a{color:var(--fg);font-weight:700;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-res li a:hover{color:var(--acc)}
+.pm-res li small{font-size:12px;color:var(--fg-3);white-space:nowrap}
+.pm-res li > b{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pm-empty{display:flex;flex-direction:column;gap:24px}
 .pm-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .pm-steps > div{padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:4px}
@@ -10725,7 +10760,121 @@ function campaignMissing(c, cap) {
           ...(c.mentions || []).filter(h => !has('@' + h.toLowerCase(), /[a-z0-9_.]/)).map(h => '@' + h)];
 }
 
+// ── LEADERBOARD AND PRIZES (owner, 2026-10-23: "lets add 3 and 4") ──────────
+// Every campaign in the listing carries `board`, its leaderboard as this
+// viewer sees it (src/campaigns/results.board): names and scores, their own
+// row, and once the winners stand, the winners and the viewer's own prize. It
+// rides in the listing, so campaigns_changed (counts saved, winners picked, a
+// prize sent) and refetchAll on a reconnect both bring it with them.
+const CAMP_PAYOUT = {paypal: ['PayPal', 'Your PayPal email'], venmo: ['Venmo', 'Your Venmo @username'],
+  cashapp: ['Cash App', 'Your $cashtag'], bank: ['Bank transfer', 'An email we can reach you at for your bank details'],
+  other: ['Other', 'How you would like to be paid']};
+const campNum = n => Number(n || 0).toLocaleString();
+function campAgo(ts) {
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(ts * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+}
+
+function CampaignWinners({ b }) {
+  if (!b.winners.length) return <p className="cmp-muted">No prizes were won. They go back to the streamer.</p>;
+  return (
+    <ol className="cmp-split">
+      {b.winners.map(w => <li key={w.place}><span>{campOrdinal(w.place - 1)} place: <b>{w.name}</b>
+        {w.paid && <span className="cmp-paid">Paid</span>}</span><b>{campMoney(w.amount)}</b></li>)}
+    </ol>
+  );
+}
+
+function CampaignBoard({ c }) {
+  const b = c.board;
+  const row = (r, key) => (
+    <li key={key} className={'cmp-row' + (r.you ? ' you' : '') + (r.rank <= (c.payouts || []).length ? ' top' : '')}>
+      <span className="cmp-rank">{r.rank}</span>
+      <span className="cmp-who"><b>{r.name}{r.you && <em className="cmp-you">You</em>}</b>
+        <small>{r.clips} clip{r.clips === 1 ? '' : 's'}{r.counted < r.clips ? ', ' + (r.clips - r.counted) + ' not counted yet' : ''}</small></span>
+      <span className="cmp-score">{campNum(r.score)}<small>{b.metric === 'engagement' ? 'engagement' : 'views'}</small></span>
+    </li>);
+  const mine = b.you && !b.rows.some(r => r.you);
+  return (
+    <section className="cmp-sec">
+      <h3>{b.confirmed ? 'Final standings' : 'Leaderboard'}</h3>
+      <p className="cmp-board-sub">
+        {b.custom ? 'The organisers pick the winners of this one. The board ranks total views as a guide.'
+          : 'Ranked by ' + c.judging_text.charAt(0).toLowerCase() + c.judging_text.slice(1) + '.'}
+        {b.updated_at > 0 && ' Counts updated ' + campAgo(b.updated_at) + '.'}</p>
+      {c.status === 'upcoming' ? <p className="cmp-muted">The leaderboard opens when the campaign starts.</p>
+        : b.rows.length === 0 ? <p className="cmp-muted">{c.status === 'live'
+            ? 'No entries yet. Post a clip for this campaign and you are on the board.'
+            : 'This campaign ended with no entries.'}</p>
+        : <ol className="cmp-rows">
+            {b.rows.map(r => row(r, r.rank))}
+            {mine && <li className="cmp-gap" aria-hidden="true">...</li>}
+            {mine && row({...b.you, you: true}, 'you')}
+          </ol>}
+      {b.entrants > b.rows.length + (mine ? 1 : 0) && <p className="cmp-muted">{b.entrants} clippers in all.</p>}
+      {c.status !== 'upcoming' && !b.confirmed && <p className="cmp-muted">Highlightz counts each entry's {b.metric === 'engagement'
+        ? 'views, likes and comments' : 'views'} from the post itself. A new entry shows 0 until it is counted.</p>}
+    </section>
+  );
+}
+
+// A winner's own prize: where to send it, then that it was sent. Their payout
+// details are seen only by them and Highlightz (results.board leaves them out
+// of everyone else's).
+function CampaignPrize({ c, flash, onRefresh }) {
+  const p = c.board.prize;
+  const [editing, setEditing] = useState(false);
+  const [method, setMethod] = useState('paypal');
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setErr(''); }, [method, address]);
+  const asking = !p.paid && (!p.payee || editing);
+  const startEdit = () => { setMethod(p.payee.method); setAddress(p.payee.address); setEditing(true); };
+  const save = async e => {
+    e.preventDefault();
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch('/campaigns/' + c.id + '/payout-details', {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({method, address})});
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'That did not save. Try again.');
+      setEditing(false);
+      flash('Saved. We will send your prize there.');
+      onRefresh();
+    } catch (x) { setErr(String(x.message || x)); }
+    setBusy(false);
+  };
+  return (
+    <div className="cmp-box cmp-prize">
+      <span className="cmp-k">Your prize</span>
+      <b className="cmp-big">{campMoney(p.amount)}</b>
+      <p>You won {campOrdinal(p.place - 1)} place in this campaign.</p>
+      {p.paid ? <p className="cmp-won">Sent by {p.paid.method} on {new Date(p.paid.at * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}.</p>
+        : asking ? <form className="cmp-pay" onSubmit={save}>
+            <span className="cmp-k">Where should we send it?</span>
+            <select className="ed-in" value={method} onChange={e => setMethod(e.target.value)} aria-label="How to pay you">
+              {Object.keys(CAMP_PAYOUT).map(k => <option key={k} value={k}>{CAMP_PAYOUT[k][0]}</option>)}
+            </select>
+            <input className="ed-in" value={address} onChange={e => setAddress(e.target.value)} maxLength={200}
+              placeholder={CAMP_PAYOUT[method][1]} aria-label={CAMP_PAYOUT[method][1]}/>
+            <small>Never type a card or bank account number here. Only you and Highlightz see this.</small>
+            {err && <small className="bad">{err}</small>}
+            <button className="rd-btn grad" disabled={busy || address.trim().length < 3}>{busy ? 'Saving…' : 'Save'}</button>
+            {editing && <button type="button" className="rd-btn sm" onClick={() => setEditing(false)}>Cancel</button>}
+          </form>
+        : <><p>We will send it by {(CAMP_PAYOUT[p.payee.method] || ['Other'])[0]} to <b>{p.payee.address}</b>.</p>
+            <button className="rd-btn sm" onClick={startEdit}>Change</button></>}
+    </div>
+  );
+}
+
 function CampaignCard({ c, onOpen }) {
+  const b = c.board || {};
   return (
     <button className="cmp-card" onClick={() => onOpen(c.id)}>
       <div className="cmp-img">{c.image_url ? <img src={c.image_url} alt="" loading="lazy"/> : <Icon name="trophy" size={32}/>}
@@ -10740,6 +10889,8 @@ function CampaignCard({ c, onOpen }) {
           <span>{c.winners ? c.winners + ' winner' + (c.winners === 1 ? '' : 's') : 'Prize pool'}</span>
           <span className="cmp-dot"/>
           <span>{campWhen(c)}</span>
+          {b.prize ? <><span className="cmp-dot"/><span className="cmp-won">You won {campMoney(b.prize.amount)}</span></>
+            : b.you && c.status !== 'upcoming' ? <><span className="cmp-dot"/><span>You are #{b.you.rank}</span></> : null}
         </div>
         {c.streamers.length > 0 && <div className="cmp-streamers">
           {c.streamers.slice(0, 4).map(st => <span key={st.platform + st.name} className="cmp-chip">{st.name}</span>)}
@@ -10750,8 +10901,9 @@ function CampaignCard({ c, onOpen }) {
   );
 }
 
-function CampaignPage({ c, onBack, onPostFor, canPost }) {
+function CampaignPage({ c, onBack, onPostFor, canPost, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
+  const b = c.board;
   return (
     <div className="cmp-page">
       <button className="rd-btn sm cmp-back" onClick={onBack}><Icon name="chevron" size={14} style={{transform:'rotate(90deg)'}}/>All campaigns</button>
@@ -10771,6 +10923,8 @@ function CampaignPage({ c, onBack, onPostFor, canPost }) {
             <div><span>Starts</span><b>{campDate(c.start_at)}</b></div>
             <div><span>Ends</span><b>{campDate(c.end_at)}</b></div>
           </div>
+          {b && b.confirmed && <section className="cmp-sec"><h3>Winners</h3><CampaignWinners b={b}/></section>}
+          {b && <CampaignBoard c={c}/>}
           {c.streamers.length > 0 && <section className="cmp-sec">
             <h3>Streamers</h3>
             <div className="cmp-streamers big">
@@ -10787,6 +10941,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost }) {
           </section>
         </div>
         <aside className="cmp-side">
+          {b && b.prize && <CampaignPrize c={c} flash={flash} onRefresh={onRefresh}/>}
           <div className="cmp-box">
             <span className="cmp-k">Prize pool</span>
             <b className="cmp-big">{campMoney(c.prize_pool)}</b>
@@ -10810,7 +10965,8 @@ function CampaignPage({ c, onBack, onPostFor, canPost }) {
             {c.status === 'live' && !canPost &&
               <p className="cmp-muted">Posting from Highlightz is coming soon. Until then, post your clip yourself with the tags above.</p>}
             {c.status === 'upcoming' && <p className="cmp-muted">Entries open {campDate(c.start_at)}.</p>}
-            {c.status === 'ended' && <p className="cmp-muted">This campaign has ended.</p>}
+            {c.status === 'ended' && <p className="cmp-muted">{b && b.confirmed ? 'This campaign has ended and its winners are picked.'
+              : 'This campaign has ended. Highlightz is judging the entries.'}</p>}
           </div>
         </aside>
       </div>
@@ -10818,7 +10974,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost }) {
   );
 }
 
-function CampaignsScreen({ campaigns, onPostFor, canPost }) {
+function CampaignsScreen({ campaigns, onPostFor, canPost, flash, onRefresh }) {
   const [show, setShow] = useState('open');     // which statuses the grid lists
   const [openId, setOpenId] = useState(null);
   const rows = campaigns || [];
@@ -10826,7 +10982,11 @@ function CampaignsScreen({ campaigns, onPostFor, canPost }) {
   // a deleted campaign drops back to the grid rather than a stale page.
   const open = openId ? rows.find(c => c.id === openId) : null;
   if (campaigns === null) return <div className="rd-scroll"><div className="cmp"><p className="cmp-muted">Loading campaigns…</p></div></div>;
-  if (open) return <div className="rd-scroll"><CampaignPage c={open} onBack={() => setOpenId(null)} onPostFor={onPostFor} canPost={canPost}/></div>;
+  if (open) return <div className="rd-scroll"><CampaignPage c={open} onBack={() => setOpenId(null)} onPostFor={onPostFor} canPost={canPost}
+    flash={flash} onRefresh={onRefresh}/></div>;
+  // A prize waiting on its winner, above everything: an ended campaign is
+  // under the Ended filter, where a winner would not think to look.
+  const owed = rows.filter(c => c.board && c.board.prize && !c.board.prize.paid && !c.board.prize.payee);
   const counts = {open: rows.filter(c => c.status !== 'ended').length, live: rows.filter(c => c.status === 'live').length,
                   upcoming: rows.filter(c => c.status === 'upcoming').length, ended: rows.filter(c => c.status === 'ended').length};
   const shown = rows.filter(c => show === 'open' ? c.status !== 'ended' : c.status === show);
@@ -10843,6 +11003,12 @@ function CampaignsScreen({ campaigns, onPostFor, canPost }) {
             {FILTERS.map(([k, l]) => <button key={k} className={show === k ? 'on' : ''} onClick={() => setShow(k)}>{l}<small className="cmp-n">{counts[k]}</small></button>)}
           </div>
         </div>
+        {owed.map(c => (
+          <div key={c.id} className="cmp-banner">
+            <Icon name="trophy" size={16}/>
+            <span>You won <b>{campOrdinal(c.board.prize.place - 1)} place</b> in <b>{c.title}</b>: {campMoney(c.board.prize.amount)}. Say where to send it.</span>
+            <button className="rd-btn sm" onClick={() => setOpenId(c.id)}>Open</button>
+          </div>))}
         {shown.length === 0
           ? <div className="apx-empty"><span><Icon name="trophy" size={24}/></span><b>No campaigns here yet</b>
               <span>{rows.length ? 'Try another filter.' : 'New campaigns appear here the moment they are announced.'}</span></div>
@@ -10993,6 +11159,39 @@ function PromoteDetails({ r }) {
   );
 }
 
+// How a published campaign is doing, for the streamer who paid for it
+// (src/campaigns/results.summary): entries, views, its best clips with their
+// links, the winners, and any unwon prizes coming back. Kept current by
+// campaigns_changed, which every count, pick and payment sends.
+function PromoteResults({ s, live }) {
+  const one = (n, word, many) => campNum(n) + ' ' + (n === 1 ? word : many);
+  return (
+    <div className="pm-res">
+      <div className="pm-res-stats">
+        <div><b>{campNum(s.entries)}</b><span>{s.entries === 1 ? 'entry' : 'entries'}</span></div>
+        <div><b>{campNum(s.clippers)}</b><span>{s.clippers === 1 ? 'clipper' : 'clippers'}</span></div>
+        <div><b>{campNum(s.views)}</b><span>views counted</span></div>
+      </div>
+      {s.entries === 0 ? <p className="pm-msg">{live ? 'No entries yet. Clips posted for your campaign show here with their views.'
+          : 'Your campaign ended with no entries.'}</p>
+        : s.counted < s.entries && <p className="pm-msg">{one(s.entries - s.counted, 'entry is', 'entries are')} not counted yet.</p>}
+      {s.top.length > 0 && <>
+        <span className="pm-res-k">Top clips</span>
+        <ol>{s.top.map((t, i) => <li key={i}>
+          {t.url ? <a href={t.url} target="_blank" rel="noopener noreferrer">{t.name}</a> : <span>{t.name}</span>}
+          <small>{CAMP_PLAT[t.platform] || t.platform}</small><b>{one(t.views, 'view', 'views')}</b></li>)}</ol></>}
+      {s.confirmed && <>
+        <span className="pm-res-k">Winners</span>
+        {s.winners.length ? <ol>{s.winners.map(w => <li key={w.place}><span>{campOrdinal(w.place - 1)}: <b>{w.name}</b></span>
+          <small>{w.paid ? 'paid' : 'being paid'}</small><b>{pmMoney(w.amount)}</b></li>)}</ol>
+          : <p className="pm-msg">No prizes were won.</p>}
+        {s.unwon > 0 && <p className="pm-msg">{s.refund_status === 'refunded'
+          ? 'We refunded the ' + pmMoney(s.unwon) + ' of prizes nobody won.'
+          : pmMoney(s.unwon) + ' of prizes went unwon. We are refunding it to you.'}</p>}</>}
+    </div>
+  );
+}
+
 function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaigns, onOpenCampaigns }) {
   const [open, setOpen] = useState(false);
   const now = Date.now() / 1000, c = r.campaign;
@@ -11024,8 +11223,10 @@ function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaign
       {r.status === 'published' && <p className="pm-msg">
         {live ? 'Live in the Campaigns marketplace until ' + campDate(c.end_at) + '. '
           : soon ? 'It goes live in the marketplace ' + campDate(c.start_at) + '. '
-          : over ? 'Ended ' + campDate(c.end_at) + '. Highlightz judges the entries and pays the winners. ' : ''}
+          : over ? 'Ended ' + campDate(c.end_at) + '. ' + (r.results && r.results.confirmed
+            ? 'The winners are picked. ' : 'Highlightz judges the entries and pays the winners. ') : ''}
         {r.payment === 'stripe' ? 'Paid ' + pmMoney((r.amount_paid_cents || 0) / 100) + '.' : 'Published by Highlightz at no charge.'}</p>}
+      {r.status === 'published' && r.results && (live || over) && <PromoteResults s={r.results} live={live}/>}
       {r.status === 'declined' && <div className="pm-note off"><b>Declined</b><span>{r.admin_note || 'This request was declined.'}</span></div>}
       {r.status === 'cancelled' && <p className="pm-msg">You withdrew this request.</p>}
       <div className="pm-card-act">
@@ -12035,6 +12236,13 @@ function RdApp() {
           if(canPromoteRef.current) refetchPromo();
           if(msg.message) flash(msg.message);
         }
+        else if(msg.event==='campaign_notice'){
+          // This account won a campaign prize, or its prize was sent. Scoped
+          // to the winner. The prize rides on the campaign's board, so the
+          // marketplace is re-read; the message says what happened.
+          if(canCampaignsRef.current) refetchCampaigns();
+          if(msg.message) flash(msg.message);
+        }
         else if(msg.event==='offer_changed'){
           // An admin gave, changed or removed this account's discount, or it
           // was dismissed in another tab. /me carries it for the popup; the
@@ -12358,7 +12566,7 @@ function RdApp() {
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip}
-      onPostFor={id=>{ setPostFor(id); setRoute('library'); }}/>;
+      onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}/>;
   else if(view==='promote') screen=<PromoteScreen data={promo} startNew={promoNew} onStarted={()=>setPromoNew(false)}
       onRefresh={refetchPromo} flash={flash} canCampaigns={canCampaigns} onOpenCampaigns={()=>setRoute('campaigns')}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;

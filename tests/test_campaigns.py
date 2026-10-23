@@ -252,9 +252,10 @@ def test_a_good_post_is_recorded_as_an_entry(poster_env):
     r = _post(poster_env, c["id"], ["instagram"], "Ace | from jynxzi #HighlightzCup #clips @highlightz")
     assert r.status_code == 202, r.text
     items = sched.for_campaign(c["id"])
-    assert len(items) == 1 and items[0].campaign_id == c["id"]
-    ent = poster_env.login("boss").get(f"/admin/campaigns/{c['id']}/entries").json()["rows"]
-    assert ent[0]["platforms"] == ["instagram"] and "#HighlightzCup" in ent[0]["caption"]
+    assert len(items) == 1 and items[0].campaign_id == c["id"] and "#HighlightzCup" in items[0].caption
+    # On its way (the poster is stubbed out here), so listed but not counting yet.
+    ent = poster_env.login("boss").get(f"/admin/campaigns/{c['id']}/results").json()["entries"]
+    assert [(e["platform"], e["why_not"]) for e in ent] == [("instagram", "not posted")]
     rows = poster_env.login("boss").get("/admin/campaigns").json()["rows"]
     assert rows[0]["entries"] == 1
 

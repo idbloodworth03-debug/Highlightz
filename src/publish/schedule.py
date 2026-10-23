@@ -315,6 +315,11 @@ def mark_result(item_id: str, user_id: str, platform: str, status: str, *,
     row = {"status": status, "at": time.time()}
     if status == R_POSTED:
         row.update({"url": url, "remote_id": remote_id, "note": note})
+        # The campaign this post went out for. The item's own campaign_id can
+        # change later (the same clip posted elsewhere for another campaign),
+        # and a post that landed for one must not start counting for another.
+        if item.campaign_id:
+            row["campaign_id"] = item.campaign_id
     elif status == R_FAILED:
         row.update({"error": error[:300], "retryable": bool(retryable)})
     item.results[platform] = row

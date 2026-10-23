@@ -1699,6 +1699,7 @@ async def delete_account(request: Request):
     from src.uploads import library as upload_lib
     removed_uploads = upload_lib.delete_all_for_user(uid)
     from src.publish import schedule as sched
+    had_campaign_posts = any(i.campaign_id for i in sched.for_user(uid))
     sched.delete_all_for_user(uid)
     # And the YouTube/TikTok/Instagram tokens that let us post as them.
     from src.publish import connections as _pub_conns
@@ -1720,6 +1721,12 @@ async def delete_account(request: Request):
     for sid in _creq_purge.delete_unpaid_for_user(uid):
         from src.billing import stripe_billing as _sb_purge
         await asyncio.to_thread(_sb_purge.expire_checkout, sid)
+    # Campaign entries and prize payout details go too; a confirmed win stays
+    # as the record of it. Their entries leave every leaderboard, live.
+    # (Their queue went above, which takes entries still on their way.)
+    from src.campaigns import results as _res_purge
+    if _res_purge.forget_user(uid) or had_campaign_posts:
+        await _campaigns_changed()
 
     # Their OTHER open tabs (phone, second window) leave too, live.
     await broadcast({"event": "account_deleted"}, user_id=uid)
@@ -8408,9 +8415,17 @@ def _visible_campaign(campaign_id: str, admin: bool) -> dict:
 
 @app.get("/campaigns")
 async def list_campaigns(request: Request):
+    """The marketplace, each campaign with its leaderboard as this viewer
+    sees it (src/campaigns/results.board). In the listing rather than its own
+    request so every path that re-reads the list (mount, refetchAll on a
+    reconnect, campaigns_changed) brings the standings with it."""
     from src import campaigns as camp
-    _uid, admin = _campaign_viewer(request)
-    return {"rows": camp.listing(include_drafts=admin)}
+    from src.campaigns import results as res
+    uid, admin = _campaign_viewer(request)
+    rows = camp.listing(include_drafts=admin)
+    for r in rows:
+        r["board"] = res.board(camp.get(r["id"]), uid)
+    return {"rows": rows}
 
 
 @app.get("/campaigns/{campaign_id}")
@@ -8439,10 +8454,12 @@ async def _campaigns_changed() -> None:
 async def admin_list_campaigns(request: Request):
     _require_admin(request)
     from src import campaigns as camp
-    from src.publish import schedule as sched
+    from src.campaigns import results as res
     rows = camp.listing(include_drafts=True)
     for r in rows:
-        r["entries"] = len(sched.for_campaign(r["id"]))
+        c = camp.get(r["id"])
+        r["entries"] = len(res.entries(c))
+        r["results"] = res.summary(c)
     return {"rows": rows, "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS)}
 
 
@@ -8477,8 +8494,14 @@ async def admin_update_campaign(request: Request, campaign_id: str):
 async def admin_delete_campaign(request: Request, campaign_id: str):
     _require_admin(request)
     from src import campaigns as camp
+    from src.campaigns import results as res
+    if res.has_winners(campaign_id):
+        raise HTTPException(status_code=400, detail=(
+            "Its winners are confirmed, so it stays as the record of its prizes. "
+            "Untick Published to hide it instead."))
     if not camp.delete(campaign_id):
         raise HTTPException(status_code=404, detail="Campaign not found")
+    res.drop(campaign_id)
     log.info("campaign_deleted", id=campaign_id, by=request.session.get("user_id"))
     await _campaigns_changed()
     return {"ok": True}
@@ -8499,27 +8522,179 @@ async def admin_campaign_image(request: Request, campaign_id: str, file: UploadF
     return camp.public(c)
 
 
-@app.get("/admin/campaigns/{campaign_id}/entries")
-async def admin_campaign_entries(request: Request, campaign_id: str):
-    """Every post made for this campaign, from every user."""
-    _require_admin(request)
+# ── Campaign results: leaderboard, winners, payouts (src/campaigns/results.py)
+#
+# An admin enters each entry's counts, the standings follow the campaign's
+# judging rule, and once it has ended the admin confirms the winners, marks
+# each prize paid and any unwon prizes refunded.
+#
+# REALTIME. Every change re-sends `campaigns_changed`, which re-reads the
+# marketplace (its leaderboards ride in the listing) and the streamers'
+# Promote screens. A winner hears `campaign_notice` (theirs alone) when they
+# win and when their prize is sent; the streamer hears
+# `campaign_request_updated` when winners stand and when a refund is made.
+
+def _admin_campaign(request: Request, campaign_id: str) -> dict:
     from src import campaigns as camp
-    from src.auth import users as user_store
-    from src.publish import schedule as sched
-    if not camp.get(campaign_id):
+    _require_admin(request)
+    c = camp.get(campaign_id)
+    if not c:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    rows = []
-    for it in sched.for_campaign(campaign_id):
-        u = user_store.get_by_id(it.user_id) or {}
-        rows.append({
-            "item_id": it.id,
-            "user": u.get("twitch_login") or u.get("kick_slug") or u.get("username") or it.user_id[:8],
-            "platforms": it.platforms, "status": it.status, "caption": it.caption,
-            "created_at": it.created_at,
-            "results": {p: {"status": r.get("status"), "url": r.get("url", ""), "at": r.get("at", 0),
-                            "error": r.get("error", "")} for p, r in it.results.items()},
-        })
-    return {"rows": rows}
+    return c
+
+
+def _results_error(exc: Exception):
+    from src.campaigns import results as res
+    if isinstance(exc, res.ResultsError):
+        raise HTTPException(status_code=400, detail=str(exc))
+    raise exc
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _place(n: int) -> str:
+    t = n % 100
+    return str(n) + ("th" if 10 < t < 14 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+
+
+async def _tell_streamer(c: dict, message: str) -> None:
+    """The streamer whose paid request became this campaign, if any."""
+    from src.campaigns import requests as creq
+    r = creq.get(c.get("request_id") or "")
+    if r:
+        await _campaign_request_changed(r, message)
+
+
+@app.get("/admin/campaigns/{campaign_id}/results")
+async def admin_campaign_results(request: Request, campaign_id: str):
+    from src.campaigns import results as res
+    return res.admin_view(_admin_campaign(request, campaign_id))
+
+
+@app.post("/admin/campaigns/{campaign_id}/stats")
+async def admin_campaign_stats(request: Request, campaign_id: str):
+    """Counts and disqualifications for many entries at once."""
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    admin_id = request.session.get("user_id", "")
+    try:
+        n = res.save_stats(c, (await _json_body(request)).get("rows"), admin_id)
+    except Exception as exc:
+        _results_error(exc)
+    log.info("campaign_counts_saved", campaign=campaign_id, changed=n, by=admin_id)
+    if n:
+        await _campaigns_changed()
+    return {"changed": n, **res.admin_view(c)}
+
+
+@app.post("/admin/campaigns/{campaign_id}/winners")
+async def admin_campaign_winners(request: Request, campaign_id: str):
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    admin_id = request.session.get("user_id", "")
+    try:
+        rec = res.confirm(c, (await _json_body(request)).get("winners"), admin_id)
+    except Exception as exc:
+        _results_error(exc)
+    log.info("campaign_winners_confirmed", campaign=campaign_id, by=admin_id,
+             winners=len(rec["winners"]), unwon=rec["refund"]["amount"])
+    await _campaigns_changed()
+    for w in rec["winners"]:
+        await broadcast({"event": "campaign_notice", "campaign_id": campaign_id,
+                         "message": f'You won {_place(w["place"])} place in "{c["title"]}": '
+                                    f'${w["amount"]:,.2f}. Open the campaign to say where to send it.'},
+                        user_id=w["user_id"])
+    ref = rec["refund"]
+    await _tell_streamer(c, f'The winners of "{c["title"]}" are picked.'
+                         + (f' ${ref["amount"]:,.2f} of prizes went unwon and will be refunded to you.'
+                            if ref["status"] == "due" else ""))
+    return res.admin_view(c)
+
+
+@app.post("/admin/campaigns/{campaign_id}/winners/reopen")
+async def admin_campaign_winners_reopen(request: Request, campaign_id: str):
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    try:
+        res.reopen(c, request.session.get("user_id", ""))
+    except Exception as exc:
+        _results_error(exc)
+    await _campaigns_changed()
+    return res.admin_view(c)
+
+
+@app.post("/admin/campaigns/{campaign_id}/payouts/{place}")
+async def admin_campaign_payout(request: Request, campaign_id: str, place: int):
+    """Mark a prize paid (with how and a reference), or undo that."""
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    body = await _json_body(request)
+    paid = bool(body.get("paid"))
+    try:
+        w = res.mark_paid(c, place, paid, request.session.get("user_id", ""),
+                          str(body.get("method") or ""), str(body.get("reference") or ""))
+    except Exception as exc:
+        _results_error(exc)
+    log.info("campaign_prize_marked", campaign=campaign_id, place=place, paid=paid)
+    await _campaigns_changed()
+    if paid:
+        await broadcast({"event": "campaign_notice", "campaign_id": campaign_id,
+                         "message": f'Your ${w["amount"]:,.2f} prize for "{c["title"]}" was sent by '
+                                    f'{res.PAYOUT_METHODS[w["paid"]["method"]]}.'},
+                        user_id=w["user_id"])
+    return res.admin_view(c)
+
+
+@app.post("/admin/campaigns/{campaign_id}/refund")
+async def admin_campaign_refund(request: Request, campaign_id: str):
+    """Unwon prizes refunded to the streamer (in Stripe, by hand), or undo."""
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    body = await _json_body(request)
+    try:
+        ref = res.mark_refunded(c, bool(body.get("refunded")), request.session.get("user_id", ""),
+                                str(body.get("reference") or ""))
+    except Exception as exc:
+        _results_error(exc)
+    await _campaigns_changed()
+    if ref["status"] == "refunded":
+        await _tell_streamer(c, f'We refunded ${ref["amount"]:,.2f} of unwon prizes from "{c["title"]}".')
+    return res.admin_view(c)
+
+
+@app.get("/admin/campaigns/{campaign_id}/results.csv")
+async def admin_campaign_results_csv(request: Request, campaign_id: str):
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    return Response(content=res.csv_text(c), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="campaign-{campaign_id[:8]}-results.csv"'})
+
+
+@app.post("/campaigns/{campaign_id}/payout-details")
+async def campaign_payout_details(request: Request, campaign_id: str):
+    """A winner says where to send their prize. Seen by them and admins only."""
+    from src.campaigns import results as res
+    uid, admin = _campaign_viewer(request)
+    c = _visible_campaign(campaign_id, admin)
+    body = await _json_body(request)
+    try:
+        payee = res.set_payee(c, uid, str(body.get("method") or ""), str(body.get("address") or ""))
+    except Exception as exc:
+        _results_error(exc)
+    w = next(w for w in res.admin_view(c)["winners"] if w["user_id"] == uid)
+    log.info("campaign_payout_details_saved", campaign=campaign_id, place=w["place"])
+    await broadcast({"event": "campaigns_changed"}, user_id=uid)
+    _tell_owner_email(f'Prize details in: {c["title"]}',
+                      f'{w["name"]} ({_place(w["place"])} place, ${w["amount"]:,.2f}) wants it by '
+                      f'{res.PAYOUT_METHODS[payee["method"]]}. Pay it, then mark it paid in Admin → '
+                      'Campaigns → Results.')
+    return {"payee": payee}
 
 
 # ── Campaign requests: streamers fund campaigns (src/campaigns/requests.py) ───
@@ -9050,10 +9225,19 @@ async def admin_delete_user(request: Request, user_id: str):
     for sid in _creq_purge.delete_unpaid_for_user(user_id):
         from src.billing import stripe_billing as _sb_purge
         await asyncio.to_thread(_sb_purge.expire_checkout, sid)
+    # Campaign entries and payout details go; a confirmed win stays. Entries
+    # still in their queue stop showing once the account is gone (results
+    # skips an entry whose account no longer exists), so the boards are told
+    # after the delete, not before it.
+    from src.campaigns import results as _res_purge
+    from src.publish import schedule as _sched_purge
+    boards = _res_purge.forget_user(user_id) or any(i.campaign_id for i in _sched_purge.for_user(user_id))
 
     # Realtime: their open tabs sign out now, not on their next click.
     await broadcast({"event": "account_deleted"}, user_id=user_id)
     user_store.delete(user_id)
+    if boards:
+        await _campaigns_changed()
     return {"ok": True, "stripe_cancelled": cancelled,
             "stripe_ok": cancelled is not None}
 
@@ -14056,7 +14240,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p><strong>Cancelling.</strong> You may withdraw a request at any time before you pay. After you pay and before the campaign starts, you may cancel it by emailing us, and we refund the price in full. Once a campaign has started its price is not refundable, except as this Section states.</p>
   <p><strong>Permission to clip.</strong> By running a campaign you grant the users taking part a non-exclusive, worldwide, royalty-free license to clip the streams of the channels it names while it runs, and to post and display those clips on the platforms it names, for the campaign. Clips already posted when it ends may stay posted. You keep all other rights in your streams.</p>
   <p><strong>No promised results.</strong> We do not promise any number of entries, views, followers or any other result from a campaign.</p>
-  <p><strong>Taking part.</strong> If you post for a campaign you must follow its rules and these Terms. We pay prizes by the method we give the winners when the campaign is judged, and may ask for the information we need to pay you and to meet our tax obligations. We may withhold a prize from an entry that breaks a campaign's rules or these Terms, or that used views, likes or comments that were bought or faked.</p>
+  <p><strong>Taking part.</strong> If you post for a campaign you must follow its rules and these Terms. Your username and the counts we record for your entries are shown on the campaign's leaderboard, and the streamer who runs the campaign can see your entries. We pay prizes by a method the winner chooses from those we offer, and may ask for the information we need to pay you and to meet our tax obligations. We may withhold a prize from an entry that breaks a campaign's rules or these Terms, or that used views, likes or comments that were bought or faked.</p>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
   <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a Twitch clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account, and the resulting clip is owned, hosted, and governed by Twitch. When the Service records, edits or posts a video file, it does so because you directed it to, whether by hand or by switching on Autopilot, and anything it posts to an account you connected is posted under that account and is yours. Highlightz acts only as a tool that you direct.</p>
@@ -14162,6 +14346,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
     <li><strong>Campaign requests</strong> — if you ask us to run a campaign, we keep what you send: the campaign's details (its channels, description, rules, prizes, dates and posting requirements), any picture you add, the contact email and Discord name you give us, and the status of the request and of its payment. Your contact details are seen only by you and by us. Once a campaign is published, its details and picture are shown to signed-in users in the marketplace; your contact details and your account are not. The payment is processed by Stripe; we keep the Checkout session id and the amount paid, never card details.</li>
+    <li><strong>Campaign entries and prizes</strong> — when you post a clip for a campaign, we record the counts for it (views, likes and comments) that we read from the post. Your username and those counts are shown on the campaign's leaderboard to signed-in users, and the streamer who ran the campaign sees your entries and their links. If you win, the payout details you give us (for example a PayPal email or a Venmo or Cash App handle) are seen only by you and by us, are used to send your prize, and are deleted with your account; the record of what you won and when it was paid is kept.</li>
     <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch or Kick user id, channel name and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
   <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. Monitoring a Kick channel needs no Kick account. If you sign in with Kick we keep your Kick user ID, username and avatar URL (Section 1) and do not keep the Kick access token. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
@@ -14711,6 +14896,16 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cp-pill.cq-approved,.cp-pill.cq-published,.cp-pill.cq-verified{color:var(--good);border-color:rgba(74,222,128,.35)}
   .cp-pill.cq-declined,.cp-pill.cq-cancelled{color:var(--ink-3)}
   .cq-detail textarea.field{min-height:72px;max-width:none;width:100%;resize:vertical;line-height:1.5}
+  /* Campaign results: counts, standings, winners and payouts. */
+  .cr-h{font-size:14px;margin:var(--s-5) 0 var(--s-2);display:flex;gap:var(--s-2);align-items:baseline}
+  .cr-t .field{width:104px;max-width:none}
+  .cr-t .cr-why{width:168px}
+  .cr-t td .sub{display:block}
+  .cr-dq{display:inline-flex;gap:var(--s-1);align-items:center;font-size:12px;color:var(--ink-3);margin-right:var(--s-2)}
+  .cr-picks{display:grid;gap:var(--s-2);margin-bottom:var(--s-3)}
+  .cr-pl{min-width:132px}
+  .cr-picks .field{max-width:440px}
+  .cr-refund{margin:var(--s-3) 0;font-size:14px;color:var(--ink-2)}
 </style>
 </head>
 <body>
@@ -14921,7 +15116,8 @@ ADMIN_HTML = """<!DOCTYPE html>
       one, then <b>Approve</b> it, <b>Ask for changes</b> or <b>Decline</b> it; the streamer sees your
       note and the new status live. An approved request is paid by card through Stripe, and the
       payment publishes it into the marketplace below by itself. <b>Publish without payment</b> is for
-      partners and tests. Winners are still judged and paid by hand when a campaign ends.
+      partners and tests. Each campaign's <b>Results</b> is where its entries are counted, its winners
+      picked and its prizes marked paid.
     </p>
     <div id="cq-switch"></div>
     <div class="toolbar" id="cq-filters"></div>
@@ -14938,7 +15134,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="toolbar"><button class="btn btn-good" id="cp-new">+ New campaign</button></div>
     <div id="cp-editor"></div>
     <div id="cp-wrap" class="loading">Loading&hellip;</div>
-    <div id="cp-entries"></div>
+    <div id="cp-results"></div>
   </div>
 
   <!-- ── ONBOARDING ── -->
@@ -15364,6 +15560,18 @@ async function loadCampaigns(){
 
 function cpWhen(ts){ return ts ? new Date(ts*1000).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '—'; }
 function cpMoney(n){ return '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 2}); }
+// What a campaign is waiting on, from its results summary.
+function cpTodo(c){
+  const r = c.results || {};
+  if(c.status === 'ended' && !r.confirmed && r.entries) return '<span class="cp-pill draft">pick winners</span>';
+  if(r.confirmed && (r.winners || []).some(function(w){ return !w.paid; })) return '<span class="cp-pill draft">prizes to pay</span>';
+  if(r.confirmed && r.refund_status === 'due') return '<span class="cp-pill draft">refund due</span>';
+  return '';
+}
+function cpToCount(c){
+  const r = c.results || {}, n = (r.entries || 0) - (r.counted || 0);
+  return n > 0 ? ', <b>' + n + ' to count</b>' : '';
+}
 
 function renderCampaigns(){
   const wrap = document.getElementById('cp-wrap');
@@ -15377,12 +15585,12 @@ function renderCampaigns(){
       + (c.image_url ? '<img class="cp-thumb" src="' + esc(c.image_url) + '" alt="">' : '<div class="cp-thumb"></div>')
       + '<div class="t"><b>' + esc(c.title)
         + '<span class="cp-pill ' + esc(c.status) + '">' + esc(c.status) + '</span>'
-        + (c.published ? '' : '<span class="cp-pill draft">draft</span>') + '</b>'
+        + (c.published ? '' : '<span class="cp-pill draft">draft</span>') + cpTodo(c) + '</b>'
         + '<span class="sub">' + cpWhen(c.start_at) + ' &rarr; ' + cpWhen(c.end_at) + ' &middot; '
         + cpMoney(c.prize_pool) + ' &middot; ' + (c.winners || 0) + ' winner' + (c.winners === 1 ? '' : 's')
-        + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + '</span></div>'
+        + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + cpToCount(c) + '</span></div>'
       + '<div class="acts"><button class="btn cp-edit" data-id="' + esc(c.id) + '">Edit</button>'
-      + '<button class="btn cp-ent" data-id="' + esc(c.id) + '">Entries</button>'
+      + '<button class="btn cp-res" data-id="' + esc(c.id) + '">Results</button>'
       + '<button class="btn btn-bad cp-del" data-id="' + esc(c.id) + '">Delete</button></div></div>';
   }).join('') + '</div>';
 }
@@ -15508,29 +15716,214 @@ async function cpSave(){
   finally { btn.disabled = false; }
 }
 
-async function cpEntries(id){
-  const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
-  const box = document.getElementById('cp-entries');
-  box.innerHTML = '<div class="block-head"><h2>Entries &middot; ' + esc(c.title || '') + '</h2></div><div class="loading">Loading&hellip;</div>';
+// ── campaign results: counts, standings, winners, payouts ─
+// Each entry's views (likes, comments) are typed in here from the post itself;
+// the standings follow the campaign's judging rule; once it has ended the
+// winners are confirmed from them, each prize is marked paid and any unwon
+// prizes refunded. Every save reaches the dashboard live (campaigns_changed;
+// campaign_notice to a winner). Re-read with the list while open, but never
+// over something typed and not yet saved.
+let CR_ID = '', CR_DATA = null, CR_DIRTY = false, CR_BUSY = false;
+const CR_PLAT = {tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube'};
+
+function cpAttr(s){ return esc(s).split('"').join('&quot;'); }
+function crNum(v){ return v === null || v === undefined ? '' : String(v); }
+function crPlace(n){ const t = n % 100; return n + ((t > 10 && t < 14) ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'})[n % 10] || 'th'); }
+
+async function cpResults(id, quiet){
+  const box = document.getElementById('cp-results');
+  if(!quiet){ CR_ID = id; CR_DIRTY = false; box.innerHTML = '<div class="loading">Loading&hellip;</div>'; }
   let d;
-  try { d = await api('/admin/campaigns/' + id + '/entries'); }
-  catch(e){ box.innerHTML = '<p class="err">Could not load entries.</p>'; return; }
-  const rows = d.rows || [];
-  let html = '<div class="block-head"><h2>Entries &middot; ' + esc(c.title || '') + '</h2><span class="c">' + rows.length + '</span></div>';
-  if(!rows.length){ box.innerHTML = html + '<p class="sub">Nobody has posted for this campaign yet.</p>'; return; }
-  html += '<div class="tw"><table><thead><tr><th>User</th><th>Posted</th><th>Where</th><th>Caption</th></tr></thead><tbody>';
-  rows.forEach(function(r){
-    const where = r.platforms.map(function(p){
-      const res = r.results[p] || {};
-      if(res.url) return '<a href="' + esc(res.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p) + ' &#8599;</a>';
-      return esc(p) + ' <span class="sub">' + esc(res.status || r.status) + (res.error ? ': ' + esc(res.error) : '') + '</span>';
-    }).join('<br>');
-    html += '<tr><td><b>' + esc(r.user) + '</b></td><td>' + cpWhen(r.created_at) + '</td><td>' + where + '</td>'
-      + '<td class="sub" style="max-width:360px">' + esc(r.caption) + '</td></tr>';
-  });
-  box.innerHTML = html + '</tbody></table></div>';
-  box.scrollIntoView({behavior: 'smooth', block: 'start'});
+  try { d = await api('/admin/campaigns/' + id + '/results'); }
+  catch(e){ if(!quiet) box.innerHTML = '<p class="err">Could not load the results: ' + esc(e.message) + '</p>'; return; }
+  if(id !== CR_ID || (quiet && (CR_DIRTY || CR_BUSY))) return;
+  CR_DATA = d;
+  renderResults();
+  if(!quiet) box.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
+
+function crEntries(d, confirmed){
+  const ents = d.entries || [];
+  let h = '<h3 class="cr-h">Entries <span class="sub">' + ents.length + '</span></h3>';
+  if(!ents.length) return h + '<p class="sub">Nobody has posted for this campaign yet.</p>';
+  h += '<p class="lede">Open each post and type in what it shows. Blank is not counted yet; 0 is a count. '
+    + (confirmed ? '<b>The counts are frozen while the winners stand.</b> Reopen the winners to change them.'
+                 : 'Disqualifying needs a reason, which only admins see.') + '</p>'
+    + '<div class="tw"><table class="cr-t"><thead><tr><th>Clipper</th><th>Post</th><th>Views</th><th>Likes</th>'
+    + '<th>Comments</th><th>Disqualify</th><th>Counts?</th></tr></thead><tbody>';
+  ents.forEach(function(e){
+    const dis = confirmed || e.why_not === 'not posted' ? ' disabled' : '';
+    const where = CR_PLAT[e.platform] || e.platform;
+    h += '<tr class="cr-e" data-key="' + cpAttr(e.key) + '">'
+      + '<td data-l="Clipper"><b>' + esc(e.name) + '</b></td>'
+      + '<td data-l="Post">' + (e.url ? '<a href="' + cpAttr(e.url) + '" target="_blank" rel="noopener noreferrer">' + esc(where) + ' &#8599;</a>' : esc(where))
+        + '<span class="sub">' + (e.posted_at ? cpWhen(e.posted_at) : 'not posted yet') + '</span></td>'
+      + ['views', 'likes', 'comments'].map(function(f){
+          return '<td data-l="' + f + '"><input class="field cr-n" data-f="' + f + '" inputmode="numeric" aria-label="' + f + '" value="' + crNum(e[f]) + '"' + dis + '></td>';
+        }).join('')
+      + '<td data-l="Disqualify"><label class="cr-dq"><input type="checkbox" class="cr-dqb"' + (e.disqualified ? ' checked' : '') + dis + '> out</label>'
+        + '<input class="field cr-why" maxlength="300" placeholder="Why, if out" aria-label="Why it is disqualified" value="' + cpAttr(e.reason || '') + '"' + dis + '></td>'
+      + '<td data-l="Counts?">' + (e.eligible ? '<span class="cp-pill live">yes</span>' : '<span class="sub">' + esc(e.why_not) + '</span>') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  if(!confirmed) h += '<div class="cp-line"><button class="btn btn-good" type="button" id="cr-save">Save counts</button><span class="cp-err" id="cr-err"></span></div>';
+  return h;
+}
+
+function crStandings(d){
+  const st = d.standings || [], unit = d.metric === 'engagement' ? 'engagement' : 'views';
+  let h = '<h3 class="cr-h">Standings <span class="sub">' + esc(d.judging_text) + '</span></h3>';
+  if(!st.length) return h + '<p class="sub">No entry that counts yet.</p>';
+  return h + '<div class="tw"><table><thead><tr><th>#</th><th>Clipper</th><th>Score (' + unit + ')</th><th>Clips</th></tr></thead><tbody>'
+    + st.map(function(r){
+        return '<tr><td data-l="#">' + r.rank + '</td><td data-l="Clipper"><b>' + esc(r.name) + '</b></td>'
+          + '<td data-l="Score">' + Number(r.score).toLocaleString() + '</td><td data-l="Clips">' + r.clips
+          + (r.counted < r.clips ? ' <span class="sub">' + (r.clips - r.counted) + ' not counted</span>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+}
+
+function crPicks(d, c){
+  const st = d.standings || [];
+  const opts = function(sel){
+    return '<option value="">Leave it unfilled</option>' + st.map(function(r){
+      return '<option value="' + cpAttr(r.user_id) + '"' + (r.user_id === sel ? ' selected' : '') + '>#' + r.rank + ' '
+        + esc(r.name) + ' &middot; ' + Number(r.score).toLocaleString() + '</option>';
+    }).join('');
+  };
+  return (c.judging === 'custom' && c.judging_note ? '<p class="lede">Judged by hand: ' + esc(c.judging_note) + '</p>' : '')
+    + '<p class="lede">These follow the standings. Change any place, then confirm: each winner is told at once and asked '
+    + 'where to send their prize, the streamer hears too, and the counts freeze. A place left unfilled is an unwon prize.</p>'
+    + '<div class="cr-picks">' + (d.proposal || []).map(function(p){
+        return '<div class="cp-line"><span class="cp-lab cr-pl">' + crPlace(p.place) + ' &middot; ' + cpMoney(p.amount) + '</span>'
+          + '<select class="field cr-pick" data-place="' + p.place + '" aria-label="' + crPlace(p.place) + ' place">' + opts(p.user_id) + '</select></div>';
+      }).join('') + '</div>'
+    + '<div class="cp-line"><button class="btn btn-good" type="button" id="cr-confirm">Confirm winners</button><span class="cp-err" id="cr-err2"></span></div>';
+}
+
+function crPayouts(d){
+  const methods = d.payout_methods || {}, ref = d.refund || {};
+  const mopts = function(sel){
+    return Object.keys(methods).map(function(k){ return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + esc(methods[k]) + '</option>'; }).join('');
+  };
+  let h = '<p class="sub">Confirmed ' + cpWhen(d.confirmed_at) + '. Send each prize outside Highlightz, then mark it paid here; the winner is told.</p>';
+  if(!d.winners.length) h += '<p class="sub">No places were filled.</p>';
+  else h += '<div class="tw"><table><thead><tr><th>Place</th><th>Winner</th><th>Prize</th><th>Send it to</th><th>Paid</th></tr></thead><tbody>'
+    + d.winners.map(function(w){
+        const to = w.payee ? esc(methods[w.payee.method] || w.payee.method) + ': <b>' + esc(w.payee.address) + '</b>'
+                           : '<span class="sub">waiting for their details</span>';
+        const paid = w.paid
+          ? 'By ' + esc(w.paid.method_label) + ', ' + cpWhen(w.paid.at) + (w.paid.reference ? ' <span class="sub">' + esc(w.paid.reference) + '</span>' : '')
+            + ' <button class="btn cr-unpay" type="button" data-place="' + w.place + '">Undo</button>'
+          : '<div class="cp-line"><select class="field cr-method" data-place="' + w.place + '" aria-label="How it was sent">' + mopts(w.payee ? w.payee.method : 'paypal') + '</select>'
+            + '<input class="field cr-ref" data-place="' + w.place + '" maxlength="200" placeholder="Reference, e.g. the transaction id" aria-label="Reference">'
+            + '<button class="btn btn-good cr-pay" type="button" data-place="' + w.place + '">Mark paid</button></div>';
+        return '<tr><td data-l="Place">' + crPlace(w.place) + '</td><td data-l="Winner"><b>' + esc(w.name) + '</b></td>'
+          + '<td data-l="Prize">' + cpMoney(w.amount) + '</td><td data-l="Send it to">' + to + '</td><td data-l="Paid">' + paid + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  if(ref.status === 'due' || ref.status === 'refunded'){
+    h += '<div class="cp-line cr-refund"><span>Unwon: <b>' + cpMoney(ref.amount) + '</b>, owed back to the streamer (refund it in Stripe).</span>'
+      + (ref.status === 'refunded'
+        ? '<span>Refunded ' + cpWhen(ref.at) + (ref.reference ? ' <span class="sub">' + esc(ref.reference) + '</span>' : '') + '</span><button class="btn cr-unrefund" type="button">Undo</button>'
+        : '<input class="field cr-rref" maxlength="200" placeholder="Stripe refund id" aria-label="Stripe refund id"><button class="btn btn-good cr-refund-b" type="button">Mark refunded</button>')
+      + '</div>';
+  } else if(ref.amount > 0){
+    h += '<p class="sub">Unwon: ' + cpMoney(ref.amount) + '. Nobody paid for this campaign, so there is nothing to refund.</p>';
+  }
+  if(!d.winners.some(function(w){ return w.paid; }) && ref.status !== 'refunded')
+    h += '<div class="cp-line"><button class="btn btn-bad" type="button" id="cr-reopen">Reopen winners</button>'
+      + '<span class="sub">Unfreezes the counts so you can pick again. Nobody is told.</span></div>';
+  return h;
+}
+
+function renderResults(){
+  const d = CR_DATA, box = document.getElementById('cp-results');
+  if(!d){ box.innerHTML = ''; return; }
+  const c = CP_ROWS.find(function(x){ return x.id === CR_ID; }) || {};
+  const confirmed = !!d.confirmed_at;
+  let h = '<div class="block-head" style="margin-top:var(--s-7)"><h2>Results &middot; ' + esc(c.title || '') + '</h2>'
+    + '<span class="c">' + esc(d.status) + '</span></div>'
+    + '<div class="toolbar"><a class="btn" href="/admin/campaigns/' + cpAttr(CR_ID) + '/results.csv">Download CSV</a>'
+    + '<button class="btn" type="button" id="cr-close">Close</button></div>'
+    + crEntries(d, confirmed) + crStandings(d) + '<h3 class="cr-h">Winners</h3>';
+  if(confirmed) h += crPayouts(d);
+  else if(d.status !== 'ended') h += '<p class="sub">Picked once it ends (' + cpWhen(c.end_at) + '). To close it early, edit it and move its end to now.</p>';
+  else h += crPicks(d, c);
+  box.innerHTML = h;
+}
+
+async function crPost(path, body, done){
+  CR_BUSY = true;
+  try {
+    CR_DATA = await apiJson('/admin/campaigns/' + CR_ID + path, 'POST', body);
+    CR_DIRTY = false;
+    renderResults();
+    toast(done);
+    loadCampaigns();
+  } catch(e){ toast(e.message, false); }
+  finally { CR_BUSY = false; }
+}
+
+async function crSave(){
+  const rows = Array.prototype.map.call(document.querySelectorAll('#cp-results .cr-e'), function(tr){
+    const v = function(f){ return tr.querySelector('.cr-n[data-f="' + f + '"]').value; };
+    return {key: tr.getAttribute('data-key'), views: v('views'), likes: v('likes'), comments: v('comments'),
+            disqualified: tr.querySelector('.cr-dqb').checked, reason: tr.querySelector('.cr-why').value};
+  });
+  const err = document.getElementById('cr-err');
+  err.textContent = '';
+  CR_BUSY = true;
+  try {
+    const d = await apiJson('/admin/campaigns/' + CR_ID + '/stats', 'POST', {rows: rows});
+    CR_DATA = d; CR_DIRTY = false;
+    renderResults();
+    toast(d.changed ? 'Saved ' + d.changed + ' entr' + (d.changed === 1 ? 'y' : 'ies') + '. The leaderboard is updated.' : 'Nothing had changed.');
+    loadCampaigns();
+  } catch(e){ err.textContent = e.message; }
+  finally { CR_BUSY = false; }
+}
+
+async function crConfirm(){
+  const picks = Array.prototype.map.call(document.querySelectorAll('#cp-results .cr-pick'), function(s){
+    return {place: Number(s.getAttribute('data-place')), user_id: s.value};
+  });
+  const n = picks.filter(function(p){ return p.user_id; }).length;
+  if(!confirm('Confirm ' + n + ' winner' + (n === 1 ? '' : 's') + '? Each one is told at once, and the counts freeze.')) return;
+  CR_BUSY = true;
+  try {
+    CR_DATA = await apiJson('/admin/campaigns/' + CR_ID + '/winners', 'POST', {winners: picks});
+    CR_DIRTY = false;
+    renderResults();
+    toast('Winners confirmed. They have been told.');
+    loadCampaigns();
+  } catch(e){ const el = document.getElementById('cr-err2'); if(el) el.textContent = e.message; }
+  finally { CR_BUSY = false; }
+}
+
+document.getElementById('cp-results').addEventListener('click', function(e){
+  const t = e.target.closest('button');
+  if(!t || CR_BUSY) return;
+  const place = t.getAttribute('data-place');
+  const val = function(sel){ const el = document.querySelector('#cp-results ' + sel); return el ? el.value.trim() : ''; };
+  if(t.id === 'cr-close'){ CR_ID = ''; CR_DATA = null; CR_DIRTY = false; renderResults(); return; }
+  if(t.id === 'cr-save'){ crSave(); return; }
+  if(t.id === 'cr-confirm'){ crConfirm(); return; }
+  if(t.id === 'cr-reopen'){
+    if(confirm('Reopen the winners? The counts unfreeze and you pick again. Nobody is told.')) crPost('/winners/reopen', {}, 'Reopened.');
+    return;
+  }
+  if(t.classList.contains('cr-pay')){
+    crPost('/payouts/' + place, {paid: true, method: val('.cr-method[data-place="' + place + '"]'),
+      reference: val('.cr-ref[data-place="' + place + '"]')}, 'Marked paid. The winner is told.');
+    return;
+  }
+  if(t.classList.contains('cr-unpay')){ if(confirm('Mark this prize as not paid?')) crPost('/payouts/' + place, {paid: false}, 'Marked not paid.'); return; }
+  if(t.classList.contains('cr-refund-b')){ crPost('/refund', {refunded: true, reference: val('.cr-rref')}, 'Marked refunded. The streamer is told.'); return; }
+  if(t.classList.contains('cr-unrefund')){ if(confirm('Mark the refund as not made?')) crPost('/refund', {refunded: false}, 'Marked not refunded.'); }
+});
+// Anything typed in the box holds off the background re-read until it is saved.
+['input', 'change'].forEach(function(ev){
+  document.getElementById('cp-results').addEventListener(ev, function(){ CR_DIRTY = true; });
+});
 
 document.getElementById('cp-new').addEventListener('click', function(){ openCampaignEditor(null); });
 document.getElementById('panel-campaigns').addEventListener('click', async function(e){
@@ -15544,12 +15937,16 @@ document.getElementById('panel-campaigns').addEventListener('click', async funct
   if(t.id === 'cp-cancel'){ document.getElementById('cp-editor').innerHTML = ''; CP_EDIT = null; return; }
   const id = t.getAttribute('data-id');
   if(t.classList.contains('cp-edit')){ openCampaignEditor(CP_ROWS.find(function(c){ return c.id === id; })); return; }
-  if(t.classList.contains('cp-ent')){ cpEntries(id); return; }
+  if(t.classList.contains('cp-res')){ cpResults(id); return; }
   if(t.classList.contains('cp-del')){
     const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
     if(!confirm('Delete "' + (c.title || 'this campaign') + '"? It disappears from the marketplace. Posts already made stay on the platforms.')) return;
-    try { await api('/admin/campaigns/' + id, 'DELETE'); toast('Deleted'); loadCampaigns(); }
-    catch(err){ toast(err.message); }
+    try {
+      await api('/admin/campaigns/' + id, 'DELETE'); toast('Deleted');
+      if(CR_ID === id){ CR_ID = ''; CR_DATA = null; renderResults(); }
+      loadCampaigns();
+    }
+    catch(err){ toast(err.message, false); }
   }
 });
 document.getElementById('panel-campaigns').addEventListener('input', function(e){
@@ -15573,7 +15970,11 @@ function campaignsOpen(){
   return CP_LOADED && panel && panel.classList.contains('on') && !document.hidden
     && !document.getElementById('cp-form');
 }
-setInterval(function(){ if(campaignsOpen()) loadCampaigns(); }, 30000);
+setInterval(function(){
+  if(!campaignsOpen()) return;
+  loadCampaigns();
+  if(CR_ID) cpResults(CR_ID, true);
+}, 30000);
 
 // ── campaign requests (streamers fund campaigns) ──────────
 // Sent from the dashboard's Promote screen. Approving lets the streamer pay
