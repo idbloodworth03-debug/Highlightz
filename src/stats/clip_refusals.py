@@ -100,10 +100,15 @@ def record(channel: str, reason: str, user_id: str = "") -> None:
     _save(rows)
 
 
-def clear(channel: str) -> list[str]:
+def clear(channel: str, older_than: float | None = None) -> list[str]:
     """Forget a channel — it clipped successfully, so whatever was wrong is
     fixed. Without this the tally only ever grows and a channel that recovered
     a month ago still reads as broken.
+
+    `older_than`: forget it only if its last refusal came before then. A
+    Twitch clip is finished off the clip queue (src/main.py), so its success
+    lands up to a minute after Twitch accepted it. A refusal recorded in that
+    gap is newer news than the clip, and the channel is refusing now.
 
     Returns the users who were being warned about it, so the caller can take
     the warning off their screens. They are returned rather than looked up
@@ -113,9 +118,12 @@ def clear(channel: str) -> list[str]:
     if not channel:
         return []
     rows = _load()
-    row = rows.pop(channel.lower(), None)
+    row = rows.get(channel.lower())
     if row is None:
         return []
+    if older_than is not None and float(row.get("last_seen") or 0) >= older_than:
+        return []
+    rows.pop(channel.lower(), None)
     _save(rows)
     return list(row.get("users") or [])
 

@@ -171,7 +171,7 @@ def test_the_skip_happens_before_the_expensive_work():
     import src.main as main
     src = inspect.getsource(main.run_clip_processor)
     skip_at = src.index("_title_automod_until.get")
-    process_at = src.index("processor.process(job)")
+    process_at = src.index("processor.start(job)")
     assert skip_at < process_at, "the automod backoff is checked after the clip call"
 
 

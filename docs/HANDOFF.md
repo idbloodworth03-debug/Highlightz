@@ -6101,7 +6101,7 @@ or in Safari, and the fix stands on its own.
     whether TikTok gets it silent too. nginx's user agent on the 16:55
     download says which device made it.
 
-## Open: a burst of `twitch_clip_not_ready` on jynxzi (2026-10-23)
+## A burst of `twitch_clip_not_ready` on jynxzi, and the poll moved off the queue (2026-10-23)
 
 Alert email: `twitch_clip_not_ready` x21, 11:07–12:23 UTC, 20 in one hour.
 The example is jynxzi, slug `NaiveSpikySageShazBotstix-GTL59poWclA1cZpE`,
@@ -6194,17 +6194,81 @@ hour:
   are moments skipped because an account's review queue was at its plan
   cap. That is working as designed, and the report does not say whose.
 
-**Recommended (not done; the owner's go):** poll for the clip OFF the queue.
-- Create Clip is the time-critical step: Twitch captures at the call. The
-  poll is not.
-- Handing the poll, and everything after it, to a background task lets the
-  next job start at once. A lost clip then holds nobody.
-- This also frees the queue the ~5 s a success spends polling.
-- Options that go with it, or instead:
-  - a per-channel pause after a run of failures (fewer wasted calls and
-    toasts in a bad hour, like the automod back-off);
+**DONE (owner: "yes make the background-check change"): the poll runs off
+the queue.** Create Clip is the time-critical step, since Twitch captures at
+the call; the poll is not.
+
+- **The processor (`src/processor/clip_processor.py`):**
+  - `start(job)` does what must happen in the queue's order. On Kick that is
+    the whole job. On Twitch it is the token, broadcaster id, post-roll and
+    Create Clip, and it returns a `PendingTwitchClip`.
+  - `PendingTwitchClip.finish()` is the old poll plus filling in the record.
+    It raises `ClipNotReadyError` as before, and it stamps `requested_at`.
+  - `process(job)` is start + finish in one piece, for direct callers and
+    tests.
+- **The queue (`src/main.py`):** `run_clip_processor` hands a
+  `PendingTwitchClip` to `_finish_twitch_clip` as a tracked task (`_finishing`)
+  and starts the next job at once.
+  - What the queue did after its poll now lives in helpers both paths call:
+    `_clip_succeeded` (refusals cleared and announced, `notify_clip_ready`),
+    `_log_clip_error` (no ERROR for not-ready), `_tell_clip_failed` (the toast)
+    and `_discard_clip_file`.
+  - The loop's `finally` skips handed-off jobs; the finish owns their file.
+- **Three things the one-at-a-time order used to guarantee, kept on purpose:**
+  - **The review-queue cap stays exact.** `_twitch_in_flight` counts clips
+    created and not yet stored or lost per account. The pre-check adds them
+    to `pending_room`, so a full queue still never leaves an orphan clip on
+    the user's Twitch account.
+  - **Get Clips load is bounded.** At most `_POLL_SLOTS` (6) checks run at
+    once, at most ~144 Helix calls a minute. Beyond that a check waits for a
+    slot; the queue does not.
+  - **A success cannot erase a newer refusal.**
+    `clip_refusals.clear(channel, older_than=requested_at)` keeps a refusal
+    recorded after Twitch accepted the clip. Without the bound, a success
+    landing a minute late could take a current automod or classification
+    banner off the user's screen.
+- `_FINISH_TIMEOUT_S` = 120 s is a net; get_clip gives up after ~50 s by
+  itself. The poll length is unchanged: it no longer holds anyone, and on
+  10-20 a few clips took 30–42.5 s.
+- `clip_not_ready_report`'s per-hour column is now "waited on not-ready".
+  That time held the whole queue before this change and holds only the lost
+  clip after it.
+- **Blast radius:**
+  - Changed: Twitch clip jobs after Create Clip, i.e. when they are stored,
+    from where, and what the queue waits on.
+  - Unchanged: what is stored, the events (`clip_ready`, `clip_failed`,
+    `refusals_changed`) and their scope, the toasts, the log lines, the
+    files, Kick, scoring and triggers.
+  - New: Twitch clips can land out of trigger order. The dashboard sorts by
+    `created_at`, and `notify_clip_ready`'s dedup is order-blind.
+  - A restart mid-check cancels it and discards the file, as a restart
+    mid-poll always did.
+- **Verified here:**
+  - `tests/test_clip_finish_off_queue.py` (7) runs the real loop:
+    - the next job starts while a check is still running;
+    - a finished clip is stored with its Twitch fields and keeps its file;
+    - a lost clip is toasted, discarded and no longer counted;
+    - an in-flight clip fills the 20th slot, so the next moment is skipped
+      as full while another account's job goes on;
+    - with 2 slots, 4 jobs all start and only 2 checks run at once;
+    - Kick is still finished in line;
+    - a refusal newer than the 202 survives.
+  - `test_clip_not_ready.py` now drives a real `PendingTwitchClip` through
+    the hand-off.
+  - Source-order tests now point at `processor.start(job)` and
+    `_clip_succeeded`. The fake processors use `start`: with `process` they
+    were passing on an AttributeError.
+  - Six deliberate breakages, each caught: polling inline again, the cap
+    ignoring in-flight clips, no slot limit, the loop discarding handed-off
+    files, a success clearing newer refusals, and in-flight counts never
+    dropping.
+  - Full suite 3909 passed.
+- **On prod after the deploy:** in a bad hour, `processing_clip_job` lines
+  keep coming seconds apart while `twitch_clip_not_ready` lands ~50 s after
+  each request. `clip_not_ready_report` should show the queue's waits near 0
+  and no stale drops from it.
+- **Still open, the owner's call:**
+  - a per-channel pause after a run of failures (fewer wasted Create Clip
+    calls and toasts in a bad hour);
   - keeping our own captured file when Twitch never makes the clip (as on
-    Kick; a product decision);
-  - a shorter poll alone. Twitch's docs say 15 s; today's slowest success
-    was 27.5 s, and on 10-20 a handful took 30–42.5 s. It still blocks, just
-    for less time.
+    Kick; a product decision).

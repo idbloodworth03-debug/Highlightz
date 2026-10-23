@@ -10,16 +10,18 @@ measured on 2026-10-20. Create Clip answered 202 each time; Get Clips never
 showed a playable clip within the ~50s poll, so the moment was dropped.
 
 ONE CLIP AT A TIME. `run_clip_processor` is a single loop over one queue for
-every account, channel and platform, and `get_clip` polls inside it. So a
-clip Twitch never makes holds every other job for ~56s (post-roll, Create
-Clip, 20 polls 2.5s apart), and a job older than MAX_CLIP_JOB_AGE_SECS (90s)
-is dropped as stale. The queue section measures that cost. It also means two
-of our Create Clip calls are never in flight at once, and that requests
-spacing out to ~56s apart is a run of failures, not a detector.
+every account, channel and platform, so two of our Create Clip calls are
+never in flight at once. Until 2026-10-23 `get_clip` also polled inside it:
+a clip Twitch never made held every other job for ~56s (post-roll, Create
+Clip, 20 polls 2.5s apart), requests spaced out to ~56s apart in a run of
+failures, and jobs older than MAX_CLIP_JOB_AGE_SECS (90s) were dropped as
+stale. Since then the poll runs off the queue (main._finish_twitch_clip), so
+a lost clip costs only itself. The queue section is how to see that it does.
 
 The sections:
-  per hour     Twitch requests, ready, not ready, and minutes the queue spent
-               waiting on clips that never came
+  per hour     Twitch requests, ready, not ready, and minutes spent waiting on
+               clips that never came (the whole queue's minutes before
+               2026-10-23; only those clips' since)
   the queue    every clip job (Twitch and Kick): how long each waited to
                start, and how many were dropped as stale or skipped as full
   per channel  Twitch requests by channel
@@ -173,7 +175,7 @@ def report(lines, out=print, twitch=ask_twitch, names=_names) -> int:
         return 0
 
     out("== per hour (UTC): Twitch clip requests and what became of them ==")
-    out("   hour          requested  ready  not ready  rate   slowest ready   queue held by not-ready")
+    out("   hour          requested  ready  not ready  rate   slowest ready   waited on not-ready")
     hours: dict[str, Counter] = defaultdict(Counter)
     slow: dict[str, list] = defaultdict(list)
     held: dict[str, float] = defaultdict(float)

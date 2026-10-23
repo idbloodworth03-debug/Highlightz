@@ -122,7 +122,7 @@ def test_the_processor_checks_before_creating_the_twitch_clip():
     import src.main as main
     src = inspect.getsource(main.run_clip_processor)
     check_at = src.index("pending_room(")
-    process_at = src.index("processor.process(job)")
+    process_at = src.index("processor.start(job)")
     assert check_at < process_at, "the cap is checked after the clip is created"
     assert "notify_clip_missed" in src
     # Ordering alone is not enough: the check has to be ACTED ON. Found by

@@ -146,8 +146,18 @@ def loop(monkeypatch):
                 served["done"] = True
                 return _job()
 
+        async def _never(slug, *a, **k):
+            return None
+        monkeypatch.setattr(twitch_clips, "get_clip", _never)
+
         class P:
-            async def process(self, job):
+            async def start(self, job):
+                if isinstance(exc, twitch_clips.ClipNotReadyError):
+                    # The real shape since 2026-10-23: Create Clip took it, the
+                    # queue hands it off, and the finish off the queue finds
+                    # Twitch never made it.
+                    from src.processor.clip_processor import PendingTwitchClip
+                    return PendingTwitchClip(object(), "s1", job.channel)
                 raise exc
         monkeypatch.setattr(M, "_queue", Q())
         monkeypatch.setattr(M, "ClipProcessor", lambda *a, **k: P())

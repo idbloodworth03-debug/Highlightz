@@ -11,6 +11,8 @@ matters because this may run in a different process.
 """
 
 import asyncio
+import time
+
 import structlog
 
 from src.queue.job_queue import ClipJob
@@ -31,12 +33,77 @@ class TwitchAuthExpiredError(RuntimeError):
     """
 
 
+class PendingTwitchClip:
+    """A clip Twitch accepted (Create Clip answered 202) and is still making.
+
+    `finish()` polls Get Clips until the clip is playable and fills in the
+    metadata, or raises ClipNotReadyError when Twitch never makes it.
+
+    WHY THIS IS ITS OWN STEP (2026-10-23). src/main.py runs one clip job at a
+    time for every account, channel and platform. Create Clip belongs in that
+    line: Twitch captures the 30s before the call, so every second a job waits
+    moves its moment out of the clip. The poll does not belong there. It only
+    asks whether Twitch has finished, and inside the line a clip Twitch never
+    made held every other job for ~56s. On 2026-10-23 a bad hour on one
+    channel held the line for 29 minutes, and 9 moments on three channels aged
+    past 90s and were dropped. The line now hands this to a background task
+    and moves straight on to the next job.
+    """
+
+    def __init__(self, meta: ClipMetadata, slug: str, channel: str) -> None:
+        self.meta = meta
+        self.slug = slug
+        self.channel = channel
+        # When Twitch accepted it. A refusal recorded after this is newer news
+        # than the clip, so the clip's success must not erase it.
+        self.requested_at = time.time()
+
+    async def finish(self) -> ClipMetadata:
+        clip = await twitch_clips.get_clip(self.slug, channel=self.channel)
+        if not clip:
+            # Twitch accepted the clip request (202) but the clip never became
+            # queryable — the capture failed (broadcast buffer too short, VODs
+            # disabled, etc.). Fabricating a clips.twitch.tv/{slug} link here just
+            # produces a "Clip is no longer available" page, so fail the job
+            # instead and let a future trigger try again.
+            raise twitch_clips.ClipNotReadyError(
+                f"Twitch clip '{self.slug}' for '{self.channel}' never finished processing — "
+                "capture failed (broadcast too short or VODs disabled on the channel)"
+            )
+
+        meta = self.meta
+        meta.twitch_clip_id   = clip.get("id", self.slug)
+        meta.twitch_url       = clip.get("url", f"https://clips.twitch.tv/{self.slug}")
+        meta.embed_url        = clip.get("embed_url", f"https://clips.twitch.tv/embed?clip={self.slug}")
+        meta.thumbnail_url    = clip.get("thumbnail_url", "")
+        meta.duration_seconds = float(clip.get("duration", 0.0) or 0.0)
+        if clip.get("title"):
+            meta.clip_title = meta.clip_title or clip["title"]
+
+        meta.status = "pending"
+        log.info("twitch_clip_ready", clip_id=meta.id, slug=self.slug, url=meta.twitch_url)
+        return meta
+
+
 class ClipProcessor:
     def __init__(self, storage=None, buffers=None) -> None:
         # storage/buffers kept for call-site compatibility; no longer used.
         self._broadcaster_cache: dict[str, str] = {}
 
     async def process(self, job: ClipJob) -> ClipMetadata:
+        """The whole job in one piece: on Twitch, Create Clip AND the wait for
+        Twitch to finish it. The clip queue (src/main.py) calls start() and
+        finishes Twitch clips off the queue instead."""
+        started = await self.start(job)
+        if isinstance(started, PendingTwitchClip):
+            return await started.finish()
+        return started
+
+    async def start(self, job: ClipJob) -> "ClipMetadata | PendingTwitchClip":
+        """What has to happen in the queue's order. On Kick that is the whole
+        job (a record for the file the stream worker cuts). On Twitch it is
+        everything up to and including Create Clip; what comes back is a
+        PendingTwitchClip to finish."""
         channel = job.channel
 
         meta = ClipMetadata(
@@ -62,7 +129,7 @@ class ClipProcessor:
 
         return await self._process_twitch(job, meta, channel)
 
-    async def _process_twitch(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
+    async def _process_twitch(self, job: ClipJob, meta: ClipMetadata, channel: str) -> PendingTwitchClip:
         token = await user_store.get_valid_twitch_token(job.user_id)
         if not token:
             raise TwitchAuthExpiredError(
@@ -99,30 +166,9 @@ class ClipProcessor:
         slug = await twitch_clips.create_clip(token, broadcaster_id)
         if not slug:
             raise RuntimeError(f"Twitch clip creation failed for '{channel}'")
-
-        clip = await twitch_clips.get_clip(slug, channel=channel)
-        if not clip:
-            # Twitch accepted the clip request (202) but the clip never became
-            # queryable — the capture failed (broadcast buffer too short, VODs
-            # disabled, etc.). Fabricating a clips.twitch.tv/{slug} link here just
-            # produces a "Clip is no longer available" page, so fail the job
-            # instead and let a future trigger try again.
-            raise twitch_clips.ClipNotReadyError(
-                f"Twitch clip '{slug}' for '{channel}' never finished processing — "
-                "capture failed (broadcast too short or VODs disabled on the channel)"
-            )
-
-        meta.twitch_clip_id   = clip.get("id", slug)
-        meta.twitch_url       = clip.get("url", f"https://clips.twitch.tv/{slug}")
-        meta.embed_url        = clip.get("embed_url", f"https://clips.twitch.tv/embed?clip={slug}")
-        meta.thumbnail_url    = clip.get("thumbnail_url", "")
-        meta.duration_seconds = float(clip.get("duration", 0.0) or 0.0)
-        if clip.get("title"):
-            meta.clip_title = meta.clip_title or clip["title"]
-
-        meta.status = "pending"
-        log.info("twitch_clip_ready", clip_id=meta.id, slug=slug, url=meta.twitch_url)
-        return meta
+        # Twitch has the request. Whether it finishes is PendingTwitchClip's
+        # question, asked off the queue (see its docstring).
+        return PendingTwitchClip(meta, slug, channel)
 
     async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
         """A Kick clip is the FILE the stream worker cuts from its live capture

@@ -125,7 +125,7 @@ class _Proc:
     def __init__(self, raises=None):
         self.raises = raises
 
-    async def process(self, job):
+    async def start(self, job):
         if self.raises:
             raise self.raises
         return _Meta(job.clip_id)

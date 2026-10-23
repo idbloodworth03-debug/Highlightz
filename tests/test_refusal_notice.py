@@ -352,10 +352,14 @@ def test_recovery_takes_the_notice_off_the_screen():
     """The channel clipping again is the good news, and it has to arrive the
     same way the bad news did."""
     import inspect
-    src = inspect.getsource(__import__("src.main", fromlist=["x"]).run_clip_processor)
-    assert "_refusals.clear(job.channel)" in src
-    assert "refusals_changed" in src, \
+    main = __import__("src.main", fromlist=["x"])
+    ok = inspect.getsource(main._clip_succeeded)
+    assert "_refusals.clear(job.channel" in ok
+    assert "refusals_changed" in ok, \
         "the banner would sit there until the user reloaded"
+    # Both success paths: inline, and a Twitch clip finished off the queue.
+    assert "_clip_succeeded(" in inspect.getsource(main.run_clip_processor)
+    assert "_clip_succeeded(" in inspect.getsource(main._finish_twitch_clip)
 
 
 def test_the_event_has_a_frontend_handler():

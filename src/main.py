@@ -25,7 +25,7 @@ from src.ingestion.platform.youtube import YouTubePlatform
 from src.ingestion.platform.kick import KickPlatform
 from src.chat.platform import kick_events as _kick_events
 from src.queue.job_queue import JobQueue
-from src.processor.clip_processor import ClipProcessor, TwitchAuthExpiredError
+from src.processor.clip_processor import ClipProcessor, PendingTwitchClip, TwitchAuthExpiredError
 from src.output import twitch_clips
 
 log = structlog.get_logger(__name__)
@@ -230,13 +230,136 @@ async def _tell_refused(user_id: str) -> None:
         pass
 
 
+# ── Twitch clips Twitch is still making, finished OFF the queue ──────────────
+#
+# Since 2026-10-23. The queue below runs one job at a time for every account,
+# channel and platform. It used to wait inside each Twitch job for Get Clips to
+# show the clip (~50s when Twitch never makes it), and on 2026-10-23 a bad hour
+# on jynxzi held the whole line for 29 minutes: waits reached 90s, and 9
+# moments on three channels were dropped as stale. Now the queue stops at
+# Create Clip (the time-critical call), hands the rest to a task here, and
+# starts the next job at once. A lost clip now costs only itself.
+#
+# What the queue did after the poll happens here, through the same helpers,
+# so the two paths cannot drift: refusals cleared and announced, the clip
+# stored and announced, the failure logged and toasted, the file discarded
+# unless kept.
+_POLL_SLOTS = 6            # Get Clips polls at once: 6 x 24 calls a minute at most
+_FINISH_TIMEOUT_S = 120.0  # get_clip gives up by itself after ~50s; this is the net
+_finishing: set[asyncio.Task] = set()       # strong refs: a bare task can be collected
+# user_id -> clips created on Twitch and not yet stored or lost. The queue-full
+# check counts them: each may land in the review queue any second, and the cap
+# is checked before Create Clip so that a full queue never leaves an orphan
+# clip on the user's Twitch account.
+_twitch_in_flight: dict[str, int] = {}
+
+
+def _log_clip_error(job, exc: BaseException) -> None:
+    """The ERROR for a clip job that failed. Call it inside the except block:
+    it formats the exception being handled.
+
+    Twitch never finishing a clip is not an error of ours (see
+    ClipNotReadyError): get_clip has already logged it as the warning
+    twitch_clip_not_ready, so a burst still alerts. Logged here as an error,
+    each one emailed the owner."""
+    if isinstance(exc, twitch_clips.ClipNotReadyError):
+        return
+    import traceback as _tb
+    log.error("clip_processor_error", error=str(exc),
+              channel=getattr(job, "channel", "?") if job else "?",
+              user_id=getattr(job, "user_id", "?") if job else "?",
+              traceback=_tb.format_exc())
+
+
+async def _tell_clip_failed(job) -> None:
+    """Surface a failed clip to the user's open tab. Without this a triggered
+    clip that fails to capture (ghost clip, rate-limit, token expiry) silently
+    never appears, with no explanation — the realtime contract requires the
+    user to learn about it live."""
+    _uid = getattr(job, "user_id", "") if job else ""
+    if not _uid:
+        return
+    _ch = getattr(job, "channel", "") or "your stream"
+    try:
+        await dashboard_api.broadcast(
+            {"event": "clip_failed", "channel": _ch,
+             "message": f"A clip from {_ch} couldn't be captured — it'll try again on the next moment."},
+            user_id=_uid,
+        )
+    except Exception:
+        pass
+
+
+def _discard_clip_file(job) -> None:
+    """EVERY way out that did not keep a clip — queue full, a stale backlog, a
+    Twitch refusal, an error, a duplicate — leaves a video file the stream
+    worker is about to cut (or has cut) with no record pointing at it. Discard
+    it rather than let it take the space of a file somebody can download
+    (2026-10-13: 27 such files from one channel in a day)."""
+    try:
+        from src.clips import files as _clip_files
+        _clip_files.discard(job.clip_id)
+    except Exception as exc:
+        log.warning("clip_file_discard_failed", clip_id=job.clip_id, error=str(exc))
+
+
+async def _clip_succeeded(job, meta, since: float | None = None) -> bool:
+    """A clip came out. Returns whether it was KEPT (notify_clip_ready's
+    answer: False for a duplicate, or a queue that filled in the race).
+
+    First, whatever Twitch was refusing about this channel is over. Without
+    this the tally only ever grows and a channel that recovered weeks ago
+    still reads as broken — which would make the admin list useless within a
+    month. Everyone who was warned about it is told to re-read, so the notice
+    leaves their screen the moment the channel recovers instead of on their
+    next page load. The uids come back from clear() because it just deleted
+    the only record of who they were. `since` is when Twitch accepted the
+    clip: a refusal recorded after that is newer than this success and stays.
+    """
+    for _was_warned in _refusals.clear(job.channel, older_than=since):
+        try:
+            await dashboard_api.broadcast(
+                {"event": "refusals_changed"}, user_id=_was_warned)
+        except Exception:
+            pass
+    return bool(await dashboard_api.notify_clip_ready(meta.to_dict()))
+
+
+async def _finish_twitch_clip(job, pending: PendingTwitchClip,
+                              slots: asyncio.Semaphore) -> None:
+    """Wait for Twitch to finish one clip, off the queue, then do what the
+    queue used to do after its poll."""
+    kept = False
+    try:
+        async with slots:
+            meta = await asyncio.wait_for(pending.finish(), timeout=_FINISH_TIMEOUT_S)
+        kept = await _clip_succeeded(job, meta, since=pending.requested_at)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        _log_clip_error(job, exc)
+        await _tell_clip_failed(job)
+    finally:
+        left = _twitch_in_flight.get(job.user_id, 0) - 1
+        if left > 0:
+            _twitch_in_flight[job.user_id] = left
+        else:
+            _twitch_in_flight.pop(job.user_id, None)
+        if not kept:
+            _discard_clip_file(job)
+
+
 async def run_clip_processor() -> None:
     processor = ClipProcessor()
+    # Made here, not at import: an asyncio primitive belongs to the event loop
+    # that first uses it.
+    slots = asyncio.Semaphore(_POLL_SLOTS)
     log.info("clip_processor_started")
     queue_backoff = _QUEUE_RETRY_START
     while True:
         job = None
         kept = False
+        handed_off = False     # finished off the queue; it owns the file now
         try:
             job = await _queue.pop(timeout=5)
             queue_backoff = _QUEUE_RETRY_START   # the queue answered; reset
@@ -264,6 +387,9 @@ async def run_clip_processor() -> None:
             # never appears in Highlightz, and it would spend a Helix call from
             # a budget shared with every other user.
             _used, _cap = dashboard_api.pending_room(job.user_id)
+            # Plus clips already created and still being finished off the
+            # queue: each is a review-queue slot the moment it lands.
+            _used += _twitch_in_flight.get(job.user_id, 0)
             if _used >= _cap:
                 log.info("clip_skipped_queue_full", channel=job.channel,
                          user_id=job.user_id, pending=_used, cap=_cap)
@@ -301,26 +427,21 @@ async def run_clip_processor() -> None:
 
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
-            # Budget: post_roll sleep (≤30s) + create_clip retries (≤15s) +
-            # get_clip polling (≤50s) + overhead. 180s leaves comfortable margin
-            # so a valid-but-slow clip isn't cut off mid-poll and lost.
-            meta = await asyncio.wait_for(processor.process(job), timeout=180.0)
-            # A clip came out, so whatever Twitch was refusing about this
-            # channel is over. Without this the tally only ever grows and a
-            # channel that recovered weeks ago still reads as broken — which
-            # would make the admin list useless within a month.
-            #
-            # Everyone who was warned about it is told to re-read, so the
-            # notice leaves their screen the moment the channel recovers
-            # instead of on their next page load. The uids come back from
-            # clear() because it just deleted the only record of who they were.
-            for _was_warned in _refusals.clear(job.channel):
-                try:
-                    await dashboard_api.broadcast(
-                        {"event": "refusals_changed"}, user_id=_was_warned)
-                except Exception:
-                    pass
-            kept = bool(await dashboard_api.notify_clip_ready(meta.to_dict()))
+            # Budget: post_roll sleep (≤55s) + create_clip's retries (a 429
+            # backs off up to 30s a time) + overhead. The wait for Twitch to
+            # finish the clip is no longer in here.
+            started = await asyncio.wait_for(processor.start(job), timeout=180.0)
+            if isinstance(started, PendingTwitchClip):
+                # Twitch has it; whether it finishes is asked off the queue
+                # (_finish_twitch_clip), and the next job starts now.
+                _twitch_in_flight[job.user_id] = _twitch_in_flight.get(job.user_id, 0) + 1
+                task = asyncio.create_task(_finish_twitch_clip(job, started, slots),
+                                           name=f"finish-clip-{job.clip_id[:8]}")
+                _finishing.add(task)
+                task.add_done_callback(_finishing.discard)
+                handed_off = True
+                continue
+            kept = await _clip_succeeded(job, started)
         except asyncio.CancelledError:
             break
         except TwitchAuthExpiredError:
@@ -444,51 +565,20 @@ async def run_clip_processor() -> None:
                     pass
             continue
         except Exception as exc:
-            import traceback as _tb
-            # Twitch never finishing a clip is not an error of ours (see
-            # ClipNotReadyError): get_clip has already logged it as the warning
-            # twitch_clip_not_ready, so a burst still alerts. Logged here as an
-            # error, each one emailed the owner. The user is told below either way.
-            if not isinstance(exc, twitch_clips.ClipNotReadyError):
-                log.error("clip_processor_error", error=str(exc),
-                          channel=getattr(job, "channel", "?") if job else "?",
-                          user_id=getattr(job, "user_id", "?") if job else "?",
-                          traceback=_tb.format_exc())
-            # Surface the failure to the user's open tab. Without this a triggered
-            # clip that fails to capture (ghost clip, rate-limit, token expiry)
-            # silently never appears, with no explanation — the realtime contract
-            # requires the user to learn about it live.
+            _log_clip_error(job, exc)
             if job is None:
                 # The failure was in pop(), not in processing a job — Redis is
                 # unreachable. Pause before retrying, escalating to a cap.
                 await asyncio.sleep(queue_backoff)
                 queue_backoff = min(queue_backoff * 2, _QUEUE_RETRY_MAX)
                 continue
-            _uid = getattr(job, "user_id", "") if job else ""
-            if _uid:
-                _ch = getattr(job, "channel", "") or "your stream"
-                try:
-                    await dashboard_api.broadcast(
-                        {"event": "clip_failed", "channel": _ch,
-                         "message": f"A clip from {_ch} couldn't be captured — it'll try again on the next moment."},
-                        user_id=_uid,
-                    )
-                except Exception:
-                    pass
+            await _tell_clip_failed(job)
         finally:
-            # EVERY way out that did not keep a clip — queue full, a stale
-            # backlog, a Twitch refusal, an error, a duplicate — leaves a video
-            # file the stream worker is about to cut (or has cut) with no record
-            # pointing at it. Discard it rather than let it take the space of a
-            # file somebody can download (2026-10-13: 27 such files from one
-            # channel in a day). A `continue` above still runs this.
-            if job is not None and not kept:
-                try:
-                    from src.clips import files as _clip_files
-                    _clip_files.discard(job.clip_id)
-                except Exception as exc:
-                    log.warning("clip_file_discard_failed", clip_id=job.clip_id,
-                                error=str(exc))
+            # Not kept means the file goes (_discard_clip_file says why). A
+            # `continue` above still runs this. A clip handed off is not this
+            # loop's to judge: _finish_twitch_clip discards it if it is lost.
+            if job is not None and not kept and not handed_off:
+                _discard_clip_file(job)
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

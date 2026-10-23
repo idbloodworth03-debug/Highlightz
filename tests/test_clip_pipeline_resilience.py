@@ -232,7 +232,7 @@ def test_an_expired_token_stops_the_stream_and_says_to_reconnect(loop_env):
                   post_roll=0)
 
     class Proc:
-        async def process(self, j): raise TwitchAuthExpiredError("no token")
+        async def start(self, j): raise TwitchAuthExpiredError("no token")
 
     served = {"done": False}
     class Q:
@@ -263,7 +263,7 @@ def test_a_genuinely_transient_failure_still_promises_a_retry(loop_env):
                   post_roll=0)
 
     class Proc:
-        async def process(self, j): raise RuntimeError("capture failed")
+        async def start(self, j): raise RuntimeError("capture failed")
 
     served = {"done": False}
     class Q:

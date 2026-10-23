@@ -275,15 +275,15 @@ def test_the_success_path_actually_clears_it():
     available. It is the only thing that keeps the list current."""
     import inspect
     import src.main as m
-    src = inspect.getsource(m)
-    i = src.index("meta = await asyncio.wait_for(processor.process(job)")
-    # Bounded by the NEXT statement rather than a character count. The count was
-    # 600 and a comment growing by four lines pushed the call outside it, which
-    # failed as "a successful clip does not clear the refusal record" — a claim
-    # about behaviour that was not true. A landmark cannot drift; a number can.
-    window = src[i:src.index("await dashboard_api.notify_clip_ready", i)]
-    assert "_refusals.clear(job.channel)" in window, \
+    # Both ways a clip comes out go through _clip_succeeded: inline (Kick) and
+    # finished off the queue (Twitch, since 2026-10-23). Bounded by landmarks
+    # rather than a character count: a count drifts when a comment grows.
+    ok = inspect.getsource(m._clip_succeeded)
+    assert "_refusals.clear(job.channel" in ok[:ok.index("dashboard_api.notify_clip_ready")], \
         "a successful clip does not clear the channel's refusal record"
+    assert "await _clip_succeeded(job, started)" in inspect.getsource(m.run_clip_processor)
+    assert "await _clip_succeeded(job, meta, since=pending.requested_at)" in \
+        inspect.getsource(m._finish_twitch_clip), "a Twitch clip finished off the queue skips it"
 
 
 def test_the_newest_problem_is_listed_first(refusals):
