@@ -9352,6 +9352,11 @@ async def login_page(request: Request, error: str = "", next: str = ""):
         # Rides the session out to Twitch or Kick and back; each sign-in reads
         # it before clearing the session.
         request.session["after_login"] = next
+    elif not error:
+        # A plain visit is a fresh start: a "back to the campaign form" left by
+        # an abandoned visit must not steer this sign-in. Not after an error:
+        # that is the same attempt coming back to try again.
+        request.session.pop("after_login", None)
     _fn_record(request, "login_view")
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")

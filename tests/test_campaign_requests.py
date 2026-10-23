@@ -559,6 +559,14 @@ def test_sign_in_from_the_campaigns_page_returns_to_the_form(client, monkeypatch
     assert "after_login" not in client.session(), "it outlived the sign-in"
 
 
+def test_an_abandoned_campaign_sign_in_does_not_steer_a_later_one(client):
+    client.login(None).get("/login?next=promote")
+    client.get("/login?error=twitch_failed")             # the same attempt, retried
+    assert client.session()["after_login"] == "promote"
+    client.get("/login")                                  # a fresh visit
+    assert "after_login" not in client.session()
+
+
 def test_next_is_a_key_not_a_url(client):
     client.login(None).get("/login?next=https://evil.example")
     assert "after_login" not in (client.session() if client.cookies.get("session") else {})
