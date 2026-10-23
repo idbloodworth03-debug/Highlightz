@@ -87,6 +87,76 @@ async def create_checkout_url(user_id: str, username: str, price_id: str,
     return session.url
 
 
+def _get(o, k):
+    """A field of a Stripe object or of a plain dict. stripe-python's objects
+    stopped being dicts (see handle_webhook_event), so neither is assumed."""
+    return o.get(k) if isinstance(o, dict) else getattr(o, k, None)
+
+
+def create_campaign_checkout(req: dict, user: dict) -> tuple[str, str]:
+    """A one-time Stripe Checkout for an approved campaign request: the prize
+    pool, the flat fee and the percentage fee as three lines, so the receipt
+    says what was paid for. Returns (url, session id).
+
+    The amounts come from the request's stored quote, the price the streamer
+    saw, never from the browser. metadata names the request and the account on
+    both the session and the PaymentIntent; the webhook and the redirect back
+    both check them before anything is published.
+    """
+    q = req["quote"]
+    title = req["title"][:80]
+    lines = [("Campaign prize pool: " + title, q["budget_cents"]),
+             ("Highlightz campaign fee", q["flat_fee_cents"]),
+             (f"Highlightz platform fee ({q['fee_pct']:g}%)", q["percent_fee_cents"])]
+    meta = {"kind": "campaign_request", "request_id": req["id"], "user_id": req["user_id"]}
+    base = "https://highlightz.app"
+    params: dict = {
+        "mode": "payment",
+        "payment_method_types": ["card"],
+        "line_items": [{"quantity": 1, "price_data": {
+            "currency": "usd", "unit_amount": int(cents),
+            "product_data": {"name": name}}} for name, cents in lines if cents > 0],
+        "success_url": f"{base}/campaign-requests/{req['id']}/paid?session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{base}/?view=promote&campaign_pay=cancelled",
+        "client_reference_id": req["id"],
+        "metadata": meta,
+        "payment_intent_data": {"metadata": meta, "description": "Highlightz campaign: " + title},
+    }
+    if user.get("stripe_customer_id"):
+        params["customer"] = user["stripe_customer_id"]
+    elif req.get("contact_email"):
+        params["customer_email"] = req["contact_email"]
+    session = _client().checkout.sessions.create(params=params)
+    return _get(session, "url"), _get(session, "id")
+
+
+def campaign_checkout_session(session_id: str) -> dict | None:
+    """A campaign Checkout session as a plain dict (id, payment_status,
+    amount_total, metadata), or None when it cannot be read."""
+    if not (settings.stripe_secret_key and session_id):
+        return None
+    try:
+        s = _client().checkout.sessions.retrieve(session_id)
+    except Exception as exc:
+        log.warning("campaign_checkout_lookup_failed", session=session_id, error=str(exc))
+        return None
+    meta = _get(s, "metadata") or {}
+    return {"id": _get(s, "id"), "payment_status": _get(s, "payment_status"),
+            "amount_total": int(_get(s, "amount_total") or 0),
+            "metadata": {k: _get(meta, k) for k in ("kind", "request_id", "user_id")}}
+
+
+def expire_checkout(session_id: str) -> None:
+    """Close an unpaid Checkout session so it can no longer be paid. Best
+    effort: a session already paid, expired or unknown is left to Stripe."""
+    if not (settings.stripe_secret_key and session_id):
+        return
+    try:
+        _client().checkout.sessions.expire(session_id)
+    except Exception as exc:
+        log.info("campaign_checkout_not_expired", session=session_id, error=str(exc))
+
+
 def _active_promo_id(client, code: str) -> str | None:
     """The id of the active Stripe Promotion Code called `code`, or None."""
     try:

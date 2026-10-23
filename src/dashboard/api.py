@@ -85,6 +85,10 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # file that does not exist. robots.txt and sitemap.xml are
                   # here for the same reason.
                   "/compare", "/llms.txt", "/llms-full.txt",
+                  # Campaigns, for streamers: the pitch a signed-out streamer
+                  # reads before making an account. The handler answers 404
+                  # until CAMPAIGN_REQUESTS_ENABLED is on.
+                  "/promote",
                   # The blog: the index and each article, listed by
                   # blog_content.paths() so this set, the router and the
                   # sitemap read one list. Exact paths, not a /blog prefix —
@@ -1307,6 +1311,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # Same window, same reason: an invite code lives in the session only for the
     # round trip to twitch.tv and back, and session.clear() is a few lines away.
     pending_invite = request.session.get("invite")
+    after = request.session.get("after_login")
 
     is_owner = bool(settings.admin_twitch_id and tuser["id"] == settings.admin_twitch_id)
     # Asked BEFORE the upsert, which is the only moment the answer exists —
@@ -1361,7 +1366,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     request.session["is_admin"]            = user.get("is_admin", False)
     request.session["subscription_status"] = user.get("subscription_status", "none")
     request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
-    return RedirectResponse("/")
+    return RedirectResponse(_after_sign_in(after))
 
 
 # ── Kick OAuth (sign-in, 2026-09-16) ─────────────────────────────────────────
@@ -1439,6 +1444,7 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
 
     pending_ref = request.session.get("ref")
     pending_invite = request.session.get("invite")
+    after = request.session.get("after_login")
     _was_new = user_store.get_by_kick_id(kuser["id"]) is None
     user = user_store.upsert_kick_user(kuser["id"], kuser["slug"], kuser["username"],
                                        kuser.get("avatar_url", ""))
@@ -1462,7 +1468,7 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
     request.session["is_admin"]            = user.get("is_admin", False)
     request.session["subscription_status"] = user.get("subscription_status", "none")
     request.session["trial_ends_at"]       = user.get("trial_ends_at", 0)
-    return RedirectResponse("/")
+    return RedirectResponse(_after_sign_in(after))
 
 
 def _redeem_invite(code: str, user: dict) -> bool:
@@ -1588,6 +1594,9 @@ async def me(request: Request):
         "features":            {"uploads": settings.uploads_enabled or bool(user.get("early_access")),
                                 "clip_import": settings.clip_import_enabled,
                                 "campaigns": settings.campaigns_enabled,
+                                # Streamers asking for (and paying for) a
+                                # campaign: the Promote screen.
+                                "campaign_requests": settings.campaign_requests_enabled,
                                 "captions": settings.captions_enabled,
                                 # The posting platforms open to ordinary
                                 # accounts (PUBLIC_PLATFORMS, once uploads are
@@ -1704,6 +1713,13 @@ async def delete_account(request: Request):
     # somebody took and when would not be an erasure.
     from src.stats import downloads as _dl_purge
     _dl_purge.delete_all_for_user(uid)
+    # Campaign requests never paid go too, and their checkouts are closed so
+    # nothing can be paid for an account that no longer exists. A paid one
+    # stays: it is a payment record and prizes owed (Privacy Policy §4).
+    from src.campaigns import requests as _creq_purge
+    for sid in _creq_purge.delete_unpaid_for_user(uid):
+        from src.billing import stripe_billing as _sb_purge
+        await asyncio.to_thread(_sb_purge.expire_checkout, sid)
 
     # Their OTHER open tabs (phone, second window) leave too, live.
     await broadcast({"event": "account_deleted"}, user_id=uid)
@@ -3177,6 +3193,16 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             return {"received": True}
         if event_id:
             _stripe_processed[event_id] = now
+
+    # A streamer paying for a campaign: a one-off payment, not a subscription.
+    # Needs checkout.session.completed enabled on the webhook in Stripe; the
+    # redirect back to /campaign-requests/{id}/paid publishes it without.
+    session = (event.get("data") or {}).get("object") or {}
+    if event.get("type") in ("checkout.session.completed",
+                             "checkout.session.async_payment_succeeded") \
+            and (session.get("metadata") or {}).get("kind") == "campaign_request":
+        await _campaign_paid(session, via="webhook")
+        return {"received": True}
 
     cust_id, user_id, status = sync_subscription_event(event)
 
@@ -6743,14 +6769,15 @@ async def instagram_data_deletion_status(code: str = ""):
     body += ("<p>Questions: <a href=\"mailto:business@highlightz.app\">"
              "business@highlightz.app</a>. See our "
              "<a href=\"/privacy\">Privacy Policy</a>.</p></main>")
-    return HTMLResponse(
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(
         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
         "<meta name=\"robots\" content=\"noindex\">"
         "<title>Instagram data deleted \u2014 Highlightz</title>"
         "<link rel=\"icon\" type=\"image/png\" href=\"/static/icon.png\">"
         "<style>" + _LEGAL_STYLE + "</style></head><body>"
-        + _LEGAL_NAV + body + _LEGAL_FOOT + "</body></html>")
+        + _LEGAL_NAV + body + _LEGAL_FOOT + "</body></html>"))
 
 
 # ── Kick's chat webhook ──────────────────────────────────────────────────────
@@ -8495,6 +8522,363 @@ async def admin_campaign_entries(request: Request, campaign_id: str):
     return {"rows": rows}
 
 
+# ── Campaign requests: streamers fund campaigns (src/campaigns/requests.py) ───
+#
+# A streamer (any signed-in account; a free one is enough) asks for a campaign,
+# an admin approves it, asks for changes or declines it, the streamer pays the
+# quote through Stripe, and the payment publishes it to the marketplace above.
+# Open to everyone once CAMPAIGN_REQUESTS_ENABLED is on; admins always.
+#
+# REALTIME. Every change to a request is sent to its owner as
+# `campaign_request_updated` (the status and a sentence to show); a published
+# one also sends `campaigns_changed`. The admin page has no socket and polls
+# while its Campaigns tab is open, as it does for campaigns.
+
+_notify_tasks: set[asyncio.Task] = set()
+
+
+def _tell_owner_email(subject: str, text: str) -> None:
+    """Email the site owner (ALERT_EMAIL_TO) in the background: a new request
+    to review, a payment. Never raises and never holds up the request."""
+    from src import alerts
+    task = asyncio.create_task(alerts.send(subject, text))
+    _notify_tasks.add(task)
+    task.add_done_callback(_notify_tasks.discard)
+
+
+def _promote_viewer(request: Request) -> tuple[str, dict, bool]:
+    """(user id, user, is admin) for someone allowed to request campaigns."""
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user = user_store.get_by_id(uid) or {}
+    admin = bool(user.get("is_admin"))
+    if not admin and not settings.campaign_requests_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    return uid, user, admin
+
+
+async def _campaign_request_changed(r: dict, message: str = "") -> None:
+    await broadcast({"event": "campaign_request_updated", "request_id": r["id"],
+                     "status": r["status"], "message": message}, user_id=r["user_id"])
+
+
+def _request_error(exc: Exception):
+    from src.campaigns import requests as creq
+    if isinstance(exc, KeyError):
+        raise HTTPException(status_code=404, detail="Campaign request not found")
+    if isinstance(exc, creq.RequestError):
+        raise HTTPException(status_code=400, detail=str(exc))
+    raise exc
+
+
+def _expire_checkout_later(r: dict) -> None:
+    """A request leaving `approved` must not stay payable: close its open
+    Checkout, off the event loop."""
+    sid = r.get("checkout_session_id")
+    if sid:
+        from src.billing import stripe_billing
+        task = asyncio.create_task(asyncio.to_thread(stripe_billing.expire_checkout, sid))
+        _notify_tasks.add(task)
+        task.add_done_callback(_notify_tasks.discard)
+
+
+@app.get("/campaign-requests")
+async def list_campaign_requests(request: Request):
+    from src import campaigns as camp
+    from src.campaigns import requests as creq
+    uid, user, _admin = _promote_viewer(request)
+    channels = []
+    if user.get("twitch_login"):
+        channels.append({"platform": "twitch", "name": user["twitch_login"]})
+    if user.get("kick_slug"):
+        channels.append({"platform": "kick", "name": user["kick_slug"]})
+    return {"rows": [creq.public(r) for r in creq.for_user(uid)],
+            "pricing": creq.pricing(), "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS),
+            "limits": {"max_streamers": creq.MAX_STREAMERS, "max_places": creq.MAX_PLACES,
+                       "min_place": creq.MIN_PLACE, "days_min": creq.DAYS_MIN,
+                       "days_max": creq.DAYS_MAX, "start_lead_days": creq.START_LEAD_MAX_DAYS,
+                       "max_open": creq.MAX_OPEN_PER_USER},
+            "account": {"email": user.get("email") or "", "channels": channels},
+            "payments": bool(settings.stripe_secret_key)}
+
+
+@app.post("/campaign-requests")
+async def create_campaign_request(request: Request):
+    from src.campaigns import requests as creq
+    uid, user, _admin = _promote_viewer(request)
+    try:
+        r = creq.submit(user, await request.json())
+    except Exception as exc:
+        _request_error(exc)
+    log.info("campaign_request_submitted", id=r["id"], user_id=uid, title=r["title"],
+             budget=r["budget"], verified_owner=r["verified_owner"])
+    await _campaign_request_changed(r, "Request sent. A person reviews it, usually within a day, "
+                                       "and the answer shows up here.")
+    who = user.get("twitch_login") or user.get("kick_slug") or user.get("username") or uid
+    _tell_owner_email(
+        f"New campaign request: {r['title']} (${r['budget']:,.2f})",
+        f"{who} asked for a campaign on {', '.join(s['name'] for s in r['streamers'])}.\n"
+        f"Budget ${r['budget']:,.2f}, total ${r['quote']['total']:,.2f}, "
+        f"{r['duration_days']} days. Verified owner: {'yes' if r['verified_owner'] else 'no'}.\n"
+        f"Review it in the admin page, Campaigns tab: https://highlightz.app/admin")
+    return creq.public(r)
+
+
+@app.put("/campaign-requests/{request_id}")
+async def edit_campaign_request(request: Request, request_id: str):
+    from src.campaigns import requests as creq
+    uid, user, _admin = _promote_viewer(request)
+    try:
+        r = creq.edit(request_id, user, await request.json())
+    except Exception as exc:
+        _request_error(exc)
+    await _campaign_request_changed(r, "Changes saved and sent for review.")
+    return creq.public(r)
+
+
+@app.post("/campaign-requests/{request_id}/withdraw")
+async def withdraw_campaign_request(request: Request, request_id: str):
+    from src.campaigns import requests as creq
+    uid, _user, _admin = _promote_viewer(request)
+    try:
+        r = creq.withdraw(request_id, uid)
+    except Exception as exc:
+        _request_error(exc)
+    _expire_checkout_later(r)
+    await _campaign_request_changed(r, "Request withdrawn.")
+    return creq.public(r)
+
+
+@app.post("/campaign-requests/{request_id}/image")
+async def campaign_request_image(request: Request, request_id: str, file: UploadFile = File(...)):
+    from src import campaigns as camp
+    from src.campaigns import requests as creq
+    uid, _user, _admin = _promote_viewer(request)
+    data = await file.read(camp.IMAGE_MAX + 1)
+    try:
+        r = creq.set_image(request_id, uid, data)
+    except Exception as exc:
+        _request_error(exc)
+    await _campaign_request_changed(r)
+    return creq.public(r)
+
+
+@app.get("/campaign-requests/{request_id}/image")
+async def get_campaign_request_image(request: Request, request_id: str):
+    from src.auth import users as user_store
+    from src.campaigns import requests as creq
+    uid = _current_user_id(request)
+    r = creq.get(request_id)
+    if not r or (r["user_id"] != uid and not (user_store.get_by_id(uid) or {}).get("is_admin")):
+        raise HTTPException(status_code=404, detail="Not found")
+    p = creq.image_path(request_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="No picture")
+    return FileResponse(p, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.post("/campaign-requests/{request_id}/checkout")
+async def campaign_request_checkout(request: Request, request_id: str):
+    """Stripe Checkout for an approved request, at its stored quote. Opening a
+    new one closes the last, so two tabs cannot both be paid; and a last one
+    that was paid already (its webhook not here yet) publishes instead of
+    being charged again."""
+    from src.billing import stripe_billing
+    from src.campaigns import requests as creq
+    uid, user, _admin = _promote_viewer(request)
+    r = creq.get(request_id)
+    if not r or r["user_id"] != uid:
+        raise HTTPException(status_code=404, detail="Campaign request not found")
+    if r["status"] == creq.PUBLISHED:
+        return {"url": "", "published": True}
+    if r["status"] != creq.APPROVED:
+        raise HTTPException(status_code=400, detail="Only an approved request can be paid.")
+    if not settings.stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Payments are not set up yet. Try again later.")
+    if r.get("checkout_session_id"):
+        last = await asyncio.to_thread(stripe_billing.campaign_checkout_session,
+                                       r["checkout_session_id"])
+        if last and last.get("payment_status") == "paid":
+            await _campaign_paid(last, via="checkout")
+            if creq.get(request_id)["status"] == creq.PUBLISHED:
+                return {"url": "", "published": True}
+            raise HTTPException(status_code=409, detail="This request was paid already. "
+                                "We are checking the payment and will be in touch.")
+        await asyncio.to_thread(stripe_billing.expire_checkout, r["checkout_session_id"])
+    try:
+        url, sid = await asyncio.to_thread(stripe_billing.create_campaign_checkout, r, user)
+    except Exception as exc:
+        log.error("campaign_checkout_create_failed", id=request_id, error=str(exc))
+        raise HTTPException(status_code=502, detail="Could not start the payment. Try again in a minute.")
+    creq.set_checkout(request_id, sid)
+    log.info("campaign_checkout_created", id=request_id, session=sid, total=r["quote"]["total"])
+    return {"url": url}
+
+
+async def _campaign_paid(sess: dict, via: str) -> dict | None:
+    """A paid campaign Checkout session, from the webhook or from the redirect
+    back: publish its request. Both may arrive; the first publishes and the
+    second finds it done. The account and the amount must match what we sent
+    to Stripe, or nothing is published and it is logged as an error (which
+    emails the owner) to be refunded or fixed by hand."""
+    from src.campaigns import requests as creq
+    meta = sess.get("metadata") or {}
+    rid, uid = str(meta.get("request_id") or ""), str(meta.get("user_id") or "")
+    r = creq.get(rid)
+    if not r or r["user_id"] != uid:
+        log.error("campaign_payment_unmatched", session=sess.get("id"), request=rid, user_id=uid, via=via)
+        return None
+    if sess.get("payment_status") != "paid":
+        log.info("campaign_payment_not_paid_yet", session=sess.get("id"), request=rid,
+                 payment_status=sess.get("payment_status"), via=via)
+        return None
+    if r["status"] == creq.PUBLISHED:
+        if sess.get("id") and sess.get("id") != r.get("checkout_session_id"):
+            log.error("campaign_paid_twice", request=rid, session=sess.get("id"),
+                      kept=r.get("checkout_session_id"), via=via)
+        return r
+    try:
+        r, c = creq.publish(rid, payment="stripe", amount_cents=int(sess.get("amount_total") or 0),
+                            session_id=str(sess.get("id") or ""))
+    except creq.RequestError as exc:
+        log.error("campaign_payment_not_published", request=rid, session=sess.get("id"),
+                  error=str(exc), via=via)
+        return None
+    log.info("campaign_request_paid", request=rid, campaign=r["campaign_id"], via=via,
+             total=r["quote"]["total"])
+    await _campaign_request_changed(r, "Payment received. Your campaign is in the marketplace.")
+    await _campaigns_changed()
+    _tell_owner_email(f"Campaign paid: {r['title']} (${r['quote']['total']:,.2f})",
+                      f"Paid ${r['quote']['total']:,.2f}: ${r['budget']:,.2f} prize pool and "
+                      f"${r['quote']['fees']:,.2f} in fees. It is published in the marketplace.")
+    return r
+
+
+@app.get("/campaign-requests/{request_id}/paid")
+async def campaign_request_paid(request: Request, request_id: str, session_id: str = ""):
+    """Where Stripe sends the streamer back. Asks Stripe directly rather than
+    waiting on the webhook, and only for this account's own session (the id
+    comes from a query string)."""
+    from src.billing import stripe_billing
+    from src.campaigns import requests as creq
+    uid = _current_user_id(request)
+    r = creq.get(request_id)
+    if not r or r["user_id"] != uid:
+        return RedirectResponse("/?view=promote", status_code=302)
+    if r["status"] != creq.PUBLISHED and session_id:
+        sess = await asyncio.to_thread(stripe_billing.campaign_checkout_session, session_id)
+        meta = (sess or {}).get("metadata") or {}
+        if sess and meta.get("request_id") == request_id and meta.get("user_id") == uid:
+            await _campaign_paid(sess, via="redirect")
+    r = creq.get(request_id)
+    flag = f"campaign_paid={request_id}" if r["status"] == creq.PUBLISHED else "campaign_pay=pending"
+    return RedirectResponse(f"/?view=promote&{flag}", status_code=302)
+
+
+# The admin side: review, and the money.
+
+def _admin_request_row(r: dict) -> dict:
+    from src.auth import users as user_store
+    from src.campaigns import requests as creq
+    d = creq.public(r, admin=True)
+    u = user_store.get_by_id(r["user_id"]) or {}
+    d["user"] = {"id": r["user_id"], "name": u.get("twitch_login") or u.get("kick_slug")
+                 or u.get("username") or r["user_id"][:8],
+                 "email": u.get("email") or "", "plan": u.get("plan") or "",
+                 "twitch_login": u.get("twitch_login") or "", "kick_slug": u.get("kick_slug") or ""}
+    return d
+
+
+@app.get("/admin/campaign-requests")
+async def admin_list_campaign_requests(request: Request):
+    _require_admin(request)
+    from src.campaigns import requests as creq
+    return {"rows": [_admin_request_row(r) for r in creq.all_rows()],
+            "pricing": creq.pricing(),
+            "switches": {"requests": settings.campaign_requests_enabled,
+                         "marketplace": settings.campaigns_enabled,
+                         "payments": bool(settings.stripe_secret_key)}}
+
+
+async def _admin_review(request: Request, request_id: str, action: str):
+    from src.campaigns import requests as creq
+    _require_admin(request)
+    admin_id = request.session.get("user_id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    note = str((body or {}).get("note") or "")
+    try:
+        if action == "approve":
+            r = creq.approve(request_id, admin_id, note)
+            msg = f'"{r["title"]}" is approved. Pay ${r["quote"]["total"]:,.2f} to put it live.'
+        elif action == "changes":
+            r = creq.request_changes(request_id, admin_id, note)
+            msg = f'We asked for changes to "{r["title"]}". See the note on the request.'
+        else:
+            r = creq.decline(request_id, admin_id, note)
+            msg = f'Your request "{r["title"]}" was declined. See the note on the request.'
+    except Exception as exc:
+        _request_error(exc)
+    if action != "approve":
+        _expire_checkout_later(r)
+    log.info("campaign_request_reviewed", id=request_id, action=action, by=admin_id)
+    await _campaign_request_changed(r, msg)
+    return _admin_request_row(r)
+
+
+@app.post("/admin/campaign-requests/{request_id}/approve")
+async def admin_approve_campaign_request(request: Request, request_id: str):
+    return await _admin_review(request, request_id, "approve")
+
+
+@app.post("/admin/campaign-requests/{request_id}/changes")
+async def admin_changes_campaign_request(request: Request, request_id: str):
+    return await _admin_review(request, request_id, "changes")
+
+
+@app.post("/admin/campaign-requests/{request_id}/decline")
+async def admin_decline_campaign_request(request: Request, request_id: str):
+    return await _admin_review(request, request_id, "decline")
+
+
+@app.post("/admin/campaign-requests/{request_id}/comp")
+async def admin_comp_campaign_request(request: Request, request_id: str):
+    """Publish without payment: a partner, a test. Recorded as comped."""
+    _require_admin(request)
+    from src.campaigns import requests as creq
+    admin_id = request.session.get("user_id", "")
+    try:
+        r, _c = creq.publish(request_id, payment="comped", by=admin_id)
+    except Exception as exc:
+        _request_error(exc)
+    _expire_checkout_later(r)
+    log.info("campaign_request_comped", id=request_id, campaign=r["campaign_id"], by=admin_id)
+    await _campaign_request_changed(r, f'"{r["title"]}" is live in the marketplace.')
+    await _campaigns_changed()
+    return _admin_request_row(r)
+
+
+@app.post("/admin/campaign-requests/{request_id}/check-payment")
+async def admin_check_campaign_payment(request: Request, request_id: str):
+    """Ask Stripe about the request's Checkout session: for a payment whose
+    webhook never came and whose payer never came back to the site."""
+    _require_admin(request)
+    from src.billing import stripe_billing
+    from src.campaigns import requests as creq
+    r = creq.get(request_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Campaign request not found")
+    if r["status"] == creq.APPROVED and r.get("checkout_session_id"):
+        sess = await asyncio.to_thread(stripe_billing.campaign_checkout_session,
+                                       r["checkout_session_id"])
+        if sess is None:
+            raise HTTPException(status_code=502, detail="Could not reach Stripe.")
+        await _campaign_paid(sess, via="admin")
+    return _admin_request_row(creq.get(request_id))
+
+
 @app.post("/offer/dismiss")
 async def dismiss_offer(request: Request):
     """"Not now" on the offer. Hidden for good; an admin can send it again."""
@@ -8660,6 +9044,13 @@ async def admin_delete_user(request: Request, user_id: str):
         # log where it can still be acted on.
         log.error("admin_delete_stripe_cancel_failed", user=user_id, customer=customer)
 
+    # Unpaid campaign requests go with the account, as on the self-service
+    # path; a paid one stays as the record of a payment (Privacy Policy §4).
+    from src.campaigns import requests as _creq_purge
+    for sid in _creq_purge.delete_unpaid_for_user(user_id):
+        from src.billing import stripe_billing as _sb_purge
+        await asyncio.to_thread(_sb_purge.expire_checkout, sid)
+
     # Realtime: their open tabs sign out now, not on their next click.
     await broadcast({"event": "account_deleted"}, user_id=user_id)
     user_store.delete(user_id)
@@ -8805,17 +9196,20 @@ async def admin_user_clips(request: Request, user_id: str):
 
 @app.get("/tos", response_class=HTMLResponse)
 async def tos_page():
-    return HTMLResponse(TOS_HTML)
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(TOS_HTML))
 
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page():
-    return HTMLResponse(PRIVACY_HTML)
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(PRIVACY_HTML))
 
 
 @app.get("/cookies", response_class=HTMLResponse)
 async def cookies_page():
-    return HTMLResponse(COOKIES_HTML)
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(COOKIES_HTML))
 
 
 @app.get("/tutorial", response_class=HTMLResponse)
@@ -8833,8 +9227,9 @@ async def tutorial_page():
     restart. The page is a few hundred KB of string building on a route almost
     nobody hits twice in a row.
     """
+    from src.dashboard.site_nav import campaigns_tab
     from src.dashboard.tutorial_html import render
-    return HTMLResponse(render())
+    return HTMLResponse(campaigns_tab(render()))
 
 
 @app.get("/tutorial/content")
@@ -8869,7 +9264,31 @@ async def compare_page():
     declaration order.
     """
     from src.dashboard.compare_html import render
-    return HTMLResponse(render())
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(render()))
+
+
+@app.get("/promote", response_class=HTMLResponse)
+async def promote_page(request: Request):
+    """Campaigns, for streamers: what a campaign is, what it costs, where the
+    money goes (src/dashboard/promote_html.py). The Campaigns tab on every
+    public bar leads here.
+
+    Public once CAMPAIGN_REQUESTS_ENABLED is on; before that a 404 for
+    everyone but an admin, who sees the page as it will launch. MUST STAY
+    ABOVE `@app.get("/{slug}")`, like /compare.
+    """
+    from src.auth import users as user_store
+    from src.dashboard.promote_html import render
+    from src.dashboard.site_nav import campaigns_tab
+    uid = request.session.get("user_id") if request.session.get("auth") else None
+    admin = bool(uid and (user_store.get_by_id(uid) or {}).get("is_admin"))
+    if not (settings.campaign_requests_enabled or admin):
+        raise HTTPException(status_code=404)
+    if not uid:
+        _capture_ref(request)
+    cta = _after_sign_in("promote") if uid else "/login?next=promote"
+    return HTMLResponse(campaigns_tab(render(cta), current=True, show=True))
 
 
 @app.get("/blog", response_class=HTMLResponse)
@@ -8880,7 +9299,8 @@ async def blog_index():
     matches any single-segment path and FastAPI resolves in declaration order.
     """
     from src.dashboard.blog_html import render_index
-    return HTMLResponse(render_index())
+    from src.dashboard.site_nav import campaigns_tab
+    return HTMLResponse(campaigns_tab(render_index()))
 
 
 @app.get("/blog/{slug}", response_class=HTMLResponse)
@@ -8888,10 +9308,11 @@ async def blog_article(slug: str):
     """One article. Only the slugs in blog_content exist; anything else is the
     site's 404, never an empty article."""
     from src.dashboard.blog_html import render_article
+    from src.dashboard.site_nav import campaigns_tab
     html = render_article(slug)
     if html is None:
         raise HTTPException(status_code=404)
-    return HTMLResponse(html)
+    return HTMLResponse(campaigns_tab(html))
 
 
 @app.exception_handler(404)
@@ -8913,9 +9334,24 @@ _ERROR_MESSAGES = {
 }
 
 
+# Where a sign-in lands when it started somewhere specific: /login?next=<key>.
+# Keys, not URLs, so the parameter can never send anybody off the site.
+_AFTER_SIGN_IN = {"promote": "/?view=promote&new=1"}
+
+
+def _after_sign_in(key) -> str:
+    return _AFTER_SIGN_IN.get(str(key or ""), "/")
+
+
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = ""):
+async def login_page(request: Request, error: str = "", next: str = ""):
     _capture_ref(request)
+    if next in _AFTER_SIGN_IN:
+        if request.session.get("auth"):
+            return RedirectResponse(_after_sign_in(next), status_code=302)
+        # Rides the session out to Twitch or Kick and back; each sign-in reads
+        # it before clearing the session.
+        request.session["after_login"] = next
     _fn_record(request, "login_view")
     import html as _html
     err_msg = _ERROR_MESSAGES.get(error, "")
@@ -8961,6 +9397,7 @@ async def login(request: Request, password: str = Form(...)):
         return too_many
     if user:
         await _clear_login_rate(ip)
+        after = request.session.get("after_login")
         # Fix 10: clear any existing session before setting new auth data (session fixation)
         request.session.clear()
         request.session["auth"]                = True
@@ -8969,7 +9406,7 @@ async def login(request: Request, password: str = Form(...)):
         request.session["avatar_url"]          = user.get("avatar_url", "")
         request.session["is_admin"]            = user.get("is_admin", False)
         request.session["subscription_status"] = user.get("subscription_status", "none")
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse(_after_sign_in(after), status_code=302)
     return RedirectResponse("/login?error=incorrect_password", status_code=302)
 
 
@@ -9163,6 +9600,9 @@ def render_landing(html: str | None = None) -> str:
     # file. Per request rather than baked in, so adding one is a restart
     # rather than a redeploy.
     html = html.replace("<!--VERIFY-->", _verification_tags(), 1)
+    # The Campaigns tab, once streamers can ask for campaigns (site_nav).
+    from src.dashboard.site_nav import campaigns_tab
+    html = campaigns_tab(html)
 
     # THE FRAMES. Real clip previews from the curated showcase, or the
     # product's own screens where nothing is curated yet. Per request, so a
@@ -9604,6 +10044,7 @@ _PAGE_SOURCE = {
     "/opt-out":  "src/dashboard/api.py",
     "/tutorial": "src/dashboard/tutorial_content.py",
     "/compare":  "src/dashboard/compare_content.py",
+    "/promote":  "src/dashboard/promote_html.py",
     **{p: "src/dashboard/blog_content.py"
        for p in _blog_paths()},
 }
@@ -9629,7 +10070,9 @@ def _page_lastmod(path: str) -> str:
 
 @app.get("/sitemap.xml")
 async def sitemap_xml():
-    pages = (["/", "/tutorial", "/compare"] + list(_blog_paths())
+    pages = (["/", "/tutorial", "/compare"]
+             + (["/promote"] if settings.campaign_requests_enabled else [])
+             + list(_blog_paths())
              + ["/tos", "/privacy", "/cookies", "/opt-out"])
     urls = ""
     for p in pages:
@@ -10096,20 +10539,23 @@ LANDING_HTML = """<!DOCTYPE html>
     text-transform:uppercase;color:var(--ink)}
   .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
   .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 12px;border-radius:3px;
+    color:var(--ink-3);padding:8px 12px;border-radius:3px;white-space:nowrap;
     transition:color var(--dur-fast),background var(--dur-fast)}
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-  /* 1000, not 700: measured, the bar needs ~990px with its links shown
-     (it was 818px, then 940, before the Blog tab was added), so anything
-     narrower pushed Get started off a tablet's right edge.
-     The tutorial page's copy of this bar uses the same number on purpose. */
-  /* Wide screens: the bar at reading size. Below 1360px the bar above is
-     already as wide as the room allows (the links collapse at 1000), so the
-     larger size only applies where it fits on one line. `.nav .nav-right
-     .btn` rather than `.nav .btn`: that rule comes later in the sheet and
-     would otherwise win. */
-  @media(min-width:1360px){
+  /* 1240, not 700: measured with the Campaigns tab in it (2026-10-23), the
+     bar needs 1216px with its links on one line (it was 818px, then 940,
+     then ~1106 with the Blog tab, when links had started folding onto two
+     lines on a laptop). nowrap above keeps every link on one line, so a bar
+     too narrow for them would push Get started off the right edge instead —
+     which is what the breakpoint prevents. The tutorial page's copy of this
+     bar uses the same number on purpose. */
+  /* Wide screens: the bar at reading size. It needs 1457px at this size, so
+     it switches on at 1480; narrower, the bar above is already as wide as
+     the room allows (the links collapse at 1240). `.nav .nav-right .btn`
+     rather than `.nav .btn`: that rule comes later in the sheet and would
+     otherwise win. */
+  @media(min-width:1480px){
     .nav{padding:16px 32px 24px;gap:24px}
     .nav-logo{gap:12px}
     .nav-logo img{height:28px}
@@ -10119,7 +10565,7 @@ LANDING_HTML = """<!DOCTYPE html>
     .nav-right{gap:12px}
     .nav .nav-right .btn{font-size:16px;padding:12px 24px}
   }
-  @media(max-width:1000px){ .nav-links{display:none} }
+  @media(max-width:1240px){ .nav-links{display:none} }
   @media(max-width:700px){
     .nav{padding:12px 16px 16px;gap:8px}
     .nav-logo span{display:none}
@@ -10999,7 +11445,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <a href="#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
-    <a href="/blog" class="nav-link">Blog</a>
+    <a href="/blog" class="nav-link">Blog</a><!--NAV_CAMPAIGNS-->
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -11255,7 +11701,7 @@ LANDING_HTML = """<!DOCTYPE html>
 
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><!--FOOT_CAMPAIGNS--><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 <script>
@@ -13469,7 +13915,7 @@ _LEGAL_STYLE = """
   .nav-logo span{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
   .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
   .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;color:var(--ink-3);padding:8px 12px;border-radius:3px;
-    transition:color var(--dur-fast),background var(--dur-fast)}
+    white-space:nowrap;transition:color var(--dur-fast),background var(--dur-fast)}
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:var(--sans);font-weight:700;
@@ -13506,12 +13952,11 @@ _LEGAL_STYLE = """
   .footer nav{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-4)}
   .footer a:hover{color:var(--ink)}
   .footer .fl{margin-left:auto;white-space:nowrap}
-  /* Wide screens: the bar at reading size. Below 1360px the bar above is
-     already as wide as the room allows (the links collapse at 1000), so the
-     larger size only applies where it fits on one line. `.nav .nav-right
-     .btn` rather than `.nav .btn`: that rule comes later in the sheet and
-     would otherwise win. */
-  @media(min-width:1360px){
+  /* Wide screens: the bar at reading size, at the landing page's widths: it
+     needs 1457px at this size and 1216px at the one above, where the links
+     collapse at 1240. `.nav .nav-right .btn` rather than `.nav .btn`: that
+     rule comes later in the sheet and would otherwise win. */
+  @media(min-width:1480px){
     .nav{padding:16px 32px 24px;gap:24px}
     .nav-logo{gap:12px}
     .nav-logo img{height:28px}
@@ -13521,7 +13966,7 @@ _LEGAL_STYLE = """
     .nav-right{gap:12px}
     .nav .nav-right .btn{font-size:16px;padding:12px 24px}
   }
-  @media(max-width:1000px){ .nav-links{display:none} }
+  @media(max-width:1240px){ .nav-links{display:none} }
   @media(max-width:700px){ .nav-logo span{display:none} .footer .fl{margin-left:0} }
   @media(prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
 """
@@ -13536,7 +13981,7 @@ _LEGAL_NAV = """<nav class="nav">
     <a href="/#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
-    <a href="/blog" class="nav-link">Blog</a>
+    <a href="/blog" class="nav-link">Blog</a><!--NAV_CAMPAIGNS-->
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -13546,7 +13991,7 @@ _LEGAL_NAV = """<nav class="nav">
 
 _LEGAL_FOOT = """<footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><!--FOOT_CAMPAIGNS--><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>"""
 
@@ -13566,7 +14011,7 @@ TOS_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
@@ -13595,6 +14040,18 @@ TOS_HTML = """<!DOCTYPE html>
     <li>We reserve the right to change pricing with at least 14 days notice, sent to your registered email address where we hold one and otherwise posted in the dashboard.</li>
     <li>Failed payments may result in suspension or termination of your account.</li>
   </ul>
+
+  <h2 id="campaigns">4A. Campaigns</h2>
+  <p>The Service lists clipping campaigns in a marketplace ("Campaigns"). A campaign offers prizes to users who clip the streams of the channels it names and post those clips under its rules. This Section applies when you ask us to run a campaign (as its "Sponsor") and when you take part in one.</p>
+  <p><strong>Requests and review.</strong> Any account, including a free one, may request a campaign. You must be the broadcaster of every channel a campaign names, or be authorized by that broadcaster to promote the channel, and by requesting a campaign you represent that you are. We review every request and may approve it, ask for changes, or decline it at our discretion. Nothing is charged for a request that is not approved.</p>
+  <p><strong>Price and payment.</strong> A campaign's price is its budget, which you choose, plus our fee: a fixed amount per campaign and a percentage of the budget, both shown before you pay. The price is fixed when you submit the request and is recalculated if you change it. You pay once, in US dollars, by card through Stripe, after the request is approved. A campaign is published only once its full price has been paid.</p>
+  <p><strong>The budget is the prize pool.</strong> The whole budget is paid out as the campaign's prizes, in the places and amounts you set. The fee is ours and covers reviewing, listing and running the campaign, judging the entries and paying the winners.</p>
+  <p><strong>Running a campaign.</strong> A paid campaign is listed in the marketplace from its start date, or from payment if it was to start as soon as possible, for the length you chose. We may correct how a campaign is presented, and may end a campaign early if it, or anything posted for it, breaks these Terms, the law, or the rules of a platform it involves.</p>
+  <p><strong>Judging and prizes.</strong> After a campaign ends we judge its entries by the method stated on the campaign and pay the prizes to the winners. An entry counts only if it was posted while the campaign ran, to a platform the campaign names, carrying every hashtag and mention the campaign requires, and in keeping with its rules and these Terms. Our decision on the winners is final. If a campaign ends with fewer eligible entries than prize places, the prizes not won are refunded to you.</p>
+  <p><strong>Cancelling.</strong> You may withdraw a request at any time before you pay. After you pay and before the campaign starts, you may cancel it by emailing us, and we refund the price in full. Once a campaign has started its price is not refundable, except as this Section states.</p>
+  <p><strong>Permission to clip.</strong> By running a campaign you grant the users taking part a non-exclusive, worldwide, royalty-free license to clip the streams of the channels it names while it runs, and to post and display those clips on the platforms it names, for the campaign. Clips already posted when it ends may stay posted. You keep all other rights in your streams.</p>
+  <p><strong>No promised results.</strong> We do not promise any number of entries, views, followers or any other result from a campaign.</p>
+  <p><strong>Taking part.</strong> If you post for a campaign you must follow its rules and these Terms. We pay prizes by the method we give the winners when the campaign is judged, and may ask for the information we need to pay you and to meet our tax obligations. We may withhold a prize from an entry that breaks a campaign's rules or these Terms, or that used views, likes or comments that were bought or faked.</p>
 
   <h2>5. Clips, Streamer Content, and Your Responsibility</h2>
   <p><strong>You — not Highlightz — create the clips, and you are solely responsible for them.</strong> When the Service creates a Twitch clip, it does so on your behalf and with your authorization through Twitch's official Clips API, using your Twitch account, and the resulting clip is owned, hosted, and governed by Twitch. When the Service records, edits or posts a video file, it does so because you directed it to, whether by hand or by switching on Autopilot, and anything it posts to an account you connected is posted under that account and is yours. Highlightz acts only as a tool that you direct.</p>
@@ -13641,7 +14098,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>You agree to indemnify, defend, and hold harmless ANTI Technology LLC and its officers, employees, and agents from and against any claims, liabilities, damages, losses, and expenses (including reasonable legal fees) arising out of or related to your use of the Service; any clip you create, save, post, distribute, or monetize; any content of any streamer or third party that appears in a clip you create; or your violation of these Terms, of Twitch's terms or policies, or of any applicable copyright, trademark, publicity, or other law.</p>
 
   <h2>13. Termination</h2>
-  <p>We may suspend or terminate your access to the Service at any time, with or without cause, with or without notice. Upon termination, your right to use the Service ceases immediately. Provisions that by their nature should survive termination (including sections 5, 7, 10, 11, and 12) shall survive.</p>
+  <p>We may suspend or terminate your access to the Service at any time, with or without cause, with or without notice. Upon termination, your right to use the Service ceases immediately. Provisions that by their nature should survive termination (including sections 4A, 5, 7, 10, 11, and 12) shall survive.</p>
 
   <h2>14. Changes to These Terms</h2>
   <p>We may update these Terms from time to time. We will notify you of material changes by posting the updated Terms at this URL and updating the effective date. Your continued use of the Service after such changes constitutes acceptance of the updated Terms.</p>
@@ -13679,7 +14136,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
@@ -13699,6 +14156,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
     <li><strong>Log data</strong> — server logs may contain IP addresses and request metadata for security and debugging purposes.</li>
     <li><strong>Feedback you send us</strong> — if you use the Feedback screen, we store your message along with your account id and username so we can reply. We may publish a quote from feedback as a testimonial; tell us not to and we will not.</li>
+    <li><strong>Campaign requests</strong> — if you ask us to run a campaign, we keep what you send: the campaign's details (its channels, description, rules, prizes, dates and posting requirements), any picture you add, the contact email and Discord name you give us, and the status of the request and of its payment. Your contact details are seen only by you and by us. Once a campaign is published, its details and picture are shown to signed-in users in the marketplace; your contact details and your account are not. The payment is processed by Stripe; we keep the Checkout session id and the amount paid, never card details.</li>
     <li><strong>Broadcaster opt-out records</strong> — if a broadcaster opts their channel out of the Service at <a href="/opt-out">/opt-out</a>, we store their Twitch or Kick user id, channel name and display name so we can keep enforcing it. Apart from the public clip records above, this is the only information we hold about people who are not users of the Service, and it exists solely to honour their request. Ask us and we will remove the record, which also lifts the block.</li>
   </ul>
   <p><strong>Kick.</strong> When you add a Kick channel we read its public chat and measure its public broadcast's audio in the same way as on Twitch, and a detected moment is stored only as a video file recorded from that live public broadcast, under the same retention and opt-out terms as above. Monitoring a Kick channel needs no Kick account. If you sign in with Kick we keep your Kick user ID, username and avatar URL (Section 1) and do not keep the Kick access token. We hold no information about Kick viewers beyond the short public chat sample stored with a clip.</p>
@@ -13725,6 +14183,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <h2>4. Data Retention</h2>
   <p>We retain your account information, encrypted Twitch tokens, and clip metadata for as long as your account is active. When you delete your account we remove your user record, encrypted tokens, clip metadata and the chat samples stored with it, uploaded video, stream configurations, scheduled and exported items, per-stream statistics, and any feedback you sent us. Clips you have already created remain hosted on Twitch under your Twitch account and are governed by Twitch; you can manage or delete them through Twitch. Log files may be retained for up to 90 days for security purposes.</p>
   <p>Broadcaster opt-out records are kept for as long as the opt-out stands, because deleting the record would lift the block — which is the opposite of what the broadcaster asked for. Contact us to have it removed.</p>
+  <p>A campaign request that was never paid is deleted with your account. A paid one is kept after you delete your account, with the contact details you gave for it, because it is the record of a payment and of prizes owed; ask us once its prizes are settled and we will remove the contact details.</p>
 
   <h2>5. Your Rights</h2>
   <p>You may request access to, correction of, or deletion of your personal data at any time by contacting us at <a href="mailto:support@highlightz.app">support@highlightz.app</a>, or by deleting your account directly from the Account settings page within the dashboard.</p>
@@ -13783,7 +14242,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: September 30, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
@@ -14233,6 +14692,20 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cp-checks label{display:flex;gap:var(--s-2);align-items:center}
   .cp-err{color:var(--bad);font-size:14px}
   @media(max-width:700px){.cp-2{grid-template-columns:1fr}.cp-row{flex-wrap:wrap}}
+  /* Campaign requests: the review queue above the campaigns. */
+  .cq-item{display:grid}
+  .cq-item.open .cp-row{border-color:var(--ember);border-radius:4px 4px 0 0}
+  .cq-detail{display:grid;gap:var(--s-4);padding:var(--s-4);border:1px solid var(--ember);border-top:none;
+    border-radius:0 0 4px 4px;background:var(--void)}
+  .cq-pre{white-space:pre-wrap;overflow-wrap:anywhere}
+  .cq-warn{margin:0 0 var(--s-2);padding:var(--s-2) var(--s-3);border-left:2px solid var(--ember);color:var(--ink-2);font-size:14px;max-width:96ch}
+  .cq-warn b{color:#fff}
+  .cq-f.on{background:var(--ember);border-color:var(--ember);color:#0A0A0C}
+  .cq-f.on .sub{color:#0A0A0C}
+  .cp-pill.cq-submitted{color:var(--ember);border-color:rgba(247,167,69,.35)}
+  .cp-pill.cq-approved,.cp-pill.cq-published,.cp-pill.cq-verified{color:var(--good);border-color:rgba(74,222,128,.35)}
+  .cp-pill.cq-declined,.cp-pill.cq-cancelled{color:var(--ink-3)}
+  .cq-detail textarea.field{min-height:72px;max-width:none;width:100%;resize:vertical;line-height:1.5}
 </style>
 </head>
 <body>
@@ -14437,7 +14910,19 @@ ADMIN_HTML = """<!DOCTYPE html>
 
   <!-- ── CAMPAIGNS ── -->
   <div class="panel" id="panel-campaigns">
-    <div class="block-head"><h2>Campaigns</h2><span class="c" id="cp-c"></span></div>
+    <div class="block-head"><h2>Requests from streamers</h2><span class="c" id="cq-c"></span></div>
+    <p class="lede">
+      Streamers ask for campaigns from the dashboard's <b>Promote</b> screen and /promote. Read each
+      one, then <b>Approve</b> it, <b>Ask for changes</b> or <b>Decline</b> it; the streamer sees your
+      note and the new status live. An approved request is paid by card through Stripe, and the
+      payment publishes it into the marketplace below by itself. <b>Publish without payment</b> is for
+      partners and tests. Winners are still judged and paid by hand when a campaign ends.
+    </p>
+    <div id="cq-switch"></div>
+    <div class="toolbar" id="cq-filters"></div>
+    <div id="cq-wrap" class="loading">Loading&hellip;</div>
+
+    <div class="block-head" style="margin-top:var(--s-7)"><h2>Campaigns</h2><span class="c" id="cp-c"></span></div>
     <p class="lede">
       The marketplace. Every campaign you create here shows in the <b>Campaigns</b> tab of the
       dashboard, with its picture, dates, streamers, prize split, judging and rules. Leave
@@ -14860,6 +15345,9 @@ async function apiJson(url, method, body){
 
 async function loadCampaigns(){
   CP_LOADED = true;
+  // The streamers' requests sit above the list and are re-read with it, but
+  // not while a note to a streamer is being written: a re-render would wipe it.
+  if(!cqTyping()) loadRequests();
   let d;
   try { d = await api('/admin/campaigns'); }
   catch(e){ if(!CP_ROWS.length) fail('cp-wrap', 'campaigns'); return; }
@@ -15081,6 +15569,162 @@ function campaignsOpen(){
     && !document.getElementById('cp-form');
 }
 setInterval(function(){ if(campaignsOpen()) loadCampaigns(); }, 30000);
+
+// ── campaign requests (streamers fund campaigns) ──────────
+// Sent from the dashboard's Promote screen. Approving lets the streamer pay
+// the quote by card; the payment publishes the campaign by itself (the Stripe
+// webhook, or the streamer's return from Checkout). Every action here reaches
+// the streamer's open tab live (campaign_request_updated). This page has no
+// socket, so the queue is re-read with the campaigns while the panel is open.
+let CQ_ROWS = [], CQ_FILTER = 'review', CQ_OPEN = '', CQ_SW = {}, CQ_BUSY = false;
+const CQ_LABEL = {submitted: 'new', changes_requested: 'changes asked', approved: 'approved, not paid',
+                  published: 'published', declined: 'declined', cancelled: 'withdrawn'};
+const CQ_GROUPS = [['review', 'Needs review', ['submitted']],
+                   ['waiting', 'Waiting on the streamer', ['changes_requested', 'approved']],
+                   ['published', 'Published', ['published']],
+                   ['closed', 'Declined or withdrawn', ['declined', 'cancelled']],
+                   ['all', 'All', null]];
+
+function cqMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function cqTyping(){
+  return Array.prototype.some.call(document.querySelectorAll('.cq-note'), function(t){
+    return t.value.trim() || document.activeElement === t;
+  });
+}
+
+async function loadRequests(){
+  let d;
+  try { d = await api('/admin/campaign-requests'); }
+  catch(e){ if(!CQ_ROWS.length) fail('cq-wrap', 'campaign requests'); return; }
+  CQ_ROWS = d.rows || []; CQ_SW = d.switches || {};
+  renderRequests();
+}
+
+function renderRequests(){
+  const need = CQ_ROWS.filter(function(r){ return r.status === 'submitted'; }).length;
+  document.getElementById('cq-c').textContent = need ? need + ' to review' : CQ_ROWS.length + ' total';
+  const sw = [];
+  if(!CQ_SW.requests) sw.push('<b>CAMPAIGN_REQUESTS_ENABLED</b> is off: only admins see the Promote screen and /promote. Set it to true in .env and restart to open them to streamers.');
+  if(!CQ_SW.marketplace) sw.push('<b>CAMPAIGNS_ENABLED</b> is off: clippers cannot see the marketplace, so a paid campaign would reach nobody. Turn it on before approving one.');
+  if(!CQ_SW.payments) sw.push('Stripe is not configured on this server, so an approved request cannot be paid.');
+  document.getElementById('cq-switch').innerHTML = sw.map(function(s){ return '<p class="cq-warn">' + s + '</p>'; }).join('');
+  document.getElementById('cq-filters').innerHTML = CQ_GROUPS.map(function(g){
+    const n = g[2] ? CQ_ROWS.filter(function(r){ return g[2].indexOf(r.status) >= 0; }).length : CQ_ROWS.length;
+    return '<button class="btn cq-f' + (CQ_FILTER === g[0] ? ' on' : '') + '" data-f="' + g[0] + '">' + g[1]
+      + ' <span class="sub">' + n + '</span></button>';
+  }).join('');
+  const grp = CQ_GROUPS.find(function(g){ return g[0] === CQ_FILTER; }) || CQ_GROUPS[4];
+  const rows = CQ_ROWS.filter(function(r){ return !grp[2] || grp[2].indexOf(r.status) >= 0; });
+  const wrap = document.getElementById('cq-wrap');
+  wrap.className = '';
+  if(!rows.length){
+    wrap.innerHTML = '<p class="sub">' + (CQ_ROWS.length ? 'Nothing here. Try another filter.'
+      : 'No requests yet. Streamers send them from the Promote screen in the dashboard.') + '</p>';
+    return;
+  }
+  wrap.innerHTML = '<div class="cp-list">' + rows.map(cqRow).join('') + '</div>';
+}
+
+function cqRow(r){
+  const open = CQ_OPEN === r.id;
+  const chans = r.streamers.map(function(s){ return esc(s.name) + (s.platform === 'kick' ? ' (Kick)' : ''); }).join(', ');
+  return '<div class="cq-item' + (open ? ' open' : '') + '"><div class="cp-row">'
+    + (r.image_url ? '<img class="cp-thumb" src="' + esc(r.image_url) + '" alt="">' : '<div class="cp-thumb"></div>')
+    + '<div class="t"><b>' + esc(r.title)
+      + '<span class="cp-pill cq-' + esc(r.status) + '">' + esc(CQ_LABEL[r.status] || r.status) + '</span>'
+      + (r.verified_owner ? '<span class="cp-pill cq-verified">verified owner</span>' : '<span class="cp-pill">not the channel&rsquo;s account</span>')
+      + '</b><span class="sub">' + esc(r.user.name) + ' &middot; ' + chans + ' &middot; ' + cqMoney(r.budget) + ' prize pool, '
+      + cqMoney(r.quote.total) + ' to pay &middot; ' + r.duration_days + ' days &middot; sent ' + cpWhen(r.created_at) + '</span></div>'
+    + '<div class="acts"><button class="btn cq-open" data-id="' + esc(r.id) + '">' + (open ? 'Close' : 'Review') + '</button></div></div>'
+    + (open ? cqDetail(r) : '') + '</div>';
+}
+
+function cqDetail(r){
+  const kv = function(k, v){ return '<dt>' + k + '</dt><dd>' + v + '</dd>'; };
+  const pre = function(t){ return '<span class="cq-pre">' + esc(t) + '</span>'; };
+  const tags = (r.hashtags || []).map(function(t){ return '#' + t; }).concat((r.mentions || []).map(function(h){ return '@' + h; }));
+  const u = r.user || {};
+  let html = '<div class="cq-detail"><dl class="kv">'
+    + kv('Account', esc(u.name) + (u.email ? ' &middot; ' + esc(u.email) : '') + ' &middot; ' + esc(u.plan || 'free')
+         + (u.twitch_login ? ' &middot; twitch.tv/' + esc(u.twitch_login) : '') + (u.kick_slug ? ' &middot; kick.com/' + esc(u.kick_slug) : ''))
+    + kv('Contact', esc(r.contact_email) + (r.contact_discord ? ' &middot; Discord ' + esc(r.contact_discord) : ''))
+    + kv('Channels', r.streamers.map(function(s){
+        return '<a href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">' + esc(s.name) + ' (' + (s.platform === 'kick' ? 'Kick' : 'Twitch') + ') &#8599;</a>';
+      }).join(', '))
+    + kv('Card text', esc(r.summary))
+    + kv('What to clip', pre(r.brief))
+    + (r.rules ? kv('Rules', pre(r.rules)) : '')
+    + kv('Prizes', r.payouts.map(function(p, i){ return (i + 1) + '. ' + cqMoney(p); }).join(' &middot; '))
+    + kv('Judging', esc(r.judging_text) + (r.judging_note ? '<br>' + pre(r.judging_note) : ''))
+    + kv('Runs', r.duration_days + ' days, ' + (r.start_mode === 'date' ? 'from ' + cpWhen(r.start_at) + ' (or payment, if later)' : 'from payment'))
+    + kv('Posted to', esc(r.platforms.map(function(p){ return (CP_PLATS.find(function(x){ return x[0] === p; }) || [p, p])[1]; }).join(', ')))
+    + (tags.length ? kv('Posts must carry', esc(tags.join(' '))) : '')
+    + (r.caption_template ? kv('Caption', esc(r.caption_template)) : '')
+    + kv('Price', cqMoney(r.quote.budget) + ' prize pool + ' + cqMoney(r.quote.flat_fee) + ' fee + ' + cqMoney(r.quote.percent_fee)
+         + ' (' + esc(r.quote.fee_pct) + '%) = <b>' + cqMoney(r.quote.total) + '</b>')
+    + (r.status === 'published' ? kv('Payment', r.payment === 'stripe'
+         ? 'Paid ' + cqMoney((r.amount_paid_cents || 0) / 100) + ' ' + cpWhen(r.paid_at) + (r.checkout_session_id ? ' &middot; ' + esc(r.checkout_session_id) : '')
+         : 'Published without payment') : '')
+    + (r.status === 'approved' ? kv('Payment', r.checkout_session_id ? 'Checkout opened (' + esc(r.checkout_session_id) + '), not paid yet' : 'Not started') : '')
+    + (r.admin_note ? kv('Last note sent', pre(r.admin_note)) : '')
+    + kv('History', (r.history || []).map(function(h){
+        return cpWhen(h.at) + ' &middot; ' + esc(CQ_LABEL[h.status] || h.status) + (h.note ? ' &middot; ' + esc(h.note) : '');
+      }).join('<br>'))
+    + '</dl>';
+  const id = esc(r.id), acts = [];
+  const open = ['submitted', 'changes_requested', 'approved'].indexOf(r.status) >= 0;
+  if(r.status === 'submitted' || r.status === 'changes_requested')
+    acts.push('<button class="btn btn-good cq-act" data-act="approve" data-id="' + id + '">Approve</button>');
+  if(r.status === 'submitted' || r.status === 'approved')
+    acts.push('<button class="btn cq-act" data-act="changes" data-id="' + id + '">Ask for changes</button>');
+  if(open) acts.push('<button class="btn btn-bad cq-act" data-act="decline" data-id="' + id + '">Decline</button>');
+  if(r.status === 'approved' && r.checkout_session_id)
+    acts.push('<button class="btn cq-act" data-act="check-payment" data-id="' + id + '">Check payment with Stripe</button>');
+  if(open) acts.push('<button class="btn cq-act" data-act="comp" data-id="' + id + '">Publish without payment</button>');
+  if(acts.length){
+    html += '<div class="cp-sec"><label for="cq-note-' + id + '">Note to the streamer (needed to ask for changes or decline; they see it on the request)</label>'
+      + '<textarea class="field cq-note" id="cq-note-' + id + '" maxlength="2000"></textarea></div>'
+      + '<div class="cp-line">' + acts.join('') + '</div>';
+  }
+  if(r.status === 'published') html += '<p class="sub">It is &ldquo;' + esc(r.title) + '&rdquo; in the campaigns list below, and is edited there like any other.</p>';
+  return html + '</div>';
+}
+
+const CQ_DONE = {approve: 'Approved. The streamer can pay now.', changes: 'Sent back for changes.', decline: 'Declined.',
+                 comp: 'Published to the marketplace.', 'check-payment': 'Checked with Stripe.'};
+async function cqAct(id, act){
+  if(CQ_BUSY) return;
+  const r = CQ_ROWS.find(function(x){ return x.id === id; }) || {};
+  const noteEl = document.getElementById('cq-note-' + id);
+  const note = noteEl ? noteEl.value.trim() : '';
+  if((act === 'changes' || act === 'decline') && !note){
+    toast('Write a note first: the streamer needs to know why.', false);
+    if(noteEl) noteEl.focus();
+    return;
+  }
+  if(act === 'approve' && !CQ_SW.marketplace
+     && !confirm('The marketplace is off (CAMPAIGNS_ENABLED), so clippers cannot see campaigns yet. Approve anyway?')) return;
+  if(act === 'decline' && !confirm('Decline "' + (r.title || 'this request') + '"? The streamer sees your note.')) return;
+  if(act === 'comp' && !confirm('Publish "' + (r.title || 'this request') + '" without payment? It goes into the marketplace now, recorded as unpaid.')) return;
+  CQ_BUSY = true;
+  try {
+    const d = await apiJson('/admin/campaign-requests/' + id + '/' + act, 'POST', {note: note});
+    if(noteEl) noteEl.value = '';
+    toast(act === 'check-payment' && d.status !== 'published' ? 'Stripe says it is not paid yet.' : CQ_DONE[act]);
+    if(d.status && ['published', 'declined', 'cancelled'].indexOf(d.status) >= 0) CQ_OPEN = '';
+  } catch(e){ toast(e.message, false); }
+  finally { CQ_BUSY = false; }
+  loadCampaigns();
+}
+
+document.getElementById('panel-campaigns').addEventListener('click', function(e){
+  const b = e.target.closest('button');
+  if(!b) return;
+  if(b.classList.contains('cq-f')){ CQ_FILTER = b.getAttribute('data-f'); renderRequests(); return; }
+  const id = b.getAttribute('data-id');
+  if(b.classList.contains('cq-open')){ CQ_OPEN = CQ_OPEN === id ? '' : id; renderRequests(); return; }
+  if(b.classList.contains('cq-act')) cqAct(id, b.getAttribute('data-act'));
+});
 
 // ── announcements ─────────────────────────────────────────
 let AN_LOADED = false;

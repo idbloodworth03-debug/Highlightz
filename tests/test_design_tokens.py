@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-PAGES = ("landing", "dashboard", "tutorial", "compare", "blog")
+PAGES = ("landing", "dashboard", "tutorial", "compare", "blog", "promote")
 SCALE = {0, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128}
 SPACE_PROPS = r"(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left))?"
 
@@ -17,10 +17,11 @@ SPACE_PROPS = r"(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom
 def css(page: str) -> str:
     from src.dashboard.api import LANDING_HTML
     from src.dashboard.aurora_html import DASHBOARD_HTML
-    from src.dashboard import tutorial_html, compare_html, blog_html
+    from src.dashboard import tutorial_html, compare_html, blog_html, promote_html
     html = {"landing": LANDING_HTML, "dashboard": DASHBOARD_HTML,
             "tutorial": tutorial_html.render(), "compare": compare_html.render(),
-            "blog": blog_html.render_article("clipping-platforms")}[page]
+            "blog": blog_html.render_article("clipping-platforms"),
+            "promote": promote_html.render("/login?next=promote")}[page]
     return "\n".join(re.findall(r"<style>(.*?)</style>", html, re.S))
 
 
@@ -454,7 +455,8 @@ def test_first_run_replaces_the_shell_rather_than_sitting_inside_it():
     somebody with no channels has not asked. The gate must return BEFORE the
     shell is built."""
     d = _dash()
-    gate = d.index("return <FirstRun onAdd={addStream}/>;")
+    # The prefix: a streamer's link to Promote rides along as a second prop.
+    gate = d.index("return <FirstRun onAdd={addStream}")
     shell = d.index("<nav className={'rd-nav'")
     assert gate < shell, "the shell is constructed before the first-run gate"
 

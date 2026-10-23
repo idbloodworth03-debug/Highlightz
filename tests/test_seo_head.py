@@ -132,12 +132,34 @@ def test_lastmod_is_the_real_mtime_of_the_file_that_renders_the_page():
     import time
     from pathlib import Path
     from src.dashboard.api import _page_lastmod, _PAGE_SOURCE
-    assert set(_PAGE_SOURCE) == set(PUBLIC)
+    # /promote is public only once CAMPAIGN_REQUESTS_ENABLED is on; the test
+    # below holds it to the same rules with the switch on.
+    assert set(_PAGE_SOURCE) == set(PUBLIC) | {"/promote"}
     root = Path(__file__).resolve().parents[1]
     for path, src in _PAGE_SOURCE.items():
         expected = time.strftime("%Y-%m-%d", time.gmtime((root / src).stat().st_mtime))
         assert _page_lastmod(path) == expected, \
             f"{path}: reported {_page_lastmod(path)}, file says {expected}"
+
+
+def test_the_campaigns_page_meets_the_same_rules_once_live(monkeypatch):
+    """Campaigns for streamers (2026-10-23). Off by default, so it cannot sit in
+    PUBLIC; switched on, it is held to every rule above and enters the
+    sitemap with a real lastmod."""
+    from src.dashboard import api as api_mod
+    monkeypatch.setattr(api_mod.settings, "campaign_requests_enabled", True)
+    h = head("/promote")
+    assert h.count('rel="canonical"') == 1
+    assert '<link rel="canonical" href="https://highlightz.app/promote">' in h
+    m = re.search(r'<meta name="description" content="([^"]*)">', h)
+    assert m and 70 <= len(m.group(1)) <= 320
+    for tag in ('property="og:title"', 'property="og:description"', 'property="og:url"',
+                'property="og:image"', 'name="twitter:card" content="summary_large_image"'):
+        assert tag in h, tag
+    assert set(re.findall(r'/static/(og-card[^"]*\.png)', h)) == {"og-card-v6.png"}
+    assert 'href="https://highlightz.app/llms.txt"' in h
+    xml = client.get("/sitemap.xml").text
+    assert re.search(r"<loc>https://highlightz\.app/promote</loc><lastmod>\d{4}-\d{2}-\d{2}</lastmod>", xml)
 
 
 def test_a_page_whose_source_cannot_be_read_is_omitted_not_faked():

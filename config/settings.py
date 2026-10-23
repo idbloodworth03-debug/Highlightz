@@ -242,6 +242,22 @@ class Settings(BaseSettings):
     # section and start to work on the marketplace").
     campaigns_enabled: bool = False
 
+    # Streamer-funded campaigns (src/campaigns/requests.py; owner, 2026-10-23:
+    # "the other side of the marketplace where streamers can come and submit
+    # campaigns"). A streamer with a free account requests one, an admin
+    # reviews it, the streamer pays through Stripe, and paying publishes it to
+    # the marketplace above. Off until switched on: the /promote page, its
+    # Campaigns tab in the site nav and the request screen show to admins only.
+    campaign_requests_enabled: bool = False
+    # The fee, added ON TOP of the budget, which goes to clippers in full: a
+    # flat amount per campaign plus a percentage of the budget ("a flat fee ...
+    # and a small percent like 2-5% added on"). Shown on /promote and in every
+    # quote, so a change here is a restart and nothing else.
+    campaign_flat_fee_usd: float = 25.0
+    campaign_fee_pct: float = 5.0
+    campaign_min_budget_usd: float = 100.0
+    campaign_max_budget_usd: float = 50000.0
+
     # Auto-captions (Whisper, on this box — owner's call over a paid API).
     #
     # DEFAULTS RAISED 2026-09-15. They started at tiny.en / greedy / no prompt,

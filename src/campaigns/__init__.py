@@ -199,6 +199,9 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
         "mentions": _handles(raw.get("mentions")),
         "caption_template": _text(raw.get("caption_template"), CAPTION_MAX),
         "published": bool(raw.get("published")),
+        # The streamer's request it was made from (src/campaigns/requests.py),
+        # kept through admin edits, which do not send it.
+        "request_id": (existing or {}).get("request_id") or _text(raw.get("request_id"), 32),
         "image": (existing or {}).get("image", ""),
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
@@ -280,13 +283,9 @@ def delete(campaign_id: str) -> bool:
     return True
 
 
-def set_image(campaign_id: str, data: bytes) -> dict | None:
-    """Store the campaign's picture. PNG or JPEG, sniffed from the bytes (not
-    the filename the browser claims), up to 5 MB."""
-    _load()
-    c = _campaigns.get(campaign_id)
-    if not c:
-        return None
+def image_ext(data: bytes) -> str:
+    """The picture's type from its bytes (never the name the browser gives),
+    or CampaignError. Shared with campaign requests."""
     if not data:
         raise CampaignError("That file is empty.")
     if len(data) > IMAGE_MAX:
@@ -296,6 +295,17 @@ def set_image(campaign_id: str, data: bytes) -> dict | None:
         ext = "webp"
     if ext is None:
         raise CampaignError("Use a PNG, JPEG or WebP picture.")
+    return ext
+
+
+def set_image(campaign_id: str, data: bytes) -> dict | None:
+    """Store the campaign's picture. PNG or JPEG, sniffed from the bytes (not
+    the filename the browser claims), up to 5 MB."""
+    _load()
+    c = _campaigns.get(campaign_id)
+    if not c:
+        return None
+    ext = image_ext(data)
     _IMAGES.mkdir(parents=True, exist_ok=True)
     if c.get("image"):
         (_IMAGES / c["image"]).unlink(missing_ok=True)

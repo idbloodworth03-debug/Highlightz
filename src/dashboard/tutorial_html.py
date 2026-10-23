@@ -242,17 +242,17 @@ _CSS = """
     text-transform:uppercase;color:var(--ink)}
   .nav-links{display:flex;align-items:center;gap:4px;margin-left:12px}
   .nav-link{font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.02em;
-    color:var(--ink-3);padding:8px 12px;border-radius:3px;
+    color:var(--ink-3);padding:8px 12px;border-radius:3px;white-space:nowrap;
     transition:color var(--dur-fast),background var(--dur-fast)}
   .nav-link:hover{color:var(--ink);background:rgba(242,234,247,.05)}
   .nav-link.on{color:var(--ink)}
   .nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-  /* Wide screens: the bar at reading size. Below 1360px the bar above is
-     already as wide as the room allows (the links collapse at 1000), so the
-     larger size only applies where it fits on one line. `.nav .nav-right
-     .btn` rather than `.nav .btn`: that rule comes later in the sheet and
-     would otherwise win. */
-  @media(min-width:1360px){
+  /* Wide screens: the bar at reading size. It needs 1457px at this size, so
+     it switches on at 1480; narrower, the bar above is already as wide as
+     the room allows (the links collapse at 1240). `.nav .nav-right .btn`
+     rather than `.nav .btn`: that rule comes later in the sheet and would
+     otherwise win. */
+  @media(min-width:1480px){
     .nav{padding:16px 32px 24px;gap:24px}
     .nav-logo{gap:12px}
     .nav-logo img{height:28px}
@@ -262,9 +262,9 @@ _CSS = """
     .nav-right{gap:12px}
     .nav .nav-right .btn{font-size:16px;padding:12px 24px}
   }
-  /* 1000, the landing page's number: the bar needs ~990px with its links
-     shown since the Blog tab joined it. */
-  @media(max-width:1000px){
+  /* 1240, the landing page's number: the bar needs 1216px with its links on
+     one line since the Campaigns tab joined it. */
+  @media(max-width:1240px){
     .nav-links{display:none}
   }
 
@@ -690,7 +690,7 @@ def render() -> str:
     <a href="/#faq" class="nav-link">FAQ</a>
     <a href="/tutorial" class="nav-link on" aria-current="page">Tutorial</a>
     <a href="/compare" class="nav-link">Compare</a>
-    <a href="/blog" class="nav-link">Blog</a>
+    <a href="/blog" class="nav-link">Blog</a><!--NAV_CAMPAIGNS-->
   </div>
   <div class="nav-right">
     <a href="/login" class="nav-link">Sign in</a>
@@ -772,7 +772,7 @@ def render() -> str:
 
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
-  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><!--FOOT_CAMPAIGNS--><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 

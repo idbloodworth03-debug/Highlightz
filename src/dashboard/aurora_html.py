@@ -84,6 +84,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 .fr-note{margin-top:var(--s-4);font-size:var(--t-caption);color:var(--fg-3);
   letter-spacing:.02em}
 .fr-err{margin-top:var(--s-3);font-size:var(--t-small);color:var(--danger)}
+/* The streamer's way past "add a channel": to the Promote screen. */
+.fr-alt{all:unset;box-sizing:border-box;cursor:pointer;margin-top:var(--s-6);display:inline-flex;align-items:center;gap:8px;
+  padding:8px 16px;border-radius:99px;border:1px solid var(--hair);font-size:var(--t-small);font-weight:700;color:var(--fg-2)}
+.fr-alt:hover{color:var(--fg);border-color:var(--hair-2)}
+.fr-alt:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 @media(max-width:520px){
   .fr-row{flex-direction:column}
 }
@@ -815,6 +820,118 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .pn-req span{font-size:12px;font-weight:700;padding:4px 8px;border-radius:99px;background:rgba(46,224,138,.14);color:var(--live)}
 .pn-req span.miss{background:var(--danger-soft);color:var(--danger)}
 @media (max-width:900px){.cmp-cols{grid-template-columns:1fr}.cmp-side{position:static}.cmp-main h2{font-size:24px}.cmp-hero{aspect-ratio:16/9}}
+/* ── Promote: streamers ask for (and pay for) campaigns ── */
+.pm{max-width:1180px;margin:0 auto;padding:8px 0 48px;display:flex;flex-direction:column;gap:24px}
+.pm-fee{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
+  color:var(--fg-2);background:rgba(255,255,255,.03);border:1px solid var(--hair)}
+.pm-fee > span{flex:1;min-width:220px}
+.pm-fee b{color:var(--fg)}
+.pm-fee a{color:var(--acc);text-decoration:none;font-weight:700;white-space:nowrap}
+.pm-list{display:flex;flex-direction:column;gap:16px}
+.pm-card{border-radius:20px;border:1px solid var(--hair);background:rgba(255,255,255,.03);padding:24px;display:flex;flex-direction:column;gap:16px}
+.pm-card.approved{border-color:rgba(46,224,138,.4)}
+.pm-card.changes_requested{border-color:rgba(255,194,92,.45)}
+.pm-card.declined,.pm-card.cancelled{opacity:.72}
+.pm-card-top{display:flex;gap:16px;align-items:flex-start}
+.pm-pic{width:64px;height:64px;border-radius:14px;overflow:hidden;flex-shrink:0;display:grid;place-items:center;background:var(--grad-soft);color:var(--acc)}
+.pm-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.pm-card-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.pm-card-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pm-card-h b{font-size:17px;font-weight:800;letter-spacing:-.01em;overflow-wrap:anywhere}
+.pm-card-sub{font-size:13px;color:var(--fg-3);line-height:1.5}
+.pm-card-money{text-align:right;display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+.pm-card-money b{font-size:20px;font-weight:800;color:var(--live);font-variant-numeric:tabular-nums}
+.pm-card-money span{font-size:12px;color:var(--fg-3)}
+.pm-pill{font-size:12px;font-weight:700;letter-spacing:.02em;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.08);color:var(--fg-2);white-space:nowrap}
+.pm-pill.work{background:var(--grad-soft);color:#fff}
+.pm-pill.warn{background:var(--pending-soft);color:var(--pending)}
+.pm-pill.ok{background:var(--live-soft);color:var(--live)}
+.pm-pill.off{background:rgba(255,255,255,.06);color:var(--fg-3)}
+.pm-msg{margin:0;font-size:14px;color:var(--fg-2);line-height:1.55}
+.pm-msg b{color:var(--fg)}
+.pm-note{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
+  background:rgba(255,255,255,.04);border-left:3px solid var(--acc)}
+.pm-note.warn{border-left-color:var(--pending);background:var(--pending-soft)}
+.pm-note.off{border-left-color:var(--fg-3)}
+.pm-note.ok{border-left-color:var(--live)}
+.pm-note b{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.pm-note span{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
+.pm-card-act{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pm-track{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.pm-track div{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:700;color:var(--fg-3)}
+.pm-track i{height:4px;border-radius:4px;background:rgba(255,255,255,.08)}
+.pm-track .done i{background:var(--live)}
+.pm-track .now i{background:var(--grad)}
+.pm-track .now.warn i{background:var(--pending)}
+.pm-track .done,.pm-track .now{color:var(--fg)}
+.pm-det{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;padding-top:16px;border-top:1px solid var(--hair)}
+.pm-det > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pm-det > div > span{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.pm-det p{margin:0;font-size:14px;color:var(--fg-2);line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.pm-det .wide{grid-column:1/-1}
+.pm-empty{display:flex;flex-direction:column;gap:24px}
+.pm-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.pm-steps > div{padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:4px}
+.pm-steps b{font-size:14px}
+.pm-steps span{font-size:13px;color:var(--fg-3);line-height:1.5}
+.pm-steps i{font-style:normal;font-size:12px;font-weight:800;color:var(--acc)}
+/* The request form: numbered sections, and the bill beside them. */
+.pm-form{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+.pm-secs{display:flex;flex-direction:column;gap:16px;min-width:0}
+.pm-sec{padding:24px;border-radius:20px;border:1px solid var(--hair);background:rgba(255,255,255,.03);display:flex;flex-direction:column;gap:16px;min-width:0}
+.pm-sec-h{display:flex;gap:12px;align-items:flex-start}
+.pm-sec-h h3{margin:0;font-size:16px;font-weight:800;line-height:32px}
+.pm-sec-h p{margin:0;font-size:13px;color:var(--fg-3);line-height:1.5}
+.pm-f{display:flex;flex-direction:column;gap:8px;min-width:0}
+.pm-f > label,.pm-lab{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.pm-f small{font-size:12px;color:var(--fg-3);line-height:1.5}
+.pm-f small.bad{color:var(--danger)}
+.pm-f small.good{color:var(--live)}
+.pm-f textarea.ed-in{resize:vertical;line-height:1.5}
+.pm-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pm-chan{display:grid;grid-template-columns:120px minmax(0,1fr) 40px;gap:8px;align-items:center}
+.pm-x{all:unset;box-sizing:border-box;cursor:pointer;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--fg-3);border:1px solid var(--hair)}
+.pm-x:hover{color:var(--fg);border-color:var(--hair-2)}
+.pm-x:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pm-places{display:flex;flex-direction:column;gap:8px}
+.pm-place{display:grid;grid-template-columns:64px minmax(0,1fr) 40px;gap:8px;align-items:center}
+.pm-place > span{font-size:13px;font-weight:700;color:var(--fg-2)}
+.pm-money{position:relative;display:block}
+.pm-money > i{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-style:normal;font-size:14px;color:var(--fg-3);pointer-events:none}
+.pm-money > input.ed-in{padding-left:24px;font-variant-numeric:tabular-nums}
+.pm-money.big > i{font-size:22px;left:14px}
+.pm-money.big > input.ed-in{font-size:24px;font-weight:800;padding:12px 16px 12px 32px}
+.pm-chips{display:flex;gap:8px;flex-wrap:wrap}
+.pm-chipbtn{all:unset;box-sizing:border-box;cursor:pointer;font-size:12px;font-weight:700;padding:8px 12px;border-radius:99px;border:1px solid var(--hair);color:var(--fg-2)}
+.pm-chipbtn:hover{border-color:var(--hair-2);color:var(--fg)}
+.pm-chipbtn.on{background:var(--grad-soft);border-color:rgba(196,137,228,.4);color:#fff}
+.pm-chipbtn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pm-checks{display:flex;gap:8px;flex-wrap:wrap}
+.pm-check{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--fg);padding:8px 12px;border-radius:12px;border:1px solid var(--hair);cursor:pointer}
+.pm-check.on{border-color:rgba(196,137,228,.45);background:var(--grad-soft)}
+.pm-check input{accent-color:var(--acc);margin:0}
+.pm-agree{display:flex;gap:12px;align-items:flex-start;font-size:14px;line-height:1.55;color:var(--fg-2);cursor:pointer}
+.pm-agree input{margin-top:4px;accent-color:var(--acc);flex-shrink:0}
+.pm-agree a{color:var(--acc)}
+.pm-bill{position:sticky;top:0;display:flex;flex-direction:column;gap:12px;padding:24px;border-radius:20px;border:1px solid rgba(196,137,228,.35);
+  background:linear-gradient(135deg,rgba(184,106,220,.12),rgba(255,255,255,.03))}
+.pm-bill-row{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--fg-2)}
+.pm-bill-row b{color:var(--fg);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pm-bill-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-top:12px;border-top:1px solid var(--hair);font-weight:800}
+.pm-bill-total b{font-size:28px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.pm-bill .rd-btn{width:100%}
+.pm-err{font-size:14px;color:var(--danger);background:var(--danger-soft);border-radius:12px;padding:12px 16px;line-height:1.5}
+.pm-lock{font-size:14px;color:var(--fg);background:var(--pending-soft);border-radius:12px;padding:12px 16px;line-height:1.5}
+.pm-picrow{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.pm-picbox{width:176px;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:var(--grad-soft);display:grid;place-items:center;color:var(--acc);flex-shrink:0}
+.pm-picbox img{width:100%;height:100%;object-fit:cover;display:block}
+.pm-filebtn{position:relative;overflow:hidden;cursor:pointer}
+.pm-filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+@media (max-width:980px){.pm-form{grid-template-columns:1fr}.pm-bill{position:static}}
+@media (max-width:700px){.pm-two{grid-template-columns:1fr}.pm-steps{grid-template-columns:1fr 1fr}.pm-card-top{flex-wrap:wrap}
+  .pm-card-money{text-align:left;width:100%;flex-direction:row;align-items:baseline;gap:8px}.pm-chan{grid-template-columns:92px minmax(0,1fr) 40px}
+  .pm-sec{padding:16px}.pm-track{gap:4px}}
+@media (max-width:420px){.pm-steps{grid-template-columns:1fr}}
 .apx-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .apx-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:24px;align-items:start}
 .apx-card{padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
@@ -2443,6 +2560,7 @@ const Icon = ({ name, size=16, stroke=2, fill='none', style }) => {
     play: <polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>,
     plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
     zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+    megaphone: <><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></>,
     trophy: <><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></>,
     radio: <><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></>,
     film: <><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M17 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></>,
@@ -5132,7 +5250,7 @@ function TutorialScreen({ doc, onGo }){
   );
 }
 
-const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'campaigns',label:'Campaigns',icon:'trophy',campaignsOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'}];
+const NAV=[{id:'streams',label:'Live Streams',icon:'radio'},{id:'review',label:'Clip Review',icon:'grid'},{id:'library',label:'Clip Library',icon:'film'},{id:'vod',label:'VOD Scanner',icon:'video'},{id:'uploads',label:'Clip Editor',icon:'upload'},{id:'schedule',label:'Scheduler',icon:'clock'},{id:'autopilot',label:'Autopilot',icon:'zap'},{id:'campaigns',label:'Campaigns',icon:'trophy',campaignsOnly:true},{id:'promote',label:'Promote',icon:'megaphone',promoteOnly:true},{id:'training',label:'Training',icon:'sparkles',labelerOnly:true},{id:'landing',label:'Landing Page',icon:'trending',adminOnly:true},{id:'tutorial',label:'Tutorial',icon:'book'},{id:'settings',label:'Settings',icon:'cog'},{id:'feedback',label:'Feedback',icon:'chat'}];
 // Tabs that close on Kick WHEN `kickOpen` (in the app) is false. Kick
 // monitoring went live on 2026-09-15 (chat + audio + viewers, clips cut from
 // live capture — no Kick-hosted clip, no Highlight clips) as an admin-only
@@ -5146,7 +5264,7 @@ const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','aut
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Your channels, defaults, plan and connected accounts'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],promote:['Promote','Fund a clipping campaign for your stream'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Your channels, defaults, plan and connected accounts'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -10385,7 +10503,7 @@ function VodScreen({ clips, me }) {
 
    It calls the same onAdd the normal panel calls, so there is one add path and
    no second copy of the validation to drift. */
-function FirstRun({ onAdd }) {
+function FirstRun({ onAdd, promoteHref }) {
   const [ch, setCh] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -10426,6 +10544,10 @@ function FirstRun({ onAdd }) {
         </form>
         {err && <div className="fr-err">{err}</div>}
         <div className="fr-note">Scoring starts within seconds of the channel going live.</div>
+        {/* A link, not a second button: this screen still does one thing.
+            It is the way out for a streamer who came to fund a campaign. */}
+        {promoteHref && <a className="fr-alt" href={promoteHref}>
+          <Icon name="megaphone" size={14}/>Here to promote your own stream? Run a clipping campaign</a>}
       </div>
     </div>
   );
@@ -10742,6 +10864,528 @@ function CampaignPostBanner({ c, onDone }) {
   );
 }
 
+// ── PROMOTE: streamers fund campaigns (owner, 2026-10-23) ─────────────────────
+// "let the streamers be able to request a campaign for their streams after they
+// sign up with an account (which they can do for free) ... they can also choose
+// the amount of money they want to put into the campaign." A request is sent
+// here, an admin approves it (or asks for changes, or declines), the streamer
+// pays the quote through Stripe, and the payment publishes it to the Campaigns
+// marketplace. Live: App holds the list (/campaign-requests), refetchAll re-reads
+// it on every reconnect, and campaign_request_updated re-reads it and says what
+// changed. Admins always see it; everyone else once CAMPAIGN_REQUESTS_ENABLED is on.
+function canPromoteFor(me) {
+  return !!(me && (me.is_admin || (me.features || {}).campaign_requests));
+}
+const PM_STATUS = {submitted: ['In review', 'work'], changes_requested: ['Changes requested', 'warn'],
+  approved: ['Approved: ready to pay', 'ok'], published: ['Published', 'ok'],
+  declined: ['Declined', 'off'], cancelled: ['Withdrawn', 'off']};
+const PM_BUDGETS = [250, 500, 1000, 2500, 5000];
+const pmMoney = n => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const pmCents = v => Math.round((Number(v) || 0) * 100);
+const pmAmt = c => c % 100 === 0 ? String(c / 100) : (c / 100).toFixed(2);
+const pmFeeText = pr => [pr.flat_fee ? campMoney(pr.flat_fee) + ' per campaign' : '',
+  pr.fee_pct ? pr.fee_pct + '% of the budget' : ''].filter(Boolean).join(' plus ') || 'nothing';
+// campaigns.requests.quote(), in whole cents with the percentage rounded half
+// up, so the total shown is the total Stripe will be asked for.
+function pmQuote(pr, budget) {
+  const b = pmCents(budget), flat = pmCents(pr.flat_fee), bp = Math.round((Number(pr.fee_pct) || 0) * 100);
+  const pct = Math.floor((b * bp + 5000) / 10000);
+  return {budget: b, flat, pct, total: b + flat + pct};
+}
+// Prizes from a budget in cents. Shares are percentages; what rounding leaves
+// over goes to first place, so the places always add up to the budget exactly.
+function pmSplit(cents, shares) {
+  const out = shares.map(s => Math.floor(cents * s / 100));
+  out[0] += cents - out.reduce((a, b) => a + b, 0);
+  return out.map(pmAmt);
+}
+function pmEven(cents, n) {
+  n = Math.max(1, n || 1);
+  const each = Math.floor(cents / n), out = Array(n).fill(each);
+  out[0] += cents - each * n;
+  return out.map(pmAmt);
+}
+// A channel as typed or pasted: twitch.tv/name, kick.com/name, @name or a name.
+function pmChan(v) {
+  let s = String(v || '').trim();
+  const cut = s.lastIndexOf('/');
+  if (cut >= 0) s = s.slice(cut + 1);
+  while (s.charAt(0) === '@') s = s.slice(1);
+  return s.split('?')[0].trim();
+}
+function pmLocalInput(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000), p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function pmBlank(pr, account) {
+  const budget = Math.min(Math.max(Number(pr.min_budget) || 0, 500), Number(pr.max_budget) || 500);
+  const chans = ((account && account.channels) || []).slice(0, 1);
+  return {streamers: chans.length ? chans.map(c => ({platform: c.platform, name: c.name})) : [{platform: 'twitch', name: ''}],
+    title: '', summary: '', brief: '', rules: '', budget: String(budget), payouts: pmSplit(budget * 100, [50, 30, 20]),
+    judging: 'top_clip_views', judging_n: 3, judging_note: '', start_mode: 'asap', start_at: '', duration_days: 14,
+    platforms: ['tiktok', 'youtube', 'instagram'], hashtags: '', mentions: '', caption_template: '',
+    contact_email: (account && account.email) || '', contact_discord: '', agree: false};
+}
+function pmFromRow(r) {
+  return {streamers: r.streamers.map(s => ({platform: s.platform, name: s.name})),
+    title: r.title, summary: r.summary, brief: r.brief, rules: r.rules || '', budget: String(r.budget),
+    payouts: r.payouts.map(p => pmAmt(pmCents(p))), judging: r.judging, judging_n: r.judging_n || 3,
+    judging_note: r.judging_note || '', start_mode: r.start_mode, start_at: pmLocalInput(r.start_at),
+    duration_days: r.duration_days, platforms: [...r.platforms],
+    hashtags: (r.hashtags || []).map(t => '#' + t).join(' '), mentions: (r.mentions || []).map(h => '@' + h).join(' '),
+    caption_template: r.caption_template || '', contact_email: r.contact_email || '',
+    contact_discord: r.contact_discord || '', agree: true};
+}
+async function pmUpload(id, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/campaign-requests/' + id + '/image', {method: 'POST', body: fd});
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'The picture did not upload.');
+  return d;
+}
+
+function PromoteEmpty({ onStart, canStart }) {
+  const steps = [['Tell us what you want', 'Your channel, what to clip, your rules, where clips go, and your budget split into prizes.'],
+    ['We review it', 'A person reads every request, usually within a day, and approves it or says what to change.'],
+    ['Pay, and it goes live', 'Pay the budget plus the fee by card. The campaign goes into the marketplace for clippers.'],
+    ['Winners get paid', 'When it ends we judge the entries your way and pay the whole prize pool to the winners.']];
+  return (
+    <div className="apx-card pm-empty">
+      <h3 style={{margin: 0}}>How a campaign works</h3>
+      <div className="pm-steps">{steps.map(([t, d], i) => <div key={t}><i>{'0' + (i + 1)}</i><b>{t}</b><span>{d}</span></div>)}</div>
+      <div><button className="rd-btn grad" disabled={!canStart} onClick={onStart}><Icon name="plus" size={14}/>Request your first campaign</button></div>
+    </div>
+  );
+}
+
+// Sent, Approved, Paid, Live: where a request is, at a glance.
+function PromoteTrack({ r, cs }) {
+  const stage = {submitted: 1, changes_requested: 1, approved: 2, published: cs === 'upcoming' ? 3 : 4}[r.status] || 0;
+  const warn = r.status === 'changes_requested';
+  return (
+    <div className="pm-track">
+      {['Sent', 'Approved', 'Paid', 'Live'].map((label, i) => (
+        <div key={label} className={i < stage ? 'done' : i === stage ? 'now' + (warn ? ' warn' : '') : ''}><i/>{label}</div>
+      ))}
+    </div>
+  );
+}
+
+function PromoteDetails({ r }) {
+  const tags = [...(r.hashtags || []).map(t => '#' + t), ...(r.mentions || []).map(h => '@' + h)];
+  return (
+    <div className="pm-det">
+      <div className="wide"><span>What to clip</span><p>{r.brief}</p></div>
+      {r.rules && <div className="wide"><span>Rules</span><p>{r.rules}</p></div>}
+      <div><span>Prizes</span><ol className="cmp-split">{r.payouts.map((p, i) =>
+        <li key={i}><span>{campOrdinal(i)} place</span><b>{pmMoney(p)}</b></li>)}</ol></div>
+      <div><span>Winners picked by</span><p>{r.judging_text}</p>{r.judging_note && <p>{r.judging_note}</p>}</div>
+      <div><span>Runs</span><p>{r.duration_days} day{r.duration_days === 1 ? '' : 's'}, {r.start_mode === 'date' && r.start_at
+        ? 'from ' + campDate(r.start_at) : 'from payment'}</p></div>
+      <div><span>Posted to</span><p>{r.platforms.map(p => CAMP_PLAT[p] || p).join(', ')}</p></div>
+      {tags.length > 0 && <div><span>Every post must include</span><p>{tags.join(' ')}</p></div>}
+      {r.caption_template && <div><span>Suggested caption</span><p>{r.caption_template}</p></div>}
+      <div><span>Price</span><p>{pmMoney(r.quote.budget)} prize pool + {pmMoney(r.quote.fees)} fees = {pmMoney(r.quote.total)}</p></div>
+      <div><span>Contact</span><p>{r.contact_email}</p>{r.contact_discord && <p>Discord: {r.contact_discord}</p>}</div>
+    </div>
+  );
+}
+
+function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaigns, onOpenCampaigns }) {
+  const [open, setOpen] = useState(false);
+  const now = Date.now() / 1000, c = r.campaign;
+  // From the clock, not the server's word at fetch time: a campaign that
+  // starts while the tab is open reads Live on the next render.
+  const cs = c ? (now < c.start_at ? 'upcoming' : now < c.end_at ? 'live' : 'ended') : '';
+  const st = r.status === 'published'
+    ? ({live: ['Live', 'ok'], upcoming: ['Paid: starts soon', 'ok'], ended: ['Ended', 'off']}[cs] || PM_STATUS.published)
+    : (PM_STATUS[r.status] || [r.status, '']);
+  const chans = r.streamers.map(s => s.name + (s.platform === 'kick' ? ' (Kick)' : '')).join(', ');
+  const editable = r.status === 'submitted' || r.status === 'changes_requested';
+  const live = c && cs === 'live', soon = c && cs === 'upcoming', over = c && cs === 'ended';
+  return (
+    <div className={'pm-card ' + r.status}>
+      <div className="pm-card-top">
+        <div className="pm-pic">{r.image_url ? <img src={r.image_url} alt=""/> : <Icon name="megaphone" size={22}/>}</div>
+        <div className="pm-card-tx">
+          <div className="pm-card-h"><b>{r.title}</b><span className={'pm-pill ' + st[1]}>{st[0]}</span></div>
+          <span className="pm-card-sub">{chans} &middot; {r.duration_days} day{r.duration_days === 1 ? '' : 's'} &middot; sent {new Date(r.created_at * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</span>
+        </div>
+        <div className="pm-card-money"><b>{campMoney(r.budget)}</b><span>prize pool</span></div>
+      </div>
+      {r.status !== 'declined' && r.status !== 'cancelled' && <PromoteTrack r={r} cs={cs}/>}
+      {r.status === 'submitted' && <p className="pm-msg">We are reviewing it. You will hear back right here, usually within a day.</p>}
+      {r.status === 'changes_requested' && <div className="pm-note warn"><b>What to change</b><span>{r.admin_note}</span></div>}
+      {r.status === 'approved' && r.admin_note && <div className="pm-note ok"><b>From Highlightz</b><span>{r.admin_note}</span></div>}
+      {r.status === 'approved' && <p className="pm-msg">Approved. Pay <b>{pmMoney(r.quote.total)}</b> to publish it: {pmMoney(r.quote.budget)} prize
+        pool and {pmMoney(r.quote.fees)} in fees.{payments ? '' : ' Card payments are not switched on yet; we will email you when you can pay.'}</p>}
+      {r.status === 'published' && <p className="pm-msg">
+        {live ? 'Live in the Campaigns marketplace until ' + campDate(c.end_at) + '. '
+          : soon ? 'It goes live in the marketplace ' + campDate(c.start_at) + '. '
+          : over ? 'Ended ' + campDate(c.end_at) + '. Highlightz judges the entries and pays the winners. ' : ''}
+        {r.payment === 'stripe' ? 'Paid ' + pmMoney((r.amount_paid_cents || 0) / 100) + '.' : 'Published by Highlightz at no charge.'}</p>}
+      {r.status === 'declined' && <div className="pm-note off"><b>Declined</b><span>{r.admin_note || 'This request was declined.'}</span></div>}
+      {r.status === 'cancelled' && <p className="pm-msg">You withdrew this request.</p>}
+      <div className="pm-card-act">
+        {r.status === 'approved' && payments &&
+          <button className="rd-btn grad" disabled={busy} onClick={() => onPay(r)}><Icon name="card" size={14}/>{busy ? 'Opening checkout…' : 'Pay ' + pmMoney(r.quote.total)}</button>}
+        {editable && <button className={'rd-btn' + (r.status === 'changes_requested' ? ' grad' : ' sm')} disabled={busy} onClick={() => onEdit(r)}>Edit</button>}
+        {r.status === 'published' && canCampaigns &&
+          <button className="rd-btn sm" onClick={onOpenCampaigns}><Icon name="trophy" size={13}/>See it in Campaigns</button>}
+        <button className="rd-btn sm" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
+        {(editable || r.status === 'approved') && <button className="rd-btn sm" disabled={busy} onClick={() => onWithdraw(r)}>Withdraw</button>}
+      </div>
+      {open && <PromoteDetails r={r}/>}
+    </div>
+  );
+}
+
+function PromoteForm({ data, row, flash, onDone }) {
+  const pr = data.pricing, lim = data.limits || {};
+  const maxPlaces = lim.max_places || 20, maxChans = lim.max_streamers || 5;
+  const daysMin = lim.days_min || 1, daysMax = lim.days_max || 60;
+  const minPlace = Math.round((lim.min_place || 1) * 100);
+  const [f, setF] = useState(() => row ? pmFromRow(row) : pmBlank(pr, data.account));
+  // 'all' | 'top3' | 'top5' | 'even' follow the budget as it changes; typing a
+  // prize makes the split 'custom', which nothing rewrites.
+  const [split, setSplit] = useState(row ? 'custom' : 'top3');
+  const [pic, setPic] = useState(null);            // a picture for a request not sent yet
+  const [picUrl, setPicUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => () => { if (picUrl) URL.revokeObjectURL(picUrl); }, [picUrl]);
+  // A refusal answers the form as it was sent; once they change it, it goes.
+  useEffect(() => { setErr(''); }, [f]);
+  const set = (k, v) => setF(o => ({...o, [k]: v}));
+  // An admin's review can land while this is open: the row is the live one,
+  // so the form says so instead of failing on save.
+  const locked = !!row && row.status !== 'submitted' && row.status !== 'changes_requested';
+  const q = pmQuote(pr, f.budget);
+  const cents = f.payouts.map(pmCents);
+  const sum = cents.reduce((a, b) => a + b, 0);
+  const minB = pmCents(pr.min_budget), maxB = pmCents(pr.max_budget);
+  const budgetBad = q.budget < minB ? 'The smallest budget is ' + campMoney(pr.min_budget) + '.'
+    : q.budget > maxB ? 'The largest budget here is ' + campMoney(pr.max_budget) + '. Email us for a bigger campaign.' : '';
+  const resplit = (b, mode, n) => mode === 'all' ? [pmAmt(b)] : mode === 'top3' ? pmSplit(b, [50, 30, 20])
+    : mode === 'top5' ? pmSplit(b, [40, 25, 15, 12, 8]) : mode === 'even' ? pmEven(b, n) : null;
+  const setBudget = v => setF(o => {
+    const ps = resplit(pmCents(v), split, o.payouts.length);
+    return ps ? {...o, budget: v, payouts: ps} : {...o, budget: v};
+  });
+  const pickSplit = mode => {
+    setSplit(mode);
+    const ps = resplit(q.budget, mode, Math.max(2, f.payouts.length));
+    if (ps) set('payouts', ps);
+  };
+  const setPlace = (i, v) => { setSplit('custom'); setF(o => ({...o, payouts: o.payouts.map((p, j) => j === i ? v : p)})); };
+  const addPlace = () => split === 'even' ? set('payouts', pmEven(q.budget, f.payouts.length + 1))
+    : (setSplit('custom'), set('payouts', [...f.payouts, '']));
+  const dropPlace = i => split === 'even' ? set('payouts', pmEven(q.budget, f.payouts.length - 1))
+    : (setSplit('custom'), set('payouts', f.payouts.filter((_, j) => j !== i)));
+  const firstFix = q.budget - sum + (cents[0] || 0);
+  const fillFirst = () => { setSplit('custom'); set('payouts', [pmAmt(firstFix), ...f.payouts.slice(1)]); };
+  const setChan = (i, patch) => setF(o => ({...o, streamers: o.streamers.map((s, j) => j === i ? {...s, ...patch} : s)}));
+  const mine = ((data.account && data.account.channels) || []).some(c => f.streamers.some(s =>
+    s.platform === c.platform && pmChan(s.name).toLowerCase() === String(c.name).toLowerCase()));
+  const togglePlat = p => set('platforms', f.platforms.includes(p) ? f.platforms.filter(x => x !== p) : [...f.platforms, p]);
+  const prizesOk = sum === q.budget && cents.every(c => c >= minPlace);
+
+  const choosePic = async file => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { setErr('Use a PNG, JPEG or WebP picture.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setErr('The picture must be 5 MB or smaller.'); return; }
+    setErr('');
+    if (!row) { setPic(file); setPicUrl(URL.createObjectURL(file)); return; }
+    setBusy(true);
+    try { await pmUpload(row.id, file); flash('Picture saved.'); }
+    catch (e) { setErr(String(e.message || e)); }
+    setBusy(false);
+  };
+
+  const submit = async () => {
+    setErr('');
+    if (!f.agree) { setErr('Tick the box at the end to confirm you can promote these channels and agree to the campaign terms.'); return; }
+    setBusy(true);
+    const body = {...f, budget: q.budget / 100, payouts: cents.map(c => c / 100),
+      streamers: f.streamers.filter(s => pmChan(s.name)).map(s => ({platform: s.platform, name: pmChan(s.name)})),
+      judging_n: Number(f.judging_n) || 3, duration_days: Number(f.duration_days) || 0,
+      start_at: f.start_mode === 'date' && f.start_at ? new Date(f.start_at).getTime() / 1000 : 0};
+    let saved = null;
+    try {
+      const res = await fetch(row ? '/campaign-requests/' + row.id : '/campaign-requests',
+        {method: row ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Could not send it. Try again.');
+      saved = d;
+    } catch (e) { setErr(String(e.message || e)); setBusy(false); return; }
+    if (pic) { try { await pmUpload(saved.id, pic); } catch (e) { flash(String(e.message || e)); } }
+    setBusy(false);
+    onDone();
+  };
+
+  const optional = <span style={{textTransform: 'none', letterSpacing: 0, fontWeight: 600}}> (optional)</span>;
+  const picShown = picUrl || (row && row.image_url) || '';
+  return (
+    <div className="pm">
+      <div>
+        <button className="rd-btn sm cmp-back" onClick={onDone}><Icon name="chevron" size={14} style={{transform: 'rotate(90deg)'}}/>Your requests</button>
+        <div className="cmp-top" style={{marginTop: 16}}>
+          <div>
+            <h2>{row ? 'Edit your campaign request' : 'Request a campaign'}</h2>
+            <p className="cmp-muted">Tell clippers what you want. A person at Highlightz reviews every request before anything is charged.</p>
+          </div>
+        </div>
+      </div>
+      {locked && <div className="pm-lock">This request is {(PM_STATUS[row.status] || [row.status])[0].toLowerCase()} now, so it can no longer be changed here.</div>}
+      <div className="pm-form">
+        <div className="pm-secs">
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">1</span><div><h3>Your channel</h3>
+              <p>The streams clippers will clip. Add up to {maxChans} if you stream as a group.</p></div></div>
+            {f.streamers.map((s, i) => (
+              <div className="pm-chan" key={i}>
+                <select className="ed-in" value={s.platform} aria-label="Platform" onChange={e => setChan(i, {platform: e.target.value})}>
+                  <option value="twitch">Twitch</option><option value="kick">Kick</option>
+                </select>
+                <input className="ed-in" value={s.name} placeholder="Channel name" maxLength={80} aria-label="Channel name"
+                  autoComplete="off" spellCheck="false" onChange={e => setChan(i, {name: e.target.value})}
+                  onBlur={e => setChan(i, {name: pmChan(e.target.value)})}/>
+                {f.streamers.length > 1
+                  ? <button type="button" className="pm-x" aria-label="Remove this channel" onClick={() => set('streamers', f.streamers.filter((_, j) => j !== i))}><Icon name="x" size={14}/></button>
+                  : <span/>}
+              </div>
+            ))}
+            {f.streamers.length < maxChans &&
+              <div><button type="button" className="rd-btn sm" onClick={() => set('streamers', [...f.streamers, {platform: 'twitch', name: ''}])}><Icon name="plus" size={13}/>Add a channel</button></div>}
+            <p className="cmp-muted">{mine ? 'You are signed in as this channel, so our reviewers see the request as verified.'
+              : 'Asking for a channel that is not yours? That is fine with the streamer’s permission: say how you work with them in the brief below.'}</p>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">2</span><div><h3>The campaign</h3>
+              <p>What clippers see on the campaign page.</p></div></div>
+            <div className="pm-f"><label htmlFor="pm-title">Name</label>
+              <input id="pm-title" className="ed-in" value={f.title} maxLength={120} placeholder="e.g. Clip my comeback week"
+                onChange={e => set('title', e.target.value)}/></div>
+            <div className="pm-f"><label htmlFor="pm-sum">One-line description</label>
+              <input id="pm-sum" className="ed-in" value={f.summary} maxLength={300} placeholder="Shown on the campaign card in the marketplace"
+                onChange={e => set('summary', e.target.value)}/></div>
+            <div className="pm-f"><label htmlFor="pm-brief">What clippers should clip</label>
+              <textarea id="pm-brief" className="ed-in" rows={5} value={f.brief} maxLength={4000}
+                placeholder="The moments you want: clutch plays, reactions, a running bit, a new game. Anything clippers should know about you and your stream."
+                onChange={e => set('brief', e.target.value)}/>
+              <small className={f.brief.trim() && f.brief.trim().length < 20 ? 'bad' : ''}>
+                {f.brief.trim().length < 20 ? 'A few sentences at least.' : f.brief.length + ' of 4,000 characters'}</small></div>
+            <div className="pm-f"><label htmlFor="pm-rules">Rules{optional}</label>
+              <textarea id="pm-rules" className="ed-in" rows={4} value={f.rules} maxLength={8000}
+                placeholder="Clip length, language, anything off limits." onChange={e => set('rules', e.target.value)}/></div>
+            <div className="pm-f"><span className="pm-lab">Picture{optional}</span>
+              <div className="pm-picrow">
+                <div className="pm-picbox">{picShown ? <img src={picShown} alt=""/> : <Icon name="megaphone" size={26}/>}</div>
+                <div style={{display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start'}}>
+                  <span className="rd-btn sm pm-filebtn"><Icon name="upload" size={13}/>{picShown ? 'Change picture' : 'Choose a picture'}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Campaign picture" disabled={busy || locked}
+                      onChange={e => { choosePic(e.target.files && e.target.files[0]); e.target.value = ''; }}/></span>
+                  <span className="cmp-muted" style={{margin: 0, fontSize: 12}}>PNG, JPEG or WebP, up to 5 MB. 16:9 looks best on the card.</span>
+                </div>
+              </div></div>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">3</span><div><h3>Budget and prizes</h3>
+              <p>Your budget is the prize pool, and all of it is paid to the winning clippers. Our fee is added on top.</p></div></div>
+            <div className="pm-f"><label htmlFor="pm-budget">Budget</label>
+              <span className="pm-money big"><i>$</i><input id="pm-budget" className="ed-in" type="number" inputMode="decimal"
+                min={pr.min_budget} max={pr.max_budget} step="1" value={f.budget} onChange={e => setBudget(e.target.value)}/></span>
+              <div className="pm-chips">{PM_BUDGETS.filter(v => v >= pr.min_budget && v <= pr.max_budget).map(v =>
+                <button type="button" key={v} className={'pm-chipbtn' + (q.budget === v * 100 ? ' on' : '')} onClick={() => setBudget(String(v))}>{campMoney(v)}</button>)}</div>
+              <small className={budgetBad ? 'bad' : ''}>{budgetBad || 'Any amount from ' + campMoney(pr.min_budget) + ' to ' + campMoney(pr.max_budget) + '.'}</small></div>
+            <div className="pm-f"><span className="pm-lab">How the prizes are split</span>
+              <div className="pm-chips">{[['all', 'Winner takes all'], ['top3', 'Top 3'], ['top5', 'Top 5'], ['even', 'Even split'], ['custom', 'My own']].map(([k, l]) =>
+                <button type="button" key={k} className={'pm-chipbtn' + (split === k ? ' on' : '')} onClick={() => pickSplit(k)}>{l}</button>)}</div></div>
+            <div className="pm-places">
+              {f.payouts.map((p, i) => (
+                <div className="pm-place" key={i}>
+                  <span>{campOrdinal(i)}</span>
+                  <span className="pm-money"><i>$</i><input className="ed-in" type="number" inputMode="decimal" min="1" step="0.01" value={p}
+                    aria-label={campOrdinal(i) + ' place prize'} onChange={e => setPlace(i, e.target.value)}/></span>
+                  {f.payouts.length > 1
+                    ? <button type="button" className="pm-x" aria-label={'Remove ' + campOrdinal(i) + ' place'} onClick={() => dropPlace(i)}><Icon name="x" size={14}/></button>
+                    : <span/>}
+                </div>
+              ))}
+              {f.payouts.length < maxPlaces &&
+                <div><button type="button" className="rd-btn sm" onClick={addPlace}><Icon name="plus" size={13}/>Add a place</button></div>}
+            </div>
+            <div className="pm-f">
+              {prizesOk
+                ? <small className="good">{f.payouts.length} winner{f.payouts.length === 1 ? '' : 's'}, adding up to the whole budget.</small>
+                : <small className="bad">
+                    {cents.some(c => c < minPlace) ? 'Every prize must be at least ' + campMoney(minPlace / 100) + '. ' : ''}
+                    {sum !== q.budget ? 'The prizes add up to ' + pmMoney(sum / 100) + ', not the ' + pmMoney(q.budget / 100) + ' budget. ' : ''}</small>}
+              {sum !== q.budget && firstFix >= minPlace &&
+                <div><button type="button" className="pm-chipbtn" onClick={fillFirst}>Make 1st place {pmMoney(firstFix / 100)}</button></div>}
+            </div>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">4</span><div><h3>Where and when</h3>
+              <p>Where clips get posted, and how long the campaign runs.</p></div></div>
+            <div className="pm-f"><span className="pm-lab">Clips are posted to</span>
+              <div className="pm-checks">{(data.platforms || []).map(p => (
+                <label key={p} className={'pm-check' + (f.platforms.includes(p) ? ' on' : '')}>
+                  <input type="checkbox" checked={f.platforms.includes(p)} onChange={() => togglePlat(p)}/>{CAMP_PLAT[p] || p}</label>))}</div>
+              {f.platforms.length === 0 && <small className="bad">Pick at least one.</small>}</div>
+            <div className="pm-two">
+              <div className="pm-f"><span className="pm-lab">Starts</span>
+                <div className="ed-seg">
+                  <button type="button" className={f.start_mode === 'asap' ? 'on' : ''} onClick={() => set('start_mode', 'asap')}>As soon as possible</button>
+                  <button type="button" className={f.start_mode === 'date' ? 'on' : ''} onClick={() => set('start_mode', 'date')}>On a date</button>
+                </div>
+                {f.start_mode === 'date' && <input className="ed-in" type="datetime-local" value={f.start_at} min={pmLocalInput(Date.now() / 1000)}
+                  aria-label="Start date and time" onChange={e => set('start_at', e.target.value)}/>}
+                <small>{f.start_mode === 'asap' ? 'It starts the moment you pay, after we approve it.'
+                  : 'If you pay after this date, it starts when you pay instead.'}</small></div>
+              <div className="pm-f"><label htmlFor="pm-days">Runs for (days)</label>
+                <input id="pm-days" className="ed-in" type="number" min={daysMin} max={daysMax} step="1" value={f.duration_days}
+                  onChange={e => set('duration_days', e.target.value)}/>
+                <div className="pm-chips">{[7, 14, 30].filter(d => d >= daysMin && d <= daysMax).map(d =>
+                  <button type="button" key={d} className={'pm-chipbtn' + (Number(f.duration_days) === d ? ' on' : '')} onClick={() => set('duration_days', d)}>{d} days</button>)}</div>
+                <small>{daysMin} to {daysMax} days.</small></div>
+            </div>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">5</span><div><h3>What every post must carry</h3>
+              <p>A clip posted for your campaign from Highlightz is refused until it includes these, so entries follow your rules.</p></div></div>
+            <div className="pm-two">
+              <div className="pm-f"><label htmlFor="pm-tags">Required hashtags</label>
+                <input id="pm-tags" className="ed-in" value={f.hashtags} placeholder="#yourchannel #clips" onChange={e => set('hashtags', e.target.value)}/>
+                <small>Letters, numbers and _ only, separated by spaces.</small></div>
+              <div className="pm-f"><label htmlFor="pm-ments">Required mentions</label>
+                <input id="pm-ments" className="ed-in" value={f.mentions} placeholder="@yourname" onChange={e => set('mentions', e.target.value)}/>
+                <small>Your accounts on TikTok, YouTube or Instagram.</small></div>
+            </div>
+            <div className="pm-f"><label htmlFor="pm-cap">Suggested caption{optional}</label>
+              <input id="pm-cap" className="ed-in" value={f.caption_template} maxLength={2200} placeholder="{title} | clipped from {streamer}"
+                onChange={e => set('caption_template', e.target.value)}/>
+              <small>{'{title}'} becomes the clip&rsquo;s title and {'{streamer}'} the channel name.</small></div>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">6</span><div><h3>How winners are picked</h3>
+              <p>We judge the entries this way when the campaign ends.</p></div></div>
+            <div className="pm-two">
+              <div className="pm-f"><label htmlFor="pm-judge">Judged by</label>
+                <select id="pm-judge" className="ed-in" value={f.judging} onChange={e => set('judging', e.target.value)}>
+                  {Object.entries(data.judging || {}).map(([k, l]) =>
+                    <option key={k} value={k}>{String(l).split('{n}').join(String(f.judging_n || 3))}</option>)}
+                </select></div>
+              {(f.judging === 'best_n_views' || f.judging === 'best_n_engagement') &&
+                <div className="pm-f"><label htmlFor="pm-n">Best clips counted per clipper</label>
+                  <input id="pm-n" className="ed-in" type="number" min="1" max="20" value={f.judging_n} onChange={e => set('judging_n', e.target.value)}/></div>}
+            </div>
+            <div className="pm-f"><label htmlFor="pm-jnote">{f.judging === 'custom' ? 'How should we pick the winners?' : 'Anything else about judging'}{f.judging === 'custom' ? null : optional}</label>
+              <textarea id="pm-jnote" className="ed-in" rows={3} maxLength={1000} value={f.judging_note} onChange={e => set('judging_note', e.target.value)}/>
+              {f.judging === 'custom' && !f.judging_note.trim() && <small className="bad">Describe how you want the winners picked.</small>}</div>
+          </section>
+
+          <section className="pm-sec">
+            <div className="pm-sec-h"><span className="apx-n">7</span><div><h3>How we reach you</h3>
+              <p>Only Highlightz sees these. Clippers never do.</p></div></div>
+            <div className="pm-two">
+              <div className="pm-f"><label htmlFor="pm-email">Email</label>
+                <input id="pm-email" className="ed-in" type="email" value={f.contact_email} maxLength={254} placeholder="you@example.com"
+                  onChange={e => set('contact_email', e.target.value)}/></div>
+              <div className="pm-f"><label htmlFor="pm-discord">Discord{optional}</label>
+                <input id="pm-discord" className="ed-in" value={f.contact_discord} maxLength={64} placeholder="yourname"
+                  onChange={e => set('contact_discord', e.target.value)}/></div>
+            </div>
+            <label className="pm-agree"><input type="checkbox" checked={f.agree} onChange={e => set('agree', e.target.checked)}/>
+              <span>I am the streamer of these channels or have their permission to promote them, and I agree to
+                the <a href="/tos#campaigns" target="_blank" rel="noopener">campaign terms</a>: the whole budget is paid out as prizes, and the fee is not part of it.</span></label>
+          </section>
+        </div>
+
+        <aside className="pm-bill">
+          <span className="cmp-k">What it costs</span>
+          <div className="pm-bill-row"><span>Prize pool, paid to clippers</span><b>{pmMoney(q.budget / 100)}</b></div>
+          {q.flat > 0 && <div className="pm-bill-row"><span>Campaign fee</span><b>{pmMoney(q.flat / 100)}</b></div>}
+          {q.pct > 0 && <div className="pm-bill-row"><span>Platform fee ({pr.fee_pct}%)</span><b>{pmMoney(q.pct / 100)}</b></div>}
+          <div className="pm-bill-total"><span>Total</span><b>{pmMoney(q.total / 100)}</b></div>
+          <p className="cmp-muted">Nothing is charged now. You pay after we approve the request, by card through Stripe.</p>
+          {err && <div className="pm-err" role="alert">{err}</div>}
+          <button type="button" className="rd-btn grad" disabled={busy || locked} onClick={submit}>
+            {busy ? 'Sending…' : row ? 'Save and send for review' : 'Send for review'}</button>
+          <button type="button" className="rd-btn sm" onClick={onDone}>Cancel</button>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function PromoteScreen({ data, startNew, onStarted, onRefresh, flash, canCampaigns, onOpenCampaigns }) {
+  const [editing, setEditing] = useState(null);     // null (the list), 'new', or a request id
+  const [busy, setBusy] = useState('');             // the request an action is running on
+  // ?view=promote&new=1 (back from signing up on /promote) opens the form.
+  useEffect(() => { if (startNew && data) { setEditing('new'); if (onStarted) onStarted(); } }, [startNew, !!data]);
+  if (!data) return <div className="rd-scroll"><div className="pm"><p className="cmp-muted">Loading your campaign requests…</p></div></div>;
+  const rows = data.rows || [];
+  // The row being edited comes from the live list, so a review that lands
+  // while the form is open is reflected in it at once.
+  const row = editing && editing !== 'new' ? rows.find(r => r.id === editing) : null;
+  const done = () => { setEditing(null); if (onRefresh) onRefresh(); };
+  if (editing === 'new' || row) {
+    return <div className="rd-scroll"><PromoteForm key={editing} data={data} row={row} flash={flash} onDone={done}/></div>;
+  }
+  const maxOpen = (data.limits || {}).max_open || 5;
+  const openCount = rows.filter(r => r.status === 'submitted' || r.status === 'changes_requested' || r.status === 'approved').length;
+  const canStart = openCount < maxOpen;
+  const post = async (r, path) => {
+    setBusy(r.id);
+    try {
+      const res = await fetch('/campaign-requests/' + r.id + path, {method: 'POST'});
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Something went wrong. Try again.');
+      return d;
+    } catch (e) { flash(String(e.message || e)); return null; }
+    finally { setBusy(''); }
+  };
+  const pay = async r => {
+    const d = await post(r, '/checkout');
+    if (d && d.url) { setBusy(r.id); window.location.href = d.url; }
+    else if (d && d.published) { flash('Already paid. Your campaign is in the marketplace.'); if (onRefresh) onRefresh(); }
+  };
+  const withdraw = async r => {
+    if (!window.confirm('Withdraw "' + r.title + '"? Nothing has been charged, and you can send a new request any time.')) return;
+    if (await post(r, '/withdraw') && onRefresh) onRefresh();
+  };
+  return (
+    <div className="rd-scroll">
+      <div className="pm">
+        <div className="cmp-top">
+          <div>
+            <h2>Promote your stream</h2>
+            <p className="cmp-muted">Fund a clipping campaign. Clippers post the best moments of your streams, and your whole budget is paid to the winners.</p>
+          </div>
+          <button className="rd-btn grad" disabled={!canStart} title={canStart ? undefined : 'You have ' + openCount + ' requests open. Finish or withdraw one first.'}
+            onClick={() => setEditing('new')}><Icon name="plus" size={14}/>New campaign request</button>
+        </div>
+        <div className="pm-fee"><Icon name="card" size={16}/>
+          <span>Your budget is paid to clippers in full. Our fee is added on top: <b>{pmFeeText(data.pricing)}</b>. You pay only after we approve a request.</span>
+          <a href="/promote" target="_blank" rel="noopener">How it works</a></div>
+        {!canStart && <p className="cmp-muted">You have {openCount} requests open, the most at once. Finish or withdraw one to send another.</p>}
+        {rows.length === 0
+          ? <PromoteEmpty canStart={canStart} onStart={() => setEditing('new')}/>
+          : <div className="pm-list">{rows.map(r => <PromoteCard key={r.id} r={r} busy={busy === r.id} payments={!!data.payments}
+              onPay={pay} onEdit={() => setEditing(r.id)} onWithdraw={withdraw} canCampaigns={canCampaigns} onOpenCampaigns={onOpenCampaigns}/>)}</div>}
+      </div>
+    </div>
+  );
+}
+
 // Whether this account can use the Clip Editor / posting / Autopilot. The
 // client copy of the server's _require_upload_access: the plan includes it, and
 // it is released or the account is an admin. One definition, used by App (which
@@ -10901,6 +11545,20 @@ function RdApp() {
   const canCampaignsRef = useRef(false);
   canCampaignsRef.current = canCampaigns;
   useEffect(()=>{ if(canCampaigns && campaigns === null) refetchCampaigns(); },[canCampaigns]);
+  // Promote: this account's own campaign requests (streamers fund campaigns).
+  // null until loaded; only fetched for accounts that can see the screen. In
+  // refetchAll, re-read on campaign_request_updated, and on campaigns_changed
+  // (a published request shows its campaign's dates).
+  const [promo, setPromo] = useState(null);
+  const refetchPromo = useCallback(()=>{
+    fetch('/campaign-requests').then(r=>r.ok?r.json():null).then(d=>{ if(d) setPromo(d); }).catch(()=>{});
+  },[]);
+  const canPromote = canPromoteFor(me);
+  const canPromoteRef = useRef(false);
+  canPromoteRef.current = canPromote;
+  useEffect(()=>{ if(canPromote && promo === null) refetchPromo(); },[canPromote]);
+  // ?view=promote&new=1 (back from signing up on /promote): open the form.
+  const [promoNew, setPromoNew] = useState(false);
   // "Post a clip for this campaign": the campaign whose rules the next Post
   // uses, shown as a banner over the Clip Library until they press Done.
   const [postFor, setPostFor] = useState('');
@@ -11013,6 +11671,7 @@ function RdApp() {
       setMe(data);
       if(canPublishFor(data)) refetchPublishing();
       if(canCampaignsFor(data)) refetchCampaigns();
+      if(canPromoteFor(data)) refetchPromo();
       // An account that signed up with Kick starts on Kick, unless it has
       // already chosen a platform in this browser.
       try{
@@ -11090,6 +11749,16 @@ function RdApp() {
     } else if (_params.get('connect_error')) {
       flash('Could not connect ' + decodeURIComponent(_params.get('connect_error')));
       setRoute('schedule');
+      history.replaceState(null,'',location.pathname);
+    } else if (_params.get('view') === 'promote') {
+      // Back from signing up on /promote (new=1 opens the request form), or
+      // back from Stripe's checkout. The request's new state arrives over
+      // the socket and from refetchAll; this lands them on the screen.
+      setRoute('promote');
+      if (_params.get('new')) setPromoNew(true);
+      if (_params.get('campaign_paid')) flash('Payment received. Your campaign is in the marketplace.');
+      else if (_params.get('campaign_pay') === 'pending') flash('Stripe has your payment. It shows here the moment it is confirmed.');
+      else if (_params.get('campaign_pay') === 'cancelled') flash('Payment cancelled. Nothing was charged.');
       history.replaceState(null,'',location.pathname);
     }
   },[]);
@@ -11357,6 +12026,14 @@ function RdApp() {
           // socket with no payload; only accounts that can see the
           // marketplace re-read it.
           if(canCampaignsRef.current) refetchCampaigns();
+          if(canPromoteRef.current) refetchPromo();
+        }
+        else if(msg.event==='campaign_request_updated'){
+          // One of this account's campaign requests moved: sent, edited,
+          // reviewed, paid, withdrawn. Scoped to this account by the server.
+          // The list is the state; the message says what happened, in words.
+          if(canPromoteRef.current) refetchPromo();
+          if(msg.message) flash(msg.message);
         }
         else if(msg.event==='offer_changed'){
           // An admin gave, changed or removed this account's discount, or it
@@ -11660,7 +12337,8 @@ function RdApp() {
   // neither a future deep link nor a restored route may walk into one of
   // these. Falls back to the review queue.
   const view = (adminOnlyTabs.includes(route) && !(me && me.is_admin)) ? 'review'
-             : (route === 'campaigns' && !canCampaigns) ? 'review' : route;
+             : (route === 'campaigns' && !canCampaigns) ? 'review'
+             : (route === 'promote' && !canPromote) ? 'review' : route;
   // Which section a crash report came from (hzReport, at the top of the page).
   useEffect(()=>{ window.hzWhere = view; }, [view]);
 
@@ -11681,6 +12359,8 @@ function RdApp() {
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip}
       onPostFor={id=>{ setPostFor(id); setRoute('library'); }}/>;
+  else if(view==='promote') screen=<PromoteScreen data={promo} startNew={promoNew} onStarted={()=>setPromoNew(false)}
+      onRefresh={refetchPromo} flash={flash} canCampaigns={canCampaigns} onOpenCampaigns={()=>setRoute('campaigns')}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
   else if(view==='tutorial') screen=<TutorialScreen doc={tutorial} onGo={setRoute}/>;
   else if(view==='schedule') screen=<ScheduleScreen me={me} queue={queue} clips={clips} platforms={platforms} connections={connections} uploadsOn={uploadsOn}
@@ -11717,9 +12397,13 @@ function RdApp() {
   // and dropping them onto a bare input would read as their account having
   // been wiped. `me.id` gates on /me having landed, so the screen cannot flash
   // before the app knows what the account has.
+  // Not on Promote, and not for an account that has asked for a campaign: a
+  // streamer who signed up to fund one has no channels and is not here to
+  // add one, so the request form must never sit behind "Add a channel".
+  const promoting = route === 'promote' || !!(promo && promo.rows && promo.rows.length);
   if (me && me.id && Object.keys(streams).length === 0
-      && Object.keys(clips).length === 0 && !seenBefore) {
-    return <FirstRun onAdd={addStream}/>;
+      && Object.keys(clips).length === 0 && !seenBefore && !promoting) {
+    return <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}/>;
   }
 
   return (
@@ -11728,7 +12412,7 @@ function RdApp() {
       <div className={'rd-navscrim'+(navOpen?' open':'')} onClick={()=>setNavOpen(false)}/>
       <nav className={'rd-nav'+(navOpen?' open':'')}>
         <span className="logo"><img src="/static/logo-mark.png" alt="Highlightz"/></span>
-        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))&&(!n.campaignsOnly||canCampaignsFor(me))).map(n=>{
+        {NAV.filter(n=>(!n.labelerOnly||(me&&(me.is_labeler||me.is_admin)))&&(!n.adminOnly||(me&&me.is_admin))&&(!n.campaignsOnly||canCampaignsFor(me))&&(!n.promoteOnly||canPromoteFor(me))).map(n=>{
           // On Kick every platform-specific tab is closed off, so the button is
           // genuinely disabled — not just visually dimmed. `disabled` is what
           // actually stops the click; the class only makes that visible.

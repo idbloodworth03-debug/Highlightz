@@ -6272,3 +6272,152 @@ the call; the poll is not.
     calls and toasts in a bad hour);
   - keeping our own captured file when Twitch never makes the clip (as on
     Kick; a product decision).
+
+## Campaign requests: streamers fund campaigns (2026-10-23)
+
+Owner: "lets start creating the other side of the marketplace where streamers
+can come and submit campaigns for users to go and clip. I basically would
+charge a streamer a flat fee ... and we would take a small percent like 2-5%
+added on ... explained on a new tab in the landing page ... let the streamers
+be able to request a campaign ... after they sign up with an account (which
+they can do for free) ... they can also choose the amount of money they want
+to put into the campaign."
+
+**The flow.** `submitted → approved → (paid) → published`, with
+`changes_requested` (admin; the streamer edits and resubmits), `declined`
+(admin, note required) and `cancelled` (the streamer withdraws, any time
+before payment). Payment comes AFTER approval, so a declined request never
+needs a refund. Paying is what publishes: the request becomes an ordinary
+published campaign (`src/campaigns`, `request_id` on it), so the existing
+marketplace, posting rules and entries all apply unchanged. An admin can
+also publish without payment ("comped": partners, tests).
+
+**The money.** The budget IS the prize pool, 100% to winners. The fee is on
+top: `CAMPAIGN_FLAT_FEE_USD` + `CAMPAIGN_FEE_PCT` of the budget. The quote is
+computed in whole cents (percentage rounded half up), fixed at submit and
+re-quoted only when the streamer edits. A Stripe payment publishes only if
+the request is `approved` AND `amount_total` equals the quote's `total_cents`;
+anything else logs an error (which emails the owner) and publishes nothing.
+
+**Settings (all placeholders until the owner confirms them in .env):**
+`CAMPAIGN_REQUESTS_ENABLED=false` (admins always see everything; off means
+no Promote screen, /promote 404, no Campaigns tab on the public bars, not in
+the sitemap), `CAMPAIGN_FLAT_FEE_USD=25`, `CAMPAIGN_FEE_PCT=5`,
+`CAMPAIGN_MIN_BUDGET_USD=100`, `CAMPAIGN_MAX_BUDGET_USD=50000`. The public
+page, the form, the checkout and the tests all read these; nothing types a
+price.
+
+**Code.**
+- Store and rules: `src/campaigns/requests.py` (campaign_requests.json +
+  campaign_request_images/). Limits: 5 open requests per account and 10
+  sent a day (each emails the owner, so send-and-withdraw cannot flood
+  the inbox), 5 channels, 20 prize places of at least $1 that must add up to the budget
+  exactly, 1–60 days, start within 180 days.
+- API (`src/dashboard/api.py`, "Campaign requests" section):
+  `GET/POST /campaign-requests`, `PUT /campaign-requests/{id}`,
+  `POST …/withdraw`, `POST|GET …/image`, `POST …/checkout`,
+  `GET …/paid?session_id=` (Stripe's return), and admin
+  `GET /admin/campaign-requests`, `POST /admin/campaign-requests/{id}/`
+  `approve|changes|decline|comp|check-payment`.
+- Stripe (`src/billing/stripe_billing.py`): `create_campaign_checkout`
+  (mode=payment; three line items: prize pool, flat fee, % fee; metadata
+  `kind=campaign_request`, request id, user id on the session AND the
+  PaymentIntent), `campaign_checkout_session`, `expire_checkout`. Calls run
+  in a worker thread.
+- **Paying is safe against the usual races.** Opening a new checkout expires
+  the previous one; if the previous one was already paid (webhook not here
+  yet) it publishes instead of charging again. Withdrawing, asking for
+  changes, declining or comping expires any open checkout. A second
+  successful payment for a published request logs `campaign_paid_twice`
+  (refund by hand). The redirect back (`…/paid`) only acts on a session
+  whose metadata names this request AND this account.
+- **Webhook:** `_process_stripe_event` handles `checkout.session.completed`
+  and `checkout.session.async_payment_succeeded` with
+  `metadata.kind == "campaign_request"`. **The Stripe webhook endpoint must
+  have `checkout.session.completed` enabled** (Dashboard → Developers →
+  Webhooks). Without it, the redirect back still publishes, and the admin
+  queue's "Check payment with Stripe" covers a payer who never came back.
+- Realtime: `campaign_request_updated` (scoped to the owner, carries the
+  status and a sentence the dashboard toasts) on every change;
+  `campaigns_changed` when one is published. The admin page polls with the
+  campaigns list (30 s), but not while a note is being typed.
+- The owner is emailed (ALERT_EMAIL_TO, via `alerts.send`) on every new
+  request and every payment. **Streamers are not emailed**: the alert sender
+  is Resend's sandbox address, which can only reach the account owner. They
+  hear back in the dashboard, live, and on reconnect.
+
+**Public page: /promote** (`src/dashboard/promote_html.py`, "Campaigns" tab).
+Hero with an example campaign card and its real quote, five steps, a fee
+calculator (the same cents arithmetic as `quote()`, pinned by a test), what
+the streamer controls, why Highlightz, an 11-question FAQ, JSON-LD
+(Service + FAQPage). "Request a campaign" → `/login?next=promote` →
+sign-in (Twitch, Kick or password) → `/?view=promote&new=1`, which opens the
+form. `next` is a key in `_AFTER_SIGN_IN`, never a URL.
+- The tab is on every copy of the public bar and footer (landing, legal
+  shell, /tutorial, /compare, /blog, /promote) through two markers each,
+  filled per request by `src/dashboard/site_nav.campaigns_tab`.
+- **The bar was re-measured with nine tabs:** 1216 px at the small size and
+  1457 px at the large one. Links now never wrap (`white-space:nowrap`),
+  collapse at ≤1240 px (was 1000; links had already been folding onto two
+  lines on laptops) and switch to the large size at ≥1480 px (was 1360).
+  Swept 1024–1920 px on all six pages: no wrap, Get started always on
+  screen. Phones still have no menu for the bar's links (as before); the
+  footer carries the Campaigns link.
+
+**Dashboard: Promote** (`PromoteScreen` in aurora_html.py; nav item for
+`canPromoteFor(me)`). The request list with a Sent → Approved → Paid → Live
+track, the admin's note, Pay / Edit / Withdraw / Details, and a seven-part
+form (channels, the campaign, budget and prize split with presets, where and
+when, required tags, judging, contact + terms) beside a live bill. A
+streamer on Promote, or with any request, never gets the first-run "Add a
+channel" screen; first-run shows a plain link to Promote.
+
+**Admin: Campaigns tab → "Requests from streamers"** above the campaigns
+list: filters (needs review / waiting on the streamer / published / closed),
+the full request, the account, the quote, payment state and history, and
+Approve / Ask for changes / Decline / Check payment / Publish without
+payment, with a note the streamer sees. It warns when CAMPAIGN_REQUESTS,
+CAMPAIGNS_ENABLED or Stripe is off.
+
+**Legal (drafted here; the owner should review before launch).** Terms
+§4A "Campaigns" (review, price, budget = prize pool, judging, unwon prizes
+refunded, refund in full before the start and none after, licence to clip,
+no promised results, prize eligibility). Privacy §1 "Campaign requests" and
+§4 retention. All three documents re-dated October 23, 2026 (they must
+match; `test_tiktok_claims` updated). Account deletion, by the user or by
+an admin, now deletes unpaid requests (and expires their checkouts) and
+keeps paid ones, as the Privacy Policy says.
+
+**Not built (the clipper half is unchanged):** entries for clips posted
+outside Highlightz, view counts, leaderboards, winner selection and payouts
+are all still manual, as are refunds (Stripe dashboard). A paid campaign is
+a promise to judge and pay; `CAMPAIGNS_ENABLED` must be on or no clipper
+sees it (the admin queue warns).
+
+**Verified:**
+- `tests/test_campaign_requests.py` (60): pricing and rounding, every form
+  rule, the daily cap, the state machine, publishing (exact amount, idempotent, picture
+  copied), privacy of requests, admin-only until switched on, checkout
+  (expire-on-reopen, paid-not-charged-again, no Stripe → 503), the redirect
+  back (unpaid, wrong account, wrong amount), the webhook (once, retries),
+  double payment flagged, comp and check-payment, sign-in `next`, the
+  public page and its prices, the tab on every bar, the legal text, account
+  deletion, and the dashboard/admin wiring.
+- `test_design_tokens` now also holds /promote to the spacing and palette
+  rules; the first-run test reads the gate by prefix (a second prop).
+- Browser (Chromium, a throwaway server with the flags on): a free account
+  went /promote → form → submit; an admin in another browser asked for
+  changes, then approved, then published; the streamer's tab, never
+  reloaded, followed each step live and found the campaign in the
+  marketplace. No console errors; no sideways overflow at 1440 or 390.
+  /promote at 1440, 1180, 1024, 768, 390 and 360: no overflow; the
+  calculator matches `quote()` to the cent ($1,234.56 → $1,321.29).
+- JSX parse, admin script parse, realtime contract, full suite.
+
+**To launch (owner):**
+1. Confirm the fee and budget range; set them in `/opt/highlightz/.env`.
+2. Review Terms §4A and the Privacy additions.
+3. Enable `checkout.session.completed` on the Stripe webhook endpoint.
+4. Make sure `CAMPAIGNS_ENABLED=true` (clippers must see the marketplace).
+5. Set `CAMPAIGN_REQUESTS_ENABLED=true` and restart. Before that, an admin
+   can try everything: /promote and the Promote screen work for admins.

@@ -55,4 +55,6 @@ def test_the_privacy_policy_says_how_tiktok_posting_works():
     assert "upload clips you schedule" not in p
     assert "a TikTok post is made only when you press Post" in p
     assert "the picture is not stored" in p
-    assert "Effective date: September 30, 2026" in p
+    # Re-dated with the Terms and the Cookie Policy when campaigns were added
+    # (2026-10-23); the TikTok wording above is unchanged.
+    assert "Effective date: October 23, 2026" in p
