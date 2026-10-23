@@ -6428,3 +6428,40 @@ sees it (the admin queue warns).
 4. Make sure `CAMPAIGNS_ENABLED=true` (clippers must see the marketplace).
 5. Set `CAMPAIGN_REQUESTS_ENABLED=true` and restart. Before that, an admin
    can try everything: /promote and the Promote screen work for admins.
+
+### Stripe set-up for campaign payments (2026-10-23)
+
+Owner: "i need to set it up with stripe now". Nothing new in `.env`: campaign
+payments use the subscriptions' `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`. What Stripe needs is two more events on the SAME
+webhook endpoint (`https://highlightz.app/billing/webhook`):
+`checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+**Never a second endpoint for campaigns**: it signs with its own secret and
+this server verifies one.
+
+- **The check:** `venv/bin/python -m src.maintenance.stripe_campaign_check`
+  (read-only, never prints a key). It reports the key mode, whether the
+  account can take cards and pay out, its statement descriptor, the
+  endpoint and its events, the campaign switches, the fee, and whether the
+  owner's emails are configured. `--add-events` adds the two events to the
+  existing endpoint, keeping every event it has. Exit 0 = ready.
+  `tests/test_stripe_campaign_check.py` (13).
+- Turning `checkout.session.completed` on also sends it for every
+  subscription checkout. That event is answered 200 and touches nothing
+  (pinned by a test): the campaign branch needs `metadata.kind ==
+  "campaign_request"`, and `sync_subscription_event` ignores it.
+- Checkout changes: the campaign calls use `client.v1.checkout.sessions`
+  (the un-deprecated path in stripe 15.2.0); Stripe emails the streamer a
+  receipt (`payment_intent_data.receipt_email` = the request's contact
+  email, sent whatever the account's email settings); and a saved
+  `stripe_customer_id` Stripe no longer has is dropped for that checkout
+  (`campaign_checkout_customer_dropped`, a warning) instead of blocking it.
+- **A live test costs $1.05:** temporarily `CAMPAIGN_MIN_BUDGET_USD=1` →
+  as an admin, request a $1 campaign (one $1 prize), approve it, pay with a
+  real card → it should come back Live, the webhook's delivery log in
+  Stripe should show `checkout.session.completed` 200, and a receipt
+  arrives. Then refund it in Stripe, delete the test campaign in Admin →
+  Campaigns, and remove the `CAMPAIGN_MIN_BUDGET_USD` line.
+- Worth confirming with Stripe before volume grows: collecting a prize pool
+  and paying it out to winners is a platform pattern Stripe normally runs
+  through Connect. Winners are paid by hand today.

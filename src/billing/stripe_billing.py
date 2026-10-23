@@ -95,13 +95,17 @@ def _get(o, k):
 
 def create_campaign_checkout(req: dict, user: dict) -> tuple[str, str]:
     """A one-time Stripe Checkout for an approved campaign request: the prize
-    pool, the flat fee and the percentage fee as three lines, so the receipt
-    says what was paid for. Returns (url, session id).
+    pool and the fee as separate lines (a fee of $0 is left out), so the
+    receipt says what was paid for. Returns (url, session id).
 
     The amounts come from the request's stored quote, the price the streamer
     saw, never from the browser. metadata names the request and the account on
     both the session and the PaymentIntent; the webhook and the redirect back
     both check them before anything is published.
+
+    The receipt goes to the request's contact email: Stripe sends it whatever
+    the account's email settings, which is the one email a streamer gets from
+    us (our own sender reaches only the owner).
     """
     q = req["quote"]
     title = req["title"][:80]
@@ -122,11 +126,25 @@ def create_campaign_checkout(req: dict, user: dict) -> tuple[str, str]:
         "metadata": meta,
         "payment_intent_data": {"metadata": meta, "description": "Highlightz campaign: " + title},
     }
+    if req.get("contact_email"):
+        params["payment_intent_data"]["receipt_email"] = req["contact_email"]
     if user.get("stripe_customer_id"):
         params["customer"] = user["stripe_customer_id"]
     elif req.get("contact_email"):
         params["customer_email"] = req["contact_email"]
-    session = _client().checkout.sessions.create(params=params)
+    try:
+        session = _client().v1.checkout.sessions.create(params=params)
+    except stripe.InvalidRequestError as exc:
+        # A customer id saved from a subscription that Stripe no longer has
+        # (deleted in the dashboard, or from the other mode's keys) must not
+        # stop a campaign being paid: try once more as a guest by email.
+        if "customer" not in params or "customer" not in str(exc).lower():
+            raise
+        log.warning("campaign_checkout_customer_dropped", request=req["id"], error=str(exc)[:200])
+        params.pop("customer")
+        if req.get("contact_email"):
+            params["customer_email"] = req["contact_email"]
+        session = _client().v1.checkout.sessions.create(params=params)
     return _get(session, "url"), _get(session, "id")
 
 
@@ -136,7 +154,7 @@ def campaign_checkout_session(session_id: str) -> dict | None:
     if not (settings.stripe_secret_key and session_id):
         return None
     try:
-        s = _client().checkout.sessions.retrieve(session_id)
+        s = _client().v1.checkout.sessions.retrieve(session_id)
     except Exception as exc:
         log.warning("campaign_checkout_lookup_failed", session=session_id, error=str(exc))
         return None
@@ -152,7 +170,7 @@ def expire_checkout(session_id: str) -> None:
     if not (settings.stripe_secret_key and session_id):
         return
     try:
-        _client().checkout.sessions.expire(session_id)
+        _client().v1.checkout.sessions.expire(session_id)
     except Exception as exc:
         log.info("campaign_checkout_not_expired", session=session_id, error=str(exc))
 
