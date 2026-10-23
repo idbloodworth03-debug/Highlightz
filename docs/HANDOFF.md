@@ -6120,31 +6120,60 @@ hour emails.
   A broken Get Clips call would fail every channel from that deploy on, and
   the first email came about 21 hours later.
 
-**Four explanations, told apart by `src.maintenance.clip_not_ready_report`**
-(read-only):
-- **All of Twitch:** many channels fail in the same hours.
-- **One channel:** jynxzi fails while other channels in the same hours are
-  fine.
-- **Crowding:** each account runs its own detector and creates its own clip
-  with its own token, so a big channel can get several Create Clip calls
-  within seconds. If that is what fails, requests within 10 s of another
-  one fail more often than lone ones.
-- **Slow, not lost:** Twitch finished the clips after we stopped waiting, so
-  Get Clips shows them now.
-
-It reads the journal for the window and joins `creating_twitch_clip` →
-`twitch_clip_requested` → `twitch_clip_ready_after` / `twitch_clip_not_ready`.
-It prints per hour and per channel, splits each channel's not-ready rate into
-crowded and lone requests, and asks Twitch what became of the lost slugs.
-`tests/test_clip_not_ready_report.py` (5) covers it; three deliberate
-breakages are each caught.
-
+**The tool:** `src.maintenance.clip_not_ready_report` (read-only).
 `cd /opt/highlightz && venv/bin/python -m src.maintenance.clip_not_ready_report --hours 6`
+- It reads the journal for the window and joins each Twitch request to its
+  job, account and outcome.
+- It asks Get Clips what became of the lost slugs: finished late, ghost, or
+  never made.
+- Since its second version, it also measures the queue (see below) and
+  splits requests by account.
+- `tests/test_clip_not_ready_report.py` (8) covers it. Each version's three
+  deliberate breakages are caught.
 
-**No detector or clip change until it says which.** The options by outcome:
-- crowding: one Create Clip per channel moment, shared by the accounts
-  watching it;
-- one channel: a per-channel back-off and message, like the automod
-  refusals (the open item from 10-20);
-- slow: fall back to the captured file instead of dropping the moment;
-- all of Twitch: nothing to fix here; `ALERT_IGNORE` if it repeats.
+**First run (owner, 2026-10-23, 6 h, 10:00–16:00 UTC).**
+- Twitch requests: 27, 56, 69, 75, 74, 72 and 15 per hour.
+- Not ready: 0, 8, **31**, 2, 4, 0 and 0. That is 44 on jynxzi (377
+  requests, 2 accounts) and 1 on phantasm__ (11 requests).
+- **Never made, not slow.** Get Clips has 44 of the 45 as never made and 1
+  as finished late.
+- Ready times were median 5 s, 90th 7.5 s, slowest 27.5 s. Twitch's own
+  docs say to treat a clip missing after 15 s as failed.
+- The lost requests run back to back exactly 56 s apart (12:41:39, 12:42:35,
+  12:43:31, 12:44:27). That is one failed job after another.
+- **"Crowding" is ruled out, and its metric was an artifact.** The first
+  version split each channel's rate into requests within 10 s of another
+  (0% of 241 failed) and lone ones (32% of 136).
+  - `run_clip_processor` is ONE loop over one queue for every account,
+    channel and platform, and `get_clip` polls inside it.
+  - So two of our Create Clip calls are never in flight at once.
+  - A success puts the next request ~10 s later, and a failure puts it ~56 s
+    later, so failures look "alone" by construction.
+  - The metric is gone.
+
+**What a lost clip costs everyone else.** Each one holds the single
+processor for ~56 s: post-roll, Create Clip, then 20 polls 2.5 s apart. Every
+job behind it waits, Kick ones included. A job older than
+`MAX_CLIP_JOB_AGE_SECS` (90 s) is dropped as stale, and the user is told
+"missed: backlog". Jobs that do get through create their Twitch clip late,
+and Twitch captures the last ~30 s at call time. In the 12:00 hour, 31
+losses held the queue for about 29 minutes. The second version prints, per
+hour:
+- minutes the queue was held by lost clips;
+- every job's wait to start (median, 90th, max);
+- stale drops (by channel) and queue-full skips;
+- and a requested/not-ready grid per account. Both accounts failing in the
+  same hours points at the channel or Twitch; one account failing while the
+  other succeeds points at that account.
+
+**Not decided; the owner's call once the second run is in.** The options:
+- **Stop the lost clips from holding the queue.** Poll for the clip in the
+  background, or poll for ~20 s instead of ~50 s (today's slowest success
+  was 27.5 s; on 10-20 a handful took 30–42.5 s). This matters if the queue
+  numbers show stale drops or long waits.
+- **Keep the moment anyway.** When Twitch never makes the clip, keep our own
+  captured file (as on Kick) instead of discarding it. This is a product
+  decision.
+- **One channel or one account:** a back-off and a message, like the
+  automod refusals (the open item from 10-20).
+- **Twitch alone:** nothing to fix here; `ALERT_IGNORE` if it repeats.
