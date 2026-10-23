@@ -8750,7 +8750,7 @@ async def _campaign_paid(sess: dict, via: str) -> dict | None:
     await _campaigns_changed()
     _tell_owner_email(f"Campaign paid: {r['title']} (${r['quote']['total']:,.2f})",
                       f"Paid ${r['quote']['total']:,.2f}: ${r['budget']:,.2f} prize pool and "
-                      f"${r['quote']['fees']:,.2f} in fees. It is published in the marketplace.")
+                      f"a ${r['quote']['fees']:,.2f} fee. It is published in the marketplace.")
     return r
 
 
@@ -14049,7 +14049,7 @@ TOS_HTML = """<!DOCTYPE html>
   <h2 id="campaigns">4A. Campaigns</h2>
   <p>The Service lists clipping campaigns in a marketplace ("Campaigns"). A campaign offers prizes to users who clip the streams of the channels it names and post those clips under its rules. This Section applies when you ask us to run a campaign (as its "Sponsor") and when you take part in one.</p>
   <p><strong>Requests and review.</strong> Any account, including a free one, may request a campaign. You must be the broadcaster of every channel a campaign names, or be authorized by that broadcaster to promote the channel, and by requesting a campaign you represent that you are. We review every request and may approve it, ask for changes, or decline it at our discretion. Nothing is charged for a request that is not approved.</p>
-  <p><strong>Price and payment.</strong> A campaign's price is its budget, which you choose, plus our fee: a fixed amount per campaign and a percentage of the budget, both shown before you pay. The price is fixed when you submit the request and is recalculated if you change it. You pay once, in US dollars, by card through Stripe, after the request is approved. A campaign is published only once its full price has been paid.</p>
+  <p><strong>Price and payment.</strong> A campaign's price is its budget, which you choose, plus our fee, which is a percentage of the budget and may include a fixed amount per campaign; the fee is shown before you pay. The price is fixed when you submit the request and is recalculated if you change it. You pay once, in US dollars, by card through Stripe, after the request is approved. A campaign is published only once its full price has been paid.</p>
   <p><strong>The budget is the prize pool.</strong> The whole budget is paid out as the campaign's prizes, in the places and amounts you set. The fee is ours and covers reviewing, listing and running the campaign, judging the entries and paying the winners.</p>
   <p><strong>Running a campaign.</strong> A paid campaign is listed in the marketplace from its start date, or from payment if it was to start as soon as possible, for the length you chose. We may correct how a campaign is presented, and may end a campaign early if it, or anything posted for it, breaks these Terms, the law, or the rules of a platform it involves.</p>
   <p><strong>Judging and prizes.</strong> After a campaign ends we judge its entries by the method stated on the campaign and pay the prizes to the winners. An entry counts only if it was posted while the campaign ran, to a platform the campaign names, carrying every hashtag and mention the campaign requires, and in keeping with its rules and these Terms. Our decision on the winners is final. If a campaign ends with fewer eligible entries than prize places, the prizes not won are refunded to you.</p>
@@ -15665,7 +15665,7 @@ function cqDetail(r){
     + kv('Posted to', esc(r.platforms.map(function(p){ return (CP_PLATS.find(function(x){ return x[0] === p; }) || [p, p])[1]; }).join(', ')))
     + (tags.length ? kv('Posts must carry', esc(tags.join(' '))) : '')
     + (r.caption_template ? kv('Caption', esc(r.caption_template)) : '')
-    + kv('Price', cqMoney(r.quote.budget) + ' prize pool + ' + cqMoney(r.quote.flat_fee) + ' fee + ' + cqMoney(r.quote.percent_fee)
+    + kv('Price', cqMoney(r.quote.budget) + ' prize pool + ' + (r.quote.flat_fee ? cqMoney(r.quote.flat_fee) + ' fee + ' : '') + cqMoney(r.quote.percent_fee)
          + ' (' + esc(r.quote.fee_pct) + '%) = <b>' + cqMoney(r.quote.total) + '</b>')
     + (r.status === 'published' ? kv('Payment', r.payment === 'stripe'
          ? 'Paid ' + cqMoney((r.amount_paid_cents || 0) / 100) + ' ' + cpWhen(r.paid_at) + (r.checkout_session_id ? ' &middot; ' + esc(r.checkout_session_id) : '')

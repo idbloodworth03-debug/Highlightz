@@ -53,7 +53,8 @@ def _usd(cents: int, cents_always: bool = False) -> str:
 
 
 def _fee_text() -> str:
-    """The fee in words: "$25 per campaign plus 5% of the budget"."""
+    """The fee in words: "5% of the budget", or with a flat part set,
+    "$25 per campaign plus 5% of the budget"."""
     q = creq.quote(0)
     parts = []
     if q["flat_fee_cents"]:
@@ -259,9 +260,10 @@ def _calculator() -> str:
         '<div class="pr-calc-out" aria-live="polite">'
         '<div class="pr-row"><span>Prize pool, paid to clippers</span><b id="pc-pool">'
         + _usd(q["budget_cents"], True) + "</b></div>"
-        '<div class="pr-row"><span>Campaign fee</span><b id="pc-flat">'
-        + _usd(q["flat_fee_cents"], True) + "</b></div>"
-        '<div class="pr-row"><span>' + escape(pct_label) + '</span><b id="pc-pct">'
+        # No flat part (the default since 2026-10-23): no "$0.00" row.
+        + ('<div class="pr-row"><span>Campaign fee</span><b id="pc-flat">'
+           + _usd(q["flat_fee_cents"], True) + "</b></div>" if q["flat_fee_cents"] else "")
+        + '<div class="pr-row"><span>' + escape(pct_label) + '</span><b id="pc-pct">'
         + _usd(q["percent_fee_cents"], True) + "</b></div>"
         '<div class="pr-row pr-total"><span>You pay</span><b id="pc-total">'
         + _usd(q["total_cents"], True) + "</b></div>"
@@ -276,7 +278,7 @@ def _examples() -> str:
                  + _usd(q["flat_fee_cents"] + q["percent_fee_cents"], True) + "</td><td>"
                  + _usd(q["total_cents"], True) + "</td></tr>")
     return ('<table class="pr-ex-t"><caption>For example</caption><thead><tr><th scope="col">'
-            "Budget = prize pool</th><th scope=\"col\">Fees</th><th scope=\"col\">You pay"
+            "Budget = prize pool</th><th scope=\"col\">Our fee</th><th scope=\"col\">You pay"
             "</th></tr></thead><tbody>" + rows + "</tbody></table>")
 
 

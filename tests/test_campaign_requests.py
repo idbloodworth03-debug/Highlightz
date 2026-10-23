@@ -85,6 +85,28 @@ def test_the_quote_is_budget_plus_flat_fee_plus_percentage():
     assert q["total_cents"] == 55000
 
 
+def test_the_fee_is_five_percent_and_nothing_else_by_default():
+    """Owner, 2026-10-23: "make the fee for the campaigns be 5% not 25$ + 5%".
+    The class defaults, not this file's fixture (which pins a flat fee so the
+    flat path stays tested)."""
+    from config.settings import Settings
+    fields = Settings.model_fields
+    assert fields["campaign_flat_fee_usd"].default == 0
+    assert fields["campaign_fee_pct"].default == 5.0
+
+
+def test_with_no_flat_fee_the_bill_is_budget_plus_five_percent(monkeypatch):
+    from config.settings import settings
+    from src.dashboard import promote_html
+    monkeypatch.setattr(settings, "campaign_flat_fee_usd", 0.0)
+    q = creq.quote(1000)
+    assert (q["flat_fee_cents"], q["percent_fee_cents"], q["total_cents"]) == (0, 5000, 105000)
+    page = promote_html.render("/login?next=promote")
+    assert "<b>5% of the budget</b>" in page and "per campaign" not in page
+    assert "Campaign fee" not in page, "a $0.00 fee row is shown"
+    assert '<b id="pc-total">$1,050.00</b>' in page
+
+
 def test_the_percentage_is_rounded_to_the_cent_from_whole_cents(monkeypatch):
     from config.settings import settings
     monkeypatch.setattr(settings, "campaign_fee_pct", 2.5)

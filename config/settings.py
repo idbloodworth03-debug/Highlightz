@@ -249,11 +249,13 @@ class Settings(BaseSettings):
     # the marketplace above. Off until switched on: the /promote page, its
     # Campaigns tab in the site nav and the request screen show to admins only.
     campaign_requests_enabled: bool = False
-    # The fee, added ON TOP of the budget, which goes to clippers in full: a
-    # flat amount per campaign plus a percentage of the budget ("a flat fee ...
-    # and a small percent like 2-5% added on"). Shown on /promote and in every
-    # quote, so a change here is a restart and nothing else.
-    campaign_flat_fee_usd: float = 25.0
+    # The fee, added ON TOP of the budget, which goes to clippers in full.
+    # Owner, 2026-10-23: "make the fee for the campaigns be 5% not 25$ + 5%",
+    # so no flat part by default; the setting stays for a flat fee per
+    # campaign later. Shown on /promote and in every quote, so a change here
+    # is a restart and nothing else (a request keeps the quote it was sent
+    # with until it is edited).
+    campaign_flat_fee_usd: float = 0.0
     campaign_fee_pct: float = 5.0
     campaign_min_budget_usd: float = 100.0
     campaign_max_budget_usd: float = 50000.0

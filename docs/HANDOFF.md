@@ -6299,13 +6299,17 @@ re-quoted only when the streamer edits. A Stripe payment publishes only if
 the request is `approved` AND `amount_total` equals the quote's `total_cents`;
 anything else logs an error (which emails the owner) and publishes nothing.
 
-**Settings (all placeholders until the owner confirms them in .env):**
-`CAMPAIGN_REQUESTS_ENABLED=false` (admins always see everything; off means
-no Promote screen, /promote 404, no Campaigns tab on the public bars, not in
-the sitemap), `CAMPAIGN_FLAT_FEE_USD=25`, `CAMPAIGN_FEE_PCT=5`,
-`CAMPAIGN_MIN_BUDGET_USD=100`, `CAMPAIGN_MAX_BUDGET_USD=50000`. The public
-page, the form, the checkout and the tests all read these; nothing types a
-price.
+**Settings:** `CAMPAIGN_REQUESTS_ENABLED=false` (admins always see
+everything; off means no Promote screen, /promote 404, no Campaigns tab on
+the public bars, not in the sitemap), `CAMPAIGN_FLAT_FEE_USD=0`,
+`CAMPAIGN_FEE_PCT=5`, `CAMPAIGN_MIN_BUDGET_USD=100`,
+`CAMPAIGN_MAX_BUDGET_USD=50000`. **The fee is the owner's decision: 5% of the
+budget and no flat fee** ("make the fee for the campaigns be 5% not 25$ +
+5%", 2026-10-23; it shipped first as a $25 placeholder + 5%). With no flat
+part, no "Campaign fee" row is shown anywhere and Stripe gets two lines
+(prize pool, 5% fee); setting a flat fee later brings the row back. The
+budget range is still a placeholder. The public page, the form, the
+checkout and the tests all read these; nothing types a price.
 
 **Code.**
 - Store and rules: `src/campaigns/requests.py` (campaign_requests.json +
@@ -6411,11 +6415,14 @@ sees it (the admin queue warns).
   reloaded, followed each step live and found the campaign in the
   marketplace. No console errors; no sideways overflow at 1440 or 390.
   /promote at 1440, 1180, 1024, 768, 390 and 360: no overflow; the
-  calculator matches `quote()` to the cent ($1,234.56 → $1,321.29).
+  calculator matches `quote()` to the cent ($1,234.56 → $1,321.29 at the
+  first $25 + 5%; → $1,296.29 at 5% alone, re-checked after the change).
 - JSX parse, admin script parse, realtime contract, full suite.
 
 **To launch (owner):**
-1. Confirm the fee and budget range; set them in `/opt/highlightz/.env`.
+1. Confirm the budget range ($100–$50,000). The fee is decided (5%, no
+   flat fee): if `CAMPAIGN_FLAT_FEE_USD=25` was ever added to
+   `/opt/highlightz/.env`, delete that line or set it to 0.
 2. Review Terms §4A and the Privacy additions.
 3. Enable `checkout.session.completed` on the Stripe webhook endpoint.
 4. Make sure `CAMPAIGNS_ENABLED=true` (clippers must see the marketplace).

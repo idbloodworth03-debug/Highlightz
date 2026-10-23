@@ -10987,7 +10987,7 @@ function PromoteDetails({ r }) {
       <div><span>Posted to</span><p>{r.platforms.map(p => CAMP_PLAT[p] || p).join(', ')}</p></div>
       {tags.length > 0 && <div><span>Every post must include</span><p>{tags.join(' ')}</p></div>}
       {r.caption_template && <div><span>Suggested caption</span><p>{r.caption_template}</p></div>}
-      <div><span>Price</span><p>{pmMoney(r.quote.budget)} prize pool + {pmMoney(r.quote.fees)} fees = {pmMoney(r.quote.total)}</p></div>
+      <div><span>Price</span><p>{pmMoney(r.quote.budget)} prize pool + {pmMoney(r.quote.fees)} fee = {pmMoney(r.quote.total)}</p></div>
       <div><span>Contact</span><p>{r.contact_email}</p>{r.contact_discord && <p>Discord: {r.contact_discord}</p>}</div>
     </div>
   );
@@ -11020,7 +11020,7 @@ function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaign
       {r.status === 'changes_requested' && <div className="pm-note warn"><b>What to change</b><span>{r.admin_note}</span></div>}
       {r.status === 'approved' && r.admin_note && <div className="pm-note ok"><b>From Highlightz</b><span>{r.admin_note}</span></div>}
       {r.status === 'approved' && <p className="pm-msg">Approved. Pay <b>{pmMoney(r.quote.total)}</b> to publish it: {pmMoney(r.quote.budget)} prize
-        pool and {pmMoney(r.quote.fees)} in fees.{payments ? '' : ' Card payments are not switched on yet; we will email you when you can pay.'}</p>}
+        pool and a {pmMoney(r.quote.fees)} fee.{payments ? '' : ' Card payments are not switched on yet; we will email you when you can pay.'}</p>}
       {r.status === 'published' && <p className="pm-msg">
         {live ? 'Live in the Campaigns marketplace until ' + campDate(c.end_at) + '. '
           : soon ? 'It goes live in the marketplace ' + campDate(c.start_at) + '. '
