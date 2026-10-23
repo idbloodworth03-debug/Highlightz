@@ -6166,14 +6166,45 @@ hour:
   same hours points at the channel or Twitch; one account failing while the
   other succeeds points at that account.
 
-**Not decided; the owner's call once the second run is in.** The options:
-- **Stop the lost clips from holding the queue.** Poll for the clip in the
-  background, or poll for ~20 s instead of ~50 s (today's slowest success
-  was 27.5 s; on 10-20 a handful took 30–42.5 s). This matters if the queue
-  numbers show stale drops or long waits.
-- **Keep the moment anyway.** When Twitch never makes the clip, keep our own
-  captured file (as on Kick) instead of discarding it. This is a product
-  decision.
-- **One channel or one account:** a back-off and a message, like the
-  automod refusals (the open item from 10-20).
-- **Twitch alone:** nothing to fix here; `ALERT_IGNORE` if it repeats.
+**Second run (owner, 2026-10-23, 10 h, 06:00–16:00 UTC): verdict.**
+- **Twitch, on jynxzi's stream, about 11:00–12:45, with stragglers to
+  14:04.** Nothing failed 06:00–10:59 or after 14:04.
+- The two accounts on jynxzi failed in the same hours and in the same
+  proportion:
+  - lamborghiniandy 25/4, 34/15, 38/1, 37/2;
+  - Bloodworthhh 25/3, 35/16, 37/1, 37/2.
+  So it is not one account.
+- It is not our request volume either: 13:00–15:00 carried more requests
+  (72–75 an hour) with 0–4 failures.
+- The one other failure was hamdisn on phantasm__ in the same 11:00 hour.
+- **The queue cost, measured.**
+  - Lost clips held the queue 7.4, 28.8, 1.9 and 3.7 minutes in the four bad
+    hours.
+  - Job waits (median 0 s, 90th 10 s on a normal hour) rose to a median of
+    10 s, a 90th of 56 s and a max of 86–90 s.
+  - **9 moments were dropped as stale**: 7 at 12:00 and 1 each at 13:00 and
+    14:00 (jynxzi 5, gaules 2, phantasm__ 2).
+  - A Twitch clip whose job waited more than ~25 s was also made of the
+    wrong 30 s: Twitch publishes the last 30 s at the call, and post-roll
+    is ≤5 s. These count as ready, so the report cannot see them.
+- **Volume, for context:** 521 Twitch requests on jynxzi in 10 h from two
+  accounts, about one per account every 2.3 minutes, all day. That is why
+  one channel's bad hour fills the queue.
+- **Unrelated, but large:** 180 `clip_skipped_queue_full` in the 10 h. Those
+  are moments skipped because an account's review queue was at its plan
+  cap. That is working as designed, and the report does not say whose.
+
+**Recommended (not done; the owner's go):** poll for the clip OFF the queue.
+- Create Clip is the time-critical step: Twitch captures at the call. The
+  poll is not.
+- Handing the poll, and everything after it, to a background task lets the
+  next job start at once. A lost clip then holds nobody.
+- This also frees the queue the ~5 s a success spends polling.
+- Options that go with it, or instead:
+  - a per-channel pause after a run of failures (fewer wasted calls and
+    toasts in a bad hour, like the automod back-off);
+  - keeping our own captured file when Twitch never makes the clip (as on
+    Kick; a product decision);
+  - a shorter poll alone. Twitch's docs say 15 s; today's slowest success
+    was 27.5 s, and on 10-20 a handful took 30–42.5 s. It still blocks, just
+    for less time.
