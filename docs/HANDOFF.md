@@ -6100,3 +6100,51 @@ or in Safari, and the fix stands on its own.
   - The owner is asking luclips which device and app play it silent, and
     whether TikTok gets it silent too. nginx's user agent on the 16:55
     download says which device made it.
+
+## Open: a burst of `twitch_clip_not_ready` on jynxzi (2026-10-23)
+
+Alert email: `twitch_clip_not_ready` x21, 11:07–12:23 UTC, 20 in one hour.
+The example is jynxzi, slug `NaiveSpikySageShazBotstix-GTL59poWclA1cZpE`,
+waited 50 s. The baseline (measured 2026-10-20) is about 15 a day, 2.6% of
+clips, and the 10-20 alert was jynxzi too.
+
+**What the warning means.** Create Clip answered 202, and Get Clips never
+showed a playable clip (url, thumbnail and a duration) in ~50 s. The job
+fails with `ClipNotReadyError`: the user gets a `clip_failed` toast and the
+moment's file is discarded. Since 10-20 this is a warning, so only 20+ in an
+hour emails.
+
+**Nothing on our side has been shown to change.**
+- The poll and the cutoff are as they were on 10-20.
+- The 10-22 deploys touched the Python packages (aiohttp 3.14.4 among them).
+  A broken Get Clips call would fail every channel from that deploy on, and
+  the first email came about 21 hours later.
+
+**Four explanations, told apart by `src.maintenance.clip_not_ready_report`**
+(read-only):
+- **All of Twitch:** many channels fail in the same hours.
+- **One channel:** jynxzi fails while other channels in the same hours are
+  fine.
+- **Crowding:** each account runs its own detector and creates its own clip
+  with its own token, so a big channel can get several Create Clip calls
+  within seconds. If that is what fails, requests within 10 s of another
+  one fail more often than lone ones.
+- **Slow, not lost:** Twitch finished the clips after we stopped waiting, so
+  Get Clips shows them now.
+
+It reads the journal for the window and joins `creating_twitch_clip` →
+`twitch_clip_requested` → `twitch_clip_ready_after` / `twitch_clip_not_ready`.
+It prints per hour and per channel, splits each channel's not-ready rate into
+crowded and lone requests, and asks Twitch what became of the lost slugs.
+`tests/test_clip_not_ready_report.py` (5) covers it; three deliberate
+breakages are each caught.
+
+`cd /opt/highlightz && venv/bin/python -m src.maintenance.clip_not_ready_report --hours 6`
+
+**No detector or clip change until it says which.** The options by outcome:
+- crowding: one Create Clip per channel moment, shared by the accounts
+  watching it;
+- one channel: a per-channel back-off and message, like the automod
+  refusals (the open item from 10-20);
+- slow: fall back to the captured file instead of dropping the moment;
+- all of Twitch: nothing to fix here; `ALERT_IGNORE` if it repeats.
