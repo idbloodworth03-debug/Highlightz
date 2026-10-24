@@ -6574,7 +6574,7 @@ and unsaved.
   hide entries from accounts that are gone, so this does not show there, but
   the files stay on disk.
 
-## Quick audit (2026-10-24); fixed: admin-page quote escaping
+## Quick audit (2026-10-24); fixed: admin-page quote escaping, leaderboard cost
 
 Owner: "Do a quick audit ignore the back up thing for now too" (off-site
 backups left out). Read-only first: everything since the 2026-10-20 audit.
@@ -6611,13 +6611,37 @@ made one.
   quote payloads; the editor's fields go through `esc`; one-line titles;
   one-line alert subjects.
 
-**2. OPEN (medium, before `CAMPAIGNS_ENABLED`): leaderboards scale.** Every
-count save and every campaign post sends `campaigns_changed` to everyone,
-and each open marketplace tab then rebuilds every board synchronously on
-the event loop. Measured: 24 ms per viewer for 10 campaigns over 20,000
-queued posts, so one save with 100 tabs open is ~2.4 s of stall on the box
-that scores live streams. Fix: keep each campaign's standings until a
-change, and index posts by campaign instead of scanning the queue.
+**2. FIXED (medium, owner: "fix 2"): leaderboards scale.** Every count save
+and every campaign post sends `campaigns_changed` to everyone, and each open
+marketplace tab then rebuilt every board synchronously on the event loop,
+with a read of users.json for every clipper on every board (`get_by_id`
+re-reads the file to check it; the audit's 24 ms figure had that stubbed out).
+- `results._computed`: a campaign's entries and standings are kept, keyed
+  on this store's change counter, the queue's (`schedule.generation()`), the
+  users file's (`users.version()`, a number per parsed snapshot) and the
+  campaign's own dates, platforms and judging. Any change to any of those
+  is a new key, so nothing is served stale; the first read after a change
+  rebuilds and every other viewer reuses it. What is kept is shared and
+  read-only.
+- Names for a whole board in one read of users.json
+  (`users.display_names`); an id it does not return is an account that is
+  gone.
+- `schedule.for_campaign` reads an index by campaign, rebuilt once per
+  queue change instead of scanning the queue per campaign per call. Every
+  queue change goes through `_save()`, which bumps the counter.
+- Measured on a real users file (2,000 accounts, 20,000 queued posts, 3,000
+  entries over 10 campaigns), one count saved and then 100 viewers loading
+  the marketplace: **before** 107 ms per viewer, 10.6 s in all; **after**
+  39 ms for the first viewer (the rebuild), 0.8 ms for each other one,
+  0.11 s in all.
+- Tests (in `tests/test_campaign_results.py`): one build shared by 90 board
+  reads plus the summary and admin view, and a rebuild after each kind of
+  change; counts, a new queued post, a renamed and a deleted account, the
+  campaign's dates and a disqualification all show at once; the queue
+  index follows add, re-tag, remove, clip deletion, account deletion and a
+  reload; the real `display_names` and `version` on a users file. Campaign
+  tests stub `display_names` beside `get_by_id`. Browser: the whole
+  campaign flow again, every step live.
 
 **3. Low: new advisories since 10-22.** filelock 3.32.2 (3; fix 4.2.1) and
 setuptools 83.0.0 (1; fix 84.1.0). Not reachable: two filelock ones and

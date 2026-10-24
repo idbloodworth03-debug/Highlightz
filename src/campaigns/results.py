@@ -44,7 +44,8 @@ record of what was won and paid.
 STORE. campaign_results.json: {campaign id: {"entries": {entry key: {...}},
 "stats": {entry key: {...}}, "winners": [...], "payees": {user id: {...}},
 "confirmed_at", "confirmed_by", "refund": {...}}}; an entry key is
-"<schedule item id>:<platform>".
+"<schedule item id>:<platform>". Entries and standings are worked out once
+per change and shared by every viewer (see _computed).
 """
 
 from __future__ import annotations
@@ -73,6 +74,8 @@ NOTE_MAX, PAYEE_MAX, REF_MAX = 300, 200, 200
 
 _results: dict[str, dict] = {}
 _loaded = False
+_gen = 0                       # bumped by every load and save (see _computed)
+_memo: dict[str, dict] = {}    # campaign id -> {"key", "entries", "standings"}
 
 
 class ResultsError(camp.CampaignError):
@@ -82,10 +85,11 @@ class ResultsError(camp.CampaignError):
 # ── load / save ──────────────────────────────────────────────────────────────
 
 def _load() -> None:
-    global _loaded
+    global _loaded, _gen
     if _loaded:
         return
     _loaded = True
+    _gen += 1
     try:
         data = json.loads(_INDEX.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -98,7 +102,9 @@ def _load() -> None:
 
 
 def _save() -> None:
+    global _gen
     atomic_write_json(_INDEX, _results)
+    _gen += 1
 
 
 def _peek(campaign_id: str) -> dict:
@@ -143,9 +149,39 @@ def record_entry(item, platform: str) -> None:
     _save()
 
 
+# WORKED OUT ONCE PER CHANGE (quick audit, 2026-10-24). Every viewer's board is
+# cut from the same entries and standings, and a change (counts saved, a post
+# landing) sends campaigns_changed to every open marketplace tab at once. Built
+# per request, that was every board for every tab on the event loop, with one
+# read of users.json per clipper. Now they are kept per campaign against a key
+# of everything they come from: this store, the posting queue, the users file
+# (each one's change counter) and the campaign's own dates, platforms and
+# judging. Whatever changes one of those changes the key, so nothing is ever
+# served stale; the first read after a change rebuilds, the rest share it.
+# What is kept is shared: callers read it and never change it.
+
+def _computed(c: dict) -> dict:
+    from src.auth import users as user_store
+    from src.publish import schedule as sched
+    _load()
+    key = (_gen, sched.generation(), user_store.version(), c.get("start_at"), c.get("end_at"),
+           tuple(c.get("platforms") or ()), c.get("judging"), c.get("judging_n"))
+    m = _memo.get(c["id"])
+    if m is None or m["key"] != key:
+        ents = _build_entries(c)
+        m = {"key": key, "entries": ents, "standings": _build_standings(c, ents)}
+        _memo[c["id"]] = m
+    return m
+
+
 def entries(c: dict) -> list[dict]:
     """Every clip posted (or on its way) for the campaign, with its counts and
-    whether it counts. Oldest first."""
+    whether it counts. Oldest first. Shared: read it, never change it."""
+    return _computed(c)["entries"]
+
+
+def _build_entries(c: dict) -> list[dict]:
+    from src.auth import users as user_store
     from src.publish import schedule as sched
     rec = _peek(c["id"])
     stats, kept = rec.get("stats") or {}, rec.get("entries") or {}
@@ -161,12 +197,10 @@ def entries(c: dict) -> list[dict]:
             if key in kept or r.get("campaign_id", c["id"]) != c["id"]:
                 continue
             found.append((key, it.id, it.user_id, plat, r))
-    names: dict[str, str | None] = {}
+    names = user_store.display_names({uid for _k, _i, uid, _p, _r in found})
     out = []
     for key, item_id, uid, plat, r in found:
         if uid not in names:
-            names[uid] = _who(uid)
-        if names[uid] is None:
             continue                # the account is gone, and its entries with it
         s = stats.get(key) or {}
         posted = r.get("status") == sched.R_POSTED
@@ -200,9 +234,13 @@ def _score(c: dict, e: dict) -> int:
     return v
 
 
-def standings(c: dict, ents: list[dict] | None = None) -> list[dict]:
-    """One row per clipper with an entry that counts, best first."""
-    ents = entries(c) if ents is None else ents
+def standings(c: dict) -> list[dict]:
+    """One row per clipper with an entry that counts, best first. Shared:
+    read it, never change it."""
+    return _computed(c)["standings"]
+
+
+def _build_standings(c: dict, ents: list[dict]) -> list[dict]:
     by_user: dict[str, list[dict]] = {}
     for e in ents:
         if e["eligible"]:
@@ -414,6 +452,7 @@ def drop(campaign_id: str) -> None:
     """A deleted campaign's entries, counts and payout details. The API refuses
     to delete one whose winners are confirmed: that is the record of its prizes."""
     _load()
+    _memo.pop(campaign_id, None)
     if _results.pop(campaign_id, None) is not None:
         _save()
 
@@ -495,7 +534,7 @@ def summary(c: dict, top: int = 5) -> dict:
 
 def admin_view(c: dict) -> dict:
     ents = entries(c)
-    rows = standings(c, ents)
+    rows = standings(c)
     rec = _peek(c["id"])
     payees = rec.get("payees") or {}
     winners = []

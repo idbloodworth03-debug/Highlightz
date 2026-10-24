@@ -26,11 +26,13 @@ import pytest
 from itsdangerous import TimestampSigner
 
 from src import campaigns as camp
+from src.auth import users as _user_store
 from src.campaigns import requests as creq
 from src.campaigns import results as res
 from src.publish import schedule as sched
 
 NOW = time.time()
+REAL_USER_HELPERS = (_user_store.display_names, _user_store.version)   # before any fixture swaps them
 PEOPLE = {
     "boss": {"id": "boss", "username": "boss", "is_admin": True, "subscription_status": "active"},
     "ann": {"id": "ann", "username": "ann", "twitch_login": "ann_clips", "subscription_status": "active"},
@@ -57,6 +59,7 @@ def post(c, user, platform="tiktok", at=None, status="posted", url=None):
     it.results = {platform: {"status": status, "url": url or f"https://www.tiktok.com/@{user}/video/{len(sched._items)}",
                              "at": NOW - 5 * 86400 if at is None else at}}
     sched._items[it.id] = it
+    sched._save()           # as every real change to the queue does
     return f"{it.id}:{platform}"
 
 
@@ -69,11 +72,17 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(res, "_INDEX", tmp_path / "campaign_results.json")
     monkeypatch.setattr(sched, "_INDEX", tmp_path / "schedule.json")
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: PEOPLE.get(uid))
-    for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items)):
+    monkeypatch.setattr(user_store, "display_names", lambda ids: {
+        i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
+    # Changes when PEOPLE does, as the real one does when users.json changes.
+    monkeypatch.setattr(user_store, "version", lambda: hash(json.dumps(PEOPLE, sort_keys=True)))
+    for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
+                     (res, res._memo)):
         store.clear()
         m._loaded = True
     yield
-    for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items)):
+    for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
+                     (res, res._memo)):
         store.clear()
         m._loaded = False
 
@@ -270,6 +279,95 @@ def test_a_campaign_with_confirmed_winners_cannot_be_deleted(client):
     res.reopen(c, "boss")
     assert client.login("boss").delete(f"/admin/campaigns/{c['id']}").status_code == 200
     assert c["id"] not in res._results, "a deleted campaign's counts and payout details stayed"
+
+
+# ── 1c. worked out once per change, never stale (quick audit, 2026-10-24) ────
+
+def _counting_builds(monkeypatch):
+    built = []
+    real = res._build_entries
+    monkeypatch.setattr(res, "_build_entries", lambda c: built.append(c["id"]) or real(c))
+    return built
+
+
+def test_every_viewer_shares_one_build_until_something_changes(monkeypatch):
+    c = campaign(start_at=NOW - 86400, end_at=NOW + 86400)
+    _it, key = _land(c, "ann")
+    _land(c, "bob")
+    built = _counting_builds(monkeypatch)
+    for viewer in ["ann", "bob", "cat"] * 30:
+        res.board(c, viewer)
+    res.summary(c)
+    res.admin_view(c)
+    assert len(built) == 1, "each viewer rebuilt the board"
+    counts(c, **{key: {"views": 10}})                   # this store changes
+    res.board(c, "ann")
+    _land(c, "cat")                                     # the queue and this store change
+    res.board(c, "ann")
+    sched.add("bob", "u9", "f.mp4", "", ["tiktok"])     # the queue changes, not for this campaign
+    res.board(c, "ann")
+    assert len(built) == 4
+
+
+def test_nothing_is_ever_served_stale(monkeypatch):
+    c = campaign(start_at=NOW - 86400, end_at=NOW + 86400)
+    _it, key = _land(c, "ann")
+    other, key2 = _land(c, "bob")
+    counts(c, **{key: {"views": 50}, key2: {"views": 40}})
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["ann_clips", "bob"]
+    # A post still in the queue appears (the queue's own counter moved).
+    k3 = post(c, "cat", at=NOW - 3600)
+    counts(c, **{k3: {"views": 99}})
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["cat", "ann_clips", "bob"]
+    # A renamed account shows its new name; a deleted one drops off.
+    monkeypatch.setitem(PEOPLE, "bob", {**PEOPLE["bob"], "twitch_login": "bob_live"})
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["cat", "ann_clips", "bob_live"]
+    monkeypatch.delitem(PEOPLE, "ann")
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["cat", "bob_live"]
+    # The campaign's own dates move past every post: none counts any more.
+    moved = {**c, "start_at": time.time() + 60}
+    assert [r["name"] for r in res.board(moved, "cat")["rows"]] == []
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["cat", "bob_live"]
+    # Disqualifying, through this store.
+    counts(c, **{k3: {"views": 99, "disqualified": True, "reason": "reupload"}})
+    assert [r["name"] for r in res.board(c, "cat")["rows"]] == ["bob_live"]
+
+
+def test_the_queue_index_follows_every_change():
+    a = campaign(title="A")
+    b = campaign(title="B")
+    it = sched.add("ann", "up1", "f.mp4", "", ["tiktok"], campaign_id=a["id"])
+    it2 = sched.add("bob", "up2", "f.mp4", "", ["tiktok"], campaign_id=a["id"])
+    assert {i.id for i in sched.for_campaign(a["id"])} == {it.id, it2.id}
+    sched.update(it.id, "ann", campaign_id=b["id"])
+    assert [i.id for i in sched.for_campaign(a["id"])] == [it2.id]
+    assert [i.id for i in sched.for_campaign(b["id"])] == [it.id]
+    sched.remove(it2.id, "bob")
+    assert sched.for_campaign(a["id"]) == []
+    sched.drop_upload("up1", "ann")
+    assert sched.for_campaign(b["id"]) == []
+    it3 = sched.add("cat", "up3", "f.mp4", "", ["tiktok"], campaign_id=a["id"])
+    sched.delete_all_for_user("cat")
+    assert sched.for_campaign(a["id"]) == [] and it3.id not in sched._items
+    sched._loaded = False                               # a reload from disk
+    sched._items.clear()
+    assert sched.for_campaign(a["id"]) == []
+
+
+def test_the_users_file_names_and_its_version(tmp_path, monkeypatch):
+    """The real helpers (the fixture stands in for them everywhere else)."""
+    from src.auth import users as user_store
+    monkeypatch.setattr(user_store, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(user_store, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    names, version = REAL_USER_HELPERS
+    user_store._save([{"id": "a", "username": "ann", "twitch_login": "ann_tw"},
+                      {"id": "b", "username": "bob", "kick_slug": "bob_k"}, {"id": "c", "username": "cat"}])
+    v1 = version()
+    assert version() == v1, "unchanged file, new version"
+    assert names(["a", "b", "c", "gone"]) == {"a": "ann_tw", "b": "bob_k", "c": "cat"}
+    user_store._save([{"id": "a", "username": "ann"}])
+    assert version() != v1
+    assert names(["a", "b"]) == {"a": "ann"}
 
 
 # ── 3. counting ──────────────────────────────────────────────────────────────

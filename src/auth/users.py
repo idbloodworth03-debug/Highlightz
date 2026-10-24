@@ -96,12 +96,13 @@ _BACKUP_FILE = Path(settings.local_storage_path) / "users.json.bak"
 # so callers mutate what they get exactly as before. A snapshot is never
 # changed once built; a new file means a new snapshot, swapped in whole.
 _snap: dict | None = None
+_snap_count = 0          # numbers each snapshot, for version()
 
 
 def _snapshot() -> dict | None:
     """The parsed users for the file as it is now; None when the file is
     missing or unusable, and the slow path (backup fallback, logging) decides."""
-    global _snap
+    global _snap, _snap_count
     path = _USERS_FILE
     try:
         raw = path.read_bytes()
@@ -120,10 +121,34 @@ def _snapshot() -> dict | None:
     for u in data:
         if isinstance(u, dict) and "id" in u and u["id"] not in index:
             index[u["id"]] = u
+    _snap_count += 1
     s = {"path": path, "raw": raw, "index": index,
-         "blob": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)}
+         "blob": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL), "n": _snap_count}
     _snap = s
     return s
+
+
+def version() -> int:
+    """A number that changes whenever the users file does (0 while it is
+    unusable). For results worked out from user records and kept until they
+    change: the campaign leaderboards."""
+    s = _snapshot()
+    return s["n"] if s is not None else 0
+
+
+def display_names(user_ids) -> dict[str, str]:
+    """{user id: the name they are shown by} for the accounts that exist, in
+    one read of the file: Twitch login, else Kick name, else username. An id
+    missing from the result is an account that is gone. Names only, so nothing
+    cached is handed out."""
+    s = _snapshot()
+    index = s["index"] if s is not None else {u.get("id"): u for u in _load()}
+    out = {}
+    for uid in user_ids:
+        u = index.get(uid)
+        if u is not None:
+            out[uid] = u.get("twitch_login") or u.get("kick_slug") or u.get("username") or "a clipper"
+    return out
 
 
 def _load() -> list[dict]:

@@ -116,13 +116,25 @@ class Item:
 
 _items: dict[str, Item] = {}
 _loaded = False
+# Bumped by every write and load, so a reader can keep what it worked out from
+# the queue until the queue changes: the campaign index below, and the
+# campaign leaderboards (src/campaigns/results). Every change goes through
+# _save(), which is what makes the number trustworthy.
+_gen = 0
+_by_campaign: tuple[int, dict[str, list[Item]]] = (-1, {})
+
+
+def generation() -> int:
+    _load()
+    return _gen
 
 
 def _load() -> None:
-    global _loaded
+    global _loaded, _gen
     if _loaded:
         return
     _loaded = True
+    _gen += 1
     if not _INDEX.exists():
         return
     try:
@@ -138,11 +150,13 @@ def _load() -> None:
 
 
 def _save() -> None:
+    global _gen
     _INDEX.parent.mkdir(parents=True, exist_ok=True)
     tmp = _INDEX.with_suffix(".json.tmp")
     tmp.write_text(json.dumps([asdict(i) for i in _items.values()], indent=2),
                    encoding="utf-8")
     os.replace(tmp, _INDEX)      # atomic: never leave a half-written queue
+    _gen += 1
 
 
 def add(user_id: str, upload_id: str, filename: str, caption: str,
@@ -184,11 +198,20 @@ def for_campaign(campaign_id: str) -> list[Item]:
     """Every post, from every user, made for this campaign — its entries.
     Newest first. Admin-side only: the caller must not hand another user's
     items to a non-admin."""
+    global _by_campaign
     _load()
     if not campaign_id:
         return []
-    return sorted((i for i in _items.values() if i.campaign_id == campaign_id),
-                  key=lambda i: -i.created_at)
+    # One pass over the whole queue per change, not one per campaign per read.
+    if _by_campaign[0] != _gen:
+        index: dict[str, list[Item]] = {}
+        for i in _items.values():
+            if i.campaign_id:
+                index.setdefault(i.campaign_id, []).append(i)
+        for items in index.values():
+            items.sort(key=lambda i: -i.created_at)
+        _by_campaign = (_gen, index)
+    return list(_by_campaign[1].get(campaign_id, ()))
 
 
 def last_due_from(user_id: str, source: str) -> float:
