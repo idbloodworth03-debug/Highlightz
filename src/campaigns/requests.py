@@ -162,10 +162,10 @@ def clean(raw: dict, user: dict, now: float | None = None) -> dict:
     if len(streamers) > MAX_STREAMERS:
         raise RequestError(f"Up to {MAX_STREAMERS} channels in one campaign.")
 
-    title = _text(raw.get("title"), camp.TITLE_MAX)
+    title = camp.one_line(raw.get("title"), camp.TITLE_MAX)
     if not title:
         raise RequestError("Give the campaign a name.")
-    summary = _text(raw.get("summary"), camp.SUMMARY_MAX)
+    summary = camp.one_line(raw.get("summary"), camp.SUMMARY_MAX)
     if not summary:
         raise RequestError("Add a one-line description for the campaign card.")
     brief = _text(raw.get("brief"), BRIEF_MAX)

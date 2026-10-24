@@ -6570,5 +6570,74 @@ and unsaved.
   Instagram views the insights permission, both app reviews) are not built.
 - Found, not changed: the admin's account delete (`DELETE
   /admin/users/{id}`) leaves the account's posting queue, uploads, publish
-  tokens, reviews and stats (the self-service delete takes them all). Boards hide entries from accounts that are gone, so this
-  does not show there, but the files stay on disk.
+  tokens, reviews and stats (the self-service delete takes them all). Boards
+  hide entries from accounts that are gone, so this does not show there, but
+  the files stay on disk.
+
+## Quick audit (2026-10-24); fixed: admin-page quote escaping
+
+Owner: "Do a quick audit ignore the back up thing for now too" (off-site
+backups left out). Read-only first: everything since the 2026-10-20 audit.
+Then the owner ran the two read-only prod checks below, and #1 was fixed.
+
+**Prod facts (owner's output, 2026-10-24):** the Stripe check now says
+"Ready": the webhook sends both checkout events (5 events). Both switches
+are OFF (`CAMPAIGN_REQUESTS_ENABLED`, `CAMPAIGNS_ENABLED`). No campaign's
+title or summary contains a `"`.
+
+**1. FIXED (high, was gated by the switch): a streamer's text could add
+attributes on the admin page.** The admin page's `esc()` escaped `& < >`
+but not quotes, and Admin -> Campaigns -> Edit puts the title and summary in
+`value="..."`. Since campaign requests (2026-10-23) those are written by any
+account once `CAMPAIGN_REQUESTS_ENABLED` is on. Reproduced in Chromium on a
+throwaway server: a title/summary with a `"` added `autofocus onfocus=...`
+and `onmouseover=...` to the inputs, and the hover handler ran in the
+admin's session. The CSP allows inline handlers and unpkg.com scripts, so a
+real payload could have acted as the admin. The 10-20 audit had noted the
+missing quote escaping with "no exploitable attribute use found"; requests
+made one.
+- `esc()` (= `rvEsc`) on the admin page and `esc()` on the feedback page now
+  escape both quotes as well, as plain string replacements (no backslash,
+  no DOM). Every attribute on both pages is covered at once; the results
+  view's own `cpAttr` is gone.
+- Re-run in Chromium after the fix: the inputs carry only their own
+  attributes, the value shows the whole title, hovering runs nothing. The
+  campaign results flow and every admin tab: no script errors.
+- Also (#4, low): a campaign's and a request's title and summary are one
+  line (`campaigns.one_line`: line breaks, tabs, control characters -> a
+  space); brief and rules keep their lines. `alerts.send` makes the subject
+  one line: a line break had made the SMTP path raise outside its `try`.
+- `tests/test_admin_escaping.py` (5): both helpers run in node against
+  quote payloads; the editor's fields go through `esc`; one-line titles;
+  one-line alert subjects.
+
+**2. OPEN (medium, before `CAMPAIGNS_ENABLED`): leaderboards scale.** Every
+count save and every campaign post sends `campaigns_changed` to everyone,
+and each open marketplace tab then rebuilds every board synchronously on
+the event loop. Measured: 24 ms per viewer for 10 campaigns over 20,000
+queued posts, so one save with 100 tabs open is ~2.4 s of stall on the box
+that scores live streams. Fix: keep each campaign's standings until a
+change, and index posts by campaign instead of scanning the queue.
+
+**3. Low: new advisories since 10-22.** filelock 3.32.2 (3; fix 4.2.1) and
+setuptools 83.0.0 (1; fix 84.1.0). Not reachable: two filelock ones and
+setuptools are Windows-only, the third is the SQLite read/write lock, which
+nothing here uses (filelock comes in through huggingface_hub for captions).
+Bump with the next lock change. urllib3, oauthlib, ecdsa and python-jose
+are the ones accepted on 10-22.
+
+**Checked and fine:** the 23 routes added since 10-20 (admin-only or
+signed-in owner; /promote public by design); all 57 socket events have
+handlers; campaign payments publish only when Stripe says paid, the amount
+equals the quote, the request is approved and it is the payer's own; the
+sign-in `next` is a one-entry allowlist; SameSite=Lax session cookie and
+CORS limited to highlightz.app; the results CSV cannot carry a formula
+(clipper names are Twitch/Kick logins or admin-made usernames; the payout
+cell starts with the method); the dashboard escapes campaign text (its only
+raw HTML is the static tutorial FAQ); /client-error is signed-in, 16 KB,
+10 per 10 minutes.
+
+**Still open from 10-20 (not re-checked):** uploads spooled before the plan
+check; scheduled posts after Pro lapses; a Redis blip ends the process; the
+duplicate-email refund on the newer Stripe API; `/billing/portal` raw 401;
+signed-out unknown URLs go to /login; the admin delete leaving files.

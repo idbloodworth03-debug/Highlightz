@@ -90,6 +90,15 @@ def _text(v, limit: int) -> str:
     return str(v or "").strip()[:limit]
 
 
+def one_line(v, limit: int) -> str:
+    """A title or a summary: one line. Line breaks, tabs and control
+    characters (which no form field can type, but a crafted request can) each
+    become a space, and runs of spaces one. A line break in a title made the
+    owner's "New campaign request" email fail (2026-10-24 audit)."""
+    s = "".join(ch if ch.isprintable() else " " for ch in str(v or ""))
+    return " ".join(s.split())[:limit]
+
+
 def _ts(v, what: str) -> float:
     try:
         t = float(v)
@@ -158,7 +167,7 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
     """A whole campaign from the admin form, validated. Raises CampaignError."""
     if not isinstance(raw, dict):
         raise CampaignError("Send the campaign as an object.")
-    title = _text(raw.get("title"), TITLE_MAX)
+    title = one_line(raw.get("title"), TITLE_MAX)
     if not title:
         raise CampaignError("Give the campaign a title.")
     start, end = _ts(raw.get("start_at"), "start date"), _ts(raw.get("end_at"), "end date")
@@ -186,7 +195,7 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
     return {
         "id": (existing or {}).get("id") or uuid.uuid4().hex,
         "title": title,
-        "summary": _text(raw.get("summary"), SUMMARY_MAX),
+        "summary": one_line(raw.get("summary"), SUMMARY_MAX),
         "rules": _text(raw.get("rules"), RULES_MAX),
         "start_at": start, "end_at": end,
         "streamers": _streamers(raw.get("streamers")),

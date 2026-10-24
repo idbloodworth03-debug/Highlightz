@@ -15253,7 +15253,14 @@ ADMIN_HTML = """<!DOCTYPE html>
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-function rvEsc(t){ const d=document.createElement('div'); d.textContent = t==null ? '' : String(t); return d.innerHTML; }
+// Text into markup. Escapes both quotes too, so it is as safe in an attribute
+// value as between tags. Until 2026-10-24 it did not, and a streamer's
+// campaign title (free text since campaign requests) could close an editor
+// field's value and add attributes of its own on this page.
+function rvEsc(t){
+  return (t == null ? '' : String(t)).split('&').join('&amp;').split('<').join('&lt;')
+    .split('>').join('&gt;').split('"').join('&quot;').split("'").join('&#39;');
+}
 const esc = rvEsc;
 const n0 = v => (Number(v)||0).toLocaleString('en-US');
 const fmt = ts => ts ? new Date(ts*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
@@ -15726,7 +15733,6 @@ async function cpSave(){
 let CR_ID = '', CR_DATA = null, CR_DIRTY = false, CR_BUSY = false;
 const CR_PLAT = {tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube'};
 
-function cpAttr(s){ return esc(s).split('"').join('&quot;'); }
 function crNum(v){ return v === null || v === undefined ? '' : String(v); }
 function crPlace(n){ const t = n % 100; return n + ((t > 10 && t < 14) ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'})[n % 10] || 'th'); }
 
@@ -15754,15 +15760,15 @@ function crEntries(d, confirmed){
   ents.forEach(function(e){
     const dis = confirmed || e.why_not === 'not posted' ? ' disabled' : '';
     const where = CR_PLAT[e.platform] || e.platform;
-    h += '<tr class="cr-e" data-key="' + cpAttr(e.key) + '">'
+    h += '<tr class="cr-e" data-key="' + esc(e.key) + '">'
       + '<td data-l="Clipper"><b>' + esc(e.name) + '</b></td>'
-      + '<td data-l="Post">' + (e.url ? '<a href="' + cpAttr(e.url) + '" target="_blank" rel="noopener noreferrer">' + esc(where) + ' &#8599;</a>' : esc(where))
+      + '<td data-l="Post">' + (e.url ? '<a href="' + esc(e.url) + '" target="_blank" rel="noopener noreferrer">' + esc(where) + ' &#8599;</a>' : esc(where))
         + '<span class="sub">' + (e.posted_at ? cpWhen(e.posted_at) : 'not posted yet') + '</span></td>'
       + ['views', 'likes', 'comments'].map(function(f){
           return '<td data-l="' + f + '"><input class="field cr-n" data-f="' + f + '" inputmode="numeric" aria-label="' + f + '" value="' + crNum(e[f]) + '"' + dis + '></td>';
         }).join('')
       + '<td data-l="Disqualify"><label class="cr-dq"><input type="checkbox" class="cr-dqb"' + (e.disqualified ? ' checked' : '') + dis + '> out</label>'
-        + '<input class="field cr-why" maxlength="300" placeholder="Why, if out" aria-label="Why it is disqualified" value="' + cpAttr(e.reason || '') + '"' + dis + '></td>'
+        + '<input class="field cr-why" maxlength="300" placeholder="Why, if out" aria-label="Why it is disqualified" value="' + esc(e.reason || '') + '"' + dis + '></td>'
       + '<td data-l="Counts?">' + (e.eligible ? '<span class="cp-pill live">yes</span>' : '<span class="sub">' + esc(e.why_not) + '</span>') + '</td></tr>';
   });
   h += '</tbody></table></div>';
@@ -15786,7 +15792,7 @@ function crPicks(d, c){
   const st = d.standings || [];
   const opts = function(sel){
     return '<option value="">Leave it unfilled</option>' + st.map(function(r){
-      return '<option value="' + cpAttr(r.user_id) + '"' + (r.user_id === sel ? ' selected' : '') + '>#' + r.rank + ' '
+      return '<option value="' + esc(r.user_id) + '"' + (r.user_id === sel ? ' selected' : '') + '>#' + r.rank + ' '
         + esc(r.name) + ' &middot; ' + Number(r.score).toLocaleString() + '</option>';
     }).join('');
   };
@@ -15842,7 +15848,7 @@ function renderResults(){
   const confirmed = !!d.confirmed_at;
   let h = '<div class="block-head" style="margin-top:var(--s-7)"><h2>Results &middot; ' + esc(c.title || '') + '</h2>'
     + '<span class="c">' + esc(d.status) + '</span></div>'
-    + '<div class="toolbar"><a class="btn" href="/admin/campaigns/' + cpAttr(CR_ID) + '/results.csv">Download CSV</a>'
+    + '<div class="toolbar"><a class="btn" href="/admin/campaigns/' + esc(CR_ID) + '/results.csv">Download CSV</a>'
     + '<button class="btn" type="button" id="cr-close">Close</button></div>'
     + crEntries(d, confirmed) + crStandings(d) + '<h3 class="cr-h">Winners</h3>';
   if(confirmed) h += crPayouts(d);
@@ -17930,7 +17936,8 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
         </div>
       </div>`).join('');
   }
-  function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+  // Escapes both quotes as well, so it is safe inside an attribute value.
+  function esc(s){return String(s||'').split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;').split("'").join('&#39;');}
   async function markRead(id){
     try{await api('/admin/feedback/'+id+'/read','POST');items.find(f=>f.id===id).read=true;render();toast('Marked as read');}
     catch{toast('Error');}

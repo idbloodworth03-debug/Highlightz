@@ -230,6 +230,9 @@ def configured() -> bool:
 
 async def send(subject: str, text: str) -> tuple[bool, str]:
     """(sent, what happened). Never raises."""
+    # A subject is one line. A line break in one (from a title someone typed)
+    # made the SMTP path raise outside its try, and may make Resend refuse it.
+    subject = " ".join(str(subject).split())
     to = settings.alert_email_to.strip()
     if not to:
         return False, "ALERT_EMAIL_TO is empty in .env (delete the line to use the default)"
