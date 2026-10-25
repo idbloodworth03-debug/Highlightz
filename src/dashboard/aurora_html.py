@@ -811,6 +811,13 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .cmp-join-tx small.bad{color:var(--danger)}
 .cmp-join .rd-btn{flex-shrink:0;display:inline-flex;gap:8px;align-items:center;justify-content:center}
 .cmp-status.joined{background:transparent;border:1px solid var(--hair-2);color:var(--fg-2)}
+.cmp-count{display:flex;align-items:center;gap:16px;padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.cmp-count-n{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--acc);font-variant-numeric:tabular-nums;
+  animation:cmp-bump var(--dur-slow) var(--ease)}
+.cmp-count-tx{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cmp-count-tx span:last-child{font-size:14px;color:var(--fg-2);line-height:1.5}
+@keyframes cmp-bump{from{transform:scale(1.25);color:var(--fg)}to{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.cmp-count-n{animation:none}}
 .cmp-joined{color:var(--acc);font-weight:700}
 @media (max-width:560px){.cmp-join{flex-direction:column;align-items:stretch}}
 .cmp-sec{display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid var(--hair)}
@@ -10964,10 +10971,32 @@ function CampaignJoin({ c, canPost, postingOpen, flash, onRefresh }) {
   );
 }
 
+// Once they have joined (owner, 2026-10-25: "put a counter that tells people
+// the current amount of people that joined inside the page after they hit
+// join"), where the Join panel was. joined_count is kept live by
+// campaign_join_count; the number is keyed on its value, so it bumps when
+// it changes.
+function CampaignJoinedCount({ c }) {
+  const n = c.joined_count || 0;
+  return (
+    <div className="cmp-count" aria-live="polite">
+      <b className="cmp-count-n" key={n}>{campNum(n)}</b>
+      <div className="cmp-count-tx">
+        <span className="cmp-k">{n === 1 ? 'Clipper joined' : 'Clippers joined'}</span>
+        <span>You're in. This number updates live as more clippers join.</span>
+      </div>
+    </div>
+  );
+}
+
 function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
   const b = c.board;
   const locked = !!c.locked;
+  // While it can be joined, the count sits in a panel under the dates: the
+  // Join panel before joining, the counter after. Otherwise in the header.
+  const joinable = c.status === 'live' || c.status === 'upcoming';
+  const counter = !locked && c.joined && joinable;
   // Platforms this viewer cannot post to from Highlightz yet (the server's
   // `held`: Instagram until Meta approves). An entry is a post made here, so
   // these read "soon" and the Post button needs one that is open.
@@ -10987,7 +11016,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             {c.joined && (c.status === 'live' || c.status === 'upcoming') && <span className="cmp-status joined">Joined</span>}
             {!c.published && <span className="cmp-status draft">Draft, only admins can see it</span>}
             <span className="cmp-when">{campWhen(c)}</span>
-            {c.joined_count > 0 && <><span className="cmp-dot"/><span className="cmp-when">{campJoinedCount(c.joined_count)}</span></>}
+            {!locked && !counter && c.joined_count > 0 && <><span className="cmp-dot"/><span className="cmp-when">{campJoinedCount(c.joined_count)}</span></>}
           </div>
           <h2>{c.title}</h2>
           {c.summary && <p className="cmp-lede">{c.summary}</p>}
@@ -10998,6 +11027,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
               <small>Then the winners are picked.</small></div>}
           </div>
           {locked && <CampaignJoin c={c} canPost={canPost} postingOpen={postingOpen} flash={flash} onRefresh={onRefresh}/>}
+          {counter && <CampaignJoinedCount c={c}/>}
           {b && b.confirmed && <section className="cmp-sec"><h3>Winners</h3><CampaignWinners b={b}/></section>}
           {b && <CampaignBoard c={c}/>}
           {c.streamers.length > 0 && <section className="cmp-sec">

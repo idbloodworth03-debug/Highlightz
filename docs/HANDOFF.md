@@ -6942,3 +6942,25 @@ but they still have to hit the join button".
   and not counted anywhere, no count event for an admin's join; a role change
   moving everyone's count and telling them only when it matters;
   `admin_ids` from a real users file). Full suite 4086.
+
+### A live counter on the page after joining (2026-10-25)
+
+Owner: "put a counter that tells people the current amount of people that
+joined inside the page after they hit join I want users to know how many
+people are joined".
+
+- `CampaignJoinedCount`: once someone has joined an upcoming or live
+  campaign, the panel under the dates where Join was becomes a counter: the
+  number big (44px, accent), "Clippers joined", "You're in. This number
+  updates live as more clippers join." `aria-live="polite"`.
+- Live: it reads `joined_count`, which `campaign_join_count` patches in place;
+  the number is keyed on its value, so it bumps (scale + colour, `--dur-slow`)
+  each time it changes; none under `prefers-reduced-motion`.
+- One place for the count at a time on the page: the Join panel before
+  joining, the counter after, the header once posting has closed (the header
+  count used to show beside the panels too). Cards keep theirs.
+- Verified: a test for the component, its placement and the bump/motion
+  rules; full suite 4087; JSX. Browser: a Pro clipper joined on desktop and
+  saw "1 CLIPPER JOINED"; a second clipper joined on a phone and the first
+  page, never reloaded, read 2 about 2 s later; no sideways scroll at 390,
+  no console errors.

@@ -364,6 +364,27 @@ def test_the_dashboard_follows_it():
     assert "canCampaignsRef.current" in ws and "joined_count: msg.joined_count" in ws and "refetch" not in ws
 
 
+def test_after_joining_the_page_shows_a_live_counter():
+    """Owner: "put a counter that tells people the current amount of people
+    that joined inside the page after they hit join"."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    box = page[page.index("function CampaignJoinedCount("):page.index("function CampaignPage(")]
+    assert "const n = c.joined_count || 0;" in box and "campNum(n)" in box
+    assert "key={n}" in box, "the number does not bump when it changes"
+    assert 'aria-live="polite"' in box and "Clippers joined" in box and "Clipper joined" in box
+    pg = page[page.index("function CampaignPage("):page.index("function CampaignsScreen(")]
+    assert "const counter = !locked && c.joined && joinable;" in pg and "{counter && <CampaignJoinedCount c={c}/>}" in pg
+    # One place for the count at a time: the panels while it can be joined,
+    # the header once posting has closed.
+    assert "{!locked && !counter && c.joined_count > 0 &&" in pg
+    # Live: the number is the listing's, which campaign_join_count patches.
+    at = page.index("msg.event==='campaign_join_count'")
+    assert "joined_count: msg.joined_count" in page[at:page.index("else if(msg.event===", at)]
+    css = page[page.index(".cmp-count{"):page.index(".cmp-count{") + 900]
+    assert "@media(prefers-reduced-motion:reduce){.cmp-count-n{animation:none}}" in css
+    assert "animation:cmp-bump var(--dur-slow) var(--ease)" in css
+
+
 def test_the_copy_says_to_join(monkeypatch):
     from src.dashboard import api
     from src.dashboard import blog_content as B
