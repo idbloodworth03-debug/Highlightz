@@ -806,6 +806,7 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .cmp-join-tx{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
 .cmp-join-tx b{font-size:16px}
 .cmp-join-tx span{font-size:14px;color:var(--fg-2);line-height:1.5}
+.cmp-join-tx .cmp-join-n{color:var(--fg);font-weight:700}
 .cmp-join-tx small{font-size:12px;color:var(--fg-3)}
 .cmp-join-tx small.bad{color:var(--danger)}
 .cmp-join .rd-btn{flex-shrink:0;display:inline-flex;gap:8px;align-items:center;justify-content:center}
@@ -10789,6 +10790,9 @@ const CAMP_PAYOUT = {paypal: ['PayPal', 'Your PayPal email'], venmo: ['Venmo', '
   cashapp: ['Cash App', 'Your $cashtag'], bank: ['Bank transfer', 'An email we can reach you at for your bank details'],
   other: ['Other', 'How you would like to be paid']};
 const campNum = n => Number(n || 0).toLocaleString();
+// How many clippers have joined a campaign (everyone sees it; kept live by
+// campaign_join_count).
+const campJoinedCount = n => campNum(n) + (n === 1 ? ' clipper' : ' clippers') + ' joined';
 function campAgo(ts) {
   const s = Math.max(0, Date.now() / 1000 - ts);
   if (s < 60) return 'just now';
@@ -10908,9 +10912,10 @@ function CampaignCard({ c, onOpen }) {
           <span>{c.winners ? c.winners + ' winner' + (c.winners === 1 ? '' : 's') : 'Prize pool'}</span>
           <span className="cmp-dot"/>
           <span>{campWhen(c)}</span>
+          {c.joined_count > 0 && <><span className="cmp-dot"/><span>{campJoinedCount(c.joined_count)}</span></>}
           {b.prize ? <><span className="cmp-dot"/><span className="cmp-won">You won {campMoney(b.prize.amount)}</span></>
             : b.you && c.status !== 'upcoming' ? <><span className="cmp-dot"/><span>You are #{b.you.rank}</span></>
-            : c.joined && (c.status === 'live' || c.status === 'upcoming') ? <><span className="cmp-dot"/><span className="cmp-joined">Joined</span></>
+            : c.joined && (c.status === 'live' || c.status === 'upcoming') ? <><span className="cmp-dot"/><span className="cmp-joined">You joined</span></>
             : null}
         </div>
         {c.streamers.length > 0 && <div className="cmp-streamers">
@@ -10950,6 +10955,7 @@ function CampaignJoin({ c, canPost, postingOpen, flash, onRefresh }) {
         <b>Join to see the full details</b>
         <span>The rules, the hashtags and caption your post needs, and the live leaderboard.
           {c.status === 'upcoming' ? ' Join now and be ready when it starts.' : ''}</span>
+        <span className="cmp-join-n">{c.joined_count > 0 ? campJoinedCount(c.joined_count) + ' so far.' : 'Be the first to join.'}</span>
         {!canPost && postingOpen && <small>Posting entries comes with Pro.</small>}
         {err && <small className="bad">{err}</small>}
       </div>
@@ -10981,6 +10987,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             {c.joined && (c.status === 'live' || c.status === 'upcoming') && <span className="cmp-status joined">Joined</span>}
             {!c.published && <span className="cmp-status draft">Draft, only admins can see it</span>}
             <span className="cmp-when">{campWhen(c)}</span>
+            {c.joined_count > 0 && <><span className="cmp-dot"/><span className="cmp-when">{campJoinedCount(c.joined_count)}</span></>}
           </div>
           <h2>{c.title}</h2>
           {c.summary && <p className="cmp-lede">{c.summary}</p>}
@@ -12320,6 +12327,13 @@ function RdApp() {
           // marketplace re-read it.
           if(canCampaignsRef.current) refetchCampaigns();
           if(canPromoteRef.current) refetchPromo();
+        }
+        else if(msg.event==='campaign_join_count'){
+          // Someone joined a campaign: the new number of clippers in it, for
+          // its card and page. Sent to everyone, at most every 2 seconds per
+          // campaign, so the list is patched in place, not re-read.
+          if(canCampaignsRef.current && msg.campaign_id)
+            setCampaigns(cs=>cs ? cs.map(c=>c.id===msg.campaign_id ? {...c, joined_count: msg.joined_count} : c) : cs);
         }
         else if(msg.event==='campaign_request_updated'){
           // One of this account's campaign requests moved: sent, edited,

@@ -1728,8 +1728,9 @@ async def delete_account(request: Request):
     # (Their queue went above, which takes entries still on their way.)
     from src.campaigns import results as _res_purge
     from src.campaigns import joins as _joins_purge
-    _joins_purge.forget_user(uid)               # which campaigns it joined
-    if _res_purge.forget_user(uid) or had_campaign_posts:
+    # Which campaigns it joined go too, so the joined counts everyone sees drop.
+    left = _joins_purge.forget_user(uid)
+    if _res_purge.forget_user(uid) or had_campaign_posts or left:
         await _campaigns_changed()
 
     # Their OTHER open tabs (phone, second window) leave too, live.
@@ -8430,6 +8431,47 @@ def _joined(c: dict, uid: str) -> bool:
     return joins.has(c["id"], uid) or uid in res.entrant_ids(c)
 
 
+def _joined_count(c: dict) -> int:
+    """How many have joined it, counted the same way: everyone who pressed
+    Join, plus anyone with an entry who never had to."""
+    from src.campaigns import joins
+    from src.campaigns import results as res
+    return len(joins.ids(c["id"]) | res.entrant_ids(c))
+
+
+# THE JOINED COUNT, LIVE FOR EVERYONE (owner, 2026-10-25: "let us see the
+# amount of people join and let the clippers see that as well"). Every card
+# and campaign page shows it, so a join changes what every open marketplace
+# shows. The new number goes out as one small event the tabs patch in place
+# (campaign_join_count), never a re-read of the listing, and at most once every
+# _JOIN_COUNT_EVERY seconds per campaign: a burst of joins at launch is one
+# event carrying the latest count, sent off the joiner's request. Drafts are
+# not announced (their id is not everyone's business); the joiner's own tabs
+# get campaigns_changed at once anyway.
+_JOIN_COUNT_EVERY = 2.0
+_join_count_due: set[str] = set()
+
+
+def _send_join_count_soon(campaign_id: str) -> None:
+    if campaign_id in _join_count_due:
+        return                          # already on its way, and it reads the count when it goes
+    _join_count_due.add(campaign_id)
+
+    async def _send():
+        from src import campaigns as camp
+        try:
+            await asyncio.sleep(_JOIN_COUNT_EVERY)
+        finally:
+            _join_count_due.discard(campaign_id)
+        c = camp.get(campaign_id)
+        if c and c.get("published"):
+            await broadcast({"event": "campaign_join_count", "campaign_id": campaign_id,
+                             "joined_count": _joined_count(c)}, user_id=None)
+    task = asyncio.create_task(_send())
+    _notify_tasks.add(task)
+    task.add_done_callback(_notify_tasks.discard)
+
+
 def _as_seen_by(row: dict, c: dict, uid: str, viewer: dict | None) -> dict:
     """A campaign as this person sees it in the marketplace."""
     from src import campaigns as camp
@@ -8437,6 +8479,7 @@ def _as_seen_by(row: dict, c: dict, uid: str, viewer: dict | None) -> dict:
     from src.publish import release
     joined = _joined(c, uid)
     row["joined"] = joined
+    row["joined_count"] = _joined_count(c)          # shown to everyone, joined or not
     # JOIN TO SEE THE FULL DETAILS (owner, 2026-10-25). Until they join an
     # upcoming or live campaign, the rules, the tags and caption a post needs
     # and the leaderboard are not sent at all; once posting has closed there
@@ -8492,9 +8535,10 @@ async def join_campaign(request: Request, campaign_id: str):
         raise HTTPException(status_code=400, detail="Posting for this campaign has closed, so it cannot be joined.")
     if joins.join(c["id"], uid):
         log.info("campaign_joined", campaign=c["id"], user_id=uid)
-        # Their other tabs re-read the marketplace and open up too. Nobody
-        # else's view changes: no count of who joined is shown to clippers.
+        # Their other tabs re-read the marketplace and open up too, now.
         await broadcast({"event": "campaigns_changed"}, user_id=uid)
+        # Everyone's count, within a couple of seconds (see _send_join_count_soon).
+        _send_join_count_soon(c["id"])
     return {"ok": True, "joined": True}
 
 
@@ -8573,14 +8617,13 @@ async def campaign_clock_task() -> None:
 async def admin_list_campaigns(request: Request):
     _require_admin(request)
     from src import campaigns as camp
-    from src.campaigns import joins
     from src.campaigns import results as res
     rows = camp.listing(include_drafts=True)
     for r in rows:
         c = camp.get(r["id"])
         r["entries"] = len(res.entries(c))
         r["results"] = res.summary(c)
-        r["joined_count"] = joins.count(c["id"])
+        r["joined_count"] = _joined_count(c)
     return {"rows": rows, "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS)}
 
 
@@ -9355,8 +9398,9 @@ async def admin_delete_user(request: Request, user_id: str):
     from src.campaigns import results as _res_purge
     from src.campaigns import joins as _joins_purge
     from src.publish import schedule as _sched_purge
-    _joins_purge.forget_user(user_id)           # which campaigns it joined
-    boards = _res_purge.forget_user(user_id) or any(i.campaign_id for i in _sched_purge.for_user(user_id))
+    # Which campaigns it joined go too, so the joined counts everyone sees drop.
+    left = _joins_purge.forget_user(user_id)
+    boards = _res_purge.forget_user(user_id) or any(i.campaign_id for i in _sched_purge.for_user(user_id)) or left
 
     # Realtime: their open tabs sign out now, not on their next click.
     await broadcast({"event": "account_deleted"}, user_id=user_id)

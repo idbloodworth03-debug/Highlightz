@@ -214,7 +214,71 @@ def test_a_deleted_account_takes_its_joins():
     assert "_joins_purge.forget_user(user_id)" in inspect.getsource(api.admin_delete_user)
 
 
-# ── 4. the admin list ────────────────────────────────────────────────────────
+# ── 4. how many joined: the admin list, and every clipper ────────────────────
+
+def test_everyone_sees_how_many_joined(client):
+    c = camp.create(form())
+    for who in ("ann", "boss"):
+        client.login(who).post(f"/campaigns/{c['id']}/join")
+    # bob posted before joining existed: he counts once, as he counts as joined.
+    it = sched.Item(id="it0001", user_id="bob", upload_id="u", filename="f.mp4", caption="#duxxion @duxxion",
+                    platforms=["tiktok"], status="posted", campaign_id=c["id"])
+    it.results = {"tiktok": {"status": "posted", "url": "https://www.tiktok.com/@bob/video/1", "at": NOW - 3600}}
+    sched._items[it.id] = it
+    sched._save()
+    for who in ("ann", "bob", "boss"):
+        assert row(client, who, c["id"])["joined_count"] == 3, who
+    joins.join(c["id"], "bob")                    # pressing Join after posting does not count twice
+    assert row(client, "ann", c["id"])["joined_count"] == 3
+    assert client.login("ann").get(f"/campaigns/{c['id']}").json()["joined_count"] == 3
+
+
+def test_a_join_tells_everyone_the_new_count_once_per_burst(monkeypatch):
+    import asyncio
+    from src.dashboard import api
+    sent = []
+
+    async def _bcast(msg, user_id=None):
+        sent.append((msg, user_id))
+    monkeypatch.setattr(api, "broadcast", _bcast)
+    monkeypatch.setattr(api, "_JOIN_COUNT_EVERY", 0.05)
+    monkeypatch.setattr(api, "_join_count_due", set())
+    c = camp.create(form())
+    draft = camp.create(form(published=False))
+
+    async def run():
+        for who in ("ann", "bob", "boss"):        # a burst: three joins at once
+            joins.join(c["id"], who)
+            api._send_join_count_soon(c["id"])
+        joins.join(draft["id"], "boss")
+        api._send_join_count_soon(draft["id"])
+        await asyncio.sleep(0.2)
+        assert sent == [({"event": "campaign_join_count", "campaign_id": c["id"], "joined_count": 3}, None)], \
+            "one event for the burst, with the latest count, to everyone; nothing for the draft"
+        sent.clear()
+        joins.forget_user("bob")
+        api._send_join_count_soon(c["id"])        # the next one goes out on its own
+        await asyncio.sleep(0.2)
+        assert [m["joined_count"] for m, _u in sent] == [2]
+    asyncio.run(run())
+
+
+def test_the_join_endpoint_sends_the_count_for_a_new_join_only(client, monkeypatch):
+    c = camp.create(form())
+    due = []
+    monkeypatch.setattr(client.api, "_send_join_count_soon", lambda cid: due.append(cid))
+    client.login("ann").post(f"/campaigns/{c['id']}/join")
+    client.login("ann").post(f"/campaigns/{c['id']}/join")
+    assert due == [c["id"]]
+
+
+def test_a_deleted_account_lowers_everyone_s_counts():
+    import inspect
+    from src.dashboard import api
+    assert "or left:" in inspect.getsource(api.delete_account)
+    assert "or left" in inspect.getsource(api.admin_delete_user)
+    assert joins.join("c1", "ann") and joins.forget_user("ann") is True and joins.forget_user("ann") is False
+
 
 def test_the_admin_list_counts_who_joined(client):
     c = camp.create(form())
@@ -239,8 +303,15 @@ def test_the_dashboard_follows_it():
     # Posting for a campaign is only offered for joined ones.
     assert "campaigns={(campaigns||[]).filter(c=>c.status==='live' && !c.locked)}" in page
     assert "c.status==='live' && !c.locked);" in page
-    card = page[page.index("function CampaignCard("):][:2000]
-    assert "c.joined &&" in card and "Joined" in card
+    card = page[page.index("function CampaignCard("):][:2400]
+    assert "c.joined &&" in card and "You joined" in card
+    # The joined count: on the card, the page and the Join panel, and patched
+    # in place by its own event.
+    assert "campJoinedCount(c.joined_count)" in card and "campJoinedCount(c.joined_count)" in pg
+    assert "campJoinedCount(c.joined_count) + ' so far.'" in join and "Be the first to join." in join
+    at = page.index("msg.event==='campaign_join_count'")
+    ws = page[at:page.index("else if(msg.event===", at)]
+    assert "canCampaignsRef.current" in ws and "joined_count: msg.joined_count" in ws and "refetch" not in ws
 
 
 def test_the_copy_says_to_join(monkeypatch):

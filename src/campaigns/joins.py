@@ -76,6 +76,13 @@ def count(campaign_id: str) -> int:
     return len(_joins.get(campaign_id) or {})
 
 
+def ids(campaign_id: str) -> set[str]:
+    """Who joined it. The count everyone sees adds those with an entry who
+    never pressed Join (api._joined_count)."""
+    _load()
+    return set(_joins.get(campaign_id) or {})
+
+
 def drop(campaign_id: str) -> None:
     """A deleted campaign's joins."""
     _load()
@@ -83,8 +90,9 @@ def drop(campaign_id: str) -> None:
         _save()
 
 
-def forget_user(user_id: str) -> None:
-    """An account being deleted: which campaigns it joined goes with it."""
+def forget_user(user_id: str) -> bool:
+    """An account being deleted: which campaigns it joined goes with it.
+    True if it had joined any (their joined counts are then out of date)."""
     _load()
     changed = False
     for members in _joins.values():
@@ -92,3 +100,4 @@ def forget_user(user_id: str) -> None:
             changed = True
     if changed:
         _save()
+    return changed

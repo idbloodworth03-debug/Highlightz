@@ -6891,3 +6891,34 @@ on e146b91. Deploy brings both.)
   card said Joined; a free clipper on a phone saw the Pro line, joined, and
   got the rules with "comes with Pro"; the admin list said "2 joined"; no
   console errors, no failed requests, no sideways scroll at 390.
+
+### How many joined, shown to everyone (2026-10-25)
+
+Owner: "let us see the amount of people join and let the clippers see that as
+well".
+
+- Every `/campaigns` row (joined or not) and the admin list carry
+  `joined_count`: everyone who pressed Join plus anyone with an entry who
+  never had to (`api._joined_count`, the same rule as `_joined`).
+- Shown on the card ("2 clippers joined", and "You joined" for the viewer's
+  own, which used to read just "Joined"), in the campaign page's header, and
+  in the Join panel ("1 clipper joined so far." / "Be the first to join.").
+  Hidden at 0 except in the Join panel. Admin list: "N joined".
+- **Live without a refetch storm.** A join sends `campaign_join_count`
+  `{campaign_id, joined_count}` to every socket, which the dashboard patches
+  into the list in place (no re-read of `/campaigns`). At most one per
+  campaign every `_JOIN_COUNT_EVERY` (2 s), sent from a background task (not
+  on the joiner's request) and reading the count when it goes, so a launch
+  burst of joins is one small event, not one listing re-read per tab per
+  join. Not sent for drafts. The joiner's own tabs still get
+  `campaigns_changed` at once. An account deletion that removes joins sends
+  `campaigns_changed` to everyone (both delete paths), so the counts drop.
+- Verified: `tests/test_campaign_join.py` (+4: the count for everyone with
+  an entrant counted once, one event per burst with the latest count and
+  none for a draft, the endpoint sends it only for a new join, deletes lower
+  counts) and the realtime contract test (the new event has its handler).
+  Full suite 4083; JSX. Browser: a free clipper's phone tab, never reloaded,
+  went from "Be the first to join." to "1 clipper joined so far." about 2 s
+  after a Pro clipper joined on desktop, with zero re-reads of the listing;
+  the reverse took the same; grid "2 clippers joined · You joined"; admin
+  "2 joined"; no console errors.
