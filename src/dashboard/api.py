@@ -7227,10 +7227,12 @@ async def publish_post_now(request: Request):
         if (not c or (not c.get("published") and not is_admin)
                 or not (settings.campaigns_enabled or is_admin)):
             raise HTTPException(status_code=404, detail="Campaign not found")
-        if camp.status_of(c) != "live":
+        status = camp.status_of(c)
+        if status != "live":
             raise HTTPException(status_code=400, detail=(
-                "This campaign has not started yet." if camp.status_of(c) == "upcoming"
-                else "This campaign has ended."))
+                "This campaign has not started yet." if status == "upcoming"
+                else "Posting for this campaign has closed. Its entries are still gaining views."
+                if status == "counting" else "This campaign has ended."))
         off = [plat.BY_ID[p].label for p in targets if p not in c["platforms"]]
         if off:
             raise HTTPException(status_code=400, detail=(
@@ -8422,11 +8424,19 @@ async def list_campaigns(request: Request):
     request so every path that re-reads the list (mount, refetchAll on a
     reconnect, campaigns_changed) brings the standings with it."""
     from src import campaigns as camp
+    from src.auth import users as user_store
     from src.campaigns import results as res
+    from src.publish import release
     uid, admin = _campaign_viewer(request)
+    viewer = user_store.get_by_id(uid)
     rows = camp.listing(include_drafts=admin)
     for r in rows:
         r["board"] = res.board(camp.get(r["id"]), uid)
+        # The campaign's platforms this viewer cannot post to from Highlightz
+        # yet (PUBLIC_PLATFORMS: Instagram until Meta approves the app). An
+        # entry is a post made here, so the page says "opens soon" for these
+        # rather than inviting entries that could never count.
+        r["held"] = [p for p in r["platforms"] if not release.open_for(p, viewer)]
     return {"rows": rows}
 
 
@@ -8450,6 +8460,62 @@ async def campaign_image(request: Request, campaign_id: str):
 
 async def _campaigns_changed() -> None:
     await broadcast({"event": "campaigns_changed"}, user_id=None)
+
+
+# THE CAMPAIGN CLOCK. A campaign's status moves on the clock, not on a write: it
+# goes live at its start, posting closes at its end, and a grace period ends at
+# views_until. Nothing sent an event for those, so an open marketplace kept
+# saying Upcoming after the start, or Live (with its Post button) after the
+# end, until something else made it re-read. Each pass compares every
+# campaign's status with the last pass and, if any moved, sends
+# campaigns_changed: every tab re-reads the listing, which carries the new
+# status. The first pass after a start only records; every tab re-reads on its
+# reconnect anyway. When the winners can be picked, the owner is emailed.
+_campaign_phases: dict[str, str] | None = None
+
+
+async def _campaign_clock_tick(now: float | None = None) -> list[str]:
+    """One pass. Returns the ids of the campaigns whose status moved."""
+    global _campaign_phases
+    from src import campaigns as camp
+    cur = camp.statuses(now)
+    prev, _campaign_phases = _campaign_phases, cur
+    if prev is None:
+        return []
+    moved = [cid for cid, s in cur.items() if prev.get(cid, s) != s]
+    if moved:
+        await _campaigns_changed()
+    for cid in moved:
+        if cur[cid] == "ended":
+            _tell_owner_winners_due(camp.get(cid))
+    return moved
+
+
+def _tell_owner_winners_due(c: dict | None) -> None:
+    """A published campaign with prizes is ready for its winners. Counts are
+    typed in by hand, so this is the owner's cue to count and confirm."""
+    from src.campaigns import results as res
+    if not c or not c.get("published") or not c.get("payouts") or res.has_winners(c["id"]):
+        return
+    s = res.summary(c)
+    left = s["entries"] - s["counted"]
+    _tell_owner_email(
+        f'Pick the winners: {c["title"]}',
+        (f'The grace period of "{c["title"]}" is over: its views are final. ' if c.get("views_until")
+         else f'"{c["title"]}" has ended. ')
+        + f'{s["entries"]} entr{"y" if s["entries"] == 1 else "ies"} from {s["clippers"]} '
+        + f'clipper{"" if s["clippers"] == 1 else "s"}' + (f', {left} not counted yet' if left else "")
+        + ". Type in each post's views in Admin → Campaigns → Results, then confirm the winners.")
+
+
+async def campaign_clock_task() -> None:
+    """The campaign clock, every 30 seconds (started from src/main.py)."""
+    while True:
+        try:
+            await _campaign_clock_tick()
+        except Exception as exc:                       # never kill the loop
+            log.warning("campaign_clock_error", error=str(exc))
+        await asyncio.sleep(30)
 
 
 @app.get("/admin/campaigns")
@@ -14957,6 +15023,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cp-pill{font-family:var(--mono);font-size:12px;padding:0 var(--s-2);border-radius:99px;border:1px solid var(--hair-2);color:var(--ink-2);margin-left:var(--s-2)}
   .cp-pill.live{color:var(--good);border-color:rgba(74,222,128,.35)}
   .cp-pill.draft{color:var(--ember);border-color:rgba(247,167,69,.35)}
+  .cp-pill.counting{color:var(--ember);border-color:rgba(247,167,69,.35)}
   .cp-form{display:grid;gap:var(--s-4);max-width:880px;padding:var(--s-4);border:1px solid var(--hair-2);border-radius:4px;background:var(--void);margin-bottom:var(--s-5)}
   .cp-form h3{font-size:16px;margin:0}
   .cp-sec{display:grid;gap:var(--s-2)}
@@ -15683,7 +15750,8 @@ function renderCampaigns(){
       + '<div class="t"><b>' + esc(c.title)
         + '<span class="cp-pill ' + esc(c.status) + '">' + esc(c.status) + '</span>'
         + (c.published ? '' : '<span class="cp-pill draft">draft</span>') + cpTodo(c) + '</b>'
-        + '<span class="sub">' + cpWhen(c.start_at) + ' &rarr; ' + cpWhen(c.end_at) + ' &middot; '
+        + '<span class="sub">' + cpWhen(c.start_at) + ' &rarr; ' + cpWhen(c.end_at)
+        + (c.views_until ? ' (views until ' + cpWhen(c.views_until) + ')' : '') + ' &middot; '
         + cpMoney(c.prize_pool) + ' &middot; ' + (c.winners || 0) + ' winner' + (c.winners === 1 ? '' : 's')
         + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + cpToCount(c) + '</span></div>'
       + '<div class="acts"><button class="btn cp-edit" data-id="' + esc(c.id) + '">Edit</button>'
@@ -15727,7 +15795,11 @@ function openCampaignEditor(c){
       + '<div class="cp-line">' + (c.image_url ? '<img class="cp-img" id="cp-prev" src="' + esc(c.image_url) + '" alt="">' : '<img class="cp-img" id="cp-prev" alt="" style="display:none">')
       + '<input type="file" id="cp-file" accept="image/png,image/jpeg,image/webp"></div></div>'
     + '<div class="cp-2"><div class="cp-sec"><label>Starts</label><input class="field" type="datetime-local" name="start" value="' + cpLocal(c.start_at) + '"></div>'
-      + '<div class="cp-sec"><label>Ends</label><input class="field" type="datetime-local" name="end" value="' + cpLocal(c.end_at) + '"></div></div>'
+      + '<div class="cp-sec"><label>Ends (posting closes)</label><input class="field" type="datetime-local" name="end" value="' + cpLocal(c.end_at) + '"></div></div>'
+    + '<div class="cp-sec"><label>Views count until (optional grace period)</label>'
+      + '<div class="cp-line"><input class="field" type="datetime-local" name="views_until" value="' + cpLocal(c.views_until) + '">'
+      + '<button class="btn" type="button" id="cp-grace">3 days after the end</button></div>'
+      + '<span class="sub">After the end, entries keep gaining views until this date, and the winners can be picked once it passes. Leave it blank for none.</span></div>'
     + '<div class="cp-sec"><label>Streamers in the campaign</label><div id="cp-streamers">' + (c.streamers || []).map(cpStreamerRow).join('') + '</div>'
       + '<div><button class="btn" type="button" id="cp-add-streamer">+ Add streamer</button></div></div>'
     + '<div class="cp-sec"><label>Prize pool (USD)</label><input class="field" type="number" min="0" step="0.01" name="prize_pool" value="' + (c.prize_pool || '') + '" placeholder="500"></div>'
@@ -15776,7 +15848,7 @@ function cpCollect(){
   const epoch = function(x){ return x ? Math.floor(new Date(x).getTime() / 1000) : 0; };
   return {
     title: v('title'), summary: v('summary'), rules: f.elements.rules.value,
-    start_at: epoch(v('start')), end_at: epoch(v('end')),
+    start_at: epoch(v('start')), end_at: epoch(v('end')), views_until: epoch(v('views_until')),
     streamers: Array.prototype.map.call(f.querySelectorAll('.cp-streamer'), function(r){
       return {name: r.querySelector('.cp-sname').value.trim(), platform: r.querySelector('.cp-splat').value};
     }).filter(function(x){ return x.name; }),
@@ -15942,7 +16014,11 @@ function renderResults(){
     + '<button class="btn" type="button" id="cr-close">Close</button></div>'
     + crEntries(d, confirmed) + crStandings(d) + '<h3 class="cr-h">Winners</h3>';
   if(confirmed) h += crPayouts(d);
-  else if(d.status !== 'ended') h += '<p class="sub">Picked once it ends (' + cpWhen(c.end_at) + '). To close it early, edit it and move its end to now.</p>';
+  else if(d.status === 'counting') h += '<p class="sub">Posting has closed and views count until ' + cpWhen(c.views_until)
+    + ' (its grace period). Type in the final views then, and pick the winners. To pick them now, edit it and clear Views count until.</p>';
+  else if(d.status !== 'ended') h += c.views_until
+    ? '<p class="sub">Picked once views stop counting (' + cpWhen(c.views_until) + '). To close it early, edit it, move its end to now and clear Views count until.</p>'
+    : '<p class="sub">Picked once it ends (' + cpWhen(c.end_at) + '). To close it early, edit it and move its end to now.</p>';
   else h += crPicks(d, c);
   box.innerHTML = h;
 }
@@ -16025,6 +16101,15 @@ document.getElementById('cp-new').addEventListener('click', function(){ openCamp
 document.getElementById('panel-campaigns').addEventListener('click', async function(e){
   const t = e.target;
   if(t.id === 'cp-add-streamer'){ document.getElementById('cp-streamers').insertAdjacentHTML('beforeend', cpStreamerRow()); return; }
+  if(t.id === 'cp-grace'){
+    // Three calendar days after the end, at the same time of day.
+    const f = document.getElementById('cp-form');
+    if(!f.elements.end.value){ document.getElementById('cp-err').textContent = 'Pick the end first.'; return; }
+    const d = new Date(f.elements.end.value);
+    d.setDate(d.getDate() + 3);
+    f.elements.views_until.value = cpLocal(d.getTime() / 1000);
+    return;
+  }
   if(t.id === 'cp-add-payout'){
     const box = document.getElementById('cp-payouts');
     box.insertAdjacentHTML('beforeend', cpPayoutRow('', box.children.length)); cpSyncPayouts(); return;

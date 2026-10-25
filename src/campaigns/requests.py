@@ -279,7 +279,8 @@ def public(r: dict, now: float | None = None, admin: bool = False) -> dict:
     d["judging_text"] = camp.JUDGING.get(r.get("judging"), "").format(n=r.get("judging_n") or 3)
     c = camp.get(r.get("campaign_id") or "")
     d["campaign"] = ({"id": c["id"], "status": camp.status_of(c, now), "start_at": c["start_at"],
-                      "end_at": c["end_at"], "published": bool(c.get("published"))} if c else None)
+                      "end_at": c["end_at"], "views_until": c.get("views_until") or 0,
+                      "published": bool(c.get("published"))} if c else None)
     if c:
         # How their campaign is doing: entries, views, best clips, winners.
         from src.campaigns import results

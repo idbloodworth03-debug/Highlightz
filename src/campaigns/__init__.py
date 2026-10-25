@@ -47,6 +47,12 @@ JUDGING = {
 }
 TITLE_MAX, SUMMARY_MAX, RULES_MAX, CAPTION_MAX = 120, 300, 20000, 2200
 MAX_STREAMERS, MAX_PAYOUTS, MAX_TAGS = 20, 50, 30
+# A GRACE PERIOD (owner, 2026-10-25: "a 3 day grace period so clips posted on
+# the last day still have a chance to get views"). Posting closes at end_at as
+# before; `views_until`, when set, is later, and until then the campaign is
+# "counting": no new entries, the entries keep gaining views, and the winners
+# cannot be confirmed yet. 0 means none (winners from the end, as before).
+GRACE_MAX_DAYS = 30
 IMAGE_MAX = 5 * 1024 * 1024
 _IMAGE_TYPES = {b"\x89PNG\r\n\x1a\n": "png", b"\xff\xd8\xff": "jpg"}
 _ID_RE = re.compile(r"^[a-f0-9]{32}$")
@@ -147,6 +153,24 @@ def _handles(v) -> list[str]:
     return out[:MAX_TAGS]
 
 
+def _views_until(v, end: float) -> float:
+    """The end of the grace period, or 0 for none. Blank or 0 is none."""
+    if v in (None, "", 0, "0"):
+        return 0.0
+    try:
+        t = float(v)
+    except (TypeError, ValueError):
+        raise CampaignError("Pick when views stop counting, or leave it blank.")
+    if t <= 0:
+        return 0.0
+    if t <= end:
+        raise CampaignError("Views must keep counting until after the campaign ends. "
+                            "Leave it blank for no grace period.")
+    if t > end + GRACE_MAX_DAYS * 86400:
+        raise CampaignError(f"Views can keep counting for at most {GRACE_MAX_DAYS} days after the end.")
+    return t
+
+
 def _streamers(v) -> list[dict]:
     out = []
     for s in (v or [])[:MAX_STREAMERS]:
@@ -173,6 +197,7 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
     start, end = _ts(raw.get("start_at"), "start date"), _ts(raw.get("end_at"), "end date")
     if end <= start:
         raise CampaignError("The end date must be after the start date.")
+    views_until = _views_until(raw.get("views_until"), end)
     payouts = [_money(x) for x in (raw.get("payouts") or [])][:MAX_PAYOUTS]
     payouts = [p for p in payouts if p > 0]
     pool = _money(raw.get("prize_pool") or sum(payouts))
@@ -197,7 +222,7 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
         "title": title,
         "summary": one_line(raw.get("summary"), SUMMARY_MAX),
         "rules": _text(raw.get("rules"), RULES_MAX),
-        "start_at": start, "end_at": end,
+        "start_at": start, "end_at": end, "views_until": views_until,
         "streamers": _streamers(raw.get("streamers")),
         "prize_pool": pool,
         "currency": "USD",
@@ -220,10 +245,20 @@ def clean(raw: dict, existing: dict | None = None) -> dict:
 # ── reading ──────────────────────────────────────────────────────────────────
 
 def status_of(c: dict, now: float | None = None) -> str:
+    """upcoming -> live (posting open) -> counting (the grace period, only if
+    the campaign has one: posting closed, views still count) -> ended (the
+    winners can be picked)."""
     now = time.time() if now is None else now
     if now < c["start_at"]:
         return "upcoming"
-    return "live" if now < c["end_at"] else "ended"
+    if now < c["end_at"]:
+        return "live"
+    return "counting" if now < (c.get("views_until") or 0) else "ended"
+
+
+def judged_from(c: dict) -> float:
+    """When the winners can be picked: the end of the grace period, or the end."""
+    return max(c["end_at"], c.get("views_until") or 0)
 
 
 def judging_text(c: dict) -> str:
@@ -232,6 +267,7 @@ def judging_text(c: dict) -> str:
 
 def public(c: dict, now: float | None = None) -> dict:
     d = {k: v for k, v in c.items() if k != "image"}
+    d["views_until"] = c.get("views_until") or 0      # campaigns made before grace periods have none
     d["status"] = status_of(c, now)
     d["judging_text"] = judging_text(c)
     d["winners"] = len(c.get("payouts") or [])
@@ -239,20 +275,29 @@ def public(c: dict, now: float | None = None) -> dict:
     return d
 
 
-_ORDER = {"live": 0, "upcoming": 1, "ended": 2}
+_ORDER = {"live": 0, "upcoming": 1, "counting": 2, "ended": 3}
 
 
 def listing(*, include_drafts: bool, now: float | None = None) -> list[dict]:
-    """Live first (ending soonest), then upcoming (starting soonest), then ended
-    (most recent first)."""
+    """Live first (ending soonest), then upcoming (starting soonest), then
+    counting (views final soonest), then ended (most recent first)."""
     _load()
     now = time.time() if now is None else now
     rows = [public(c, now) for c in _campaigns.values() if include_drafts or c.get("published")]
 
     def key(d):
         s = d["status"]
-        return (_ORDER[s], d["end_at"] if s == "live" else d["start_at"] if s == "upcoming" else -d["end_at"])
+        return (_ORDER[s], d["end_at"] if s == "live" else d["start_at"] if s == "upcoming"
+                else d["views_until"] if s == "counting" else -judged_from(d))
     return sorted(rows, key=key)
+
+
+def statuses(now: float | None = None) -> dict[str, str]:
+    """Every campaign's status, drafts included: what the campaign clock
+    (api.campaign_clock_task) compares from one pass to the next."""
+    _load()
+    now = time.time() if now is None else now
+    return {cid: status_of(c, now) for cid, c in _campaigns.items()}
 
 
 def get(campaign_id: str) -> dict | None:

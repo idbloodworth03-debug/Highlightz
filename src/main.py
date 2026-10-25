@@ -844,6 +844,9 @@ async def main() -> None:
         asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
+        # Campaigns go live, close and finish their grace period on the clock;
+        # this tells every open marketplace when one does.
+        asyncio.create_task(dashboard_api.campaign_clock_task(), name="campaign-clock"),
         asyncio.create_task(_autopilot_runner.sweep_task(), name="autopilot-sweep"),
         # Webhooks are the only writer of subscription state, so a delivery
         # missed during a deploy would otherwise be wrong forever.

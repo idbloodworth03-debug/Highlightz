@@ -24,7 +24,9 @@ follows the campaign's judging rule:
                      winners are chosen by hand
 A tie goes to whoever posted first.
 
-WINNERS. Once a campaign has ended an admin starts from the standings (one
+WINNERS. Once a campaign has ended, and its grace period (views_until, the
+days after posting closes while the entries keep gaining views) is over, an
+admin starts from the standings (one
 clipper per prize place, in order), changes any place, and confirms. The
 confirmed list is a snapshot: names and amounts stay even if an entry or an
 account goes later. Places left empty are the unwon prizes the Terms (4A)
@@ -337,7 +339,12 @@ def confirm(c: dict, picks: list[dict], admin_id: str) -> dict:
     places = list(c.get("payouts") or [])
     if not places:
         raise ResultsError("This campaign has no prize places.")
-    if camp.status_of(c) != "ended":
+    status = camp.status_of(c)
+    if status == "counting":
+        # The grace period promised its entrants that views keep counting.
+        raise ResultsError("Views are still counting (its grace period). Winners are picked once that "
+                           "is over. To pick them now, edit the campaign and clear \"Views count until\".")
+    if status != "ended":
         raise ResultsError("Winners are picked once the campaign has ended. To close it early, "
                            "move its end date to now.")
     rec = _rec(c["id"])

@@ -6748,3 +6748,92 @@ Owner: "Make sure our blog page talks about our internal campaigns now too".
 - `tests/test_blog_campaigns.py` (7); `test_seo_head` lists the article
   beside /promote as a page that exists behind a switch. Browser: /blog and
   the article at 1440 and 390 px, no sideways scroll. Full suite 4050.
+
+## Grace periods, the campaign clock, and platforms not open yet (2026-10-25)
+
+Owner: "I am going live with the duxxion campaign Friday ... a 500$ pool with
+the top 3 users with the most viral single video ... last 7 days with a 3 day
+grace period so clips posted on the last day still have a chance to get views
+... first place to win 250, 2nd to win 150, and 3rd to win 100$", then
+"actually allow tiktok and instagram".
+
+**The duxxion campaign as handed to the owner** (made in Admin -> Campaigns ->
++ New campaign; nothing about it is in code): starts Fri 30 Oct, posting
+closes Fri 6 Nov, views count until Mon 9 Nov (same time of day each);
+$500 pool, $250 / $150 / $100; "Most views on a single clip"; TikTok and
+Instagram ticked; streamer duxxion on Twitch (the landing clip wall already
+lists the channel as Twitch, Rocket League); #duxxion required. Admin-made,
+so no Stripe charge and nothing owed back if a place goes unwon.
+
+**Grace period** (`views_until` on a campaign, optional, 0 = none).
+- Posting still closes at `end_at`; `views_until` must be after it and at most
+  30 days after (`GRACE_MAX_DAYS`). Campaigns made before this have none and
+  behave as before; requests publish with none (an admin can add one later).
+- Status is now upcoming -> live -> **counting** (only while a grace period
+  runs) -> ended. Counting: post-now refuses ("Posting for this campaign has
+  closed"), an entry posted after the end does not count (unchanged rule),
+  counts can still be typed in, and `results.confirm` refuses until it is
+  over (it says to clear the field to pick now). `camp.judged_from(c)` is when
+  winners can be picked.
+- Dashboard: "Counting views" badge (`CAMP_STATUS`), "Posting closes in" /
+  "Final view count in", a third date box "Views count until ... Then the
+  winners are picked.", a line in "How winners are picked" naming the grace
+  period, the counting message in the side box. A counting campaign stays in
+  the default "Live & upcoming" grid (entrants are still watching it); only
+  ended ones move under Ended. The streamer's Promote card works it out from
+  the clock like the other states ("Counting views").
+- Admin: "Ends (posting closes)", a "Views count until" field with a "3 days
+  after the end" button (same time of day, calendar days), "(views until ...)"
+  in the list, a `counting` pill, and the Results box explains the wait
+  instead of offering Confirm.
+- Terms 4A already says "After a campaign ends we judge its entries" and an
+  entry counts if "posted while the campaign ran": unchanged. The blog guide's
+  leaderboard paragraph now says some campaigns keep counting views for a few
+  days after posting closes.
+
+**The campaign clock** (`api.campaign_clock_task`, started in `src/main.py`,
+every 30 s). Before this, nothing sent an event when a campaign went live,
+closed or finished counting, so an open marketplace said Upcoming after the
+start, or Live with a Post button after the end, until something else made it
+re-read (a CLAUDE.md realtime bug that predates the grace period). Each pass
+compares every campaign's status with the last (`camp.statuses()`) and sends
+one `campaigns_changed` if any moved; the first pass after a restart only
+records (tabs re-read on reconnect). When a published campaign with prizes
+reaches **ended**, the owner is emailed "Pick the winners: <title>" with its
+entry and not-yet-counted numbers (told once; not for drafts or campaigns with
+winners already confirmed). An admin closing one early by editing the dates is
+told the same way.
+
+**Platforms not open yet.** An entry is a post made from Highlightz, and
+Instagram (and YouTube) posting is still held for ordinary accounts
+(`PUBLIC_PLATFORMS`, default `tiktok`) until Meta (Google) approves the app.
+`/campaigns` now carries `held` per viewer (`release.open_for`), and the
+campaign page shows those chips as "soon", says "Posting to Instagram from
+Highlightz opens soon. Until then, post your entries to TikTok.", and hides
+the Post button if nothing is open. Admins and early-access accounts see
+nothing held. The day Meta approves, adding `instagram` to `PUBLIC_PLATFORMS`
+opens it everywhere at once, campaigns included.
+- **Not built (owner's call): entry links.** Clips posted outside Highlightz,
+  including Instagram reels posted by hand, still cannot enter. Offered on
+  2026-10-23 (idea #1) and again here; it needs a way to prove a linked post
+  is the entrant's own (for example a short code in the caption).
+
+**Verified:**
+- `tests/test_campaign_grace.py` (15): the field's rules and an old campaign
+  without it, the status sequence and listing order, late posts not counting
+  while counts can still be saved, confirm refused then allowed, post-now
+  refused while counting, the clock (first pass silent, one event per move,
+  the owner told once and only for published campaigns with prizes), `held`
+  per viewer and following `PUBLIC_PLATFORMS`, the streamer's card, and the
+  dashboard/admin/blog wiring. Full suite 4065; JSX parse; admin script
+  parse (no backslashes).
+- Browser (Chromium, a throwaway server running the dashboard and the clock
+  in one loop as `main.py` does): a Pro clipper's tab, never reloaded, saw
+  "Starts soon cup" go Upcoming -> Live and "Quick cup" go Live -> Counting
+  views about 20 s after each boundary, then Quick cup move under Ended; the
+  admin's Results said why it was waiting and an early confirm answered 400;
+  the owner email fired once. The duxxion page at 1440 and 390 px (no
+  sideways scroll), a free account's "comes with Pro" line, the streamer's
+  card, the admin form (the 3-day button gives 2026-11-09T12:00 from
+  2026-11-06T12:00; an edit keeps the date). No console errors, no failed
+  requests.

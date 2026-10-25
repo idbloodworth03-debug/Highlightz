@@ -770,6 +770,7 @@ body.hz-player .rd-sugbadge{animation:none;box-shadow:0 3px 14px -3px rgba(184,1
 .cmp-status{font-size:12px;font-weight:700;letter-spacing:.04em;padding:4px 12px;border-radius:99px;background:rgba(0,0,0,.55);color:var(--fg-2)}
 .cmp-status.live{background:rgba(46,224,138,.18);color:var(--live)}
 .cmp-status.upcoming{background:var(--grad-soft);color:#fff}
+.cmp-status.counting{background:var(--pending-soft);color:var(--pending)}
 .cmp-status.draft{background:rgba(255,190,90,.16);color:var(--fg)}
 .cmp-body{display:flex;flex-direction:column;gap:8px;padding:16px}
 .cmp-title{font-size:16px;font-weight:800;letter-spacing:-.01em}
@@ -799,6 +800,8 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .cmp-dates div{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:16px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
 .cmp-dates span,.cmp-k{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
 .cmp-dates b{font-size:16px}
+.cmp-dates .wide{grid-column:1/-1}
+.cmp-dates small{font-size:12px;color:var(--fg-3)}
 .cmp-sec{display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid var(--hair)}
 .cmp-sec h3{margin:0;font-size:16px;font-weight:800;display:block}
 .cmp-rules,.cmp-pre{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -10731,13 +10734,19 @@ const CAMP_PLAT = {tiktok:'TikTok', instagram:'Instagram', youtube:'YouTube Shor
 const campMoney = n => '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 2});
 const campOrdinal = i => { const n = i + 1, t = n % 100; return n + ((t > 10 && t < 14) ? 'th' : ({1:'st',2:'nd',3:'rd'})[n % 10] || 'th'); };
 const campDate = ts => new Date(ts * 1000).toLocaleString(undefined, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+// upcoming -> live (posting open) -> counting (a grace period, if the campaign
+// has one: posting closed, the entries keep gaining views until views_until)
+// -> ended (the winners can be picked). The status comes from the server and
+// moves on the clock: the campaign clock sends campaigns_changed when it does.
+const CAMP_STATUS = {live: 'Live', upcoming: 'Upcoming', counting: 'Counting views', ended: 'Ended'};
+const campSpan = s => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  return d > 0 ? d + ' day' + (d === 1 ? '' : 's') : h > 0 ? h + ' hour' + (h === 1 ? '' : 's') : 'under an hour'; };
 function campWhen(c) {
   const now = Date.now() / 1000;
-  const span = s => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
-    return d > 0 ? d + ' day' + (d === 1 ? '' : 's') : h > 0 ? h + ' hour' + (h === 1 ? '' : 's') : 'under an hour'; };
-  if (c.status === 'live') return 'Ends in ' + span(c.end_at - now);
-  if (c.status === 'upcoming') return 'Starts in ' + span(c.start_at - now);
-  return 'Ended ' + new Date(c.end_at * 1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+  if (c.status === 'live') return (c.views_until ? 'Posting closes in ' : 'Ends in ') + campSpan(c.end_at - now);
+  if (c.status === 'upcoming') return 'Starts in ' + campSpan(c.start_at - now);
+  if (c.status === 'counting') return 'Final view count in ' + campSpan(c.views_until - now);
+  return 'Ended ' + new Date(Math.max(c.end_at, c.views_until || 0) * 1000).toLocaleDateString(undefined, {month:'short', day:'numeric'});
 }
 // The caption a campaign post starts with: the template with {title} and
 // {streamer} filled from the clip, then any required hashtag or mention the
@@ -10808,7 +10817,7 @@ function CampaignBoard({ c }) {
       {c.status === 'upcoming' ? <p className="cmp-muted">The leaderboard opens when the campaign starts.</p>
         : b.rows.length === 0 ? <p className="cmp-muted">{c.status === 'live'
             ? 'No entries yet. Post a clip for this campaign and you are on the board.'
-            : 'This campaign ended with no entries.'}</p>
+            : c.status === 'counting' ? 'Posting closed with no entries.' : 'This campaign ended with no entries.'}</p>
         : <ol className="cmp-rows">
             {b.rows.map(r => row(r, r.rank))}
             {mine && <li className="cmp-gap" aria-hidden="true">...</li>}
@@ -10878,7 +10887,7 @@ function CampaignCard({ c, onOpen }) {
   return (
     <button className="cmp-card" onClick={() => onOpen(c.id)}>
       <div className="cmp-img">{c.image_url ? <img src={c.image_url} alt="" loading="lazy"/> : <Icon name="trophy" size={32}/>}
-        <span className={'cmp-status ' + c.status}>{c.status === 'live' ? 'Live' : c.status === 'upcoming' ? 'Upcoming' : 'Ended'}</span>
+        <span className={'cmp-status ' + c.status}>{CAMP_STATUS[c.status] || c.status}</span>
         {!c.published && <span className="cmp-status draft">Draft</span>}
       </div>
       <div className="cmp-body">
@@ -10904,6 +10913,12 @@ function CampaignCard({ c, onOpen }) {
 function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
   const b = c.board;
+  // Platforms this viewer cannot post to from Highlightz yet (the server's
+  // `held`: Instagram until Meta approves). An entry is a post made here, so
+  // these read "soon" and the Post button needs one that is open.
+  const held = c.held || [];
+  const postable = c.platforms.filter(p => !held.includes(p));
+  const names = ps => ps.map(p => CAMP_PLAT[p] || p).join(' and ');
   return (
     <div className="cmp-page">
       <button className="rd-btn sm cmp-back" onClick={onBack}><Icon name="chevron" size={14} style={{transform:'rotate(90deg)'}}/>All campaigns</button>
@@ -10913,7 +10928,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
       <div className="cmp-cols">
         <div className="cmp-main">
           <div className="cmp-head">
-            <span className={'cmp-status ' + c.status}>{c.status === 'live' ? 'Live' : c.status === 'upcoming' ? 'Upcoming' : 'Ended'}</span>
+            <span className={'cmp-status ' + c.status}>{CAMP_STATUS[c.status] || c.status}</span>
             {!c.published && <span className="cmp-status draft">Draft, only admins can see it</span>}
             <span className="cmp-when">{campWhen(c)}</span>
           </div>
@@ -10921,7 +10936,9 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
           {c.summary && <p className="cmp-lede">{c.summary}</p>}
           <div className="cmp-dates">
             <div><span>Starts</span><b>{campDate(c.start_at)}</b></div>
-            <div><span>Ends</span><b>{campDate(c.end_at)}</b></div>
+            <div><span>{c.views_until ? 'Posting closes' : 'Ends'}</span><b>{campDate(c.end_at)}</b></div>
+            {c.views_until > 0 && <div className="wide"><span>Views count until</span><b>{campDate(c.views_until)}</b>
+              <small>Then the winners are picked.</small></div>}
           </div>
           {b && b.confirmed && <section className="cmp-sec"><h3>Winners</h3><CampaignWinners b={b}/></section>}
           {b && <CampaignBoard c={c}/>}
@@ -10952,15 +10969,21 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
           <div className="cmp-box">
             <span className="cmp-k">How winners are picked</span>
             <p>{c.judging_text}</p>
+            {c.views_until > 0 && <p className="cmp-muted">Views keep counting for {campSpan(c.views_until - c.end_at)} after
+              posting closes, until {campDate(c.views_until)}, so a clip posted on the last day still has time to grow.</p>}
             {c.judging_note && <p className="cmp-muted cmp-pre">{c.judging_note}</p>}
           </div>
           <div className="cmp-box">
             <span className="cmp-k">Post it here</span>
-            <div className="cmp-streamers">{c.platforms.map(p => <span key={p} className="cmp-chip">{CAMP_PLAT[p] || p}</span>)}</div>
+            <div className="cmp-streamers">{c.platforms.map(p => <span key={p} className="cmp-chip">{CAMP_PLAT[p] || p}
+              {held.includes(p) && <small>soon</small>}</span>)}</div>
+            {held.length > 0 && (c.status === 'live' || c.status === 'upcoming') && <p className="cmp-muted">{postable.length
+              ? 'Posting to ' + names(held) + ' from Highlightz opens soon. Until then, post your entries to ' + names(postable) + '.'
+              : 'Posting to ' + names(held) + ' from Highlightz opens soon.'}</p>}
             {tags.length > 0 && <><span className="cmp-k">Your caption must include</span>
               <div className="cmp-streamers">{tags.map(t => <span key={t} className="cmp-chip tag">{t}</span>)}</div></>}
             {c.caption_template && <><span className="cmp-k">Suggested caption</span><p className="cmp-muted cmp-pre">{c.caption_template}</p></>}
-            {c.status === 'live' && canPost &&
+            {c.status === 'live' && canPost && postable.length > 0 &&
               <button className="rd-btn grad" onClick={() => onPostFor(c.id)}><Icon name="upload" size={14}/>Post a clip for this campaign</button>}
             {/* An entry is a clip posted from Highlightz: the leaderboard
                 counts nothing else, so nobody is told to post it themselves. */}
@@ -10969,6 +10992,8 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
                   <a className="rd-btn grad" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a></>
               : <p className="cmp-muted">Entries are posted from Highlightz. Posting opens soon.</p>)}
             {c.status === 'upcoming' && <p className="cmp-muted">Entries open {campDate(c.start_at)}.</p>}
+            {c.status === 'counting' && <p className="cmp-muted">Posting has closed. The entries keep gaining views
+              until {campDate(c.views_until)}; then Highlightz picks the winners.</p>}
             {c.status === 'ended' && <p className="cmp-muted">{b && b.confirmed ? 'This campaign has ended and its winners are picked.'
               : 'This campaign has ended. Highlightz is judging the entries.'}</p>}
           </div>
@@ -11200,14 +11225,18 @@ function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaign
   const [open, setOpen] = useState(false);
   const now = Date.now() / 1000, c = r.campaign;
   // From the clock, not the server's word at fetch time: a campaign that
-  // starts while the tab is open reads Live on the next render.
-  const cs = c ? (now < c.start_at ? 'upcoming' : now < c.end_at ? 'live' : 'ended') : '';
+  // starts while the tab is open reads Live on the next render. Counting is
+  // its grace period: posting closed, the entries still gaining views.
+  const cs = c ? (now < c.start_at ? 'upcoming' : now < c.end_at ? 'live'
+    : now < (c.views_until || 0) ? 'counting' : 'ended') : '';
   const st = r.status === 'published'
-    ? ({live: ['Live', 'ok'], upcoming: ['Paid: starts soon', 'ok'], ended: ['Ended', 'off']}[cs] || PM_STATUS.published)
+    ? ({live: ['Live', 'ok'], upcoming: ['Paid: starts soon', 'ok'], counting: ['Counting views', 'ok'],
+        ended: ['Ended', 'off']}[cs] || PM_STATUS.published)
     : (PM_STATUS[r.status] || [r.status, '']);
   const chans = r.streamers.map(s => s.name + (s.platform === 'kick' ? ' (Kick)' : '')).join(', ');
   const editable = r.status === 'submitted' || r.status === 'changes_requested';
-  const live = c && cs === 'live', soon = c && cs === 'upcoming', over = c && cs === 'ended';
+  const live = c && cs === 'live', soon = c && cs === 'upcoming', over = c && cs === 'ended',
+        counting = c && cs === 'counting';
   return (
     <div className={'pm-card ' + r.status}>
       <div className="pm-card-top">
@@ -11226,11 +11255,14 @@ function PromoteCard({ r, busy, payments, onPay, onEdit, onWithdraw, canCampaign
         pool and a {pmMoney(r.quote.fees)} fee.{payments ? '' : ' Card payments are not switched on yet; we will email you when you can pay.'}</p>}
       {r.status === 'published' && <p className="pm-msg">
         {live ? 'Live in the Campaigns marketplace until ' + campDate(c.end_at) + '. '
+            + (c.views_until ? 'Views keep counting until ' + campDate(c.views_until) + '. ' : '')
           : soon ? 'It goes live in the marketplace ' + campDate(c.start_at) + '. '
-          : over ? 'Ended ' + campDate(c.end_at) + '. ' + (r.results && r.results.confirmed
+          : counting ? 'Posting closed ' + campDate(c.end_at) + '. The entries keep gaining views until '
+            + campDate(c.views_until) + ', then Highlightz picks the winners. '
+          : over ? 'Ended ' + campDate(Math.max(c.end_at, c.views_until || 0)) + '. ' + (r.results && r.results.confirmed
             ? 'The winners are picked. ' : 'Highlightz judges the entries and pays the winners. ') : ''}
         {r.payment === 'stripe' ? 'Paid ' + pmMoney((r.amount_paid_cents || 0) / 100) + '.' : 'Published by Highlightz at no charge.'}</p>}
-      {r.status === 'published' && r.results && (live || over) && <PromoteResults s={r.results} live={live}/>}
+      {r.status === 'published' && r.results && (live || counting || over) && <PromoteResults s={r.results} live={live}/>}
       {r.status === 'declined' && <div className="pm-note off"><b>Declined</b><span>{r.admin_note || 'This request was declined.'}</span></div>}
       {r.status === 'cancelled' && <p className="pm-msg">You withdrew this request.</p>}
       <div className="pm-card-act">

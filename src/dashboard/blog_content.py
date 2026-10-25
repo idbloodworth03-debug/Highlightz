@@ -781,7 +781,9 @@ def campaigns_article() -> Article | None:
               "used views, likes or comments that were bought or faked."),
         ("h", "The leaderboard, and getting paid"),
         ("p", "Every campaign page has a live leaderboard with names and scores and your "
-              "own row marked, updated as entries are counted. When the campaign ends, "
+              "own row marked, updated as entries are counted. Some campaigns keep "
+              "counting views for a few days after posting closes, so a clip posted on "
+              "the last day still has time to grow; the page says until when. Then "
               "Highlightz confirms the winners and asks each one where to send the prize: "
               "PayPal, Venmo, Cash App, a bank transfer or another way. Only the winner "
               "and Highlightz see those details, and the winner is told when the prize "
