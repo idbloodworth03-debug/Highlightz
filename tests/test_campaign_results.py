@@ -510,8 +510,10 @@ def test_the_board_shows_names_and_scores_and_nothing_private():
     text = json.dumps(b)
     assert [r["name"] for r in b["rows"]] == ["ann_clips", "bob", "cat"]
     assert b["you"]["rank"] == 2 and [r["you"] for r in b["rows"]] == [False, True, False]
-    for leak in ("ann@example.com", "tiktok.com", '"ann"', "user_id"):
+    # Only bob's own links: his entries are his to see, nobody else's are.
+    for leak in ("ann@example.com", "@ann", "@cat", '"ann"', "user_id"):
         assert leak not in text, f"the board leaks {leak}"
+    assert b["mine"] and all("@bob/" in e["url"] for e in b["mine"])
     assert b["prize"]["place"] == 2 and b["prize"]["payee"] is None
     assert [w["name"] for w in b["winners"]] == ["ann_clips", "bob", "cat"]
 

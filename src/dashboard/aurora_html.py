@@ -811,6 +811,19 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .cmp-join-tx small.bad{color:var(--danger)}
 .cmp-join .rd-btn{flex-shrink:0;display:inline-flex;gap:8px;align-items:center;justify-content:center}
 .cmp-status.joined{background:transparent;border:1px solid var(--hair-2);color:var(--fg-2)}
+.cmp-mine{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.cmp-mine li{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border-radius:12px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
+.cmp-mine-l{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1 1 180px}
+.cmp-mine-l a{display:block;color:var(--fg);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmp-mine-l small{font-size:12px;color:var(--fg-3)}
+.cmp-mine-s{font-size:14px;font-weight:700;color:var(--live);white-space:nowrap}
+.cmp-mine-s.wait{color:var(--fg-2);font-weight:600}
+.cmp-mine-s.off{color:var(--fg-3);font-weight:600;white-space:normal}
+.cmp-add{display:flex;flex-direction:column;gap:8px}
+.cmp-add-row{display:flex;gap:8px;flex-wrap:wrap}
+.cmp-add-row .ed-in{flex:1 1 240px;min-width:0}
+.cmp-add small{font-size:12px;color:var(--fg-3);line-height:1.5}
+.cmp-add small.bad{color:var(--danger)}
 .cmp-count{display:flex;align-items:center;gap:16px;padding:24px;border-radius:24px;border:1px solid var(--hair);background:rgba(255,255,255,.03)}
 .cmp-count-n{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--acc);font-variant-numeric:tabular-nums;
   animation:cmp-bump var(--dur-slow) var(--ease)}
@@ -10957,7 +10970,7 @@ function CampaignCard({ c, onOpen }) {
 // they have joined (src/campaigns/joins.py), and posting for it needs a join.
 // The join's reply re-reads the list here; campaigns_changed, sent to this
 // account alone, opens it in their other tabs.
-function CampaignJoin({ c, canPost, postingOpen, flash, onRefresh }) {
+function CampaignJoin({ c, flash, onRefresh }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const join = async () => {
@@ -10979,7 +10992,6 @@ function CampaignJoin({ c, canPost, postingOpen, flash, onRefresh }) {
         <span>The rules, the hashtags and caption your post needs, and the live leaderboard.
           {c.status === 'upcoming' ? ' Join now and be ready when it starts.' : ''}</span>
         <span className="cmp-join-n">{c.joined_count > 0 ? campJoinedCount(c.joined_count) + ' so far.' : 'Be the first to join.'}</span>
-        {!canPost && postingOpen && <small>Posting entries comes with Pro.</small>}
         {err && <small className="bad">{err}</small>}
       </div>
       <button className="rd-btn grad" disabled={busy} onClick={join}><Icon name="trophy" size={14}/>{busy ? 'Joining…' : 'Join campaign'}</button>
@@ -11005,6 +11017,83 @@ function CampaignJoinedCount({ c }) {
   );
 }
 
+// THEIR ENTRIES, AND ENTRY LINKS (owner, 2026-10-25: "let them post their
+// entry links if they want ... so it makes it easier to grade and score
+// people ... dont make it forced"). Every entry of theirs (board.mine: posted
+// from Highlightz or added by its link), whether it counts, and its views.
+// While the campaign is live, anyone who joined, free accounts included, can
+// enter a post they made themselves by pasting its link. Optional: posting
+// from Highlightz enters by itself. Their own links only; the leaderboard
+// shows nobody else's.
+const campShortUrl = u => String(u || '').replace(/^https?:[/][/](www[.])?/, '').slice(0, 56);
+function CampaignMyEntries({ c, flash, onRefresh }) {
+  const mine = (c.board && c.board.mine) || [];
+  const live = c.status === 'live';
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setErr(''); }, [url]);
+  const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
+  const where = c.platforms.map(p => CAMP_PLAT[p] || p).join(', ');
+  const send = async (method, path, body) => {
+    const res = await fetch(path, {method, headers: {'Content-Type': 'application/json'},
+      body: body ? JSON.stringify(body) : undefined});
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'That did not work. Try again.');
+    return d;
+  };
+  const add = async e => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await send('POST', '/campaigns/' + c.id + '/entries', {url: url.trim()});
+      setUrl('');
+      flash('Added. Highlightz counts its views from the post.');
+      onRefresh();
+    } catch (x) { setErr(String(x.message || x)); }
+    setBusy(false);
+  };
+  const remove = async key => {
+    if (!window.confirm('Remove this entry? It stops counting.')) return;
+    try {
+      await send('DELETE', '/campaigns/' + c.id + '/entries/' + encodeURIComponent(key));
+      flash('Removed.');
+      onRefresh();
+    } catch (x) { flash(String(x.message || x)); }
+  };
+  const state = e => !e.eligible ? 'Not counting: ' + e.why_not
+    : e.counted ? campNum(e.views) + ' views' : 'Not counted yet';
+  return (
+    <section className="cmp-sec">
+      <h3>Your entries</h3>
+      {mine.length > 0
+        ? <ul className="cmp-mine">
+            {mine.map(e => <li key={e.key}>
+              <span className="cmp-chip">{CAMP_PLAT[e.platform] || e.platform}</span>
+              <span className="cmp-mine-l">
+                {e.url ? <a href={e.url} target="_blank" rel="noopener noreferrer">{campShortUrl(e.url)}</a> : <span>Posting now</span>}
+                <small>{e.source === 'link' ? 'Added by link' : 'Posted from Highlightz'}</small>
+              </span>
+              <span className={'cmp-mine-s' + (!e.eligible ? ' off' : e.counted ? '' : ' wait')}>{state(e)}</span>
+              {e.removable && <button className="rd-btn sm" onClick={() => remove(e.key)}>Remove</button>}
+            </li>)}
+          </ul>
+        : <p className="cmp-muted">{live ? 'No entries yet.' : 'You had no entries in this campaign.'}</p>}
+      {live && <form className="cmp-add" onSubmit={add}>
+        <span className="cmp-k">Posted it yourself? Add the link</span>
+        <div className="cmp-add-row">
+          <input className="ed-in" value={url} onChange={e => setUrl(e.target.value)} maxLength={400} inputMode="url"
+            placeholder={'Link to your ' + where + ' post'} aria-label="Link to your post"/>
+          <button className="rd-btn grad" disabled={busy || url.trim().length < 8}>{busy ? 'Adding…' : 'Add entry'}</button>
+        </div>
+        <small>Optional. It has to be your own post, made while this campaign runs{tags.length ? ', with ' + tags.join(' ') + ' in the caption' : ''}.
+          Highlightz counts its views from the post.</small>
+        {err && <small className="bad">{err}</small>}
+      </form>}
+    </section>
+  );
+}
+
 function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
   const b = c.board;
@@ -11014,8 +11103,9 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
   const joinable = c.status === 'live' || c.status === 'upcoming';
   const counter = !locked && c.joined && joinable;
   // Platforms this viewer cannot post to from Highlightz yet (the server's
-  // `held`: Instagram until Meta approves). An entry is a post made here, so
-  // these read "soon" and the Post button needs one that is open.
+  // `held`: Instagram until Meta approves). They read "soon" and the Post
+  // button needs one that is open; a post made there by hand still enters
+  // by its link.
   const held = c.held || [];
   const postable = c.platforms.filter(p => !held.includes(p));
   const names = ps => ps.map(p => CAMP_PLAT[p] || p).join(' and ');
@@ -11042,10 +11132,11 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             {c.views_until > 0 && <div className="wide"><span>Views count until</span><b>{campDate(c.views_until)}</b>
               <small>Then the winners are picked.</small></div>}
           </div>
-          {locked && <CampaignJoin c={c} canPost={canPost} postingOpen={postingOpen} flash={flash} onRefresh={onRefresh}/>}
+          {locked && <CampaignJoin c={c} flash={flash} onRefresh={onRefresh}/>}
           {counter && <CampaignJoinedCount c={c}/>}
           {b && b.confirmed && <section className="cmp-sec"><h3>Winners</h3><CampaignWinners b={b}/></section>}
           {b && <CampaignBoard c={c}/>}
+          {!locked && c.joined && <CampaignMyEntries c={c} flash={flash} onRefresh={onRefresh}/>}
           {c.streamers.length > 0 && <section className="cmp-sec">
             <h3>Streamers</h3>
             <div className="cmp-streamers big">
@@ -11081,20 +11172,21 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             <span className="cmp-k">Post it here</span>
             <div className="cmp-streamers">{c.platforms.map(p => <span key={p} className="cmp-chip">{CAMP_PLAT[p] || p}
               {held.includes(p) && <small>soon</small>}</span>)}</div>
-            {held.length > 0 && (c.status === 'live' || c.status === 'upcoming') && <p className="cmp-muted">{postable.length
-              ? 'Posting to ' + names(held) + ' from Highlightz opens soon. Until then, post your entries to ' + names(postable) + '.'
-              : 'Posting to ' + names(held) + ' from Highlightz opens soon.'}</p>}
+            {held.length > 0 && (c.status === 'live' || c.status === 'upcoming') && <p className="cmp-muted">
+              {'Posting to ' + names(held) + ' from Highlightz opens soon. You can post there yourself and add the link '
+                + (locked ? 'once you join.' : 'under Your entries.')}</p>}
             {tags.length > 0 && <><span className="cmp-k">Your caption must include</span>
               <div className="cmp-streamers">{tags.map(t => <span key={t} className="cmp-chip tag">{t}</span>)}</div></>}
             {c.caption_template && <><span className="cmp-k">Suggested caption</span><p className="cmp-muted cmp-pre">{c.caption_template}</p></>}
             {c.status === 'live' && canPost && postable.length > 0 && !locked &&
               <button className="rd-btn grad" onClick={() => onPostFor(c.id)}><Icon name="upload" size={14}/>Post a clip for this campaign</button>}
-            {/* An entry is a clip posted from Highlightz: the leaderboard
-                counts nothing else, so nobody is told to post it themselves. */}
+            {/* Two ways in: post it yourself and add the link (anyone who
+                joined), or post it from Highlightz (Pro). */}
             {c.status === 'live' && !canPost && !locked && (postingOpen
-              ? <><p className="cmp-muted">Entries are posted from Highlightz, which comes with Pro.</p>
-                  <a className="rd-btn grad" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a></>
-              : <p className="cmp-muted">Entries are posted from Highlightz. Posting opens soon.</p>)}
+              ? <><p className="cmp-muted">Post your clip yourself and add its link under Your entries, or post it
+                    straight from Highlightz with Pro.</p>
+                  <a className="rd-btn sm" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a></>
+              : <p className="cmp-muted">Post your clip yourself and add its link under Your entries.</p>)}
             {c.status === 'upcoming' && <p className="cmp-muted">Entries open {campDate(c.start_at)}.</p>}
             {c.status === 'counting' && <p className="cmp-muted">Posting has closed. The entries keep gaining views
               until {campDate(c.views_until)}; then Highlightz picks the winners.</p>}

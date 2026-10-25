@@ -8912,6 +8912,80 @@ async def admin_campaign_results_csv(request: Request, campaign_id: str):
                     headers={"Content-Disposition": f'attachment; filename="campaign-{campaign_id[:8]}-results.csv"'})
 
 
+@app.post("/campaigns/{campaign_id}/entries")
+async def campaign_add_link_entry(request: Request, campaign_id: str):
+    """Enter a post made outside Highlightz by its link (owner, 2026-10-25:
+    "let them post their entry links if they want ... dont make it forced").
+    Any account that joined, free ones included, while the campaign is live;
+    an admin counts it from the post like any other entry."""
+    from src import campaigns as camp
+    from src.campaigns import results as res
+    uid, admin = _campaign_viewer(request)
+    c = _visible_campaign(campaign_id, admin)
+    status = camp.status_of(c)
+    if status != "live":
+        raise HTTPException(status_code=400, detail=(
+            "This campaign has not started yet." if status == "upcoming"
+            else "Posting for this campaign has closed."))
+    if not _joined(c, uid):
+        raise HTTPException(status_code=400, detail="Join this campaign first.")
+    try:
+        e = res.add_link_entry(c, uid, str((await _json_body(request)).get("url") or ""))
+    except Exception as exc:
+        _results_error(exc)
+    log.info("campaign_link_entry_added", campaign=c["id"], user_id=uid, platform=e["platform"])
+    await _entries_changed(uid)
+    return {"ok": True, "key": e["key"], "platform": e["platform"], "url": e["url"]}
+
+
+@app.delete("/campaigns/{campaign_id}/entries/{key}")
+async def campaign_remove_link_entry(request: Request, campaign_id: str, key: str):
+    """Take back one of your own entry links, until the winners are confirmed."""
+    from src.campaigns import results as res
+    uid, admin = _campaign_viewer(request)
+    c = _visible_campaign(campaign_id, admin)
+    try:
+        res.remove_link_entry(c, uid, key)
+    except Exception as exc:
+        _results_error(exc)
+    log.info("campaign_link_entry_removed", campaign=c["id"], user_id=uid)
+    await _entries_changed(uid)
+    return {"ok": True}
+
+
+async def _entries_changed(uid: str) -> None:
+    """An entry link added or taken back: the clipper's own tabs re-read at
+    once (their Your entries), and every marketplace's leaderboard a moment
+    later, once for a burst (_campaigns_changed_soon)."""
+    await broadcast({"event": "campaigns_changed"}, user_id=uid)
+    _campaigns_changed_soon()
+
+
+_CHANGED_EVERY = 2.0
+_changed_due = False
+
+
+def _campaigns_changed_soon() -> None:
+    """campaigns_changed to everyone within _CHANGED_EVERY seconds, once for
+    any number of calls in between: a burst of entry links at launch is one
+    re-read per tab, not one per link per tab."""
+    global _changed_due
+    if _changed_due:
+        return
+    _changed_due = True
+
+    async def _send():
+        global _changed_due
+        try:
+            await asyncio.sleep(_CHANGED_EVERY)
+        finally:
+            _changed_due = False
+        await _campaigns_changed()
+    task = asyncio.create_task(_send())
+    _notify_tasks.add(task)
+    task.add_done_callback(_notify_tasks.discard)
+
+
 @app.post("/campaigns/{campaign_id}/payout-details")
 async def campaign_payout_details(request: Request, campaign_id: str):
     """A winner says where to send their prize. Seen by them and admins only."""
@@ -13908,10 +13982,12 @@ def _campaigns_block() -> str:
          "the best clips as they come in, then who won."),
     ]
     if settings.campaigns_enabled:
-        posting = ("post your entry from Highlightz on Pro" if settings.uploads_enabled
-                   else "post your entry from Highlightz once posting opens on Pro")
+        # Two ways in: post it anywhere and add its link (any account), or
+        # post it straight from Highlightz (Pro, while posting is open).
+        posting = ("post it yourself and add its link, or post it straight from Highlightz on Pro"
+                   if settings.uploads_enabled else "post it yourself and add its link")
         cards.append(("Clippers play for the pool",
-                      "Join a campaign, clip the streams it names and " + posting
+                      "Join a campaign, clip the streams it names, then " + posting
                       + ". A live leaderboard shows where you stand. Prizes go out by "
                       "PayPal, Venmo, Cash App or bank transfer."))
     body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
@@ -16092,6 +16168,7 @@ function crEntries(d, confirmed){
   let h = '<h3 class="cr-h">Entries <span class="sub">' + ents.length + '</span></h3>';
   if(!ents.length) return h + '<p class="sub">Nobody has posted for this campaign yet.</p>';
   h += '<p class="lede">Open each post and type in what it shows. Blank is not counted yet; 0 is a count. '
+    + 'Entries marked <b>link</b> were posted outside Highlightz and added by their link: check each is the clipper&#39;s own, has the tags and was posted in the dates. '
     + (confirmed ? '<b>The counts are frozen while the winners stand.</b> Reopen the winners to change them.'
                  : 'Disqualifying needs a reason, which only admins see.') + '</p>'
     + '<div class="tw"><table class="cr-t"><thead><tr><th>Clipper</th><th>Post</th><th>Views</th><th>Likes</th>'
@@ -16102,7 +16179,10 @@ function crEntries(d, confirmed){
     h += '<tr class="cr-e" data-key="' + esc(e.key) + '">'
       + '<td data-l="Clipper"><b>' + esc(e.name) + '</b></td>'
       + '<td data-l="Post">' + (e.url ? '<a href="' + esc(e.url) + '" target="_blank" rel="noopener noreferrer">' + esc(where) + ' &#8599;</a>' : esc(where))
-        + '<span class="sub">' + (e.posted_at ? cpWhen(e.posted_at) : 'not posted yet') + '</span></td>'
+        // Added by its link: posted outside Highlightz, so check it is theirs,
+        // carries the tags and was posted inside the dates.
+        + (e.source === 'link' ? ' <span class="cp-pill draft" title="Posted outside Highlightz and added by its link: check it is theirs, has the tags and was posted in the dates">link</span>' : '')
+        + '<span class="sub">' + (e.posted_at ? (e.source === 'link' ? 'added ' : '') + cpWhen(e.posted_at) : 'not posted yet') + '</span></td>'
       + ['views', 'likes', 'comments'].map(function(f){
           return '<td data-l="' + f + '"><input class="field cr-n" data-f="' + f + '" inputmode="numeric" aria-label="' + f + '" value="' + crNum(e[f]) + '"' + dis + '></td>';
         }).join('')
@@ -16363,7 +16443,7 @@ async function cpMembers(id, quiet){
         return '<tr><td data-l="Clipper"><b>' + esc(r.name) + '</b>'
             + (r.admin ? ' <span class="cp-pill draft">admin, not counted</span>' : '') + '</td>'
           + '<td data-l="Plan">' + esc(CM_PLAN[r.plan] || r.plan)
-            + (r.can_post ? '' : ' <span class="sub">cannot post entries</span>') + '</td>'
+            + (r.can_post ? '' : ' <span class="sub">enters by link (cannot post from Highlightz)</span>') + '</td>'
           + '<td data-l="Joined">' + (r.joined_at ? cpWhen(r.joined_at) : '<span class="sub">by posting an entry</span>') + '</td>'
           + '<td data-l="Entries">' + r.entries
             + (r.entries > r.counting ? ' <span class="sub">' + (r.entries - r.counting) + ' not counting</span>' : '') + '</td></tr>';

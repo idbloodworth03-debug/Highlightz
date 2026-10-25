@@ -377,7 +377,7 @@ def test_the_admin_page_has_who_joined():
     assert "'/admin/campaigns/' + id + '/members'" in html
     poll = html[html.index("if(!campaignsOpen()) return;"):][:200]
     assert "cpMembers(CM_ID, true)" in poll, "the open list is not re-read with the page"
-    assert "admin, not counted" in html and "cannot post entries" in html
+    assert "admin, not counted" in html and "enters by link (cannot post from Highlightz)" in html
 
 
 # ── 5. the pages ─────────────────────────────────────────────────────────────

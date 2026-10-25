@@ -10,8 +10,9 @@ What these defend:
      finding paid campaigns mention it; every "Where Highlightz fits" says so;
   3. the part for streamers follows its own switch, and its fee and budget
      range are the campaign settings';
-  4. it is honest about entering (posted from Highlightz, on Pro) and about
-     results (no promised entries or views);
+  4. it is honest about entering (posted from Highlightz on Pro, or posted
+     anywhere and added by its link) and about results (no promised entries
+     or views);
   5. the blog's own rules hold for the new copy: links resolve, outbound
      links are nofollow, every article is dated and sourced.
 """
@@ -120,13 +121,14 @@ def test_the_streamer_part_follows_its_own_switch(flags):
 def test_it_is_honest_about_entering_and_results(flags):
     flags(uploads=True)
     text = _text(H.render_article(SLUG))
-    assert "Highlightz, which is on Pro" in text
-    assert "A clip posted somewhere else, outside Highlightz, is not an entry." in text
+    assert "Highlightz on Pro, or anywhere else and added by its link" in text
+    assert "Add its link on the campaign page and it is an entry too." in text
+    assert "it has to be your own post, made while the campaign runs" in text
     assert "We do not promise any number of entries or views." in text
     assert "guarantee" not in text.lower()
     flags(uploads=False)
-    assert "once posting opens on Pro" in _text(H.render_article(SLUG))
-    assert "once posting opens on Pro" in _text(H.render_article("find-streamer-campaigns"))
+    assert "posting from Highlightz opens on Pro" in _text(H.render_article(SLUG))
+    assert "posting from Highlightz opens on Pro" in _text(H.render_article("find-streamer-campaigns"))
 
 
 def test_the_blogs_rules_hold_for_the_new_copy(flags):

@@ -7020,3 +7020,63 @@ Owner: "make it so admins can see who is in the cmapaign in the admin portal".
   two joins and an admin's, the list at 1440 and 390 px (cards on the phone),
   a third join showing on the re-read, Close; no console errors, no sideways
   scroll.
+
+## Entry links: a post made anywhere can enter (2026-10-25)
+
+Owner, after asking why free accounts could not enter (posting is Pro, and an
+entry was a post made from Highlightz): "yea let them post their entry links
+if they want. Lets do that so it makes it easier to grade and score people and
+find the winners when it comes to that. But dont make it forced". This is idea
+#1 from 2026-10-23, and it reverses "a clip posted outside Highlightz is not
+an entry".
+
+- **Two ways in, neither forced:** post from Highlightz (Pro; unchanged, it
+  enters by itself) or post anywhere and paste the link under **Your
+  entries** on the campaign page (any account that joined, free included).
+  Instagram, still "soon" for posting from Highlightz, can now enter by link.
+- `src/campaigns/links.py` reads a link: TikTok (`/@user/video/ID`, `/t/`,
+  vm./vt. short links), Instagram (`/reel(s)/`, `/p/`, `/tv/`, with or
+  without the username), YouTube (`/shorts/`, `watch?v=`, youtu.be). One key
+  per post however it was copied (www, m., tracking query, Short vs watch),
+  and a clean link with the tracking stripped. Anything else is refused with
+  a reason. A TikTok short link and the long form of the same video are
+  different keys (resolving one would mean asking TikTok); an admin sees both.
+- `results.add_link_entry` / `remove_link_entry`: kept under `link:<id>`
+  beside the posts from Highlightz, `source: "link"`, dated when added. Only a
+  platform the campaign names, never a post already entered (by link or from
+  Highlightz), at most `LINK_MAX` (20) per clipper per campaign, none once
+  winners stand. A clipper takes back only their own links, until winners
+  stand; its count goes with it. Counted, scored, disqualified and confirmed
+  exactly like other entries.
+- API: `POST /campaigns/{id}/entries` {url} (joined, while live) and
+  `DELETE /campaigns/{id}/entries/{key}`. Realtime: `campaigns_changed` to
+  that account at once (their list), and to everyone through
+  `_campaigns_changed_soon` (at most one every 2 s, for a burst), since a new
+  entry puts its clipper on the board.
+- **What each person sees.** The board carries `mine`: the viewer's own
+  entries with their links, source, count, whether they count (a
+  disqualification shows without its reason, which stays admin-only) and
+  whether they can be removed. Nobody else's links (privacy test updated: it
+  now checks other clippers' links are absent rather than any link). Admin ->
+  Results tags link entries `link` with "added <date>", and its intro says to
+  check each is the clipper's own, has the tags and was posted in the dates.
+  Who joined says "enters by link (cannot post from Highlightz)" for accounts
+  without posting.
+- Copy: the campaign page side box ("Post your clip yourself and add its link
+  under Your entries, or post it straight from Highlightz with Pro"), the
+  held-platform line, the Join panel (its "comes with Pro" line is gone), the
+  landing card, and the blog guide (the "is not an entry" paragraph and the
+  "Posted from" row). Terms 4A and the Privacy Policy already fit (entries
+  count by rules, not by where they were posted; the streamer sees entries
+  and their links). Worth adding to a campaign's own rules: "only your own
+  posts".
+- Verified: `tests/test_campaign_links.py` (34: link parsing both ways, the
+  rules, the API, a burst coalesced, privacy, the page and admin wiring);
+  updated pinned copy in `test_blog_campaigns`, `test_landing_campaigns`,
+  `test_campaign_join`, `test_campaign_results`. Full suite 4128; JSX; admin
+  script. Browser: a free clipper on a phone joined, a bad link was refused
+  with its reason, a TikTok and an Instagram link went in; a Pro clipper's
+  open page showed him on the board ~1.7 s later with no reload; the admin
+  saw both tagged `link`, typed 12,000 views and saved: the clipper's list and
+  the board followed at once; the clipper removed one. No console errors, no
+  sideways scroll at 390 (the link is one line with an ellipsis).

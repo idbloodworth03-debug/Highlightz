@@ -57,6 +57,7 @@ import io
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 import structlog
@@ -73,6 +74,7 @@ PAYOUT_METHODS = {"paypal": "PayPal", "venmo": "Venmo", "cashapp": "Cash App",
                   "bank": "Bank transfer", "other": "Other"}
 MAX_COUNT = 10 ** 12
 NOTE_MAX, PAYEE_MAX, REF_MAX = 300, 200, 200
+LINK_MAX = 20                  # entry links per clipper per campaign (src/campaigns/links.py)
 
 _results: dict[str, dict] = {}
 _loaded = False
@@ -151,6 +153,51 @@ def record_entry(item, platform: str) -> None:
     _save()
 
 
+# ENTRY LINKS (src/campaigns/links.py). A post the clipper made themselves,
+# entered by pasting its link: kept beside the posts made from Highlightz under
+# a "link:" key, dated when it was added (it can only be added while the
+# campaign is live, so it is inside the dates), and counted and judged the
+# same way. The API checks the campaign is live and that they joined it.
+
+def add_link_entry(c: dict, user_id: str, url: str) -> dict:
+    from src.campaigns import links
+    try:
+        platform, post_key, clean = links.parse(url)
+    except links.LinkError as exc:
+        raise ResultsError(str(exc))
+    allowed = c.get("platforms") or []
+    if platform not in allowed:
+        raise ResultsError(f"{links.LABELS[platform]} posts do not count for this campaign. It counts "
+                           + " and ".join(links.LABELS.get(p, p) for p in allowed) + ".")
+    if _peek(c["id"]).get("confirmed_at"):
+        raise ResultsError("The winners are confirmed, so no more entries can be added.")
+    ents = entries(c)
+    if post_key in {links.key_of(e["url"]) for e in ents}:
+        raise ResultsError("That post is already an entry in this campaign.")
+    if sum(1 for e in ents if e["user_id"] == user_id and e["source"] == "link") >= LINK_MAX:
+        raise ResultsError(f"You can add up to {LINK_MAX} links to one campaign. Remove one to add another.")
+    rec = _rec(c["id"])
+    key = "link:" + uuid.uuid4().hex[:12]
+    rec["entries"][key] = {"item_id": "", "user_id": user_id, "platform": platform, "url": clean,
+                           "remote_id": post_key, "at": time.time(), "source": "link"}
+    _save()
+    return {"key": key, **rec["entries"][key]}
+
+
+def remove_link_entry(c: dict, user_id: str, key: str) -> None:
+    """Their own entry link, taken back (a wrong paste). Not once winners stand."""
+    rec = _peek(c["id"])
+    e = (rec.get("entries") or {}).get(key or "")
+    if not e or e.get("source") != "link" or e.get("user_id") != user_id:
+        raise ResultsError("That is not one of your entry links.")
+    if rec.get("confirmed_at"):
+        raise ResultsError("The winners are confirmed, so entries stay as they are.")
+    rec = _rec(c["id"])
+    rec["entries"].pop(key, None)
+    rec["stats"].pop(key, None)
+    _save()
+
+
 # WORKED OUT ONCE PER CHANGE (quick audit, 2026-10-24). Every viewer's board is
 # cut from the same entries and standings, and a change (counts saved, a post
 # landing) sends campaigns_changed to every open marketplace tab at once. Built
@@ -222,6 +269,7 @@ def _build_entries(c: dict) -> list[dict]:
                else "disqualified" + (": " + s["reason"] if s.get("reason") else "") if dq else "")
         out.append({
             "key": key, "item_id": item_id, "user_id": uid, "name": names[uid],
+            "source": "link" if key.startswith("link:") else "highlightz",
             "platform": plat, "url": r.get("url") or "", "posted_at": at,
             "views": s.get("views"), "likes": s.get("likes"), "comments": s.get("comments"),
             "counted": s.get("views") is not None, "counted_at": s.get("at", 0),
@@ -514,9 +562,19 @@ def board(c: dict, viewer_id: str, top: int = 10) -> dict:
         prize = {"place": mine["place"], "amount": mine["amount"],
                  "payee": (rec.get("payees") or {}).get(viewer_id),
                  "paid": {"at": paid["at"], "method": PAYOUT_METHODS.get(paid.get("method"), "")} if paid else None}
+    # Their own entries, links included (theirs to see): whether each counts
+    # and its count. A disqualification's reason is for admins only.
+    confirmed = bool(rec.get("confirmed_at"))
+    mine = [{"key": e["key"], "platform": e["platform"], "url": e["url"], "source": e["source"],
+             "posted_at": e["posted_at"], "counted": e["counted"],
+             "views": e["views"] if e["counted"] else None, "eligible": e["eligible"],
+             "why_not": "disqualified" if e["disqualified"] else e["why_not"],
+             "removable": e["source"] == "link" and not confirmed}
+            for e in entries(c) if e["user_id"] == viewer_id]
     return {
         "metric": metric(c), "custom": c.get("judging") == "custom",
         "updated_at": max((s.get("at", 0) for s in stats.values()), default=0),
+        "mine": mine,
         "entrants": len(rows),
         "rows": [{"rank": r["rank"], "name": r["name"], "score": r["score"], "clips": r["clips"],
                   "counted": r["counted"], "you": r["user_id"] == viewer_id} for r in rows[:top]],

@@ -9,8 +9,8 @@ What these defend:
      the same grounds, every anchor resolves, and the copy keeps the page's
      cadence rules (no em dashes, no "no X, no Y", no AI claims);
   3. the fee and the budget range are the campaign settings', as on /promote;
-  4. the copy says how clippers enter (posting from Highlightz, on Pro), and
-     the dashboard stops telling anyone to post an entry themselves;
+  4. the copy says how clippers enter (post it yourself and add its link, or
+     post it from Highlightz on Pro), and the campaign page offers both;
   5. "Browse the campaigns" signs a clipper in and lands on Campaigns.
 """
 
@@ -86,12 +86,12 @@ def test_the_fee_and_range_come_from_the_settings(flags):
 def test_the_clippers_half_follows_the_marketplace_switch(flags):
     block = _block(flags(campaigns=True))
     assert 'href="/login?next=campaigns"' in block and "Clippers play for the pool" in block
-    assert "post your entry from Highlightz on Pro" in block
+    assert "post it yourself and add its link, or post it straight from Highlightz on Pro" in block
     block = _block(flags(campaigns=False))
     assert "next=campaigns" not in block and "Clippers play" not in block
     assert 'href="/promote"' in block
     held = _block(flags(uploads=False))
-    assert "once posting opens on Pro" in held
+    assert "then post it yourself and add its link." in held
 
 
 def test_browse_the_campaigns_signs_in_and_lands_on_campaigns(monkeypatch):
@@ -103,11 +103,14 @@ def test_browse_the_campaigns_signs_in_and_lands_on_campaigns(monkeypatch):
     assert "route === 'campaigns' && canCampaigns" in gate
 
 
-def test_nobody_is_told_to_post_an_entry_themselves():
+def test_the_campaign_page_offers_both_ways_in():
+    """Owner, 2026-10-25: "let them post their entry links if they want ...
+    dont make it forced". Post it yourself and add the link, or post it from
+    Highlightz with Pro."""
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     camp_page = page[page.index("function CampaignPage("):page.index("function CampaignsScreen(")]
-    assert "post your clip yourself" not in camp_page
-    assert "Entries are posted from Highlightz, which comes with Pro." in camp_page
+    assert "Post your clip yourself and add its link under Your entries" in camp_page
+    assert "straight from Highlightz with Pro." in camp_page
     assert 'href="/billing/paywall"' in camp_page
     assert "postingOpen={uploadsOn}" in page and "postingOpen={postingOpen}" in page
 

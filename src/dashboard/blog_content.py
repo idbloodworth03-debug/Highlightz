@@ -745,11 +745,12 @@ def _requests_on() -> bool:
 
 
 def _entry_posting() -> str:
-    """How an entry is made: posted from Highlightz, which is on Pro, or not
-    yet while posting is held back. The leaderboard counts nothing else."""
+    """How an entry is made: posted from Highlightz on Pro, or posted anywhere
+    and added by its link on the campaign page (owner, 2026-10-25); only the
+    second while posting from Highlightz is held back."""
     from config.settings import settings
-    return ("Highlightz, which is on Pro" if settings.uploads_enabled
-            else "Highlightz, once posting opens on Pro")
+    return ("Highlightz on Pro, or anywhere else and added by its link" if settings.uploads_enabled
+            else "anywhere, then added by its link (posting from Highlightz opens on Pro)")
 
 
 def campaigns_article() -> Article | None:
@@ -761,17 +762,18 @@ def campaigns_article() -> Article | None:
               "names the streams to clip, the dates, the platforms that count, the "
               "hashtags every post must carry and how the winners are picked. Clippers "
               "join the campaign, which opens its full rules, the tags their posts need "
-              "and its leaderboard, then clip those streams and post their entries from "
-              "Highlightz. When it ends, the whole pool goes to the winners."),
+              "and its leaderboard, then clip those streams and post their entries, from "
+              "Highlightz or anywhere else, adding the link. When it ends, the whole pool "
+              "goes to the winners."),
         ("h", "What counts as an entry"),
         ("req", (("Posted from", _entry_posting()),
                  ("When", "While the campaign is live, between its start and its end"),
                  ("Where", "A platform the campaign names"),
                  ("Caption", "Every hashtag and mention the campaign asks for, filled in when you post"),
                  ("Counted", "Its views, and its likes and comments where the campaign uses them, read from the post"))),
-        ("p", "A clip posted somewhere else, outside Highlightz, is not an entry. Every "
-              "entry is a post made here for that campaign, so it can be counted and "
-              "checked."),
+        ("p", "Posted it somewhere else yourself? Add its link on the campaign page and "
+              "it is an entry too. Either way it has to be your own post, made while the "
+              "campaign runs, and Highlightz counts it from the post itself."),
         ("h", "How the winners are picked"),
         ("list", ("Most views on a single clip.",
                   "Most views across your best few clips, added up.",
