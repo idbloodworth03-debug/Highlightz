@@ -825,17 +825,23 @@ def _with_campaigns(a: Article) -> Article:
     from dataclasses import replace
     link = "[Highlightz Campaigns](/blog/" + CAMPAIGNS_SLUG + ")"
     if a.slug == "find-streamer-campaigns":
-        at = next(i for i, b in enumerate(a.blocks) if b == ("h", "Two warnings"))
-        ours = (("h", "5. Highlightz Campaigns"),
+        # Ours first (owner, 2026-10-25: "make highlightz listed first"); the
+        # other four keep their order, renumbered 2 to 5.
+        def renumber(b: tuple) -> tuple:
+            if b[0] != "h":
+                return b
+            num, dot, rest = b[1].partition(". ")
+            return ("h", str(int(num) + 1) + dot + rest) if dot and num.isdigit() else b
+        ours = (("h", "1. Highlightz Campaigns"),
                 ("p", "Highlightz runs its own campaigns: a streamer puts up a prize pool "
                       "and the best clips of their streams win it, ranked on a live "
                       "leaderboard. Entries are posted from " + _entry_posting() + ". "
                       + link + " has how they work."))
         return replace(a, lead=a.lead.replace("Four places to look", "Five places to look"),
                        description=a.description.replace(
-                           "Discord hubs and direct deals", "Discord hubs, direct deals and "
-                           "Highlightz Campaigns"),
-                       blocks=a.blocks[:at] + ours + a.blocks[at:])
+                           "marketplaces, streamers' own clipping programs",
+                           "Highlightz Campaigns, marketplaces, streamers' own clipping programs"),
+                       blocks=ours + tuple(renumber(b) for b in a.blocks))
     if a.slug == "how-clippers-make-money":
         at = 1 + next(i for i, b in enumerate(a.blocks)
                       if b[0] == "p" and "(/blog/find-streamer-campaigns)" in b[1])

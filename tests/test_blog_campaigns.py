@@ -88,9 +88,15 @@ def test_it_is_dated_its_own_day_and_the_others_keep_theirs(flags):
 def test_the_guides_about_paid_campaigns_mention_ours(flags):
     flags()
     find = H.render_article("find-streamer-campaigns")
-    assert "Five places to look" in find and ">5. Highlightz Campaigns</h2>" in find
-    assert 'href="' + PATH + '"' in find
-    assert "Highlightz Campaigns" in B.article("find-streamer-campaigns").description
+    assert "Five places to look" in find and 'href="' + PATH + '"' in find
+    # Ours first (owner: "make highlightz listed first"), the four after it in
+    # their own order, renumbered.
+    heads = re.findall(r'<h2 id="[^"]*">(\d+\. [^<]+)</h2>', find)
+    assert heads == ["1. Highlightz Campaigns", "2. Marketplaces, filtered for creators",
+                     "3. Streamers&#x27; own clipping programs", "4. Clipping Discord hubs",
+                     "5. Ask a streamer directly"], heads
+    assert B.article("find-streamer-campaigns").description.startswith(
+        "Where clippers find paid campaigns from streamers rather than brands: Highlightz Campaigns,")
     money = H.render_article("how-clippers-make-money")
     assert "Some campaigns pay prizes instead of a rate per view" in money
     # Every "Where Highlightz fits", in every guide that has one, says so.

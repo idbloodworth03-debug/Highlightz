@@ -6728,8 +6728,10 @@ Owner: "Make sure our blog page talks about our internal campaigns now too".
   Sources: Terms 4A and /promote. Dated 25 October 2026 (`Article.checked`
   and `.published` are per article now; the others keep 23 September).
 - **The two guides about paid campaigns** mention it: "Where to find
-  clipping campaigns for streamers" gains "5. Highlightz Campaigns" (lead:
-  "Five places to look"), and "How clippers actually make money" a line in
+  clipping campaigns for streamers" lists "1. Highlightz Campaigns" first
+  (owner: "make highlightz listed first"; the other four keep their order,
+  renumbered 2 to 5; lead "Five places to look"; the description names it
+  first too), and "How clippers actually make money" a line in
   route 1 (prizes instead of a rate per view). Every "Where Highlightz fits"
   gains "Campaigns with prize pools", with a link (that block now renders
   the content module's `[label](/path)` links like the rest).
