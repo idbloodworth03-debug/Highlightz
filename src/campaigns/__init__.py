@@ -53,6 +53,10 @@ MAX_STREAMERS, MAX_PAYOUTS, MAX_TAGS = 20, 50, 30
 # "counting": no new entries, the entries keep gaining views, and the winners
 # cannot be confirmed yet. 0 means none (winners from the end, as before).
 GRACE_MAX_DAYS = 30
+# What a clipper sees only once they have joined an upcoming or live campaign
+# (src/campaigns/joins.py), each with what stands in for it until then. The
+# leaderboard ("board") is held back too.
+JOIN_TO_SEE = {"rules": "", "hashtags": [], "mentions": [], "caption_template": ""}
 IMAGE_MAX = 5 * 1024 * 1024
 _IMAGE_TYPES = {b"\x89PNG\r\n\x1a\n": "png", b"\xff\xd8\xff": "jpg"}
 _ID_RE = re.compile(r"^[a-f0-9]{32}$")

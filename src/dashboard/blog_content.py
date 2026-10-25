@@ -760,8 +760,9 @@ def campaigns_article() -> Article | None:
         ("p", "A streamer puts up a prize pool and splits it into places. The campaign "
               "names the streams to clip, the dates, the platforms that count, the "
               "hashtags every post must carry and how the winners are picked. Clippers "
-              "clip those streams and post their entries from Highlightz. When it ends, "
-              "the whole pool goes to the winners."),
+              "join the campaign, which opens its full rules, the tags their posts need "
+              "and its leaderboard, then clip those streams and post their entries from "
+              "Highlightz. When it ends, the whole pool goes to the winners."),
         ("h", "What counts as an entry"),
         ("req", (("Posted from", _entry_posting()),
                  ("When", "While the campaign is live, between its start and its end"),
@@ -780,7 +781,7 @@ def campaigns_article() -> Article | None:
               "A prize can be withheld from an entry that breaks the campaign's rules or "
               "used views, likes or comments that were bought or faked."),
         ("h", "The leaderboard, and getting paid"),
-        ("p", "Every campaign page has a live leaderboard with names and scores and your "
+        ("p", "Every campaign you join has a live leaderboard with names and scores and your "
               "own row marked, updated as entries are counted. Some campaigns keep "
               "counting views for a few days after posting closes, so a clip posted on "
               "the last day still has time to grow; the page says until when. Then "

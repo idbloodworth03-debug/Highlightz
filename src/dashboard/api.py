@@ -1727,6 +1727,8 @@ async def delete_account(request: Request):
     # as the record of it. Their entries leave every leaderboard, live.
     # (Their queue went above, which takes entries still on their way.)
     from src.campaigns import results as _res_purge
+    from src.campaigns import joins as _joins_purge
+    _joins_purge.forget_user(uid)               # which campaigns it joined
     if _res_purge.forget_user(uid) or had_campaign_posts:
         await _campaigns_changed()
 
@@ -7233,6 +7235,10 @@ async def publish_post_now(request: Request):
                 "This campaign has not started yet." if status == "upcoming"
                 else "Posting for this campaign has closed. Its entries are still gaining views."
                 if status == "counting" else "This campaign has ended."))
+        # Entering is for those who joined (and so were shown its rules).
+        if not _joined(c, uid):
+            raise HTTPException(status_code=400, detail=(
+                "Join this campaign first: open it in Campaigns and press Join."))
         off = [plat.BY_ID[p].label for p in targets if p not in c["platforms"]]
         if off:
             raise HTTPException(status_code=400, detail=(
@@ -8417,6 +8423,39 @@ def _visible_campaign(campaign_id: str, admin: bool) -> dict:
     return c
 
 
+def _joined(c: dict, uid: str) -> bool:
+    """Joined it, or has an entry in it (which counts as joining)."""
+    from src.campaigns import joins
+    from src.campaigns import results as res
+    return joins.has(c["id"], uid) or uid in res.entrant_ids(c)
+
+
+def _as_seen_by(row: dict, c: dict, uid: str, viewer: dict | None) -> dict:
+    """A campaign as this person sees it in the marketplace."""
+    from src import campaigns as camp
+    from src.campaigns import results as res
+    from src.publish import release
+    joined = _joined(c, uid)
+    row["joined"] = joined
+    # JOIN TO SEE THE FULL DETAILS (owner, 2026-10-25). Until they join an
+    # upcoming or live campaign, the rules, the tags and caption a post needs
+    # and the leaderboard are not sent at all; once posting has closed there
+    # is nothing to join and the whole page is open. Admins see what
+    # everyone sees, so the owner can try it as a clipper does.
+    row["locked"] = not joined and row["status"] in ("upcoming", "live")
+    if row["locked"]:
+        row.update({k: (list(v) if isinstance(v, list) else v) for k, v in camp.JOIN_TO_SEE.items()})
+        row["board"] = None
+    else:
+        row["board"] = res.board(c, uid)
+    # The campaign's platforms this viewer cannot post to from Highlightz
+    # yet (PUBLIC_PLATFORMS: Instagram until Meta approves the app). An
+    # entry is a post made here, so the page says "opens soon" for these
+    # rather than inviting entries that could never count.
+    row["held"] = [p for p in row["platforms"] if not release.open_for(p, viewer)]
+    return row
+
+
 @app.get("/campaigns")
 async def list_campaigns(request: Request):
     """The marketplace, each campaign with its leaderboard as this viewer
@@ -8425,26 +8464,38 @@ async def list_campaigns(request: Request):
     reconnect, campaigns_changed) brings the standings with it."""
     from src import campaigns as camp
     from src.auth import users as user_store
-    from src.campaigns import results as res
-    from src.publish import release
     uid, admin = _campaign_viewer(request)
     viewer = user_store.get_by_id(uid)
-    rows = camp.listing(include_drafts=admin)
-    for r in rows:
-        r["board"] = res.board(camp.get(r["id"]), uid)
-        # The campaign's platforms this viewer cannot post to from Highlightz
-        # yet (PUBLIC_PLATFORMS: Instagram until Meta approves the app). An
-        # entry is a post made here, so the page says "opens soon" for these
-        # rather than inviting entries that could never count.
-        r["held"] = [p for p in r["platforms"] if not release.open_for(p, viewer)]
-    return {"rows": rows}
+    return {"rows": [_as_seen_by(r, camp.get(r["id"]), uid, viewer)
+                     for r in camp.listing(include_drafts=admin)]}
 
 
 @app.get("/campaigns/{campaign_id}")
 async def get_campaign(request: Request, campaign_id: str):
     from src import campaigns as camp
-    _uid, admin = _campaign_viewer(request)
-    return camp.public(_visible_campaign(campaign_id, admin))
+    from src.auth import users as user_store
+    uid, admin = _campaign_viewer(request)
+    c = _visible_campaign(campaign_id, admin)
+    return _as_seen_by(camp.public(c), c, uid, user_store.get_by_id(uid))
+
+
+@app.post("/campaigns/{campaign_id}/join")
+async def join_campaign(request: Request, campaign_id: str):
+    """Join a campaign: from then on its page shows the full details and
+    posting for it is open. Any account that can see the marketplace, while
+    the campaign is upcoming or live. Joining twice is joining once."""
+    from src import campaigns as camp
+    from src.campaigns import joins
+    uid, admin = _campaign_viewer(request)
+    c = _visible_campaign(campaign_id, admin)
+    if camp.status_of(c) not in ("upcoming", "live"):
+        raise HTTPException(status_code=400, detail="Posting for this campaign has closed, so it cannot be joined.")
+    if joins.join(c["id"], uid):
+        log.info("campaign_joined", campaign=c["id"], user_id=uid)
+        # Their other tabs re-read the marketplace and open up too. Nobody
+        # else's view changes: no count of who joined is shown to clippers.
+        await broadcast({"event": "campaigns_changed"}, user_id=uid)
+    return {"ok": True, "joined": True}
 
 
 @app.get("/campaigns/{campaign_id}/image")
@@ -8522,12 +8573,14 @@ async def campaign_clock_task() -> None:
 async def admin_list_campaigns(request: Request):
     _require_admin(request)
     from src import campaigns as camp
+    from src.campaigns import joins
     from src.campaigns import results as res
     rows = camp.listing(include_drafts=True)
     for r in rows:
         c = camp.get(r["id"])
         r["entries"] = len(res.entries(c))
         r["results"] = res.summary(c)
+        r["joined_count"] = joins.count(c["id"])
     return {"rows": rows, "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS)}
 
 
@@ -8562,6 +8615,7 @@ async def admin_update_campaign(request: Request, campaign_id: str):
 async def admin_delete_campaign(request: Request, campaign_id: str):
     _require_admin(request)
     from src import campaigns as camp
+    from src.campaigns import joins
     from src.campaigns import results as res
     if res.has_winners(campaign_id):
         raise HTTPException(status_code=400, detail=(
@@ -8570,6 +8624,7 @@ async def admin_delete_campaign(request: Request, campaign_id: str):
     if not camp.delete(campaign_id):
         raise HTTPException(status_code=404, detail="Campaign not found")
     res.drop(campaign_id)
+    joins.drop(campaign_id)
     log.info("campaign_deleted", id=campaign_id, by=request.session.get("user_id"))
     await _campaigns_changed()
     return {"ok": True}
@@ -9298,7 +9353,9 @@ async def admin_delete_user(request: Request, user_id: str):
     # skips an entry whose account no longer exists), so the boards are told
     # after the delete, not before it.
     from src.campaigns import results as _res_purge
+    from src.campaigns import joins as _joins_purge
     from src.publish import schedule as _sched_purge
+    _joins_purge.forget_user(user_id)           # which campaigns it joined
     boards = _res_purge.forget_user(user_id) or any(i.campaign_id for i in _sched_purge.for_user(user_id))
 
     # Realtime: their open tabs sign out now, not on their next click.
@@ -13740,7 +13797,7 @@ def _campaigns_block() -> str:
         posting = ("post your entry from Highlightz on Pro" if settings.uploads_enabled
                    else "post your entry from Highlightz once posting opens on Pro")
         cards.append(("Clippers play for the pool",
-                      "Pick a campaign, clip the streams it names and " + posting
+                      "Join a campaign, clip the streams it names and " + posting
                       + ". A live leaderboard shows where you stand. Prizes go out by "
                       "PayPal, Venmo, Cash App or bank transfer."))
     body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
@@ -15753,6 +15810,7 @@ function renderCampaigns(){
         + '<span class="sub">' + cpWhen(c.start_at) + ' &rarr; ' + cpWhen(c.end_at)
         + (c.views_until ? ' (views until ' + cpWhen(c.views_until) + ')' : '') + ' &middot; '
         + cpMoney(c.prize_pool) + ' &middot; ' + (c.winners || 0) + ' winner' + (c.winners === 1 ? '' : 's')
+        + ' &middot; ' + (c.joined_count || 0) + ' joined'
         + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + cpToCount(c) + '</span></div>'
       + '<div class="acts"><button class="btn cp-edit" data-id="' + esc(c.id) + '">Edit</button>'
       + '<button class="btn cp-res" data-id="' + esc(c.id) + '">Results</button>'

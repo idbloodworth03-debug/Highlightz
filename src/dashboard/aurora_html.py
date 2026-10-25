@@ -802,6 +802,16 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .cmp-dates b{font-size:16px}
 .cmp-dates .wide{grid-column:1/-1}
 .cmp-dates small{font-size:12px;color:var(--fg-3)}
+.cmp-join{display:flex;align-items:center;gap:16px;padding:24px;border-radius:24px;border:1px solid rgba(196,137,228,.4);background:var(--grad-soft)}
+.cmp-join-tx{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.cmp-join-tx b{font-size:16px}
+.cmp-join-tx span{font-size:14px;color:var(--fg-2);line-height:1.5}
+.cmp-join-tx small{font-size:12px;color:var(--fg-3)}
+.cmp-join-tx small.bad{color:var(--danger)}
+.cmp-join .rd-btn{flex-shrink:0;display:inline-flex;gap:8px;align-items:center;justify-content:center}
+.cmp-status.joined{background:transparent;border:1px solid var(--hair-2);color:var(--fg-2)}
+.cmp-joined{color:var(--acc);font-weight:700}
+@media (max-width:560px){.cmp-join{flex-direction:column;align-items:stretch}}
 .cmp-sec{display:flex;flex-direction:column;gap:12px;padding-top:16px;border-top:1px solid var(--hair)}
 .cmp-sec h3{margin:0;font-size:16px;font-weight:800;display:block}
 .cmp-rules,.cmp-pre{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -10899,7 +10909,9 @@ function CampaignCard({ c, onOpen }) {
           <span className="cmp-dot"/>
           <span>{campWhen(c)}</span>
           {b.prize ? <><span className="cmp-dot"/><span className="cmp-won">You won {campMoney(b.prize.amount)}</span></>
-            : b.you && c.status !== 'upcoming' ? <><span className="cmp-dot"/><span>You are #{b.you.rank}</span></> : null}
+            : b.you && c.status !== 'upcoming' ? <><span className="cmp-dot"/><span>You are #{b.you.rank}</span></>
+            : c.joined && (c.status === 'live' || c.status === 'upcoming') ? <><span className="cmp-dot"/><span className="cmp-joined">Joined</span></>
+            : null}
         </div>
         {c.streamers.length > 0 && <div className="cmp-streamers">
           {c.streamers.slice(0, 4).map(st => <span key={st.platform + st.name} className="cmp-chip">{st.name}</span>)}
@@ -10910,9 +10922,46 @@ function CampaignCard({ c, onOpen }) {
   );
 }
 
+// JOIN TO SEE THE FULL DETAILS (owner, 2026-10-25). Until someone joins an
+// upcoming or live campaign (`c.locked`), its page is the overview: picture,
+// dates, prize, how winners are picked, streamers, platforms. The server sends
+// the rules, the tags and caption a post needs and the leaderboard only once
+// they have joined (src/campaigns/joins.py), and posting for it needs a join.
+// The join's reply re-reads the list here; campaigns_changed, sent to this
+// account alone, opens it in their other tabs.
+function CampaignJoin({ c, canPost, postingOpen, flash, onRefresh }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const join = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch('/campaigns/' + c.id + '/join', {method: 'POST'});
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'That did not work. Try again.');
+      flash('You joined ' + c.title + '. The rules and what to post are on the page now.');
+      onRefresh();
+    } catch (x) { setErr(String(x.message || x)); }
+    setBusy(false);
+  };
+  return (
+    <div className="cmp-join">
+      <div className="cmp-join-tx">
+        <b>Join to see the full details</b>
+        <span>The rules, the hashtags and caption your post needs, and the live leaderboard.
+          {c.status === 'upcoming' ? ' Join now and be ready when it starts.' : ''}</span>
+        {!canPost && postingOpen && <small>Posting entries comes with Pro.</small>}
+        {err && <small className="bad">{err}</small>}
+      </div>
+      <button className="rd-btn grad" disabled={busy} onClick={join}><Icon name="trophy" size={14}/>{busy ? 'Joining…' : 'Join campaign'}</button>
+    </div>
+  );
+}
+
 function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
   const b = c.board;
+  const locked = !!c.locked;
   // Platforms this viewer cannot post to from Highlightz yet (the server's
   // `held`: Instagram until Meta approves). An entry is a post made here, so
   // these read "soon" and the Post button needs one that is open.
@@ -10929,6 +10978,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
         <div className="cmp-main">
           <div className="cmp-head">
             <span className={'cmp-status ' + c.status}>{CAMP_STATUS[c.status] || c.status}</span>
+            {c.joined && (c.status === 'live' || c.status === 'upcoming') && <span className="cmp-status joined">Joined</span>}
             {!c.published && <span className="cmp-status draft">Draft, only admins can see it</span>}
             <span className="cmp-when">{campWhen(c)}</span>
           </div>
@@ -10940,6 +10990,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             {c.views_until > 0 && <div className="wide"><span>Views count until</span><b>{campDate(c.views_until)}</b>
               <small>Then the winners are picked.</small></div>}
           </div>
+          {locked && <CampaignJoin c={c} canPost={canPost} postingOpen={postingOpen} flash={flash} onRefresh={onRefresh}/>}
           {b && b.confirmed && <section className="cmp-sec"><h3>Winners</h3><CampaignWinners b={b}/></section>}
           {b && <CampaignBoard c={c}/>}
           {c.streamers.length > 0 && <section className="cmp-sec">
@@ -10951,11 +11002,11 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
                 </a>))}
             </div>
           </section>}
-          <section className="cmp-sec">
+          {!locked && <section className="cmp-sec">
             <h3>Rules</h3>
             {c.rules ? <div className="cmp-rules">{c.rules}</div>
                      : <p className="cmp-muted">The full rules have not been posted yet.</p>}
-          </section>
+          </section>}
         </div>
         <aside className="cmp-side">
           {b && b.prize && <CampaignPrize c={c} flash={flash} onRefresh={onRefresh}/>}
@@ -10983,11 +11034,11 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
             {tags.length > 0 && <><span className="cmp-k">Your caption must include</span>
               <div className="cmp-streamers">{tags.map(t => <span key={t} className="cmp-chip tag">{t}</span>)}</div></>}
             {c.caption_template && <><span className="cmp-k">Suggested caption</span><p className="cmp-muted cmp-pre">{c.caption_template}</p></>}
-            {c.status === 'live' && canPost && postable.length > 0 &&
+            {c.status === 'live' && canPost && postable.length > 0 && !locked &&
               <button className="rd-btn grad" onClick={() => onPostFor(c.id)}><Icon name="upload" size={14}/>Post a clip for this campaign</button>}
             {/* An entry is a clip posted from Highlightz: the leaderboard
                 counts nothing else, so nobody is told to post it themselves. */}
-            {c.status === 'live' && !canPost && (postingOpen
+            {c.status === 'live' && !canPost && !locked && (postingOpen
               ? <><p className="cmp-muted">Entries are posted from Highlightz, which comes with Pro.</p>
                   <a className="rd-btn grad" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a></>
               : <p className="cmp-muted">Entries are posted from Highlightz. Posting opens soon.</p>)}
@@ -12592,7 +12643,8 @@ function RdApp() {
   useEffect(()=>{ window.hzWhere = view; }, [view]);
 
   // Over the Clip Library while posting for a campaign (see CampaignPostBanner).
-  const postForCamp = postFor && (campaigns||[]).find(c=>c.id===postFor && c.status==='live');
+  // Only a joined one (`!c.locked`): posting for a campaign needs a join.
+  const postForCamp = postFor && (campaigns||[]).find(c=>c.id===postFor && c.status==='live' && !c.locked);
   const postForBanner = postForCamp ? <CampaignPostBanner c={postForCamp} onDone={()=>setPostFor('')}/> : null;
 
   let screen;
@@ -12741,7 +12793,7 @@ function RdApp() {
           if (expect) flash(expect);
         }}/>}
       {postClip && <PostNowDialog clip={postClip} platforms={platforms} connections={connections} queue={queue}
-        campaigns={(campaigns||[]).filter(c=>c.status==='live')} initialCampaign={postFor}
+        campaigns={(campaigns||[]).filter(c=>c.status==='live' && !c.locked)} initialCampaign={postFor}
         onClose={()=>setPostClip(null)}/>}
       <ClipModal clip={modalClip} onClose={()=>setModalClip(null)} onApprove={approveClip} onReject={rejectClip}
         onEdit={onEditClip} onPost={onPostClip}

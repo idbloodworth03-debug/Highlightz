@@ -28,6 +28,7 @@ import pytest
 from itsdangerous import TimestampSigner
 
 from src import campaigns as camp
+from src.campaigns import joins
 from src.campaigns import requests as creq
 from src.campaigns import results as res
 from src.publish import connections, schedule as sched
@@ -70,13 +71,14 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(camp, "_IMAGES", tmp_path / "campaign_images")
     monkeypatch.setattr(creq, "_INDEX", tmp_path / "campaign_requests.json")
     monkeypatch.setattr(res, "_INDEX", tmp_path / "campaign_results.json")
+    monkeypatch.setattr(joins, "_INDEX", tmp_path / "campaign_joins.json")
     monkeypatch.setattr(sched, "_INDEX", tmp_path / "schedule.json")
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: PEOPLE.get(uid))
     monkeypatch.setattr(user_store, "display_names", lambda ids: {
         i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
     monkeypatch.setattr(user_store, "version", lambda: 1)
     stores = ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
-              (res, res._memo))
+              (res, res._memo), (joins, joins._joins))
     for m, store in stores:
         store.clear()
         m._loaded = True

@@ -26,6 +26,7 @@ import pytest
 from itsdangerous import TimestampSigner
 
 from src import campaigns as camp
+from src.campaigns import joins
 from src.publish import connections, poster, schedule as sched
 from src.uploads import library as lib
 
@@ -50,9 +51,12 @@ def form(**kw):
 def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(camp, "_INDEX", tmp_path / "campaigns.json")
     monkeypatch.setattr(camp, "_IMAGES", tmp_path / "campaign_images")
+    monkeypatch.setattr(joins, "_INDEX", tmp_path / "campaign_joins.json")
     camp._campaigns.clear(); camp._loaded = False
+    joins._joins.clear(); joins._loaded = False
     yield
     camp._campaigns.clear(); camp._loaded = False
+    joins._joins.clear(); joins._loaded = False
 
 
 # ── validation ───────────────────────────────────────────────────────────────
@@ -225,9 +229,19 @@ def poster_env(client, tmp_path, monkeypatch):
     lib._uploads.clear()
 
 
-def _post(c, cid, platforms, caption):
+def _post(c, cid, platforms, caption, join=True):
+    """Post for a campaign as the boss, who joins it first (posting needs a join)."""
+    if join:
+        joins.join(cid, "boss")
     return c.login("boss").post("/publish/post-now", json={
         "clip_id": "c1", "platforms": platforms, "caption": caption, "campaign_id": cid})
+
+
+def test_a_post_for_a_campaign_you_have_not_joined_is_refused(poster_env):
+    c = camp.create(form())
+    r = _post(poster_env, c["id"], ["instagram"], "Ace #HighlightzCup #clips @highlightz", join=False)
+    assert r.status_code == 400 and "Join this campaign first" in r.json()["detail"]
+    assert sched.for_campaign(c["id"]) == []
 
 
 def test_a_post_missing_a_required_tag_is_refused(poster_env):

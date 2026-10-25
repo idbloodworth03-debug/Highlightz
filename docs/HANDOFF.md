@@ -6837,3 +6837,57 @@ opens it everywhere at once, campaigns included.
   card, the admin form (the 3-day button gives 2026-11-09T12:00 from
   2026-11-06T12:00; an edit keeps the date). No console errors, no failed
   requests.
+
+## Join a campaign to see its full details (2026-10-25)
+
+Owner: "can we make it so people click "join" in the campaign page and then
+they can see the full details". (Same day, the owner's screenshot of Admin ->
+Campaigns -> New campaign had no "Views count until" field: prod was not yet
+on e146b91. Deploy brings both.)
+
+- **Before joining** an upcoming or live campaign: the overview. Picture,
+  status and countdown, title, summary, dates (with the grace period), the
+  streamers, the prize pool and split, how winners are picked (judging note
+  included), and the platforms. A "Join to see the full details" panel under
+  the dates with **Join campaign** ("Posting entries comes with Pro" for an
+  account that cannot post).
+- **After joining:** everything as before: the rules, the hashtags, mentions
+  and suggested caption, the leaderboard, the Post button, and a "Joined" chip
+  on the page and the card.
+- **Not sent, not just hidden.** `/campaigns` and `/campaigns/{id}` blank
+  `camp.JOIN_TO_SEE` (rules, hashtags, mentions, caption_template) and send
+  `board: null` while `locked` (not joined, upcoming or live). Rows carry
+  `joined` and `locked`. Once posting has closed (counting, ended) there is
+  nothing to join and the whole page is open to everyone. **Admins see what
+  clippers see** (they join to see it on the dashboard; the admin page has it
+  all), so the owner can try it as a clipper.
+- **Anyone with an entry counts as joined** (`results.entrant_ids`, kept in
+  the leaderboard cache): nobody who posted before joining existed loses
+  their page or their prize box.
+- **Posting needs a join:** post-now refuses "Join this campaign first" (after
+  the live check); the Post dialog's campaign picker and the Clip Library
+  banner list joined campaigns only.
+- `POST /campaigns/{id}/join`: anyone who can see the marketplace, upcoming
+  or live only, idempotent. Realtime: `campaigns_changed` to that account
+  only, so its other tabs open up (nobody else's view changes; no count of
+  who joined is shown to clippers, so there is no reason to tell everyone).
+- Store `src/campaigns/joins.py`, `campaign_joins.json` {campaign: {user:
+  joined at}}: kept apart from the admin-written campaigns and from the
+  results (a join must not throw away the leaderboard cache). Goes with the
+  account (both delete paths) and with the campaign.
+- Admin list: "N joined" per campaign (`joined_count`; the page polls).
+- Copy: the blog guide says clippers join, which opens the rules, tags and
+  leaderboard; the landing card says "Join a campaign". Terms and Privacy
+  unchanged: joining is an opt-in recorded with the account and deleted
+  with it, like entries.
+- Verified: `tests/test_campaign_join.py` (14): the store, who can join and
+  when, the scoped broadcast, nothing of the details in the response before
+  joining, all of it after, admins locked too, an entrant counts as joined,
+  closed campaigns open to all, deletes, the admin count, the page and Post
+  dialog wiring, the copy. The posting tests in `test_campaigns` now join
+  first, plus one for a post without a join. Full suite 4079; JSX; admin
+  script. Browser (throwaway server): a Pro clipper with the campaign open in
+  two tabs joined in one and the other, never reloaded, opened up; the grid
+  card said Joined; a free clipper on a phone saw the Pro line, joined, and
+  got the rules with "comes with Pro"; the admin list said "2 joined"; no
+  console errors, no failed requests, no sideways scroll at 390.

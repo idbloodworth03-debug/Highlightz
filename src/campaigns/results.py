@@ -171,9 +171,16 @@ def _computed(c: dict) -> dict:
     m = _memo.get(c["id"])
     if m is None or m["key"] != key:
         ents = _build_entries(c)
-        m = {"key": key, "entries": ents, "standings": _build_standings(c, ents)}
+        m = {"key": key, "entries": ents, "standings": _build_standings(c, ents),
+             "entrants": frozenset(e["user_id"] for e in ents)}
         _memo[c["id"]] = m
     return m
+
+
+def entrant_ids(c: dict) -> frozenset:
+    """Everyone with an entry in the campaign, posted or on its way. They count
+    as having joined it (src/campaigns/joins.py)."""
+    return _computed(c)["entrants"]
 
 
 def entries(c: dict) -> list[dict]:

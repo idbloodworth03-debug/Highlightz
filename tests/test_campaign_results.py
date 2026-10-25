@@ -27,6 +27,7 @@ from itsdangerous import TimestampSigner
 
 from src import campaigns as camp
 from src.auth import users as _user_store
+from src.campaigns import joins
 from src.campaigns import requests as creq
 from src.campaigns import results as res
 from src.publish import schedule as sched
@@ -70,6 +71,7 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(camp, "_IMAGES", tmp_path / "campaign_images")
     monkeypatch.setattr(creq, "_INDEX", tmp_path / "campaign_requests.json")
     monkeypatch.setattr(res, "_INDEX", tmp_path / "campaign_results.json")
+    monkeypatch.setattr(joins, "_INDEX", tmp_path / "campaign_joins.json")
     monkeypatch.setattr(sched, "_INDEX", tmp_path / "schedule.json")
     monkeypatch.setattr(user_store, "get_by_id", lambda uid: PEOPLE.get(uid))
     monkeypatch.setattr(user_store, "display_names", lambda ids: {
@@ -77,12 +79,12 @@ def fresh(tmp_path, monkeypatch):
     # Changes when PEOPLE does, as the real one does when users.json changes.
     monkeypatch.setattr(user_store, "version", lambda: hash(json.dumps(PEOPLE, sort_keys=True)))
     for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
-                     (res, res._memo)):
+                     (res, res._memo), (joins, joins._joins)):
         store.clear()
         m._loaded = True
     yield
     for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
-                     (res, res._memo)):
+                     (res, res._memo), (joins, joins._joins)):
         store.clear()
         m._loaded = False
 
