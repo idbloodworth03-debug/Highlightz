@@ -279,7 +279,7 @@ def test_opening_marks_read_here_at_once_and_on_the_server():
 def test_the_bell_is_in_the_header_beside_the_account_chip():
     start = SRC.index('<header className="rd-header">')
     head = SRC[start:SRC.index("</header>", start)]
-    assert head.index("<InboxBell inbox={inbox} onRead={markInboxRead}/>") \
+    assert head.index("<InboxBell inbox={inbox} onRead={markInboxRead}") \
         < head.index('className="rd-user-chip"')
     bell = SRC[SRC.index("function InboxBell("):SRC.index("// AUTO-EDIT ON A CLIP")]
     assert 'aria-expanded={open}' in bell and 'role="dialog"' in bell
@@ -317,5 +317,5 @@ def test_the_popup_says_update_for_an_update():
 def test_the_admin_can_send_an_update():
     html = api.ADMIN_HTML
     assert 'id="an-kind"' in html and '<option value="update">' in html
-    assert "JSON.stringify({title, body, days, kind})" in html
+    assert "JSON.stringify({title, body, days, kind, campaign_id})" in html
     assert "r.kind === 'update' ? 'Update' : 'Announcement'" in html

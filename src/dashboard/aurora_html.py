@@ -3476,19 +3476,30 @@ function OnboardingModal({ onDone, preview = false }) {
 // missed. One at a time, oldest first when several are waiting; dismissing
 // one reveals the next. Plain text with line breaks kept; React escapes it,
 // so nothing the operator types can become markup.
-function AnnouncementModal({ a, onSeen }) {
+// An announcement can carry a campaign (owner, 2026-10-25: a mass announcement
+// about the clipping campaign): "See the campaign" dismisses it and opens that
+// campaign's page. `onOpenCampaign` is null for an account that cannot see the
+// marketplace, which then just gets Got it.
+function AnnouncementModal({ a, onSeen, onOpenCampaign }) {
   useEffect(() => {
     const k = e => { if (e.key === 'Escape') onSeen(a.id); };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [a.id]);
+  const go = !!(a.campaign_id && onOpenCampaign);
   return (
     <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-ann-title">
       <div className="rd-ann glass">
         <div className="rd-ann-k"><Icon name={a.kind==='update'?'zap':'bell'} size={13}/>{a.kind==='update'?'Update':'Announcement'}</div>
         <h3 id="rd-ann-title">{a.title}</h3>
         <div className="rd-ann-body">{a.body}</div>
-        <button className="rd-btn grad" onClick={()=>onSeen(a.id)} autoFocus>Got it</button>
+        {go
+          ? <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
+              <button className="rd-btn grad" onClick={()=>{ onSeen(a.id); onOpenCampaign(a.campaign_id); }} autoFocus>
+                <Icon name="trophy" size={14}/>See the campaign</button>
+              <button className="rd-btn" onClick={()=>onSeen(a.id)}>Got it</button>
+            </div>
+          : <button className="rd-btn grad" onClick={()=>onSeen(a.id)} autoFocus>Got it</button>}
       </div>
     </div>
   );
@@ -3543,7 +3554,7 @@ const inboxWhen = ts => {
   return new Date(ts*1000).toLocaleDateString([], {month:'short', day:'numeric'});
 };
 
-function InboxItem({ item, fresh }) {
+function InboxItem({ item, fresh, onOpenCampaign }) {
   const [icon, label] = INBOX_KINDS[item.kind] || INBOX_KINDS.announcement;
   const offer = item.kind === 'offer';
   // An offer reads the way its popup does: "50% off your first month on Pro".
@@ -3564,12 +3575,16 @@ function InboxItem({ item, fresh }) {
             <a className="rd-btn grad rd-inbox-cta"
               href={'/billing/checkout?plan=' + (item.plan || 'pro') + '&offer=1'}>Claim it</a>
           </>
-        : <div className="rd-inbox-b">{item.body}</div>}
+        : <>
+            <div className="rd-inbox-b">{item.body}</div>
+            {item.campaign_id && onOpenCampaign &&
+              <button className="rd-btn grad rd-inbox-cta" onClick={() => onOpenCampaign(item.campaign_id)}>See the campaign</button>}
+          </>}
     </li>
   );
 }
 
-function InboxBell({ inbox, onRead }) {
+function InboxBell({ inbox, onRead, onOpenCampaign }) {
   const [open, setOpen] = useState(false);
   const [fresh, setFresh] = useState([]);
   const wrap = useRef(null);
@@ -3619,7 +3634,8 @@ function InboxBell({ inbox, onRead }) {
             ? <div className="rd-inbox-empty">Nothing here yet. Announcements, updates and offers
                 from Highlightz will show up here.</div>
             : <ul className="rd-inbox-list">
-                {items.map(i => <InboxItem key={i.id} item={i} fresh={fresh.includes(i.id)}/>)}
+                {items.map(i => <InboxItem key={i.id} item={i} fresh={fresh.includes(i.id)}
+                  onOpenCampaign={onOpenCampaign ? (id => { setOpen(false); onOpenCampaign(id); }) : null}/>)}
               </ul>}
         </div>}
     </div>
@@ -11091,9 +11107,12 @@ function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRef
   );
 }
 
-function CampaignsScreen({ campaigns, onPostFor, canPost, postingOpen, flash, onRefresh }) {
+function CampaignsScreen({ campaigns, onPostFor, canPost, postingOpen, flash, onRefresh, openRequest, onOpened }) {
   const [show, setShow] = useState('open');     // which statuses the grid lists
   const [openId, setOpenId] = useState(null);
+  // Sent here to one campaign (an announcement's "See the campaign"): open
+  // its page. If the list has not arrived yet it opens when it does.
+  useEffect(() => { if (openRequest) { setOpenId(openRequest); onOpened(); } }, [openRequest]);
   const rows = campaigns || [];
   // Derived from the live list, so an admin's edit shows here as it happens and
   // a deleted campaign drops back to the grid rather than a stale page.
@@ -11870,6 +11889,11 @@ function RdApp() {
   const canCampaignsRef = useRef(false);
   canCampaignsRef.current = canCampaigns;
   useEffect(()=>{ if(canCampaigns && campaigns === null) refetchCampaigns(); },[canCampaigns]);
+  // "See the campaign" on an announcement (popup or bell): the Campaigns tab,
+  // opened on that campaign's page. Null for an account that cannot see the
+  // marketplace, so those buttons are not offered to it.
+  const [campOpen, setCampOpen] = useState('');
+  const openCampaign = canCampaigns ? (id=>{ setCampOpen(id); setRoute('campaigns'); }) : null;
   // Promote: this account's own campaign requests (streamers fund campaigns).
   // null until loaded; only fetched for accounts that can see the screen. In
   // refetchAll, re-read on campaign_request_updated, and on campaigns_changed
@@ -12703,7 +12727,8 @@ function RdApp() {
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}
-      onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}/>;
+      onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}
+      openRequest={campOpen} onOpened={()=>setCampOpen('')}/>;
   else if(view==='promote') screen=<PromoteScreen data={promo} startNew={promoNew} onStarted={()=>setPromoNew(false)}
       onRefresh={refetchPromo} flash={flash} canCampaigns={canCampaigns} onOpenCampaigns={()=>setRoute('campaigns')}/>;
   else if(view==='vod') screen=<VodScreen clips={platformClips} me={me}/>;
@@ -12794,7 +12819,7 @@ function RdApp() {
             <button className={'plat-sw-btn '+(activePlatform==='kick'?'sw-on-kick':'sw-off')} onClick={()=>switchPlatform('kick')}>Kick</button>
           </div>
           <span className="rd-live"><span className="dot"/>Live</span>
-          <InboxBell inbox={inbox} onRead={markInboxRead}/>
+          <InboxBell inbox={inbox} onRead={markInboxRead} onOpenCampaign={openCampaign}/>
           <button className="rd-user-chip" title="Settings" style={{border:'none',cursor:'pointer'}} onClick={()=>openAccount()}>
             {me.avatar_url
               ? <img src={me.avatar_url} alt={me.username}/>
@@ -12825,7 +12850,8 @@ function RdApp() {
         onClose={()=>setReviewAsk(null)}/>}
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
-      {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>}
+      {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}
+        onOpenCampaign={openCampaign}/>}
       {announcements.length === 0 && !needsOnboarding && me && me.offer &&
         <OfferModal offer={me.offer} onDismiss={dismissOffer}/>}
       {needsOnboarding && <OnboardingModal preview={onbPreview}

@@ -6964,3 +6964,36 @@ people are joined".
   saw "1 CLIPPER JOINED"; a second clipper joined on a phone and the first
   page, never reloaded, read 2 about 2 s later; no sideways scroll at 390,
   no console errors.
+
+## Announcements can open a campaign (2026-10-25)
+
+Owner: "now I want a mass announcement sent out to all users about the
+clipping campaign". The announcement itself is sent by the owner from Admin ->
+Announce (prod; the copy was handed over in chat). Email to everyone is not
+possible yet: alerts go through Resend's sandbox sender, which only reaches the
+owner. What was missing was a way from the popup to the campaign, so:
+
+- An announcement can carry `campaign_id` (Admin -> Announce, the "Button"
+  select: published campaigns that are upcoming or live). Its popup then has
+  **See the campaign** (dismisses it and opens that campaign's page) beside
+  Got it, and its row in the bell has the same button (closes the bell).
+  Accounts that cannot see the marketplace get the plain popup.
+- `POST /admin/announcements` refuses the button (400, nothing sent) for a
+  campaign that is not published, has closed, or while `CAMPAIGNS_ENABLED` is
+  off ("Set CAMPAIGNS_ENABLED=true and restart first"). With a campaign it
+  expires when posting for it closes (`announcements.create(until=)`), or at
+  the chosen days if sooner, so nobody is sent to join a closed campaign.
+- `campaign_id` rides in the `announcement` event, `/announcements` and
+  `/inbox` (no new event). App: `openCampaign(id)` sets the route and
+  `campOpen`; `CampaignsScreen` opens `openRequest` (waits for the list if it
+  has not arrived). The admin list says "Button: See the campaign (title)".
+- Tests: `tests/test_announcements.py` (+5: the button reaches the event, the
+  next open and the bell, and the expiry follows the campaign; refused for a
+  draft, a closed campaign, an unknown id and the marketplace switched off;
+  unchanged without one; the popup, bell and route wiring; the admin picker).
+  Two pinned strings updated (`test_announcements`, `test_inbox`). Full suite
+  4092; JSX; admin script. Browser: the admin sent it with the button; an
+  open tab (never reloaded) got the popup and See the campaign opened the
+  duxxion page on its Join panel; an account that was offline got it on the
+  next open, pressed Got it, and the bell's button opened the page; no
+  console errors; desktop and phone.

@@ -19,6 +19,12 @@ THE BELL. Every announcement still showing is also listed in the dashboard's
 notifications bell (GET /inbox), dismissed or not, so a popup somebody closed
 can be read again until it expires or is retired.
 
+A CAMPAIGN BUTTON (owner, 2026-10-25: "a mass announcement sent out to all
+users about the clipping campaign"). An announcement can carry a campaign id:
+its popup and its row in the bell then have a "See the campaign" button that
+opens that campaign's page. It stops showing when posting for the campaign
+closes (`until`), so nobody is sent to join something that has closed.
+
 BOUNDED. A title and body have hard ceilings, an announcement always expires,
 and the list is pruned of expired rows on every write — nothing here grows
 without something else deleting it.
@@ -70,10 +76,11 @@ def kind_of(row: dict) -> str:
 
 
 def create(title: str, body: str, days: int | None = None, by: str = "",
-           kind: str = "announcement") -> dict:
+           kind: str = "announcement", campaign_id: str = "", until: float | None = None) -> dict:
     """Send an announcement. Raises ValueError for an empty or oversized one —
     the endpoint turns that into a 400 with the message. An unknown `kind` is
-    an announcement."""
+    an announcement. `campaign_id` gives it a "See the campaign" button (the
+    endpoint checks the campaign); `until`, if sooner, is when it stops."""
     title = (title or "").strip()
     body = (body or "").strip()
     if not title:
@@ -90,9 +97,13 @@ def create(title: str, body: str, days: int | None = None, by: str = "",
         days = DEFAULT_DAYS
     days = max(1, min(MAX_DAYS, days))
     now = time.time()
+    expires = now + days * 86400
+    if until:
+        expires = min(expires, float(until))
     row = {"id": uuid.uuid4().hex[:12], "title": title, "body": body,
            "kind": kind if kind in KINDS else "announcement",
-           "created_at": now, "expires_at": now + days * 86400, "by": by or ""}
+           "created_at": now, "expires_at": expires, "by": by or "",
+           "campaign_id": str(campaign_id or "")[:32]}
     rows = _live(_load(), now)
     rows.append(row)
     _save(rows)

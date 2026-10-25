@@ -7938,7 +7938,23 @@ def _announcement_out(a: dict) -> dict:
     from src.dashboard import announcements
     return {"id": a.get("id"), "title": a.get("title", ""), "body": a.get("body", ""),
             "kind": announcements.kind_of(a),
-            "created_at": a.get("created_at", 0), "expires_at": a.get("expires_at", 0)}
+            "created_at": a.get("created_at", 0), "expires_at": a.get("expires_at", 0),
+            "campaign_id": a.get("campaign_id", "")}
+
+
+def _announceable_campaign(campaign_id: str) -> dict:
+    """A campaign an announcement's button can send everyone to: published,
+    the marketplace open to them, and still joinable."""
+    from src import campaigns as camp
+    c = camp.get(campaign_id)
+    if not c or not c.get("published"):
+        raise HTTPException(status_code=400, detail="That campaign is not published, so clippers cannot open it.")
+    if not settings.campaigns_enabled:
+        raise HTTPException(status_code=400, detail=(
+            "Clippers cannot see campaigns yet. Set CAMPAIGNS_ENABLED=true and restart first."))
+    if camp.status_of(c) not in ("upcoming", "live"):
+        raise HTTPException(status_code=400, detail="Posting for that campaign has closed.")
+    return c
 
 
 @app.get("/announcements")
@@ -7996,10 +8012,15 @@ async def admin_send_announcement(request: Request):
         body = await request.json()
     except Exception:
         body = {}
+    # A "See the campaign" button: only for one everybody can open and join,
+    # and the announcement stops when posting for it closes.
+    campaign_id = str(body.get("campaign_id") or "")
+    until = _announceable_campaign(campaign_id)["end_at"] if campaign_id else None
     try:
         row = announcements.create(str(body.get("title", "")), str(body.get("body", "")),
                                    body.get("days"), by=request.session.get("user_id", ""),
-                                   kind=str(body.get("kind") or "announcement"))
+                                   kind=str(body.get("kind") or "announcement"),
+                                   campaign_id=campaign_id, until=until)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     await broadcast({"event": "announcement", "announcement": _announcement_out(row)},
@@ -8042,6 +8063,7 @@ def _inbox_for(user: dict) -> dict:
         at = float(a.get("created_at") or 0)
         items.append({"id": "a-" + str(a.get("id")), "kind": announcements.kind_of(a),
                       "title": a.get("title", ""), "body": a.get("body", ""), "at": at,
+                      "campaign_id": a.get("campaign_id", ""),
                       "read": a.get("id") in seen or at <= read_at})
     offer = user_store.claimable_offer(user)
     if offer:
@@ -15450,6 +15472,9 @@ ADMIN_HTML = """<!DOCTYPE html>
           <option value="30">Show for 30 days</option>
           <option value="90">Show for 90 days</option>
         </select>
+        <select class="btn" id="an-camp" title="A See the campaign button in the popup and the bell. It stops showing when posting for that campaign closes.">
+          <option value="">No button</option>
+        </select>
         <button class="btn btn-key" id="an-send">Send to everyone</button>
         <span class="sub" id="an-msg"></span>
       </div>
@@ -16427,10 +16452,28 @@ document.getElementById('panel-campaigns').addEventListener('click', function(e)
 });
 
 // ── announcements ─────────────────────────────────────────
-let AN_LOADED = false;
+let AN_LOADED = false, AN_CAMPS = {};
+
+// The campaigns an announcement can send everyone to: published, and still
+// open to join (upcoming or live). The server checks the same.
+async function loadAnnounceCampaigns(){
+  let d;
+  try { d = await api('/admin/campaigns'); } catch(e){ return; }
+  const sel = document.getElementById('an-camp'), keep = sel.value;
+  AN_CAMPS = {};
+  let html = '<option value="">No button</option>';
+  (d.rows || []).forEach(function(c){
+    AN_CAMPS[c.id] = c.title;
+    if(!c.published || (c.status !== 'live' && c.status !== 'upcoming')) return;
+    html += '<option value="' + esc(c.id) + '">Button: See the campaign (' + esc(c.title) + ')</option>';
+  });
+  sel.innerHTML = html;
+  if(keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;
+}
 
 async function loadAnnouncements(){
   AN_LOADED = true;
+  await loadAnnounceCampaigns();          // the list below names each one's campaign
   let d;
   try { d = await api('/admin/announcements'); } catch(e){ return; }
   const el = document.getElementById('an-list');
@@ -16441,7 +16484,8 @@ async function loadAnnouncements(){
   rows.forEach(function(r){
     html += '<tr><td>' + new Date(r.created_at*1000).toLocaleString() + '</td>'
       + '<td><span class="sub">' + (r.kind === 'update' ? 'Update' : 'Announcement') + '</span><br>'
-      + '<b>' + esc(r.title) + '</b><div class="sub" style="white-space:pre-wrap">' + esc(r.body) + '</div></td>'
+      + '<b>' + esc(r.title) + '</b><div class="sub" style="white-space:pre-wrap">' + esc(r.body) + '</div>'
+      + (r.campaign_id ? '<div class="sub">Button: See the campaign (' + esc(AN_CAMPS[r.campaign_id] || 'a campaign') + ')</div>' : '') + '</td>'
       // The only read receipt a modal can honestly give: who pressed Got it.
       + '<td>' + n0(r.seen) + ' / ' + n0(d.users) + '</td>'
       + '<td>' + new Date(r.expires_at*1000).toLocaleDateString() + '</td>'
@@ -16465,12 +16509,13 @@ document.getElementById('an-send').addEventListener('click', async function(){
   const body  = document.getElementById('an-body').value.trim();
   const days  = +document.getElementById('an-days').value;
   const kind  = document.getElementById('an-kind').value;
+  const campaign_id = document.getElementById('an-camp').value;
   if(!title || !body){ msg.textContent = 'A title and a message are both needed.'; return; }
   if(!confirm('Send this to every signed-up account? It pops up in front of their dashboard.')) return;
   btn.disabled = true; msg.textContent = 'Sending…';
   try {
     const r = await fetch('/admin/announcements', { method:'POST',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, days, kind}) });
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, days, kind, campaign_id}) });
     if(!r.ok){ const e = await r.json().catch(()=>({})); msg.textContent = e.detail || ('Failed (' + r.status + ')'); return; }
     document.getElementById('an-title').value = '';
     document.getElementById('an-body').value = '';

@@ -205,7 +205,7 @@ def test_the_modal_is_rendered_with_a_way_to_dismiss():
     assert 'role="dialog"' in comp and 'aria-modal="true"' in comp
     assert "onSeen(a.id)" in comp and "Got it" in comp
     assert "e.key === 'Escape'" in comp
-    assert "<AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}/>" in SRC
+    assert "<AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}\n        onOpenCampaign={openCampaign}/>" in SRC
     assert "fetch('/announcements/'+encodeURIComponent(id)+'/seen',{method:'POST'})" in SRC
 
 
@@ -215,3 +215,81 @@ def test_the_admin_page_has_the_compose_form_and_the_list():
                  'id="an-send"', "fetch('/admin/announcements'", "'/admin/announcements/' + b.getAttribute('data-retire'), 'DELETE'"):
         assert need in html, f"admin page is missing {need}"
     assert "if(b.dataset.tab === 'notify' && !AN_LOADED) loadAnnouncements();" in html
+
+
+# ── a "See the campaign" button (owner, 2026-10-25) ──────────────────────────
+
+@pytest.fixture
+def campaigns(tmp_path, monkeypatch):
+    from src import campaigns as camp
+    monkeypatch.setattr(camp, "_INDEX", tmp_path / "campaigns.json")
+    monkeypatch.setattr(camp, "_IMAGES", tmp_path / "campaign_images")
+    camp._campaigns.clear()
+    camp._loaded = True
+    monkeypatch.setattr(api.settings, "campaigns_enabled", True)
+    now = time.time()
+
+    def make(**kw):
+        base = {"title": "Duxxion's Campaign", "start_at": now + 86400, "end_at": now + 8 * 86400,
+                "prize_pool": 500, "payouts": [250, 150, 100], "platforms": ["tiktok"], "published": True}
+        base.update(kw)
+        return camp.create(base)
+    yield make
+    camp._campaigns.clear()
+    camp._loaded = False
+
+
+def test_an_announcement_can_send_everyone_to_a_campaign(store, campaigns):
+    c = campaigns()
+    r = _client("boss").post("/admin/announcements", json={
+        "title": "New campaign", "body": "Join it.", "days": 30, "campaign_id": c["id"]})
+    assert r.status_code == 201, r.text
+    a = r.json()
+    assert a["campaign_id"] == c["id"]
+    assert a["expires_at"] == pytest.approx(c["end_at"]), "it stops when posting closes, not after 30 days"
+    (event, uid), = store
+    assert event["announcement"]["campaign_id"] == c["id"] and uid is None
+    # On the next open, and in the bell.
+    assert _client("u1").get("/announcements").json()["rows"][0]["campaign_id"] == c["id"]
+    item = next(i for i in _client("u1").get("/inbox").json()["items"] if i["kind"] == "announcement")
+    assert item["campaign_id"] == c["id"]
+
+
+def test_the_button_only_goes_to_a_campaign_everyone_can_open_and_join(store, campaigns, monkeypatch):
+    now = time.time()
+    draft = campaigns(published=False)
+    ended = campaigns(start_at=now - 9 * 86400, end_at=now - 86400)
+    for cid, msg in ((draft["id"], "not published"), (ended["id"], "closed"), ("nope", "not published")):
+        r = _client("boss").post("/admin/announcements", json={"title": "t", "body": "b", "campaign_id": cid})
+        assert r.status_code == 400 and msg in r.json()["detail"], r.text
+    ok = campaigns()
+    monkeypatch.setattr(api.settings, "campaigns_enabled", False)
+    r = _client("boss").post("/admin/announcements", json={"title": "t", "body": "b", "campaign_id": ok["id"]})
+    assert r.status_code == 400 and "CAMPAIGNS_ENABLED" in r.json()["detail"]
+    assert store == [], "nothing was sent"
+
+
+def test_without_a_campaign_nothing_changes(store):
+    a = _client("boss").post("/admin/announcements", json={"title": "Hi", "body": "hello", "days": 7}).json()
+    assert a["campaign_id"] == "" and a["expires_at"] - a["created_at"] == pytest.approx(7 * 86400, abs=2)
+
+
+def test_the_popup_and_the_bell_open_the_campaign():
+    comp = SRC[SRC.index("function AnnouncementModal("):SRC.index("function OfferModal(")]
+    assert "const go = !!(a.campaign_id && onOpenCampaign);" in comp
+    assert "onSeen(a.id); onOpenCampaign(a.campaign_id);" in comp and "See the campaign" in comp
+    item = SRC[SRC.index("function InboxItem("):SRC.index("function InboxBell(")]
+    assert "item.campaign_id && onOpenCampaign" in item and "onOpenCampaign(item.campaign_id)" in item
+    # Offered only to accounts that can see the marketplace; opens that campaign's page.
+    assert "const openCampaign = canCampaigns ? (id=>{ setCampOpen(id); setRoute('campaigns'); }) : null;" in SRC
+    assert "openRequest={campOpen} onOpened={()=>setCampOpen('')}" in SRC
+    assert "<InboxBell inbox={inbox} onRead={markInboxRead} onOpenCampaign={openCampaign}/>" in SRC
+    screen = SRC[SRC.index("function CampaignsScreen("):][:900]
+    assert "if (openRequest) { setOpenId(openRequest); onOpened(); }" in screen
+
+
+def test_the_admin_form_picks_the_campaign():
+    html = api.ADMIN_HTML
+    assert 'id="an-camp"' in html and "JSON.stringify({title, body, days, kind, campaign_id})" in html
+    pick = html[html.index("async function loadAnnounceCampaigns("):][:900]
+    assert "c.status !== 'live' && c.status !== 'upcoming'" in pick and "!c.published" in pick
