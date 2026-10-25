@@ -9520,7 +9520,9 @@ _ERROR_MESSAGES = {
 
 # Where a sign-in lands when it started somewhere specific: /login?next=<key>.
 # Keys, not URLs, so the parameter can never send anybody off the site.
-_AFTER_SIGN_IN = {"promote": "/?view=promote&new=1"}
+_AFTER_SIGN_IN = {"promote": "/?view=promote&new=1",
+                  # The landing page's "Browse the campaigns" (clippers).
+                  "campaigns": "/?view=campaigns"}
 
 
 def _after_sign_in(key) -> str:
@@ -9789,9 +9791,13 @@ def render_landing(html: str | None = None) -> str:
     # file. Per request rather than baked in, so adding one is a restart
     # rather than a redeploy.
     html = html.replace("<!--VERIFY-->", _verification_tags(), 1)
-    # The Campaigns tab, once streamers can ask for campaigns (site_nav).
+    # The Campaigns tab, once streamers can ask for campaigns (site_nav), and
+    # the page's own pitch for them: a line on the cover and a block in
+    # Pricing. All three follow the same switch.
     from src.dashboard.site_nav import campaigns_tab
     html = campaigns_tab(html)
+    html = (html.replace("<!--COVER_CAMPAIGNS-->", _cover_campaigns(), 1)
+                .replace("<!--CAMPAIGNS-->", _campaigns_block(), 1))
 
     # THE FRAMES. Real clip previews from the curated showcase, or the
     # product's own screens where nothing is curated yet. Per request, so a
@@ -10691,6 +10697,8 @@ LANDING_HTML = """<!DOCTYPE html>
      it. Applied to the elements that are actually linked to, so a section
      added later inherits the fix instead of quietly repeating the bug. */
   section[id],header[id],article[id]{scroll-margin-top:calc(var(--nav-h) + 12px)}
+  /* The cover's campaigns line jumps to a block inside Pricing, not a section. */
+  #campaigns{scroll-margin-top:calc(var(--nav-h) + 12px)}
   /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
      which makes <body> a scroll container — and position:sticky then resolves
      against BODY's scrollport instead of the viewport. Body's scrollport does
@@ -11472,6 +11480,21 @@ LANDING_HTML = """<!DOCTYPE html>
   .edit.post{margin-top:var(--s-7);padding-top:var(--s-6)}
   .edit-cta{display:flex;align-items:center;gap:var(--s-4);flex-wrap:wrap;margin:var(--s-7) 0 0}
   .edit-cta span{font-size:15px;color:var(--paper-ink-2)}
+  .edit-cta span a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  .edit-cta span a:hover{border-bottom-color:var(--paper-ink)}
+  /* Campaigns, announced on the cover under the name (only while streamers
+     can ask for one): one line in the cover's own mono voice, leading down
+     to the campaigns block in Pricing. */
+  .cover-new{display:inline-flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-4);
+    border:1px solid var(--hair-2);border-radius:99px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
+    transition:color var(--dur-fast),border-color var(--dur-fast)}
+  .cover-new b{color:var(--ember);font-weight:600}
+  .cover-new:hover{color:var(--ink);border-color:var(--ink-3)}
+  .cover-new:active{transform:translateY(1px)}
+  /* One line on a phone: the word Campaigns goes, the offer stays. */
+  @media(max-width:520px){ .cover-new-k{display:none} }
+  @media(max-width:360px){ .cover-new{letter-spacing:.06em;padding:var(--s-2) var(--s-3)} }
   .price-lead{margin:var(--s-4) 0 0;font-size:clamp(16px,1.4vw,19px);line-height:1.5;
     color:var(--paper-ink-2);max-width:var(--measure)}
   .price-lead b{color:var(--paper-ink);font-weight:700}
@@ -11671,6 +11694,7 @@ LANDING_HTML = """<!DOCTYPE html>
            description and the SoftwareApplication schema, which is where it
            belongs. -->
       <h1 class="cover-word">Highlightz</h1>
+      <!--COVER_CAMPAIGNS-->
     </div>
     <!-- Stats band, moved here from below the hero. The id and style
          attributes are matched by string replacement in _landing_html to
@@ -11842,6 +11866,7 @@ LANDING_HTML = """<!DOCTYPE html>
          CAPTIONS_ENABLED is on. Nothing here mentions the Scheduler or
          posting: that half is not released. -->
     <!--EDITOR-->
+    <!--CAMPAIGNS-->
   </div>
 </section>
 
@@ -13612,6 +13637,69 @@ def _editor_section() -> str:
         '<div class="edit-grid">' + post_body + "</div>"
         "</div>" + cta
         + "</div>")
+
+
+def _campaigns_block() -> str:
+    """Campaigns on the landing page (owner, 2026-10-25: "make it so that its
+    advertised on the landing page now as well"). Per request, like the nav
+    tab, and only while streamers can ask for a campaign: a landing page must
+    not sell what the switch keeps closed. The half for clippers only while
+    the marketplace is open to them.
+
+    A div, not a section, under the editor in Pricing (the page keeps its
+    eight sections and its rhythm). The fee and the budget range are read
+    from the campaign settings, as /promote reads them, so the two pages
+    cannot disagree.
+
+    Entering is posting from Highlightz, which is on Pro (and opens when the
+    posting release does): the leaderboard only counts posts made here.
+    """
+    if not settings.campaign_requests_enabled:
+        return ""
+    from src.dashboard.promote_html import _fee_text, _range_text
+    cards = [
+        ("Your budget, your rules",
+         _range_text() + ", split into as many prizes as you like. Winners are "
+         "picked by views, by likes and comments too, or by rules you write."),
+        ("Read by a person",
+         "We review every request, usually within a day. Asking is free. You pay "
+         "by card once it is approved, and it goes live."),
+        ("Watch it happen",
+         "Every entry carries your hashtags. You see the entries, their views and "
+         "the best clips as they come in, then who won."),
+    ]
+    if settings.campaigns_enabled:
+        posting = ("post your entry from Highlightz on Pro" if settings.uploads_enabled
+                   else "post your entry from Highlightz once posting opens on Pro")
+        cards.append(("Clippers play for the pool",
+                      "Pick a campaign, clip the streams it names and " + posting
+                      + ". A live leaderboard shows where you stand. Prizes go out by "
+                      "PayPal, Venmo, Cash App or bank transfer."))
+    body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
+                   for h, p in cards)
+    clippers = ('<span>Clipping instead? <a href="/login?next=campaigns">Browse the '
+                "campaigns</a></span>" if settings.campaigns_enabled else
+                "<span>Asking is free. You only pay once a person approves it.</span>")
+    return (
+        '<div class="edit" id="campaigns">'
+        '<p class="edit-tag">Campaigns &middot; New</p>'
+        '<h2 class="disp l-h" id="campaigns-h">Get your stream clipped.</h2>'
+        '<p class="l-sub">Put up a prize pool and clippers compete to clip your '
+        "streams and post them. You choose the budget, the prizes and the rules. "
+        "The whole pool goes to the winners; our fee of " + _fee_text()
+        + " is added on top.</p>"
+        '<div class="edit-grid">' + body + "</div>"
+        '<p class="edit-cta"><a href="/promote" class="btn btn-dark btn-lg">Start a campaign</a>'
+        + clippers + "</p></div>")
+
+
+def _cover_campaigns() -> str:
+    """The one line on the cover that says campaigns exist, leading to the
+    block in Pricing. Same switch as the block, so it never points at nothing."""
+    if not settings.campaign_requests_enabled:
+        return ""
+    return ('<a class="cover-new" href="#campaigns"><b>New </b><span><span class="cover-new-k">'
+            'Campaigns: </span>get your stream clipped</span> <span aria-hidden="true">&rarr;</span></a>')
 
 
 def _tos_plans() -> str:

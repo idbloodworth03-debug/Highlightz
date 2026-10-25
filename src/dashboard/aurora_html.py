@@ -10901,7 +10901,7 @@ function CampaignCard({ c, onOpen }) {
   );
 }
 
-function CampaignPage({ c, onBack, onPostFor, canPost, flash, onRefresh }) {
+function CampaignPage({ c, onBack, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const tags = [...(c.hashtags || []).map(t => '#' + t), ...(c.mentions || []).map(h => '@' + h)];
   const b = c.board;
   return (
@@ -10962,8 +10962,12 @@ function CampaignPage({ c, onBack, onPostFor, canPost, flash, onRefresh }) {
             {c.caption_template && <><span className="cmp-k">Suggested caption</span><p className="cmp-muted cmp-pre">{c.caption_template}</p></>}
             {c.status === 'live' && canPost &&
               <button className="rd-btn grad" onClick={() => onPostFor(c.id)}><Icon name="upload" size={14}/>Post a clip for this campaign</button>}
-            {c.status === 'live' && !canPost &&
-              <p className="cmp-muted">Posting from Highlightz is coming soon. Until then, post your clip yourself with the tags above.</p>}
+            {/* An entry is a clip posted from Highlightz: the leaderboard
+                counts nothing else, so nobody is told to post it themselves. */}
+            {c.status === 'live' && !canPost && (postingOpen
+              ? <><p className="cmp-muted">Entries are posted from Highlightz, which comes with Pro.</p>
+                  <a className="rd-btn grad" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a></>
+              : <p className="cmp-muted">Entries are posted from Highlightz. Posting opens soon.</p>)}
             {c.status === 'upcoming' && <p className="cmp-muted">Entries open {campDate(c.start_at)}.</p>}
             {c.status === 'ended' && <p className="cmp-muted">{b && b.confirmed ? 'This campaign has ended and its winners are picked.'
               : 'This campaign has ended. Highlightz is judging the entries.'}</p>}
@@ -10974,7 +10978,7 @@ function CampaignPage({ c, onBack, onPostFor, canPost, flash, onRefresh }) {
   );
 }
 
-function CampaignsScreen({ campaigns, onPostFor, canPost, flash, onRefresh }) {
+function CampaignsScreen({ campaigns, onPostFor, canPost, postingOpen, flash, onRefresh }) {
   const [show, setShow] = useState('open');     // which statuses the grid lists
   const [openId, setOpenId] = useState(null);
   const rows = campaigns || [];
@@ -10983,7 +10987,7 @@ function CampaignsScreen({ campaigns, onPostFor, canPost, flash, onRefresh }) {
   const open = openId ? rows.find(c => c.id === openId) : null;
   if (campaigns === null) return <div className="rd-scroll"><div className="cmp"><p className="cmp-muted">Loading campaigns…</p></div></div>;
   if (open) return <div className="rd-scroll"><CampaignPage c={open} onBack={() => setOpenId(null)} onPostFor={onPostFor} canPost={canPost}
-    flash={flash} onRefresh={onRefresh}/></div>;
+    postingOpen={postingOpen} flash={flash} onRefresh={onRefresh}/></div>;
   // A prize waiting on its winner, above everything: an ended campaign is
   // under the Ended filter, where a winner would not think to look.
   const owed = rows.filter(c => c.board && c.board.prize && !c.board.prize.paid && !c.board.prize.payee);
@@ -11961,6 +11965,11 @@ function RdApp() {
       else if (_params.get('campaign_pay') === 'pending') flash('Stripe has your payment. It shows here the moment it is confirmed.');
       else if (_params.get('campaign_pay') === 'cancelled') flash('Payment cancelled. Nothing was charged.');
       history.replaceState(null,'',location.pathname);
+    } else if (_params.get('view') === 'campaigns') {
+      // The landing page's "Browse the campaigns", through sign-in. The route
+      // falls back to the review queue if the marketplace is closed to them.
+      setRoute('campaigns');
+      history.replaceState(null,'',location.pathname);
     }
   },[]);
 
@@ -12565,7 +12574,7 @@ function RdApp() {
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
-  else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip}
+  else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}
       onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}/>;
   else if(view==='promote') screen=<PromoteScreen data={promo} startNew={promoNew} onStarted={()=>setPromoNew(false)}
       onRefresh={refetchPromo} flash={flash} canCampaigns={canCampaigns} onOpenCampaigns={()=>setRoute('campaigns')}/>;
@@ -12608,7 +12617,10 @@ function RdApp() {
   // Not on Promote, and not for an account that has asked for a campaign: a
   // streamer who signed up to fund one has no channels and is not here to
   // add one, so the request form must never sit behind "Add a channel".
-  const promoting = route === 'promote' || !!(promo && promo.rows && promo.rows.length);
+  // Nor on Campaigns: a clipper sent there from the landing page looks at
+  // the campaigns before choosing which channels to add.
+  const promoting = route === 'promote' || (route === 'campaigns' && canCampaigns)
+    || !!(promo && promo.rows && promo.rows.length);
   if (me && me.id && Object.keys(streams).length === 0
       && Object.keys(clips).length === 0 && !seenBefore && !promoting) {
     return <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}/>;

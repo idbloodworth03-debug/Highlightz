@@ -6665,3 +6665,51 @@ raw HTML is the static tutorial FAQ); /client-error is signed-in, 16 KB,
 check; scheduled posts after Pro lapses; a Redis blip ends the process; the
 duplicate-email refund on the newer Stripe API; `/billing/portal` raw 401;
 signed-out unknown URLs go to /login; the admin delete leaving files.
+
+## Campaigns on the landing page (2026-10-25)
+
+Owner: "I need to open up the campaign page" (the switches: given the deploy
+and `.env` steps), then "make it so that its advertised on the landing page
+now as well".
+
+- **The cover:** one line under the name, `New Campaigns: get your stream
+  clipped ->`, in the cover's mono voice, jumping to the block below. Under
+  520 px the word "Campaigns" drops so it stays one line (measured at 320,
+  360, 390, 768 and 1440 px).
+- **The block** (`_campaigns_block`): inside Pricing, under the editor and
+  Scheduler, the same shape as theirs (tag, heading, one line, cards, a
+  button). "Get your stream clipped." Three cards for streamers (budget and
+  rules, a person reviews it and you pay once approved, watch the entries
+  come in), one for clippers, then **Start a campaign** (/promote) and
+  "Clipping instead? Browse the campaigns" (`/login?next=campaigns`).
+- **Same switch as the nav tab:** both are rendered per request in
+  `render_landing` and only while `CAMPAIGN_REQUESTS_ENABLED` is on; the
+  clippers' card and link only while `CAMPAIGNS_ENABLED` is on. The fee and
+  the budget range are read from the campaign settings through the /promote
+  helpers, so the two pages cannot disagree.
+- **The page keeps its shape:** a div, not a section, so it stays eight
+  sections in the same order on the same grounds; `#campaigns` has the
+  sticky-nav scroll margin the sections have (without it the jump landed
+  the heading under the bar, caught in the browser).
+- **Honest about entering:** an entry is a clip posted from Highlightz, and
+  posting is on Pro, so the clippers' card says so. The dashboard's
+  campaign page used to tell anyone who could not post "post your clip
+  yourself with the tags above"; the leaderboard counts only posts made
+  here, so those would never have counted. It now says "Entries are posted
+  from Highlightz, which comes with Pro" with See plans (/billing/paywall),
+  or "Posting opens soon" while posting is held back.
+- **"Browse the campaigns":** `_AFTER_SIGN_IN["campaigns"]` sends a signed-in
+  (or just signed-in) clipper to `/?view=campaigns`, which opens the
+  Campaigns tab (the route falls back to the review queue if the marketplace
+  is closed to them) and skips the first-run "Add a channel" screen there.
+- `tests/test_landing_campaigns.py` (9): nothing while the switch is off;
+  the cover line leads to the block in Pricing; the page's sections,
+  grounds and anchors unchanged with it on; no em dashes, "no X, no Y" or AI
+  claims in the copy; fee and range from settings; the clippers' half
+  follows its switch; sign-in lands on Campaigns; nobody is told to post an
+  entry themselves. Browser: both widths, the jump clear of the nav, a
+  visitor to sign-in, a signed-in clipper to Campaigns, a free account sees
+  the Pro line. Full suite 4043.
+- **Open (owner's call):** free clippers cannot enter at all. Entry links
+  (idea #1 from 2026-10-23: a clipper submits the link to a post they made
+  themselves, an admin checks it) would open campaigns to every account.
