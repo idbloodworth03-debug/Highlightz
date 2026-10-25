@@ -2680,6 +2680,11 @@ async def admin_set_admin(request: Request, user_id: str, on: bool = True):
     # Realtime: the middleware re-reads is_admin from DB per request, so the
     # promoted user's next /me refetch (triggered by this event) flips their UI.
     await broadcast({"event": "roles_updated"}, user_id=user_id)
+    # Admins are not counted among a campaign's clippers, so a campaign this
+    # account joined now shows everyone a different count.
+    from src import campaigns as camp
+    if any(_joined(camp.get(cid), user_id) for cid in camp.statuses()):
+        await _campaigns_changed()
     return {"ok": True, "is_admin": on}
 
 
@@ -8432,11 +8437,15 @@ def _joined(c: dict, uid: str) -> bool:
 
 
 def _joined_count(c: dict) -> int:
-    """How many have joined it, counted the same way: everyone who pressed
-    Join, plus anyone with an entry who never had to."""
+    """How many clippers have joined it, counted the same way: everyone who
+    pressed Join, plus anyone with an entry who never had to. Admins are left
+    out (owner, 2026-10-25: "when an admin joins it does not count to the user
+    count but they still have to hit the join button"): an admin joining to
+    try it is not a clipper taking part."""
+    from src.auth import users as user_store
     from src.campaigns import joins
     from src.campaigns import results as res
-    return len(joins.ids(c["id"]) | res.entrant_ids(c))
+    return len((joins.ids(c["id"]) | res.entrant_ids(c)) - user_store.admin_ids())
 
 
 # THE JOINED COUNT, LIVE FOR EVERYONE (owner, 2026-10-25: "let us see the
@@ -8538,7 +8547,9 @@ async def join_campaign(request: Request, campaign_id: str):
         # Their other tabs re-read the marketplace and open up too, now.
         await broadcast({"event": "campaigns_changed"}, user_id=uid)
         # Everyone's count, within a couple of seconds (see _send_join_count_soon).
-        _send_join_count_soon(c["id"])
+        # An admin still has to join to see it all, but is not counted.
+        if not admin:
+            _send_join_count_soon(c["id"])
     return {"ok": True, "joined": True}
 
 

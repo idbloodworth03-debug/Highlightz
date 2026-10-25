@@ -6922,3 +6922,23 @@ well".
   after a Pro clipper joined on desktop, with zero re-reads of the listing;
   the reverse took the same; grid "2 clippers joined · You joined"; admin
   "2 joined"; no console errors.
+
+### Admins are not counted (2026-10-25)
+
+Owner: "make it so when it admin joins it does not count to the user count
+but they still have to hit the join button".
+
+- `_joined_count` leaves admins out (`users.admin_ids()`, the admin ids of
+  the users-file snapshot, computed once per snapshot): the cards, the
+  campaign page, the Join panel and the admin list's "N joined" count
+  clippers only. An admin's entries are left out of the count too.
+- Admins still see the overview until they press Join (unchanged).
+- An admin's join sends no `campaign_join_count` (nothing changed for
+  anyone); their own tabs still open up via `campaigns_changed`.
+- Granting or revoking admin (`POST /admin/users/{id}/admin`) sends
+  `campaigns_changed` to everyone if that account joined or entered any
+  campaign, since its counts move.
+- Verified: `tests/test_campaign_join.py` (+3: an admin locked until joining
+  and not counted anywhere, no count event for an admin's join; a role change
+  moving everyone's count and telling them only when it matters;
+  `admin_ids` from a real users file). Full suite 4086.

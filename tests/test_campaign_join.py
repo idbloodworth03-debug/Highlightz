@@ -23,12 +23,14 @@ import pytest
 from itsdangerous import TimestampSigner
 
 from src import campaigns as camp
+from src.auth import users as _user_store
 from src.campaigns import joins
 from src.campaigns import requests as creq
 from src.campaigns import results as res
 from src.publish import schedule as sched
 
 NOW = time.time()
+REAL_ADMIN_IDS = _user_store.admin_ids            # before any fixture swaps it
 DAY = 86400
 SECRET = "Only clips of the Friday stream count."
 PEOPLE = {
@@ -62,6 +64,7 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(user_store, "display_names", lambda ids: {
         i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
     monkeypatch.setattr(user_store, "version", lambda: 1)
+    monkeypatch.setattr(user_store, "admin_ids", lambda: frozenset(i for i, p in PEOPLE.items() if p.get("is_admin")))
     stores = ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
               (res, res._memo), (joins, joins._joins))
     for m, store in stores:
@@ -226,11 +229,57 @@ def test_everyone_sees_how_many_joined(client):
     it.results = {"tiktok": {"status": "posted", "url": "https://www.tiktok.com/@bob/video/1", "at": NOW - 3600}}
     sched._items[it.id] = it
     sched._save()
+    # ann and bob; boss joined too, but admins are not counted.
     for who in ("ann", "bob", "boss"):
-        assert row(client, who, c["id"])["joined_count"] == 3, who
+        assert row(client, who, c["id"])["joined_count"] == 2, who
     joins.join(c["id"], "bob")                    # pressing Join after posting does not count twice
-    assert row(client, "ann", c["id"])["joined_count"] == 3
-    assert client.login("ann").get(f"/campaigns/{c['id']}").json()["joined_count"] == 3
+    assert row(client, "ann", c["id"])["joined_count"] == 2
+    assert client.login("ann").get(f"/campaigns/{c['id']}").json()["joined_count"] == 2
+
+
+def test_an_admin_still_has_to_join_but_is_not_counted(client, monkeypatch):
+    c = camp.create(form())
+    due = []
+    monkeypatch.setattr(client.api, "_send_join_count_soon", lambda cid: due.append(cid))
+    assert row(client, "boss", c["id"])["locked"] is True, "admins see the overview until they join"
+    client.login("boss").post(f"/campaigns/{c['id']}/join")
+    mine = row(client, "boss", c["id"])
+    assert mine["locked"] is False and mine["rules"] == SECRET, "joining still opens it for an admin"
+    assert mine["joined_count"] == 0 and row(client, "ann", c["id"])["joined_count"] == 0
+    admin_row = next(r for r in client.login("boss").get("/admin/campaigns").json()["rows"] if r["id"] == c["id"])
+    assert admin_row["joined_count"] == 0
+    assert due == [], "the count did not change, so nobody is sent one"
+    client.login("ann").post(f"/campaigns/{c['id']}/join")
+    assert row(client, "bob", c["id"])["joined_count"] == 1 and due == [c["id"]]
+
+
+def test_making_someone_admin_or_not_moves_everyone_s_count(client, monkeypatch):
+    from src.auth import users as user_store
+
+    def _set_admin(uid, on):
+        monkeypatch.setitem(PEOPLE, uid, {**PEOPLE[uid], "is_admin": on})
+        return True
+    monkeypatch.setattr(user_store, "set_admin", _set_admin)
+    c = camp.create(form())
+    client.login("ann").post(f"/campaigns/{c['id']}/join")
+    assert row(client, "bob", c["id"])["joined_count"] == 1
+    client.sent.clear()
+    assert client.login("boss").post("/admin/users/ann/admin?on=true").status_code == 200
+    assert ("campaigns_changed", None) in client.sent, "everyone's count is out of date"
+    assert row(client, "bob", c["id"])["joined_count"] == 0
+    client.sent.clear()
+    assert client.login("boss").post("/admin/users/bob/admin?on=true").status_code == 200
+    assert ("campaigns_changed", None) not in client.sent, "bob joined nothing: no count moved"
+
+
+def test_the_users_file_says_who_the_admins_are(tmp_path, monkeypatch):
+    from src.auth import users as user_store
+    monkeypatch.setattr(user_store, "_USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr(user_store, "_BACKUP_FILE", tmp_path / "users.json.bak")
+    user_store._save([{"id": "a", "username": "ann", "is_admin": True}, {"id": "b", "username": "bob"}])
+    assert REAL_ADMIN_IDS() == frozenset({"a"})
+    user_store._save([{"id": "a", "username": "ann"}, {"id": "b", "username": "bob", "is_admin": True}])
+    assert REAL_ADMIN_IDS() == frozenset({"b"}), "a changed file is a new answer"
 
 
 def test_a_join_tells_everyone_the_new_count_once_per_burst(monkeypatch):
@@ -253,13 +302,14 @@ def test_a_join_tells_everyone_the_new_count_once_per_burst(monkeypatch):
         joins.join(draft["id"], "boss")
         api._send_join_count_soon(draft["id"])
         await asyncio.sleep(0.2)
-        assert sent == [({"event": "campaign_join_count", "campaign_id": c["id"], "joined_count": 3}, None)], \
+        # ann and bob (boss is an admin, not counted).
+        assert sent == [({"event": "campaign_join_count", "campaign_id": c["id"], "joined_count": 2}, None)], \
             "one event for the burst, with the latest count, to everyone; nothing for the draft"
         sent.clear()
         joins.forget_user("bob")
         api._send_join_count_soon(c["id"])        # the next one goes out on its own
         await asyncio.sleep(0.2)
-        assert [m["joined_count"] for m, _u in sent] == [2]
+        assert [m["joined_count"] for m, _u in sent] == [1]
     asyncio.run(run())
 
 

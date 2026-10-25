@@ -136,6 +136,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(user_store, "_save", lambda u: None)
     monkeypatch.setattr(user_store, "display_names", lambda ids: {
         i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
+    monkeypatch.setattr(user_store, "admin_ids", lambda: frozenset(i for i, p in PEOPLE.items() if p.get("is_admin")))
     monkeypatch.setattr(api.settings, "campaigns_enabled", False)
     sent = []
 

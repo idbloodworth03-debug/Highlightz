@@ -77,6 +77,7 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(user_store, "display_names", lambda ids: {
         i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
     monkeypatch.setattr(user_store, "version", lambda: 1)
+    monkeypatch.setattr(user_store, "admin_ids", lambda: frozenset(i for i, p in PEOPLE.items() if p.get("is_admin")))
     stores = ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
               (res, res._memo), (joins, joins._joins))
     for m, store in stores:

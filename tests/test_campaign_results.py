@@ -78,6 +78,7 @@ def fresh(tmp_path, monkeypatch):
         i: PEOPLE[i].get("twitch_login") or PEOPLE[i]["username"] for i in ids if i in PEOPLE})
     # Changes when PEOPLE does, as the real one does when users.json changes.
     monkeypatch.setattr(user_store, "version", lambda: hash(json.dumps(PEOPLE, sort_keys=True)))
+    monkeypatch.setattr(user_store, "admin_ids", lambda: frozenset(i for i, p in PEOPLE.items() if p.get("is_admin")))
     for m, store in ((camp, camp._campaigns), (creq, creq._requests), (res, res._results), (sched, sched._items),
                      (res, res._memo), (joins, joins._joins)):
         store.clear()

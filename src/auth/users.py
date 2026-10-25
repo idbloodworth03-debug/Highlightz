@@ -123,6 +123,7 @@ def _snapshot() -> dict | None:
             index[u["id"]] = u
     _snap_count += 1
     s = {"path": path, "raw": raw, "index": index,
+         "admins": frozenset(uid for uid, u in index.items() if u.get("is_admin")),
          "blob": pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL), "n": _snap_count}
     _snap = s
     return s
@@ -149,6 +150,16 @@ def display_names(user_ids) -> dict[str, str]:
         if u is not None:
             out[uid] = u.get("twitch_login") or u.get("kick_slug") or u.get("username") or "a clipper"
     return out
+
+
+def admin_ids() -> frozenset:
+    """The ids of every admin account, in one read of the file. For counts
+    that leave admins out: who joined a campaign (an admin joining to try it
+    is not a clipper taking part)."""
+    s = _snapshot()
+    if s is not None:
+        return s["admins"]
+    return frozenset(u.get("id") for u in _load() if u.get("is_admin"))
 
 
 def _load() -> list[dict]:
