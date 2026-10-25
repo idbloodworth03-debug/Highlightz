@@ -75,6 +75,7 @@ _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 from src.dashboard.blog_content import paths as _blog_paths  # noqa: E402
+from src.dashboard.blog_content import all_paths as _blog_all_paths  # noqa: E402
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -90,10 +91,11 @@ _OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/priv
                   # until CAMPAIGN_REQUESTS_ENABLED is on.
                   "/promote",
                   # The blog: the index and each article, listed by
-                  # blog_content.paths() so this set, the router and the
-                  # sitemap read one list. Exact paths, not a /blog prefix —
-                  # an unknown slug is not a page.
-                  *_blog_paths(),
+                  # blog_content so this set, the router and the sitemap read
+                  # one list. Exact paths, not a /blog prefix — an unknown
+                  # slug is not a page. all_paths(): the campaigns article
+                  # too, whose route answers 404 while campaigns are off.
+                  *_blog_all_paths(),
                   # Meta calls these server-to-server with no session, and the
                   # app cannot be configured without them. A redirect to
                   # /login reads to Meta as an endpoint that does not work —
@@ -10241,7 +10243,7 @@ _PAGE_SOURCE = {
     "/compare":  "src/dashboard/compare_content.py",
     "/promote":  "src/dashboard/promote_html.py",
     **{p: "src/dashboard/blog_content.py"
-       for p in _blog_paths()},
+       for p in _blog_all_paths()},
 }
 
 

@@ -6713,3 +6713,36 @@ now as well".
 - **Open (owner's call):** free clippers cannot enter at all. Entry links
   (idea #1 from 2026-10-23: a clipper submits the link to a post they made
   themselves, an admin checks it) would open campaigns to every account.
+
+## Campaigns on the blog (2026-10-25)
+
+Owner: "Make sure our blog page talks about our internal campaigns now too".
+
+- **A new guide**, `/blog/highlightz-campaigns` ("Highlightz Campaigns: prize
+  pools for clipping streams", kicker "New on Highlightz"), first in the
+  list: how a campaign works, what counts as an entry (a post made from
+  Highlightz, on Pro; a clip posted elsewhere is not an entry), the four ways
+  winners are picked, ties, withheld prizes, the leaderboard and payouts,
+  and, for streamers, the budget range, review, the fee and refunds of
+  unwon prizes, then "We do not promise any number of entries or views".
+  Sources: Terms 4A and /promote. Dated 25 October 2026 (`Article.checked`
+  and `.published` are per article now; the others keep 23 September).
+- **The two guides about paid campaigns** mention it: "Where to find
+  clipping campaigns for streamers" gains "5. Highlightz Campaigns" (lead:
+  "Five places to look"), and "How clippers actually make money" a line in
+  route 1 (prizes instead of a rate per view). Every "Where Highlightz fits"
+  gains "Campaigns with prize pools", with a link (that block now renders
+  the content module's `[label](/path)` links like the rest).
+- **Switches**, as on the landing page: all of it only while
+  `CAMPAIGNS_ENABLED` is on (`blog_content.articles()` is the five as they
+  were otherwise); the streamers' part only while
+  `CAMPAIGN_REQUESTS_ENABLED` is. Fee and range come from the campaign
+  settings through the /promote helpers; "on Pro" becomes "once posting
+  opens on Pro" while posting is held back.
+- **Routing:** the auth allowlist is built at startup, so it lists the
+  article always (`blog_content.all_paths()`) and the route answers 404
+  while campaigns are off, as /promote does. The sitemap reads the live
+  `paths()`, so the article is in it only while it exists.
+- `tests/test_blog_campaigns.py` (7); `test_seo_head` lists the article
+  beside /promote as a page that exists behind a switch. Browser: /blog and
+  the article at 1440 and 390 px, no sideways scroll. Full suite 4050.

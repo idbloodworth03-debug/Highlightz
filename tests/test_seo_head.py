@@ -132,9 +132,11 @@ def test_lastmod_is_the_real_mtime_of_the_file_that_renders_the_page():
     import time
     from pathlib import Path
     from src.dashboard.api import _page_lastmod, _PAGE_SOURCE
-    # /promote is public only once CAMPAIGN_REQUESTS_ENABLED is on; the test
-    # below holds it to the same rules with the switch on.
-    assert set(_PAGE_SOURCE) == set(PUBLIC) | {"/promote"}
+    # /promote is public only once CAMPAIGN_REQUESTS_ENABLED is on, and the
+    # blog's campaigns article once CAMPAIGNS_ENABLED is; the test below and
+    # tests/test_blog_campaigns.py hold them to the same rules switched on.
+    from src.dashboard.blog_content import CAMPAIGNS_SLUG
+    assert set(_PAGE_SOURCE) == set(PUBLIC) | {"/promote", "/blog/" + CAMPAIGNS_SLUG}
     root = Path(__file__).resolve().parents[1]
     for path, src in _PAGE_SOURCE.items():
         expected = time.strftime("%Y-%m-%d", time.gmtime((root / src).stat().st_mtime))

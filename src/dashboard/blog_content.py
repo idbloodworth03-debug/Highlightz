@@ -380,6 +380,11 @@ def highlightz_points() -> tuple:
         pts.append(("Editing and scheduling are coming",
                     "A Clip Editor and a Scheduler are on the way; today you "
                     "download the file and post it yourself."))
+    if _campaigns_on():
+        pts.append(("Campaigns with prize pools",
+                    "Streamers put up prize pools on Highlightz itself. A clip you post "
+                    "for one from Highlightz is an entry, ranked on a live leaderboard. "
+                    "[How campaigns work](/blog/" + CAMPAIGNS_SLUG + ")."))
     return tuple(pts)
 
 
@@ -428,6 +433,8 @@ class Article:
     lead:        str
     blocks:      tuple
     sources:     tuple
+    checked:     str = CHECKED_ON      # the date its facts were checked
+    published:   str = PUBLISHED       # ISO, for the structured data
 
 
 ARTICLES = (
@@ -714,6 +721,140 @@ ARTICLES = (
     ),
 )
 
+# ── Highlightz Campaigns (owner, 2026-10-25: "Make sure our blog page talks
+# about our internal campaigns now too") ──────────────────────────────────────
+# Our own campaign marketplace (src/campaigns). Shown only while clippers can
+# see it (CAMPAIGNS_ENABLED); the part for streamers only while they can ask
+# for one (CAMPAIGN_REQUESTS_ENABLED), as on the landing page. Built per call
+# from the settings, so the fee, the budget range and whether posting is open
+# are never typed here: rule 5 above, for a feature behind a switch.
+
+CAMPAIGNS_SLUG = "highlightz-campaigns"
+CAMPAIGNS_CHECKED = "25 October 2026"
+CAMPAIGNS_PUBLISHED = "2026-10-25"
+
+
+def _campaigns_on() -> bool:
+    from config.settings import settings
+    return bool(settings.campaigns_enabled)
+
+
+def _requests_on() -> bool:
+    from config.settings import settings
+    return bool(settings.campaign_requests_enabled)
+
+
+def _entry_posting() -> str:
+    """How an entry is made: posted from Highlightz, which is on Pro, or not
+    yet while posting is held back. The leaderboard counts nothing else."""
+    from config.settings import settings
+    return ("Highlightz, which is on Pro" if settings.uploads_enabled
+            else "Highlightz, once posting opens on Pro")
+
+
+def campaigns_article() -> Article | None:
+    if not _campaigns_on():
+        return None
+    blocks = [
+        ("h", "How a campaign works"),
+        ("p", "A streamer puts up a prize pool and splits it into places. The campaign "
+              "names the streams to clip, the dates, the platforms that count, the "
+              "hashtags every post must carry and how the winners are picked. Clippers "
+              "clip those streams and post their entries from Highlightz. When it ends, "
+              "the whole pool goes to the winners."),
+        ("h", "What counts as an entry"),
+        ("req", (("Posted from", _entry_posting()),
+                 ("When", "While the campaign is live, between its start and its end"),
+                 ("Where", "A platform the campaign names"),
+                 ("Caption", "Every hashtag and mention the campaign asks for, filled in when you post"),
+                 ("Counted", "Its views, and its likes and comments where the campaign uses them, read from the post"))),
+        ("p", "A clip posted somewhere else, outside Highlightz, is not an entry. Every "
+              "entry is a post made here for that campaign, so it can be counted and "
+              "checked."),
+        ("h", "How the winners are picked"),
+        ("list", ("Most views on a single clip.",
+                  "Most views across your best few clips, added up.",
+                  "Most engagement: views, likes and comments across your best few clips.",
+                  "Or judged by the organisers, against the rules on the campaign page.")),
+        ("p", "Each campaign says which one it uses. A tie goes to whoever posted first. "
+              "A prize can be withheld from an entry that breaks the campaign's rules or "
+              "used views, likes or comments that were bought or faked."),
+        ("h", "The leaderboard, and getting paid"),
+        ("p", "Every campaign page has a live leaderboard with names and scores and your "
+              "own row marked, updated as entries are counted. When the campaign ends, "
+              "Highlightz confirms the winners and asks each one where to send the prize: "
+              "PayPal, Venmo, Cash App, a bank transfer or another way. Only the winner "
+              "and Highlightz see those details, and the winner is told when the prize "
+              "is sent."),
+    ]
+    sources = [Source("Highlightz Terms of Service, Section 4A: Campaigns",
+                      "https://highlightz.app/tos#campaigns")]
+    if _requests_on():
+        from src.dashboard.promote_html import _fee_text, _range_text
+        blocks += [
+            ("h", "Running a campaign for your stream"),
+            ("p", "Any account can ask for one, a free one included. You choose the "
+                  "budget, from " + _range_text() + ", how it splits into prizes, and the "
+                  "rules. A person reviews every request, usually within a day, and you "
+                  "pay by card only once it is approved: the budget plus our fee of "
+                  + _fee_text() + ". The whole budget is paid to the winners, and prizes "
+                  "nobody wins come back to you. [How campaigns work for streamers](/promote)."),
+            ("p", "We do not promise any number of entries or views."),
+        ]
+        sources.append(Source("Highlightz Campaigns, for streamers", "https://highlightz.app/promote"))
+    blocks.append(("note", "This describes Highlightz Campaigns as of " + CAMPAIGNS_CHECKED
+                           + ". The [Terms of Service, Section 4A](/tos#campaigns) are the "
+                             "authority."))
+    return Article(
+        slug=CAMPAIGNS_SLUG,
+        title="Highlightz Campaigns: prize pools for clipping streams",
+        description=("How campaigns on Highlightz work: a streamer puts up a prize pool, "
+                     "clippers post clips of the stream from Highlightz, a live "
+                     "leaderboard ranks them, and the winners are paid."),
+        kicker="New on Highlightz",
+        lead=("A campaign is a prize pool for clips of one streamer's streams, and the "
+              "best entries win it. How it works for clippers, and for streamers who "
+              "want to run one."),
+        blocks=tuple(blocks), sources=tuple(sources),
+        checked=CAMPAIGNS_CHECKED, published=CAMPAIGNS_PUBLISHED)
+
+
+def _with_campaigns(a: Article) -> Article:
+    """The two guides that are about finding paid campaigns, with ours in
+    them. The rest are unchanged."""
+    from dataclasses import replace
+    link = "[Highlightz Campaigns](/blog/" + CAMPAIGNS_SLUG + ")"
+    if a.slug == "find-streamer-campaigns":
+        at = next(i for i, b in enumerate(a.blocks) if b == ("h", "Two warnings"))
+        ours = (("h", "5. Highlightz Campaigns"),
+                ("p", "Highlightz runs its own campaigns: a streamer puts up a prize pool "
+                      "and the best clips of their streams win it, ranked on a live "
+                      "leaderboard. Entries are posted from " + _entry_posting() + ". "
+                      + link + " has how they work."))
+        return replace(a, lead=a.lead.replace("Four places to look", "Five places to look"),
+                       description=a.description.replace(
+                           "Discord hubs and direct deals", "Discord hubs, direct deals and "
+                           "Highlightz Campaigns"),
+                       blocks=a.blocks[:at] + ours + a.blocks[at:])
+    if a.slug == "how-clippers-make-money":
+        at = 1 + next(i for i, b in enumerate(a.blocks)
+                      if b[0] == "p" and "(/blog/find-streamer-campaigns)" in b[1])
+        ours = (("p", "Some campaigns pay prizes instead of a rate per view: a fixed pool, "
+                      "split among the best clips. " + link + " work that way, with a "
+                      "live leaderboard."),)
+        return replace(a, blocks=a.blocks[:at] + ours + a.blocks[at:])
+    return a
+
+
+def articles() -> tuple:
+    """The articles as published right now: ours first while campaigns are
+    open, and the two campaign guides mentioning it."""
+    camp = campaigns_article()
+    if camp is None:
+        return ARTICLES
+    return (camp,) + tuple(_with_campaigns(a) for a in ARTICLES)
+
+
 INDEX_TITLE = "Making money clipping"
 INDEX_LEAD = ("Plain guides to getting paid for clips: the platforms, what they "
               "pay, what they require, and where Highlightz helps. Every figure "
@@ -724,10 +865,17 @@ INDEX_DESC = ("Guides to making money clipping streams: clipping marketplaces "
 
 
 def article(slug: str) -> Article | None:
-    return next((a for a in ARTICLES if a.slug == slug), None)
+    return next((a for a in articles() if a.slug == slug), None)
 
 
 def paths() -> tuple:
-    """Every public blog URL — the index and each article. The router, the
-    auth allowlist, the sitemap and the tests all read this one list."""
-    return ("/blog",) + tuple("/blog/" + a.slug for a in ARTICLES)
+    """Every public blog URL right now — the index and each article. The
+    router, the sitemap and the tests read this one list."""
+    return ("/blog",) + tuple("/blog/" + a.slug for a in articles())
+
+
+def all_paths() -> tuple:
+    """Every blog URL that can exist, switched on or not: the auth allowlist
+    is built once at startup, so it lists the campaigns article always and its
+    route answers 404 while campaigns are off (as /promote does)."""
+    return ("/blog",) + tuple("/blog/" + a.slug for a in ARTICLES) + ("/blog/" + CAMPAIGNS_SLUG,)

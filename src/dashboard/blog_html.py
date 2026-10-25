@@ -448,7 +448,7 @@ def _shot(key: str) -> str:
 
 
 def _highlightz() -> str:
-    return ('<ul class="hz">' + "".join("<li><b>" + escape(t) + "</b><span>" + escape(d) + "</span></li>"
+    return ('<ul class="hz">' + "".join("<li><b>" + escape(t) + "</b><span>" + _inline(d) + "</span></li>"
                                         for t, d in B.highlightz_points()) + "</ul>")
 
 
@@ -627,8 +627,8 @@ def _post_rows(articles) -> str:
 
 def _posting(a: "B.Article") -> dict:
     return {"@type": "BlogPosting", "headline": a.title, "description": a.description,
-            "url": _SITE + "/blog/" + a.slug, "datePublished": B.PUBLISHED,
-            "dateModified": B.PUBLISHED, "author": _org(), "publisher": _org(),
+            "url": _SITE + "/blog/" + a.slug, "datePublished": a.published,
+            "dateModified": a.published, "author": _org(), "publisher": _org(),
             "image": _SITE + "/static/og-card-v6.png"}
 
 
@@ -636,7 +636,7 @@ def render_index() -> str:
     schema = _schema({"@context": "https://schema.org", "@type": "Blog",
                       "name": "Highlightz — " + B.INDEX_TITLE, "url": _SITE + "/blog",
                       "description": B.INDEX_DESC, "publisher": _org(),
-                      "blogPost": [_posting(a) for a in B.ARTICLES]})
+                      "blogPost": [_posting(a) for a in B.articles()]})
     return (
         _head(B.INDEX_TITLE + " — the Highlightz blog", B.INDEX_DESC, "/blog", "website", schema)
         + _nav(True)
@@ -654,7 +654,7 @@ def render_index() -> str:
   <div class="wrap">
     <div class="k">The guides</div>
     <h2 class="disp">Start with the money, then the platforms</h2>
-    """ + _post_rows(B.ARTICLES) + """
+    """ + _post_rows(B.articles()) + """
   </div>
 </section>
 
@@ -686,7 +686,7 @@ def render_article(slug: str) -> str | None:
     post["@context"] = "https://schema.org"
     post["mainEntityOfPage"] = _SITE + path
     post["citation"] = [s.url for s in a.sources]
-    others = [x for x in B.ARTICLES if x.slug != a.slug]
+    others = [x for x in B.articles() if x.slug != a.slug]
     return (
         _head(a.title, a.description, path, "article", _schema(post))
         + _nav(False)
@@ -697,7 +697,7 @@ def render_article(slug: str) -> str | None:
     <div class="k">""" + escape(a.kicker) + """</div>
     <h1 class="disp">""" + escape(a.title) + """</h1>
     <p class="lead">""" + escape(a.lead) + """</p>
-    <div class="meta">Checked """ + escape(B.CHECKED_ON) + " &middot; " + str(len(a.sources))
+    <div class="meta">Checked """ + escape(a.checked) + " &middot; " + str(len(a.sources))
         + """ sources &middot; <a href="#sources">see them</a> &middot; """ + str(read_minutes(a)) + """ min read</div>
   </div>
 </header>
