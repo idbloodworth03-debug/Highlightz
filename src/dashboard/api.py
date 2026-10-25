@@ -8776,6 +8776,43 @@ async def admin_campaign_results(request: Request, campaign_id: str):
     return res.admin_view(_admin_campaign(request, campaign_id))
 
 
+@app.get("/admin/campaigns/{campaign_id}/members")
+async def admin_campaign_members(request: Request, campaign_id: str):
+    """Who is in a campaign (owner, 2026-10-25: "make it so admins can see who
+    is in the campaign in the admin portal"): everyone who joined, and anyone
+    with an entry who never had to, newest first. With their plan (entering
+    needs Pro), whether they can post right now, and their entries. Admins
+    are listed but marked: they are not counted among its clippers."""
+    from src.auth import users as user_store
+    from src.billing.plans import get_plan, limits_for
+    from src.campaigns import joins
+    from src.campaigns import results as res
+    c = _admin_campaign(request, campaign_id)
+    joined = joins.members(c["id"])
+    per: dict[str, list[int]] = {}
+    for e in res.entries(c):
+        n = per.setdefault(e["user_id"], [0, 0])
+        n[0] += 1
+        n[1] += 1 if e["eligible"] else 0
+    ids = set(joined) | set(per)
+    users = {u.get("id"): u for u in user_store.get_all() if u.get("id") in ids}
+    names = user_store.display_names(ids)
+    rows = []
+    for uid in ids:
+        u = users.get(uid)
+        if u is None or uid not in names:
+            continue                                # the account is gone
+        entries, counting = per.get(uid, (0, 0))
+        rows.append({"user_id": uid, "name": names[uid], "joined_at": joined.get(uid, 0),
+                     "admin": bool(u.get("is_admin")), "plan": get_plan(u),
+                     "can_post": bool(limits_for(u)["uploads"])
+                                 and (settings.uploads_enabled or user_store.has_early_access(u)),
+                     "entries": entries, "counting": counting})
+    rows.sort(key=lambda r: (r["joined_at"] or 0, r["name"]), reverse=True)
+    clippers = sum(1 for r in rows if not r["admin"])
+    return {"rows": rows, "clippers": clippers, "admins": len(rows) - clippers}
+
+
 @app.post("/admin/campaigns/{campaign_id}/stats")
 async def admin_campaign_stats(request: Request, campaign_id: str):
     """Counts and disqualifications for many entries at once."""
@@ -15425,6 +15462,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="toolbar"><button class="btn btn-good" id="cp-new">+ New campaign</button></div>
     <div id="cp-editor"></div>
     <div id="cp-wrap" class="loading">Loading&hellip;</div>
+    <div id="cp-members"></div>
     <div id="cp-results"></div>
   </div>
 
@@ -15893,6 +15931,7 @@ function renderCampaigns(){
         + ' &middot; ' + (c.joined_count || 0) + ' joined'
         + ' &middot; ' + (c.entries || 0) + ' entr' + (c.entries === 1 ? 'y' : 'ies') + cpToCount(c) + '</span></div>'
       + '<div class="acts"><button class="btn cp-edit" data-id="' + esc(c.id) + '">Edit</button>'
+      + '<button class="btn cp-mem" data-id="' + esc(c.id) + '">Who joined</button>'
       + '<button class="btn cp-res" data-id="' + esc(c.id) + '">Results</button>'
       + '<button class="btn btn-bad cp-del" data-id="' + esc(c.id) + '">Delete</button></div></div>';
   }).join('') + '</div>';
@@ -16257,12 +16296,14 @@ document.getElementById('panel-campaigns').addEventListener('click', async funct
   const id = t.getAttribute('data-id');
   if(t.classList.contains('cp-edit')){ openCampaignEditor(CP_ROWS.find(function(c){ return c.id === id; })); return; }
   if(t.classList.contains('cp-res')){ cpResults(id); return; }
+  if(t.classList.contains('cp-mem')){ cpMembers(id); return; }
   if(t.classList.contains('cp-del')){
     const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
     if(!confirm('Delete "' + (c.title || 'this campaign') + '"? It disappears from the marketplace. Posts already made stay on the platforms.')) return;
     try {
       await api('/admin/campaigns/' + id, 'DELETE'); toast('Deleted');
       if(CR_ID === id){ CR_ID = ''; CR_DATA = null; renderResults(); }
+      if(CM_ID === id){ CM_ID = ''; document.getElementById('cp-members').innerHTML = ''; }
       loadCampaigns();
     }
     catch(err){ toast(err.message, false); }
@@ -16293,7 +16334,47 @@ setInterval(function(){
   if(!campaignsOpen()) return;
   loadCampaigns();
   if(CR_ID) cpResults(CR_ID, true);
+  if(CM_ID) cpMembers(CM_ID, true);
 }, 30000);
+
+// ── who is in a campaign ─
+// Everyone who joined, and anyone with an entry who never had to, newest
+// first: their plan (entering needs Pro), whether they can post entries now,
+// and their entries. Admins are listed and marked; they are not counted.
+// Re-read with the list while open (this page polls; it has no socket).
+let CM_ID = '';
+const CM_PLAN = {free: 'Free', starter: 'Starter', pro: 'Pro'};
+
+async function cpMembers(id, quiet){
+  const box = document.getElementById('cp-members');
+  if(!quiet){ CM_ID = id; box.innerHTML = '<div class="loading">Loading&hellip;</div>'; }
+  let d;
+  try { d = await api('/admin/campaigns/' + id + '/members'); }
+  catch(e){ if(!quiet) box.innerHTML = '<p class="err">Could not load who joined: ' + esc(e.message) + '</p>'; return; }
+  if(id !== CM_ID) return;
+  const c = CP_ROWS.find(function(x){ return x.id === id; }) || {};
+  let h = '<div class="block-head" style="margin-top:var(--s-7)"><h2>Who joined &middot; ' + esc(c.title || '') + '</h2>'
+    + '<span class="c">' + d.clippers + ' clipper' + (d.clippers === 1 ? '' : 's')
+    + (d.admins ? ' + ' + d.admins + ' admin' + (d.admins === 1 ? '' : 's') : '') + '</span></div>'
+    + '<div class="toolbar"><button class="btn" type="button" id="cm-close">Close</button></div>';
+  if(!d.rows.length) h += '<p class="sub">Nobody has joined yet.</p>';
+  else h += '<div class="tw"><table><thead><tr><th>Clipper</th><th>Plan</th><th>Joined</th><th>Entries</th></tr></thead><tbody>'
+    + d.rows.map(function(r){
+        return '<tr><td data-l="Clipper"><b>' + esc(r.name) + '</b>'
+            + (r.admin ? ' <span class="cp-pill draft">admin, not counted</span>' : '') + '</td>'
+          + '<td data-l="Plan">' + esc(CM_PLAN[r.plan] || r.plan)
+            + (r.can_post ? '' : ' <span class="sub">cannot post entries</span>') + '</td>'
+          + '<td data-l="Joined">' + (r.joined_at ? cpWhen(r.joined_at) : '<span class="sub">by posting an entry</span>') + '</td>'
+          + '<td data-l="Entries">' + r.entries
+            + (r.entries > r.counting ? ' <span class="sub">' + (r.entries - r.counting) + ' not counting</span>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  box.innerHTML = h;
+  if(!quiet) box.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+document.getElementById('cp-members').addEventListener('click', function(e){
+  const t = e.target.closest('button');
+  if(t && t.id === 'cm-close'){ CM_ID = ''; document.getElementById('cp-members').innerHTML = ''; }
+});
 
 // ── campaign requests (streamers fund campaigns) ──────────
 // Sent from the dashboard's Promote screen. Approving lets the streamer pay

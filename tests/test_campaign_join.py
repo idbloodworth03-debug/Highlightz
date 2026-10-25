@@ -339,6 +339,47 @@ def test_the_admin_list_counts_who_joined(client):
     assert "(c.joined_count || 0) + ' joined'" in client.api.ADMIN_HTML
 
 
+def test_admins_see_who_is_in_a_campaign(client, monkeypatch):
+    """Owner: "make it so admins can see who is in the campaign in the admin
+    portal"."""
+    monkeypatch.setitem(PEOPLE, "ann", {**PEOPLE["ann"], "plan": "pro"})
+    monkeypatch.setitem(PEOPLE, "cat", {"id": "cat", "username": "cat", "plan": "free",
+                                        "subscription_status": "none"})
+    monkeypatch.setattr(client.api.settings, "uploads_enabled", True)
+    c = camp.create(form())
+    for who, at in (("ann", NOW - 300), ("boss", NOW - 200), ("cat", NOW - 100)):
+        joins.join(c["id"], who)
+        joins._joins[c["id"]][who] = at
+    # bob posted before joining existed; one of his two entries counts.
+    for i, at in enumerate((NOW - 3600, NOW + 10 * DAY)):
+        it = sched.Item(id=f"it000{i}", user_id="bob", upload_id="u", filename="f.mp4", caption="#duxxion",
+                        platforms=["tiktok"], status="posted", campaign_id=c["id"])
+        it.results = {"tiktok": {"status": "posted", "url": f"https://www.tiktok.com/@bob/video/{i}", "at": at}}
+        sched._items[it.id] = it
+    sched._save()
+    assert client.login("ann").get(f"/admin/campaigns/{c['id']}/members").status_code == 403, "admins only"
+    d = client.login("boss").get(f"/admin/campaigns/{c['id']}/members").json()
+    assert (d["clippers"], d["admins"]) == (3, 1)
+    got = [(r["name"], r["admin"], r["plan"], r["can_post"], r["entries"], r["counting"], bool(r["joined_at"]))
+           for r in d["rows"]]
+    assert got == [("cat", False, "free", False, 0, 0, True),          # newest first
+                   ("boss", True, "pro", True, 0, 0, True),
+                   ("ann_clips", False, "pro", True, 0, 0, True),
+                   ("bob", False, got[3][2], got[3][3], 2, 1, False)], got   # joined by posting
+    # Nothing private: no emails, payout details or passwords in the list.
+    assert "email" not in json.dumps(d) and "password" not in json.dumps(d)
+
+
+def test_the_admin_page_has_who_joined():
+    from src.dashboard import api
+    html = api.ADMIN_HTML
+    assert 'id="cp-members"' in html and "cp-mem" in html and ">Who joined</button>" in html
+    assert "'/admin/campaigns/' + id + '/members'" in html
+    poll = html[html.index("if(!campaignsOpen()) return;"):][:200]
+    assert "cpMembers(CM_ID, true)" in poll, "the open list is not re-read with the page"
+    assert "admin, not counted" in html and "cannot post entries" in html
+
+
 # ── 5. the pages ─────────────────────────────────────────────────────────────
 
 def test_the_dashboard_follows_it():

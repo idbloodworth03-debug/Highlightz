@@ -76,6 +76,12 @@ def count(campaign_id: str) -> int:
     return len(_joins.get(campaign_id) or {})
 
 
+def members(campaign_id: str) -> dict[str, float]:
+    """{user id: when they joined} for one campaign. A copy."""
+    _load()
+    return dict(_joins.get(campaign_id) or {})
+
+
 def ids(campaign_id: str) -> set[str]:
     """Who joined it. The count everyone sees adds those with an entry who
     never pressed Join (api._joined_count)."""

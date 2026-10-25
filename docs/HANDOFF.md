@@ -6997,3 +6997,26 @@ owner. What was missing was a way from the popup to the campaign, so:
   duxxion page on its Join panel; an account that was offline got it on the
   next open, pressed Got it, and the bell's button opened the page; no
   console errors; desktop and phone.
+
+### Who joined, in the admin portal (2026-10-25)
+
+Owner: "make it so admins can see who is in the cmapaign in the admin portal".
+
+- Admin -> Campaigns: a **Who joined** button on every campaign row opens a
+  list under the campaigns: "N clippers + M admins", then one row per person,
+  newest first: name, plan (Free / Starter / Pro, with "cannot post entries"
+  when they could not post an entry right now), when they joined ("by posting
+  an entry" for someone with an entry who never pressed Join), and entries
+  (with how many do not count). Admins are listed and tagged "admin, not
+  counted". Close takes it away; it is re-read with the page's 30 s poll while
+  open, and cleared if that campaign is deleted.
+- `GET /admin/campaigns/{id}/members` (admin only): joins (`joins.members`)
+  plus entrants, the accounts read once (`get_all`, which drops secret
+  fields), names from `display_names`; an account that is gone is left out.
+  No emails or payout details in it.
+- Verified: `tests/test_campaign_join.py` (+2: the list's rows, order,
+  plans, posting, entries and admin tags, admin-only, nothing private; the
+  admin page wiring and its re-read). Full suite 4094; admin script. Browser:
+  two joins and an admin's, the list at 1440 and 390 px (cards on the phone),
+  a third join showing on the re-read, Close; no console errors, no sideways
+  scroll.
