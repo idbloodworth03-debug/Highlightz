@@ -15061,7 +15061,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <!-- ── USERS ── -->
   <div class="panel on" id="panel-users">
     <div class="toolbar">
-      <input class="field" id="u-search" placeholder="Search name, Twitch login or email">
+      <input class="field" id="u-search" placeholder="Search name, Twitch login, email or where they found us">
       <div class="chips" id="u-chips">
         <button class="chip on" data-f="active" title="Everyone currently on the product — free, paying, on trial and staff. Cancelled accounts keep free access but are listed under Lapsed.">Active</button>
         <button class="chip" data-f="pro">Pro</button>
@@ -15443,7 +15443,7 @@ const OB_GOAL_LABELS = {
   grow_channel: 'grow my own channel',
   earn_money: 'make money posting clips'
 };
-let OB_ROWS = [], OB_Q = '';
+let OB_ROWS = [], OB_Q = '', OB_LOADED = false;
 // Where they found us (2026-10-26): the same payload's found_us block. The
 // keys are users.FOUND_VIA; a test holds the two lists together.
 const FU_LABELS = {
@@ -15469,10 +15469,13 @@ async function loadOnboarding(){
     document.getElementById('fu-wrap').textContent = 'Could not load.';
     return;
   }
+  OB_LOADED = true;
   const f = (d && d.found_us) || {}, fs = f.sources || {};
   FU_ROWS = f.rows || [];
   document.getElementById('fu-c').textContent =
     n0(f.answered) + ' answered of ' + n0(f.asked) + ' asked · ' + (f.completion_pct || 0) + '%';
+  // On the tab itself too, read at boot, so new answers show without opening it.
+  document.getElementById('tc-onboarding').textContent = f.answered ? String(f.answered) : '';
   const fpc = v => f.answered ? Math.round(100 * v / f.answered) + '%' : '—';
   const found = Object.keys(FU_LABELS).map(k => [k, fs[k] || 0]).sort((a,b) => b[1] - a[1]);
   let fh = '<table><thead><tr><th>Found us via</th><th>Accounts</th><th>Share</th></tr></thead><tbody>';
@@ -15625,6 +15628,18 @@ document.getElementById('dl-filter').addEventListener('input', function(e){
 document.getElementById('ob-filter').addEventListener('input', function(e){
   OB_Q = e.target.value; renderOnboarding();
 });
+
+// Kept current while it is open, like Accounts and Campaigns (this page has
+// no socket): re-read on coming back to the window and every 20 seconds, so a
+// new account's answers appear without clicking the tab again (owner,
+// 2026-10-26: "make sure the information goes back to the admin page so I
+// can see it all").
+function onboardingOpen(){
+  const panel = document.getElementById('panel-onboarding');
+  return OB_LOADED && panel && panel.classList.contains('on') && !document.hidden;
+}
+window.addEventListener('focus', function(){ if(onboardingOpen()) loadOnboarding(); });
+setInterval(function(){ if(onboardingOpen()) loadOnboarding(); }, 20000);
 
 // Coming back to a tab left open on this panel re-reads it. Without this the
 // operator is looking at whatever was true when they wandered off.
@@ -16763,8 +16778,12 @@ function userState(u){
 
 function userMatches(u){
   if(U_Q){
+    // The sign-up answers are searchable too: "reddit" lists everyone who
+    // found us there, whatever else they typed.
     const hay = ((u.username||'') + ' ' + (u.twitch_login||'') + ' ' + (u.email||'')
-                 + ' ' + (u.promo_code||'') + ' ' + (u.affiliate_code||'')).toLowerCase();
+                 + ' ' + (u.promo_code||'') + ' ' + (u.affiliate_code||'')
+                 + ' ' + (u.found_via ? (FU_LABELS[u.found_via] || u.found_via) : '')
+                 + ' ' + (u.found_via_detail||'')).toLowerCase();
     if(hay.indexOf(U_Q) < 0) return false;
   }
   const st = userState(u);
@@ -16803,6 +16822,50 @@ function userMatches(u){
   // would otherwise read "affiliate" as a plan name and match nobody.
   if(U_FILTER === 'affiliate') return !!u.affiliate_code;
   return u.plan === U_FILTER;
+}
+
+// What they told us when they signed up, on the row where you look at the
+// person: where they found us (with their own words, cut short here and whole
+// on hover and in Details) and what they are here for. An account from before
+// the questions existed shows nothing rather than a blank.
+function signupLine(u){
+  const bits = [];
+  if(u.found_via){
+    const d = u.found_via_detail || '';
+    const short = d.length > 60 ? d.slice(0, 57) + '…' : d;
+    bits.push('found us via <b>' + esc(FU_LABELS[u.found_via] || u.found_via) + '</b>'
+      + (short ? ': <span title="' + esc(d) + '">' + esc(short) + '</span>' : ''));
+  } else if(u.found_via_asked_at){
+    bits.push('<span class="dim">has not said where they found us yet</span>');
+  }
+  const p = u.prefs || {};
+  if(p.use_case === 'clipper') bits.push('here to clip');
+  else if(p.use_case === 'streamer') bits.push('here for their own channel');
+  return bits.length ? '<div class="sub su-line">' + bits.join(' · ') + '</div>' : '';
+}
+
+// The same answers in full, in the account's Details drawer.
+function signupBlock(u){
+  const p = u.prefs || {};
+  const found = u.found_via
+    ? '<b>' + esc(FU_LABELS[u.found_via] || u.found_via) + '</b>'
+      + (u.found_via_detail ? ' &mdash; &ldquo;' + esc(u.found_via_detail) + '&rdquo;' : '')
+      + (u.found_via_at ? ' <span class="dim" style="font-size:12px">(' + fmt(u.found_via_at) + ')</span>' : '')
+    : '<span class="dim">' + (u.found_via_asked_at ? 'not answered yet'
+        : 'not asked: they signed up before the question existed') + '</span>';
+  // The onboarding questions are asked once Twitch is attached, so an account
+  // without it has not declined to answer; it has not been asked.
+  const notYet = '<span class="dim">' + (u.twitch_login ? 'not answered yet'
+        : 'not asked: no Twitch account attached') + '</span>';
+  const here = p.use_case === 'clipper' ? 'Clipping other streamers'
+             : p.use_case === 'streamer' ? 'Promoting their own channel' : '';
+  const goals = (p.goals || []).map(g => OB_GOAL_LABELS[g] || g).join(', ');
+  return '<div><div class="dh">Sign-up answers</div><dl class="kv">'
+    + '<dt>Found us via</dt><dd>' + found + '</dd>'
+    + '<dt>Here for</dt><dd>' + (here ? esc(here) : notYet) + '</dd>'
+    + '<dt>Wants</dt><dd>' + (goals ? esc(goals)
+        : (p.onboarded_at ? '<span class="dim">none given</span>' : notYet)) + '</dd>'
+    + '</dl></div>';
 }
 
 function renderUsers(){
@@ -16874,7 +16937,7 @@ function renderUsers(){
       + '<td><div class="who">' + avatar + '<div style="min-width:0"><div class="username">'
         + esc(u.username) + marks + '</div><div class="sub">'
         + (u.twitch_login ? '@' + esc(u.twitch_login) : 'password auth')
-        + (u.email ? ' · ' + esc(u.email) : '') + '</div></div></div></td>'
+        + (u.email ? ' · ' + esc(u.email) : '') + '</div>' + signupLine(u) + '</div></div></td>'
       + '<td><span class="plan ' + planClass(u.plan) + '">' + esc(u.plan_label || u.plan) + '</span>'
         + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div>'
         + stageNote(u) + '</td>'
@@ -17116,7 +17179,8 @@ async function openUser(u){
     + '<a class="btn" href="/admin/feedback-page?to=' + encodeURIComponent(u.id) + '">'
     + 'Send a message</a></div>'
     + offerBlock(u)
-    + '</div>';
+    + '</div>'
+    + signupBlock(u);
 
   const [streams, clips] = await Promise.all([
     api('/admin/users/' + u.id + '/streams').catch(() => []),
@@ -17738,6 +17802,19 @@ async function refresh(){
   loadOverview();
 }
 
+// The Users list kept current too: new sign-ups and their answers arrive on
+// coming back to the window and every 60 seconds while it is on screen. Not
+// while a control in the table has focus, because a re-render would close an
+// open Grant or Trial picker under the cursor.
+function usersOpen(){
+  const panel = document.getElementById('panel-users');
+  const a = document.activeElement;
+  return panel && panel.classList.contains('on') && !document.hidden
+    && !(a && a.closest && a.closest('#u-wrap'));
+}
+window.addEventListener('focus', function(){ if(usersOpen()) refresh(); });
+setInterval(function(){ if(usersOpen()) loadUsers(); }, 60000);
+
 fetch('/me').then(r => r.json()).then(m => { ME = m.user_id || ''; }).catch(() => {});
 fetch('/admin/feedback').then(r => r.json()).then(fb => {
   const unread = (fb || []).filter(f => !f.read).length;
@@ -17751,6 +17828,7 @@ loadReferrals();
 loadInvites();
 loadClipRecord();
 loadReviews();
+loadOnboarding();
 </script>
 </body>
 </html>"""

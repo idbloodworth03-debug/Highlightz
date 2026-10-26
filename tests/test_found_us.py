@@ -369,3 +369,77 @@ def test_the_growth_report_counts_without_their_words():
     src = (ROOT / "scripts" / "growth_report.py").read_text()
     assert "WHERE THEY FOUND US" in src
     assert "found_via_detail" not in src, "their own words can name a person; the report is aggregate"
+
+
+# ── on every account in the admin page, and kept current ─────────────────────
+# Owner, 2026-10-26: "make sure the information goes back to the admin page so
+# I can see it all".
+
+def _admin_js() -> str:
+    html = api.ADMIN_HTML
+    return html[html.index("<script>"):html.rindex("</script>")]
+
+
+def _fn(js: str, head: str) -> str:
+    body = js[js.index(head):]
+    return body[:body.index("\n}\n")]
+
+
+def test_the_admin_users_list_carries_every_answer(scene):
+    st = scene.store
+    boss = st.create("boss", "a-long-enough-password", is_admin=True)
+    nova = st.create("nova", "a-long-enough-password")
+    st.ask_found_via(nova["id"])
+    st.set_found_via(nova["id"], "reddit", "r/passive_income")
+    st.set_prefs(nova["id"], {"use_case": "clipper", "goals": ["earn_money"], "onboarded_at": 1.0})
+    scene.login(boss["id"], "boss")
+    rows = {u["username"]: u for u in scene.get("/admin/users").json()}
+    n = rows["nova"]
+    assert n["found_via"] == "reddit" and n["found_via_detail"] == "r/passive_income"
+    assert n["found_via_at"] and n["found_via_asked_at"]
+    assert n["prefs"]["use_case"] == "clipper" and n["prefs"]["goals"] == ["earn_money"]
+    assert not rows["boss"].get("found_via"), "an account that was never asked has no answer"
+
+
+def test_every_account_row_says_where_they_found_us():
+    js = _admin_js()
+    render = _fn(js, "function renderUsers(){")
+    assert "signupLine(u)" in render, "the Users table does not show the answers"
+    line = _fn(js, "function signupLine(u){")
+    assert "esc(FU_LABELS[u.found_via] || u.found_via)" in line
+    assert "esc(short)" in line and 'title="\' + esc(d) + \'"' in line, \
+        "their own words reach the table unescaped, or uncut"
+    assert "has not said where they found us yet" in line
+    assert "p.use_case === 'clipper'" in line and "p.use_case === 'streamer'" in line
+
+
+def test_the_details_drawer_has_the_sign_up_answers():
+    js = _admin_js()
+    assert "+ signupBlock(u);" in _fn(js, "async function openUser(u){")
+    block = _fn(js, "function signupBlock(u){")
+    for label in ("Sign-up answers", "Found us via", "Here for", "Wants"):
+        assert label in block, label
+    assert "esc(u.found_via_detail)" in block
+    assert "OB_GOAL_LABELS[g]" in block
+    assert "not asked: they signed up before the question existed" in block
+    assert "not asked: no Twitch account attached" in block
+
+
+def test_searching_users_finds_them_by_where_they_found_us():
+    hay = _fn(_admin_js(), "function userMatches(u){")
+    assert "FU_LABELS[u.found_via]" in hay and "u.found_via_detail" in hay
+
+
+def test_the_admin_page_keeps_the_answers_current():
+    """It has no socket, so the open tabs re-read themselves the way Accounts
+    and Campaigns already do: on coming back to the window and on a timer."""
+    js = _admin_js()
+    assert "window.addEventListener('focus', function(){ if(onboardingOpen()) loadOnboarding(); });" in js
+    assert "setInterval(function(){ if(onboardingOpen()) loadOnboarding(); }, 20000);" in js
+    assert "window.addEventListener('focus', function(){ if(usersOpen()) refresh(); });" in js
+    assert "setInterval(function(){ if(usersOpen()) loadUsers(); }, 60000);" in js
+    users_open = _fn(js, "function usersOpen(){")
+    assert "a.closest('#u-wrap')" in users_open, "a poll would close an open Grant picker"
+    boot = js[js.index("refresh();\nloadAffiliates();"):]
+    assert "loadOnboarding();" in boot, "the Onboarding tab's count is not read at boot"
+    assert "document.getElementById('tc-onboarding').textContent" in js

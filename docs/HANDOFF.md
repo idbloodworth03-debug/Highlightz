@@ -7240,3 +7240,41 @@ questions 2.5 s later; a returning account with /clips and /streams held back
 1.5 s never saw the screen (MutationObserver); Kick-only and password accounts
 went straight to the app; on a phone "See the campaigns" opened Campaigns; no
 console errors, no sideways scroll. Full suite 4149.
+
+## Sign-up answers on every account in the admin page, kept current (2026-10-26)
+
+Owner: "make sure the information goes back to the admin page so I can see it
+all". The answers were already counted in Admin -> Onboarding; this puts them
+where you look at a person, and keeps both places current without a reload.
+
+- **Users tab, every row:** a line under the name with what they told us:
+  "found us via Reddit: r/passive_income · here to clip" (their words cut to
+  60 characters, the whole line on hover; escaped). "has not said where they
+  found us yet" for an account that was asked and has not answered; nothing
+  for an account from before the question existed. `signupLine(u)`.
+- **Details drawer:** a "Sign-up answers" section after Membership: Found us
+  via (answer, their words, date), Here for, Wants. Says "not asked" rather
+  than a blank when the account predates the question or has no Twitch
+  (the onboarding questions are only asked once Twitch is attached).
+  `signupBlock(u)`.
+- **Search:** the Users search matches where they found us and their words,
+  so "reddit" lists everyone who came from Reddit (placeholder updated).
+- **No server change was needed for the per-account view:** `/admin/users`
+  already sends every user record minus secrets, which carries `found_via*`
+  and `prefs`.
+- **Kept current (this page has no socket):** the Onboarding tab re-reads on
+  coming back to the window and every 20 s while open (`onboardingOpen()`,
+  the Accounts/Campaigns pattern), and its tab count is read at boot so new
+  answers show on the tab without opening it. The Users list re-reads on
+  focus (`refresh()`, which also updates the header figures) and every 60 s
+  while on screen (`usersOpen()`), never while a control in the table has
+  focus, because a re-render would close an open Grant or Trial picker.
+- Tests: five more in `tests/test_found_us.py` (the payload carries the
+  answers; the row line; the drawer section; search; the re-reads and the
+  boot count). Browser (`scratchpad/adminview`): the Onboarding tab read "2"
+  without being opened; rows showed each account's answers; "reddit" found
+  only the Reddit account; Details showed the section for an answered, a
+  half-answered and an old account; an account answering while the admin
+  had Onboarding open appeared there (3 of 3, its words) and on the Users
+  list after returning to the window, no reload; the drawer fits a 390px
+  phone. Full suite 4154.
