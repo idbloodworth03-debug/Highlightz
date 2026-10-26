@@ -155,16 +155,15 @@ def test_the_warm_counterpoint_is_actually_warm_and_actually_used():
     assert 20 <= h <= 50, f"--ember is at hue {h:.0f} — not a warm lamp"
     assert s >= 70, "--ember is too grey to read as a light"
     # 7, down from 8: the nav's trig sparkline left with the nav. What remains
-    # is every instrument — the tile dots, scores and flags, the Pro price,
-    # the cover's counter and stat-big.
+    # is every instrument — the tile dots, scores and flags, the score
+    # scene's firing state — and the button.
     assert CSS.count("var(--ember)") >= 7, "the counterpoint is barely used"
     # It is the resting state of the wall's four score readouts — the whole
     # wall rests at the lamp colour and only a crossing goes hot.
     for sel in (".tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--ember)" in block, f"{sel} should rest at the lamp colour"
-    # The crossing fires in the orange too (v4): the violet stays in the logo
-    # and the cover's floor glow.
+    # The crossing fires in the orange too (v4): the violet stays in the logo.
     for sel in (".tile.fire .tile-score",):
         block = CSS[CSS.index(sel + "{"):CSS.index("}", CSS.index(sel + "{"))]
         assert "var(--ember)" in block, f"{sel} should fire in the orange"

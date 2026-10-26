@@ -165,7 +165,9 @@ def test_the_json_ld_count_is_the_same_number_the_tile_shows():
     src = inspect.getsource(api.render_landing)
     assert "userInteractionCount" in src
     assert src.count("total") >= 3, "render_landing stopped using one shared total"
-    # Both substitutions must be fed by the same `total`, not recomputed.
-    assert 'f\'<span id="lp-count" data-count="{total}"' in src or \
-           'data-count="{total}"' in src
+    # Both must be fed by the same `total`, not recomputed: the figure under
+    # the proof section (the cover's #lp-count tile until the cover went on
+    # 2026-10-26) and the JSON-LD.
+    assert "_bignums_html(total)" in src and "get_clip_counter()" in src
+    assert src.count("get_clip_counter()") == 1, "the counter is read twice and can disagree"
     assert '"userInteractionCount": {total}' in src

@@ -334,277 +334,72 @@ def test_the_wall_still_works_with_no_curated_clips_at_all():
     assert "e.game.textContent=(tl.clip&&tl.clip.game)?tl.clip.game:(tl.game||'');" in JS
 
 
-# ── the cover ───────────────────────────────────────────────────────────────
+# ── no cover: the page opens on the product ──────────────────────────────────
 
-def _cover() -> str:
-    """The cover element's markup, from its opening tag to the nav that ends
-    it. Sliced on the nav rather than on a </div>, because the cover contains
-    nested divs and matching the first close would stop inside the lockup."""
-    start = HTML.index('<div class="cover" id="cover">')
-    return HTML[start:HTML.index('THE THROUGH-LINE', start)]
-
-
-def test_the_site_opens_on_the_cover_with_only_the_bar_over_it():
-    """First screen: the mark, the name, the numbers, on black. The nav is
-    the one thing allowed in front of the cover — moved there on the owner's
-    call (2026-09-02), fixed over the top of the page the way a bar sits on a
-    hero image — and it is the only thing: nothing else may render before the
-    cover, and the bar itself must be out of flow so it does not push the
-    cover down."""
+def test_the_site_opens_on_the_proof_section_with_only_the_bar_over_it():
+    """Owner, 2026-10-26: "I am thinking of removing the black screen with the
+    logo when you first land on the landing page. It seems like a useless page
+    so lets get rid of it." The first screen is the proof section now: the
+    clip frame, the headline and the button. The fixed bar is the one thing
+    allowed in front of it, out of flow so it does not push the section down,
+    and the section's own top padding clears the bar."""
     body = HTML.index("<body>")
-    between = HTML[body + len("<body>"):HTML.index('<div class="cover" id="cover">')]
-    live = re.sub(r"<!--.*?-->", "", between, flags=re.S)
+    first = HTML.index('<section class="proof" id="proof"')
+    live = re.sub(r"<!--.*?-->", "", HTML[body + len("<body>"):first], flags=re.S)
     assert "<section" not in live and "<header" not in live, \
-        "something else renders before the cover"
+        "something renders before the proof section"
     assert live.count("<nav") == 1 and "<div" not in live.split("<nav")[0], \
-        "the nav is not the only thing before the cover"
+        "the nav is not the only thing before the proof section"
+    assert live.split("</nav>")[-1].strip() == "", \
+        "something sits between the bar and the proof section"
     nav = re.search(r"\n  \.nav\{([^}]*)\}", HTML).group(1)
     assert "position:fixed" in nav and "top:0" in nav, \
-        "the bar is in flow again and pushes the cover down"
-    cover = _cover()
-    assert "/static/logo-mark.png" in cover, "the cover lost the logo"
-    assert 'class="cover-word">Highlightz<' in cover, "the cover lost the name"
-    assert 'class="stats"' in cover, "the stats band is not on the cover"
+        "the bar is in flow again and pushes the first section down"
+    pad = re.search(r"\n  \.proof-in\{[^}]*padding-top:clamp\((\d+)px", HTML)
+    nav_h = re.search(r"--nav-h:(\d+)px", HTML)
+    assert pad and nav_h and int(pad.group(1)) > int(nav_h.group(1)), \
+        "the headline can land under the bar"
 
 
-def test_the_stats_band_is_on_the_cover_and_only_there():
-    """It was moved, not copied. Two stats bands would mean two elements with
-    id=stat-clips, and the render-time reveal would only ever find the first."""
-    assert HTML.count('class="stats"') == 1, "the stats band exists twice"
-    for one_id in ("stat-clips", "lp-count"):
-        assert HTML.count(f'id="{one_id}"') == 1, f"{one_id} is duplicated"
+def test_the_cover_stays_gone():
+    """No black first screen and none of what came with it: the blurred mark,
+    the wordmark, the stat band (its live count is in the figures under the
+    proof section), the scroll cue, the fade-out, and no rule left shipping
+    that styles nothing. Comments are stripped first, because the notes that
+    say what was removed name every one of these."""
+    live = re.sub(r"/\*.*?\*/", "", HTML, flags=re.S)
+    live = re.sub(r"<!--.*?-->", "", live, flags=re.S)
+    for gone in ('id="cover"', 'class="cover', ".cover{", ".cover-", "cover-cue",
+                 "@keyframes cue", 'class="stats"', ".stats{", ".stat{", ".stat .n",
+                 "stat-clips", "lp-count", "measureCover", "past-cover"):
+        assert gone not in live, f"the cover left {gone!r} behind"
 
 
-def test_the_live_numbers_still_get_revealed_after_the_move():
-    """The band is revealed by string replacement at render time. Moving the
-    markup reindented it, so this pins the exact needles _landing_html looks
-    for — a whitespace-sensitive one would now silently never match."""
-    import inspect
-    from src.dashboard import api
-    src = inspect.getsource(api)
-    for needle in (
-        '<div class="stat stat-big" id="stat-clips" style="display:none">',
-        '<span id="lp-count" data-count="0">0</span>',
-    ):
-        assert needle in HTML, f"the markup no longer contains {needle!r}"
-        assert src.count(needle) >= 2, \
-            f"nothing replaces {needle!r} any more, so the number stays hidden"
-
-
-def test_the_cover_word_keeps_the_wordmark_treatment():
-    """This used to assert the cover matched the nav's lockup declaration for
-    declaration. The nav is gone, so the cover IS the wordmark now — the
-    treatment it inherited (mono, 600, .12em, uppercase) is pinned directly."""
-    cov = re.search(r"\.cover-word\{([^}]*)\}", HTML).group(1)
-    for needle in ("font-family:var(--mono)", "font-weight:600",
-                   "letter-spacing:.12em", "text-transform:uppercase"):
-        assert needle in cov, f"the wordmark lost {needle}"
-
-
-def test_the_cover_mark_is_the_room_s_light_not_an_object_in_it():
-    """Owner's call (2026-09-02): the logo is not a small sharp object above
-    the name any more. It is huge, blurred, and BEHIND everything — a real
-    blur of the real file, taller than the viewport so the blur's edges leave
-    the screen, under the lockup and the band, decorative to a reader. The
-    lockup itself carries no image: one mark on the cover, not two."""
-    cover = _cover()
-    bg = re.search(r'<div class="cover-bg" aria-hidden="true">\s*<img src="/static/logo-mark.png" alt=""', cover)
-    assert bg, "the blurred mark is not a decorative layer behind the cover"
-    assert cover.index('class="cover-bg"') < cover.index('class="cover-in"'), \
-        "the mark must be painted before (under) the lockup"
-    mark = cover[cover.index('<div class="cover-mark">'):cover.index('class="stats"')]
-    assert "<img" not in mark, "the lockup carries a second, sharp mark"
-    css = re.search(r"\n  \.cover-bg img\{([^}]*)\}", HTML).group(1)
-    assert "filter:blur(" in css, "the background mark is not blurred"
-    h = re.search(r"height:clamp\(\d+px,(\d+)vh,\d+px\)", css)
-    assert h and int(h.group(1)) >= 100, "the mark must be at least the viewport's height"
-    b = re.search(r"filter:blur\(clamp\((\d+)px,[^,]+,(\d+)px\)\)", css)
-    assert b and int(b.group(2)) <= 24, \
-        "past ~24px the H dissolves into a plain glow and stops being the logo"
-    layer = re.search(r"\n  \.cover-bg\{([^}]*)\}", HTML).group(1)
-    assert "z-index:0" in layer and "pointer-events:none" in layer
+def test_the_first_scroll_gesture_is_the_reader_s():
+    """The cover came with a controller that took the first wheel turn, key
+    press or swipe and moved the reader a whole screen in one jump. With the
+    cover gone the page just scrolls, so nothing may listen to the wheel or a
+    swipe in a way that can cancel it."""
+    for gone in ("slideTo", "slideIntent", "armRest", "bindSlides", "coverFits",
+                 "'wheel'", "'touchmove'", "passive: false"):
+        assert gone not in HTML, f"the scroll is being taken over again: {gone}"
 
 
 def test_the_logo_reserves_its_real_shape():
     """The file is 374x501 — taller than it is wide. Declaring a square would
     reserve the wrong box, which is a layout shift dressed up as a fix. The
     attributes are the natural size; the browser takes the ratio from them and
-    combines it with the CSS height."""
+    combines it with the CSS height. The cover's big mark is gone, so this
+    reads the footer's."""
     import struct
     from pathlib import Path
     from src.dashboard.api import _STATIC_DIR
     raw = Path(_STATIC_DIR, "logo-mark.png").read_bytes()
     w, h = struct.unpack(">II", raw[16:24])
-    cover = _cover()
-    assert f'width="{w}"' in cover and f'height="{h}"' in cover, \
-        f"the cover declares a shape that is not the file's {w}x{h}"
-
-
-def test_the_cover_is_pitch_black_and_can_grow_past_the_viewport():
-    """#000, not var(--void): the cover is emptier than the site behind it, and
-    that difference is what makes scrolling off it feel like arriving. And
-    min-height, not height — at 375 the stats band stacks into five rows and a
-    fixed height would clip the numbers off the bottom."""
-    cov = re.search(r"\n  \.cover\{([^}]*)\}", HTML).group(1)
-    assert "background:#000" in cov, "the cover is not pitch black"
-    assert "min-height:100svh" in cov, "the cover is not a full screen"
-    assert re.search(r"(^|;)height:", cov) is None, \
-        "the cover has a fixed height and will clip its own content"
-
-
-def test_the_cover_is_never_half_on_the_black_and_half_off_it():
-    """The lockup is centred, so it starts leaving through the TOP of the
-    viewport after only its own offset — 272px at 1440x950, not the 684px a
-    0.72-of-a-screen budget assumed. It was still at 60% opacity when the top
-    edge cut it in half, which is a logo sliced off with the numbers still
-    hanging there.
-
-    The budget is the content's own distance to the top now, less the lift, so
-    opacity reaches zero exactly as the first pixel would be clipped. This
-    pins the derivation; the geometry itself is checked in a browser by
-    stepping through the whole cover 4px at a time and asserting the lockup is
-    never visible while any part of it is outside the black."""
-    block = HTML[HTML.index("function measureCover()"):]
-    block = block[:block.index("function frame()")]
-    assert "coverIn.offsetTop" in block, \
-        "the fade budget is not measured from the content's own position"
-    # getBoundingClientRect includes the transform this same code writes, so
-    # measuring with it would feed back on itself.
-    assert "getBoundingClientRect" not in block, \
-        "the budget is measured with a rect that includes its own transform"
-    # innerHeight appears legitimately on the line that caches WHEN we last
-    # measured, so this looks at the assignment that computes the budget.
-    budget_line = next(ln for ln in block.splitlines() if "coverBudget =" in ln)
-    assert "innerHeight" not in budget_line, \
-        "the budget is back to being a fraction of the viewport"
-    assert "top" in budget_line, "the budget ignores where the content sits"
-    # and the lift may not cost more than a quarter of what there is to spend
-    assert "Math.min(40, top * 0.25)" in block, "the lift is not capped"
-
-
-def test_scrolling_off_the_cover_costs_no_layout():
-    """The reveal moves transform and opacity only. Animating height, top or
-    margin here would reflow the whole page on every frame."""
-    # Not JS: that name is the WALL's script only (see the slice at the top of
-    # this file, which stops at the through-line). The reveal lives in the
-    # scroll block much further down the page.
-    block = HTML[HTML.index("if (coverIn){"):]
-    block = block[:block.index("var over = lit")]
-    for banned in ("style.height", "style.top", "style.margin", "style.display"):
-        assert banned not in block, f"the cover reveal writes {banned}"
-    assert "coverIn.style.opacity" in block and "coverIn.style.transform" in block
-
-
-def test_the_cover_is_readable_with_no_javascript():
-    """frame() never runs under prefers-reduced-motion — the scroll listener is
-    not even attached. So the resting state in CSS has to be the visible one,
-    and the script may only ever take the cover away."""
-    assert "opacity" not in re.search(r"\n  \.cover-in\{([^}]*)\}", HTML).group(1)
-    assert "transform" not in re.search(r"\n  \.cover-in\{([^}]*)\}", HTML).group(1)
-
-
-# ── two slides ───────────────────────────────────────────────────────────────
-
-def _slides() -> str:
-    """The slide controller's source, from its comment banner to the reduced-
-    motion gate at the bottom of the script."""
-    start = HTML.index("TWO SLIDES")
-    return HTML[start:HTML.index("if (!reduce)", start)]
-
-
-def test_the_cover_and_the_site_are_two_slides_not_a_scroll():
-    """One gesture on the cover carries you to the top of the site in a single
-    move; one gesture up from the top of the site carries you back. Fading
-    alone still let you come to REST anywhere inside the transition, which is
-    the half-on half-off state that was reported twice.
-
-    Not CSS scroll-snap, and that is measured, not taste: on this page
-    `mandatory` snapping dragged the scroll back to 0 from 150/500/900/1400/
-    2500, and `proximity` left 500 resting at 334 — the exact broken state.
-    So the controller is script, and this pins its shape."""
-    s = _slides()
-    assert "function slideTo(" in s and "behavior: 'smooth'" in s
-    for binding in ("'wheel'", "'keydown'", "'touchstart'", "'touchmove'"):
-        assert binding in s, f"no {binding} binding — that input can strand you"
-
-
-def test_a_gesture_is_only_swallowed_when_a_slide_was_taken():
-    """preventDefault on a gesture the controller did NOT act on would stop
-    the reader scrolling down off the top of the site. slideIntent reports
-    whether it consumed the gesture, and every cancel is behind it."""
-    s = _slides()
-    assert "if (slideIntent(e.deltaY > 0)) e.preventDefault()" in s
-    assert "if (slideIntent(down)) e.preventDefault()" in s
-    assert "if (slideIntent(dy > 0)) e.preventDefault()" in s
-
-
-def test_the_slides_disengage_when_the_cover_outgrows_the_window():
-    """At 375 the stats band stacks and the cover can be taller than the
-    viewport. Swallowing scroll there would trap the reader inside the cover
-    with no way to reach its own bottom half."""
-    s = _slides()
-    assert "function coverFits()" in s
-    assert "coverEl.offsetHeight <= window.innerHeight + 1" in s
-    # every entry point checks it
-    assert s.count("coverFits()") >= 4, \
-        "an input path skips the coverFits gate"
-
-
-def test_resting_inside_the_transition_is_impossible_from_any_route():
-    """Gesture hijacking covers the wheel, the keys and a swipe — but not a
-    scrollbar drag, and not scrolling up from deep in the page. The backstop
-    watches actual scroll position: anything that comes to rest inside the
-    transition is taken to the NEARER slide, debounced so it never fights a
-    gesture in progress."""
-    s = _slides()
-    assert "function armRest()" in s
-    assert "y * 2 < h ? 0 : h" in s, "the backstop lost 'nearer slide'"
-    assert "setTimeout" in s and "clearTimeout" in s, "the backstop is not debounced"
-    # and it is actually armed from the scroll handler
-    assert "if (slidesBound) armRest()" in HTML
-
-
-def test_the_slides_leave_typing_and_reduced_motion_alone():
-    """Arrow keys inside an input are text editing, not navigation. And under
-    prefers-reduced-motion the page must simply scroll — taking someone's
-    scroll away and teleporting them a screen is the kind of movement that
-    setting exists to refuse."""
-    s = _slides()
-    assert "t.tagName === 'INPUT'" in s and "t.isContentEditable" in s
-    # bindSlides is called exactly once, inside the !reduce branch
-    tail = HTML[HTML.index("if (!reduce)"):]
-    assert "bindSlides();" in tail, "the slides are never bound"
-    assert HTML.count("bindSlides();") == 1
-
-
-def test_a_slide_cannot_swallow_input_forever():
-    """sliding=true suppresses input while the smooth scroll runs. If that
-    scroll never lands — interrupted, background tab — the flag must release
-    on a clock, or the page stops responding to the wheel entirely."""
-    s = _slides()
-    assert "Date.now() - t0 > 1400" in s, "no ceiling on the sliding lock"
-
-
-def test_the_cover_and_the_site_share_their_light():
-    """The cover stayed pitch black while the site is a purple-lit plum-black,
-    and the hard cut between the two at the seam read as two different
-    websites. The site's light leaks up onto the bottom of the cover instead:
-    its base tone (--bone, rgba 23,19,28) and the same purple every seam wash
-    uses (184,106,220). The cover base itself stays #000 — the leak is a
-    pseudo-element, so pitch black at the top is untouched."""
-    seam = re.search(r"\.cover::after\{([^}]*)\}", HTML).group(1)
-    # rgba(9,7,12): the HERO's top tone. It was the nav's plum until the nav
-    # was removed; blending into a surface that no longer exists left a tone
-    # step mid-slide.
-    assert "rgba(9,7,12" in seam, "the seam no longer blends into the wall's ground"
-    assert "rgba(184,106,220" in seam, "the seam lost the site's purple"
-    assert "pointer-events:none" in seam, "the seam can swallow clicks"
-    cov = re.search(r"\n  \.cover\{([^}]*)\}", HTML).group(1)
-    assert "background:#000" in cov, "the cover base is no longer pitch black"
-    # the lockup and the cue sit above the leak, not under it
-    assert "z-index:1" in re.search(r"\.cover-in\{([^}]*)\}", HTML).group(1)
-    assert "z-index:1" in re.search(r"\.cover-cue\{([^}]*)\}", HTML).group(1)
-
+    foot = HTML[HTML.index('<footer class="footer">'):]
+    foot = foot[:foot.index("</footer>")]
+    assert f'width="{w}"' in foot and f'height="{h}"' in foot, \
+        f"the footer declares a shape that is not the file's {w}x{h}"
 
 
 def test_ember_belongs_to_the_instruments_not_the_prose():
@@ -634,18 +429,18 @@ def test_ember_belongs_to_the_instruments_not_the_prose():
         assert m and "ember" in m.group(1), f"{name} lost its ember"
 
 
-def test_the_wall_speaks_the_covers_language():
+def test_the_wall_is_hairlines_on_black():
     """The wall was four gradient-bordered cards on a plum ground — dressed
-    like a different website than the cover the reader just left. It is the
-    stats band's construction now: hairline above and below, cells divided by
-    hairlines, no fills, on the cover's own near-black. The hero ground eases
-    back to --bone at its bottom so the next section starts with no edge."""
+    like a different website than the rest of the page. It is built the way
+    the old stats band was: hairline above and below, cells divided by
+    hairlines, no fills, on black. The hero ground eases back to --bone at its
+    bottom so the next section starts with no edge."""
     tile = re.search(r"\n  \.tile\{([^}]*)\}", HTML).group(1)
     assert "border-radius" not in tile, "the tiles grew corners again"
     assert "border-box" not in tile, "the gradient border is back"
     assert "background:transparent" in tile, "the tiles have a card fill again"
     watch = re.search(r"\n  \.watch\{([^}]*)\}", HTML).group(1)
-    assert "background:#000" in watch, "the wall no longer sits on the cover's black"
+    assert "background:#000" in watch, "the wall no longer sits on black"
     # stacked rows on a phone divide horizontally, and the override must sit
     # AFTER the base .tile rule or the base border-left silently wins
     i_base = HTML.index("\n  .tile{")
@@ -668,12 +463,16 @@ def test_the_removed_hero_left_no_dead_stylesheet():
 
 
 def test_the_page_still_has_exactly_one_h1():
-    """The h1 was "Never miss a highlight again." in the hero. That block is
-    gone, so the cover's wordmark carries it — a landing page with no h1 is a
-    real SEO regression, and two is as wrong as none."""
+    """The h1 was "Never miss a highlight again." in the hero, then the
+    cover's wordmark. With the cover gone (2026-10-26) it is the proof
+    section's headline, the first thing a visitor reads — a landing page with
+    no h1 is a real SEO regression, and two is as wrong as none."""
     live = re.sub(r"<!--.*?-->", "", HTML, flags=re.S)
     assert live.count("<h1") == 1, "the page has zero or several h1 elements"
-    assert '<h1 class="cover-word">Highlightz</h1>' in live
+    h1 = '<h1 class="disp proof-h" id="proof-h">Every big moment,<br>already a clip.</h1>'
+    assert h1 in live, "the proof headline is not the page's h1"
+    proof = live[live.index('<section class="proof" id="proof"'):live.index("</section>")]
+    assert 'aria-labelledby="proof-h"' in proof and h1 in proof
 
 
 # ── slide 2 is a spread ──────────────────────────────────────────────────────

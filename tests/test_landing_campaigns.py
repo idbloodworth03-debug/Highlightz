@@ -2,7 +2,7 @@
 that its advertised on the landing page now as well").
 
 What these defend:
-  1. the line on the cover and the block in Pricing appear only while
+  1. the line above the first headline and the block in Pricing appear only while
      streamers can ask for a campaign (the nav tab's switch), and the half
      for clippers only while the marketplace is open to them;
   2. they keep the page's shape: still eight sections in the same order on
@@ -43,17 +43,21 @@ def _block(html: str) -> str:
 
 def test_nothing_shows_while_streamers_cannot_ask(flags):
     html = flags(requests=False, campaigns=True)
-    assert 'id="campaigns"' not in html and 'class="cover-new"' not in html
+    assert 'id="campaigns"' not in html and 'class="proof-new"' not in html
     assert 'href="#campaigns"' not in html
-    assert "<!--CAMPAIGNS-->" not in html and "<!--COVER_CAMPAIGNS-->" not in html
+    assert "<!--CAMPAIGNS-->" not in html and "<!--PROOF_CAMPAIGNS-->" not in html
 
 
-def test_the_cover_line_leads_to_the_block_in_pricing(flags):
+def test_the_top_line_leads_to_the_block_in_pricing(flags):
+    """The line sat on the cover under the name; with the cover gone
+    (2026-10-26) it sits in the first screen, just above the headline."""
     html = flags()
     assert html.count('href="#campaigns"') == 1 and html.count('id="campaigns"') == 1
     pricing = html[html.index('<section class="light pricing" id="pricing"'):html.index('id="faq"')]
     assert 'id="campaigns"' in pricing, "the block left Pricing"
-    assert html.index('class="cover-new"') < html.index('id="proof"'), "the line left the cover"
+    line = html.index('class="proof-new"')
+    assert html.index('id="proof"') < line < html.index('<h1 '), \
+        "the line is not in the first screen above the headline"
 
 
 def test_the_page_keeps_its_shape(flags):
@@ -67,7 +71,7 @@ def test_the_page_keeps_its_shape(flags):
 
 
 def test_the_copy_keeps_the_pages_rules(flags):
-    text = re.sub(r"<[^>]+>", " ", _block(flags()) + api._cover_campaigns())
+    text = re.sub(r"<[^>]+>", " ", _block(flags()) + api._proof_campaigns())
     assert "—" not in text and "&mdash;" not in text
     assert not re.search(r"[Nn]ot a |[Nn]o [a-z]+, no [a-z]+", text)
     low = text.lower()

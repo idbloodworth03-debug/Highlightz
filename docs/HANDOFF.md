@@ -3414,6 +3414,9 @@ Three things not to break:
 3. **The client animation starts FROM the rendered value**, not from 0.
    Counting up from zero would wipe the server-rendered number for a second and
    put a literal `0` back in the DOM — the exact state a crawler might sample.
+   (2026-10-26: the cover's tile is gone. The count is the first big figure,
+   `#bn-clips`, which carries no `data-count`, so the page's count-up never
+   ramps it from 0; it stays at the rendered number.)
 
 Verified with JavaScript disabled in a real browser, which is the only way to
 see what a scraper gets.
@@ -6675,7 +6678,8 @@ now as well".
 - **The cover:** one line under the name, `New Campaigns: get your stream
   clipped ->`, in the cover's mono voice, jumping to the block below. Under
   520 px the word "Campaigns" drops so it stays one line (measured at 320,
-  360, 390, 768 and 1440 px).
+  360, 390, 768 and 1440 px). **Moved above the proof headline when the
+  cover was removed (2026-10-26)** — see "Landing page: the cover is gone".
 - **The block** (`_campaigns_block`): inside Pricing, under the editor and
   Scheduler, the same shape as theirs (tag, heading, one line, cards, a
   button). "Get your stream clipped." Three cards for streamers (budget and
@@ -7080,3 +7084,52 @@ an entry".
   saw both tagged `link`, typed 12,000 views and saved: the clipper's list and
   the board followed at once; the clipper removed one. No console errors, no
   sideways scroll at 390 (the link is one line with an ellipsis).
+
+## Landing page: the cover is gone (2026-10-26)
+
+Owner: "I am thinking of removing the black screen with the logo when you
+first land on the landing page. It seems like a useless page so lets get rid
+of it".
+
+- **What went:** `#cover` (the big blurred logo, the HIGHLIGHTZ wordmark, the
+  stat band, the "scroll" cue, the floor glow), its CSS (`.cover*`,
+  `.stats`/`.stat`, `@keyframes cue`), the cover reveal (fade, lift,
+  `past-cover`), the two-slides controller (`slideTo`, the wheel / key /
+  touch hijack and the rest-snap backstop), and the cover's live counter
+  script (`#stat-clips` / `#lp-count`, refreshed from `/landing/stats`).
+- **The page opens on `#proof`.** Its headline, "Every big moment, already a
+  clip.", is the page's one h1 now (it was an h2; `.disp` and `.proof-h` set
+  font, size and margin, so it renders the same). The fixed bar sits over the
+  proof section's black top; `.proof-in`'s top padding (112px floor) clears it.
+- **The campaigns line moved, not removed:** `_proof_campaigns()` fills
+  `<!--PROOF_CAMPAIGNS-->` with a `.proof-new` pill above the headline. Same
+  switch (`CAMPAIGN_REQUESTS_ENABLED`), same copy, a translucent dark fill so
+  it reads over a bright clip frame, one line down to 360px.
+- **The count:** the figures under the proof section (`_bignums_html`) carry
+  the live clip count and "10 channels watched at once on Pro".
+  `render_landing` reads `get_clip_counter()` ONCE and feeds both
+  `_bignums_html(total)` and the JSON-LD, so the two cannot disagree. The
+  clip figure has no `data-count`, so the count-up never ramps it from 0 (rule
+  3 of "The landing clip counter is SERVER-RENDERED"); the other two figures
+  still count up. Not repeated near the top any more: the cover's "1s, every
+  second is scored" and "3 on Starter" (Starter's 3 is in Pricing).
+- `/landing/stats` stays public (tested; `scripts/capture_tutorial_media.mjs`
+  stubs it). Nothing on the landing page calls it now.
+- No realtime work: the landing page is signed-out and has no socket.
+- Tests: the cover and two-slides tests in `test_landing_hero.py` were
+  replaced by `test_the_site_opens_on_the_proof_section_with_only_the_bar_over_it`,
+  `test_the_cover_stays_gone` and `test_the_first_scroll_gesture_is_the_reader_s`
+  (nothing may listen to `wheel`/`touchmove` or pass `passive: false`); the h1,
+  logo-shape (footer now), channel-count (big figures) and palette tests were
+  repointed; `test_landing_clip_counter.py` reads `#bn-clips`;
+  `test_landing_campaigns.py` follows the line into the proof section.
+- Verified: full suite 4115 (16 cover tests deleted, 3 added); every landing
+  script `node --check`ed. Browser at 1440x900, 1366x768, 390x844 and
+  360x740: no cover, the first section starts at y=0, the campaigns line
+  (top 162 at 1440) and the h1 clear the bar (bottom 68), "Start clipping
+  free" is on the first screen, one wheel notch scrolls 120px (it used to
+  jump a whole screen), the figures read 13,464 / 10 / 7 and the clip figure
+  never shows another value while it scrolls in, the campaigns line lands its
+  block 12px under the bar, no console errors, no sideways scroll. With
+  JavaScript off the h1, the figures and the campaigns line are all in the
+  page. Reduced motion renders the same page.

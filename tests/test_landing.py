@@ -1,8 +1,9 @@
 """
 Tests for the public landing-page stats counter.
 
-The landing page shows an all-time "clips captured" ticker fed by
-GET /landing/stats (unauthenticated — it's in _OPEN_PATHS). The counter is a
+The landing page shows an all-time "clips captured" figure, rendered into the
+page per request (the big numbers under the proof section); GET /landing/stats
+(unauthenticated — it's in _OPEN_PATHS) serves the same total. The counter is a
 monotonic persisted total: seeded once from historical data (profile tallies +
 current clip store), then incremented on every stored clip / VOD moment.
 """
@@ -47,8 +48,9 @@ def test_increment_persists_and_survives_reload(counter_env, monkeypatch):
 
 
 def test_landing_stats_route_is_public():
-    # The endpoint must exist and be exempt from the auth gate, or the landing
-    # page ticker 401s for logged-out visitors.
+    # The endpoint must exist and be exempt from the auth gate: it is the
+    # counter's public read (it fed the cover's ticker until the cover went),
+    # and a 401 there would be a logged-out visitor's error.
     assert "/landing/stats" in api._OPEN_PATHS
     assert any(getattr(r, "path", "") == "/landing/stats" for r in api.app.routes)
 
@@ -64,8 +66,10 @@ def test_landing_html_has_price_counter_and_demo():
     assert "free to start" in html.lower()
     # What must stay gone is the retired single price.
     assert "$15" not in html
-    assert 'id="lp-count"' in html                   # live counter element
-    assert "/landing/stats" in html                  # fed by the public endpoint
+    # The live clip count is rendered into the figures under the proof section
+    # per request. The cover's own ticker (#lp-count, refreshed from
+    # /landing/stats) went with the cover on 2026-10-26.
+    assert "<!--BIGNUMS-->" in html and 'class="bignums"' in api.render_landing()
     # The live capture is the hero itself now: a wall of channels being scored,
     # one of which crosses and fires. `#demo` was the single-channel widget it
     # replaced.
@@ -114,18 +118,19 @@ def test_showcase_entry_carries_embed_url_for_inline_playback():
     assert entry["embed_url"] == "https://clips.twitch.tv/embed?clip=Slug"
 
 
-def test_the_purple_stays_in_the_logo_and_the_cover():
-    """Below the cover the page is black, white, the orange and the paper of
-    the light sections. Twitch's own purple never enters the palette, and the
-    old accent word is gone."""
+def test_the_purple_stays_in_the_logo():
+    """The page is black, white, the orange and the paper of the light
+    sections. Twitch's own purple never enters the palette, and the old accent
+    word is gone. (The cover's floor glow was the one other violet; it went
+    with the cover on 2026-10-26.)"""
     css = api.LANDING_HTML
     for twitch in ("#9146FF", "#A970FF", "#9146ff", "#a970ff"):
         assert twitch not in css, f"Twitch's own purple {twitch} is back in the palette"
     assert ".accent{" not in css and 'class="accent"' not in css
-    sheet = css[css.index("BELOW THE COVER: THE CINEMATIC PAGE"):css.index("/* ══ MOTION.")]
+    sheet = css[css.index("THE CINEMATIC PAGE (v4"):css.index("/* ══ MOTION.")]
     for tok in ("var(--glow", "var(--flare)", "var(--plum)", "var(--iris)",
                 "rgba(184,106,220", "rgba(210,106,251"):
-        assert tok not in sheet, f"the page below the cover borrows the purple: {tok}"
+        assert tok not in sheet, f"the page borrows the purple: {tok}"
 
 
 def test_landing_has_inline_clip_lightbox():
@@ -152,11 +157,13 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     starter = PLAN_LIMITS["starter"]["max_streams"]
     pro     = PLAN_LIMITS["pro"]["max_streams"]
 
-    # Above the fold. The hero's lede — slogan, lead and CTAs — was removed on
-    # the owner's instruction, so the claim no longer has a sentence there to
-    # live in. The stats band on the cover is now the first place a visitor
-    # meets the number, and it carries both figures at once.
-    assert f"channels watched at once on Pro, {starter} on Starter" in html
+    # Near the top. The hero's lede — slogan, lead and CTAs — was removed on
+    # the owner's instruction, and the cover's stats band (which typed both
+    # figures in) went with the cover on 2026-10-26. The figures under the
+    # proof section are the first place a visitor meets the number now, read
+    # from PLAN_LIMITS when the page renders.
+    assert (f'<div class="bign-n" data-count="{pro}">{pro}</div>'
+            '<div class="bign-k">channels watched at once on Pro</div>') in api.render_landing()
 
     # Pricing, where the paid tiers have to be unambiguous. The three cards with
     # tick lists are gone: Pro is stated on its own and Starter is a sentence
@@ -326,18 +333,17 @@ def test_lobster_is_titles_only_and_never_uppercased():
     users = {m.group(1).strip().split("*/")[-1].strip() for m in
              re.finditer(r"([^{};]+)\{[^}]*font-family:'Lobster'[^}]*\}", css)}
     users = {u for u in users if not u.startswith("@")}
-    # v4: the page below the cover has one display voice, the sans at 800.
-    # Lobster still ships (tutorial and compare use it) but no landing rule
-    # may set it: the cover has no title and the sheet has its own voice.
+    # v4: the page has one display voice, the sans at 800. Lobster still
+    # ships (tutorial and compare use it) but no landing rule may set it.
     assert not users, f"the script face is back on the landing page: {sorted(users)}"
     assert "--display:'Lobster'" in css
     # .ptier-fig replaced .price-amt .num: that selector belonged to a dead
     # second pricing stylesheet (the rendered page uses .ptier classes), so the
     # LIVE price was quietly in the text face while this test checked a rule
     # that styled nothing.
-    # .cover-word replaced .nav-logo span when the nav was removed — it is the
-    # same wordmark, carried by the cover now.
-    for sel in (".cover-word", ".stat .n", ".plan-price", ".tile-score"):
+    # .bign-n replaced .cover-word and .stat .n when the cover went
+    # (2026-10-26): the big figures are the page's numbers now.
+    for sel in (".bign-n", ".plan-price", ".tile-score"):
         block = css[css.index(sel + "{"):css.index("}", css.index(sel + "{"))]
         assert "'Lobster'" not in block, f"{sel} must stay clean lettering"
         assert "var(--mono)" in block, f"{sel} should be the mono instrument face"
@@ -703,8 +709,8 @@ def test_the_phone_layout_of_the_pages_that_broke():
        bottom. The head is moved above the track by the script under 900px,
        into a landing that exists in the markup, and the scene pads its top
        by the bar's real height.
-    3. The cover's five-column stat band cannot hold a five-digit count in
-       82px cells: two columns on a phone, rows divided by the hairline.
+    3. The cover's five-column stat band could not hold a five-digit count in
+       82px cells. Gone with the cover (2026-10-26), so nothing to pin.
     4. Half-width watch tiles truncated the channel's game and every signal
        label to two letters: the game drops to its own line and the labels
        size to their text."""
@@ -722,12 +728,6 @@ def test_the_phone_layout_of_the_pages_that_broke():
     assert "if(narrow&&narrow.matches){ if(headEl.parentNode!==lead) lead.appendChild(headEl); }" in css
     assert "else if(headEl.parentNode!==grid){ grid.insertBefore(headEl,grid.firstChild); }" in css, \
         "widening the window must put the head back into the scene"
-
-    cover = _media_block(css, "max-width:700px", ".cover .stats{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))")
-    assert ".cover .stat{border-left:none;border-top:1px solid var(--hair);" in cover
-    assert ".cover .stat:nth-child(-n+2){border-top:none}" in cover
-    # Desktop keeps the five-across band exactly as it was.
-    assert ".stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;" in css
 
     watch = _media_block(css, "max-width:700px", ".watch .tile-sigs{grid-template-columns:repeat(5,auto)")
     assert ".watch .tile-top{flex-wrap:wrap}" in watch

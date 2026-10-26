@@ -10095,8 +10095,9 @@ def render_landing(html: str | None = None) -> str:
     it invites "Highlightz has captured 0 clips".
 
     The number is now in the first byte of the response, in the visible markup
-    AND in the JSON-LD interactionStatistic, which is where machines look for a
-    count. The client script still refreshes it live for humans.
+    (the big figures under the proof section, BIGNUMS) AND in the JSON-LD
+    interactionStatistic, which is where machines look for a count. The cover's
+    own live counter went with the cover (owner, 2026-10-26).
     """
     html = LANDING_HTML if html is None else html
 
@@ -10105,11 +10106,11 @@ def render_landing(html: str | None = None) -> str:
     # rather than a redeploy.
     html = html.replace("<!--VERIFY-->", _verification_tags(), 1)
     # The Campaigns tab, once streamers can ask for campaigns (site_nav), and
-    # the page's own pitch for them: a line on the cover and a block in
-    # Pricing. All three follow the same switch.
+    # the page's own pitch for them: a line above the first headline and a
+    # block in Pricing. All three follow the same switch.
     from src.dashboard.site_nav import campaigns_tab
     html = campaigns_tab(html)
-    html = (html.replace("<!--COVER_CAMPAIGNS-->", _cover_campaigns(), 1)
+    html = (html.replace("<!--PROOF_CAMPAIGNS-->", _proof_campaigns(), 1)
                 .replace("<!--CAMPAIGNS-->", _campaigns_block(), 1))
 
     # THE FRAMES. Real clip previews from the curated showcase, or the
@@ -10132,20 +10133,16 @@ def render_landing(html: str | None = None) -> str:
     # that line is gone. No keep rate either (owner, 2026-10-22: "lets remove
     # the keep rate statistic from the landing page"), so the landing page no
     # longer reads the stats ledger at all.
-    html = html.replace("<!--BIGNUMS-->", _bignums_html(get_clip_counter()), 1)
-
+    # ONE read of the counter feeds both the figure people see and the JSON-LD
+    # machines read, so the two can never disagree.
     total = get_clip_counter()
+    html = html.replace("<!--BIGNUMS-->", _bignums_html(total), 1)
+
     if total <= 0:
-        # Nothing captured yet: leave the tile hidden and the JSON-LD at 0
-        # rather than advertising a number we do not have.
+        # Nothing captured yet: leave the JSON-LD at 0 rather than advertising
+        # a number we do not have (_bignums_html leaves the figure out too).
         return html
 
-    pretty = f"{total:,}"
-    html = html.replace(
-        '<div class="stat stat-big" id="stat-clips" style="display:none">',
-        '<div class="stat stat-big" id="stat-clips">', 1)
-    html = html.replace('<span id="lp-count" data-count="0">0</span>',
-                        f'<span id="lp-count" data-count="{total}">{pretty}</span>', 1)
     html = html.replace('"userInteractionCount": 0',
                         f'"userInteractionCount": {total}', 1)
     return html
@@ -10896,10 +10893,7 @@ LANDING_HTML = """<!DOCTYPE html>
      drops uppercase, and a test asserts none creeps back. It ships ONE weight
      (400); asking for bold makes the browser smear the glyphs. Both hold
      wherever it is used, which is why the test checks the rules rather than a
-     list of selectors.
-
-     NOT the cover wordmark. That is the mono, matching the nav's lockup,
-     settled separately and deliberately. */
+     list of selectors. */
   @font-face{font-family:'Lobster';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/lobster-400.woff2) format('woff2')}
   @font-face{font-family:'Sora';font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/sora-var.woff2) format('woff2')}
   /* METRIC-MATCHED FALLBACK. Sora is the only one of the three faces that
@@ -10928,7 +10922,7 @@ LANDING_HTML = """<!DOCTYPE html>
     /* SURFACES — three tones of the same warm plum-black, lightest to darkest.
        The page is dark again, but a step warmer and lighter than the old
        #0E0B11 so the panels can sit BELOW it and read as lit objects. */
-    --bone:#0A0A0C;   /* page base below the cover: black, a shade off pure */
+    --bone:#0A0A0C;   /* page base: black, a shade off pure */
     --sand:#1E1826;   /* the alternating band, one step up */
     --void:#0E0B11; --wall:#1B1221; --bruise:#33203F;
     /* INKS — one set, light on dark, checked against ALL THREE surface tones:
@@ -10981,8 +10975,7 @@ LANDING_HTML = """<!DOCTYPE html>
        the page's lighting, which is the point. */
     --lit:0;
     /* The sticky bar's height, which anchor targets subtract so a jump to
-       #pricing does not land the heading underneath it, and which slide 2
-       subtracts so nav + hero come to exactly one screen. This is only the
+       #pricing does not land the heading underneath it. This is only the
        FALLBACK: the links wrap in a band around 1000px and the bar grows, so a
        hardcoded number is wrong across a 200px stretch. The real value is
        measured and written here at runtime — see the nav-height block near the
@@ -11010,7 +11003,8 @@ LANDING_HTML = """<!DOCTYPE html>
      it. Applied to the elements that are actually linked to, so a section
      added later inherits the fix instead of quietly repeating the bug. */
   section[id],header[id],article[id]{scroll-margin-top:calc(var(--nav-h) + 12px)}
-  /* The cover's campaigns line jumps to a block inside Pricing, not a section. */
+  /* The campaigns line above the first headline jumps to a block inside
+     Pricing, not a section. */
   #campaigns{scroll-margin-top:calc(var(--nav-h) + 12px)}
   /* NO overflow-x here. `overflow-x:hidden` computes overflow-y to `auto`,
      which makes <body> a scroll container — and position:sticky then resolves
@@ -11035,11 +11029,10 @@ LANDING_HTML = """<!DOCTYPE html>
      replaces the hairline: scrolled down over the lighter sections the bar
      dissolves into what is under it rather than stopping on a hard edge. ── */
   /* FIXED, over the top of the page, on the owner's call: the bar sits on
-     the cover the way a nav sits on a hero image, and stays there. It is
-     out of flow, so the hero pads its own top by --nav-h to keep slide 2
-     one screen (see .hero.hero-band). Over the cover's #000 the bar's
-     near-black is invisible; over the site it is the hero band's own top
-     tone, so there is never an edge under it. */
+     the proof section's picture the way a nav sits on a hero image, and
+     stays there. It is out of flow, so .proof-in pads its own top to clear
+     it. Over the black the proof section fades down from, the bar's
+     near-black is invisible, so there is never an edge under it. */
   .nav{position:fixed;top:0;left:0;right:0;z-index:60;
     background:linear-gradient(180deg,#09070C 0%,#09070C 70%,rgba(9,7,12,0) 100%);
     display:flex;align-items:center;gap:16px;padding:12px 24px 16px}
@@ -11079,82 +11072,6 @@ LANDING_HTML = """<!DOCTYPE html>
   @media(max-width:700px){
     .nav{padding:12px 16px 16px;gap:8px}
     .nav-logo span{display:none}
-  }
-
-  /* ── THE COVER. One screen: the mark, the name, the numbers. ──────────────
-     #000 and not var(--void): the point is that it is emptier than the site
-     behind it, and --void is the site's black.
-     The lockup is centred on the SCREEN, not in the space above the cue — the
-     cue is out of flow at the bottom edge. Giving it a grid row of its own
-     pushed everything up and left a dead band under the numbers. The symmetric
-     padding floor (72px) is taller than the cue (~65px), which is what keeps
-     the two apart on a short window without positioning anything by hand.
-     min-height, not height: at 375 the band stacks and can outgrow the
-     viewport, and centring inside a fixed height clips it off the TOP where it
-     cannot be scrolled to. */
-  .cover{background:#000;min-height:100svh;
-    display:flex;flex-direction:column;justify-content:center;align-items:center;
-    padding:clamp(72px,12vh,140px) clamp(16px,4vw,72px);
-    position:relative;overflow:hidden}
-  /* The seam. Pitch black meeting the site's plum-black in a hard cut is what
-     made the two screens read as two different websites -- the slide swept
-     straight through an edge between two worlds. So the site's own light
-     leaks up onto the bottom of the cover: its base tone (the rgba is
-     --bone #17131C) blending in, and the same purple every seam wash on the
-     page uses, rising from below the fold. The cover becomes the same room
-     with the lights off, and the cue's line points down into the glow. */
-  /* The linear layer's target is the HERO's top tone (#09070C), because that
-     is what now sits under the fold — it used to be the nav's plum, and with
-     the nav gone that left a one-frame tone step mid-slide. Cover bottom and
-     wall top are the same colour now, so the slide reads as one surface. */
-  .cover::after{content:'';position:absolute;left:0;right:0;bottom:0;z-index:0;
-    height:clamp(200px,32vh,340px);pointer-events:none;
-    background:
-      radial-gradient(110% 100% at 50% 100%,rgba(184,106,220,.14),transparent 64%),
-      linear-gradient(180deg,rgba(9,7,12,0),rgba(9,7,12,.9))}
-  /* Content and cue above the leak -- the light is behind them, not on them. */
-  .cover-in{position:relative;z-index:1;
-    display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:clamp(32px,7vh,80px);
-    width:100%;max-width:1140px;margin:0 auto}
-  .cover-mark{display:flex;flex-direction:column;align-items:center;
-    gap:var(--s-4);text-align:center}
-  /* Flat and mono-600-uppercase-.12em: the nav's lockup at the size a first
-     screen needs, and nothing else. Only font-size differs. One logo painted
-     two ways, or a name set two ways, reads as two of them. */
-  /* The big blurred mark. A real blur on the real file, not a painted
-     gradient standing in for one: filter:blur on a static image is composited
-     once and never re-rendered, so it costs nothing after first paint. It is
-     taller than the viewport on purpose — the edges of the blur must leave
-     the screen, or it reads as a soft sticker rather than as light. Sized on
-     the short side so a phone gets the same fill. The floor glow (::after,
-     later in the DOM) paints over it, so the two lights meet at the bottom. */
-  .cover-bg{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;
-    display:flex;align-items:center;justify-content:center}
-  .cover-bg img{height:clamp(440px,104vh,1040px);width:auto;display:block;
-    filter:blur(clamp(14px,1.5vw,22px));opacity:.5;transform:translateY(-3%);
-    -webkit-user-select:none;user-select:none}
-  /* Blur is in screen pixels: a phone's mark is a third the size, so the
-     same radius would dissolve it. Enough to soften, not enough to lose the H. */
-  @media(max-width:700px){
-    .cover-bg img{height:clamp(400px,96vh,720px);filter:blur(12px);opacity:.45}
-  }
-  .cover-word{font-family:var(--mono);font-weight:600;
-    font-size:clamp(24px,4.6vw,54px);letter-spacing:.12em;text-transform:uppercase;
-    color:var(--ink);line-height:1}
-  .cover .stats{width:100%}
-  /* The only instruction on the screen, so it is small and it is the only
-     thing moving. */
-  .cover-cue{position:absolute;left:0;right:0;bottom:clamp(20px,3.5vh,36px);z-index:1;
-    display:flex;flex-direction:column;align-items:center;gap:var(--s-3);
-    font-family:var(--mono);font-size:11px;letter-spacing:.22em;
-    text-transform:uppercase;color:var(--ink-3);pointer-events:none}
-  .cover-cue-l{width:1px;height:clamp(24px,4vh,40px);transform-origin:top;
-    background:linear-gradient(180deg,transparent,var(--glow));
-    animation:cue 2.4s var(--ease) infinite}
-  @media(max-width:700px){
-    .cover{padding-top:clamp(28px,6vh,48px)}
-    .cover-in{gap:clamp(28px,5vh,44px)}
   }
 
   /* ══ THE WALL ══════════════════════════════════════════════════════════
@@ -11359,7 +11276,7 @@ LANDING_HTML = """<!DOCTYPE html>
   .wall-cap b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
   /* The two platforms under the watch headline: a pair of tiles on black.
      Twitch's rule is the page's own white (its purple never enters the
-     palette below the cover, by test); Kick's is Kick green. */
+     palette, by test); Kick's is Kick green. */
   .plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--s-5);
     margin:var(--s-6) 0 0;max-width:var(--measure)}
   .plat{border-top:2px solid var(--ink);padding-top:var(--s-3);min-width:0}
@@ -11394,48 +11311,10 @@ LANDING_HTML = """<!DOCTYPE html>
   }
 
 
-  /* ══ STAT STRIP. Not three equal cards — a readout rail with the numbers
-     hung off it at uneven weight, the way a broadcast desk is laid out. ══ */
-  /* auto-flow, not fixed columns: the clip-count tile is hidden until there is
-     a number to show, and a fixed template would leave its column empty. */
-  /* The band lives on the cover now, so it no longer owns the page's one
-     rhythm break — see the margin-bottom on .hero.hero-band, which is where
-     that --s-10 moved to. It is still a margin and not padding for the same
-     reason it always was: the hero is min-height:100svh with the wall in a
-     minmax(0,1fr) row, so air added INSIDE the hero comes straight out of the
-     wall. It lost 97px that way once already. */
-  .stats{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
-    border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
-  /* Room inside to match the room around it: at 24px of padding with a 12px
-     caption these numbers read as marooned rather than as quiet. */
-  /* Right padding, not 0: at 768 the four cells are ~176px wide and the
-     longest caption wraps to exactly the divider, so "Starter" sits on the
-     rule. That was survivable when the band was a strip halfway down the
-     page. It is the first thing on the site now. */
-  .stat{padding:var(--s-6) var(--s-5) var(--s-6) var(--s-6);border-left:1px solid var(--hair)}
-  .stat:first-child{padding-left:0;border-left:none}
-  .stat .n{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
-    font-size:30px;letter-spacing:-.03em;line-height:1;color:var(--ink);display:flex;align-items:center;gap:12px}
-  .stat.stat-big .n{font-size:clamp(40px,5vw,56px);color:var(--ember-ink)}
-  .stat .k{font-size:14px;color:var(--ink-2);margin-top:12px;max-width:30ch;line-height:1.5}
-  /* On a phone the band is two cells across, not five: five columns of a
-     328px band are 82px each, and a five-digit count in the big mono ran
-     out of its cell and off the right edge of the screen. Rows divide with
-     the band's own hairline; the vertical dividers go, because the first
-     cell of each row cannot be told from the second with the live cells
-     hidden and revealed by id. Desktop rules above are untouched. */
-  @media(max-width:700px){
-    .cover .stats{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr));
-      column-gap:var(--s-4)}
-    .cover .stat{border-left:none;border-top:1px solid var(--hair);
-      padding:var(--s-4) 0 var(--s-4) 0}
-    .cover .stat:nth-child(-n+2){border-top:none}
-    .cover .stat.stat-big .n{font-size:36px}
-  }
-
-  /* ══ BELOW THE COVER: THE CINEMATIC PAGE (v4, 2026-09-02) ═══════════════════
+  /* ══ THE CINEMATIC PAGE (v4, 2026-09-02) ═══════════════════════════════════
      Everything under the cover was deleted and rebuilt to one blueprint:
-     imagery first, explanation second, hard cuts between dark and light.
+     imagery first, explanation second, hard cuts between dark and light. The
+     cover itself (slide 1) went on 2026-10-26, so the page opens on proof.
        2  proof    dark   a full-bleed clip frame, one headline, the product
                          screens fanned across the foreground
        3  numbers  dark   one line and the big live figures
@@ -11444,9 +11323,8 @@ LANDING_HTML = """<!DOCTYPE html>
        6  watch    dark   ten channels being scored, one of them firing
        7  pricing  light  Starter and Pro as two tall columns of facts
        8  end      dark   the closing frame, one line, one button, the footer
-     Palette below the cover: black, white, the orange, and the paper of the
-     light sections. The violet stays in the logo and the cover's floor glow;
-     nothing down here borrows it. Type: the mono for numbers and labels, the
+     Palette: black, white, the orange, and the paper of the light sections.
+     The violet stays in the logo; nothing here borrows it. Type: the mono for numbers and labels, the
      sans for sentences, and the sans at its heaviest weight and tightest
      tracking for headlines — one display voice, no second face to load. ══ */
 
@@ -11519,8 +11397,8 @@ LANDING_HTML = """<!DOCTYPE html>
   /* ══ 2. PROOF. A full-bleed clip frame, one headline, the screens fanned. ══
      The frame is a real clip's preview, served by the showcase and baked in
      at render time (see _frames in the module). Two gradients: black down
-     from the top so the cover's black runs straight into the picture with no
-     edge, and black up from the bottom so the screens sit on something. */
+     from the top so the fixed bar sits on black with no edge under it, and
+     black up from the bottom so the screens sit on something. */
   .proof{position:relative;min-height:100svh;background:#000;overflow:hidden;
     display:flex;flex-direction:column;padding:0;color:var(--white)}
   .proof-bg{position:absolute;inset:0;z-index:0;pointer-events:none}
@@ -11535,6 +11413,21 @@ LANDING_HTML = """<!DOCTYPE html>
   .proof-in{position:relative;z-index:2;padding-top:clamp(112px,18vh,180px);padding-bottom:0}
   .proof-h{font-size:clamp(44px,7.6vw,110px);max-width:11ch;
     text-shadow:0 2px 40px rgba(0,0,0,.55)}
+  /* Campaigns, announced above the headline (only while streamers can ask
+     for one): one line in the mono, leading down to the campaigns block in
+     Pricing. It was on the cover under the name until the cover went. The
+     fill keeps it readable over a bright clip frame. */
+  .proof-new{display:flex;width:fit-content;max-width:100%;align-items:center;gap:var(--s-2);
+    margin:0 0 var(--s-5);padding:var(--s-2) var(--s-4);background:rgba(0,0,0,.45);
+    border:1px solid var(--hair-2);border-radius:99px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
+    transition:color var(--dur-fast),border-color var(--dur-fast)}
+  .proof-new b{color:var(--ember);font-weight:600}
+  .proof-new:hover{color:var(--ink);border-color:var(--ink-3)}
+  .proof-new:active{transform:translateY(1px)}
+  /* One line on a phone: the word Campaigns goes, the offer stays. */
+  @media(max-width:520px){ .proof-new-k{display:none} }
+  @media(max-width:360px){ .proof-new{letter-spacing:.06em;padding:var(--s-2) var(--s-3)} }
   .proof-act{margin-top:var(--s-6);display:flex;align-items:center;gap:var(--s-4);flex-wrap:wrap}
   .proof-note{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
     color:rgba(255,255,255,.62);margin:0}
@@ -11795,19 +11688,6 @@ LANDING_HTML = """<!DOCTYPE html>
   .edit-cta span{font-size:15px;color:var(--paper-ink-2)}
   .edit-cta span a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
   .edit-cta span a:hover{border-bottom-color:var(--paper-ink)}
-  /* Campaigns, announced on the cover under the name (only while streamers
-     can ask for one): one line in the cover's own mono voice, leading down
-     to the campaigns block in Pricing. */
-  .cover-new{display:inline-flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-4);
-    border:1px solid var(--hair-2);border-radius:99px;font-family:var(--mono);font-size:12px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);text-decoration:none;
-    transition:color var(--dur-fast),border-color var(--dur-fast)}
-  .cover-new b{color:var(--ember);font-weight:600}
-  .cover-new:hover{color:var(--ink);border-color:var(--ink-3)}
-  .cover-new:active{transform:translateY(1px)}
-  /* One line on a phone: the word Campaigns goes, the offer stays. */
-  @media(max-width:520px){ .cover-new-k{display:none} }
-  @media(max-width:360px){ .cover-new{letter-spacing:.06em;padding:var(--s-2) var(--s-3)} }
   .price-lead{margin:var(--s-4) 0 0;font-size:clamp(16px,1.4vw,19px);line-height:1.5;
     color:var(--paper-ink-2);max-width:var(--measure)}
   .price-lead b{color:var(--paper-ink);font-weight:700}
@@ -11928,19 +11808,9 @@ LANDING_HTML = """<!DOCTYPE html>
   @media(prefers-reduced-motion:reduce){
     html{scroll-behavior:auto}
     .breathe{animation:none}
-    /* The cue still reads as a cue standing still — it is a line pointing down
-       under the word "scroll". */
-    .cover-cue-l{animation:none;opacity:.75}
   }
   @media(prefers-reduced-motion:no-preference){
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
-    /* A stroke drawn downward, twice as long a pause as it takes to draw. */
-    @keyframes cue{
-      0%{transform:scaleY(0);opacity:0}
-      28%{transform:scaleY(1);opacity:1}
-      70%{transform:scaleY(1);opacity:1}
-      100%{transform:scaleY(1);opacity:0}
-    }
   }
 </style>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch and Kick clipping: Highlightz watches live streams, catches the best moments with a transparent scoring formula \u2014 not AI \u2014 as a real Twitch clip plus the video file, then reframes them for vertical and posts them to YouTube, TikTok and Instagram.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
@@ -11948,10 +11818,10 @@ LANDING_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <!-- ── NAV. Over the top of the page, on the owner's call: the bar sits
-     on the cover the way a nav sits on a hero image, and stays fixed. It
-     is the first thing in the document because it is the first thing on
-     the screen. slideTo() lands on coverEl.offsetHeight; the hero pads its
-     own top by the bar's height so nothing lands under it.
+     on the proof section's picture the way a nav sits on a hero image, and
+     stays fixed. It is the first thing in the document because it is the
+     first thing on the screen; .proof-in pads its own top past the bar so
+     nothing lands under it.
 
      NO LINES ON IT. The old bar carried a hairline border and a second glowing
      one under it (.nav::after), plus a bordered sparkline pill. All three are
@@ -11978,76 +11848,26 @@ LANDING_HTML = """<!DOCTYPE html>
   </div>
 </nav>
 
-<!-- THE COVER, the first thing under the bar. The nav
-     that used to sit between the two slides was removed on the owner's call —
-     the cover already carries the lockup, so slide 2 is the wall alone.
-     width/height are the file's NATURAL 374x501 — the browser takes the ratio
-     from them and combines it with the CSS height, so the reserved box is the
-     right SHAPE; a square would be a layout shift dressed up as a fix. -->
-<div class="cover" id="cover">
-  <!-- THE MARK, as the room's light. Owner's call: the logo is not a small
-       sharp object above the name any more; it is huge, blurred, and behind
-       everything — the brand's colour filling the cover the way a sign
-       glows through fog. Decorative, so aria-hidden and an empty alt; the
-       name is carried by the h1. -->
-  <div class="cover-bg" aria-hidden="true">
-    <img src="/static/logo-mark.png" alt="" width="374" height="501"
-         decoding="async" fetchpriority="high">
-  </div>
-  <div class="cover-in" id="cover-in">
-    <div class="cover-mark">
-      <!-- THE PAGE'S h1, and it has to live here now. It used to be "Never
-           miss a highlight again." in the hero, which was removed with the
-           rest of that block; a landing page with no h1 at all is a real SEO
-           regression, not a cosmetic one. An <h1> renders identically to the
-           <span> it replaces -- .cover-word sets font, size and line-height,
-           and the reset already zeroes heading margins -- so this changes the
-           document outline and nothing on screen. No hidden keyword text: the
-           phrase a search engine needs is carried by <title>, the meta
-           description and the SoftwareApplication schema, which is where it
-           belongs. -->
-      <h1 class="cover-word">Highlightz</h1>
-      <!--COVER_CAMPAIGNS-->
-    </div>
-    <!-- Stats band, moved here from below the hero. The id and style
-         attributes are matched by string replacement in _landing_html to
-         reveal the live numbers, so they must stay byte-identical. -->
-    <div class="stats">
-      <div class="stat">
-        <div class="n" data-count="10">10</div>
-        <div class="k">channels watched at once on Pro, 3 on Starter</div>
-      </div>
-      <div class="stat">
-        <div class="n" data-count="7">7</div>
-        <div class="k">live signals blended into every score</div>
-      </div>
-      <div class="stat">
-        <div class="n" data-count="1" data-suffix="s">1s</div>
-        <div class="k">every second of every channel is scored</div>
-      </div>
-      <!-- Last, not first: hidden until there is a real number, and a hidden
-           first child would leave a stray divider at the edge of the band. -->
-      <div class="stat stat-big" id="stat-clips" style="display:none">
-        <div class="n"><span id="lp-count" data-count="0">0</span></div>
-        <div class="k">clips captured and counting</div>
-      </div>
-    </div>
-  </div>
-  <div class="cover-cue" id="cover-cue" aria-hidden="true">
-    <span class="cover-cue-l"></span><span>scroll</span>
-  </div>
-</div>
-
-
 <!-- ══ 2. PROOF ═══════════════════════════════════════════════════════════════
-     A full-bleed clip frame, one headline, one button, and the product's own
-     screens fanned across the foreground. The frame is served by the
-     showcase and baked in at render time (FRAME_HERO); with nothing curated
-     yet the Live Streams screen stands in, pushed back. -->
+     The first screen. A full-bleed clip frame, one headline, one button, and
+     the product's own screens fanned across the foreground. The frame is
+     served by the showcase and baked in at render time (FRAME_HERO); with
+     nothing curated yet the Live Streams screen stands in, pushed back.
+
+     Slide 1 was the cover: the blurred logo, the name and a stat band on
+     black, one scroll gesture away from this. Removed on the owner's call
+     (2026-10-26: "It seems like a useless page so lets get rid of it"), so a
+     visitor lands on the product. What it carried moved here or already
+     lived below: the page's h1 is this headline, the campaigns line sits
+     above it, and the live clip count is in the figures under this section. -->
 <section class="proof" id="proof" aria-labelledby="proof-h">
   <div class="proof-bg"><!--FRAME_HERO--></div>
   <div class="proof-in wrap">
-    <h2 class="disp proof-h" id="proof-h">Every big moment,<br>already a clip.</h2>
+    <!--PROOF_CAMPAIGNS-->
+    <!-- THE PAGE'S h1. A landing page with no h1 is a real SEO regression,
+         and this is the sentence the page is about. .disp and .proof-h set
+         the font, size and margin, so h1 and the h2 it was render alike. -->
+    <h1 class="disp proof-h" id="proof-h">Every big moment,<br>already a clip.</h1>
     <div class="proof-act">
       <a href="/login" class="btn btn-go btn-lg">Start clipping free</a>
       <p class="proof-note">Free plan &middot; one channel, Twitch or Kick &middot; no card &middot; no time limit</p>
@@ -12064,8 +11884,8 @@ LANDING_HTML = """<!DOCTYPE html>
 </section>
 
 <!-- ══ 3. NUMBERS ═════════════════════════════════════════════════════════════
-     Black. One line, then the figures. Rendered per request from the same
-     counters the cover reads (BIGNUMS); the digits count up on entry. -->
+     Black. One line, then the figures. Rendered per request from the clip
+     counter (BIGNUMS); the digits count up on entry. -->
 <section class="numbers" id="numbers" aria-label="By the numbers">
   <div class="wrap"><!--BIGNUMS--></div>
 </section>
@@ -12232,41 +12052,6 @@ LANDING_HTML = """<!DOCTYPE html>
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 <script>
-/* ── Live clips counter ── */
-(function(){
-  var tile=document.getElementById('stat-clips'), el=document.getElementById('lp-count');
-  if(!tile||!el) return;
-  // The server has already rendered the real number into the markup, so start
-  // the animation FROM it. Counting up from zero would visibly wipe out the
-  // server-rendered value for a second and, worse, would put a literal 0 back
-  // in the DOM — which is the state a crawler might sample.
-  var from=parseInt((el.textContent||'0').replace(/[^0-9]/g,''),10)||0;
-  fetch('/landing/stats').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    if(!d||typeof d.clips_total!=='number'||d.clips_total<=0) return;
-    tile.style.display='';
-    var target=d.clips_total;
-    if(target===from) return;                 // nothing changed; leave it alone
-    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
-      el.textContent=target.toLocaleString('en-US'); return;
-    }
-    var started=null;
-    function tick(ts){
-      if(started===null) started=ts;
-      var p=Math.min((ts-started)/1400,1);
-      var eased=1-Math.pow(1-p,3);
-      el.textContent=Math.round(from+(target-from)*eased).toLocaleString('en-US');
-      if(p<1) requestAnimationFrame(tick);
-    }
-    // Start counting when the tile scrolls into view
-    if('IntersectionObserver' in window){
-      var io=new IntersectionObserver(function(es){
-        es.forEach(function(e){ if(e.isIntersecting){ requestAnimationFrame(tick); io.disconnect(); } });
-      },{threshold:0.4});
-      io.observe(tile);
-    } else { requestAnimationFrame(tick); }
-  }).catch(function(){});
-})();
-
 /* ── THE WALL ───────────────────────────────────────────────────────────────
    The hero is the detector, running. Four channels, each with its own baseline
    and its own threshold, each scored on a rolling window. One of them crosses,
@@ -12940,63 +12725,11 @@ LANDING_HTML = """<!DOCTYPE html>
   var seams = Array.prototype.slice.call(document.querySelectorAll('.seam, .wash'));
   var ticking = false, lastFired = -1;
 
-  /* ── the cover reveal. The cover keeps its box; only its contents lift and
-     fade, so the page below rises into a screen that is emptying rather than
-     one being pushed. Transform and opacity only — nothing here reflows.
-     The resting state is fully visible and untransformed, which is what JS-off
-     and reduced motion get (frame() is never called there), so everything
-     below may only ever take the cover AWAY. */
-  var coverIn = document.getElementById('cover-in');
-  var coverCue = document.getElementById('cover-cue');
-  var coverEl = document.getElementById('cover');
-  var coverWasPast = null;
-
-  /* HOW FAR THE FADE GETS TO RUN. Not a fixed fraction of the screen: the
-     content is centred, so it starts leaving through the TOP of the viewport
-     after only its own offset — 272px at 1440x950. A budget of 0.72 of a
-     screen meant it was still at 60% opacity when the top edge cut it in half,
-     which is the "half on the black, half off" state. The budget is the
-     content's own distance to the top instead, less the lift, so opacity hits
-     zero at the exact moment its first pixel would be clipped: it is either
-     on the black screen or it is gone, never sliced.
-     offsetTop and not getBoundingClientRect: the rect includes the transform
-     this same code is writing, so measuring with it would feed back on
-     itself. offsetTop is layout, which the transform does not touch. */
-  var coverBudget = 1, coverLift = 0, coverMeasuredAt = -1;
-  function measureCover(){
-    coverMeasuredAt = window.innerHeight;
-    var top = coverIn.offsetTop + (coverEl ? coverEl.offsetTop : 0);
-    /* The lift eats the budget it moves through, so it is capped at a quarter
-       of it. On a phone the content nearly fills the screen — top is about 95
-       against 272 on a desktop — and a flat 40px lift would have spent nearly
-       half of what there is to spend. */
-    coverLift = Math.min(40, top * 0.25);
-    coverBudget = Math.max(40, top - coverLift);
-  }
-
   function frame(){
     ticking = false;
     var h = document.documentElement.scrollHeight - window.innerHeight;
     var y = window.scrollY || window.pageYOffset;
     var prog = h > 0 ? Math.min(1, Math.max(0, y / h)) : 0;
-
-    if (coverIn){
-      /* Re-measured only when the viewport height changes, because the budget
-         depends on where centring put the content. Reading it every frame
-         would force a layout on every scroll event. */
-      if (window.innerHeight !== coverMeasuredAt) measureCover();
-      var k = Math.min(1, y / coverBudget);
-      coverIn.style.opacity = (1 - k).toFixed(3);
-      coverIn.style.transform = 'translate3d(0,' + (-k * coverLift).toFixed(1) + 'px,0)';
-      /* Same k, so the whole cover shares one timeline and nothing is left
-         behind on the black after the rest of it has gone. */
-      if (coverCue) coverCue.style.opacity = (1 - k).toFixed(3);
-      var past = y > window.innerHeight * 0.6;
-      if (past !== coverWasPast){
-        coverWasPast = past;
-        document.body.classList.toggle('past-cover', past);
-      }
-    }
 
     /* The score is not the scroll position. It rides a wave so it rises and
        falls the way a real trigger score does, and peaks at section seams. */
@@ -13034,127 +12767,14 @@ LANDING_HTML = """<!DOCTYPE html>
       seams[j].classList.toggle('lit', entering && over);
     }
   }
-  var slidesBound = false;
   function onScroll(){
     if (!ticking){ ticking = true; requestAnimationFrame(frame); }
-    if (slidesBound) armRest();
-  }
-
-  /* ── TWO SLIDES ──────────────────────────────────────────────────────────
-     The cover and the site, with nothing in between. One scroll gesture on the
-     cover carries you to the top of the site in a single move; one scroll up
-     from the top of the site carries you back. Fading alone was not enough:
-     you could still come to REST anywhere inside the transition, which is what
-     made the cover read as half on the black screen and half off it. There is
-     no third resting place now.
-
-     Not CSS scroll-snap. Measured in Chromium on this page: `mandatory` with
-     snap points only at the top drags you back to 0 from anywhere in the
-     document (150/500/900/1400/2500 all landed at 0), and `proximity` leaves
-     the middle un-snapped (500 landed at 334) -- which is the exact state
-     being fixed.
-
-     It engages only when the cover FITS the window. If the content is taller
-     than the viewport there is real scrolling to do inside the cover, and
-     swallowing that would trap the reader with no way to see the rest. */
-  var sliding = false, touchY = 0;
-
-  function coverFits(){
-    return !!coverEl && coverEl.offsetHeight <= window.innerHeight + 1;
-  }
-  function scrollY(){ return window.scrollY || window.pageYOffset || 0; }
-  /* -1 on the cover, 0 at the top of the site, 1 past both (hands off). */
-  function slideZone(){
-    if (!coverEl) return 1;
-    var h = coverEl.offsetHeight, y = scrollY();
-    if (y < h - 2) return -1;
-    if (y <= h + 2) return 0;
-    return 1;
-  }
-  function slideTo(target){
-    sliding = true;
-    window.scrollTo({ top: target, behavior: 'smooth' });
-    var t0 = Date.now();
-    (function settle(){
-      /* Released on arrival, with a ceiling so a scroll that never lands --
-         an interrupted smooth scroll, a background tab -- cannot leave input
-         swallowed forever. */
-      if (Math.abs(scrollY() - target) < 2 || Date.now() - t0 > 1400){
-        sliding = false; return;
-      }
-      requestAnimationFrame(settle);
-    })();
-  }
-  /* True only when this gesture was consumed, so the caller knows whether it
-     may cancel the event. Cancelling on a gesture we did NOT act on would stop
-     the reader scrolling down off the top of the site. */
-  function slideIntent(down){
-    if (sliding || !coverFits()) return false;
-    var z = slideZone();
-    if (down && z === -1){ slideTo(coverEl.offsetHeight); return true; }
-    if (!down && z === 0){ slideTo(0); return true; }
-    return false;
-  }
-
-  /* The backstop. Hijacking gestures covers the wheel, the keys and a swipe,
-     but not every way into the middle: dragging the scrollbar lands wherever
-     you drop it, and scrolling UP from deep in the page is deliberately not
-     hijacked (hands off past both slides) so it can carry you into the cover
-     from below. Whatever the route, if the scroll comes to rest INSIDE the
-     transition it is taken to the nearer of the two slides. Debounced, so it
-     only ever acts on a scroll that has already stopped -- it never fights a
-     gesture in progress. */
-  var restTimer = 0;
-  function armRest(){
-    if (!coverFits()) return;
-    clearTimeout(restTimer);
-    restTimer = setTimeout(function(){
-      if (sliding) return;
-      var h = coverEl.offsetHeight, y = scrollY();
-      if (y > 2 && y < h - 2) slideTo(y * 2 < h ? 0 : h);
-    }, 140);
-  }
-
-  function bindSlides(){
-    slidesBound = true;
-    window.addEventListener('wheel', function(e){
-      if (!coverFits()) return;
-      if (sliding && slideZone() < 1){ e.preventDefault(); return; }
-      if (!e.deltaY) return;
-      if (slideIntent(e.deltaY > 0)) e.preventDefault();
-    }, { passive: false });
-
-    window.addEventListener('keydown', function(e){
-      var t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      var k = e.key;
-      var down = (k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'Spacebar');
-      var up = (k === 'ArrowUp' || k === 'PageUp');
-      if (!down && !up) return;
-      if (slideIntent(down)) e.preventDefault();
-    });
-
-    window.addEventListener('touchstart', function(e){
-      if (e.touches && e.touches.length) touchY = e.touches[0].clientY;
-    }, { passive: true });
-
-    window.addEventListener('touchmove', function(e){
-      if (!coverFits() || !e.touches || !e.touches.length) return;
-      if (sliding && slideZone() < 1){ e.preventDefault(); return; }
-      var dy = touchY - e.touches[0].clientY;
-      if (Math.abs(dy) < 6) return;
-      if (slideIntent(dy > 0)) e.preventDefault();
-    }, { passive: false });
   }
 
   if (!reduce){
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
     frame();
-    /* Not under reduced motion: taking someone's scroll away and teleporting
-       them a screen is the kind of movement that setting exists to refuse.
-       There the page just scrolls, and the cover is one tall black block. */
-    bindSlides();
   } else if (thread){ thread.style.display = 'none'; }
 })();
 </script>
@@ -13526,9 +13146,9 @@ def _org_schema() -> str:
 
 
 # ── The cinematic page's generated parts ─────────────────────────────────────
-# Everything below the cover that depends on data is built here, not typed
+# Everything on the page that depends on data is built here, not typed
 # into the markup: the frames come from the curated showcase, the numbers from
-# the same counters the cover reads, the categories from the engine's own
+# the clip counter, the categories from the engine's own
 # signal titles, the plans from plans.py. Typed copies are how this page once
 # advertised a tier that did not exist.
 
@@ -13707,7 +13327,7 @@ def _shelf_html(frames: list[dict]) -> str:
 
 
 def _bignums_html(total: int) -> str:
-    """The three figures under the cover.
+    """The three figures under the proof section.
 
     NO LEAD LINE ABOVE THEM (owner, 2026-09-19: "get rid of this it is not
     helping is rather it is hindering us"). It read "Join the 66 streamers
@@ -13726,8 +13346,12 @@ def _bignums_html(total: int) -> str:
     from src.billing.plans import PLAN_LIMITS
     figs: list[tuple[str, str, str]] = []   # (number markup, caption, attrs)
     if total > 0:
-        figs.append((f"{total:,}", "clips captured and counting",
-                     ' id="bn-clips" data-count="' + str(total) + '"'))
+        # NO data-count on this one. The count-up ramps a figure from 0, and
+        # the clip count must never show a 0 that is not true — the exact
+        # state a crawler might sample. It stays at the number the server
+        # rendered (HANDOFF, "The landing clip counter is SERVER-RENDERED",
+        # rule 3), which the cover's own tile held until the cover went.
+        figs.append((f"{total:,}", "clips captured and counting", ' id="bn-clips"'))
     figs.append((str(PLAN_LIMITS["pro"]["max_streams"]), "channels watched at once on Pro",
                  ' data-count="' + str(PLAN_LIMITS["pro"]["max_streams"]) + '"'))
     if len(figs) < 3:
@@ -14008,12 +13632,13 @@ def _campaigns_block() -> str:
         + clippers + "</p></div>")
 
 
-def _cover_campaigns() -> str:
-    """The one line on the cover that says campaigns exist, leading to the
-    block in Pricing. Same switch as the block, so it never points at nothing."""
+def _proof_campaigns() -> str:
+    """The one line above the first headline that says campaigns exist,
+    leading to the block in Pricing. Same switch as the block, so it never
+    points at nothing."""
     if not settings.campaign_requests_enabled:
         return ""
-    return ('<a class="cover-new" href="#campaigns"><b>New </b><span><span class="cover-new-k">'
+    return ('<a class="proof-new" href="#campaigns"><b>New </b><span><span class="proof-new-k">'
             'Campaigns: </span>get your stream clipped</span> <span aria-hidden="true">&rarr;</span></a>')
 
 

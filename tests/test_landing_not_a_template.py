@@ -202,9 +202,9 @@ def test_the_nav_has_no_lines_on_it():
 
 def test_the_nav_wears_the_surface_it_arrives_on():
     """The bar is fixed over the top of the page. It wears the black family
-    the cover and the proof section are painted in, so there is never an edge
-    under it on the first two screens; over the light sections it is a dark
-    bar by design (the brief's cuts are hard)."""
+    the proof section is painted in, so there is never an edge under it on the
+    first screen; over the light sections it is a dark bar by design (the
+    brief's cuts are hard)."""
     nav = re.search(r"\n  \.nav\{([^}]*)\}", CSS).group(1)
     assert "#09070C" in nav, "the bar left the black family"
     proof = re.search(r"\n  \.proof\{([^}]*)\}", CSS).group(1)
