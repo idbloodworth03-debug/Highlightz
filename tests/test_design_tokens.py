@@ -456,7 +456,9 @@ def test_first_run_replaces_the_shell_rather_than_sitting_inside_it():
     shell is built."""
     d = _dash()
     # The prefix: a streamer's link to Promote rides along as a second prop.
-    gate = d.index("return <FirstRun onAdd={addStream}")
+    # Not "return <FirstRun" since 2026-10-26: the first-run screen is returned
+    # together with the found-us question that sits over it.
+    gate = d.index("<FirstRun onAdd={addStream}")
     shell = d.index("<nav className={'rd-nav'")
     assert gate < shell, "the shell is constructed before the first-run gate"
 

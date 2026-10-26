@@ -717,7 +717,7 @@ def test_the_promote_screen_is_wired_live():
     # The way back from /promote's sign-up and from Stripe's checkout.
     assert "_params.get('view') === 'promote'" in page and "setPromoNew(true)" in page
     # A streamer here to fund a campaign never meets "Add a channel to watch".
-    gate = page[page.index("const promoting = "):page.index("return <FirstRun")]
+    gate = page[page.index("const promoting = "):page.index("<FirstRun onAdd")]
     assert "route === 'promote'" in gate and "!promoting" in gate
     for fn in ("function PromoteScreen(", "function PromoteForm(", "function PromoteCard(", "function pmQuote("):
         assert fn in page, fn

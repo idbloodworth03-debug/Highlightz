@@ -770,6 +770,90 @@ def set_ref_once(user_id: str, ref: str) -> bool:
     return False
 
 
+# ── Where they found us (owner, 2026-10-26) ─────────────────────────────────
+# "When new users sign up with a free account lets make them take a quick like
+# 1 or 2 question quiz asking them where they found us before they can
+# continue in the process." Asked once, of accounts created after it shipped,
+# in front of everything on their first visit. NOTHING in the product branches
+# on the answer: like `goals`, it exists to be counted (the admin Onboarding
+# tab, scripts/growth_report.py). A fixed vocabulary so it can be counted,
+# plus an optional line in their own words ("which subreddit?").
+FOUND_VIA = (
+    "tiktok", "youtube", "instagram", "twitter", "reddit", "discord",
+    "twitch", "google", "ai", "friend", "other",
+)
+# "Somewhere else" says nothing without the where, so it alone needs the line.
+FOUND_VIA_NEEDS_DETAIL = ("other",)
+FOUND_VIA_DETAIL_MAX = 120
+
+
+def ask_found_via(user_id: str) -> bool:
+    """Mark a brand-new account as due the question. Called from the sign-up
+    branch of each OAuth callback, the one moment an account is known to be
+    new, so nobody who signed up before this shipped is ever asked. Returns
+    True when the mark was made."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.get("found_via_asked_at"):
+                return False
+            u["found_via_asked_at"] = time.time()
+            _save(users)
+            return True
+    return False
+
+
+def found_via_due(user: dict | None) -> bool:
+    """Asked at sign-up and not answered yet: what puts the quiz on screen."""
+    return bool(user and user.get("found_via_asked_at") and not user.get("found_via"))
+
+
+def found_via_of(user: dict | None) -> dict | None:
+    """The stored answer as {source, detail, at}, or None."""
+    if not user or not user.get("found_via"):
+        return None
+    return {"source": user["found_via"], "detail": user.get("found_via_detail") or "",
+            "at": float(user.get("found_via_at") or 0)}
+
+
+def clean_found_via_detail(text) -> str:
+    """One line of their own words: whitespace collapsed, control characters
+    dropped, capped. Only admins ever see it, through the admin page's esc()."""
+    s = " ".join(str(text or "").split())
+    s = "".join(ch for ch in s if ch.isprintable())
+    return s[:FOUND_VIA_DETAIL_MAX].strip()
+
+
+def set_found_via(user_id: str, source, detail="") -> dict | None:
+    """Store where this account found us. FIRST ANSWER ONLY, like the
+    referral: a second tab or a replayed request cannot change what was said.
+
+    Returns the stored answer (the earlier one when there already was one), or
+    None for an unknown account. Raises ValueError for an answer outside the
+    vocabulary, or for "other" with nothing saying where.
+    """
+    source = str(source or "").strip().lower()
+    if source not in FOUND_VIA:
+        raise ValueError("Pick one of the answers.")
+    detail = clean_found_via_detail(detail)
+    if source in FOUND_VIA_NEEDS_DETAIL and len(detail) < 2:
+        raise ValueError("Tell us where you found us.")
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if not u.get("found_via"):
+                now = time.time()
+                u["found_via"] = source
+                u["found_via_detail"] = detail
+                u["found_via_at"] = now
+                # An answer implies the question, so `asked` can never be
+                # smaller than `answered` in the admin numbers.
+                u["found_via_asked_at"] = u.get("found_via_asked_at") or now
+                _save(users)
+            return found_via_of(u)
+    return None
+
+
 def set_review_prompt_state(user_id: str, state: dict) -> None:
     """Persist when we last asked this user for a review, and whether they told
     us to stop. Lives on the user rather than in the reviews file because it

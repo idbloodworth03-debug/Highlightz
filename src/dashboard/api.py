@@ -1349,6 +1349,11 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
         funnel.undo(request.session.get("_fn"))
     else:
         funnel.record("signup" if _was_new else "returning")
+        # "Where did you find us?" is due for a new account (owner,
+        # 2026-10-26). Marked here because this is the one moment the account
+        # is known to be new; staff are never asked.
+        if _was_new:
+            user_store.ask_found_via(user["id"])
 
     if pending_ref:
         # First touch only — set_ref_once refuses to overwrite, so a returning
@@ -1457,6 +1462,8 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
         funnel.undo(request.session.get("_fn"))
     else:
         funnel.record("signup" if _was_new else "returning")
+        if _was_new:                           # same as the Twitch sign-up
+            user_store.ask_found_via(user["id"])
     if pending_ref and user_store.set_ref_once(user["id"], pending_ref):
         log.info("referral_attributed", user_id=user["id"], ref=pending_ref)
     if pending_invite:
@@ -1638,6 +1645,10 @@ async def me(request: Request):
         "kick_signin":         bool(settings.kick_client_id and settings.kick_client_secret),
         # The Settings tab's preferences, always complete (defaults filled).
         "prefs":               user_store.prefs_for(uid) if uid else dict(user_store.PREF_DEFAULTS),
+        # "Where did you find us?" is waiting: asked at sign-up, not answered.
+        # The quiz is derived from this, so a reconnect (refetchAll reads /me)
+        # puts it back or takes it away; found_via_saved closes it live.
+        "found_via_due":       user_store.found_via_due(user),
         # The languages captions and hook titles can be in, for the pickers
         # (prefs.language holds the account's choice). src/language.py.
         "languages":           _language.choices(),
@@ -5186,6 +5197,40 @@ async def post_onboarding(request: Request):
     return {"prefs": prefs, "autopilot": cfg}
 
 
+@app.post("/onboarding/source")
+async def post_found_via(request: Request):
+    """Where this account found us: the question a new account answers before
+    anything else (owner, 2026-10-26: "lets make them take a quick like 1 or 2
+    question quiz asking them where they found us before they can continue in
+    the process").
+
+    One answer from users.FOUND_VIA plus an optional line in their own words,
+    which only "other" requires. First answer only. NOTHING in the product
+    branches on it: it is counted in the admin Onboarding tab and by
+    scripts/growth_report.py.
+
+    Broadcast to this account only, so a second tab still showing the quiz
+    closes it without a refresh.
+    """
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    try:
+        answer = user_store.set_found_via(uid, body.get("source"), body.get("detail") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if answer is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    await broadcast({"event": "found_via_saved"}, user_id=uid)
+    log.info("found_via_answered", user_id=uid, source=answer["source"])
+    return {"found_via": answer, "found_via_due": False}
+
+
 @app.delete("/streams/{channel}", status_code=204)
 async def remove_stream(request: Request, channel: str):
     uid        = _current_user_id(request)
@@ -7700,6 +7745,22 @@ async def admin_onboarding(request: Request):
         })
 
     rows.sort(key=lambda r: -float(r["at"] or 0))
+
+    # Where they found us (2026-10-26). Its own asked/answered pair: only
+    # accounts created since the question shipped have been asked, so a share
+    # of every account would mostly be counting the accounts that predate it.
+    sources = {s: 0 for s in user_store.FOUND_VIA}
+    f_rows, f_asked = [], 0
+    for u in users:
+        if u.get("found_via_asked_at"):
+            f_asked += 1
+        a = user_store.found_via_of(u)
+        if not a:
+            continue
+        sources[a["source"]] = sources.get(a["source"], 0) + 1
+        f_rows.append({"user": u.get("username") or u.get("id", ""), **a})
+    f_rows.sort(key=lambda r: -float(r["at"] or 0))
+
     return {
         "rows": rows,
         "totals": {
@@ -7710,6 +7771,13 @@ async def admin_onboarding(request: Request):
             "goals": goals,
             # Of the people who got the chance, not of everybody.
             "completion_pct": round(100.0 * answered / asked, 1) if asked else 0.0,
+        },
+        "found_us": {
+            "asked": f_asked,
+            "answered": len(f_rows),
+            "sources": sources,
+            "completion_pct": round(100.0 * len(f_rows) / f_asked, 1) if f_asked else 0.0,
+            "rows": f_rows,
         },
     }
 
@@ -14360,7 +14428,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <h2>1. Information We Collect</h2>
   <p>We collect only what is necessary to operate the Service:</p>
   <ul>
-    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
+    <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; your answer to the question we ask when you sign up about where you heard of us, and anything you add to it, for the same reason; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
     <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account from Settings, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
@@ -15169,7 +15237,17 @@ ADMIN_HTML = """<!DOCTYPE html>
 
   <!-- ── ONBOARDING ── -->
   <div class="panel" id="panel-onboarding">
-    <div class="block-head"><h2>Onboarding</h2><span class="c" id="ob-c"></span></div>
+    <div class="block-head"><h2>Where they found us</h2><span class="c" id="fu-c"></span></div>
+    <p class="sub">
+      The question every account created since 26 October 2026 answers before
+      anything else on its first visit. Accounts from before that were never
+      asked, so <b>asked</b> counts only the new ones. "In their words" is the
+      optional line under the answer, like which subreddit or which video.
+    </p>
+    <div class="tw" id="fu-stats"></div>
+    <div class="tw" style="margin-top:var(--s-5)"><div id="fu-wrap" class="loading">Loading&hellip;</div></div>
+
+    <div class="block-head" style="margin-top:var(--s-7)"><h2>Onboarding</h2><span class="c" id="ob-c"></span></div>
     <p class="lede">
       What people say they are here for. <b>Clipper or streamer</b> sets the
       Autopilot mode; since 2026-09-23 both post one clip per video, so it no
@@ -15366,11 +15444,43 @@ const OB_GOAL_LABELS = {
   earn_money: 'make money posting clips'
 };
 let OB_ROWS = [], OB_Q = '';
+// Where they found us (2026-10-26): the same payload's found_us block. The
+// keys are users.FOUND_VIA; a test holds the two lists together.
+const FU_LABELS = {
+  tiktok: 'TikTok',
+  youtube: 'YouTube',
+  instagram: 'Instagram',
+  twitter: 'X (Twitter)',
+  reddit: 'Reddit',
+  discord: 'Discord',
+  twitch: 'Twitch',
+  google: 'Google search',
+  ai: 'ChatGPT or another AI',
+  friend: 'A friend',
+  other: 'Somewhere else'
+};
+let FU_ROWS = [];
 
 async function loadOnboarding(){
   let d;
   try { d = await api('/admin/onboarding'); }
-  catch(e){ document.getElementById('ob-wrap').textContent = 'Could not load.'; return; }
+  catch(e){
+    document.getElementById('ob-wrap').textContent = 'Could not load.';
+    document.getElementById('fu-wrap').textContent = 'Could not load.';
+    return;
+  }
+  const f = (d && d.found_us) || {}, fs = f.sources || {};
+  FU_ROWS = f.rows || [];
+  document.getElementById('fu-c').textContent =
+    n0(f.answered) + ' answered of ' + n0(f.asked) + ' asked · ' + (f.completion_pct || 0) + '%';
+  const fpc = v => f.answered ? Math.round(100 * v / f.answered) + '%' : '—';
+  const found = Object.keys(FU_LABELS).map(k => [k, fs[k] || 0]).sort((a,b) => b[1] - a[1]);
+  let fh = '<table><thead><tr><th>Found us via</th><th>Accounts</th><th>Share</th></tr></thead><tbody>';
+  found.forEach(function(row){
+    fh += '<tr><td>' + FU_LABELS[row[0]] + '</td><td class="num">' + n0(row[1]) + '</td><td class="num">' + fpc(row[1]) + '</td></tr>';
+  });
+  // #fu-stats IS the .tw, so the phone labeller (labelCells) sees this render.
+  document.getElementById('fu-stats').innerHTML = fh + '</tbody></table>';
   OB_ROWS = (d && d.rows) || [];
   const t = (d && d.totals) || {}, uc = t.use_cases || {}, g = t.goals || {};
   document.getElementById('ob-c').textContent =
@@ -15393,9 +15503,34 @@ async function loadOnboarding(){
   renderOnboarding();
 }
 
+function renderFoundUs(q){
+  const wrap = document.getElementById('fu-wrap');
+  const rows = q ? FU_ROWS.filter(function(r){
+    return ((r.user||'') + ' ' + (FU_LABELS[r.source] || r.source || '') + ' ' + (r.detail||'')).toLowerCase().indexOf(q) >= 0;
+  }) : FU_ROWS;
+  wrap.className = '';
+  if(!rows.length){
+    wrap.innerHTML = '<p class="sub">' + (FU_ROWS.length
+      ? 'Nobody matches that.'
+      : 'Nobody has answered yet. A row appears the moment a new account answers.')
+      + '</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>When</th><th>Account</th><th>Found us via</th>'
+           + '<th>In their words</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr><td>' + (r.at ? new Date(r.at*1000).toLocaleString() : '—') + '</td>'
+          + '<td><b>' + esc(r.user) + '</b></td>'
+          + '<td>' + esc(FU_LABELS[r.source] || r.source) + '</td>'
+          + '<td>' + (r.detail ? esc(r.detail) : '<span class="sub">nothing added</span>') + '</td></tr>';
+  });
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
 function renderOnboarding(){
   const wrap = document.getElementById('ob-wrap');
   const q = OB_Q.trim().toLowerCase();
+  renderFoundUs(q);
   const rows = q ? OB_ROWS.filter(function(r){
     return ((r.user||'') + ' ' + (r.use_case||'') + ' ' + (r.goals||[]).join(' ')).toLowerCase().indexOf(q) >= 0;
   }) : OB_ROWS;

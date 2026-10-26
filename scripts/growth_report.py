@@ -187,6 +187,18 @@ else:
     for g, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"    {goal_labels[g]:<30} {n:>4}  {pct(n, len(answered))}")
 
+# ── where they found us ─────────────────────────────────────────────────────
+# The question every account created since 2026-10-26 answers before anything
+# else (POST /onboarding/source). Out of the accounts that were ASKED, because
+# everyone older never saw it. Counts only: the optional line in their own
+# words can name a person, so it stays in the admin Onboarding tab.
+asked_fu = [u for u in real if u.get("found_via_asked_at")]
+told = [u for u in real if u.get("found_via")]
+print(f"\nWHERE THEY FOUND US (of {len(asked_fu)} accounts asked)")
+print(f"  answered               {len(told):>4}  {pct(len(told), len(asked_fu))}")
+for src, n in collections.Counter(u["found_via"] for u in told).most_common():
+    print(f"    {src:<22} {n:>4}  {pct(n, len(told))}  of those who answered")
+
 
 # ── why the free accounts are not converting ────────────────────────────────
 # "They don't convert" is three different problems wearing one label, and the

@@ -7133,3 +7133,66 @@ of it".
   block 12px under the bar, no console errors, no sideways scroll. With
   JavaScript off the h1, the figures and the campaigns line are all in the
   page. Reduced motion renders the same page.
+
+## "Where did you find us?": the first question a new account answers (2026-10-26)
+
+Owner: "When new users sign up with a free account lets make them take a quick
+like 1 or 2 question quiz asking them where they found us before they can
+continue in the process".
+
+- **Who is asked:** accounts created from now on. The Twitch and Kick
+  callbacks call `users.ask_found_via(uid)` in their sign-up branch (`_was_new`,
+  not staff), which stamps `found_via_asked_at`. Older accounts were never
+  marked and never see it; staff are never marked. `/me.found_via_due` is
+  "asked and not answered".
+- **The question:** "Where did you hear about Highlightz?" with eleven answers
+  (`users.FOUND_VIA`: tiktok, youtube, instagram, twitter, reddit, discord,
+  twitch, google, ai, friend, other), then an optional line in their own words
+  whose label follows the answer ("Which subreddit?", "Who sent you?"). Only
+  "Somewhere else" requires the line (2+ characters). The line is collapsed to
+  one line, control characters dropped, 120 characters max.
+- **Stored on the user record**, not in prefs, so `PUT /prefs` cannot clear the
+  due flag: `found_via`, `found_via_detail`, `found_via_at`,
+  `found_via_asked_at`. FIRST ANSWER ONLY, like the referral. An answer stamps
+  `found_via_asked_at` too, so asked >= answered always.
+- **`POST /onboarding/source`** `{source, detail}`: 400 with a reason for an
+  answer outside the list or "other" with no where; signed out, the auth gate
+  redirects to /login like POST /onboarding. Broadcasts `found_via_saved` to
+  that account only; `ws.onmessage` clears `me.found_via_due`, so a second tab
+  closes the quiz with no refresh. `/me` (in `refetchAll`) re-derives it after
+  a reconnect.
+- **It comes first and cannot be skipped.** `FoundUsModal` (aurora_html) shares
+  the onboarding modal's look and rules: no close, no Escape, a backdrop with
+  no click handler, Continue disabled until there is an answer, focus trapped.
+  It renders over the first-run screen AND over the app, and the announcement,
+  the offer and the onboarding questions all wait for it (`!needsFoundUs`).
+  `GET /onboarding` (admin preview) walks it first, shows what it would send,
+  saves nothing, then hands over to the onboarding preview.
+- **Admin:** Onboarding tab, a "Where they found us" block above the
+  onboarding one: answered of asked, a count per answer, and a row per answer
+  with "In their words" (escaped). `/admin/onboarding` carries it as
+  `found_us`. `scripts/growth_report.py` has a WHERE THEY FOUND US section,
+  counts only (their words can name a person).
+- **Nothing in the product branches on it**, and a test fails if anything
+  outside users.py, the callbacks, `/me`, the endpoint and the admin numbers
+  reads `found_via`. The Privacy Policy's account bullet now lists the answer
+  next to the referral code (not re-dated: an additive, low-risk disclosure).
+- Tests: `tests/test_found_us.py` (28). Three pinned slices moved from
+  `return <FirstRun` to `<FirstRun onAdd` (design tokens, campaign requests,
+  landing campaigns): the first-run screen is returned together with the quiz.
+- Verified: full suite 4143; JSX; admin script. Browser: a new account's first
+  screen is the quiz; Escape, a backdrop click and 20 Tabs never get past it;
+  Continue waits for an answer; a second tab of the same account (phone)
+  closed live when the first answered (no reload); a reload does not bring it
+  back; "Somewhere else" stays disabled at "a" and opens at "a podcast"; the
+  dialog fits a 390x844 phone (159..685px) with no sideways scroll; a Twitch
+  account with onboarding due got the quiz first, then the announcement and
+  the onboarding questions; an older account was never asked; admin showed 3
+  of 3 with the rows and their words, labelled cards on a phone; the preview
+  sent nothing.
+- **Found while testing, NOT fixed (owner's call):** the "Add a channel"
+  first-run screen has never appeared. Its gate checks `me.id`, and `/me` has
+  only ever returned `user_id` (true when the gate was added on 2026-08-28 and
+  now), so a brand-new account lands in the full app on Clip Review. The fix
+  is one word (`me.user_id`), but it changes every new account's first screen,
+  so it was left for the owner to decide. The quiz shows over either screen.

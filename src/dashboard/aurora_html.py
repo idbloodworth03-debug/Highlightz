@@ -1429,6 +1429,12 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
   border:1px solid var(--line);font-family:var(--mono);font-size:13px;line-height:1.6;
   color:var(--fg-2);overflow:auto;max-height:40vh}
 @media (max-width:620px){.rd-onb-cards{grid-template-columns:1fr}}
+/* "Where did you find us?": the optional line under the answer. 16px so a
+   phone does not zoom the page when the field takes focus; flex:none because
+   .rd-input grows along a row and this one sits in a column. */
+.rd-fu-more{display:flex;flex-direction:column;gap:8px}
+.rd-fu-more label{font-size:13px;font-weight:600;color:var(--fg-2)}
+.rd-fu-more .rd-input{flex:none;font-size:16px;padding:12px 16px}
 .ed-bg{position:fixed;inset:0;z-index:200;background:rgba(4,4,8,.86);display:flex;
   align-items:center;justify-content:center;padding:16px;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 /* The editor is a flex column so the side panel can scroll on its own while
@@ -3479,6 +3485,131 @@ function OnboardingModal({ onDone, preview = false }) {
               {busy?'Saving…':'Finish'}</button>
           </div>
         </>}
+      </div>
+    </div>
+  );
+}
+
+// "Where did you find us?" (owner, 2026-10-26: "When new users sign up with a
+// free account lets make them take a quick like 1 or 2 question quiz asking
+// them where they found us before they can continue in the process"). The
+// server marks an account at sign-up, so only accounts created since then are
+// asked, and they are asked FIRST: in front of Add a channel, the onboarding
+// questions and any announcement. One answer, then an optional line in their
+// own words; only "Somewhere else" needs the line. NOTHING in the product
+// branches on it: it is counted in the admin Onboarding tab.
+//
+// IT CANNOT BE SKIPPED, the same way the onboarding questions cannot: no close
+// button, no Escape, a backdrop with no click handler, Continue disabled until
+// there is an answer, and focus kept inside. The keys are users.FOUND_VIA; a
+// test holds the two lists together.
+const FOUND_VIA = [
+  ['tiktok',    'TikTok',                'Which account or video?'],
+  ['youtube',   'YouTube',               'Which channel or video?'],
+  ['instagram', 'Instagram',             'Which account or post?'],
+  ['twitter',   'X (Twitter)',           'Which account or post?'],
+  ['reddit',    'Reddit',                'Which subreddit?'],
+  ['discord',   'Discord',               'Which server?'],
+  ['twitch',    'Twitch',                'Which streamer?'],
+  ['google',    'Google search',         'What did you search for?'],
+  ['ai',        'ChatGPT or another AI', 'Which one?'],
+  ['friend',    'A friend',              'Who sent you?'],
+  ['other',     'Somewhere else',        'Where did you find us?'],
+];
+
+function FoundUsModal({ onDone, preview = false }) {
+  const [source, setSource] = useState('');
+  const [detail, setDetail] = useState('');
+  const [busy, setBusy]     = useState(false);
+  const [err, setErr]       = useState('');
+  const [sent, setSent]     = useState(null);   // the admin preview's "would send"
+  const box = useRef(null);
+  const row = FOUND_VIA.find(r => r[0] === source);
+  const needsLine = source === 'other';
+  const ready = !!source && (!needsLine || detail.trim().length >= 2);
+
+  // Focus starts inside and Tab cycles within, as in OnboardingModal: the
+  // backdrop stops a mouse, and without this a keyboard tabs straight out to
+  // the page behind. Escape is deliberately not handled.
+  useEffect(() => {
+    if (preview) return;                 // the admin preview is not a gate
+    const el = box.current;
+    if (el) { const f = el.querySelector('button'); if (f) f.focus(); }
+    const onKey = e => {
+      if (e.key !== 'Tab' || !box.current) return;
+      const items = box.current.querySelectorAll('button:not([disabled]), input');
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!box.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [preview]);
+
+  const save = async () => {
+    if (!ready || busy) return;
+    const body = { source, detail: detail.trim() };
+    // Admin preview (GET /onboarding): show what WOULD be sent, save nothing.
+    if (preview) { setSent(body); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/onboarding/source', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not save');
+      onDone();
+    } catch (e) {
+      // Left open with the error: closing on a failed save would lose the
+      // answer and look like it worked.
+      setErr(String(e.message || e));
+      setBusy(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <div className="rd-ann-bg" role="dialog" aria-modal="true">
+        <div className="rd-onb glass">
+          <div className="rd-ann-k"><Icon name="sliders" size={13}/>Preview: nothing was saved</div>
+          <h3>This is what a real answer would send</h3>
+          <div className="sub">POST /onboarding/source. It is counted in the admin Onboarding tab and changes nothing else.</div>
+          <pre className="rd-onb-pre">{JSON.stringify(sent, null, 2)}</pre>
+          <div className="rd-onb-foot">
+            <button className="rd-btn" onClick={()=>{ setSent(null); setSource(''); setDetail(''); }}>Start over</button>
+            <button className="rd-btn grad" onClick={onDone}>Next: the onboarding questions</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-fu-title">
+      <div className="rd-onb glass" ref={box}>
+        <div className="rd-ann-k"><Icon name={preview?'sliders':'sparkles'} size={13}/>
+          {preview ? 'Preview: nothing is saved' : 'Quick question'}</div>
+        <h3 id="rd-fu-title">Where did you hear about Highlightz?</h3>
+        <div className="sub">One question before you start. It helps us find more people like you.</div>
+        <div className="rd-onb-goals">
+          {FOUND_VIA.map(([key, label]) => (
+            <button key={key} className={'rd-onb-goal'+(source===key?' on':'')}
+              onClick={()=>{ setSource(key); setErr(''); }} aria-pressed={source===key}>{label}</button>
+          ))}
+        </div>
+        {row && <div className="rd-fu-more">
+          <label htmlFor="rd-fu-line">{row[2]}{needsLine ? '' : ' (optional)'}</label>
+          <input id="rd-fu-line" className="rd-input" maxLength={120} value={detail} autoComplete="off"
+            onChange={e=>setDetail(e.target.value)} onKeyDown={e=>{ if (e.key === 'Enter') save(); }}/>
+        </div>}
+        {err && <div className="rd-onb-err">{err}</div>}
+        <div className="rd-onb-foot">
+          <span className="rd-onb-step">{!source ? 'Pick one' : (needsLine && !ready ? 'Tell us where' : 'All set')}</span>
+          <button className="rd-btn grad" disabled={busy || !ready} onClick={save}>
+            {busy ? 'Saving…' : 'Continue'}</button>
+        </div>
       </div>
     </div>
   );
@@ -12039,6 +12170,17 @@ function RdApp() {
   const onbPreview = typeof location !== 'undefined' && location.pathname === '/onboarding';
   const needsOnboarding = onbPreview || !!(me && me.user_id && me.platforms && me.platforms.twitch
                                            && me.prefs && !me.prefs.onboarded_at);
+  // "Where did you find us?" comes FIRST for an account created since it
+  // shipped (the server marks it at sign-up): before Add a channel, the
+  // onboarding questions, an announcement or an offer. Derived from /me like
+  // needsOnboarding, so a reconnect re-derives it and found_via_saved closes
+  // it in every tab. The admin preview walks it first and saves nothing.
+  const [fuPreviewDone, setFuPreviewDone] = useState(false);
+  const needsFoundUs = onbPreview ? !fuPreviewDone : !!(me && me.user_id && me.found_via_due);
+  const foundUsDone = () => {
+    if (onbPreview) setFuPreviewDone(true);
+    else setMe(m=>(m ? {...m, found_via_due: false} : m));
+  };
   // Full showcase entries (ordered) — the Landing Page screen renders these,
   // and the clip modal only needs the id set, so derive that from them.
   const [featured, setFeatured] = useState([]);
@@ -12460,6 +12602,11 @@ function RdApp() {
           // Settings saved in any tab: the full prefs ride on the event.
           setMe(m=>({...(m||{}), prefs: msg.prefs||{}}));
         }
+        else if(msg.event==='found_via_saved'){
+          // "Where did you find us?" answered in another tab of this account:
+          // the quiz here closes too, with no refresh.
+          setMe(m=>(m ? {...m, found_via_due: false} : m));
+        }
         else if(msg.event==='identity_linked'){
           // A Twitch or Kick identity was attached to this account in another
           // tab (the OAuth round trip lands wherever it started). /me carries
@@ -12868,7 +13015,12 @@ function RdApp() {
     || !!(promo && promo.rows && promo.rows.length);
   if (me && me.id && Object.keys(streams).length === 0
       && Object.keys(clips).length === 0 && !seenBefore && !promoting) {
-    return <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}/>;
+    // The found-us question sits over this screen too: for a new account this
+    // IS the first screen, and the question comes before it.
+    return <>
+      <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}/>
+      {needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}
+    </>;
   }
 
   return (
@@ -12942,11 +13094,14 @@ function RdApp() {
         onClose={()=>setReviewAsk(null)}/>}
       <UndoToast entry={undoable} onUndo={doUndo} onDismiss={()=>setUndoable(null)}/>
       <RdToast msg={toast}/>
-      {announcements.length > 0 && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}
+      {/* The found-us question first; everything else that pops up waits
+          for it, so a new account never sees two of these stacked. */}
+      {needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}
+      {announcements.length > 0 && !needsFoundUs && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}
         onOpenCampaign={openCampaign}/>}
-      {announcements.length === 0 && !needsOnboarding && me && me.offer &&
+      {announcements.length === 0 && !needsOnboarding && !needsFoundUs && me && me.offer &&
         <OfferModal offer={me.offer} onDismiss={dismissOffer}/>}
-      {needsOnboarding && <OnboardingModal preview={onbPreview}
+      {needsOnboarding && !needsFoundUs && <OnboardingModal preview={onbPreview}
         onDone={(p, expect)=>{
           setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}));
           // What the answer just bought them, in the words they used to give

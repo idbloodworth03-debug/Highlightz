@@ -103,7 +103,7 @@ def test_browse_the_campaigns_signs_in_and_lands_on_campaigns(monkeypatch):
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     deep = page[page.index("_params.get('view') === 'campaigns'"):][:300]
     assert "setRoute('campaigns')" in deep and "history.replaceState" in deep
-    gate = page[page.index("const promoting = "):page.index("return <FirstRun")]
+    gate = page[page.index("const promoting = "):page.index("<FirstRun onAdd")]
     assert "route === 'campaigns' && canCampaigns" in gate
 
 
