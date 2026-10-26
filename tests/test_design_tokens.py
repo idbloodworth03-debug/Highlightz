@@ -468,10 +468,80 @@ def test_first_run_is_gated_on_clips_too_not_just_streams():
     channel is not a new user. Dropping them onto a bare input would read as
     their account having been wiped."""
     d = _dash()
-    g = d[d.index("if (me && me.id && Object.keys(streams).length === 0"):]
+    g = d[d.index("if (me && me.user_id && listsLoaded"):]
     g = g[:g.index("}")]
     assert "Object.keys(clips).length === 0" in g, "the gate ignores existing clips"
     assert "seenBefore" in g, "the gate ignores whether they have been here before"
+
+
+def _first_run_gate() -> str:
+    d = _dash()
+    g = d[d.index("if (me && me.user_id && listsLoaded"):]
+    return g[:g.index(") {")]
+
+
+def test_first_run_reads_a_field_me_actually_has():
+    """The gate read `me.id` from 2026-08-28, and /me has never returned an
+    `id`, so the screen never appeared for anybody (found 2026-10-26). It
+    reads `user_id`, which /me does return, and nothing reads `me.id` now."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api.me)
+    assert '"user_id":' in src and '"id":' not in src
+    assert "me.user_id" in _first_run_gate()
+    assert "me && me.id &&" not in _dash()
+
+
+def test_first_run_waits_for_the_lists_so_it_cannot_flash():
+    """/me is its own request and can land before /clips and /streams. Until
+    they have, empty lists mean "not loaded", and the screen must not flash
+    in front of somebody who has channels."""
+    d = _dash()
+    assert "listsLoaded" in _first_run_gate()
+    assert "const [listsLoaded, setListsLoaded] = useState(false);" in d
+    fetch = d[d.index("Promise.all([fetch('/clips')"):]
+    fetch = fetch[:fetch.index(".catch(")]
+    assert "setListsLoaded(true);" in fetch, "nothing marks the lists as loaded"
+    assert d.count("setListsLoaded(true)") == 1
+
+
+def test_first_run_is_only_for_accounts_that_can_add_a_twitch_channel():
+    """It adds a Twitch channel and nothing else. A Kick-only account, or a
+    password account with no Twitch identity, cannot, so for them it would be
+    a wall with no way through; they land in the app instead."""
+    assert "me.platforms && me.platforms.twitch" in _first_run_gate()
+    d = _dash()
+    body = d[d.index("function FirstRun("):]
+    body = body[:body.index("\n}\n")]
+    assert "onAdd(name, 'default', 'twitch')" in body
+
+
+def test_first_run_has_a_way_out_to_the_campaigns():
+    """A clipper who signed up to enter a campaign may never add a channel
+    (entries can be links). A link, like the streamers' one to Promote, so
+    the screen still does one thing."""
+    d = _dash()
+    body = d[d.index("function FirstRun("):]
+    body = body[:body.index("\n}\n")]
+    assert "{campaignsHref && <a className=\"fr-alt\" href={campaignsHref}>" in body
+    assert "campaignsHref={canCampaigns ? '/?view=campaigns' : ''}" in d
+
+
+def test_the_onboarding_questions_wait_for_the_wake():
+    """Adding the first channel from the welcome screen plays the wake. The
+    onboarding questions are due at that same moment for a new Twitch
+    account, and covering the wake would hide the one thing that happened."""
+    d = _dash()
+    assert "{needsOnboarding && !needsFoundUs && !wake && <OnboardingModal" in d
+
+
+def test_a_refused_channel_on_first_run_says_why():
+    """addStream reports a refusal through flash(), and the toast lives in the
+    shell. Without its own toast the first-run screen failed in silence."""
+    d = _dash()
+    branch = d[d.index("<FirstRun onAdd={addStream}"):]
+    branch = branch[:branch.index("</>")]
+    assert "<RdToast msg={toast}/>" in branch
 
 
 def test_the_wake_plays_on_every_channel_and_can_be_skipped():

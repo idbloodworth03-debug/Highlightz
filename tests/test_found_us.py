@@ -292,7 +292,7 @@ def test_the_quiz_comes_before_everything_else():
     shell = shell[:shell.index("{postClip")]
     assert "announcements.length > 0 && !needsFoundUs" in shell
     assert "!needsOnboarding && !needsFoundUs && me && me.offer" in shell
-    assert "{needsOnboarding && !needsFoundUs && <OnboardingModal" in shell
+    assert "{needsOnboarding && !needsFoundUs && !wake && <OnboardingModal" in shell
 
 
 def test_the_flag_comes_from_me_so_a_reconnect_rederives_it():

@@ -7190,9 +7190,53 @@ continue in the process".
   the onboarding questions; an older account was never asked; admin showed 3
   of 3 with the rows and their words, labelled cards on a phone; the preview
   sent nothing.
-- **Found while testing, NOT fixed (owner's call):** the "Add a channel"
-  first-run screen has never appeared. Its gate checks `me.id`, and `/me` has
-  only ever returned `user_id` (true when the gate was added on 2026-08-28 and
-  now), so a brand-new account lands in the full app on Clip Review. The fix
-  is one word (`me.user_id`), but it changes every new account's first screen,
-  so it was left for the owner to decide. The quiz shows over either screen.
+- **Found while testing:** the "Add a channel" first-run screen had never
+  appeared (its gate read `me.id`; `/me` only has `user_id`). Fixed the same
+  day on the owner's say-so: see "The welcome screen is on".
+
+## The welcome ("Add a channel") screen is on (2026-10-26)
+
+Owner: "yes fix the welcome screen too". `FirstRun` (Design phase 4,
+2026-08-28) never appeared for anybody: the gate read `me.id`, and `/me` has
+only ever returned `user_id`. Every new account landed in the full app on an
+empty Clip Review instead.
+
+Switching it on was not the one word it looked like. The screen replaces the
+whole app and adds a Twitch channel and nothing else, and four things in the
+product had grown up since it was written. The gate is now
+`me.user_id && listsLoaded && me.platforms.twitch && no channels && no clips
+&& !seenBefore && !promoting`:
+
+- **`listsLoaded`** (set once the first `/clips` + `/streams` fetch lands):
+  `/me` is its own request and can land first, and empty lists before then
+  mean "not loaded", not "nothing here". Without it the screen would flash at
+  every returning account whose `/me` won the race.
+- **Twitch accounts only.** A Kick-only account or a password account (an app
+  reviewer's login, for one) cannot add a Twitch channel, so for them the
+  screen would be a wall with no way through. They land in the app as before.
+- **A way out to Campaigns** for a clipper who signed up to enter one and may
+  never add a channel (entries can be links): "Here to clip for a prize? See
+  the campaigns" (`/?view=campaigns`), under the streamers' existing link to
+  Promote, only while the marketplace is open to them. Links, not buttons, so
+  the screen still does one thing.
+- **Refusals are visible.** `addStream` reports errors through `flash()`, and
+  the toast lived only in the app shell, so a refused channel failed in
+  silence here. The branch renders `<RdToast>` now.
+- **The onboarding questions wait for the wake** (`!wake`): adding the first
+  channel plays the wake, and the questions are due at that moment for a new
+  Twitch account; covering it would hide the one thing that just happened.
+
+The new account's order is now: "Where did you hear about Highlightz?" (over
+the welcome screen), the welcome screen, a channel added, the wake, "What are
+you here for?", the app.
+
+Tests: `test_design_tokens.py` (the gate anchor moved, plus six: the field
+`/me` really has, the lists wait, Twitch only, the campaigns link, the
+refusal toast, the questions after the wake). Browser (`scratchpad/welcome`):
+a new Twitch account got the question over the welcome screen, then the
+screen with both links; a forced 400 showed "Error: That channel has opted
+out of Highlightz." on it; an add opened the app with the wake alone, the
+questions 2.5 s later; a returning account with /clips and /streams held back
+1.5 s never saw the screen (MutationObserver); Kick-only and password accounts
+went straight to the app; on a phone "See the campaigns" opened Campaigns; no
+console errors, no sideways scroll. Full suite 4149.

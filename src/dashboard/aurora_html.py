@@ -89,6 +89,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   padding:8px 16px;border-radius:99px;border:1px solid var(--hair);font-size:var(--t-small);font-weight:700;color:var(--fg-2)}
 .fr-alt:hover{color:var(--fg);border-color:var(--hair-2)}
 .fr-alt:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+/* The clipper's way past it, to Campaigns, sits close under the streamer's,
+   so the two read as one pair of ways out rather than two separate things. */
+.fr-alt + .fr-alt{margin-top:var(--s-3)}
 @media(max-width:520px){
   .fr-row{flex-direction:column}
 }
@@ -10719,7 +10722,7 @@ function VodScreen({ clips, me }) {
 
    It calls the same onAdd the normal panel calls, so there is one add path and
    no second copy of the validation to drift. */
-function FirstRun({ onAdd, promoteHref }) {
+function FirstRun({ onAdd, promoteHref, campaignsHref }) {
   const [ch, setCh] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -10764,6 +10767,10 @@ function FirstRun({ onAdd, promoteHref }) {
             It is the way out for a streamer who came to fund a campaign. */}
         {promoteHref && <a className="fr-alt" href={promoteHref}>
           <Icon name="megaphone" size={14}/>Here to promote your own stream? Run a clipping campaign</a>}
+        {/* The same kind of way out, for a clipper who signed up to enter a
+            campaign: they may never add a channel at all. */}
+        {campaignsHref && <a className="fr-alt" href={campaignsHref}>
+          <Icon name="trophy" size={14}/>Here to clip for a prize? See the campaigns</a>}
       </div>
     </div>
   );
@@ -12030,6 +12037,10 @@ function RdApp() {
   const [wake, setWake] = useState(null);       // {channel, score} during the 1.5s wake
   const seenBefore = (()=>{ try { return !!localStorage.getItem('hz_welcome_seen'); } catch { return true; } })();
   const [streams, setStreams] = useState({});
+  // The first /clips + /streams fetch has landed. Before it has, empty lists
+  // mean "not loaded yet" rather than "nothing here", which is the difference
+  // the first-run screen turns on.
+  const [listsLoaded, setListsLoaded] = useState(false);
   const [scores, setScores] = useState({});
   const [profiles, setProfiles] = useState({});
   const [histories, setHistories] = useState({});
@@ -12239,6 +12250,7 @@ function RdApp() {
       .then(([ca,sa])=>{
         setClips(Object.fromEntries(ca.map(c=>[c.id,c])));
         setStreams(Object.fromEntries(sa.map(s=>[s.channel,s])));
+        setListsLoaded(true);
       }).catch(()=>{});
     fetch('/profiles').then(r=>r.json()).then(arr=>{
       setProfiles(Object.fromEntries(arr.map(p=>[p.channel,p])));
@@ -13004,21 +13016,34 @@ function RdApp() {
   // Gated on streams AND clips, not streams alone. Somebody who added a
   // channel, collected clips and later removed the channel is not a new user,
   // and dropping them onto a bare input would read as their account having
-  // been wiped. `me.id` gates on /me having landed, so the screen cannot flash
-  // before the app knows what the account has.
+  // been wiped.
+  // `me.user_id`, not `me.id`: /me has never had an `id`, so from 2026-08-28
+  // until 2026-10-26 this screen never appeared at all (owner: "yes fix the
+  // welcome screen too"). And `listsLoaded`, because /me is its own request
+  // and can land before /clips and /streams; an empty pair before then means
+  // "not loaded yet", and the screen must not flash at someone with channels.
+  // Twitch accounts only: the screen adds a Twitch channel and nothing else,
+  // and a Kick-only or password account cannot add one, so for them it would
+  // be a wall with no way through. They land in the app as before.
   // Not on Promote, and not for an account that has asked for a campaign: a
   // streamer who signed up to fund one has no channels and is not here to
   // add one, so the request form must never sit behind "Add a channel".
   // Nor on Campaigns: a clipper sent there from the landing page looks at
-  // the campaigns before choosing which channels to add.
+  // the campaigns before choosing which channels to add, and the screen
+  // links there for one who lands here instead.
   const promoting = route === 'promote' || (route === 'campaigns' && canCampaigns)
     || !!(promo && promo.rows && promo.rows.length);
-  if (me && me.id && Object.keys(streams).length === 0
+  if (me && me.user_id && listsLoaded && me.platforms && me.platforms.twitch
+      && Object.keys(streams).length === 0
       && Object.keys(clips).length === 0 && !seenBefore && !promoting) {
     // The found-us question sits over this screen too: for a new account this
-    // IS the first screen, and the question comes before it.
+    // IS the first screen, and the question comes before it. The toast is
+    // here because adding a channel reports its errors through flash(), and
+    // without it a refused channel on this screen would fail in silence.
     return <>
-      <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}/>
+      <FirstRun onAdd={addStream} promoteHref={canPromote ? '/?view=promote' : ''}
+        campaignsHref={canCampaigns ? '/?view=campaigns' : ''}/>
+      <RdToast msg={toast}/>
       {needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}
     </>;
   }
@@ -13101,7 +13126,10 @@ function RdApp() {
         onOpenCampaign={openCampaign}/>}
       {announcements.length === 0 && !needsOnboarding && !needsFoundUs && me && me.offer &&
         <OfferModal offer={me.offer} onDismiss={dismissOffer}/>}
-      {needsOnboarding && !needsFoundUs && <OnboardingModal preview={onbPreview}
+      {/* After the wake, not over it: adding the first channel from the
+          welcome screen plays the wake, and the questions covering it would
+          hide the one thing that just happened. */}
+      {needsOnboarding && !needsFoundUs && !wake && <OnboardingModal preview={onbPreview}
         onDone={(p, expect)=>{
           setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}));
           // What the answer just bought them, in the words they used to give
