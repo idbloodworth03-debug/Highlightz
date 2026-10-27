@@ -1,0 +1,30 @@
+{
+  "name": "highlightz-campaigns-promo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "30-second Highlightz Campaigns promo: Remotion compositions, capture rig and audio.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "audio": "python3 audio/make_audio.py",
+    "capture": "node capture/capture.mjs",
+    "record-live": "node capture/record-live.mjs",
+    "fetch-data": "node capture/fetch-data.mjs",
+    "check-data": "node capture/check-data.mjs",
+    "render:16x9": "remotion render src/index.ts Promo16x9 out/highlightz-campaigns-promo-16x9.mp4",
+    "render:9x16": "remotion render src/index.ts Promo9x16 out/highlightz-campaigns-promo-9x16.mp4",
+    "render:teaser": "remotion render src/index.ts Teaser12 out/highlightz-campaigns-teaser-12s.mp4",
+    "render:thumb": "remotion still src/index.ts Promo16x9 out/highlightz-campaigns-thumbnail.png",
+    "render:teaser:9x16": "remotion render src/index.ts Teaser12x9x16 out/highlightz-campaigns-teaser-12s-9x16.mp4",
+    "render:all": "npm run check-data && npm run render:16x9 && npm run render:9x16 && npm run render:teaser && npm run render:thumb"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.539",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.539"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  }
+}

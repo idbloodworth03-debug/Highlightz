@@ -1,0 +1,13 @@
+node_modules/
+out/
+audio/__pycache__/
+capture/frames/
+# What the demo account's dashboard socket carried: its own clips. Kept local.
+capture/recordings/
+# Generated: `npm run audio` writes the mixes and stems (seeded, so the same
+# every time); `npm run capture` and `fetch-data` write the footage.
+public/audio/
+public/captures/*.mp4
+public/captures/*.webm
+# The repo root ignores *.ts (HLS video segments); here .ts is TypeScript.
+!*.ts

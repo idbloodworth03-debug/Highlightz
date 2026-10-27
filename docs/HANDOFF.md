@@ -7430,3 +7430,38 @@ for /, /blog and /blog/highlightz-campaigns. Bing Webmaster Tools: "Import
 from Google Search Console" (or `msvalidate.01=...` in the same setting).
 `ORG_PROFILES` (api.py) is still empty: the official social profile URLs go
 there for schema.org sameAs, and only genuinely ours.
+
+## The Campaigns promo video: `promo/` (2026-10-27)
+
+Owner asked for a 30 s promo announcing Campaigns (16:9 + 9:16 + 12 s teaser +
+thumbnail), with **real UI, real data and real clips only**, and "if a
+required piece of data or access is missing, tell me what you need instead of
+faking it". `promo/` is a standalone Remotion project (not part of the app;
+nothing in `src/` imports it, nothing in CI builds it). `promo/README.md` has
+the shot list, timings and every step.
+
+- **Real or a labelled placeholder.** Every number comes from
+  `promo/src/data/promo-data.json`, written only by `capture/fetch-data.mjs`
+  (live /promote budget range, /landing/stats, /landing/showcase clips via
+  streamlink, /campaigns as a demo account that joined) and
+  `capture/capture.mjs` (the UI shots). A shot with no source renders as a
+  "REAL CAPTURE GOES HERE" card plus a "PREVIEW, NOT FOR RELEASE" mark;
+  `npm run render:all` refuses until `src/missing.js` is empty.
+- **Capture rig:** Playwright on https://highlightz.app (refuses any other
+  host unless `--test`, which never writes the data file), virtual time
+  (`capture/vt.js`) so 60 fps is exact, 2x/3x screenshots piped to ffmpeg.
+  Live Streams and Clip Review replay a real recording of the dashboard
+  socket (`record-live.mjs`: score_updates up to a real clip_ready). Admin
+  UI hidden; leaderboard names masked (`mask_entrant_names`).
+- **Audio** is synthesized (`audio/make_audio.py`, seeded): no licence. 128
+  BPM, `src/timeline.json` drives cuts and sounds. -14 LUFS, <= -1 dBTP.
+  `--music` takes a licensed WAV instead.
+- **Status (2026-10-27): preview only.** This session's network policy
+  answers 403 for highlightz.app and every Twitch host, so no real shot, clip
+  or number could be fetched. To finish, a machine that reaches
+  highlightz.app + Twitch needs: an admin demo account with Pro joined to the
+  live campaign (and TikTok connected, for the Post shot), a busy live channel
+  to record a crossing on, then `record-live` → `capture` → `fetch-data
+  --funded-by Highlightz` → `render:all`.
+- Do not commit footage or the socket recording (`.gitignore` covers
+  `public/captures/*.mp4`, `public/audio/`, `capture/recordings/`).

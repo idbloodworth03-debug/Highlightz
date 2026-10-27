@@ -1,0 +1,24 @@
+{
+  "_doc": "REAL DATA ONLY. Written by capture/fetch-data.mjs from the live app (a signed-in demo account) and the capture rig. Every null is a shot with no real source yet: the preview renders it as a labelled placeholder, and `npm run render:all` refuses to run until none are left (capture/check-data.mjs). Never type a number in here by hand.",
+  "fetched_at": null,
+  "source": null,
+  "budget_range": {
+    "min": 100,
+    "max": 50000,
+    "source": "config/settings.py defaults (CAMPAIGN_MIN_BUDGET_USD / CAMPAIGN_MAX_BUDGET_USD) and docs/HANDOFF.md; fetch-data.mjs replaces this with the figures the live /promote page shows",
+    "verified_live": false
+  },
+  "clips_total": null,
+  "campaign": null,
+  "featured_clips": [],
+  "signal_trace": null,
+  "captures": {
+    "landing": null,
+    "live": null,
+    "review": null,
+    "editor": null,
+    "post": null,
+    "campaign": null
+  },
+  "mask_entrant_names": true
+}
