@@ -46,7 +46,7 @@ export type Capture = {
 // Each UI shot is captured twice: the desktop layout for 16:9 and the real
 // phone layout for 9:16.
 export type CapturePair = {wide: Capture | null; tall: Capture | null};
-export type ShotName = 'landing' | 'live' | 'review' | 'editor' | 'campaign';
+export type ShotName = 'landing' | 'live' | 'campaign';
 export type SignalTrace = {
   threshold: number;
   // One sample per output frame of the live shot: the score and each signal's share.

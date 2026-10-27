@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fr, PROMO, TL} from './rig.mjs';
 import {demoSession} from './auth.mjs';
+import {liveWindow} from './live-window.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -149,33 +150,30 @@ async function currentCampaign() {
   };
 }
 
-// The same time compression capture.mjs applies to the live shot, so the
-// panel's number and the real screen behind it move together.
+// The score and signals per frame of the live shot, from the same stretch
+// of the recording that capture.mjs plays into the real screen
+// (live-window.mjs), so the panel and the screen behind it agree.
 function signalTrace() {
   const recPath = path.join(PROMO, 'capture', 'recordings', 'live.json');
   if (!fs.existsSync(recPath)) return null;
   const rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
-  const msgs = rec.messages.filter((m) => m.msg.event === 'score_update');
-  const bot = TL.promo.scenes.find((s) => s.id === 'bot');
-  const crossF = fr(TL.promo.shots['bot.cross']) - fr(bot.from);
-  const frames = crossF + 64;
-  const window_s = Math.min(40, rec.cross_t - msgs[0].t);
-  const timeAt = (f) => (f <= crossF ? rec.cross_t - ((crossF - f) / crossF) * window_s : rec.cross_t + (f - crossF) / TL.fps);
+  const frames = fr(TL.promo.shots['bot.clip2']) - fr(TL.promo.shots['bot.live']);
+  const w = liveWindow(rec, frames, TL.fps);
   const at = (t) => {
-    let last = msgs[0];
-    for (const m of msgs) { if (m.t > t) break; last = m; }
+    let last = w.msgs[0];
+    for (const m of w.msgs) { if (m.t > t) break; last = m; }
     return last.msg;
   };
   const score = [];
   const raw = Object.fromEntries(SIGNALS.map((k) => [k, []]));
   for (let f = 0; f < frames; f++) {
-    const m = at(timeAt(f));
+    const m = at(w.timeOf(f));
     score.push(Number(m.score));
     for (const k of SIGNALS) raw[k].push(Math.max(0, Number((m.breakdown || {})[k]) || 0));
   }
   const peak = Math.max(1e-9, ...SIGNALS.flatMap((k) => raw[k]));
   const signals = Object.fromEntries(SIGNALS.map((k) => [k, raw[k].map((v) => +(v / peak).toFixed(3))]));
-  return {threshold: rec.threshold, score: score.map((v) => +v.toFixed(2)), signals, channel: rec.channel};
+  return {threshold: rec.threshold, score: score.map((v) => +v.toFixed(2)), signals, channel: rec.channel, platform: rec.platform || 'twitch'};
 }
 
 async function main() {

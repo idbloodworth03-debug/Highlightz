@@ -161,16 +161,27 @@ export const centerOf = async (page, selector) => page.evaluate((s) => {
   return {x: b.left + b.width / 2, y: b.top + b.height / 2, rect: {x: b.left, y: b.top, w: b.width, h: b.height}};
 }, selector);
 
+// The element that scrolls the page: the dashboard's inner panel on a
+// desktop (.rd-scroll), the body in its phone layout, the window on the
+// public pages. Source text, so page.evaluate calls can share it.
+export const SCROLLER = `(() => {
+  for (const el of [document.querySelector('.rd-scroll'), document.body, document.documentElement]) {
+    if (!el) continue;
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+  }
+  return document.scrollingElement;
+})()`;
+
 // Where an element sits in the page's scrolling content, `offset` px below
-// the top of the visible area. The dashboard scrolls an inner panel
-// (.rd-scroll), not the window; the public pages scroll the window.
-export const docTop = async (page, selector, offset = 0) => page.evaluate(({s, offset}) => {
+// the top of the visible area.
+export const docTop = async (page, selector, offset = 0) => page.evaluate(({s, offset, SCROLLER}) => {
   const el = document.querySelector(s);
   if (!el) return null;
-  const sc = document.querySelector('.rd-scroll');
-  const origin = sc ? sc.getBoundingClientRect().top - sc.scrollTop : -window.scrollY;
+  const sc = (0, eval)(SCROLLER);
+  const origin = sc === document.scrollingElement ? -sc.scrollTop : sc.getBoundingClientRect().top - sc.scrollTop;
   return Math.max(0, el.getBoundingClientRect().top - origin - offset);
-}, {s: selector, offset});
+}, {s: selector, offset, SCROLLER});
 
 // Record `frames` frames into `out` (H.264, crf 10). perFrame(i) runs before
 // each frame's virtual-time step, so it can scroll, move the cursor, click,

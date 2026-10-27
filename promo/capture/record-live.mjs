@@ -2,7 +2,7 @@
 // Records the real WebSocket traffic of a live channel the demo account is
 // monitoring, until the bot captures a clip on it:
 //
-//   HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <twitch login> [--add] [--max-min 45]
+//   HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <twitch login> [--platform kick] [--add] [--max-min 45 | --seconds 150]
 //
 // Start monitoring the channel in the dashboard first (Live Streams → Monitor
 // stream), or pass --add to have the script start it. Otherwise it only listens: it opens the signed-in dashboard on
@@ -30,6 +30,9 @@ const BASE = 'https://highlightz.app';
 const SESSION = args.session || await demoSession(BASE);
 const CHANNEL = String(args.channel || '').toLowerCase();
 const MAX_MS = Number(args['max-min'] || 45) * 60 * 1000;
+// --seconds N: record N seconds of live scores and stop, with or without a clip.
+const SECONDS = Number(args.seconds || 0);
+const PLATFORM = args.platform === 'kick' ? 'kick' : 'twitch';
 const OUT = path.join(PROMO, 'capture', 'recordings', 'live.json');
 if (!SESSION || !CHANNEL) {
   console.error('usage: HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <login> [--max-min 45]');
@@ -74,33 +77,40 @@ async function main() {
   if (args.add) {
     // Start monitoring the channel from the signed-in page, as Live Streams'
     // Monitor stream button does (201 added, 409 already monitored).
-    const status = await page.evaluate(async (channel) => (await fetch('/streams', {
-      method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({channel, platform: 'twitch'}),
-    })).status, CHANNEL);
+    const status = await page.evaluate(async ([channel, platform]) => (await fetch('/streams', {
+      method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({channel, platform}),
+    })).status, [CHANNEL, PLATFORM]);
     console.log(`monitor ${CHANNEL}: HTTP ${status}`);
     if (status !== 201 && status !== 409) throw new Error('could not start monitoring ' + CHANNEL);
   }
-  console.log(`listening for ${CHANNEL} (stops at its first captured clip, or after ${MAX_MS / 60000} min)`);
-  const why = await Promise.race([finished, new Promise((r) => setTimeout(() => r('timeout'), MAX_MS))]);
+  const limit = SECONDS ? SECONDS * 1000 : MAX_MS;
+  console.log(SECONDS ? `recording ${CHANNEL}'s live scores for ${SECONDS} s` : `listening for ${CHANNEL} (stops at its first captured clip, or after ${MAX_MS / 60000} min)`);
+  const why = await Promise.race([finished, new Promise((r) => setTimeout(() => r('timeout'), limit))]);
   await browser.close();
-  if (why === 'removed') process.exit(1);
-  if (why !== 'clip') {
-    console.error(`\nno clip was captured on ${CHANNEL} in ${MAX_MS / 60000} min; nothing written. Try a busier channel or a longer --max-min.`);
-    process.exit(1);
-  }
   const scores = messages.filter((m) => m.msg.event === 'score_update');
   const clip = messages.find((m) => m.msg.event === 'clip_ready');
+  if (!SECONDS && why !== 'clip') {
+    console.error(why === 'removed' ? '' : `\nno clip was captured on ${CHANNEL} in ${MAX_MS / 60000} min; nothing written. Try a busier channel or a longer --max-min.`);
+    process.exit(1);
+  }
+  if (scores.length < 5) {
+    console.error(`\nonly ${scores.length} score updates for ${CHANNEL}; nothing written. Is the channel live and monitored?`);
+    process.exit(1);
+  }
   const thr = scores.map((m) => threshold(m.msg)).filter((v) => v !== null).pop();
   if (thr == null) throw new Error('score_update carried no threshold in its breakdown');
-  // The crossing: the last rise through the threshold before the clip landed.
+  // The crossing, when a clip was caught: the last rise through the
+  // threshold before it landed. A --seconds recording has none.
   let cross = null;
-  for (let i = 1; i < scores.length && scores[i].t <= clip.t; i++) {
-    if (scores[i - 1].msg.score < thr && scores[i].msg.score >= thr) cross = scores[i];
+  if (clip) {
+    for (let i = 1; i < scores.length && scores[i].t <= clip.t; i++) {
+      if (scores[i - 1].msg.score < thr && scores[i].msg.score >= thr) cross = scores[i];
+    }
+    if (!cross) cross = scores.filter((m) => m.t <= clip.t).reduce((x, y) => (y.msg.score > x.msg.score ? y : x), scores[0]);
   }
-  if (!cross) cross = scores.filter((m) => m.t <= clip.t).reduce((a, b) => (b.msg.score > a.msg.score ? b : a), scores[0]);
   fs.mkdirSync(path.dirname(OUT), {recursive: true});
-  fs.writeFileSync(OUT, JSON.stringify({channel: CHANNEL, threshold: thr, cross_t: cross.t, recorded_at: new Date().toISOString(), messages}, null, 1) + '\n');
-  console.log(`\nwrote ${path.relative(PROMO, OUT)}: ${scores.length} score updates, crossing at ${cross.t.toFixed(1)} s, clip ${clip.msg.clip.id}`);
+  fs.writeFileSync(OUT, JSON.stringify({channel: CHANNEL, platform: PLATFORM, threshold: thr, cross_t: cross ? cross.t : null, recorded_at: new Date().toISOString(), messages}, null, 1) + '\n');
+  console.log(`\nwrote ${path.relative(PROMO, OUT)}: ${scores.length} score updates over ${scores[scores.length - 1].t.toFixed(0)} s` + (cross ? `, crossing at ${cross.t.toFixed(1)} s, clip ${clip.msg.clip.id}` : ', no crossing'));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

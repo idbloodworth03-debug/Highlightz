@@ -45,12 +45,12 @@ so a cut and its sound cannot drift apart. Change a beat there and both follow.
 |---|---|---|---|
 | 0:00.000 | 0-4 | Hook | Logo glitches in; "Every big moment, already a clip." |
 | 0:01.875 | 4-16 | Landing | highlightz.app scrolling: hero, what it catches, ten streams, a whip down to Campaigns. NEW badge; callouts "7 live signals, one score" (3.750 s), "10 streams at once" (4.688 s), "Free to start" (5.625 s) |
-| 0:07.500 | 16-36 | The bot | Live Streams: a real channel's score climbing with its signals; the crossing at 10.313 s (one-beat freeze, flash, "CLIP CAPTURED"); the clip lands in Clip Review and is approved (12.188 s); the Clip Editor; two featured clips, each credited (14.063 s, 15.000 s); Post to TikTok (15.938 s) |
+| 0:07.500 | 16-36 | The bot | Live Streams with a live channel's real scores replayed at real speed (the 4.7 s where the score climbs most), its score and seven signals beside it; then two clips Highlightz caught, from the landing page's showcase, each credited: "Clipped by Highlightz" (12.188 s, 14.531 s) |
 | 0:16.875 | 36-44 | Slides | "Set your budget." (with the real range), "Choose prizes + rules.", "Clippers compete.", "Winners get paid.", 0.94 s each |
-| 0:20.625 | 44-56 | Campaign | The live campaign's real page; prize pool counts up on the coin (21.094 s), split, hashtags, entries and views, the leaderboard sliding into rank (23.438 s) |
+| 0:20.625 | 44-56 | Campaign | The campaign's real page (the live one, or else the next to open); prize pool counts up on the coin (21.094 s), split, hashtags; entries and views once it is live, or clippers joined and the opening date before (22.5 s); a live campaign's leaderboard slides into rank (23.438 s) |
 | 0:26.250 | 56-64 | CTA | Logo; "Get your stream clipped."; highlightz.app/promote; "Clipper? Browse the campaigns."; fade over the last beat |
 
-The teaser is the hook, the bot's crossing, the campaign and the CTA: 0-1.875 s,
+The teaser is the hook, the live scoring, the campaign and the CTA: 0-1.875 s,
 1.875-5.625 s, 5.625-9.375 s, 9.375-12.000 s.
 
 No text is on screen for less than 0.8 s: the shortest text holds are the
@@ -100,16 +100,21 @@ for fetch, `HTTPS_PROXY` to Chromium).
    variable in the environment's settings, not in chat or in a file; a new
    session picks it up.
 
-2. **Record a real crossing.** With the demo account, start monitoring a
-   busy live Twitch channel (Live Streams → Monitor stream), then:
+2. **Record a live channel's scores.** With the demo account monitoring a
+   busy live channel (Live Streams → Monitor stream, or `--add`):
 
    ```sh
-   npm run record-live -- --channel <login>
+   npm run record-live -- --channel <login> [--platform kick] --seconds 180
    ```
 
-   It listens to the dashboard's WebSocket until the bot captures a clip on
-   that channel, and writes every `score_update` and the `clip_ready` to
-   `capture/recordings/live.json`.
+   It listens to the dashboard's WebSocket and writes every `score_update`
+   (and a `clip_ready`, if the bot catches one) to
+   `capture/recordings/live.json`. Without `--seconds` it waits for a
+   caught clip. A Twitch channel needs a Twitch account connected to the
+   demo account: without one the bot's first clip fails and the server
+   stops monitoring the channel (the script says so and stops). A Kick
+   channel needs no connection; its shot is in the dashboard's Kick colours,
+   because Live Streams lists one platform at a time.
 
 3. **Record the UI.**
 
@@ -122,9 +127,10 @@ for fetch, `HTTPS_PROXY` to Chromium).
    Web Animations and video all move only when the rig says so), so the
    motion is exact however long a frame takes to screenshot. Frames are taken
    at 2x (3x on the phone) and piped into ffmpeg at CRF 10. The Live Streams
-   and Clip Review shots replay the recording from step 2 into the real
-   screens in place of the live socket; the cursor clicks Approve for real.
-   Nothing is posted. Shots are written to `public/captures/<shot>-<layout>.mp4`,
+   shot replays the recording from step 2 into the real screen in place of
+   the live socket, at real speed, with the recorded channel selected.
+   Dashboard shots hide toasts and the admin-only tabs. Nothing is changed
+   on the account by a capture. Shots are written to `public/captures/<shot>-<layout>.mp4`,
    and their size, frame count and focus region to the data file.
 
    `--shots campaign --layouts tall` re-records just one. `--test --base
@@ -217,7 +223,9 @@ src/Promo.tsx           the 30 s cut and the teaser; Root.tsx registers them
 audio/make_audio.py     music, SFX, ducking, master
 capture/rig.mjs         browser, virtual time stepping, cursor, recording
 capture/vt.js           virtual time, injected into the page
-capture/record-live.mjs real score updates up to a captured clip
+capture/record-live.mjs real score updates from a live channel
+capture/live-window.mjs  which seconds of it the edit shows (shared)
+capture/clip-picks.json  editorial order and in-points for the featured clips
 capture/capture.mjs     the UI shots
 capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate

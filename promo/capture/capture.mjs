@@ -2,7 +2,7 @@
 // Records the real UI shots of the promo from the live app.
 //
 //   HZ_DEMO_PASSWORD=... npm run capture -- \
-//        [--shots landing,live,review,editor,campaign] [--layouts wide,tall]
+//        [--shots landing,live,campaign] [--layouts wide,tall]
 //
 // Every shot is the real page on https://highlightz.app, signed in as the demo
 // account where it needs one, stepped frame by frame (vt.js) so the motion is
@@ -15,8 +15,9 @@
 // video.
 import fs from 'node:fs';
 import path from 'node:path';
-import {centerOf, docTop, fr, installCursor, keys, launch, PROMO, record, setCursor, TL, warm, ease} from './rig.mjs';
+import {centerOf, docTop, fr, keys, launch, PROMO, record, SCROLLER, TL, warm} from './rig.mjs';
 import {demoSession} from './auth.mjs';
+import {liveWindow} from './live-window.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -31,7 +32,7 @@ if (!TEST && BASE !== PROD) throw new Error('Real captures come from ' + PROD + 
 const OUT = TEST ? path.resolve(args.out || '/tmp/hz-test-captures') : path.join(PROMO, 'public', 'captures');
 // The demo password only ever goes to production, never to a --test server.
 const SESSION = args.session || (TEST ? '' : await demoSession(PROD));
-const SHOTS = String(args.shots || 'landing,live,review,editor,campaign').split(',');
+const SHOTS = String(args.shots || 'landing,live,campaign').split(',');
 const LAYOUTS = String(args.layouts || 'wide,tall').split(',');
 const DATA_FILE = path.join(PROMO, 'src', 'data', 'promo-data.json');
 
@@ -77,20 +78,30 @@ const HIDE_ADMIN_CSS = `
   [data-admin], .admin-only, a[href="/admin"], .cmp-status.draft { display: none !important; }
 `;
 
-// Every signed-in shot: the dashboard in its Twitch colours (the brand's
-// purple; a per-browser setting, not the account's), and the sidebar as a
-// clipper's account shows it: the admin-only Training and Landing Page
-// tools are taken out of it. They carry no marker, so they go by label.
-const DASHBOARD_INIT = () => {
-  try { localStorage.setItem('hz_platform', 'twitch'); } catch (e) {}
+// Every signed-in shot: the dashboard in the colours of the platform it
+// shows (Twitch purple; Kick green for a Kick channel's live scores, since
+// Live Streams lists one platform at a time; a per-browser setting, not the
+// account's), the sidebar as a clipper's account shows it (the admin-only
+// Training and Landing Page tools are taken out; they carry no marker, so
+// they go by label), and no toasts.
+const dashboardInit = (platform) => `(() => {
+  try { localStorage.setItem('hz_platform', ${JSON.stringify(platform)}); } catch (e) {}
   const ADMIN_TABS = ['Training', 'Landing Page'];
   const hide = () => {
+    // The account's own notices (another tab's actions, a stream it stopped)
+    // are not part of the shot: toasts stay out of frame.
+    if (document.head && !document.getElementById('__cap-css')) {
+      const st = document.createElement('style');
+      st.id = '__cap-css';
+      st.textContent = '.rd-toast{display:none!important}';
+      document.head.append(st);
+    }
     for (const b of document.querySelectorAll('.rd-navitem')) {
       if (ADMIN_TABS.includes((b.innerText || '').trim()) && b.style.display !== 'none') b.style.display = 'none';
     }
   };
   new MutationObserver(hide).observe(document, {childList: true, subtree: true});
-};
+})();`;
 
 async function maskNames(page) {
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -131,102 +142,35 @@ const SHOT = {
     return {focus: (await centerOf(page, focusSel))?.rect};
   },
 
-  // The real Live Streams screen, fed the real score_update messages recorded
-  // from a live channel by record-live.mjs, compressed so the climb to the
-  // crossing fills the shot; the crossing lands on the shot's key frame.
+  // The real Live Streams screen, fed the real score_update messages that
+  // record-live.mjs recorded from a live channel, at real speed: the stretch
+  // where the score climbs most (live-window.mjs, shared with the panel's
+  // trace). Earlier messages fill the chart's history before the first frame.
   async live({page, layout, out, rec}) {
-    const crossF = shotAt('bot.cross', 'bot');
-    const frames = crossF + 64;
-    const msgs = rec.messages.filter((m) => m.msg.event === 'score_update' && m.msg.channel === rec.channel);
-    const tCross = rec.cross_t;
-    const window_s = Math.min(40, tCross - msgs[0].t);
-    const toFrame = (t) => (t <= tCross ? crossF - ((tCross - t) / window_s) * crossF : crossF + (t - tCross) * TL.fps);
-    const plan = msgs.map((m) => ({f: Math.round(toFrame(m.t)), msg: m.msg})).filter((p) => p.f < frames);
+    const frames = shotAt('bot.clip2', 'bot') - shotAt('bot.live', 'bot');
+    const w = liveWindow(rec, frames, TL.fps);
+    const plan = w.msgs.map((m) => ({f: w.frameOf(m.t), msg: m.msg}));
     const early = plan.filter((p) => p.f < 0);
-    const due = plan.filter((p) => p.f >= 0);
+    const due = plan.filter((p) => p.f >= 0 && p.f < frames);
     await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
-    await warm(page, {selector: `text=${rec.channel}`});
-    // Fill the chart's history with what came before the window, at once.
+    await warm(page, {selector: '.rd-streampick'});
+    // The detail panel shows the selected channel: select the recorded one
+    // (the list opens on the first channel, alphabetically).
+    await page.locator('.rd-streampick', {hasText: rec.channel}).first().click();
+    await page.waitForTimeout(800);
+    if (layout === 'tall') {
+      // On a phone the detail panel sits below the list: bring it up.
+      const y = await docTop(page, '.rd-detail', 64);
+      await page.evaluate(({y, SCROLLER}) => { (0, eval)(SCROLLER).scrollTop = y; }, {y, SCROLLER});
+    }
     for (const p of early.slice(-40)) await page.__ws.send(p.msg);
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(800);
     let k = 0;
     await record({page, frames, out, perFrame: async (i) => {
       while (k < due.length && due[k].f <= i) await page.__ws.send(due[k++].msg);
       if (k) await page.waitForTimeout(15);
     }});
-    const card = await centerOf(page, `[data-channel="${rec.channel}"]`) || await page.evaluate((ch) => {
-      const el = [...document.querySelectorAll('*')].find((e) => e.children.length < 40 && e.textContent && e.textContent.includes(ch) && e.querySelector('svg'));
-      if (!el) return null;
-      const b = el.getBoundingClientRect();
-      return {rect: {x: b.left, y: b.top, w: b.width, h: b.height}};
-    }, rec.channel);
-    return {focus: card?.rect, key_frame: crossF};
-  },
-
-  // Clip Review: the real clip card arrives the way it did live (its real
-  // clip_ready message) and the cursor approves it, for real.
-  async review({page, layout, out, rec}) {
-    const frames = shotAt('bot.editor', 'bot') - shotAt('bot.review', 'bot');
-    const approveAt = shotAt('bot.approve', 'bot') - shotAt('bot.review', 'bot');
-    const ready = rec.messages.find((m) => m.msg.event === 'clip_ready');
-    if (!ready) throw new Error('the recording has no clip_ready: let record-live.mjs run until a clip is captured');
-    const clipId = ready.msg.clip.id;
-    // The initial list without the new clip, so it can arrive on camera.
-    await page.route('**/clips?**', async (route) => {
-      const res = await route.fetch();
-      const body = await res.json().catch(() => null);
-      if (!body) return route.fulfill({response: res});
-      const strip = (v) => (Array.isArray(v) ? v.filter((c) => c.id !== clipId) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([k]) => k !== clipId)) : v);
-      route.fulfill({response: res, json: body.clips ? {...body, clips: strip(body.clips)} : strip(body)});
-    });
-    await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
-    await warm(page, {selector: 'main'});
-    await installCursor(page, layout === 'tall' ? 0.8 : 1);
-    let target = null;
-    let start = null;
-    await record({page, frames, out, perFrame: async (i) => {
-      if (i === 4) await page.__ws.send(ready.msg);
-      if (i === 14 && !target) {
-        const btn = page.getByRole('button', {name: /^Approve/}).first();
-        const b = await btn.boundingBox();
-        if (b) target = {x: b.x + b.width / 2, y: b.y + b.height / 2};
-        const vp = page.viewportSize();
-        start = {x: vp.width * 0.82, y: vp.height * 0.85};
-      }
-      if (target) {
-        const p = ease(Math.min(1, (i - 14) / Math.max(1, approveAt - 14)));
-        const x = start.x + (target.x - start.x) * p;
-        const y = start.y + (target.y - start.y) * p;
-        const ripple = i >= approveAt ? (i - approveAt) / 16 : -1;
-        await setCursor(page, {x, y, ripple});
-        if (i === approveAt) {
-          await page.mouse.click(target.x, target.y);
-          await page.waitForLoadState('networkidle').catch(() => {});
-        }
-      }
-    }});
-    const card = await centerOf(page, `[data-clip-id="${clipId}"]`);
-    return {focus: card?.rect || (target ? {x: target.x - 180, y: target.y - 260, w: 360, h: 320} : undefined)};
-  },
-
-  // Clip Editor: the captured clip, a vertical template, captions lighting up
-  // word by word (the editor's own highlight), and the editor's title.
-  async editor({page, layout, out, rec}) {
-    const frames = shotAt('bot.clip2', 'bot') - shotAt('bot.editor', 'bot');
-    const ready = rec.messages.find((m) => m.msg.event === 'clip_ready');
-    await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
-    await page.evaluate(() => sessionStorage.setItem('hz_route', 'library'));
-    await page.reload({waitUntil: 'domcontentloaded'});
-    await warm(page, {selector: 'main'});
-    const card = ready ? page.locator(`[data-clip-id="${ready.msg.clip.id}"]`).first() : page.locator('main').first();
-    await card.getByRole('button', {name: /edit/i}).first().click();
-    await page.waitForSelector('.ed-tpl', {timeout: 60000});
-    await page.locator('.ed-tpl', {has: page.locator('.ed-tpl-ic.punch')}).first().click().catch(() => {});
-    await page.waitForTimeout(2500);                // captions and the first frame decode
-    await page.locator('video').first().evaluate((v) => { v.currentTime = 0; v.play(); });
-    await page.waitForTimeout(300);
-    await record({page, frames, out});
-    return {focus: (await centerOf(page, 'canvas'))?.rect};
+    return {focus: (await centerOf(page, '.rd-detail'))?.rect};
   },
 
   // The campaign's real page: the live one, or else the next to open. Its
@@ -272,8 +216,8 @@ const SHOT = {
     }));
     const num = (s) => Number(String(s).replace(/[^0-9.]/g, '')) || 0;
     await record({page, frames, out, perFrame: async (i) => {
-      await page.evaluate(({y, i, at, pool, count, scores}) => {
-        (document.querySelector('.rd-scroll') || document.scrollingElement).scrollTop = y;
+      await page.evaluate(({y, i, at, pool, count, scores, SCROLLER}) => {
+        (0, eval)(SCROLLER).scrollTop = y;
         const e = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3));
         const fmt = (v, like) => (like.trim().startsWith('$') ? '$' : '') + Math.round(v).toLocaleString('en-US');
         const big = document.querySelector('.cmp-box .cmp-big');
@@ -295,26 +239,25 @@ const SHOT = {
             row.style.boxShadow = `0 0 ${g * 26}px rgba(243,67,254,${g * 0.55}), inset 0 0 0 1px rgba(243,67,254,${g * 0.5})`;
           }
         });
-      }, {y: keys(K, i), i, at, pool: {n: num(real.pool), s: real.pool}, count: {n: num(real.count), s: real.count}, scores: real.scores.map((s) => ({n: num(s)}))});
+      }, {y: keys(K, i), i, at, pool: {n: num(real.pool), s: real.pool}, count: {n: num(real.count), s: real.count}, scores: real.scores.map((s) => ({n: num(s)})), SCROLLER});
     }});
     return {focus: (await centerOf(page, '.cmp-rows'))?.rect || (await centerOf(page, '.cmp-cols'))?.rect};
   },
 };
 
-const ROUTE = {landing: null, live: 'streams', review: 'review', editor: 'library', campaign: 'campaigns'};
-const NEEDS_SESSION = {landing: false, live: true, review: true, editor: true, campaign: true};
-const NEEDS_REC = {live: true, review: true, editor: true};
+const ROUTE = {landing: null, live: 'streams', campaign: 'campaigns'};
+const NEEDS_SESSION = {landing: false, live: true, campaign: true};
+const NEEDS_REC = {live: true};
 
 async function main() {
   const recPath = path.join(PROMO, 'capture', 'recordings', 'live.json');
   const rec = fs.existsSync(recPath) ? JSON.parse(fs.readFileSync(recPath, 'utf8')) : null;
-  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   for (const shot of SHOTS) {
     if (NEEDS_SESSION[shot] && !SESSION) { console.log(`skip ${shot}: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION)`); continue; }
     if (NEEDS_REC[shot] && !rec) { console.log(`skip ${shot}: run capture/record-live.mjs first`); continue; }
     for (const layout of LAYOUTS) {
-      const {browser, page} = await launch({layout, base: BASE, session: NEEDS_SESSION[shot] ? SESSION : '', route: ROUTE[shot], extraInit: NEEDS_SESSION[shot] ? DASHBOARD_INIT : undefined});
-      if (shot === 'live' || shot === 'review') {
+      const {browser, page} = await launch({layout, base: BASE, session: NEEDS_SESSION[shot] ? SESSION : '', route: ROUTE[shot], extraInit: NEEDS_SESSION[shot] ? dashboardInit(shot === 'live' && rec && rec.platform === 'kick' ? 'kick' : 'twitch') : undefined});
+      if (shot === 'live') {
         // The real socket is replaced by the recording: nothing live leaks in.
         await page.routeWebSocket(/\/ws$/, (ws) => { page.__wsRoute = ws; });
         page.__ws = {send: async (msg) => { for (let k = 0; k < 50 && !page.__wsRoute; k++) await page.waitForTimeout(100); page.__wsRoute.send(JSON.stringify(msg)); }};
@@ -331,6 +274,8 @@ async function main() {
         const st = (probe.streams || [{}])[0];
         const entry = {file: 'captures/' + file, width: st.width, height: st.height, fps: 60, frames: Number(st.nb_read_frames), viewport: {w: L.width, h: L.height}, ...meta};
         if (!TEST) {
+          // Read it again: fetch-data.mjs may have written it during the take.
+          const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
           data.captures[shot] = {...(data.captures[shot] || {wide: null, tall: null}), [layout]: entry};
           fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2) + '\n');
         }

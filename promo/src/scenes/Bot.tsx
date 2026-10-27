@@ -1,15 +1,16 @@
-// 0:07.500-0:16.875 (5 bars), the heart of it. The real dashboard: a live
-// channel's score climbing on Live Streams with its seven signals pulsing in,
-// the crossing (freeze, flash, shockwave, CLIP CAPTURED), the clip landing in
-// Clip Review and approved, the Clip Editor, then two featured clips, credited.
+// 0:07.500-0:16.875 (5 bars), the heart of it. The real Live Streams screen
+// with a live channel's real scores replayed at real speed and its seven
+// signals beside it, then two clips Highlightz caught (the ones featured on
+// highlightz.app), each credited to its streamer. Nothing here claims a
+// moment the recording does not contain: no crossing is staged.
 import React from 'react';
-import {AbsoluteFill, Freeze, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {C, EASE, FONT} from '../brand';
-import {cap, DATA, type FeaturedClip} from '../data';
+import {DATA, type FeaturedClip} from '../data';
 import {at, sceneRange} from '../tl';
-import {CaptureVideo, Placeholder} from '../kit/Frame';
-import {focusPoint, UiShot} from '../kit/UiShot';
-import {Flash, Hud, Shockwave, Stamp} from '../kit/Fx';
+import {Placeholder} from '../kit/Frame';
+import {UiShot} from '../kit/UiShot';
+import {Flash, Hud} from '../kit/Fx';
 import type {Layout} from '../Promo';
 
 const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
@@ -25,14 +26,16 @@ export const SIGNALS: [string, string][] = [
   ['SILENCE_BURST', 'Silence burst'],
 ];
 
-// The score and the seven signals feeding it, from the real trace.
-const SignalPanel: React.FC<{layout: Layout; cross: number}> = ({layout, cross}) => {
+// The score and the seven signals feeding it, from the real trace, frame by
+// frame with the screen behind it. It turns ember only when the real score
+// is at or over the channel's real threshold.
+const SignalPanel: React.FC<{layout: Layout}> = ({layout}) => {
   const f = useCurrentFrame();
   const tall = layout === 'tall';
   const tr = DATA.signal_trace;
-  const i = Math.max(0, Math.min(f, cross));
-  const score = tr ? Math.round(tr.score[Math.min(i, tr.score.length - 1)]) : null;
-  const over = f >= cross;
+  const i = tr ? Math.max(0, Math.min(f, tr.score.length - 1)) : 0;
+  const score = tr ? Math.round(tr.score[i]) : null;
+  const over = !!tr && tr.score[i] >= tr.threshold;
   const size = tall ? 26 : 28;
   return (
     <div style={{display: 'flex', flexDirection: 'column', gap: tall ? 8 : 14}}>
@@ -126,6 +129,7 @@ const ClipCard: React.FC<{clip: FeaturedClip | undefined; layout: Layout; punch?
             opacity: titleP,
           }}
         >
+          <div style={{fontFamily: FONT.mono, fontWeight: 600, fontSize: tall ? 26 : 20, letterSpacing: '.16em', color: C.flare, marginBottom: 10}}>CLIPPED BY HIGHLIGHTZ</div>
           {clip.title}
         </div>
       )}
@@ -165,60 +169,38 @@ const ClipCard: React.FC<{clip: FeaturedClip | undefined; layout: Layout; punch?
 };
 
 export const Bot: React.FC<{layout: Layout}> = ({layout}) => {
-  const frame = useCurrentFrame();
   const tall = layout === 'tall';
   const S = 'bot';
-  const cross = at('bot.cross', S);
-  const freezeEnd = at('bot.freezeEnd', S);
-  const review = at('bot.review', S);
-  const editor = at('bot.editor', S);
   const clip2 = at('bot.clip2', S);
   const clip3 = at('bot.clip3', S);
   const end = sceneRange(S).dur;
   const fc = DATA.featured_clips;
-  const live = cap('live', layout);
-  // The live capture is cut so its crossing is its key_frame. Play up to it,
-  // hold it for one beat, then let the real UI carry on under the stamp.
-  const k = live && live.key_frame !== undefined ? live.key_frame : cross;
-  const liveMap = (f: number) => (f < cross ? f - cross + k : f < freezeEnd ? k : k + (f - freezeEnd));
-  const focusY = tall ? 1130 : undefined;
-  const hit = focusPoint('live', layout, focusY);
   return (
     <AbsoluteFill>
-      <Sequence durationInFrames={review} name="live + cross">
-        <UiShot name="live" layout={layout} dur={review} frameMap={liveMap} focusY={focusY} tilt={5}
-          title="Live Streams: a live channel's score climbing to its threshold, then crossing" />
+      <Sequence durationInFrames={clip2} name="live">
         {tall ? (
-          <Hud style={{position: 'absolute', left: 56, right: 56, top: 150}}>
-            <SignalPanel layout={layout} cross={cross} />
-          </Hud>
+          <>
+            <UiShot name="live" layout={layout} dur={clip2} tilt={-4} fit={{top: 760, height: 1300}}
+              title="Live Streams: a live channel's score and its seven signals, moving live" />
+            <Hud style={{position: 'absolute', left: 56, right: 56, top: 140}}>
+              <SignalPanel layout={layout} />
+            </Hud>
+          </>
         ) : (
-          <div style={{position: 'absolute', left: 1300, top: 150, width: 560}}>
-            <SignalPanel layout={layout} cross={cross} />
-          </div>
+          <>
+            <UiShot name="live" layout={layout} dur={clip2} tilt={5}
+              title="Live Streams: a live channel's score and its seven signals, moving live" />
+            <div style={{position: 'absolute', left: 1300, top: 150, width: 560}}>
+              <SignalPanel layout={layout} />
+            </div>
+          </>
         )}
-        <Flash start={cross} color="#FFFFFF" dur={9} peak={0.9} />
-        <Flash start={cross + 2} color={C.magenta} dur={18} peak={0.35} />
-        <Shockwave start={cross} x={hit.x} y={hit.y} size={tall ? 1000 : 1100} />
-        <div style={{position: 'absolute', left: hit.x, top: hit.y, transform: 'translate(-50%,-50%)'}}>
-          <Stamp start={cross} end={review} text="CLIP CAPTURED" size={tall ? 76 : 70} />
-        </div>
-        {/* The one-beat freeze reads as a held breath: the frame edge lights. */}
-        <AbsoluteFill style={{border: `6px solid ${C.ember}`, opacity: frame >= cross && frame < freezeEnd ? 0.6 : 0}} />
       </Sequence>
-      <Sequence from={review} durationInFrames={editor - review} name="review">
-        <UiShot name="review" layout={layout} dur={editor - review} tilt={-5}
-          title="Clip Review: the new clip flies in with its score; the cursor clicks Approve" />
-      </Sequence>
-      <Sequence from={editor} durationInFrames={clip2 - editor} name="editor">
-        <UiShot name="editor" layout={layout} dur={clip2 - editor} tilt={4}
-          title="Clip Editor: the clip reframed to vertical, captions lighting up word by word" />
-      </Sequence>
-      <Sequence from={clip2} durationInFrames={clip3 - clip2} name="clip 2">
-        <ClipCard clip={fc[0]} layout={layout} punch />
+      <Sequence from={clip2} durationInFrames={clip3 - clip2} name="clip 1">
+        <ClipCard clip={fc[0]} layout={layout} punch showTitle />
         <Flash start={0} dur={6} peak={0.7} />
       </Sequence>
-      <Sequence from={clip3} durationInFrames={end - clip3} name="clip 3">
+      <Sequence from={clip3} durationInFrames={end - clip3} name="clip 2">
         <ClipCard clip={fc[1]} layout={layout} punch showTitle />
         <Flash start={0} dur={6} peak={0.6} />
       </Sequence>

@@ -4,10 +4,8 @@
 // one list.
 const SHOTS = [
   ['landing', 'landing capture (highlightz.app)'],
-  ['live', 'Live Streams capture'],
-  ['review', 'Clip Review capture'],
-  ['editor', 'Clip Editor capture'],
-  ['campaign', 'live campaign page capture'],
+  ['live', 'Live Streams capture (a recorded live channel)'],
+  ['campaign', 'campaign page capture'],
 ];
 
 function missingFrom(data) {

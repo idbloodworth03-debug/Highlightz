@@ -45,7 +45,7 @@ export const Promo: React.FC<{layout: Layout}> = ({layout}) => (
   </AbsoluteFill>
 );
 
-// The 12-second teaser: the hook, the capture moment, the prize pool, the
+// The 12-second teaser: the hook, the live scoring, the prize pool, the
 // CTA. Each part is the promo's own scene played from where that beat starts.
 export const Teaser: React.FC<{layout: Layout}> = ({layout}) => {
   const byId: Record<string, React.FC<{layout: Layout}>> = {hook: Hook, capture: Bot, campaign: Campaign};
