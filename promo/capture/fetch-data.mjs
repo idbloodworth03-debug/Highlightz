@@ -118,13 +118,15 @@ function signalTrace() {
 
 async function main() {
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  let got = 0;
   const step = async (name, fn, apply) => {
     try {
       const v = await fn();
       apply(v);
+      got++;
       console.log(`ok   ${name}`);
     } catch (e) {
-      console.log(`skip ${name}: ${e.message}`);
+      console.log(`skip ${name}: ${e.cause?.message || e.message}`);
     }
   };
   await step('budget range', budgetRange, (v) => { data.budget_range = v; });
@@ -138,7 +140,15 @@ async function main() {
   } else {
     console.log('skip live campaign: needs --session (the demo account, joined to the campaign)');
   }
-  await step('signal trace', async () => signalTrace(), (v) => { data.signal_trace = v; });
+  await step('signal trace', async () => {
+    const t = signalTrace();
+    if (!t) throw new Error('no capture/recordings/live.json yet (record-live.mjs)');
+    return t;
+  }, (v) => { data.signal_trace = v; });
+  if (!got) {
+    console.log('nothing fetched; the data file is unchanged');
+    process.exit(1);
+  }
   data.fetched_at = new Date().toISOString();
   data.source = BASE;
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2) + '\n');

@@ -8,7 +8,7 @@
     "audio": "python3 audio/make_audio.py",
     "capture": "node capture/capture.mjs",
     "record-live": "node capture/record-live.mjs",
-    "fetch-data": "node capture/fetch-data.mjs",
+    "fetch-data": "NODE_USE_ENV_PROXY=1 node capture/fetch-data.mjs",
     "check-data": "node capture/check-data.mjs",
     "render:16x9": "remotion render src/index.ts Promo16x9 out/highlightz-campaigns-promo-16x9.mp4",
     "render:9x16": "remotion render src/index.ts Promo9x16 out/highlightz-campaigns-promo-9x16.mp4",

@@ -41,9 +41,12 @@ export const keys = (k, f, e = easeInOut) => {
 };
 
 export async function launch({layout, base, session, route, extraInit}) {
+  // Behind an outbound proxy (a cloud sandbox), the browser goes through it too.
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
     args: ['--force-color-profile=srgb', '--hide-scrollbars', '--disable-features=PaintHolding'],
+    proxy: proxyUrl ? {server: proxyUrl, bypass: process.env.NO_PROXY || process.env.no_proxy} : undefined,
   });
   const L = LAYOUTS[layout];
   const context = await browser.newContext({
