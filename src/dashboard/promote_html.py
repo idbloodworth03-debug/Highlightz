@@ -511,6 +511,7 @@ def render(cta_href: str) -> str:
 <meta name="description" content=\"""" + escape(_DESC) + """\">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/promote">
+<meta name="robots" content="max-image-preview:large">
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">

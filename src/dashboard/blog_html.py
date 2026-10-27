@@ -538,6 +538,7 @@ def _head(title: str, desc: str, path: str, og_type: str, schema: str) -> str:
 <meta name="description" content=\"""" + escape(desc) + """\">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href=\"""" + url + """\">
+<meta name="robots" content="max-image-preview:large">
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/plexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content=\"""" + og_type + """\">

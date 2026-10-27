@@ -861,6 +861,9 @@ async def main() -> None:
             name="kick-events-prune"),
         # Email the owner when something breaks (src/alerts). Never raises.
         asyncio.create_task(alerts.run(), name="alerts"),
+        # Tell Bing and the other IndexNow engines about new and changed
+        # public pages (src/dashboard/indexnow.py). Never raises.
+        asyncio.create_task(dashboard_api.indexnow_task(), name="indexnow"),
     ]
 
     # Restore streams that were running before the last shutdown

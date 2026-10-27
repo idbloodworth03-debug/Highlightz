@@ -46,6 +46,9 @@ def test_only_the_intended_pages_answer_a_signed_out_visitor(anon):
         "/opt-out", "/opt-out/success", "/landing/stats", "/landing/showcase",
         "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/tutorial",
         "/compare", "/billing/paywall", "/blog",
+        # The site icon again, where iPhones and some crawlers look for it
+        # (2026-10-27); they were bounced to /login.
+        "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png",
         # Meta shows this to the person who asked for their data to be
         # deleted, so it has to answer someone with no Highlightz account at
         # all. It renders a confirmation code and nothing else; the two

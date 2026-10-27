@@ -451,8 +451,14 @@ class Settings(BaseSettings):
     # redirect URI. Meta tag method: "name=content,name2=content2" — both
     # TikTok and Meta hand you exactly that pair. The file method needs no
     # setting (drop the file in src/dashboard/static/verify/), and a DNS TXT
-    # record needs nothing here at all.
+    # record needs nothing here at all. Google Search Console and Bing
+    # Webmaster Tools take the same pair ("google-site-verification=...",
+    # "msvalidate.01=...").
     site_verification_tags: str = ""
+    # IndexNow (src/dashboard/indexnow.py): tell Bing, Yandex, Seznam, Naver
+    # and Yep the moment a public page is new or changed. Self-checking: only
+    # the server that actually answers for highlightz.app ever submits.
+    indexnow_enabled: bool = True
     # How long a signed /media link stays valid. Instagram fetches within
     # minutes of the container being created; an hour is generous.
     publish_media_ttl_s: int = 3600

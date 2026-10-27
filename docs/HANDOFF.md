@@ -7352,3 +7352,81 @@ model's words, and where it was wrong or thin the copy had let it be:
   and is unchanged. Campaign records have no "funded by" field (only
   `request_id` for request-made ones), so nothing names a funder per
   campaign. Test: `test_no_page_says_only_a_streamer_funds_the_pool`.
+
+## Getting the site indexed: IndexNow, trailing slashes, previews (2026-10-27)
+
+Owner: "Do everything you need to make my site properly indexed to help things
+show up in broader searches". A web search for `site:highlightz.app` (this
+session's search tool) returned nothing from the site, and a search for the
+product returned only Eklipse. **Prod is unreachable from the dev container**
+(the network policy answers 403 to highlightz.app), so nothing below was read
+off the live site; the code was audited by rendering every public page.
+
+**Already right (rendered, not assumed):** every public page has one canonical
+(https://highlightz.app/...), a description, OG/Twitter cards, one h1,
+lang=en and structured data (SoftwareApplication + Organization + WebSite +
+FAQPage on /, HowTo, ItemList, Blog, BlogPosting); /login, the paywall and the
+opt-out mid-flow pages are noindex; robots.txt names the sitemap and keeps the
+app out; the sitemap lists every public page with a file-mtime lastmod (kept
+deliberately: article "checked" dates miss copy edits like today's); the
+landing is 155 KB, no external scripts, fonts preloaded, images lazy with alt.
+
+**Changed:**
+- **Trailing slashes:** `/blog/`, `/tutorial/`, `/blog/<slug>/` etc. used to
+  302 to /login (only exact paths are open), so a link written that way was
+  lost. `AuthMiddleware` now answers GET/HEAD for any `_OPEN_PATHS` path plus
+  slashes with a **301 to the slashless path**, query kept. It cannot be an
+  open redirect: the target is always the same path, and only when that path
+  is in `_OPEN_PATHS`.
+- **IndexNow** (`src/dashboard/indexnow.py`, task in `src/main.py`): one POST
+  to api.indexnow.org reaches Bing, Yandex, Seznam, Naver and Yep (Bing's
+  index also feeds Copilot, Yahoo and DuckDuckGo, and is one of ChatGPT
+  search's sources). A key is made once and kept in
+  `LOCAL_STORAGE_PATH/indexnow.json` (with what was last sent); `/<key>.txt`
+  serves it signed out (middleware + the `/{slug}` route). 2 min after each
+  start, then daily: pages whose sitemap lastmod moved, new ones and removed
+  ones are sent; nothing is sent when nothing changed. **Self-checking:** it
+  first GETs `https://highlightz.app/<key>.txt` and sends only if the body is
+  its own key, so a dev copy never submits. 200/202 → recorded; 429 → wait a
+  day; anything else → retry in an hour, nothing recorded. Logs:
+  `indexnow_submitted` (info), `indexnow_skipped` (info),
+  `indexnow_rejected` / `indexnow_failed` / `indexnow_rate_limited`
+  (warning, at most hourly, under the alert burst threshold).
+  `INDEXNOW_ENABLED=false` turns it off, key file included. Google does not
+  use IndexNow (and retired its sitemap ping in 2023): Google = Search
+  Console + the sitemap.
+- `<meta name="robots" content="max-image-preview:large">` on every public
+  page (landing, `_social_head`, blog, tutorial, compare, promote): allows a
+  large image preview in results and Discover; changes nothing about what is
+  indexed. The noindex pages are untouched.
+- `/apple-touch-icon.png` and `-precomposed.png` serve the site icon (were a
+  /login hop for iPhones and crawlers). Added to `_OPEN_PATHS` and to the
+  public-surface test's list.
+
+**Verified:** `tests/test_indexing.py` (45; the behaviour ones fail on the
+previous code); full suite 4212. A real server run
+(`scratchpad/seo/serve_idx.py`: dashboard + the IndexNow task, the API
+swapped for a local receiver, the self-check pointed at the local server):
+the key was made, served over HTTP through the middleware, the self-check
+passed, one POST carried all 15 public URLs, `indexnow.json` recorded them;
+`/blog/` → 301, `/tutorial/?utm_source=reddit` → 301 with the query,
+`/apple-touch-icon.png` 200, a wrong key → /login, `/admin/` → /login.
+
+**After deploy, on the droplet:**
+`journalctl -u highlightz --since "15 min ago" --no-pager | grep -i indexnow`
+should show `indexnow_submitted ... urls=15 status=200` (or 202) about two
+minutes after the restart. `indexnow_skipped` there means the public site did
+not serve the key: check `curl -s https://highlightz.app/$(python3 -c "import
+json;print(json.load(open('/opt/highlightz/clips/indexnow.json'))['key'])").txt`
+(the store is `LOCAL_STORAGE_PATH`; clips/ on prod — confirm in `.env`).
+Unverified, needs the owner: `curl -sI http://highlightz.app/` and
+`curl -sI https://www.highlightz.app/` should both 301 to
+`https://highlightz.app/` (nginx/certbot config lives only on the droplet).
+
+**Owner-only, not code:** Google Search Console (Domain property by DNS TXT,
+or URL-prefix with `SITE_VERIFICATION_TAGS="google-site-verification=..."`),
+submit `https://highlightz.app/sitemap.xml`, URL-inspect + Request indexing
+for /, /blog and /blog/highlightz-campaigns. Bing Webmaster Tools: "Import
+from Google Search Console" (or `msvalidate.01=...` in the same setting).
+`ORG_PROFILES` (api.py) is still empty: the official social profile URLs go
+there for schema.org sameAs, and only genuinely ours.

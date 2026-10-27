@@ -76,10 +76,12 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 from src.dashboard.blog_content import paths as _blog_paths  # noqa: E402
 from src.dashboard.blog_content import all_paths as _blog_all_paths  # noqa: E402
+from src.dashboard import indexnow as _indexnow  # noqa: E402
 
 # ── Auth middleware ───────────────────────────────────────────────────────────
 
-_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/tos", "/privacy", "/cookies",
+_OPEN_PATHS    = {"/login", "/logout", "/health", "/favicon.ico", "/apple-touch-icon.png",
+                  "/apple-touch-icon-precomposed.png", "/tos", "/privacy", "/cookies",
                   "/opt-out", "/opt-out/confirm", "/opt-out/success", "/landing/stats",
                   "/landing/showcase", "/robots.txt", "/sitemap.xml", "/tutorial",
                   # A crawler-facing file behind a login is a crawler-facing
@@ -143,6 +145,7 @@ def _social_head(path: str, title: str, desc: str) -> str:
     url = SITE_ORIGIN + path
     return (
         '<link rel="canonical" href="' + url + '">\n'
+        '<meta name="robots" content="max-image-preview:large">\n'
         '<meta property="og:type" content="website">\n'
         '<meta property="og:site_name" content="Highlightz">\n'
         '<meta property="og:url" content="' + url + '">\n'
@@ -269,6 +272,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # checked the session itself, so nothing private leaked, but the gate
         # must decide on what is actually served. Starlette is upgraded too.
         path = request.scope["path"]
+        # /blog/, /tutorial/: only the exact paths are open, so a link written
+        # with a trailing slash landed on /login, and the page lost the link
+        # (owner, 2026-10-27, on getting the site properly indexed). One
+        # permanent redirect to the address every canonical tag names.
+        if (len(path) > 1 and path.endswith("/") and path.rstrip("/") in _OPEN_PATHS
+                and request.method in ("GET", "HEAD")):
+            q = request.scope.get("query_string", b"").decode("latin-1")
+            return RedirectResponse(path.rstrip("/") + ("?" + q if q else ""), status_code=301)
         if (path in _OPEN_PATHS or path == "/login"
                 or path.startswith(_STATIC_PREFIX)
                 or path.rstrip("/").lower() in _referral_paths()
@@ -277,7 +288,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 # TikTok and Meta look for it. Signed out, by definition: the
                 # verifier is a crawler with no session, and a 302 to /login
                 # reads to it as "this domain is not yours".
-                or _verification_file(path.lstrip("/")) is not None):
+                or _verification_file(path.lstrip("/")) is not None
+                # The IndexNow key file, for the same reason (indexnow.py).
+                or path == _indexnow.key_path()):
             return await call_next(request)
         if not request.session.get("auth"):
             # The root path is the public marketing landing page — let it through
@@ -10241,6 +10254,8 @@ async def landing_stats():
 
 
 @app.get("/favicon.ico", include_in_schema=False)
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
 async def favicon():
     """Serve the icon at the domain root as well as via <link rel="icon">.
 
@@ -10248,6 +10263,10 @@ async def favicon():
     reading the link tag, and a 404 here is the most common reason a site shows
     the default globe in search results instead of its own mark. The link tag
     was correct all along; this path simply did not exist.
+
+    The two apple-touch-icon paths are the same request from iPhones (a link
+    pasted into iMessage, a page saved to the home screen) and from crawlers
+    that look for a site icon there; they used to be bounced to /login.
 
     Kept as a route rather than a file so there is one icon on disk — a second
     copy at the root is the kind of thing that silently goes stale when the
@@ -10757,14 +10776,30 @@ def _page_lastmod(path: str) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(ts))
 
 
+def _sitemap_pages() -> list[str]:
+    """Every public page right now: the sitemap, and what IndexNow announces."""
+    return (["/", "/tutorial", "/compare"]
+            + (["/promote"] if settings.campaign_requests_enabled else [])
+            + list(_blog_paths())
+            + ["/tos", "/privacy", "/cookies", "/opt-out"])
+
+
+def indexnow_pages() -> dict[str, str]:
+    """{absolute URL: lastmod} for IndexNow: a page is announced again when
+    its lastmod moves, the same signal the sitemap gives a crawler."""
+    return {SITE_ORIGIN + p: _page_lastmod(p) for p in _sitemap_pages()}
+
+
+async def indexnow_task() -> None:
+    """Background task (src/main.py): announce new and changed public pages to
+    the IndexNow engines, two minutes after each start and then daily."""
+    await _indexnow.run(indexnow_pages, SITE_ORIGIN)
+
+
 @app.get("/sitemap.xml")
 async def sitemap_xml():
-    pages = (["/", "/tutorial", "/compare"]
-             + (["/promote"] if settings.campaign_requests_enabled else [])
-             + list(_blog_paths())
-             + ["/tos", "/privacy", "/cookies", "/opt-out"])
     urls = ""
-    for p in pages:
+    for p in _sitemap_pages():
         mod = _page_lastmod(p)
         urls += ("<url><loc>https://highlightz.app" + p + "</loc>"
                  + (f"<lastmod>{mod}</lastmod>" if mod else "")
@@ -10985,6 +11020,9 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta name="description" content="Highlightz watches every Twitch and Kick channel you clip for — up to 10 at once — and catches the clip the moment something pops, then reframes it for vertical and posts it for you. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
+<!-- Lets Google show a large image preview (results, Discover) instead of
+     the small default; it does not change what is indexed. -->
+<meta name="robots" content="max-image-preview:large">
 <!--VERIFY-->
 <link rel="preload" href="/static/fonts/lobster-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/sora-var.woff2" as="font" type="font/woff2" crossorigin>
@@ -18663,6 +18701,9 @@ async def referral_bare_link(request: Request, slug: str):
     # A domain-ownership file for the posting consoles wins over the referral
     # lookup: a verification filename is never a referral code, and this route
     # is the only thing standing between the crawler and a 404.
+    if "/" + slug == _indexnow.key_path():
+        return PlainTextResponse(_indexnow.current_key() or "",
+                                 headers={"X-Content-Type-Options": "nosniff"})
     f = _verification_file(slug)
     if f is not None:
         import mimetypes
