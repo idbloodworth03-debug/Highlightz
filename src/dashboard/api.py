@@ -10295,6 +10295,66 @@ async def robots_txt():
     )
 
 
+def _llms_campaigns() -> str:
+    """Highlightz Campaigns in the /llms.txt brief, or "" while neither half
+    is open. Added after an AI summary of the site (owner, 2026-10-27: "make
+    sure everything lines up") described campaigns only as something a
+    streamer pays for: nothing said a clipper can join one free, how to
+    enter, or how winners are paid.
+
+    The same switches and facts as the blog guide (campaigns_article): the
+    clippers' half while CAMPAIGNS_ENABLED, the streamers' half only while
+    CAMPAIGN_REQUESTS_ENABLED, and the fee and budget range read from the
+    settings that price a real request, so the brief cannot quote a price the
+    checkout will not charge."""
+    camp_on, req_on = bool(settings.campaigns_enabled), bool(settings.campaign_requests_enabled)
+    if not (camp_on or req_on):
+        return ""
+    out = ["", "## Highlightz Campaigns", "",
+           "A campaign is a prize pool for clips of one streamer's streams. The",
+           "streamer puts up the pool and splits it into places, clippers clip the",
+           "streams and post the clips, and the best entries win the pool.", ""]
+    if camp_on:
+        posting = ("Post it anywhere and add its link on the campaign page (any plan),\n"
+                   "  or post it straight from Highlightz (Pro)." if settings.uploads_enabled else
+                   "Post it anywhere and add its link on the campaign page (any plan);\n"
+                   "  posting straight from Highlightz opens on Pro.")
+        out += [
+            "For clippers:", "",
+            "- Free to join, on any plan, the Free plan included. Sign in, open the",
+            "  Campaigns tab and join one: joining opens its full rules, the hashtags",
+            "  and mentions every post must carry, and its live leaderboard.",
+            "- An entry is your own post of a clip of the campaign's streams, made",
+            "  while it is live, on a platform it names, carrying every hashtag and",
+            "  mention it asks for. " + posting,
+            "- Each campaign says how its winners are picked: most views on a single",
+            "  clip, most views across your best few clips, most engagement (views,",
+            "  likes and comments), or judged by the organisers against its rules. A",
+            "  tie goes to whoever posted first. A prize can be withheld from an entry",
+            "  that breaks the rules or used bought or faked views.",
+            "- The leaderboard updates as entries are counted, and some campaigns keep",
+            "  counting views for a few days after posting closes. Then Highlightz",
+            "  confirms the winners and pays each prize by PayPal, Venmo, Cash App,",
+            "  bank transfer or another way the winner chooses.", ""]
+    if req_on:
+        from src.dashboard.promote_html import _fee_text, _range_text
+        out += [
+            "For streamers:", "",
+            "- Any account can ask for one, a free one included. You choose the budget",
+            "  (" + _range_text() + "), how it splits into prizes, the rules, the",
+            "  hashtags and where clips get posted. A person reviews every request,",
+            "  usually within a day.",
+            "- You pay by card only once it is approved: the budget plus our fee of",
+            "  " + _fee_text() + ". The whole budget is paid to the winners, and",
+            "  prizes nobody wins are refunded. No number of entries or views is",
+            "  promised.", ""]
+    from src.dashboard.blog_content import CAMPAIGNS_SLUG
+    out.append("In full: " + ("https://highlightz.app/blog/" + CAMPAIGNS_SLUG if camp_on
+                              else "https://highlightz.app/promote")
+               + (" (for streamers: https://highlightz.app/promote)" if camp_on and req_on else ""))
+    return "\n".join(out) + "\n"
+
+
 @app.get("/llms.txt", response_class=PlainTextResponse)
 async def llms_txt():
     """What this product is, in the format a language model reads best.
@@ -10321,9 +10381,27 @@ async def llms_txt():
         n = p["max_library_week"]
         return "unlimited clips kept" if n >= UNLIMITED_PENDING else f"{n} clips kept a week"
 
-    sig = ", ".join(t.lower() for t in _signal_titles().values()) or (
-        "chat erupts, loud reaction, chat calls for the clip, viewers flood in, "
-        "emotions run high, silence then chaos, chat speaks as one")
+    # Each signal with the landing page's own line for it, not the bare title:
+    # given only "silence then chaos", an AI summary reported "sudden silence".
+    signals = "\n".join(f"  - {title}: {line}" for _k, title, line in _catches()) or (
+        "  - Chat erupts, loud reaction, chat calls for the clip, viewers flood in,\n"
+        "    emotions run high, silence then chaos, chat speaks as one.")
+    # The opt-out page verifies Kick broadcasters too wherever Kick sign-in is
+    # set up (optout_landing), and the brief says what the page does.
+    from src.auth import kick_oauth
+    optout_who = "Twitch or Kick" if kick_oauth.configured() else "Twitch"
+    camp_on, req_on = bool(settings.campaigns_enabled), bool(settings.campaign_requests_enabled)
+    camp_lead = ("\n> Highlightz Campaigns: streamers put up prize pools, and clippers on any plan,\n"
+                 "> Free included, join and compete to win them." if camp_on else
+                 "\n> Highlightz Campaigns: streamers put up prize pools for clips of their\n"
+                 "> streams, and the best clips win them." if req_on else "")
+    camp_who = ((" Clippers can also join Highlightz Campaigns, free on any plan, to compete for prize money."
+                 if camp_on else "")
+                + (" Streamers can fund a campaign to get their streams clipped and posted." if req_on else ""))
+    camp_pages = (("- [Highlightz Campaigns](https://highlightz.app/blog/highlightz-campaigns): how\n"
+                   "  campaigns work, for clippers and for streamers.\n" if camp_on else "")
+                  + ("- [Campaigns for streamers](https://highlightz.app/promote): what a campaign\n"
+                     "  costs and how to ask for one.\n" if req_on else ""))
     # The Clip Editor, the Scheduler and Autopilot are built and held behind
     # UPLOADS_ENABLED. A model reading this file will repeat whatever it says
     # to somebody asking what to use, so while the flag is down it has to say
@@ -10373,7 +10451,7 @@ async def llms_txt():
 > itself, the moment something happens. It monitors the live broadcast, scores
 > every second, and when a moment fires it makes a real Twitch clip through
 > Twitch's official Clips API AND keeps the video file, {_pitch}
-> Not AI: a readable formula, and every clip shows which signal fired.
+> Not AI: a readable formula, and every clip shows which signal fired.{camp_lead}
 
 The full public copy — every FAQ answer, the walkthrough, the plans and the
 comparison — is at https://highlightz.app/llms-full.txt.
@@ -10385,8 +10463,9 @@ comparison — is at https://highlightz.app/llms-full.txt.
   rechecked every 30 seconds. Starter and Pro keep watching while you are away;
   on Free, monitoring pauses after 8 hours without the dashboard being opened
   and resumes on the next visit.
-- Scores each second from seven live signals ({sig}) against that channel's
-  own threshold, so a small channel and a huge one are judged the same way.
+- Scores each second from seven live signals against that channel's own
+  threshold, so a small channel and a huge one are judged the same way:
+{signals}
 - On Twitch, creates a real Twitch clip through the official Clips API using
   your own authorised Twitch account (Twitch makes and hosts that clip) and
   keeps the video file too. On Kick, which has no clip API, the file is the
@@ -10409,13 +10488,13 @@ comparison — is at https://highlightz.app/llms-full.txt.
   is the only click. Approving and rejecting tunes the channel's threshold to
   your taste.
 - Scans finished broadcasts (VODs) for highlights on the Pro plan.
-- Any Twitch broadcaster can opt their channel out at any time; it takes
+- Any {optout_who} broadcaster can opt their channel out at any time; it takes
   effect immediately across every account.
 
 ## Who it is for
 
 Streamers who want their own highlights clipped while they play, and clippers
-and editors who follow several channels at once and cannot watch them all.
+and editors who follow several channels at once and cannot watch them all.{camp_who}
 
 ## Plans
 
@@ -10432,7 +10511,7 @@ and editors who follow several channels at once and cannot watch them all.
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
 and keeps every approved clip.
-
+{_llms_campaigns()}
 ## How it differs from upload-based clippers
 
 Tools like Opus Clip and Eklipse take a finished video and cut it up
@@ -10454,10 +10533,10 @@ no credits to run out.
 - [Blog](https://highlightz.app/blog): guides to making money clipping — the
   five main clipping marketplaces and their requirements, TikTok Creator
   Rewards, YouTube Shorts, and finding streamer campaigns. Dated and sourced.
-- [Terms of Service](https://highlightz.app/tos)
+{camp_pages}- [Terms of Service](https://highlightz.app/tos)
 - [Privacy Policy](https://highlightz.app/privacy)
 - [Cookie Policy](https://highlightz.app/cookies)
-- [Broadcaster opt-out](https://highlightz.app/opt-out): any Twitch streamer
+- [Broadcaster opt-out](https://highlightz.app/opt-out): any {optout_who} streamer
   can remove their channel from the service here.
 
 ## Notes
@@ -10501,30 +10580,40 @@ async def llms_full_txt():
     out = []
     w = out.append
     w("# Highlightz — the full public copy\n")
+    # ONE OPENING, THEN THE PART THE FLAGS CHANGE. This was a single
+    # `A if not uploads else B + ...` expression, and adjacent string literals
+    # bind tighter than `if`: with uploads on (production since 2026-10-05) the
+    # opening sentences belonged to the branch that was not taken, and the
+    # file began mid-sentence at "from Twitch, is private ..."; with uploads
+    # off it lost its Kick and operator sentences instead.
+    released = (
+        "It is what the Clip Editor reframes for vertical and what the Scheduler posts "
+        "to YouTube, TikTok and Instagram, with Autopilot (Pro, off by default) doing "
+        "both for every clip you approve — all three built and in testing, not yet "
+        "open to accounts. "
+        if not settings.uploads_enabled else
+        "It is what the Clip Editor reframes for vertical and the Scheduler posts to "
+        + _rel_live_phrase() + "; "
+        + ("Autopilot (Pro, off by default) does both for every clip you approve. "
+           if _rel_auto() else
+           "Autopilot (Pro, off by default) reframes and queues every clip you approve. "
+           + _rel_held_sentence()))
     w("> Automatic Twitch and Kick clipping. Highlightz watches a live channel, scores every "
       "second from seven live signals against that channel's own threshold, and when "
       "the score crosses it creates a real Twitch clip through the official Clips API "
       "and keeps the video file. Every clip lands in a review queue first. Twitch makes "
       "and hosts the Twitch clip; the file, recorded from the live broadcast or fetched "
-      "from Twitch, is private to the account that made it. It is what the Clip Editor "
-      "reframes for vertical and what the Scheduler posts to YouTube, TikTok and "
-      "Instagram, with Autopilot (Pro, off by default) doing both for every clip you "
-      "approve — all three built and in testing, not yet open to accounts. "
-      if not settings.uploads_enabled else
-      "from Twitch, is private to the account that made it and is what the Clip Editor "
-      "reframes for vertical and the Scheduler posts to "
-      + _rel_live_phrase() + "; "
-      + ("Autopilot (Pro, off by default) does both for every clip you approve. "
-         if _rel_auto() else
-         "Autopilot (Pro, off by default) reframes and queues every clip you approve. "
-         + _rel_held_sentence())
-      + 
-      "Kick channels are monitored the same way; there the file is the clip. "
-      "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
+      "from Twitch, is private to the account that made it. "
+      + released
+      + "Kick channels are monitored the same way; there the file is the clip. "
+      + ("It also runs Highlightz Campaigns: streamers put up prize pools, and clippers on "
+         "any plan, Free included, join and compete to win them (below). "
+         if settings.campaigns_enabled else "")
+      + "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
     w("## The seven signals\n")
-    for t in _signal_titles().values():
-        w(f"- {t}")
+    for _k, t, line in _catches():
+        w(f"- {t}: {line}")
     w("")
 
     w("## Plans (from the pricing page)\n")
@@ -10542,6 +10631,28 @@ async def llms_full_txt():
     w("\nMove between plans whenever you like; cancel from the Settings tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
+
+    # Highlightz Campaigns, the blog guide's own words (it is None while the
+    # marketplace is closed, and carries its streamers' half only while
+    # requests are open, so this section follows both switches with it).
+    from src.dashboard import blog_content as BC
+    camp = BC.campaigns_article()
+    if camp is not None:
+        def absolute(s: str) -> str:
+            return s.replace("](/", "](https://highlightz.app/")
+        w(f"## {camp.title} (from /blog/{camp.slug})\n")
+        w(camp.lead + "\n")
+        for kind, val in camp.blocks:
+            if kind == "h":
+                w(f"### {val}\n")
+            elif kind == "req":
+                w("\n".join(f"- {k}: {v}" for k, v in val) + "\n")
+            elif kind == "list":
+                w("\n".join(f"- {x}" for x in val) + "\n")
+            elif kind == "note":
+                w("Note: " + absolute(val) + "\n")
+            else:
+                w(absolute(str(val)) + "\n")
 
     w("## FAQ (from the home page)\n")
     for q, a in _landing_faq_pairs():
@@ -13656,8 +13767,9 @@ def _campaigns_block() -> str:
     from the campaign settings, as /promote reads them, so the two pages
     cannot disagree.
 
-    Entering is posting from Highlightz, which is on Pro (and opens when the
-    posting release does): the leaderboard only counts posts made here.
+    Joining and entering are open to every account, Free included: post the
+    clip anywhere and add its link on the campaign page, or post it from
+    Highlightz on Pro while posting is open (owner, 2026-10-25).
     """
     if not settings.campaign_requests_enabled:
         return ""
@@ -13679,7 +13791,7 @@ def _campaigns_block() -> str:
         posting = ("post it yourself and add its link, or post it straight from Highlightz on Pro"
                    if settings.uploads_enabled else "post it yourself and add its link")
         cards.append(("Clippers play for the pool",
-                      "Join a campaign, clip the streams it names, then " + posting
+                      "Free on any plan. Join a campaign, clip the streams it names, then " + posting
                       + ". A live leaderboard shows where you stand. Prizes go out by "
                       "PayPal, Venmo, Cash App or bank transfer."))
     body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
@@ -13768,15 +13880,20 @@ def _faq() -> str:
                 + '    </div>\n')
 
     using = [
+        # The signals named the way _CATCH_LINES describes them. This answer
+        # said "viewer movement and silence", and an AI summary of the site
+        # repeated it as "sudden silence": the signal is the quiet BEFORE an
+        # eruption, so the words have to carry the eruption too.
         ("What does Highlightz actually do?",
-         "It watches a live Twitch channel for you. Every second it blends seven live signals "
-         "&mdash; chat speed, keywords, emotes, sentiment, audio, viewer movement and silence "
-         "&mdash; into one score and checks it against that channel's own threshold. When the "
-         "score crosses, it asks Twitch to make a real Twitch clip of that moment through the "
-         "official Clips API and keeps the video file, and the clip lands in your review queue. "
-         "Twitch makes and hosts the Twitch clip, under your account; the file is what you "
-         "download, edit for vertical and post. On Kick, which has no clip API, the file is "
-         "the clip."),
+         "It watches a live Twitch or Kick channel for you. Every second it blends seven live "
+         "signals &mdash; chat going from talking to flooding, the words you pick landing in "
+         "chat, a wall of one emote, chat's mood lurching, the stream getting loud, viewers "
+         "flooding in, and a quiet moment that breaks into chaos &mdash; into one score and "
+         "checks it against that channel's own threshold. When the score crosses on Twitch, it "
+         "asks Twitch to make a real Twitch clip of that moment through the official Clips API "
+         "and keeps the video file, and the clip lands in your review queue. Twitch makes and "
+         "hosts the Twitch clip, under your account; the file is what you download, edit for "
+         "vertical and post. On Kick, which has no clip API, the file is the clip."),
         ("Can I clip channels I don't own?",
          "Yes. That is what most people use it for. Add any live Twitch or Kick channel. On Twitch "
          "the clip is created with your authorized account, exactly as if you had pressed Twitch's "

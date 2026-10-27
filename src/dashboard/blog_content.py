@@ -730,7 +730,7 @@ ARTICLES = (
 # are never typed here: rule 5 above, for a feature behind a switch.
 
 CAMPAIGNS_SLUG = "highlightz-campaigns"
-CAMPAIGNS_CHECKED = "25 October 2026"
+CAMPAIGNS_CHECKED = "27 October 2026"
 CAMPAIGNS_PUBLISHED = "2026-10-25"
 
 
@@ -763,13 +763,14 @@ def campaigns_article() -> Article | None:
               "hashtags every post must carry and how the winners are picked. Clippers "
               "join the campaign, which opens its full rules, the tags their posts need "
               "and its leaderboard, then clip those streams and post their entries, from "
-              "Highlightz or anywhere else, adding the link. When it ends, the whole pool "
-              "goes to the winners."),
+              "Highlightz or anywhere else, adding the link. Joining is free, on any plan, "
+              "the Free plan included. When it ends, the whole pool goes to the winners."),
         ("h", "What counts as an entry"),
         ("req", (("Posted from", _entry_posting()),
                  ("When", "While the campaign is live, between its start and its end"),
                  ("Where", "A platform the campaign names"),
-                 ("Caption", "Every hashtag and mention the campaign asks for, filled in when you post"),
+                 ("Caption", "Every hashtag and mention the campaign asks for, filled in for you "
+                             "when you post from Highlightz"),
                  ("Counted", "Its views, and its likes and comments where the campaign uses them, read from the post"))),
         ("p", "Posted it somewhere else yourself? Add its link on the campaign page and "
               "it is an entry too. Either way it has to be your own post, made while the "
@@ -813,9 +814,12 @@ def campaigns_article() -> Article | None:
     return Article(
         slug=CAMPAIGNS_SLUG,
         title="Highlightz Campaigns: prize pools for clipping streams",
+        # The search snippet. It said clippers post "from Highlightz", which
+        # is Pro; a post made anywhere and added by its link counts too, and
+        # joining is free on every plan (owner, 2026-10-25 and 2026-10-27).
         description=("How campaigns on Highlightz work: a streamer puts up a prize pool, "
-                     "clippers post clips of the stream from Highlightz, a live "
-                     "leaderboard ranks them, and the winners are paid."),
+                     "clippers join free on any plan and post clips of the stream, a "
+                     "live leaderboard ranks them, and the winners are paid."),
         kicker="New on Highlightz",
         lead=("A campaign is a prize pool for clips of one streamer's streams, and the "
               "best entries win it. How it works for clippers, and for streamers who "

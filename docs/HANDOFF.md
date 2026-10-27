@@ -7278,3 +7278,61 @@ where you look at a person, and keeps both places current without a reload.
   had Onboarding open appeared there (3 of 3, its words) and on the Users
   list after returning to the window, no reload; the drawer fits a 390px
   phone. Full suite 4154.
+
+## What AI answers about the site are built from (2026-10-27)
+
+Owner pasted an AI summary of highlightz.app ("Searched the web, read a
+page") and said: "some things are not accurate ... make sure everything lines
+up so when people search up stuff like this they get the correct answers".
+Checked claim by claim against the code: pricing, channels, the Clips API,
+the Kick file, the review queue, the Pro features, TikTok-only posting and
+the 5% campaign fee were all right. The summary was the landing page in a
+model's words, and where it was wrong or thin the copy had let it be:
+
+- **"Sudden silence".** The landing FAQ "What does Highlightz actually do?"
+  listed the signals as "... audio, viewer movement and silence" and opened
+  "It watches a live Twitch channel". It now names each signal the way
+  `_CATCH_LINES` describes it ("a quiet moment that breaks into chaos", etc.)
+  and says Twitch or Kick. The same answer feeds the FAQPage JSON-LD and
+  llms-full. `/llms.txt` and `/llms-full.txt` list every signal WITH its
+  `_CATCH_LINES` line, not the bare title. (The Highlight-mechanism bans in
+  `test_seo_head.py` / `test_landing.py` still hold: no "spike" in llms.txt.)
+- **Campaigns only from the streamer's side.** Neither llms file mentioned
+  campaigns at all. `_llms_campaigns()` adds a "Highlightz Campaigns" section
+  to `/llms.txt`: for clippers (free on any plan, join in the Campaigns tab,
+  enter by link or from Highlightz on Pro, how winners are picked, how prizes
+  are paid) while `CAMPAIGNS_ENABLED`; for streamers (budget range, fee,
+  review, refunds of unwon prizes, nothing promised) only while
+  `CAMPAIGN_REQUESTS_ENABLED`, fee and range from `promote_html._fee_text()`
+  / `_range_text()`. Also a line in the top summary, "Who it is for", and the
+  guide and /promote in Pages, each under its own switch (the guide 404s
+  while campaigns are off, /promote while requests are). `/llms-full.txt`
+  carries the blog guide itself (`campaigns_article()`, links made absolute).
+  Landing clipper card now opens "Free on any plan."; the guide's meta
+  description (the search snippet) said clippers post "from Highlightz",
+  which is Pro: it now says they join free on any plan. The guide's
+  Caption row says the tags are filled in "when you post from Highlightz"
+  (a link entry is not). `CAMPAIGNS_CHECKED` -> 27 October 2026.
+- **Opt-out was "any Twitch broadcaster".** Now "Twitch or Kick" wherever
+  `kick_oauth.configured()` (the opt-out page shows its Kick button on the
+  same test), both lines.
+- **BUG, live since 2026-09-21 (`f5a01a9`): `/llms-full.txt` opened
+  mid-sentence on prod.** The lead was `"> Automatic ..." "..." if not
+  uploads else "from Twitch, ..." + ...`; adjacent literals bind tighter than
+  `if`, so with `UPLOADS_ENABLED=true` the opening sentences were the branch
+  not taken and the file began "from Twitch, is private to the account ...";
+  with it off, the Kick and operator sentences went missing instead. Now one
+  shared opening plus a `released` middle. An AST scan of the public-copy
+  modules for the same shape (`scratchpad/ifexp_scan.py`: a conditional whose
+  branches start one like a sentence and one mid-sentence) found no other.
+- Not changed, deliberately: "Not AI" (clip detection is the formula;
+  `LLM_PROVIDER` is unset on prod), the meta/og/JSON-LD descriptions (already
+  follow the release flags via `_SOCIAL_SWAPS`).
+- AI tools and search engines pick this up when they next crawl, after the
+  deploy; nothing here can make them re-read sooner.
+- Tests: `tests/test_ai_brief.py` (12; every one fails on the previous code):
+  the clippers' and streamers' halves and their switches, the price read from
+  settings, entering with uploads on and off, the guide in llms-full with
+  absolute links, the snippet, the landing card, every signal described in
+  both files, the FAQ wording (and in the JSON-LD), the Kick opt-out both
+  ways, and the llms-full opening with uploads on and off.
