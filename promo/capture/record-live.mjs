@@ -2,7 +2,7 @@
 // Records the real WebSocket traffic of a live channel the demo account is
 // monitoring, until the bot captures a clip on it:
 //
-//   node capture/record-live.mjs --session <demo cookie> --channel <twitch login> [--max-min 45]
+//   HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <twitch login> [--max-min 45]
 //
 // Start monitoring the channel in the dashboard first (Live Streams → Monitor
 // stream). This script only listens: it opens the signed-in dashboard on
@@ -18,6 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {launch, PROMO} from './rig.mjs';
+import {demoSession} from './auth.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -26,12 +27,12 @@ const args = Object.fromEntries(
   }, []),
 );
 const BASE = 'https://highlightz.app';
-const SESSION = args.session || process.env.HZ_SESSION || '';
+const SESSION = args.session || await demoSession(BASE);
 const CHANNEL = String(args.channel || '').toLowerCase();
 const MAX_MS = Number(args['max-min'] || 45) * 60 * 1000;
 const OUT = path.join(PROMO, 'capture', 'recordings', 'live.json');
 if (!SESSION || !CHANNEL) {
-  console.error('usage: node capture/record-live.mjs --session <demo cookie> --channel <login> [--max-min 45]');
+  console.error('usage: HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <login> [--max-min 45]');
   process.exit(2);
 }
 

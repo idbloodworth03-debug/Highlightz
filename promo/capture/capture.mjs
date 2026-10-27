@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Records the real UI shots of the promo from the live app.
 //
-//   node capture/capture.mjs --session <demo-account session cookie> \
+//   HZ_DEMO_PASSWORD=... npm run capture -- \
 //        [--shots landing,live,review,editor,post,campaign] [--layouts wide,tall]
 //
 // Every shot is the real page on https://highlightz.app, signed in as the demo
@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {centerOf, docTop, fr, installCursor, keys, launch, PROMO, record, setCursor, TL, warm, ease} from './rig.mjs';
+import {demoSession} from './auth.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -28,7 +29,8 @@ const TEST = !!args.test;
 const BASE = (args.base || PROD).replace(/\/$/, '');
 if (!TEST && BASE !== PROD) throw new Error('Real captures come from ' + PROD + ' only. Use --test for anything else.');
 const OUT = TEST ? path.resolve(args.out || '/tmp/hz-test-captures') : path.join(PROMO, 'public', 'captures');
-const SESSION = args.session || process.env.HZ_SESSION || '';
+// The demo password only ever goes to production, never to a --test server.
+const SESSION = args.session || (TEST ? '' : await demoSession(PROD));
 const SHOTS = String(args.shots || 'landing,live,review,editor,post,campaign').split(',');
 const LAYOUTS = String(args.layouts || 'wide,tall').split(',');
 const DATA_FILE = path.join(PROMO, 'src', 'data', 'promo-data.json');
@@ -295,7 +297,7 @@ async function main() {
   const rec = fs.existsSync(recPath) ? JSON.parse(fs.readFileSync(recPath, 'utf8')) : null;
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   for (const shot of SHOTS) {
-    if (NEEDS_SESSION[shot] && !SESSION) { console.log(`skip ${shot}: needs --session (the demo account)`); continue; }
+    if (NEEDS_SESSION[shot] && !SESSION) { console.log(`skip ${shot}: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION)`); continue; }
     if (NEEDS_REC[shot] && !rec) { console.log(`skip ${shot}: run capture/record-live.mjs first`); continue; }
     for (const layout of LAYOUTS) {
       const {browser, page} = await launch({layout, base: BASE, session: NEEDS_SESSION[shot] ? SESSION : '', route: ROUTE[shot]});

@@ -6,8 +6,8 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "audio": "python3 audio/make_audio.py",
-    "capture": "node capture/capture.mjs",
-    "record-live": "node capture/record-live.mjs",
+    "capture": "NODE_USE_ENV_PROXY=1 node capture/capture.mjs",
+    "record-live": "NODE_USE_ENV_PROXY=1 node capture/record-live.mjs",
     "fetch-data": "NODE_USE_ENV_PROXY=1 node capture/fetch-data.mjs",
     "check-data": "node capture/check-data.mjs",
     "render:16x9": "remotion render src/index.ts Promo16x9 out/highlightz-campaigns-promo-16x9.mp4",

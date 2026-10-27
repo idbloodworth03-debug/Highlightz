@@ -2,7 +2,7 @@
 // Fills src/data/promo-data.json with the real numbers the video shows, read
 // from the live app, and downloads the featured clips:
 //
-//   node capture/fetch-data.mjs --session <demo cookie> [--clips 3]
+//   HZ_DEMO_PASSWORD=... node capture/fetch-data.mjs [--clips 3] [--funded-by Highlightz]
 //
 //   budget_range    the min and max the live /promote calculator accepts
 //   clips_total     the landing page's clip counter (/landing/stats)
@@ -22,6 +22,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fr, PROMO, TL} from './rig.mjs';
+import {demoSession} from './auth.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -30,7 +31,7 @@ const args = Object.fromEntries(
   }, []),
 );
 const BASE = 'https://highlightz.app';
-const SESSION = args.session || process.env.HZ_SESSION || '';
+const SESSION = args.session || await demoSession(BASE);
 const N_CLIPS = Math.max(2, Math.min(3, Number(args.clips || 3)));
 const DATA_FILE = path.join(PROMO, 'src', 'data', 'promo-data.json');
 const CAPTURES = path.join(PROMO, 'public', 'captures');
@@ -161,7 +162,7 @@ async function main() {
       data.campaign = v ? {...v, funded_by: data.campaign?.funded_by ?? (args['funded-by'] || undefined)} : null;
     });
   } else {
-    console.log('skip live campaign: needs --session (the demo account, joined to the campaign)');
+    console.log('skip live campaign: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION), joined to the campaign');
   }
   await step('signal trace', async () => {
     const t = signalTrace();

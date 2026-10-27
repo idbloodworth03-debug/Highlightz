@@ -77,7 +77,10 @@ downloads its own.
 ## Getting the real shots
 
 The machine running these steps must reach `highlightz.app`, `twitch.tv`,
-`*.twitch.tv`, `*.ttvnw.net`, `*.jtvnw.net` and `*.twitchcdn.net`.
+`*.twitch.tv`, `*.ttvnw.net`, `*.jtvnw.net`, `*.twitchcdn.net` and
+`d1ndex63qxojbr.cloudfront.net` (where Twitch serves clip files). Behind
+an outbound proxy, the npm scripts pass it on (`NODE_USE_ENV_PROXY=1`
+for fetch, `HTTPS_PROXY` to Chromium).
 
 1. **A demo account.** Create it on /admin (Users → add, a password
    account) and give it Pro. Make it an admin: an admin joining a campaign
@@ -85,11 +88,17 @@ The machine running these steps must reach `highlightz.app`, `twitch.tv`,
    controls are hidden in every capture (`HIDE_ADMIN_CSS` in
    `capture/capture.mjs`). With it, **join the live campaign** (a campaign's
    page is locked until you join), and for the Post shot connect a TikTok
-   account to it. Sign in, and copy the value of the `session` cookie.
+   account to it. Give the scripts its password as an environment variable
+   (sign-in is by password alone; `capture/auth.mjs` signs in through the
+   real /login form, and only ever against https://highlightz.app):
 
    ```sh
-   export HZ_SESSION='<the session cookie>'
+   export HZ_DEMO_PASSWORD='...'      # or HZ_SESSION=<a signed-in session cookie>
    ```
+
+   In a Claude Code cloud session, add `HZ_DEMO_PASSWORD` as an environment
+   variable in the environment's settings, not in chat or in a file; a new
+   session picks it up.
 
 2. **Record a real crossing.** With the demo account, start monitoring a
    busy live Twitch channel (Live Streams → Monitor stream), then:

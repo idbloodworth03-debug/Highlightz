@@ -7456,12 +7456,21 @@ the shot list, timings and every step.
 - **Audio** is synthesized (`audio/make_audio.py`, seeded): no licence. 128
   BPM, `src/timeline.json` drives cuts and sounds. -14 LUFS, <= -1 dBTP.
   `--music` takes a licensed WAV instead.
-- **Status (2026-10-27): preview only.** This session's network policy
-  answers 403 for highlightz.app and every Twitch host, so no real shot, clip
-  or number could be fetched. To finish, a machine that reaches
-  highlightz.app + Twitch needs: an admin demo account with Pro joined to the
-  live campaign (and TikTok connected, for the Post shot), a busy live channel
-  to record a crossing on, then `record-live` → `capture` → `fetch-data
-  --funded-by Highlightz` → `render:all`.
+- **Status (2026-10-27, evening).** The environment's network access now
+  allows highlightz.app, the Twitch hosts and `d1ndex63qxojbr.cloudfront.net`
+  (Twitch's clip files). Done and committed to `promo-data.json`: the live
+  budget range (verified), the clip counter, the landing page recorded in
+  both layouts, and three featured clips (stableronaldo, jynxzi, duxxion,
+  one per channel, each starting at its loudest 1.2 s). The footage itself
+  is not in git: a new session re-makes it in a few minutes with `cd promo
+  && npm ci && pip install numpy scipy streamlink && npm run audio && npm
+  run capture -- --shots landing && npm run fetch-data`.
+- **Next (needs the demo login).** The owner is adding `HZ_DEMO_PASSWORD`
+  (an admin demo account with Pro, joined to the live Duxxion campaign) as
+  an environment variable; a new session sees it. Then: pick a live
+  channel, `record-live -- --channel <login>`, `capture` (live, review,
+  editor, post, campaign), `fetch-data -- --funded-by Highlightz`,
+  `check-data`, `render:all`, check every frame, send the cuts. Never put
+  the password in chat, a file or a commit.
 - Do not commit footage or the socket recording (`.gitignore` covers
   `public/captures/*.mp4`, `public/audio/`, `capture/recordings/`).
