@@ -57,7 +57,7 @@ export const UiShot: React.FC<{
   const t = interpolate(f, [0, durationInFrames], [0, 1], {...clamp, easing: IN_OUT});
   const reason = why || 'Recorded from the real dashboard (demo account) once this session can reach highlightz.app.';
   const video = c ? (
-    <MotionBlur id={'mb-' + name + '-' + layout} y={blurY} style={{position: 'absolute', inset: 0}}>
+    <MotionBlur id={'mb-' + name + '-' + layout} y={blurY} fill style={{position: 'absolute', inset: 0}}>
       <div style={{position: 'absolute', inset: 0}}>
         <Freeze frame={Math.max(0, Math.min(c.frames - 1, frameMap ? frameMap(f) : f))}>
           <CaptureVideo cap={c} />

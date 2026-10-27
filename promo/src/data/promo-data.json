@@ -1,6 +1,6 @@
 {
   "_doc": "REAL DATA ONLY. Written by capture/fetch-data.mjs from the live app (a signed-in demo account) and the capture rig. Every null is a shot with no real source yet: the preview renders it as a labelled placeholder, and `npm run render:all` refuses to run until none are left (capture/check-data.mjs). Never type a number in here by hand.",
-  "fetched_at": "2026-10-27T20:21:45.255Z",
+  "fetched_at": "2026-10-27T21:23:56.349Z",
   "source": "https://highlightz.app",
   "budget_range": {
     "min": 100,
@@ -8,7 +8,7 @@
     "source": "live /promote fee calculator",
     "verified_live": true
   },
-  "clips_total": 94664,
+  "clips_total": 94865,
   "campaign": {
     "title": "Duxxion's Campaign",
     "summary": "Clip duxxion's streams. The 3 clippers with the most-viewed single clip win $250, $150 and $100.",
@@ -57,7 +57,7 @@
       "channel": "duxxion",
       "platform": "twitch",
       "file": "captures/clip-2.mp4",
-      "start_s": 13.35,
+      "start_s": 12.2,
       "title": "duxxion — Everything Pops Off At Once"
     },
     {

@@ -154,14 +154,17 @@ export const countUp = (frame: number, start: number, dur: number, to: number) =
   Math.round(interpolate(frame, [start, start + dur], [0, to], {...clamp, easing: EASE}));
 
 // Directional motion blur. `amount` in px; the SVG filter id must be unique.
-export const MotionBlur: React.FC<{id: string; x?: number; y?: number; children: React.ReactNode; style?: React.CSSProperties}> = ({id, x = 0, y = 0, children, style}) => (
+// `fill`: the blurred layer fills its parent. Needed when the children are
+// absolutely positioned (a UI shot): a filter makes its element the
+// containing block for them, and an unsized one collapses them to nothing.
+export const MotionBlur: React.FC<{id: string; x?: number; y?: number; fill?: boolean; children: React.ReactNode; style?: React.CSSProperties}> = ({id, x = 0, y = 0, fill, children, style}) => (
   <div style={style}>
     <svg width="0" height="0" style={{position: 'absolute'}}>
       <filter id={id} x="-20%" y="-20%" width="140%" height="140%">
         <feGaussianBlur stdDeviation={`${Math.abs(x)} ${Math.abs(y)}`} />
       </filter>
     </svg>
-    <div style={{filter: Math.abs(x) + Math.abs(y) > 0.3 ? `url(#${id})` : undefined}}>{children}</div>
+    <div style={{...(fill ? {position: 'absolute', inset: 0} : {}), filter: Math.abs(x) + Math.abs(y) > 0.3 ? `url(#${id})` : undefined}}>{children}</div>
   </div>
 );
 

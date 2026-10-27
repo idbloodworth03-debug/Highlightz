@@ -1,11 +1,15 @@
 {
   "_doc": "Editorial choices for the featured clips, which fetch-data.mjs downloads from the landing page's showcase. `order`: channels in the order the edit uses them (the bot scene shows the first two); channels not listed follow in showcase order. `inpoints`: by Twitch clip slug, where the ~1 s the edit shows starts, instead of the automatic pick (the loudest 1.2 s with a lit, moving picture). Each choice says why.",
-  "order": ["jynxzi", "duxxion", "stableronaldo"],
+  "order": [
+    "jynxzi",
+    "duxxion",
+    "stableronaldo"
+  ],
   "order_why": "jynxzi: the strongest on-camera reaction. duxxion: the streamer the live campaign is for, and a goal. stableronaldo last: at its moment the stream's chat overlay shows a viewer line ('what the gay') that does not belong in an advert.",
   "inpoints": {
     "SolidInterestingFlyHotPokket-RnyTxazcWnEepObs": {
-      "start_s": 13.35,
-      "why": "duxxion's goal: the ball crosses the line at ~13.9 s and PASTA SCORED lands at ~14.3 s. The clip's loudest stretch is after it, on a dim browser window once the stream tabs out."
+      "start_s": 12.2,
+      "why": "duxxion's goal: the ball crosses the line at ~13.9 s and PASTA SCORED lands at ~14.3 s. The shot is on screen for 2.3 s, so it starts at 12.2 s and ends before the stream's pause menu (~14.6 s) and the dim desktop it tabs out to (~15 s), which is also the clip's loudest stretch."
     }
   }
 }
