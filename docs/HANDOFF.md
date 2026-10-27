@@ -7460,8 +7460,12 @@ the shot list, timings and every step.
   allows highlightz.app, the Twitch hosts and `d1ndex63qxojbr.cloudfront.net`
   (Twitch's clip files). Done and committed to `promo-data.json`: the live
   budget range (verified), the clip counter, the landing page recorded in
-  both layouts, and three featured clips (stableronaldo, jynxzi, duxxion,
-  one per channel, each starting at its loudest 1.2 s). The footage itself
+  both layouts, and three featured clips, one per channel. The edit uses
+  jynxzi (the reaction) and duxxion (the campaign's streamer; his goal);
+  stableronaldo is the spare, because at its moment the stream's chat
+  overlay shows a line that does not belong in an ad. Order and in-points
+  are editorial, with reasons, in `promo/capture/clip-picks.json`; clips
+  show whole (16:9), not centre-cropped to 9:16. The footage itself
   is not in git: a new session re-makes it in a few minutes with `cd promo
   && npm ci && pip install numpy scipy streamlink && npm run audio && npm
   run capture -- --shots landing && npm run fetch-data`.

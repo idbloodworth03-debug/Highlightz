@@ -84,40 +84,60 @@ const SignalPanel: React.FC<{layout: Layout; cross: number}> = ({layout, cross})
   );
 };
 
+// A featured clip, whole: the 16:9 frame as the streamer's viewers saw it
+// (a centre crop to 9:16 cut the face cam and the action out), over a
+// blurred copy of itself. The title sits above the clip, not on it; the
+// credit is on the clip's corner in 16:9 and under it in 9:16.
 const ClipCard: React.FC<{clip: FeaturedClip | undefined; layout: Layout; punch?: boolean; showTitle?: boolean}> = ({clip, layout, punch, showTitle}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const tall = layout === 'tall';
-  const s = punch ? interpolate(f, [0, 9], [1.32, 1], {...clamp, easing: EASE}) : interpolate(f, [0, 12], [1.06, 1], {...clamp, easing: EASE});
-  const h = tall ? 1500 : 880;
-  const w = h * (9 / 16);
+  const s = punch ? interpolate(f, [0, 9], [1.18, 1], {...clamp, easing: EASE}) : interpolate(f, [0, 12], [1.06, 1], {...clamp, easing: EASE});
+  const w = tall ? 1000 : 1380;
+  const h = w * (9 / 16);
+  const top = tall ? 640 : 190;
+  const left = (tall ? 1080 : 1920) / 2 - w / 2;
   // The credit is up from the clip's first frames and the title soon after:
   // a clip is on screen for one 2-beat shot (0.94 s), and no text may show
   // for under 0.8 s.
   const credit = interpolate(f, [0, 6], [0, 1], {...clamp, easing: EASE});
   const titleP = interpolate(f, [2, 12], [0, 1], {...clamp, easing: EASE});
-  const video = clip ? (
-    <OffthreadVideo src={staticFile(clip.file)} startFrom={Math.round(clip.start_s * fps)} muted style={{width: '100%', height: '100%', objectFit: 'cover'}} />
-  ) : null;
+  const video = (fit: 'cover' | 'contain') =>
+    clip ? <OffthreadVideo src={staticFile(clip.file)} startFrom={Math.round(clip.start_s * fps)} muted style={{width: '100%', height: '100%', objectFit: fit}} /> : null;
   return (
-    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
-      {clip && (
-        <AbsoluteFill style={{filter: 'blur(40px) brightness(.45) saturate(1.2)', transform: 'scale(1.2)'}}>{video}</AbsoluteFill>
+    <AbsoluteFill>
+      {clip && <AbsoluteFill style={{filter: 'blur(48px) brightness(.4) saturate(1.2)', transform: 'scale(1.25)'}}>{video('cover')}</AbsoluteFill>}
+      {clip && showTitle && clip.title && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 64,
+            right: 64,
+            bottom: (tall ? 1920 : 1080) - top + (tall ? 36 : 28),
+            textAlign: 'center',
+            fontFamily: FONT.sans,
+            fontWeight: 800,
+            letterSpacing: '-0.03em',
+            fontSize: tall ? 64 : 52,
+            lineHeight: 1.05,
+            color: '#fff',
+            filter: 'drop-shadow(0 4px 18px rgba(0,0,0,.7))',
+            transform: `translateY(${(1 - titleP) * 30}px)`,
+            opacity: titleP,
+          }}
+        >
+          {clip.title}
+        </div>
       )}
-      <div style={{width: w, height: h, borderRadius: 34, overflow: 'hidden', position: 'relative', transform: `scale(${s})`, boxShadow: '0 50px 140px rgba(0,0,0,.7), 0 0 80px rgba(201,56,255,.3)', border: `1px solid ${C.hair2}`}}>
-        {clip ? video : <Placeholder compact title="A featured clip: real footage, about one second" why="The clips featured on highlightz.app, downloaded from the live app." />}
-        {clip && showTitle && clip.title && (
-          <div style={{position: 'absolute', left: 0, right: 0, top: '14%', padding: '0 7%', textAlign: 'center', fontFamily: FONT.sans, fontWeight: 800, letterSpacing: '-0.03em', fontSize: tall ? 66 : 44, lineHeight: 1.05, color: '#fff', textShadow: '0 4px 24px rgba(0,0,0,.8)', transform: `translateY(${(1 - titleP) * 40}px)`, opacity: titleP}}>
-            {clip.title}
-          </div>
-        )}
+      <div style={{position: 'absolute', left, top, width: w, height: h, borderRadius: tall ? 30 : 26, overflow: 'hidden', transform: `scale(${s})`, boxShadow: '0 50px 140px rgba(0,0,0,.7), 0 0 80px rgba(201,56,255,.3)', border: `1px solid ${C.hair2}`}}>
+        {clip ? video('contain') : <Placeholder compact title="A featured clip: real footage, about one second" why="The clips featured on highlightz.app, downloaded from the live app." />}
       </div>
       {clip && (
         <div
           style={{
             position: 'absolute',
-            left: tall ? 64 : (1920 - w) / 2 + 28,
-            bottom: tall ? 420 : (1080 - h) / 2 + 30,
+            left: left + (tall ? 0 : 28),
+            top: tall ? top + h + 28 : top + h - 28 - 58,
             opacity: credit,
             transform: `translateY(${(1 - credit) * 16}px)`,
             display: 'flex',

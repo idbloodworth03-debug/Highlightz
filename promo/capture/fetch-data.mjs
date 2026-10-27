@@ -50,9 +50,25 @@ async function budgetRange() {
   return {min: Number(m[1]) / 100, max: Number(m[2]) / 100, source: 'live /promote fee calculator', verified_live: true};
 }
 
+// Brightness (mean luma, 0-255) and motion (mean luma change from the
+// previous sample) of each 0.25 s of the clip.
+function pictureStats(file) {
+  const out = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-vf', 'fps=4,scale=64:36,signalstats,metadata=print:file=-', '-f', 'null', '-'], {maxBuffer: 1 << 26}).toString();
+  const pick = (k) => [...out.matchAll(new RegExp(`signalstats\\.${k}=([\\d.]+)`, 'g'))].map((m) => Number(m[1]));
+  return {luma: pick('YAVG'), motion: pick('YDIF')};
+}
+
+const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] || 0;
+
 // Where the moment is: the loudest 1.2 s of the clip's sound (a clip is
-// shown for about a second, muted, so it should open on the reaction).
+// shown for about a second, muted, so it should open on the reaction),
+// among the stretches where something is on screen and moving. A streamer
+// alt-tabbing to a still, dim desktop can be the loudest part of a clip and
+// show nothing; motion is judged against the clip's own (an IRL stream
+// moves far less than a game).
 function peakStart(file) {
+  const {luma, motion} = pictureStats(file);
+  const calm = median(motion) * 0.5;
   const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], {maxBuffer: 1 << 28});
   const s = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length >> 1);
   const win = 2000;                                  // 0.25 s at 8 kHz
@@ -62,20 +78,37 @@ function peakStart(file) {
     for (let j = i; j < i + win; j++) e += s[j] * s[j];
     rms.push(Math.sqrt(e / win));
   }
-  let best = 0;
-  let bestE = -1;
-  for (let i = 0; i + 5 <= rms.length; i++) {
-    const e = rms[i] + rms[i + 1] + rms[i + 2] + rms[i + 3] + rms[i + 4];
-    if (e > bestE) { bestE = e; best = i; }
-  }
+  const loudest = (ok) => {
+    let best = -1;
+    let bestE = -1;
+    for (let i = 0; i + 5 <= rms.length; i++) {
+      if (!ok(i)) continue;
+      const e = rms.slice(i, i + 5).reduce((x, y) => x + y, 0);
+      if (e > bestE) { bestE = e; best = i; }
+    }
+    return best;
+  };
+  const span = (a, i) => a.slice(i, i + 5);
+  let best = loudest((i) => Math.min(...span(luma, i)) >= 30 && median(span(motion, i)) >= calm);
+  if (best < 0) best = loudest(() => true);
   return Math.max(0, +(best * 0.25 - 0.4).toFixed(2));
 }
 
+const PICKS = JSON.parse(fs.readFileSync(path.join(PROMO, 'capture', 'clip-picks.json'), 'utf8'));
+const slugOf = (url) => String(url).split('/').filter(Boolean).pop();
+
 async function featuredClips() {
   const {clips} = await get('/landing/showcase');
-  // One clip per channel, so the edit shows more than one streamer.
+  // One clip per channel, so the edit shows more than one streamer, in the
+  // order capture/clip-picks.json gives.
   const seen = new Set();
-  const picked = (clips || []).filter((c) => c.twitch_url && c.channel && !seen.has(c.channel) && seen.add(c.channel)).slice(0, N_CLIPS);
+  const rank = (ch) => { const i = PICKS.order.indexOf(ch); return i < 0 ? PICKS.order.length : i; };
+  const picked = (clips || [])
+    .filter((c) => c.twitch_url && c.channel && !seen.has(c.channel) && seen.add(c.channel))
+    .map((c, i) => ({c, i}))
+    .sort((a, b) => rank(a.c.channel) - rank(b.c.channel) || a.i - b.i)
+    .map(({c}) => c)
+    .slice(0, N_CLIPS);
   fs.mkdirSync(CAPTURES, {recursive: true});
   const out = [];
   for (const [i, c] of picked.entries()) {
@@ -83,7 +116,8 @@ async function featuredClips() {
     const dest = path.join(CAPTURES, file);
     console.log(`  clip ${i + 1}: ${c.channel} · ${c.clip_title}`);
     execFileSync('streamlink', ['--force', '-o', dest, c.twitch_url, 'best'], {stdio: 'inherit'});
-    out.push({channel: c.channel, platform: 'twitch', file: 'captures/' + file, start_s: peakStart(dest), title: c.clip_title});
+    const pinned = PICKS.inpoints[slugOf(c.twitch_url)];
+    out.push({channel: c.channel, platform: 'twitch', file: 'captures/' + file, start_s: pinned ? pinned.start_s : peakStart(dest), title: c.clip_title});
   }
   return out;
 }

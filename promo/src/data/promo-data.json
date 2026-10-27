@@ -1,6 +1,6 @@
 {
   "_doc": "REAL DATA ONLY. Written by capture/fetch-data.mjs from the live app (a signed-in demo account) and the capture rig. Every null is a shot with no real source yet: the preview renders it as a labelled placeholder, and `npm run render:all` refuses to run until none are left (capture/check-data.mjs). Never type a number in here by hand.",
-  "fetched_at": "2026-10-27T19:18:42.348Z",
+  "fetched_at": "2026-10-27T19:27:16.341Z",
   "source": "https://highlightz.app",
   "budget_range": {
     "min": 100,
@@ -8,29 +8,29 @@
     "source": "live /promote fee calculator",
     "verified_live": true
   },
-  "clips_total": 94494,
+  "clips_total": 94514,
   "campaign": null,
   "featured_clips": [
     {
-      "channel": "stableronaldo",
-      "platform": "twitch",
-      "file": "captures/clip-1.mp4",
-      "start_s": 18.85,
-      "title": "stableronaldo — Sub/Raid Hype"
-    },
-    {
       "channel": "jynxzi",
       "platform": "twitch",
-      "file": "captures/clip-2.mp4",
+      "file": "captures/clip-1.mp4",
       "start_s": 19.6,
       "title": "jynxzi — Sub/Raid Hype"
     },
     {
       "channel": "duxxion",
       "platform": "twitch",
-      "file": "captures/clip-3.mp4",
-      "start_s": 15.35,
+      "file": "captures/clip-2.mp4",
+      "start_s": 13.35,
       "title": "duxxion — Everything Pops Off At Once"
+    },
+    {
+      "channel": "stableronaldo",
+      "platform": "twitch",
+      "file": "captures/clip-3.mp4",
+      "start_s": 18.85,
+      "title": "stableronaldo — Sub/Raid Hype"
     }
   ],
   "signal_trace": null,
