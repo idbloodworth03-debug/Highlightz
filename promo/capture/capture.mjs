@@ -2,7 +2,7 @@
 // Records the real UI shots of the promo from the live app.
 //
 //   HZ_DEMO_PASSWORD=... npm run capture -- \
-//        [--shots landing,live,review,editor,post,campaign] [--layouts wide,tall]
+//        [--shots landing,live,review,editor,campaign] [--layouts wide,tall]
 //
 // Every shot is the real page on https://highlightz.app, signed in as the demo
 // account where it needs one, stepped frame by frame (vt.js) so the motion is
@@ -31,7 +31,7 @@ if (!TEST && BASE !== PROD) throw new Error('Real captures come from ' + PROD + 
 const OUT = TEST ? path.resolve(args.out || '/tmp/hz-test-captures') : path.join(PROMO, 'public', 'captures');
 // The demo password only ever goes to production, never to a --test server.
 const SESSION = args.session || (TEST ? '' : await demoSession(PROD));
-const SHOTS = String(args.shots || 'landing,live,review,editor,post,campaign').split(',');
+const SHOTS = String(args.shots || 'landing,live,review,editor,campaign').split(',');
 const LAYOUTS = String(args.layouts || 'wide,tall').split(',');
 const DATA_FILE = path.join(PROMO, 'src', 'data', 'promo-data.json');
 
@@ -76,6 +76,21 @@ async function freezeEmbeds(page) {
 const HIDE_ADMIN_CSS = `
   [data-admin], .admin-only, a[href="/admin"], .cmp-status.draft { display: none !important; }
 `;
+
+// Every signed-in shot: the dashboard in its Twitch colours (the brand's
+// purple; a per-browser setting, not the account's), and the sidebar as a
+// clipper's account shows it: the admin-only Training and Landing Page
+// tools are taken out of it. They carry no marker, so they go by label.
+const DASHBOARD_INIT = () => {
+  try { localStorage.setItem('hz_platform', 'twitch'); } catch (e) {}
+  const ADMIN_TABS = ['Training', 'Landing Page'];
+  const hide = () => {
+    for (const b of document.querySelectorAll('.rd-navitem')) {
+      if (ADMIN_TABS.includes((b.innerText || '').trim()) && b.style.display !== 'none') b.style.display = 'none';
+    }
+  };
+  new MutationObserver(hide).observe(document, {childList: true, subtree: true});
+};
 
 async function maskNames(page) {
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -214,82 +229,80 @@ const SHOT = {
     return {focus: (await centerOf(page, 'canvas'))?.rect};
   },
 
-  // Post now, with TikTok picked: the button pulses under the cursor. Nothing
-  // is posted.
-  async post({page, layout, out, rec}) {
-    const frames = sceneLen('bot') - shotAt('bot.post', 'bot');
-    await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
-    await page.evaluate(() => sessionStorage.setItem('hz_route', 'library'));
-    await page.reload({waitUntil: 'domcontentloaded'});
-    await warm(page, {selector: 'main'});
-    await page.getByRole('button', {name: /^Post now$/}).first().click();
-    await page.getByText(/TikTok/).first().click().catch(() => {});
-    const btn = page.getByRole('button', {name: /Post now to TikTok/});
-    await btn.waitFor({timeout: 30000});
-    const b = await btn.boundingBox();
-    await installCursor(page, layout === 'tall' ? 0.8 : 1);
-    const vp = page.viewportSize();
-    await record({page, frames, out, perFrame: async (i) => {
-      const p = ease(Math.min(1, i / 24));
-      await setCursor(page, {x: vp.width * 0.75 + (b.x + b.width * 0.6 - vp.width * 0.75) * p, y: vp.height * 0.9 + (b.y + b.height / 2 - vp.height * 0.9) * p});
-      await btn.evaluate((el, t) => { el.style.boxShadow = `0 0 ${12 + t * 28}px rgba(243,67,254,${0.3 + t * 0.5})`; }, i >= 24 ? Math.exp(-((i - 24) % 28) / 9) : 0);
-    }});
-    return {focus: {x: b.x - 40, y: b.y - 220, w: b.width + 80, h: 300}};
-  },
-
-  // The live campaign's real page. Its numbers count up and its leaderboard
-  // rows slide into rank order, on the real elements, in time with the edit.
+  // The campaign's real page: the live one, or else the next to open. Its
+  // numbers count up on the real elements in time with the edit (the prize
+  // pool on the coin, the clippers joined) and, once a campaign is live, its
+  // leaderboard rows slide into rank order. The scroll visits each part as
+  // the edit calls it out: on a desktop it all fits once past the banner; on
+  // a phone the pool and the caption tags sit far below the title.
   async campaign({page, layout, out}) {
     const frames = sceneLen('campaign');
     const tPool = shotAt('campaign.pool', 'campaign');
+    const tTags = shotAt('campaign.tags', 'campaign');
+    const tCounts = shotAt('campaign.counts', 'campaign');
     const tBoard = shotAt('campaign.board', 'campaign');
     const tGlow = shotAt('campaign.glow', 'campaign');
-    await page.addStyleTag({content: HIDE_ADMIN_CSS}).catch(() => {});
     await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
     await warm(page, {selector: '.cmp-card'});
     await page.addStyleTag({content: HIDE_ADMIN_CSS});
-    const live = page.locator('.cmp-card', {has: page.locator('.cmp-status.live')}).first();
-    await live.click();
+    const live = page.locator('.cmp-card', {has: page.locator('.cmp-status.live')});
+    const card = (await live.count()) ? live.first() : page.locator('.cmp-card', {has: page.locator('.cmp-status.upcoming')}).first();
+    await card.click();
     await warm(page, {selector: '.cmp-page'});
     await maskNames(page);
-    const nav = 0;
-    const yBoard = (await docTop(page, '.cmp-rows', 140)) ?? (await docTop(page, '.cmp-sec', 140)) ?? 0;
-    const yTop = 0;
-    const K = layout === 'tall'
-      ? [[0, yTop], [rel(1.5), yTop], [rel(5), yBoard], [frames, yBoard + 20]]
-      : [[0, yTop], [rel(4), yTop], [rel(6), Math.min(yBoard, yBoard * 0.6 + 120)], [frames, Math.min(yBoard, yBoard * 0.6 + 140)]];
+    const y = async (sel, above) => (await docTop(page, sel, above)) ?? 0;
+    let K;
+    let at;                                   // frame each number counts up on the page
+    if (layout === 'tall') {
+      const yTitle = await y('.cmp-cols', 70);
+      const yPool = await y('.cmp-box', 90);
+      const yTag = await y('.cmp-chip.tag', 420);
+      K = [[0, 0], [rel(1), 0], [rel(2), yTitle], [rel(5), yTitle], [rel(6.5), yPool], [rel(9), yPool], [rel(10), yTag], [frames, yTag + 24]];
+      at = {pool: rel(6.5), count: rel(3), tags: rel(10), board: tBoard, glow: tGlow};
+    } else {
+      const yCols = await y('.cmp-cols', 40);
+      K = [[0, 100], [rel(1), 100], [rel(3), yCols], [frames, yCols + 40]];
+      at = {pool: tPool, count: tCounts, tags: tTags, board: tBoard, glow: tGlow};
+    }
     // The real values, read off the page before anything is animated.
     const real = await page.evaluate(() => ({
       pool: document.querySelector('.cmp-box .cmp-big')?.textContent || '',
+      count: document.querySelector('.cmp-count-n')?.textContent || '',
       scores: [...document.querySelectorAll('.cmp-row .cmp-score')].map((s) => s.firstChild?.textContent || ''),
     }));
     const num = (s) => Number(String(s).replace(/[^0-9.]/g, '')) || 0;
     await record({page, frames, out, perFrame: async (i) => {
-      await page.evaluate(({y, i, tPool, tBoard, tGlow, pool, scores}) => {
-        window.scrollTo(0, y);
+      await page.evaluate(({y, i, at, pool, count, scores}) => {
+        (document.querySelector('.rd-scroll') || document.scrollingElement).scrollTop = y;
         const e = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3));
         const fmt = (v, like) => (like.trim().startsWith('$') ? '$' : '') + Math.round(v).toLocaleString('en-US');
         const big = document.querySelector('.cmp-box .cmp-big');
-        if (big) big.textContent = fmt(pool.n * e((i - tPool) / 22), pool.s);
+        if (big && pool.s) big.textContent = fmt(pool.n * e((i - at.pool) / 22), pool.s);
+        const cn = document.querySelector('.cmp-count-n');
+        if (cn && count.s) cn.textContent = fmt(count.n * e((i - at.count) / 16), count.s);
+        for (const t of document.querySelectorAll('.cmp-chip.tag')) {
+          const g = e((i - at.tags) / 10) * (1 - e((i - at.tags - 30) / 40) * 0.5);
+          t.style.boxShadow = `0 0 ${g * 22}px rgba(243,67,254,${g * 0.6})`;
+        }
         document.querySelectorAll('.cmp-row').forEach((row, r) => {
-          const p = e((i - tBoard - r * 6) / 14);
+          const p = e((i - at.board - r * 6) / 14);
           row.style.opacity = String(p);
           row.style.transform = `translateX(${(1 - p) * 60}px)`;
           const sc = row.querySelector('.cmp-score');
-          if (sc && sc.firstChild && scores[r]) sc.firstChild.textContent = Math.round(scores[r].n * e((i - tBoard - r * 6) / 22)).toLocaleString('en-US');
+          if (sc && sc.firstChild && scores[r]) sc.firstChild.textContent = Math.round(scores[r].n * e((i - at.board - r * 6) / 22)).toLocaleString('en-US');
           if (row.classList.contains('top')) {
-            const g = e((i - tGlow - r * 3) / 12);
+            const g = e((i - at.glow - r * 3) / 12);
             row.style.boxShadow = `0 0 ${g * 26}px rgba(243,67,254,${g * 0.55}), inset 0 0 0 1px rgba(243,67,254,${g * 0.5})`;
           }
         });
-      }, {y: keys(K, i), i, tPool, tBoard, tGlow, pool: {n: num(real.pool), s: real.pool}, scores: real.scores.map((s) => ({n: num(s)}))});
+      }, {y: keys(K, i), i, at, pool: {n: num(real.pool), s: real.pool}, count: {n: num(real.count), s: real.count}, scores: real.scores.map((s) => ({n: num(s)}))});
     }});
-    return {focus: (await centerOf(page, '.cmp-rows'))?.rect || (await centerOf(page, '.cmp-page'))?.rect};
+    return {focus: (await centerOf(page, '.cmp-rows'))?.rect || (await centerOf(page, '.cmp-cols'))?.rect};
   },
 };
 
-const ROUTE = {landing: null, live: 'streams', review: 'review', editor: 'library', post: 'library', campaign: 'campaigns'};
-const NEEDS_SESSION = {landing: false, live: true, review: true, editor: true, post: true, campaign: true};
+const ROUTE = {landing: null, live: 'streams', review: 'review', editor: 'library', campaign: 'campaigns'};
+const NEEDS_SESSION = {landing: false, live: true, review: true, editor: true, campaign: true};
 const NEEDS_REC = {live: true, review: true, editor: true};
 
 async function main() {
@@ -300,7 +313,7 @@ async function main() {
     if (NEEDS_SESSION[shot] && !SESSION) { console.log(`skip ${shot}: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION)`); continue; }
     if (NEEDS_REC[shot] && !rec) { console.log(`skip ${shot}: run capture/record-live.mjs first`); continue; }
     for (const layout of LAYOUTS) {
-      const {browser, page} = await launch({layout, base: BASE, session: NEEDS_SESSION[shot] ? SESSION : '', route: ROUTE[shot]});
+      const {browser, page} = await launch({layout, base: BASE, session: NEEDS_SESSION[shot] ? SESSION : '', route: ROUTE[shot], extraInit: NEEDS_SESSION[shot] ? DASHBOARD_INIT : undefined});
       if (shot === 'live' || shot === 'review') {
         // The real socket is replaced by the recording: nothing live leaks in.
         await page.routeWebSocket(/\/ws$/, (ws) => { page.__wsRoute = ws; });

@@ -7,7 +7,6 @@ const SHOTS = [
   ['live', 'Live Streams capture'],
   ['review', 'Clip Review capture'],
   ['editor', 'Clip Editor capture'],
-  ['post', 'Post to TikTok capture'],
   ['campaign', 'live campaign page capture'],
 ];
 

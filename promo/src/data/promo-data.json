@@ -1,6 +1,6 @@
 {
   "_doc": "REAL DATA ONLY. Written by capture/fetch-data.mjs from the live app (a signed-in demo account) and the capture rig. Every null is a shot with no real source yet: the preview renders it as a labelled placeholder, and `npm run render:all` refuses to run until none are left (capture/check-data.mjs). Never type a number in here by hand.",
-  "fetched_at": "2026-10-27T19:27:16.341Z",
+  "fetched_at": "2026-10-27T19:55:00.392Z",
   "source": "https://highlightz.app",
   "budget_range": {
     "min": 100,
@@ -8,8 +8,43 @@
     "source": "live /promote fee calculator",
     "verified_live": true
   },
-  "clips_total": 94514,
-  "campaign": null,
+  "clips_total": 94589,
+  "campaign": {
+    "title": "Duxxion's Campaign",
+    "summary": "Clip duxxion's streams. The 3 clippers with the most-viewed single clip win $250, $150 and $100.",
+    "status": "upcoming",
+    "prize_pool": 500,
+    "payouts": [
+      250,
+      150,
+      100
+    ],
+    "hashtags": [
+      "duxhighlightz"
+    ],
+    "mentions": [],
+    "platforms": [
+      "tiktok",
+      "instagram"
+    ],
+    "streamers": [
+      {
+        "name": "Duxxion",
+        "platform": "twitch"
+      }
+    ],
+    "start_at": 1793332800,
+    "end_at": 1793941200,
+    "judging_text": "Most views on a single clip",
+    "joined_count": 3,
+    "entrants": 0,
+    "metric": "views",
+    "entries": 0,
+    "total_views": 0,
+    "counts_scope": "all",
+    "board": [],
+    "funded_by": "Highlightz"
+  },
   "featured_clips": [
     {
       "channel": "jynxzi",
@@ -74,8 +109,26 @@
     "live": null,
     "review": null,
     "editor": null,
-    "post": null,
-    "campaign": null
+    "campaign": {
+      "wide": {
+        "file": "captures/campaign-wide.mp4",
+        "width": 2880,
+        "height": 1800,
+        "fps": 60,
+        "frames": 337,
+        "viewport": {
+          "w": 1440,
+          "h": 900
+        },
+        "focus": {
+          "x": 182,
+          "y": 678.703125,
+          "w": 1180,
+          "h": 1267.625
+        }
+      },
+      "tall": null
+    }
   },
   "mask_entrant_names": true
 }

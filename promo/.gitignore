@@ -11,3 +11,5 @@ public/captures/*.mp4
 public/captures/*.webm
 # The repo root ignores *.ts (HLS video segments); here .ts is TypeScript.
 !*.ts
+# npm packages the capture serves in place of unpkg.com (see rig.mjs)
+capture/.vendor/

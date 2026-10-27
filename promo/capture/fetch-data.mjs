@@ -10,7 +10,7 @@
 //                   (/landing/showcase, which already leaves out every
 //                   channel that opted out), downloaded from Twitch with
 //                   streamlink to public/captures/clip-N.mp4
-//   campaign        the campaign that is live right now (/campaigns, as the
+//   campaign        the campaign that is live, or else the next to open (/campaigns, as the
 //                   demo account sees it: it must have joined, or the page
 //                   is locked and has no leaderboard to show)
 //   signal_trace    the score and signals per frame of the live shot, from
@@ -122,9 +122,13 @@ async function featuredClips() {
   return out;
 }
 
-async function liveCampaign() {
+// The campaign the video shows: the live one, or else the next to open
+// (an upcoming campaign has no entries or leaderboard yet, and the edit
+// shows its opening date and joined count instead).
+async function currentCampaign() {
   const {rows} = await get('/campaigns', {auth: true});
-  const c = (rows || []).find((r) => r.status === 'live' && r.published !== false);
+  const open = (rows || []).filter((r) => r.published !== false);
+  const c = open.find((r) => r.status === 'live') || open.find((r) => r.status === 'upcoming');
   if (!c) return null;
   if (c.locked || !c.board) throw new Error(`campaign "${c.title}" is locked for the demo account: join it in the dashboard first`);
   const b = c.board;
@@ -191,12 +195,12 @@ async function main() {
   await step('clip counter', async () => (await get('/landing/stats')).clips_total, (v) => { data.clips_total = typeof v === 'number' ? v : null; });
   await step('featured clips', featuredClips, (v) => { data.featured_clips = v; });
   if (SESSION) {
-    await step('live campaign', liveCampaign, (v) => {
+    await step('campaign', currentCampaign, (v) => {
       // Who funds it is not in the API; carried over from what the owner said.
       data.campaign = v ? {...v, funded_by: data.campaign?.funded_by ?? (args['funded-by'] || undefined)} : null;
     });
   } else {
-    console.log('skip live campaign: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION), joined to the campaign');
+    console.log('skip campaign: needs the demo account (HZ_DEMO_PASSWORD or HZ_SESSION), joined to the campaign');
   }
   await step('signal trace', async () => {
     const t = signalTrace();

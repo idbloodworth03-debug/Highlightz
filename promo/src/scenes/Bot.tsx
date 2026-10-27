@@ -1,7 +1,7 @@
 // 0:07.500-0:16.875 (5 bars), the heart of it. The real dashboard: a live
 // channel's score climbing on Live Streams with its seven signals pulsing in,
 // the crossing (freeze, flash, shockwave, CLIP CAPTURED), the clip landing in
-// Clip Review and approved, the Clip Editor, two featured clips, Post to TikTok.
+// Clip Review and approved, the Clip Editor, then two featured clips, credited.
 import React from 'react';
 import {AbsoluteFill, Freeze, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {C, EASE, FONT} from '../brand';
@@ -174,7 +174,6 @@ export const Bot: React.FC<{layout: Layout}> = ({layout}) => {
   const editor = at('bot.editor', S);
   const clip2 = at('bot.clip2', S);
   const clip3 = at('bot.clip3', S);
-  const post = at('bot.post', S);
   const end = sceneRange(S).dur;
   const fc = DATA.featured_clips;
   const live = cap('live', layout);
@@ -219,12 +218,9 @@ export const Bot: React.FC<{layout: Layout}> = ({layout}) => {
         <ClipCard clip={fc[0]} layout={layout} punch />
         <Flash start={0} dur={6} peak={0.7} />
       </Sequence>
-      <Sequence from={clip3} durationInFrames={post - clip3} name="clip 3">
+      <Sequence from={clip3} durationInFrames={end - clip3} name="clip 3">
         <ClipCard clip={fc[1]} layout={layout} punch showTitle />
         <Flash start={0} dur={6} peak={0.6} />
-      </Sequence>
-      <Sequence from={post} durationInFrames={end - post} name="post">
-        <UiShot name="post" layout={layout} dur={end - post} tilt={-4} push={1.2} title="Post to TikTok, one press" />
       </Sequence>
     </AbsoluteFill>
   );

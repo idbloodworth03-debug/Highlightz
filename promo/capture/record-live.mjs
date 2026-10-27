@@ -2,10 +2,10 @@
 // Records the real WebSocket traffic of a live channel the demo account is
 // monitoring, until the bot captures a clip on it:
 //
-//   HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <twitch login> [--max-min 45]
+//   HZ_DEMO_PASSWORD=... node capture/record-live.mjs --channel <twitch login> [--add] [--max-min 45]
 //
 // Start monitoring the channel in the dashboard first (Live Streams → Monitor
-// stream). This script only listens: it opens the signed-in dashboard on
+// stream), or pass --add to have the script start it. Otherwise it only listens: it opens the signed-in dashboard on
 // https://highlightz.app, keeps every score_update for the channel and the
 // clip_ready that ends it, and writes capture/recordings/live.json:
 //
@@ -55,6 +55,14 @@ async function main() {
       try { msg = JSON.parse(String(payload)); } catch (e) { return; }
       const ch = String(msg.channel || (msg.clip && msg.clip.channel) || '').toLowerCase();
       if (ch !== CHANNEL) return;
+      // The server stops a channel it can never clip (no Twitch authorisation
+      // on the account, clipping restricted by the broadcaster): no clip is
+      // coming, so stop listening and say so.
+      if (msg.event === 'stream_removed') {
+        console.error(`\nthe server stopped monitoring ${CHANNEL} (stream_removed): the account cannot clip it. Is Twitch connected in Settings?`);
+        done('removed');
+        return;
+      }
       if (msg.event === 'score_update' || msg.event === 'clip_ready') {
         messages.push({t: (Date.now() - t0) / 1000, msg});
         if (msg.event === 'score_update') process.stdout.write(`  ${CHANNEL} score ${Number(msg.score).toFixed(1)} (${messages.length} msgs)\r`);
@@ -63,9 +71,19 @@ async function main() {
     });
   });
   await page.goto(BASE + '/', {waitUntil: 'domcontentloaded'});
+  if (args.add) {
+    // Start monitoring the channel from the signed-in page, as Live Streams'
+    // Monitor stream button does (201 added, 409 already monitored).
+    const status = await page.evaluate(async (channel) => (await fetch('/streams', {
+      method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({channel, platform: 'twitch'}),
+    })).status, CHANNEL);
+    console.log(`monitor ${CHANNEL}: HTTP ${status}`);
+    if (status !== 201 && status !== 409) throw new Error('could not start monitoring ' + CHANNEL);
+  }
   console.log(`listening for ${CHANNEL} (stops at its first captured clip, or after ${MAX_MS / 60000} min)`);
   const why = await Promise.race([finished, new Promise((r) => setTimeout(() => r('timeout'), MAX_MS))]);
   await browser.close();
+  if (why === 'removed') process.exit(1);
   if (why !== 'clip') {
     console.error(`\nno clip was captured on ${CHANNEL} in ${MAX_MS / 60000} min; nothing written. Try a busier channel or a longer --max-min.`);
     process.exit(1);

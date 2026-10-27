@@ -2,7 +2,7 @@
 // a time (vt.js), each frame screenshotted at device-scale 2 (3 on a phone)
 // and piped straight into ffmpeg. Also: a cursor with click ripples drawn into
 // the page, eased scrolling, and helpers for the shot scripts in capture.mjs.
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -40,6 +40,36 @@ export const keys = (k, f, e = easeInOut) => {
   return k[k.length - 1][1];
 };
 
+// The dashboard loads React and Babel from unpkg.com, which serves files out
+// of npm packages. Where unpkg is not reachable but the npm registry is (a
+// sandbox that allows package managers only), the same file of the same
+// version is served from the package itself: byte for byte what unpkg sends.
+const VENDOR = path.join(HERE, '.vendor');
+function unpkgFile(url) {
+  const m = new URL(url).pathname.match(/^\/((?:@[^/]+\/)?[^/@]+)@([^/]+)\/(.+)$/);
+  if (!m) return null;
+  const [, name, version, file] = m;
+  const dir = path.join(VENDOR, `${name.replace('/', '__')}@${version}`);
+  if (!fs.existsSync(path.join(dir, 'package'))) {
+    fs.mkdirSync(dir, {recursive: true});
+    const tgz = execFileSync('npm', ['pack', `${name}@${version}`, '--silent'], {cwd: dir}).toString().trim().split('\n').pop();
+    execFileSync('tar', ['-xzf', tgz], {cwd: dir});
+  }
+  const p = path.join(dir, 'package', file);
+  return fs.existsSync(p) ? p : null;
+}
+async function serveUnpkgFromNpm(context) {
+  await context.route('https://unpkg.com/**', async (route) => {
+    try {
+      const p = unpkgFile(route.request().url());
+      if (p) return route.fulfill({status: 200, contentType: 'application/javascript; charset=utf-8', body: fs.readFileSync(p)});
+    } catch (e) {
+      console.error('[unpkg via npm]', e.message);
+    }
+    return route.continue();
+  });
+}
+
 export async function launch({layout, base, session, route, extraInit}) {
   // Behind an outbound proxy (a cloud sandbox), the browser goes through it too.
   const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
@@ -67,6 +97,7 @@ export async function launch({layout, base, session, route, extraInit}) {
     try { if (route) sessionStorage.setItem('hz_route', route); } catch (e) {}
   }, {vt: VT, origin, route});
   if (extraInit) await context.addInitScript(extraInit);
+  if (proxyUrl) await serveUnpkgFromNpm(context);
   const page = await context.newPage();
   page.on('pageerror', (e) => console.error('[page error]', e.message));
   return {browser, context, page};
@@ -130,10 +161,15 @@ export const centerOf = async (page, selector) => page.evaluate((s) => {
   return {x: b.left + b.width / 2, y: b.top + b.height / 2, rect: {x: b.left, y: b.top, w: b.width, h: b.height}};
 }, selector);
 
+// Where an element sits in the page's scrolling content, `offset` px below
+// the top of the visible area. The dashboard scrolls an inner panel
+// (.rd-scroll), not the window; the public pages scroll the window.
 export const docTop = async (page, selector, offset = 0) => page.evaluate(({s, offset}) => {
   const el = document.querySelector(s);
   if (!el) return null;
-  return Math.max(0, el.getBoundingClientRect().top + window.scrollY - offset);
+  const sc = document.querySelector('.rd-scroll');
+  const origin = sc ? sc.getBoundingClientRect().top - sc.scrollTop : -window.scrollY;
+  return Math.max(0, el.getBoundingClientRect().top - origin - offset);
 }, {s: selector, offset});
 
 // Record `frames` frames into `out` (H.264, crf 10). perFrame(i) runs before

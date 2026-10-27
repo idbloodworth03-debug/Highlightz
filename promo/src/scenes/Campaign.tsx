@@ -1,7 +1,8 @@
-// 0:20.625-0:26.250 (3 bars). The real campaign page for the campaign that is
-// live right now, with its real numbers counted up beside it: the prize pool
-// (coin sting on beat 45), the split, the hashtags, entries and views, and the
-// leaderboard sliding into rank (driven inside the real page by the capture).
+// 0:20.625-0:26.250 (3 bars). The real campaign page (the live campaign, or
+// else the next to open), with its real numbers counted up beside it: the
+// prize pool (coin sting on beat 45), the split, the hashtags, and then entries
+// and views once it is live, or clippers joined and the opening date before.
+// A live campaign's leaderboard slides into rank inside the real page.
 import React from 'react';
 import {AbsoluteFill, interpolate, useCurrentFrame} from 'remotion';
 import {C, EASE, FONT} from '../brand';
@@ -13,7 +14,9 @@ import type {Layout} from '../Promo';
 
 const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 const ordinal = (i: number) => ['1st', '2nd', '3rd'][i] || `${i + 1}th`;
-const TITLE = "The live campaign's page: prize pool, split, hashtags, leaderboard sliding into rank";
+// The date as the site shows it (its times are US Eastern): "OCT 30".
+const day = (t: number) => new Date(t * 1000).toLocaleDateString('en-US', {month: 'short', day: 'numeric', timeZone: 'America/New_York'}).toUpperCase();
+const TITLE = "The campaign's page: prize pool, split, hashtags, who has joined";
 const WHY = 'Recorded from the real Campaigns tab (demo account) once this session can reach highlightz.app.';
 
 const Reveal: React.FC<{start: number; children: React.ReactNode; style?: React.CSSProperties}> = ({start, children, style}) => {
@@ -60,7 +63,7 @@ export const Campaign: React.FC<{layout: Layout}> = ({layout}) => {
         style={{
           fontFamily: FONT.mono,
           fontWeight: 600,
-          fontSize: tall ? 140 : 132,
+          fontSize: tall ? 110 : 132,
           lineHeight: 1,
           background: 'linear-gradient(180deg,#FFD38A,#F7A745 60%,#E07B1F)',
           WebkitBackgroundClip: 'text',
@@ -91,34 +94,51 @@ export const Campaign: React.FC<{layout: Layout}> = ({layout}) => {
     </Reveal>
   );
   const top10 = camp && camp.counts_scope === 'top10' ? ' · TOP 10' : '';
+  const upcoming = camp && camp.status === 'upcoming';
+  const big: React.CSSProperties = {fontFamily: FONT.mono, fontWeight: 600, fontSize: tall ? 64 : 60, color: C.ink};
   const counts = (
     <Reveal start={tCounts} style={{display: 'flex', gap: tall ? 56 : 40}}>
-      <div>
-        <div style={label}>ENTRIES{top10}</div>
-        <div style={{fontFamily: FONT.mono, fontWeight: 600, fontSize: tall ? 72 : 60, color: C.ink}}>{camp ? countUp(f, tCounts, 20, camp.entries).toLocaleString('en-US') : '—'}</div>
-      </div>
-      <div>
-        <div style={label}>{camp && camp.metric === 'engagement' ? 'ENGAGEMENT' : 'VIEWS'}{top10}</div>
-        <div style={{fontFamily: FONT.mono, fontWeight: 600, fontSize: tall ? 72 : 60, color: C.ink}}>{camp ? countUp(f, tCounts, 26, camp.total_views).toLocaleString('en-US') : '—'}</div>
-      </div>
+      {upcoming ? (
+        <>
+          <div>
+            <div style={label}>CLIPPERS JOINED</div>
+            <div style={big}>{countUp(f, tCounts, 16, camp!.joined_count).toLocaleString('en-US')}</div>
+          </div>
+          <div>
+            <div style={label}>OPENS</div>
+            <div style={big}>{day(camp!.start_at)}</div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <div style={label}>ENTRIES{top10}</div>
+            <div style={big}>{camp ? countUp(f, tCounts, 20, camp.entries).toLocaleString('en-US') : '—'}</div>
+          </div>
+          <div>
+            <div style={label}>{camp && camp.metric === 'engagement' ? 'ENGAGEMENT' : 'VIEWS'}{top10}</div>
+            <div style={big}>{camp ? countUp(f, tCounts, 26, camp.total_views).toLocaleString('en-US') : '—'}</div>
+          </div>
+        </>
+      )}
     </Reveal>
   );
   const glow = {filter: `drop-shadow(0 0 ${boardGlow * 50}px rgba(243,67,254,.42))`, position: 'absolute' as const, inset: 0};
 
   if (tall) {
-    // Top band: what it is and what it pays. Middle: the real page, zoomed to
-    // its leaderboard. Above the platforms' caption zone: entries and views.
+    // A card in the clear band at the top says what it is and what it pays;
+    // below it, the whole phone shows the real page scrolling to each part.
     return (
       <AbsoluteFill>
         <div style={glow}>
-          <UiShot name="campaign" layout={layout} dur={dur} focusY={1060} focusWidth={940} tilt={-4} title={TITLE} why={WHY} />
+          <UiShot name="campaign" layout={layout} dur={dur} tilt={-4} fit={{top: 740, height: 1280}} title={TITLE} why={WHY} />
         </div>
-        <Hud style={{position: 'absolute', left: 56, right: 56, top: 150, display: 'flex', flexDirection: 'column', gap: 16}}>
+        <Hud style={{position: 'absolute', left: 56, right: 56, top: 140, display: 'flex', flexDirection: 'column', gap: 14}}>
           {title}
           {pool}
           {split}
+          {counts}
         </Hud>
-        <Hud style={{position: 'absolute', left: 56, right: 56, top: 1330}}>{counts}</Hud>
       </AbsoluteFill>
     );
   }
