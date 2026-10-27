@@ -44,7 +44,12 @@ export const UiShot: React.FC<{
   focusWidth?: number;           // tall: canvas px the focus region spans
   wideBox?: {left: number; top: number; width: number};
   blurY?: number;                // vertical motion blur on the page (a whip scroll)
-}> = ({name, layout, title, why, tilt = 4, dur, push = 1.12, frameMap, focusY = 1000, focusWidth = 900, wideBox = WIDE_BOX, blurY = 0}) => {
+  // tall: show the whole phone, centred, its top at `top` and this tall
+  // (canvas px), instead of zooming to the focus region. For a page that is
+  // read as a whole while it scrolls (the landing page), with the overlays
+  // in the clear band above it rather than on top of its text.
+  fit?: {top: number; height: number};
+}> = ({name, layout, title, why, tilt = 4, dur, push = 1.12, frameMap, focusY = 1000, focusWidth = 900, wideBox = WIDE_BOX, blurY = 0, fit}) => {
   const f = useCurrentFrame();
   const durationInFrames = dur;
   const c = cap(name, layout);
@@ -60,6 +65,26 @@ export const UiShot: React.FC<{
       </div>
     </MotionBlur>
   ) : null;
+
+  if (layout === 'tall' && fit) {
+    // PhoneFrame: a 3.5% bezel each side around a screen of the phone's aspect.
+    const phoneW = fit.height / (0.93 * (PHONE_VIEWPORT.h / PHONE_VIEWPORT.w) + 0.07);
+    const drift = interpolate(t, [0, 1], [0, -14]);
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          left: 540 - phoneW / 2,
+          top: fit.top + drift + (1 - enter) * 40,
+          opacity: enter,
+        }}
+      >
+        <PhoneFrame width={phoneW} tilt={-tilt * 0.4}>
+          {video || <Placeholder compact title={title} why={reason} />}
+        </PhoneFrame>
+      </div>
+    );
+  }
 
   if (layout === 'tall') {
     const vp = c ? c.viewport : PHONE_VIEWPORT;

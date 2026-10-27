@@ -1,6 +1,6 @@
 {
   "_doc": "REAL DATA ONLY. Written by capture/fetch-data.mjs from the live app (a signed-in demo account) and the capture rig. Every null is a shot with no real source yet: the preview renders it as a labelled placeholder, and `npm run render:all` refuses to run until none are left (capture/check-data.mjs). Never type a number in here by hand.",
-  "fetched_at": "2026-10-27T19:02:36.613Z",
+  "fetched_at": "2026-10-27T19:06:10.334Z",
   "source": "https://highlightz.app",
   "budget_range": {
     "min": 100,
@@ -8,12 +8,47 @@
     "source": "live /promote fee calculator",
     "verified_live": true
   },
-  "clips_total": 94453,
+  "clips_total": 94462,
   "campaign": null,
   "featured_clips": [],
   "signal_trace": null,
   "captures": {
-    "landing": null,
+    "landing": {
+      "wide": {
+        "file": "captures/landing-wide.mp4",
+        "width": 2880,
+        "height": 1800,
+        "fps": 60,
+        "frames": 337,
+        "viewport": {
+          "w": 1440,
+          "h": 900
+        },
+        "focus": {
+          "x": 144.796875,
+          "y": 56.5,
+          "w": 1150.40625,
+          "h": 735.65625
+        }
+      },
+      "tall": {
+        "file": "captures/landing-tall.mp4",
+        "width": 1170,
+        "height": 2532,
+        "fps": 60,
+        "frames": 337,
+        "viewport": {
+          "w": 390,
+          "h": 844
+        },
+        "focus": {
+          "x": 20,
+          "y": 56.65625,
+          "w": 350,
+          "h": 1139.3125
+        }
+      }
+    },
     "live": null,
     "review": null,
     "editor": null,

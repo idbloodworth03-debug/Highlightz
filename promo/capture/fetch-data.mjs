@@ -49,9 +49,32 @@ async function budgetRange() {
   return {min: Number(m[1]) / 100, max: Number(m[2]) / 100, source: 'live /promote fee calculator', verified_live: true};
 }
 
+// Where the moment is: the loudest 1.2 s of the clip's sound (a clip is
+// shown for about a second, muted, so it should open on the reaction).
+function peakStart(file) {
+  const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], {maxBuffer: 1 << 28});
+  const s = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length >> 1);
+  const win = 2000;                                  // 0.25 s at 8 kHz
+  const rms = [];
+  for (let i = 0; i + win <= s.length; i += win) {
+    let e = 0;
+    for (let j = i; j < i + win; j++) e += s[j] * s[j];
+    rms.push(Math.sqrt(e / win));
+  }
+  let best = 0;
+  let bestE = -1;
+  for (let i = 0; i + 5 <= rms.length; i++) {
+    const e = rms[i] + rms[i + 1] + rms[i + 2] + rms[i + 3] + rms[i + 4];
+    if (e > bestE) { bestE = e; best = i; }
+  }
+  return Math.max(0, +(best * 0.25 - 0.4).toFixed(2));
+}
+
 async function featuredClips() {
   const {clips} = await get('/landing/showcase');
-  const picked = (clips || []).filter((c) => c.twitch_url && c.channel).slice(0, N_CLIPS);
+  // One clip per channel, so the edit shows more than one streamer.
+  const seen = new Set();
+  const picked = (clips || []).filter((c) => c.twitch_url && c.channel && !seen.has(c.channel) && seen.add(c.channel)).slice(0, N_CLIPS);
   fs.mkdirSync(CAPTURES, {recursive: true});
   const out = [];
   for (const [i, c] of picked.entries()) {
@@ -59,7 +82,7 @@ async function featuredClips() {
     const dest = path.join(CAPTURES, file);
     console.log(`  clip ${i + 1}: ${c.channel} · ${c.clip_title}`);
     execFileSync('streamlink', ['--force', '-o', dest, c.twitch_url, 'best'], {stdio: 'inherit'});
-    out.push({channel: c.channel, platform: 'twitch', file: 'captures/' + file, start_s: 0, title: c.clip_title});
+    out.push({channel: c.channel, platform: 'twitch', file: 'captures/' + file, start_s: peakStart(dest), title: c.clip_title});
   }
   return out;
 }

@@ -78,6 +78,9 @@ export async function warm(page, {selector, settleMs = 1200} = {}) {
   if (selector) await page.waitForSelector(selector, {state: 'visible', timeout: 60000});
   await page.evaluate(async () => {
     await document.fonts.ready;
+    // Lazy images load as they scroll into view, which on a 60 fps whip is
+    // after they are on screen: load every one of them up front.
+    for (const i of document.images) if (i.loading === 'lazy') i.loading = 'eager';
     const imgs = [...document.images].filter((i) => !i.complete);
     await Promise.all(imgs.map((i) => new Promise((r) => { i.onload = i.onerror = r; setTimeout(r, 8000); })));
     document.documentElement.style.scrollBehavior = 'auto';

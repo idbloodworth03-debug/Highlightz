@@ -23,14 +23,17 @@ export const Landing: React.FC<{layout: Layout}> = ({layout}) => {
   // The whip past pricing: vertical blur peaking mid-beat (only on real footage).
   const blurY = cap('landing', layout) ? interpolate(f, [whip - 2, whip + fr(0.5), whip + fr(1)], [0, 26, 0], clamp) : 0;
   if (tall) {
+    // The whole phone below a clear band: the badge and callouts sit above
+    // the page, never on its text. The phone runs off the bottom edge, into
+    // the platforms' caption zone, where only page background is lost.
     return (
       <AbsoluteFill>
-        <UiShot name="landing" layout={layout} dur={dur} push={1} focusY={1180} focusWidth={900} tilt={-4} blurY={blurY} title={TITLE} why={WHY} />
+        <UiShot name="landing" layout={layout} dur={dur} push={1} tilt={-4} blurY={blurY} fit={{top: 530, height: 1540}} title={TITLE} why={WHY} />
         <div style={{position: 'absolute', top: 150, left: 0, right: 0, display: 'flex', justifyContent: 'center'}}>
-          <NewBadge start={0} size={30} />
+          <NewBadge start={0} size={28} />
         </div>
-        <div style={{position: 'absolute', left: 64, top: 260, display: 'flex', flexDirection: 'column', gap: 18}}>
-          {LINES.map((t, i) => <Callout key={t} start={starts[i]} text={t} size={40} />)}
+        <div style={{position: 'absolute', left: 0, right: 0, top: 222, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10}}>
+          {LINES.map((t, i) => <Callout key={t} start={starts[i]} text={t} size={34} from="below" />)}
         </div>
       </AbsoluteFill>
     );
