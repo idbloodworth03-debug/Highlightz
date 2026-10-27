@@ -55,8 +55,9 @@ def full() -> str:
 
 
 def flat(s: str) -> str:
-    """Line wraps out, so a test reads a sentence however the file wraps it."""
-    return re.sub(r"\s+", " ", s)
+    """Line wraps (and blockquote markers) out, so a test reads a sentence
+    however the file wraps it."""
+    return re.sub(r"\s+", " ", s.replace("\n> ", "\n"))
 
 
 def section(text: str, heading: str) -> str:
@@ -158,6 +159,45 @@ def test_the_landing_says_clipping_for_a_campaign_is_free(flags):
     html = api.render_landing()
     block = html[html.index('<div class="edit" id="campaigns">'):]
     assert "<h3>Clippers play for the pool</h3><p>Free on any plan. Join a campaign" in block
+
+
+def test_no_page_says_only_a_streamer_funds_the_pool(flags):
+    """The first campaign, for Duxxion, is paid for by Highlightz (owner,
+    2026-10-27), so "a streamer puts up a prize pool" is wrong as a
+    description of campaigns. Everywhere a clipper or a model reads about
+    them says the pool comes from the streamer or from Highlightz itself.
+    (The streamer-facing pitch, "Put up a prize pool" on the landing page and
+    /promote, is addressed to a streamer asking for one and stays.)"""
+    flags()
+    b, f = flat(brief()), full().splitlines()[2]
+    art = B.campaigns_article()
+    find = next(a for a in B.articles() if a.slug == "find-streamer-campaigns")
+    fits = dict(B.highlightz_points())["Campaigns with prize pools"]
+    html = api.render_landing()
+    card = html[html.index("<h3>Clippers play for the pool</h3>"):]
+    card = card[:card.index("</div>")]
+    surfaces = {
+        "llms.txt summary": flat(b[:b.index("The full public copy")]),
+        "llms.txt section": flat(section(b, "## Highlightz Campaigns")),
+        "llms-full opening": f,
+        "guide": art.blocks[1][1],
+        "guide snippet": art.description,
+        "find-campaigns guide": next(t for k, t in find.blocks if k == "p" and "Highlightz runs" in t),
+        "where Highlightz fits": fits,
+        "landing clipper card": card,
+    }
+    for name, text in surfaces.items():
+        assert re.search(r"streamer or (by |from )?Highlightz", text), \
+            f"{name} does not say Highlightz can fund the pool: {text[:160]!r}"
+        low = text.lower()
+        for wrong in ("a streamer puts up a prize pool", "streamers put up prize pools",
+                      "the streamer puts up the pool"):
+            assert wrong not in low, f"{name} still says {wrong!r}"
+    assert "its first one included" in art.blocks[1][1] and "its first one included" in surfaces["llms.txt section"]
+    # The same line in every guide's "Where Highlightz fits" also said an
+    # entry had to be posted from Highlightz (Pro) and never that joining is
+    # free.
+    assert "anywhere else with its link added" in fits and "Joining is free on any plan" in fits
 
 
 # ── 2. the signals, described rather than named ─────────────────────────────

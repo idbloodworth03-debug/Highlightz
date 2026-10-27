@@ -381,9 +381,13 @@ def highlightz_points() -> tuple:
                     "A Clip Editor and a Scheduler are on the way; today you "
                     "download the file and post it yourself."))
     if _campaigns_on():
+        # Not only streamers fund them (the first is Highlightz's own money),
+        # and a post made anywhere enters by its link (owner, 2026-10-27).
         pts.append(("Campaigns with prize pools",
-                    "Streamers put up prize pools on Highlightz itself. A clip you post "
-                    "for one from Highlightz is an entry, ranked on a live leaderboard. "
+                    "Highlightz runs campaigns with prize pools, put up by a streamer or "
+                    "by Highlightz itself. Joining is free on any plan, and a clip you post "
+                    "for one, from Highlightz or anywhere else with its link added, is an "
+                    "entry, ranked on a live leaderboard. "
                     "[How campaigns work](/blog/" + CAMPAIGNS_SLUG + ")."))
     return tuple(pts)
 
@@ -758,7 +762,9 @@ def campaigns_article() -> Article | None:
         return None
     blocks = [
         ("h", "How a campaign works"),
-        ("p", "A streamer puts up a prize pool and splits it into places. The campaign "
+        ("p", "Each campaign has a prize pool, split into places, put up by the streamer "
+              "or by Highlightz itself: Highlightz funds some campaigns, its first one "
+              "included. The campaign "
               "names the streams to clip, the dates, the platforms that count, the "
               "hashtags every post must carry and how the winners are picked. Clippers "
               "join the campaign, which opens its full rules, the tags their posts need "
@@ -817,9 +823,9 @@ def campaigns_article() -> Article | None:
         # The search snippet. It said clippers post "from Highlightz", which
         # is Pro; a post made anywhere and added by its link counts too, and
         # joining is free on every plan (owner, 2026-10-25 and 2026-10-27).
-        description=("How campaigns on Highlightz work: a streamer puts up a prize pool, "
-                     "clippers join free on any plan and post clips of the stream, a "
-                     "live leaderboard ranks them, and the winners are paid."),
+        description=("How campaigns on Highlightz work: a streamer or Highlightz puts up a "
+                     "prize pool, clippers join free on any plan and post clips of the "
+                     "stream, a live leaderboard ranks them, and the winners are paid."),
         kicker="New on Highlightz",
         lead=("A campaign is a prize pool for clips of one streamer's streams, and the "
               "best entries win it. How it works for clippers, and for streamers who "
@@ -842,9 +848,10 @@ def _with_campaigns(a: Article) -> Article:
             num, dot, rest = b[1].partition(". ")
             return ("h", str(int(num) + 1) + dot + rest) if dot and num.isdigit() else b
         ours = (("h", "1. Highlightz Campaigns"),
-                ("p", "Highlightz runs its own campaigns: a streamer puts up a prize pool "
-                      "and the best clips of their streams win it, ranked on a live "
-                      "leaderboard. Entries are posted from " + _entry_posting() + ". "
+                ("p", "Highlightz runs its own campaigns: a prize pool, put up by a streamer "
+                      "or by Highlightz itself, that the best clips of the streamer's streams "
+                      "win, ranked on a live leaderboard. Joining is free on any plan. "
+                      "Entries are posted from " + _entry_posting() + ". "
                       + link + " has how they work."))
         return replace(a, lead=a.lead.replace("Four places to look", "Five places to look"),
                        description=a.description.replace(

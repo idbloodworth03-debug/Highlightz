@@ -10310,10 +10310,13 @@ def _llms_campaigns() -> str:
     camp_on, req_on = bool(settings.campaigns_enabled), bool(settings.campaign_requests_enabled)
     if not (camp_on or req_on):
         return ""
+    # Who puts up the pool: not always the streamer. The first campaign, for
+    # Duxxion, is paid for by Highlightz (owner, 2026-10-27).
     out = ["", "## Highlightz Campaigns", "",
-           "A campaign is a prize pool for clips of one streamer's streams. The",
-           "streamer puts up the pool and splits it into places, clippers clip the",
-           "streams and post the clips, and the best entries win the pool.", ""]
+           "A campaign is a prize pool for clips of one streamer's streams. The pool",
+           "comes from the streamer or from Highlightz itself (Highlightz funds some",
+           "campaigns, its first one included) and is split into places. Clippers",
+           "clip the streams and post the clips, and the best entries win the pool.", ""]
     if camp_on:
         posting = ("Post it anywhere and add its link on the campaign page (any plan),\n"
                    "  or post it straight from Highlightz (Pro)." if settings.uploads_enabled else
@@ -10391,8 +10394,9 @@ async def llms_txt():
     from src.auth import kick_oauth
     optout_who = "Twitch or Kick" if kick_oauth.configured() else "Twitch"
     camp_on, req_on = bool(settings.campaigns_enabled), bool(settings.campaign_requests_enabled)
-    camp_lead = ("\n> Highlightz Campaigns: streamers put up prize pools, and clippers on any plan,\n"
-                 "> Free included, join and compete to win them." if camp_on else
+    camp_lead = ("\n> Highlightz Campaigns: prize pools for clips of a streamer's streams, put up\n"
+                 "> by the streamer or by Highlightz itself. Clippers on any plan, Free included,\n"
+                 "> join and compete to win them." if camp_on else
                  "\n> Highlightz Campaigns: streamers put up prize pools for clips of their\n"
                  "> streams, and the best clips win them." if req_on else "")
     camp_who = ((" Clippers can also join Highlightz Campaigns, free on any plan, to compete for prize money."
@@ -10606,8 +10610,9 @@ async def llms_full_txt():
       "from Twitch, is private to the account that made it. "
       + released
       + "Kick channels are monitored the same way; there the file is the clip. "
-      + ("It also runs Highlightz Campaigns: streamers put up prize pools, and clippers on "
-         "any plan, Free included, join and compete to win them (below). "
+      + ("It also runs Highlightz Campaigns: prize pools for clips of a streamer's streams, "
+         "put up by the streamer or by Highlightz itself, that clippers on any plan, Free "
+         "included, join and compete to win (below). "
          if settings.campaigns_enabled else "")
       + "Operated by ANTI Technology LLC. Short brief: https://highlightz.app/llms.txt\n")
 
@@ -13792,8 +13797,9 @@ def _campaigns_block() -> str:
                    if settings.uploads_enabled else "post it yourself and add its link")
         cards.append(("Clippers play for the pool",
                       "Free on any plan. Join a campaign, clip the streams it names, then " + posting
-                      + ". A live leaderboard shows where you stand. Prizes go out by "
-                      "PayPal, Venmo, Cash App or bank transfer."))
+                      + ". A live leaderboard shows where you stand. The pool comes from the "
+                      "streamer or from Highlightz itself, and prizes go out by PayPal, Venmo, "
+                      "Cash App or bank transfer."))
     body = "".join('<div class="edit-card"><h3>' + h + "</h3><p>" + p + "</p></div>"
                    for h, p in cards)
     clippers = ('<span>Clipping instead? <a href="/login?next=campaigns">Browse the '

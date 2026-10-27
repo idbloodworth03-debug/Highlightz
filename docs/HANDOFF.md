@@ -7336,3 +7336,19 @@ model's words, and where it was wrong or thin the copy had let it be:
   absolute links, the snippet, the landing card, every signal described in
   both files, the FAQ wording (and in the JSON-LD), the Kick opt-out both
   ways, and the llms-full opening with uploads on and off.
+- **Who funds the pool (owner, same day: "this first pool is being run for
+  duxxion through highlightz money").** "A streamer puts up a prize pool"
+  was the copy's description of every campaign, and the first one is
+  Highlightz's own money. Clipper-facing and model-facing copy now says the
+  pool comes from the streamer or from Highlightz itself (the guide and the
+  llms.txt section add "Highlightz funds some campaigns, its first one
+  included"): the llms.txt summary and section, the llms-full opening, the
+  guide's first paragraph and search snippet, the find-campaigns guide's
+  Highlightz entry, every guide's "Where Highlightz fits" point (which also
+  still said an entry had to be posted from Highlightz, and now says joining
+  is free and a link entry counts), and the landing clipper card. The
+  streamer-facing pitch ("Put up a prize pool" on the landing block,
+  /promote, the Promote screen) is addressed to a streamer asking for one
+  and is unchanged. Campaign records have no "funded by" field (only
+  `request_id` for request-made ones), so nothing names a funder per
+  campaign. Test: `test_no_page_says_only_a_streamer_funds_the_pool`.
