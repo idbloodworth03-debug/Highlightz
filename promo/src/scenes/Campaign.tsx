@@ -145,7 +145,7 @@ export const Campaign: React.FC<{layout: Layout}> = ({layout}) => {
   return (
     <AbsoluteFill>
       <div style={glow}>
-        <UiShot name="campaign" layout={layout} dur={dur} tilt={5} wideBox={{left: 70, top: 150, width: 1150}} title={TITLE} why={WHY} />
+        <UiShot name="campaign" layout={layout} dur={dur} tilt={5} push={1.05} wideBox={{left: 70, top: 150, width: 1150}} title={TITLE} why={WHY} />
       </div>
       <div style={{position: 'absolute', left: 1280, top: 150, width: 580, display: 'flex', flexDirection: 'column', gap: 20}}>
         {title}

@@ -7456,25 +7456,37 @@ the shot list, timings and every step.
 - **Audio** is synthesized (`audio/make_audio.py`, seeded): no licence. 128
   BPM, `src/timeline.json` drives cuts and sounds. -14 LUFS, <= -1 dBTP.
   `--music` takes a licensed WAV instead.
-- **Status (2026-10-27, evening).** The environment's network access now
-  allows highlightz.app, the Twitch hosts and `d1ndex63qxojbr.cloudfront.net`
-  (Twitch's clip files). Done and committed to `promo-data.json`: the live
-  budget range (verified), the clip counter, the landing page recorded in
-  both layouts, and three featured clips, one per channel. The edit uses
-  jynxzi (the reaction) and duxxion (the campaign's streamer; his goal);
-  stableronaldo is the spare, because at its moment the stream's chat
-  overlay shows a line that does not belong in an ad. Order and in-points
-  are editorial, with reasons, in `promo/capture/clip-picks.json`; clips
-  show whole (16:9), not centre-cropped to 9:16. The footage itself
-  is not in git: a new session re-makes it in a few minutes with `cd promo
-  && npm ci && pip install numpy scipy streamlink && npm run audio && npm
-  run capture -- --shots landing && npm run fetch-data`.
-- **Next (needs the demo login).** The owner is adding `HZ_DEMO_PASSWORD`
-  (an admin demo account with Pro, joined to the live Duxxion campaign) as
-  an environment variable; a new session sees it. Then: pick a live
-  channel, `record-live -- --channel <login>`, `capture` (live, review,
-  editor, post, campaign), `fetch-data -- --funded-by Highlightz`,
-  `check-data`, `render:all`, check every frame, send the cuts. Never put
-  the password in chat, a file or a commit.
+- **Status (2026-10-27, night): every shot real, final cuts rendered.**
+  Network access allows highlightz.app, the Twitch hosts and
+  `d1ndex63qxojbr.cloudfront.net` (Twitch's clip files); `unpkg.com` is not
+  allowed, so the rig serves the dashboard's React/Babel from the npm
+  packages (same versions). The demo login is the environment variable
+  `HZ_DEMO_PASSWORD` (the owner's admin account "admin", Pro; never in
+  chat, a file or a commit). What the cuts show, by the owner's calls:
+  - Landing: the live site, desktop and phone.
+  - Bot scene: Live Streams replaying a real recording of **deenthegreat
+    (Kick)** at real speed, the 4.7 s where his score climbs from 37.8 to
+    his threshold of 60 (the dashboard's own "Over the bar"); Kick colours
+    for that shot, since Live Streams lists one platform at a time. No
+    staged crossing, no review/editor/post shots (owner: "live scores +
+    featured clips only"). Then the jynxzi and duxxion featured clips,
+    "Clipped by Highlightz" (`capture/clip-picks.json`).
+  - Campaign: Duxxion's Campaign as **opening** (upcoming until Oct 30):
+    $500 from Highlightz, $250/$150/$100, #duxhighlightz, TikTok and
+    Instagram, 3 clippers joined, opens Oct 30. The demo admin pressed Join
+    (owner OK'd; admins are not counted, the public count stayed 3).
+  - Why no Twitch crossing: the account has no Twitch connected
+    (`twitch_login` null; it is linked to Kick), so the bot's first Twitch
+    clip fails and the server stops the channel (TwitchAuthExpired path,
+    by design). Seen twice on jynxzi. Connect Twitch in Settings to record
+    one. The 368 old adinross clips all had `file_state: missed` (the owner
+    has since cleared them); a new Kick clip (deenthegreat, 20:18 UTC) has
+    its file, so Kick capture works now.
+  - Re-making the footage (not in git): `cd promo && npm ci && pip install
+    numpy scipy streamlink && npm run audio && npm run capture -- --shots
+    landing && npm run fetch-data -- --funded-by Highlightz && npm run
+    capture -- --shots live,campaign` (live needs
+    `capture/recordings/live.json`, also not in git: `npm run record-live
+    -- --channel <kick login> --platform kick --seconds 180`).
 - Do not commit footage or the socket recording (`.gitignore` covers
   `public/captures/*.mp4`, `public/audio/`, `capture/recordings/`).

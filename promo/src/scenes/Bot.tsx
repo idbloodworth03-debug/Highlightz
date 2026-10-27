@@ -188,7 +188,7 @@ export const Bot: React.FC<{layout: Layout}> = ({layout}) => {
           </>
         ) : (
           <>
-            <UiShot name="live" layout={layout} dur={clip2} tilt={5}
+            <UiShot name="live" layout={layout} dur={clip2} tilt={5} push={1.04}
               title="Live Streams: a live channel's score and its seven signals, moving live" />
             <div style={{position: 'absolute', left: 1300, top: 150, width: 560}}>
               <SignalPanel layout={layout} />
