@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reel v6's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v7's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
@@ -30,20 +30,24 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 PICTURE. Two files, both from the reel's own frames:
-  ...-v6.mp4            the picture stream copied bit for bit: no loss at all
-  ...-v6-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
-                        (x264 CRF 10, veryslow), for uploading: Instagram and TikTok
-                        both ask for 1080x1920. It adds no detail the source
-                        doesn't have; a higher-resolution export of the reel
-                        would.
+  ...-v7.mp4            the picture stream copied bit for bit: no loss at all
+  ...-v7-1080x1920.mp4  for uploading (Instagram and TikTok both ask for
+                        1080x1920), x264 CRF 10 veryslow. With --upscaled, made
+                        from reel/upscale_reel.py's Real-ESRGAN frames (2x,
+                        1440x2560) brought down to 1080x1920: crisp text and
+                        HUD edges, compression blocking cleaned. Without it, a
+                        plain Lanczos upscale of the source: faithful but soft.
+                        Either way the ceiling is the 720p source; a
+                        higher-resolution export of the reel would beat both.
 
 OUTPUT (out/):
-  highlightz-reel-v6-stop-clipping-for-free.mp4
-  highlightz-reel-v6-stop-clipping-for-free-1080x1920.mp4
-  reel-v6-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
+  highlightz-reel-v7-stop-clipping-for-free.mp4
+  highlightz-reel-v7-stop-clipping-for-free-1080x1920.mp4
+  reel-v7-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
-    python3 reel/make_reel_audio.py reel/reel-v1.mov
+    python3 reel/upscale_reel.py reel/reel-v1.mov          # ~2.5 h, once
+    python3 reel/make_reel_audio.py reel/reel-v1.mov --upscaled reel/esrgan/x2
 """
 
 from __future__ import annotations
@@ -71,6 +75,7 @@ BEAT = 60.0 / 128
 STEP = BEAT / 4
 BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
+VERSION = "v7"
 rng = np.random.default_rng(20261028)
 
 VOICE = "am_fenrir"
@@ -359,17 +364,25 @@ def master(mix: np.ndarray, total_s: float) -> np.ndarray:
     return mix
 
 
-def duration(path: str) -> float:
+def probe(path: str) -> tuple[float, int, str]:
+    """Duration, frame count and frame rate of the reel's picture."""
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=duration", "-of", "csv=p=0", path], capture_output=True, text=True, check=True)
-    return float(r.stdout.strip())
+                        "stream=duration,nb_frames,r_frame_rate", "-of", "default=nw=1", path],
+                       capture_output=True, text=True, check=True)
+    f = dict(line.split("=", 1) for line in r.stdout.split())
+    return float(f["duration"]), int(f["nb_frames"]), f["r_frame_rate"]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("reel", help="reel v1 (its picture is kept, its audio replaced)")
+    ap.add_argument("--upscaled", help="reel/upscale_reel.py's frames, for the upload copy")
     args = ap.parse_args()
-    total_s = duration(args.reel)
+    total_s, n_frames, rate = probe(args.reel)
+    if args.upscaled:
+        have = len([f for f in os.listdir(args.upscaled) if f.endswith(".png") and not f.startswith(".")])
+        if have != n_frames:
+            sys.exit(f"{args.upscaled} has {have} of the reel's {n_frames} frames: finish upscale_reel.py")
 
     voice, report = speak(*fetch_kokoro(), total_s)
     for s, e, speed, text in report:
@@ -380,7 +393,7 @@ def main():
     music = duck_under(music, voice)
     sfx = to_lufs(render_sfx(total_s), SFX_LUFS)
 
-    stems = os.path.join(OUT, "reel-v6-stems")
+    stems = os.path.join(OUT, f"reel-{VERSION}-stems")
     os.makedirs(stems, exist_ok=True)
     for name, x in (("voice", voice), ("music", music), ("sfx", sfx)):
         ma.write(os.path.join(stems, f"{name}.wav"), x)
@@ -391,15 +404,21 @@ def main():
     lufs, tp = ma.loudness(wav)
 
     audio = ["-c:a", "aac", "-b:a", "320k", "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart"]
-    base = os.path.join(OUT, "highlightz-reel-v6-stop-clipping-for-free")
+    base = os.path.join(OUT, f"highlightz-reel-{VERSION}-stop-clipping-for-free")
     # The picture exactly as it came: no re-encode, so no loss.
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-tag:v", "hvc1",
                     *audio, base + ".mp4"], check=True)
     # The upload copy: 1080x1920, near-lossless H.264, BT.709 SDR like the source.
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-vf", "scale=1080:1920:flags=lanczos+accurate_rnd+full_chroma_int",
+    if args.upscaled:   # RGB frames: convert back to BT.709 TV range explicitly
+        picture = ["-framerate", rate, "-start_number", "0", "-i", os.path.join(args.upscaled, "%04d.png")]
+        vf = ("scale=1080:1920:flags=lanczos+accurate_rnd+full_chroma_int"
+              ":out_color_matrix=bt709:out_range=tv,format=yuv420p")
+    else:
+        picture = ["-i", args.reel]
+        vf = "scale=1080:1920:flags=lanczos+accurate_rnd+full_chroma_int"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *picture, "-i", wav,
+                    "-map", "0:v:0", "-map", "1:a:0", "-vf", vf,
                     "-c:v", "libx264", "-preset", "veryslow", "-crf", "10", "-profile:v", "high",
                     "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
                     "-color_trc", "bt709", "-color_range", "tv",

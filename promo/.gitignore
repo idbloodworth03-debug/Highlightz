@@ -16,3 +16,4 @@ capture/.vendor/
 # The owner's reel, and the Kokoro model the build downloads (~120 MB).
 reel/*.mov
 reel/kokoro/
+reel/esrgan/
