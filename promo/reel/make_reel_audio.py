@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reel v9's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v10's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
@@ -31,8 +31,8 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 PICTURE. Two files, both from the reel's own frames:
-  ...-v9.mp4            the picture stream copied bit for bit: no loss at all
-  ...-v9-1080x1920.mp4  for uploading (Instagram and TikTok both ask for
+  ...-v10.mp4           the picture stream copied bit for bit: no loss at all
+  ...-v10-1080x1920.mp4  for uploading (Instagram and TikTok both ask for
                         1080x1920), x264 CRF 10 veryslow. With --upscaled, made
                         from reel/upscale_reel.py's Real-ESRGAN frames (2x,
                         1440x2560) brought down to 1080x1920: crisp text and
@@ -42,9 +42,9 @@ PICTURE. Two files, both from the reel's own frames:
                         higher-resolution export of the reel would beat both.
 
 OUTPUT (out/):
-  highlightz-reel-v9-stop-clipping-for-free.mp4
-  highlightz-reel-v9-stop-clipping-for-free-1080x1920.mp4
-  reel-v9-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
+  highlightz-reel-v10-stop-clipping-for-free.mp4
+  highlightz-reel-v10-stop-clipping-for-free-1080x1920.mp4
+  reel-v10-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
     python3 reel/upscale_reel.py reel/reel-v1.mov          # ~40 min, once
@@ -76,27 +76,30 @@ BEAT = 60.0 / 128
 STEP = BEAT / 4
 BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
-VERSION = "v9"
+VERSION = "v10"
 rng = np.random.default_rng(20261028)
 
 VOICE = "am_fenrir"
 SPEED = 1.0                 # Kokoro's natural read: the most natural it sounds
 LEAD = 0.08                 # a line starts just after its cut: the whoosh lands first
 GAP = 0.15                  # at least this much breath between lines
-MAX_LAG = 0.9               # a line may trail its scene's cut by this much, no more
+MAX_LAG = 1.5               # a line may trail its scene's cut by this much, no more
 
 # Each line and the cut of the scene it belongs to. Written to be said, not
-# read: whole sentences, joined the way people talk, no word said twice in a
-# row ("prize", then "up for grabs"). The $250 is a prize, so every mention of
-# it is something you win, never something you pay: "clip for two-fifty"
-# sounded like a price.
+# read: whole sentences, joined the way people talk, amounts said the way a
+# person says them ("two hundred and fifty dollar prize", never "two-fifty
+# dollar"), no word said twice in a row. The $250 is a prize, so every mention
+# of it is something you win, never something you pay: "clip for two-fifty"
+# sounded like a price. Line 1 runs about a second past the first cut on
+# purpose: "two hundred and fifty dollar prize" lands as scene 2's "1ST $250"
+# chip does, which is also why line 2 trails its cut the most.
 LINES = [
-    ("Stop clipping for free, come clip for a two-fifty dollar prize instead.", 0.0),
-    ("There's five hundred up for grabs, and it all comes down to views.", 3.75),
+    ("Stop clipping for free. Come clip for a two hundred and fifty dollar prize instead.", 0.0),
+    ("Five hundred's up for grabs, and the most views wins.", 3.75),
     ("Join for free, clip Duxxion's stream, and post from Highlightz.", 7.50),
     ("Want an edge? Pro unlocks the Clip Editor and one-press posting.", 11.25),
     ("Start free, upgrade anytime.", 15.00),
-    ("Clip to win two-fifty at highlightz dot app.", 16.875),
+    ("Go clip and win at highlightz dot app.", 16.875),
 ]
 
 # What happens on screen (seconds), measured frame by frame off reel v1.

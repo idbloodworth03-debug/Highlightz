@@ -231,7 +231,7 @@ capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate
 ```
 
-## Reel v9: voice-over and phonk on the owner's 20 s reel
+## Reel v10: voice-over and phonk on the owner's 20 s reel
 
 `reel/make_reel_audio.py` replaces the audio of the owner's "Stop clipping for
 free" reel with a voice-over, a quiet synthesized phonk bed at 128 BPM and
@@ -250,14 +250,14 @@ python3 reel/make_reel_audio.py reel/reel-v1.mov --upscaled reel/esrgan/x2
 - The script is `LINES` in the file, written to be said aloud, each line with
   its scene's cut. Lines are never sped up: each starts just after its cut or
   a breath after the line before, whichever is later. The build stops if a line
-  would trail its cut by more than 0.9 s or run into the closing fade. The $250 is a
+  would trail its cut by more than 1.5 s or run into the closing fade. The $250 is a
   prize: say "win" it, never "clip for" it, which sounds like a price.
 - Picture: Real-ESRGAN (realesr-animevideov3, BSD-3) upscales every frame 2x
   on the CPU, one worker per core, resumable; the upload copy is made from
   those frames. Without `--upscaled` it falls back to a plain Lanczos upscale.
 - Output in `out/`:
-  - `highlightz-reel-v9-stop-clipping-for-free.mp4`: the picture copied bit for
+  - `highlightz-reel-v10-stop-clipping-for-free.mp4`: the picture copied bit for
     bit, so no loss at all.
   - `...-1080x1920.mp4`: the upload copy (what Instagram and TikTok ask for),
     H.264 CRF 10 veryslow (~18 Mbps), AAC 320k.
-  - `reel-v9-stems/` (voice, music, sfx, mix) to rebalance in an editor.
+  - `reel-v10-stems/` (voice, music, sfx, mix) to rebalance in an editor.

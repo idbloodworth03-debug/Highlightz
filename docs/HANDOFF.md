@@ -7538,7 +7538,7 @@ webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
 
-## Reel v9: voice-over and phonk, all free (2026-10-28)
+## Reel v10: voice-over and phonk, all free (2026-10-28)
 
 Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
 720x1280 HEVC at ~2 Mbps, an Apple Core Media export; cuts every 8 beats at
@@ -7557,25 +7557,33 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
   pool is $500, so $250 is "a prize". v9 (owner: say "a $250 prize", add
   "dollar", make everything flow): "two-fifty dollar prize"; the voice no
   longer fits each line inside its scene but flows (see placement below).
+  v10 (owner: "two hundred and fifty dollar prize, not 250 dollar prize; stop
+  being so literal and make it make sense"): amounts said the way a person
+  says them, and the lines around line 1 rewritten so the whole thing fits and
+  reads naturally, not just the one phrase swapped in.
 - `promo/reel/make_reel_audio.py`: Kokoro-82M (Apache-2.0, local, free for
   commercial use), voice am_fenrir, **fp32 model** (onnx-community model.onnx,
   sha256 8fbea51e…), every line at speed 1.00, never sped up. Placement
   flows: a line starts 0.08 s after its scene's cut or 0.15 s after the line
-  before, whichever is later (max 0.9 s behind its cut; must end before the
-  closing fade). Line 1 (4.27 s) crosses the first cut; lines 2-6 trail their
-  cuts by 0.48-0.75 s, landing as each scene's text appears. SFX duck 6 dB
+  before, whichever is later (max 1.5 s behind its cut; must end before the
+  closing fade). Line 1 crosses the first cut; line 2 trails its cut by 1.41 s
+  (still inside scene 2), lines 3-6 by 0.50-0.69 s, landing as each scene's
+  text appears; the voice ends at 19.26 s. SFX duck 6 dB
   under the voice. Hugging Face and GitHub releases
   are blocked from the sandbox, so the model comes from npm
   (kokoro-fp32{a,b,c}-shards, 19 shards; same publisher as kokoro-q8-shards,
   whose join matched its published hash) and the voices from kokoro-js 1.2.1,
   all pinned by sha256. Provenance check: the fp32 join predicts the same line
   timings as the q8 model to 0.03 s on every line, i.e. the same network.
-- The script: "Stop clipping for free, come clip for a two-fifty dollar prize
-  instead." / "There's five hundred up for grabs, and it all comes down to
-  views." ("up for grabs", not "in prizes", right after "prize") / "Join
+- The script: "Stop clipping for free. Come clip for a two hundred and fifty
+  dollar prize instead." (4.9 s: crosses the first cut on purpose, the amount
+  landing as scene 2's "1ST $250" chip appears) / "Five hundred's up for grabs,
+  and the most views wins." / "Join
   for free, clip Duxxion's stream, and post from Highlightz." / "Want an edge?
   Pro unlocks the Clip Editor and one-press posting." / "Start free, upgrade
-  anytime." / "Clip to win two-fifty at highlightz dot app." Say "win" for the
+  anytime." / "Go clip and win at highlightz dot app." ("Clip to win at…"
+  came out run together, transcribed "Clip2Win"; "Clip for the prize" was
+  heard as "price": both rejected by a speech-to-text check.) Say "win" for the
   prize, never "clip for $X". The reel's own end card still reads "Clip for
   $250." on screen: that text is in the owner's edit, not ours to change.
 - Phonk synthesized from `promo/audio/make_audio.py` parts (original, nothing
