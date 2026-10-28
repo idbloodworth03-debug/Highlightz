@@ -10,6 +10,18 @@ workflow expected before any deploy command, and the current open threads.
 Decisions recorded there were made deliberately with the owner — do not
 relitigate them from scratch.
 
+## Always end with the deploy command
+
+The owner asked for this: every reply that pushes a change to prod's branch
+ends with the deploy command, copied ready to paste, so they never have to
+look it up:
+
+```
+cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && systemctl restart highlightz
+```
+
+If `docs/HANDOFF.md` ever changes the command, change it here too.
+
 ## Realtime is mandatory: the UI must never need a manual refresh
 
 The dashboard is a long-lived single-page app. Users keep a tab open for hours
