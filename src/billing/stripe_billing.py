@@ -375,7 +375,8 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
     """What Stripe currently believes about this customer, for reconciliation.
 
     Returns {"status": <our status>, "plan": <plan or None>, "raw": <stripe
-    status>, "subscription": <id>} — or None if Stripe could not be reached.
+    status>, "subscription": <id>, "price_id": <id or None>, "monthly":
+    <dollars a month or None>} — or None if Stripe could not be reached.
     None is NOT "no subscription": a customer with none returns a dict with
     status "inactive". The caller must be able to tell those apart or a Stripe
     outage would cancel everybody.
@@ -412,7 +413,8 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
 
     if best is None:
         return {"status": "inactive", "plan": None, "raw": "none",
-                "trial_end": 0, "subscription": ""}
+                "trial_end": 0, "subscription": "", "price_id": None,
+                "monthly": None}
 
     raw = _g(best, "status", "") or ""
     # Same mapping sync_subscription_event applies, and for the same reason:
@@ -449,7 +451,9 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
 
     return {"status": status, "plan": plan_for_price(price_id), "raw": raw,
             "trial_end": trial_end,
-            "subscription": _g(best, "id", "") or ""}
+            "subscription": _g(best, "id", "") or "",
+            # What they are actually charged, for MRR (monthly_amount).
+            "price_id": price_id, "monthly": monthly_amount(best)}
 
 
 async def live_subscription_status(customer_id: str) -> str | None:
@@ -713,6 +717,77 @@ def extract_price_id(event: dict) -> str | None:
     if isinstance(plan, dict) and plan.get("id"):
         return plan["id"]
     return None
+
+
+_PER_MONTH = {"month": 1.0, "year": 1 / 12, "week": 52 / 12, "day": 365 / 12}
+
+
+def monthly_amount(sub, now: float | None = None) -> float | None:
+    """What this subscription is billed per month, in dollars, as Stripe will
+    charge it: each recurring line's unit price x quantity brought to a month,
+    less a discount that is still running and is not a one-off.
+
+    This is what MRR counts (2026-10-28). The tier a subscriber is ENTITLED to
+    says nothing about what they PAY: a $15-era subscriber is stored as Pro (the
+    legacy price id maps to 'pro', so the webhook writes plan='pro'), and from
+    then on the admin MRR priced them at $25. Stripe knows the real figure,
+    whether the $15 is the old price or a discount on the new one.
+
+    A 'once' coupon (the 50%-off first month) is a one-off, not the run rate,
+    so it is ignored. None when the object does not say enough to price it —
+    the caller keeps what it had rather than recording a guess.
+    """
+    import time as _time
+    items = _get(_get(sub, "items") or {}, "data") or []
+    if not items:
+        return None
+    total = 0.0
+    for line in items:
+        price = _get(line, "price")
+        if not price or isinstance(price, str):
+            return None
+        cents = _get(price, "unit_amount")
+        if cents is None:
+            dec = _get(price, "unit_amount_decimal")
+            try:
+                cents = float(dec) if dec is not None else None
+            except (TypeError, ValueError):
+                cents = None
+        if cents is None:
+            return None
+        rec = _get(price, "recurring") or {}
+        per = _PER_MONTH.get(_get(rec, "interval") or "month")
+        if per is None:
+            return None
+        try:
+            every = max(1, int(_get(rec, "interval_count") or 1))
+            qty = int(_get(line, "quantity") or 1)
+        except (TypeError, ValueError):
+            return None
+        total += float(cents) * qty * per / every
+    now = _time.time() if now is None else now
+    discounts = [_get(sub, "discount")] + list(_get(sub, "discounts") or [])
+    seen = set()
+    for d in discounts:
+        if not d or isinstance(d, str):
+            continue                      # an unexpanded id says nothing
+        coupon = _get(d, "coupon") or {}
+        cid = _get(coupon, "id") or id(coupon)
+        if cid in seen:
+            continue                      # `discount` and `discounts` overlap
+        seen.add(cid)
+        if _get(coupon, "duration") not in ("forever", "repeating"):
+            continue
+        end = _get(d, "end")
+        if end and float(end) <= now:
+            continue
+        pct = _get(coupon, "percent_off")
+        off = _get(coupon, "amount_off")
+        if pct:
+            total *= max(0.0, 1 - float(pct) / 100)
+        elif off:
+            total = max(0.0, total - float(off))
+    return round(total / 100, 2)
 
 
 def plan_for_price(price_id: str | None) -> str | None:

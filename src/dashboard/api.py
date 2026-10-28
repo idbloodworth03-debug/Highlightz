@@ -3388,9 +3388,18 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                                   customer=cust_id, cancelled=killed)
             # Membership tier: map the subscription's price id to a plan and
             # store it.
-            plan = plan_for_price(extract_price_id(event))
+            price_id = extract_price_id(event)
+            plan = plan_for_price(price_id)
             if plan:
                 user_store.set_plan(user_id, plan)
+            # And what they are CHARGED, which the tier does not tell you: the
+            # legacy $15 price maps to plan 'pro' above. The admin MRR counts
+            # this, not the tier's list price.
+            if event.get("type", "").startswith("customer.subscription"):
+                from src.billing.stripe_billing import monthly_amount
+                monthly = monthly_amount(event.get("data", {}).get("object") or {})
+                if monthly is not None:
+                    user_store.set_billing(user_id, price_id, monthly)
             # Promo attribution: if this subscription carries a promotion code
             # (streamer partnership / discount), record which code brought the
             # signup. Best-effort — never blocks webhook processing.
@@ -5531,6 +5540,12 @@ async def reconcile_one_user(user: dict) -> dict:
     if truth["plan"] and truth["plan"] != user.get("plan"):
         drift.append(("plan", user.get("plan"), truth["plan"]))
         _rc_store.set_plan(uid, truth["plan"])
+    # What Stripe charges them, for the admin MRR. Not access drift — nothing
+    # the user can see changes, so it is recorded quietly rather than listed
+    # in `drift` (which broadcasts and logs a correction). This is also how a
+    # subscriber whose webhook never carried a price gets one: within the hour.
+    if truth.get("monthly") is not None and truth["status"] in ("active", "trialing", "past_due"):
+        _rc_store.set_billing(uid, truth.get("price_id"), truth["monthly"])
 
     result = {"ok": True, "drift": drift, "stripe_status": truth["raw"],
               "app_status": truth["status"], "plan": truth["plan"],
@@ -7910,6 +7925,10 @@ async def admin_list_users(request: Request):
             and u.get("plan_source") != "granted"
             and limits.get("price", 0) > 0
         )
+        # A payer's price is what Stripe charges them, the same figure the MRR
+        # counts: a $15-era subscriber shows $15/mo, not Pro's $25.
+        if u["is_paying"]:
+            u["plan_price"] = plans.billed_monthly(u)
     return users
 
 
@@ -8330,11 +8349,17 @@ async def admin_overview(request: Request):
         elif status != "active":
             segment["free"] += 1
         if status == "active":
-            # ENTITLEMENT is not PRICE. A $15-era subscriber has no stored plan
-            # and is grandfathered to Pro so they keep every feature — but they
-            # are not paying $25, and billing them at the Pro price would
-            # inflate MRR by the difference on every one of them. They pay
-            # plans.LEGACY_PRICE (owner, 2026-09-16), and are counted at that.
+            # ENTITLEMENT is not PRICE. A $15-era subscriber is grandfathered
+            # to Pro so they keep every feature — but they are not paying $25,
+            # and billing them at the Pro price inflates MRR by the difference
+            # on every one of them. Each subscriber is counted at what Stripe
+            # actually charges (plans.billed_monthly: recorded by the webhook
+            # and the hourly sweep). This used to read the STORED TIER, and
+            # the webhook stores the legacy price as 'pro', so a $15
+            # subscriber whose subscription had sent any event was counted at
+            # $25 (unkn0wnballer, 2026-10-28). With nothing recorded yet it
+            # falls back to the tier's list price, or plans.LEGACY_PRICE with
+            # no tier (owner, 2026-09-16).
             # A comped membership is not revenue. Since an admin can now grant
             # a specific tier, the stored plan is no longer proof of payment —
             # a Stripe customer is. Without one the account is a gift and is
@@ -8344,15 +8369,14 @@ async def admin_overview(request: Request):
                 segment["comped"] += 1
                 continue
             stored = u.get("plan")
-            price = (plans.PLAN_LIMITS.get(plan, {}).get("price", 0)
-                     if stored in plans.PAID_PLANS else 0)
             paying += 1
             segment["paying"] += 1
-            if price:
-                mrr += price
+            mrr += plans.billed_monthly(u)
+            on_legacy_price = bool(settings.stripe_price_id
+                                   and u.get("stripe_price_id") == settings.stripe_price_id)
+            if stored in plans.PAID_PLANS and not on_legacy_price:
                 paying_by_tier[stored] = paying_by_tier.get(stored, 0) + 1
             else:
-                mrr += plans.LEGACY_PRICE
                 legacy += 1
                 paying_by_tier["legacy"] += 1
 
@@ -8382,15 +8406,16 @@ async def admin_overview(request: Request):
             "segment": segment,
             # The tiers of the people in `paying`, so the Paying tile's
             # sub-line describes the tile's own number rather than the whole
-            # population. `legacy` are $15-era subscribers, priced at
-            # plans.LEGACY_PRICE.
+            # population. `legacy` are $15-era subscribers (the old price, or
+            # no stored tier), priced at what Stripe charges them.
             "paying_by_tier": paying_by_tier,
             "new_7d": new_7d, "new_30d": new_30d,
         },
-        "mrr": mrr,
-        # Legacy ($15-era) subscribers, counted in `mrr` at plans.LEGACY_PRICE.
-        # Kept under this name so the panel's script needs no new key; it
-        # no longer means "unpriced".
+        "mrr": round(mrr, 2),
+        # Legacy ($15-era) subscribers: on the old price, or with no stored
+        # tier. Counted in `mrr` at what they are charged. Kept under this
+        # name so the panel's script needs no new key; it no longer means
+        # "unpriced".
         "mrr_unknown": legacy,
         "legacy_price": plans.LEGACY_PRICE,
         "clips": {

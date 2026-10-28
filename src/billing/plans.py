@@ -176,6 +176,28 @@ PAID_PLANS = ("starter", "pro")
 LEGACY_PRICE = 15
 DEFAULT_PLAN = FREE_PLAN
 
+
+def billed_monthly(user: dict) -> float:
+    """What a paying subscriber is charged a month, for MRR.
+
+    Stripe's own figure when the webhook or the hourly sweep has recorded it
+    (`monthly_price`, from stripe_billing.monthly_amount). Before either has,
+    the list price of the stored tier, or LEGACY_PRICE for a pre-tiers
+    subscriber with no stored tier.
+
+    The stored tier alone is not enough (2026-10-28): the webhook maps the
+    legacy $15 price id to 'pro', so a grandfathered subscriber whose
+    subscription sent any event since then reads as Pro, and the MRR priced
+    them at $25. Entitlement and price are different questions.
+    """
+    m = user.get("monthly_price")
+    if isinstance(m, (int, float)) and not isinstance(m, bool) and m >= 0:
+        return float(m)
+    stored = user.get("plan")
+    if stored in PAID_PLANS:
+        return float(PLAN_LIMITS[stored]["price"])
+    return float(LEGACY_PRICE)
+
 # The pending-clip cap for admins: effectively none.
 #
 # Statuses that mean "this person is currently paying us" (or has been granted

@@ -1070,6 +1070,27 @@ def set_plan(user_id: str, plan: str) -> None:
             return
 
 
+def set_billing(user_id: str, price_id: str | None, monthly: float) -> None:
+    """Record what Stripe actually charges this subscriber: the price id and
+    the monthly amount (stripe_billing.monthly_amount). Written by the webhook
+    and the hourly sweep; read by the admin MRR, which used to price everyone
+    at their tier's list price and so counted a $15-era subscriber, stored as
+    Pro, at $25. Only saves when something changed."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            changed = False
+            if price_id and u.get("stripe_price_id") != price_id:
+                u["stripe_price_id"] = price_id
+                changed = True
+            if u.get("monthly_price") != monthly:
+                u["monthly_price"] = monthly
+                changed = True
+            if changed:
+                _save(users)
+            return
+
+
 def set_promo_code(user_id: str, code: str) -> None:
     """Attribute the promo code used at signup — first attribution wins, so a
     later re-subscribe with a different code can't rewrite who referred the

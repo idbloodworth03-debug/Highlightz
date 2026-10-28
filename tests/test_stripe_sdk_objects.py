@@ -164,3 +164,21 @@ def test_the_sweep_reads_the_plan_off_real_sdk_objects(monkeypatch, price, plan)
     truth = asyncio.run(sb.authoritative_subscription("cus_sdk"))
     assert truth["status"] == "active"
     assert truth["plan"] == plan, "the sweep cannot read a plan off a real Price object"
+
+
+def test_a_legacy_price_event_keeps_pro_and_records_what_it_charges(webhook, monkeypatch):
+    """The $15-era price grandfathers to Pro (features) while the record keeps
+    the $15 it charges (MRR). Before 2026-10-28 only the tier was stored, so
+    the admin MRR priced every such subscriber at Pro's $25."""
+    post, store, u = webhook
+    monkeypatch.setattr(sb.settings, "stripe_price_id", "price_legacy15")
+    event = _sub_event(u["id"], "price_legacy15")
+    event["data"]["object"]["items"]["data"][0]["price"].update(
+        {"unit_amount": 1500, "currency": "usd",
+         "recurring": {"interval": "month", "interval_count": 1}})
+    r = post(event)
+    assert r.status_code == 200, r.text
+    after = store.get_by_id(u["id"])
+    assert after["plan"] == "pro"
+    assert after["stripe_price_id"] == "price_legacy15"
+    assert after["monthly_price"] == 15.0

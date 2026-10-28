@@ -259,10 +259,13 @@ grep before relying on either. Every public page — /compare, /llms.txt,
   Plumbing: `src/billing/plans.py` (PLAN_LIMITS + get_plan), price ids in
   settings (STRIPE_PRICE_ID_STARTER / STRIPE_PRICE_ID_PRO; legacy
   STRIPE_PRICE_ID = the $15 era, mapped to 'pro' — **existing subscribers
-  are grandfathered as Pro**). The admin MRR counts a legacy subscriber at
-  `plans.LEGACY_PRICE` ($15; owner, 2026-09-16 — it used to leave them out
-  and call the figure a floor). `mrr_unknown` in `/admin/overview` now just
-  means "how many are on the legacy rate". The webhook reads the subscription's price id
+  are grandfathered as Pro**). The admin MRR counts each payer at **what
+  Stripe charges them** (`plans.billed_monthly`, from `monthly_price`, which
+  the webhook and the hourly sweep record; see "MRR counts what Stripe
+  charges", 2026-10-28). Only with nothing recorded yet does it fall back to
+  the tier's list price, or `plans.LEGACY_PRICE` ($15) with no stored tier.
+  `mrr_unknown` in `/admin/overview` means "how many are on the legacy rate"
+  (the old price id, or no stored tier). The webhook reads the subscription's price id
   (extract_price_id → plan_for_price) and stores `plan` on the user, so
   portal upgrades/downgrades take effect automatically. Enforcement is
   backend-side: add_stream limit, pending-clip eviction cap, 403 on
@@ -7490,3 +7493,47 @@ the shot list, timings and every step.
     -- --channel <kick login> --platform kick --seconds 180`).
 - Do not commit footage or the socket recording (`.gitignore` covers
   `public/captures/*.mp4`, `public/audio/`, `capture/recordings/`).
+
+## MRR counts what Stripe charges (2026-10-28)
+
+Owner: "The MRR tracker is inaccurate ... unkn0wnballer was grandfathered into
+a 15$ pro subscription". Checked on production (read-only, admin API):
+`/admin/overview` read **MRR $100 = 4 paying x $25**, legacy 0, and
+unkn0wnballer's record was `plan: "pro"`, `plan_source: "stripe"`, priced $25.
+
+**Cause.** `plan_for_price` maps the legacy $15 price id to `'pro'` (so a
+grandfathered subscriber keeps every Pro feature) and the webhook stores it.
+The MRR priced each payer at their STORED TIER's list price and only used
+`LEGACY_PRICE` when no tier was stored, so a $15 subscriber became a $25 one
+at their first subscription event after the tiers launched. Entitlement and
+price are different questions.
+
+**Fix.**
+- `stripe_billing.monthly_amount(sub)`: price x quantity brought to a month,
+  less a discount that is still running and is not `once` (the 50%-off first
+  month is not the run rate). Works on stripe-python objects and dicts.
+  None when it cannot read a price (the caller keeps what it had).
+- Recorded on the user as `stripe_price_id` + `monthly_price`
+  (`users.set_billing`) by the webhook (every `customer.subscription.*`
+  event) and by `reconcile_one_user` (the hourly sweep and the admin "Sync
+  from Stripe" button). Not access drift: nothing the user sees changes, so it
+  is not broadcast or logged as a correction.
+- `plans.billed_monthly(user)` is the MRR price: the recorded charge, else the
+  tier's list price, else `LEGACY_PRICE`. The admin users table's `plan_price`
+  uses it for payers, so the row and the MRR agree. `paying_by_tier.legacy` /
+  `mrr_unknown` count the old price id or no stored tier.
+- Unchanged: who counts as paying (active + Stripe customer + not granted),
+  every access decision (`get_plan`), and the admin page refresh (focus).
+
+**After deploy.** Existing records have no `monthly_price` until Stripe is
+asked: the hourly sweep fills every active subscriber within the hour, or
+press **Sync from Stripe** on a row to do it now. If unkn0wnballer then shows
+$25, Stripe itself is charging $25 and the fix is in Stripe, not here.
+kipcrap is also `grandfathered` with `plan: "pro"`; that flag only means the
+account predates the tiers, so their real price will come from Stripe too.
+
+Verified: `tests/test_mrr_billed_price.py` (12, incl. the production shape:
+on the previous code MRR reads 60 where 50 is right) and a signed legacy-price
+webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
+suite 4225 passed. Not deployed from here.
+
