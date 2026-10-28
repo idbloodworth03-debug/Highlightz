@@ -7605,3 +7605,33 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
 - Verified: a speech-to-text pass over the final mix reads every line, each
   starting on its scene.
 - Media (`reel/*.mov`), the model (`reel/kokoro/`) and `out/` are gitignored.
+
+## /compare: everything lines up, not just the numbers (2026-10-28)
+
+Owner: "make sure everything, not just the numbers, lines up" on the compare
+page. Only the prices were aligned (right-aligned mono inside each card).
+Measured in a browser and fixed in `src/dashboard/compare_html.py` (CSS and
+one inline `--rows` on `.cards`):
+
+- **Price cards, side by side:** each card's tiers drifted to different heights
+  (Eklipse's Premium/Add-ons sat 21 px above Starter/Pro, the source lines
+  ended at different heights; `align-items:start` also defeated the comment
+  that pinned the source line to the bottom). Now the three cards share one
+  set of grid rows (`grid-template-rows:subgrid`, `--rows` = name + tagline +
+  tier and note per plan of the longest card + source), so every tier, note
+  and source line is level across the products. Under 900 px they stack as
+  before. Without subgrid support the old stacked-per-card layout applies.
+- **Feature matrix on phones:** the three answers were inline chips that wrapped
+  differently per row ("14-90 days" pushed Eklipse to its own line). Now each
+  row is a 3-column grid, the product named above each answer, so the answers
+  sit in the same columns on every row.
+- **Feature matrix everywhere:** phrased answers ("3-10", "Soon", "VOD only")
+  were 13 px against 15 px for Yes / dash; one size now, and the answer cells
+  share the feature title's line-height so they sit on its first baseline.
+
+Verified in Chromium at 1440 / 900 / 390 / 320 px: card tier tops identical
+across cards (762/869/976 at 1440), source lines and taglines level; phone
+answer columns at one x each across all rows; one answer font size; no
+horizontal overflow at any width. `tests/test_compare.py::
+test_everything_lines_up_not_just_the_numbers` pins the rules (fails on the
+old page). Static public page: no realtime path involved.

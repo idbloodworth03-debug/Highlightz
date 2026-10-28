@@ -63,6 +63,16 @@ _CSS = BASE_CSS + """
   .card .src{margin-top:auto;padding-top:var(--s-4);font-family:var(--mono);font-size:12px;letter-spacing:.02em;
     color:var(--paper-ink-3);line-height:1.5}
   .card .src a{color:var(--paper-ink);border-bottom:1px solid var(--paper-hair)}
+  /* Side by side, the three cards share one set of rows (subgrid), so each
+     tier, its note and the source line sit on the same lines across all three
+     products: a two-line note in one card pushes the row down in all of them.
+     Without subgrid the cards fall back to the stack above. */
+  @supports (grid-template-rows:subgrid){
+    .cards{row-gap:0}
+    .card{display:grid;grid-template-rows:subgrid;grid-row:span var(--rows,9);align-self:stretch}
+    .card .tag{min-height:0}
+    .card .src{grid-row:-2;margin-top:0}
+  }
 
   .caveat{margin:var(--s-5) 0 0;padding:var(--s-3) var(--s-4);border-left:2px solid var(--ember);
     font-size:14px;line-height:1.5;color:var(--paper-ink-2);max-width:var(--measure)}
@@ -89,13 +99,15 @@ _CSS = BASE_CSS + """
     color:var(--paper-ink);border-bottom:2px solid var(--paper-ink)}
   .matrix thead th.us{color:var(--paper-ink)}
   .matrix thead th.c{text-align:center}
+  /* Every answer, a tick or a phrase, one size and one line-height with the
+     feature it answers, so they share its first baseline. */
   .matrix td.c{text-align:center;width:128px;white-space:nowrap;font-family:var(--mono);font-weight:600;
-    font-variant-numeric:tabular-nums}
+    font-variant-numeric:tabular-nums;line-height:1.4}
   .matrix .feat{color:var(--paper-ink);line-height:1.4;font-weight:700}
   .matrix .why{display:block;margin-top:var(--s-1);color:var(--paper-ink-2);font-size:14px;line-height:1.5;max-width:52ch}
   .yes{color:var(--paper-ink)}
   .no{color:var(--paper-ink-3)}
-  .part{color:var(--paper-ink-2);font-size:13px}
+  .part{color:var(--paper-ink-2)}
 
   /* After the subscription: the credits, three columns of prose on the
      same hairline rows. Ours first, and it says the same thing on every
@@ -145,18 +157,24 @@ _CSS = BASE_CSS + """
   @media (max-width:900px){
     .cmp-hero h1{font-size:clamp(36px,9vw,56px)}
     .cards{grid-template-columns:minmax(0,1fr);gap:var(--s-7)}
+    .card{display:flex;grid-row:auto}
     .card .tag{min-height:0}
+    .card .src{grid-row:auto;margin-top:auto}
     /* Stacked, not scrolled. Horizontally scrolling a comparison table means
        reading one product at a time, which is the one thing the page exists to
-       avoid. Each row becomes a card: the claim, then all three answers. */
+       avoid. Each row becomes a card: the claim, then all three answers in
+       three fixed columns, each product named above its answer, so the
+       answers line up row after row however long any one of them is. */
     .mwrap{overflow-x:visible}
     .matrix{font-size:15px;min-width:0}
     .matrix thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-    .matrix,.matrix tbody,.matrix tr,.matrix td{display:block;width:100%}
-    .matrix tr{padding:var(--s-4) 0;border-bottom:1px solid var(--paper-hair)}
+    .matrix,.matrix tbody,.matrix td{display:block;width:100%}
+    .matrix tr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:var(--s-3);
+      padding:var(--s-4) 0;border-bottom:1px solid var(--paper-hair)}
     .matrix td{border:0;padding:0}
-    .matrix td.c{display:inline-flex;align-items:baseline;gap:var(--s-2);width:auto;
-      margin:var(--s-3) var(--s-4) 0 0;text-align:left}
+    .matrix td:first-child{grid-column:1 / -1}
+    .matrix td.c{display:flex;flex-direction:column;align-items:flex-start;gap:var(--s-1);width:auto;
+      margin:var(--s-3) 0 0;text-align:left;white-space:normal}
     .matrix td.c::before{content:attr(data-l);font-family:var(--mono);font-weight:400;font-size:12px;
       letter-spacing:.06em;text-transform:uppercase;color:var(--paper-ink-3)}
   }
@@ -185,6 +203,12 @@ def _plan_rows(p: "C.Product") -> str:
                    + '</span><span class="pp">' + escape(plan.price) + "</span></div>")
         out.append('<div class="pnote">' + escape(plan.note) + "</div>")
     return "".join(out)
+
+
+def _card_rows() -> int:
+    """Rows each card spans in the shared grid: name, tagline, a tier and its
+    note per plan of the longest card, and the source line."""
+    return 2 + 2 * max(len(p.plans) for p in C.PRODUCTS) + 1
 
 
 def _card(p: "C.Product") -> str:
@@ -380,7 +404,7 @@ def render() -> str:
 
 <section class="cmp-cards">
   <div class="wrap">
-    <div class="cards">""" + "".join(_card(p) for p in C.PRODUCTS) + """</div>
+    <div class="cards" style="--rows:""" + str(_card_rows()) + """">""" + "".join(_card(p) for p in C.PRODUCTS) + """</div>
     """ + caveat + """
   </div>
 </section>

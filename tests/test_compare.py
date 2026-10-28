@@ -219,6 +219,23 @@ def test_the_matrix_stacks_instead_of_scrolling_on_phones(page):
     assert ".mwrap{overflow-x:visible}" in page.replace("\n", "").replace("  ", "")
 
 
+def test_everything_lines_up_not_just_the_numbers(page):
+    """Owner: "make sure everything, not just the numbers, lines up". Side by
+    side, the three price cards share one set of rows, so each tier, note and
+    source line sits level across the products; stacked on a phone, the
+    matrix answers sit in three fixed columns on every row. Verified measured
+    in a browser at 1440, 900, 390 and 320 px; this stops the rules going."""
+    import re
+    flat = page.replace("\n", "").replace("  ", "")
+    rows = 2 + 2 * max(len(p.plans) for p in C.PRODUCTS) + 1
+    assert f'<div class="cards" style="--rows:{rows}">' in page, "cards don't span a row per tier"
+    assert "grid-template-rows:subgrid" in flat, "the cards no longer share their rows"
+    assert ".card .src{grid-row:-2" in flat, "source lines no longer share the last row"
+    assert re.search(r"\.matrix tr\{display:grid;grid-template-columns:repeat\(3,", flat), \
+        "phone answers no longer sit in three fixed columns"
+    assert ".part{color:var(--paper-ink-2)}" in flat, "phrased answers are a different size from Yes"
+
+
 def test_the_page_renders_without_a_bundler(page):
     """Same constraint as the rest of the site: no build step, no external
     fetches beyond the fonts already self-hosted."""
