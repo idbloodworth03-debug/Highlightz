@@ -7538,7 +7538,7 @@ webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
 
-## Reel v6: voice-over and phonk, all free (2026-10-28)
+## Reel v7: voice-over and phonk, all free (2026-10-28)
 
 Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
 720x1280 HEVC at ~2 Mbps, an Apple Core Media export; cuts every 8 beats at
@@ -7551,6 +7551,7 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
   ("the guy"), keeping v4's lines, everything at the highest quality available;
   v6 makes the $250 unmistakably a prize (owner: viewers must know they clip
   to win $250, not pay $250): "Clip for two-fifty" sounded like a price.
+  v7 (owner: "the highest quality we can"): Real-ESRGAN upload copy.
 - `promo/reel/make_reel_audio.py`: Kokoro-82M (Apache-2.0, local, free for
   commercial use), voice am_fenrir, **fp32 model** (onnx-community model.onnx,
   sha256 8fbea51e…), every line at speed 1.00. Line 2 starts at 3.92 s, not
@@ -7571,10 +7572,18 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
   to license); about 18 LU under the voice, ducked 5 dB while it speaks;
   master -14.2 LUFS, -1.4 dBTP; AAC 320k.
 - Picture: the main file stream-copies the source (md5-identical video
-  packets). The 1080x1920 upload copy: Lanczos upscale, x264 CRF 10 veryslow,
-  BT.709 kept; scaled back to 720 it measures SSIM 0.9989 / PSNR 52.9 dB
-  against the source. **The ceiling is the source: 720p at 2 Mbps.** A
-  higher-res export of the reel would give a sharper result with the same audio.
+  packets). The 1080x1920 upload copy (v7): `promo/reel/upscale_reel.py` runs
+  realesr-animevideov3 x2 (Real-ESRGAN, BSD-3; realesrgan-ncnn-py with bundled
+  models, CPU, needs apt libomp5) over all 611 frames, one worker per core
+  (its CPU path is single-threaded: ~15 s/frame/core, ~40 min on 4 cores);
+  the 1440x2560 frames come down to 1080x1920, x264 CRF 10 veryslow (~18 Mbps).
+  Text, HUD and labels visibly crisper than Lanczos, compression blocking gone;
+  gameplay slightly smoothed. Checked against the source frame by frame (by
+  index, not timestamp): SSIM 0.993 avg, 0.983 worst (the glitch at 3.7 s,
+  look preserved); colour shift under 1.4/255; per-pixel frame-to-frame change
+  distribution matches the source (no shimmer). **The ceiling is still the
+  720p source.** A 1080x1920+ export of the reel would beat this, and its end
+  card could then read "Clip to win $250." instead of "Clip for $250."
 - Verified: a speech-to-text pass over the final mix reads every line, each
   starting on its scene.
 - Media (`reel/*.mov`), the model (`reel/kokoro/`) and `out/` are gitignored.
