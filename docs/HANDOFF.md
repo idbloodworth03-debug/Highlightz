@@ -7538,7 +7538,7 @@ webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
 
-## Reel v5: voice-over and phonk, all free (2026-10-28)
+## Reel v6: voice-over and phonk, all free (2026-10-28)
 
 Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
 720x1280 HEVC at ~2 Mbps, an Apple Core Media export; cuts every 8 beats at
@@ -7548,7 +7548,9 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
 
 - History: v2 ElevenLabs free plan (no commercial use: never post it); v3
   Kokoro am_fenrir; v4 af_bella with the rewritten lines; v5 back to Fenrir
-  ("the guy"), keeping v4's lines, everything at the highest quality available.
+  ("the guy"), keeping v4's lines, everything at the highest quality available;
+  v6 makes the $250 unmistakably a prize (owner: viewers must know they clip
+  to win $250, not pay $250): "Clip for two-fifty" sounded like a price.
 - `promo/reel/make_reel_audio.py`: Kokoro-82M (Apache-2.0, local, free for
   commercial use), voice am_fenrir, **fp32 model** (onnx-community model.onnx,
   sha256 8fbea51e…), every line at speed 1.00. Line 2 starts at 3.92 s, not
@@ -7558,11 +7560,13 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
   whose join matched its published hash) and the voices from kokoro-js 1.2.1,
   all pinned by sha256. Provenance check: the fp32 join predicts the same line
   timings as the q8 model to 0.03 s on every line, i.e. the same network.
-- The script: "Stop clipping for free. The best Duxxion clip wins two-fifty." /
+- The script: "Stop clipping for free. Win two hundred fifty dollars." /
   "There's five hundred in prizes, and it all comes down to views." / "Join
   for free, clip Duxxion's stream, and post from Highlightz." / "Want an edge?
   Pro unlocks the Clip Editor and one-press posting." / "Start free, upgrade
-  anytime." / "Clip for two-fifty at highlightz dot app."
+  anytime." / "Clip to win two-fifty at highlightz dot app." Say "win" for the
+  prize, never "clip for $X". The reel's own end card still reads "Clip for
+  $250." on screen: that text is in the owner's edit, not ours to change.
 - Phonk synthesized from `promo/audio/make_audio.py` parts (original, nothing
   to license); about 18 LU under the voice, ducked 5 dB while it speaks;
   master -14.2 LUFS, -1.4 dBTP; AAC 320k.

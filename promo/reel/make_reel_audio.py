@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reel v5's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v6's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
@@ -30,17 +30,17 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 PICTURE. Two files, both from the reel's own frames:
-  ...-v5.mp4            the picture stream copied bit for bit: no loss at all
-  ...-v5-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
+  ...-v6.mp4            the picture stream copied bit for bit: no loss at all
+  ...-v6-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
                         (x264 CRF 10, veryslow), for uploading: Instagram and TikTok
                         both ask for 1080x1920. It adds no detail the source
                         doesn't have; a higher-resolution export of the reel
                         would.
 
 OUTPUT (out/):
-  highlightz-reel-v5-stop-clipping-for-free.mp4
-  highlightz-reel-v5-stop-clipping-for-free-1080x1920.mp4
-  reel-v5-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
+  highlightz-reel-v6-stop-clipping-for-free.mp4
+  highlightz-reel-v6-stop-clipping-for-free-1080x1920.mp4
+  reel-v6-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
     python3 reel/make_reel_audio.py reel/reel-v1.mov
@@ -79,14 +79,16 @@ MAX_SPEED = 1.1             # past this a line should be rewritten, not rushed
 
 # Each line and where it starts. Lines start just after their cut, so the
 # whoosh lands on the cut and the voice follows it. Written to be said, not
-# read: whole sentences, joined the way people talk.
+# read: whole sentences, joined the way people talk. The $250 is a prize, so
+# every mention of it is something you win, never something you pay: "clip
+# for two-fifty" sounded like a price.
 LINES = [
-    ("Stop clipping for free. The best Duxxion clip wins two-fifty.", 0.08),
+    ("Stop clipping for free. Win two hundred fifty dollars.", 0.08),
     ("There's five hundred in prizes, and it all comes down to views.", 3.92),
     ("Join for free, clip Duxxion's stream, and post from Highlightz.", 7.60),
     ("Want an edge? Pro unlocks the Clip Editor and one-press posting.", 11.35),
     ("Start free, upgrade anytime.", 15.08),
-    ("Clip for two-fifty at highlightz dot app.", 17.05),
+    ("Clip to win two-fifty at highlightz dot app.", 17.05),
 ]
 
 # What happens on screen (seconds), measured frame by frame off reel v1.
@@ -378,7 +380,7 @@ def main():
     music = duck_under(music, voice)
     sfx = to_lufs(render_sfx(total_s), SFX_LUFS)
 
-    stems = os.path.join(OUT, "reel-v5-stems")
+    stems = os.path.join(OUT, "reel-v6-stems")
     os.makedirs(stems, exist_ok=True)
     for name, x in (("voice", voice), ("music", music), ("sfx", sfx)):
         ma.write(os.path.join(stems, f"{name}.wav"), x)
@@ -389,7 +391,7 @@ def main():
     lufs, tp = ma.loudness(wav)
 
     audio = ["-c:a", "aac", "-b:a", "320k", "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart"]
-    base = os.path.join(OUT, "highlightz-reel-v5-stop-clipping-for-free")
+    base = os.path.join(OUT, "highlightz-reel-v6-stop-clipping-for-free")
     # The picture exactly as it came: no re-encode, so no loss.
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-tag:v", "hvc1",

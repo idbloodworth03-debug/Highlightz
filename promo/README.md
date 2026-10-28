@@ -231,7 +231,7 @@ capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate
 ```
 
-## Reel v5: voice-over and phonk on the owner's 20 s reel
+## Reel v6: voice-over and phonk on the owner's 20 s reel
 
 `reel/make_reel_audio.py` replaces the audio of the owner's "Stop clipping for
 free" reel with a voice-over, a quiet synthesized phonk bed at 128 BPM and
@@ -247,11 +247,12 @@ python3 reel/make_reel_audio.py reel/reel-v1.mov      # about 2 min on a CPU
   The first run downloads the model (326 MB) and voices from the npm registry
   into `reel/kokoro/` and checks them against pinned sha256 hashes.
 - The script is `LINES` in the file, written to be said aloud. A line too long
-  for its scene stops the build: rewrite it rather than rush it.
+  for its scene stops the build: rewrite it rather than rush it. The $250 is a
+  prize: say "win" it, never "clip for" it, which sounds like a price.
 - Output in `out/`:
-  - `highlightz-reel-v5-stop-clipping-for-free.mp4`: the picture copied bit for
+  - `highlightz-reel-v6-stop-clipping-for-free.mp4`: the picture copied bit for
     bit, so no loss at all.
   - `...-1080x1920.mp4`: the upload copy, upscaled to 1080x1920 (what Instagram
     and TikTok ask for), H.264 CRF 10 veryslow, AAC 320k. It adds no detail the
     source lacks.
-  - `reel-v5-stems/` (voice, music, sfx, mix) to rebalance in an editor.
+  - `reel-v6-stems/` (voice, music, sfx, mix) to rebalance in an editor.
